@@ -1,0 +1,12 @@
+# 统一换行，避免 Windows 脚本在克隆到 Linux/macOS 后失效（反之亦然）
+* text=auto
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sh  text eol=lf
+
+# 二进制
+*.png binary
+*.ico binary
+*.pdf binary

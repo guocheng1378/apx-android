@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 状态圆点：实心底色由代码按语义色着色（setTint），默认取 idle 灰 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <size
+        android:width="10dp"
+        android:height="10dp" />
+    <solid android:color="@color/state_idle" />
+</shape>

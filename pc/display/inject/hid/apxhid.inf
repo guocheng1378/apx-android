@@ -1,0 +1,74 @@
+;
+; apxhid.inf —— 档 3 KMDF HID minidriver（触控/笔）安装信息文件
+;
+; 安装（管理员）：
+;   pnputil /add-driver apxhid.inf /install
+; 卸载：
+;   pnputil /delete-driver apxhid.inf /uninstall /force
+;
+; 正式发布必须使用 EV 证书签名并通过 Windows Hardware Dev Center 认证；
+; 开发机可 Test Signing（bcdedit /set testsigning on）。
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = HIDClass
+ClassGuid   = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider    = %ProviderName%
+DriverVer   = 09/20/2026,1.0.0.0
+CatalogFile = apxhid.cat
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles.x64]
+apxhid.sys = 1,,
+
+[DestinationDirs]
+DefaultDestDir = 13            ; DIRID_DRIVERS
+
+[Manufacturer]
+%ProviderName% = AllPeriph, NTamd64
+
+[AllPeriph.NTamd64]
+%DeviceName% = ApxHid_Install, HID\VID_18D1&PID_2D05
+
+[ApxHid_Install.NT]
+CopyFiles = ApxHid_CopyFiles
+Include   = input.inf
+Needs     = HID_Inst.NT
+
+[ApxHid_CopyFiles]
+apxhid.sys
+
+[ApxHid_Install.NT.Services]
+Include    = input.inf
+Needs      = HID_Inst.NT.Services
+AddService = , 0x00000002        ; SERVICE_ASSIGNED_START
+AddService = ApxHid, 0x00000002, ApxHid_ServiceInstall
+
+[ApxHid_ServiceInstall]
+DisplayName   = %ServiceName%
+ServiceType   = 1                ; SERVICE_KERNEL_DRIVER
+StartType     = 3                ; SERVICE_DEMAND_START
+ErrorControl  = 1                ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\apxhid.sys
+LoadOrderGroup = Extended Base
+
+[ApxHid_Install.NT.HW]
+AddReg = ApxHid_HW_AddReg
+
+[ApxHid_HW_AddReg]
+HKR,,"UpperFilters",0x00010000,"mshidkmdf"   ; 由 HID class 的 KMDF 过滤驱动提供 HID 语义
+
+[ApxHid_Install.NT.Wdf]
+KmdfService = ApxHid, ApxHid_WdfSection
+
+[ApxHid_WdfSection]
+KmdfLibraryVersion = 1.33
+
+[Strings]
+ProviderName = "AllPeriph"
+DiskName     = "AllPeriph 触控注入驱动安装盘"
+DeviceName   = "AllPeriph 虚拟触控/笔设备"
+ServiceName  = "AllPeriph Virtual HID Digitizer"

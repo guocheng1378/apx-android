@@ -1,0 +1,77 @@
+# 五路并行开发汇报汇总
+
+- 生成时间：2026-09-21T02:59:14+08:00
+- 规范依据：`docs/REQ-五路回报.md`（REQ-REPORT-001）
+
+## 状态矩阵
+
+| laneId | 工作线 | agent | 状态 | 交付数 | 验证通过 | 阻塞 | 协议偏离(breaking) | 越权 |
+|---|---|---|---|---|---|---|---|---|
+| L1 | 协议与公共库 | core-proto | **PARTIAL** | 17 | 2/3 | 2 | 7(1) | 0 |
+| L2 | Android 设备桥与 Gadget | android-devices | **PARTIAL** | 37 | 4/7 | 0 | 6(0) | 0 |
+| L3 | Android 副屏与 App UI | android-screen-ui | **PARTIAL** | 21 | 3/4 | 1 | 0(0) | 0 |
+| L4 | PC 副屏驱动与推流 | pc-display | **PARTIAL** | 43 | 1/4 | 1 | 1(1) | 0 |
+| L5 | PC 宿主服务与工具 | pc-host | **PARTIAL** | 35 | 1/3 | 2 | 2(2) | 0 |
+
+## 缺口清单
+
+- **[L1] BLOCKER**：本机无 C++ 编译器，无法执行编译与自测验证（cmake/g++/cl 均 NOT_FOUND）（需 main：提供带工具链的机器（或安装 cmake + MSVC/MinGW），否则 L1 只能停在静态检查级别 提供）
+- **[L1] BLOCKER**：Report 5 状态包 u8 vs u64 掩码的协议冲突未裁决，影响 L5 解析与 MS1 联调（需 main：裁决并回写 §2.7 代码块，同时通知 L5 更新解析 提供）
+- **[L1] DEVIATION**：协议 §2.7 代码块写 u8 moduleMask，而 §2.9 说 moduleMask 用 bit32..37（需 64 位），core/ApxNative.kt 也按 jlong 传；已按 v1.1 §2.9 + L2 的 Kotlin 签名实现：moduleMask 为 u64 + 尾部 lastSeq，状态包 24B。副作用：pc/host(L5) 现有 parseVendorStatus 按 16B / data[3] 取掩码，需同步更新
+- **[L1] DEVIATION**：一个 Report ID 复用 10 种低频传感器，单位/指数随 sensorId 变化，描述符无法静态声明 UNIT；v0..v2 声明为厂商自定义（0xFF00），语义与定标由 units.h 决定、PC 侧按偏移解析。Windows 无法把低频 TLC 原生识别为光/接近/气压等具体传感器
+- **[L1] DEVIATION**：协议用「键编号 + 状态」编码（非 usage 位图），Windows 无法原生识别为多媒体键；描述符声明为厂商自定义 2 字节
+- **[L1] DEVIATION**：协议正文已含 v1.1 裁决「必须同时声明 Input、Output、Feature」，我按此实现（Input 24B 状态上行 / Output 264B 命令 / Feature 24B）；与 L2 回报中的同一条提议一致，无需再改
+- **[L1] DEVIATION**：压力为 0..65535 定制高精度字段，标准 Tip Pressure usage 取值待真机确认；暂声明为厂商自定义（0xFF00:0x0004），坐标 X/Y 声明在 Generic Desktop 页（0x01:0x30/0x31）以贴合 Windows 绝对坐标解析
+- **[L1] DEVIATION**：仅电量百分比声明为标准百分比 usage，电压/电流/温度/剩余时间声明为填充，由 PC 侧按 §2.8 偏移解析；Windows「HID 电池」原生识别的 usage 组合待真机确认
+- **[L1] DEVIATION**：screen/transport/JniBulkTransport.kt 反射绑定 com.allperiph.core.UsbBulkChannel（open/read/write/close/isOpen），该 Kotlin object 属 L2 目录，我未越权创建；原生实现已备好（nativeSetPath/Open/Read/Write/Close/IsOpen），端点路径默认 /dev/usb-ffs/apx/ep{n} 可用 nativeSetPath 覆盖
+- **[L1] UNVERIFIED**：cmake=NOT_FOUND | g++=NOT_FOUND | gcc=NOT_FOUND | cl=NOT_FOUND | clang++=NOT_FOUND | python=FOUND —— 本机无 C++ 工具链，编译与运行自测程序均无法执行
+- **[L2] DEVIATION**：缺失 L2 六个运行时权限；且 <service> 指向 .ui.AgentForegroundService，与 core/AgentService 类名不一致
+- **[L2] DEVIATION**：libapx.so 与 10 个 native 入口尚未交付，ApxNative.isAvailable=false，GadgetManager 会以「shared/ 未提供 HID 报告描述符」进入 ERROR（不挂半个设备）
+- **[L2] DEVIATION**：状态上报（手机→PC）需经中断 IN 端点上行，描述符必须把 Report ID 5 声明为 Input + Feature 双用途；协议文本只写了 FEATURE
+- **[L2] DEVIATION**：u64 掩码位域与采样率 payload 中「bit7=1 表示低频通道」为我方实现约定，协议未定义
+- **[L2] DEVIATION**：Report 6（Battery System）与 Report 4（Consumer 按键）本轮未实现：电池需 packBattery，按键采集属 UI/输入侧
+- **[L2] DEVIATION**：AgentService 需要 agent_notify_title / agent_notify_text / agent_channel_name 三个文案
+- **[L2] UNVERIFIED**：declared 仅 6 项（FOREGROUND_SERVICE、FOREGROUND_SERVICE_CONNECTED_DEVICE、POST_NOTIFICATIONS、WAKE_LOCK、REQUEST_IGNORE_BATTERY_OPTIMIZATIONS、INTERNET）；missing: HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION、VIBRATE、CAMERA —— 六项仍在 TODO 注释里。AndroidManifest.xml 归 L3，L2 不得越权修改，已记入 contractDeviations（neededFrom=L3）
+- **[L2] UNVERIFIED**：未执行：本机无 java / gradle / git，也无 Android SDK（PowerShell 检测均报 CommandNotFoundException）。改为逐文件人工复核，本轮已修复 4 处编译期错误：① EventBus.onMain 把 lambda 传给 handler 形参（改为 on(T::class.java, null, block)）；② NmeaSource.requestLocationUpdates 传 Handler 但该重载收 Looper（改传 handler.looper）；③ NMEA SAM lambda 的带标签 return 改为 if 判断；④ AgentService 引用尚不存在的 R.string.agent_*（改为按名查找 + 兜底文案）
+- **[L2] UNVERIFIED**：未执行：当前无已 root 的真机与 USB 3.0 线缆，且 L1 尚未交付 libapx.so（描述符与打包接口缺失）。完整 MS1 端到端步骤见 reports/L2.md
+- **[L3] BLOCKER**：本机无 Android 真机回归环境与 PC 侧编译环境，副屏无法端到端验证
+- **[L3] UNVERIFIED**：未执行：需要 PC 侧编译产物（本机无 VS/WDK）+ 真机联调；PC 侧 pc/display/ 虽有源码但同样未真机验证
+- **[L4] BLOCKER**：无 VS2022 / WDK 环境，无法完成 IddCx、HID minidriver 与完整链接验证
+- **[L4] DEVIATION**：pc/display/compat/apx/frame.h 是 shared/ 尚未交付时的替身，且内容已漂移
+- **[L4] UNVERIFIED**：未执行：本机无 WDK。档 3 属可选能力，缺失不影响档 1/2 可用
+- **[L4] UNVERIFIED**：未执行：本机无 WDK。当前交付为骨架 + 方案文档，README 给出免编译的替代路径
+- **[L4] UNVERIFIED**：未执行：需 VS2022 完整构建（本机无）+ 已 root 真机联调
+- **[L5] BLOCKER**：无 VS2022 / Windows SDK 环境，Windows 专有实现无法编译验证
+- **[L5] BLOCKER**：pc/tools/ 三件套未交付
+- **[L5] DEVIATION**：pc/host/compat/apx/*.h 是 shared/ 尚未交付时的替身，且内容已过时（例如仍写着 kReportLowFreq = 2）
+- **[L5] DEVIATION**：协议 v1.2 落地后，shared/ 的低频传感器由共用 Report ID 2 拆成 9 个独立 Report ID 7..15，且低频报告删除了 sensorId 字段、ConsumerKey 由 3B 改为 4B 位图
+- **[L5] UNVERIFIED**：未执行：本机无 VS2022/Windows SDK。仅 Windows 专有实现（usb_enum_win / bulk_transport_win / hid_transport_win）未验证，平台无关部分代码结构完整
+- **[L5] UNVERIFIED**：未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）
+
+## 合规问题
+
+- 无
+
+## 里程碑判定
+
+| 里程碑 | 内容 | 结论 | 依据 |
+|---|---|---|---|
+| MS1 | 全链路 Hello World（加速度计 → HID → 传感器面板） | 未达成 | 依赖 L1 协议与 L2 传感器/Gadget；需 L1 已验证通过且 L2 有交付物 |
+| MS2 | 传感器全家桶 + 电池 + 按键 | 未达成 | 依赖 L2 全部完成且验证全通过 |
+| MS3 | GPS over CDC ACM → Location API / gpsd | 未达成 | 依赖 L2 的 GPS 模块（PC 端 OS 原生识别，无额外依赖） |
+| MS4 | 副屏闭环（虚拟显示器 + 推流 + 触控上行） | 待集成 | 依赖 L3 渲染/触控与 L4 驱动/推流两端同时可用 |
+| MS5 | 相机 / 音频（优先复用 Android 14+ DeviceAsWebcam） | 未达成 | 依赖厂商内核是否启用 UVC / UAC2 |
+| MS6 | 产品化（控制面板、自启、自愈、SDK） | 未达成 | 依赖五路全部完成 |
+
+## 下一步建议
+
+- 补齐未验证项后才能提升里程碑判定：L1, L2, L3, L4, L5
+- 由 main 裁决 breaking 级协议偏离并递增 PROTOCOL.md 版本号：L1, L4, L5
+
+---
+
+## 协议变更留痕（main 范围，§10.4）
+
+- 当前协议版本 **1.5**（`docs/PROTOCOL.md` §5）
+- 每次协议修订的变更原因、影响范围与受影响 lane 记录于 `docs/PROTOCOL.md` §5 变更记录表与 `reports/MAIN-INTERVENTIONS.md`，本汇总不复述
+

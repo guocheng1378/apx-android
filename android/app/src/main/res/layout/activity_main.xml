@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  全能外设 · 主控制面（竖屏，v1.19）。
+  结构：顶栏（复用块 header_bar）+ 四页 ViewFlipper + MIUIX 液态悬浮底栏（复用块 nav_tabs）。
+  横屏布局见 res/layout-land/activity_main.xml（沉浸操控面：无顶栏、无底栏、触控板左右分栏）。
+  公共块抽成独立文件，两种朝向共用同一批 id，代码侧 findViewById 无需分支。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/md_background"
+    android:fitsSystemWindows="true">
+
+    <!-- 内容层：整高（内容可从悬浮底栏下穿过，玻璃才有东西可糊） -->
+    <LinearLayout
+        android:id="@+id/contentStack"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <include
+            layout="@layout/header_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <ViewFlipper
+            android:id="@+id/pager"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- ① 触控板页：上=手势面，下=常用快捷键条（底部留 88dp 给悬浮底栏） -->
+            <LinearLayout
+                android:id="@+id/pageTouchpad"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="90dp">
+
+                <FrameLayout
+                    android:id="@+id/touchArea"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_card">
+
+                    <TextView
+                        android:id="@+id/tvTouchHint"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:clickable="false"
+                        android:text="在此区域滑动控制光标"
+                        android:textAppearance="@style/APTextCaption" />
+                </FrameLayout>
+
+                <LinearLayout
+                    android:id="@+id/chipSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="4dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="常用快捷键"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <TextView
+                        android:id="@+id/btnEditChips"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="2dp"
+                        android:paddingBottom="4dp"
+                        android:text="编辑"
+                        android:textColor="@color/md_primary"
+                        android:textAppearance="@style/APTextCaption" />
+                </LinearLayout>
+
+                <!-- 快捷键网格：竖屏每行 4 个（两行装 8 个），由代码按朝向分行。
+                     限高滚动 —— 条目再多也不会把上面的触摸区挤没（100dp ≈ 两行） -->
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="100dp"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/chipRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+                </ScrollView>
+            </LinearLayout>
+
+            <!-- ② 键盘页（KeyboardPanels 运行时填充；底部留 88dp 给悬浮底栏） -->
+            <LinearLayout
+                android:id="@+id/pageKeyboard"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="104dp">
+
+                <LinearLayout
+                    android:id="@+id/keyboardBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical" />
+            </LinearLayout>
+
+            <!-- ③ 状态页 / ④ 设置页（复用块） -->
+            <include
+                layout="@layout/page_status"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <include
+                layout="@layout/page_settings"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </ViewFlipper>
+    </LinearLayout>
+
+    <!-- MIUIX 液态悬浮底栏 -->
+    <include
+        layout="@layout/nav_tabs"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+</FrameLayout>

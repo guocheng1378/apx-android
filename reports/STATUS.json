@@ -1,0 +1,636 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-09-21T02:59:14+08:00",
+  "lanes": {
+    "L1": {
+      "laneId": "L1",
+      "laneName": "协议与公共库",
+      "agent": "core-proto",
+      "status": "PARTIAL",
+      "deliverables": 17,
+      "verificationTotal": 3,
+      "verificationPassed": 2,
+      "blockers": 2,
+      "deviations": 7,
+      "breaking": 1,
+      "generatedAt": "2026-09-20T12:57:37+08:00",
+      "highlight": [
+        "在带工具链的机器上执行 cmake -S shared -B shared/build && cmake --build shared/build && ./shared/build/apx_selftest，把结果回填 verification",
+        "请 main 裁决并回写 §2.7：moduleMask 取 u64（§2.9 bit32..37）+ lastSeq，状态包 24B",
+        "同步 L5：pc/host/src/ctrl/ctrl_frame.cpp 的 parseVendorStatus 与 VendorStatusInfo 需按 24B 新偏移更新",
+        "同步 L2：在 core/ 补 UsbBulkChannel Kotlin object 转发到已实现的 6 个 native；确认 ConfigFS FFS 端点路径（默认 /dev/usb-ffs/apx/ep{n}）",
+        "MS1 真机核对：Windows 传感器面板的量级（UNIT/EXP）、hid-tools 解析描述符、设备管理器枚举 6 个 TLC"
+      ],
+      "errors": [],
+      "violations": [],
+      "blockersDetail": [
+        {
+          "desc": "本机无 C++ 编译器，无法执行编译与自测验证（cmake/g++/cl 均 NOT_FOUND）",
+          "neededFrom": "main：提供带工具链的机器（或安装 cmake + MSVC/MinGW），否则 L1 只能停在静态检查级别",
+          "owner": "main"
+        },
+        {
+          "desc": "Report 5 状态包 u8 vs u64 掩码的协议冲突未裁决，影响 L5 解析与 MS1 联调",
+          "neededFrom": "main：裁决并回写 §2.7 代码块，同时通知 L5 更新解析",
+          "owner": "main"
+        }
+      ],
+      "deviationsDetail": [
+        {
+          "target": "docs/PROTOCOL.md §2.7 + §2.9（Report 5 状态包）",
+          "desc": "协议 §2.7 代码块写 u8 moduleMask，而 §2.9 说 moduleMask 用 bit32..37（需 64 位），core/ApxNative.kt 也按 jlong 传；已按 v1.1 §2.9 + L2 的 Kotlin 签名实现：moduleMask 为 u64 + 尾部 lastSeq，状态包 24B。副作用：pc/host(L5) 现有 parseVendorStatus 按 16B / data[3] 取掩码，需同步更新",
+          "proposedChange": "由 main 裁决并回写 §2.7 代码块为 u64 moduleMask；同时通知 L5 更新 ctrl_frame.cpp 的解析偏移（status[1]/linkSpeed[2]/mask[3..10]/errorCode[11..14]/uptime[15..22]/lastSeq[23]）",
+          "impact": "breaking"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.4（Report ID 2 复用）",
+          "desc": "一个 Report ID 复用 10 种低频传感器，单位/指数随 sensorId 变化，描述符无法静态声明 UNIT；v0..v2 声明为厂商自定义（0xFF00），语义与定标由 units.h 决定、PC 侧按偏移解析。Windows 无法把低频 TLC 原生识别为光/接近/气压等具体传感器",
+          "proposedChange": "由 main 裁决：为每个低频传感器分配独立 Report ID（如 7..16）以便原生枚举；或接受复用并确认由自研 PC 宿主解析",
+          "impact": "minor"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.6（Report ID 4 Consumer）",
+          "desc": "协议用「键编号 + 状态」编码（非 usage 位图），Windows 无法原生识别为多媒体键；描述符声明为厂商自定义 2 字节",
+          "proposedChange": "改为 usage 位图（0xE9/0xEA/0xE2/0x30/0xCD/0xB6/0xB5）可免驱识别；若保留编号编码则由 PC 宿主翻译后注入",
+          "impact": "minor"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.7（Report ID 5 三用途）",
+          "desc": "协议正文已含 v1.1 裁决「必须同时声明 Input、Output、Feature」，我按此实现（Input 24B 状态上行 / Output 264B 命令 / Feature 24B）；与 L2 回报中的同一条提议一致，无需再改",
+          "proposedChange": "无（协议已裁决，实现已对齐）",
+          "impact": "none"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.5（Digitizer 压力字段）",
+          "desc": "压力为 0..65535 定制高精度字段，标准 Tip Pressure usage 取值待真机确认；暂声明为厂商自定义（0xFF00:0x0004），坐标 X/Y 声明在 Generic Desktop 页（0x01:0x30/0x31）以贴合 Windows 绝对坐标解析",
+          "proposedChange": "真机上确认标准 usage 后改回 Digitizer 页对应 usage；在此之前不影响自研触控注入（按偏移解析）",
+          "impact": "minor"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.8（Battery TLC）",
+          "desc": "仅电量百分比声明为标准百分比 usage，电压/电流/温度/剩余时间声明为填充，由 PC 侧按 §2.8 偏移解析；Windows「HID 电池」原生识别的 usage 组合待真机确认",
+          "proposedChange": "若需 Windows 原生电池显示，由 main 明确 Battery System 页 usage 编号后补齐描述符声明",
+          "impact": "minor"
+        },
+        {
+          "target": "android/app/src/main/java/com/allperiph/core/（L2 目录）UsbBulkChannel 缺失",
+          "desc": "screen/transport/JniBulkTransport.kt 反射绑定 com.allperiph.core.UsbBulkChannel（open/read/write/close/isOpen），该 Kotlin object 属 L2 目录，我未越权创建；原生实现已备好（nativeSetPath/Open/Read/Write/Close/IsOpen），端点路径默认 /dev/usb-ffs/apx/ep{n} 可用 nativeSetPath 覆盖",
+          "proposedChange": "由 L2 在 core/ 加一个 ~25 行 object 转发到这些 native；路径约定以 L2 的 ConfigFS 挂载为准",
+          "impact": "minor"
+        }
+      ],
+      "failedVerification": [
+        {
+          "command": "Get-Command cmake,g++,gcc,cl,clang++,python -ErrorAction SilentlyContinue",
+          "actual": "cmake=NOT_FOUND | g++=NOT_FOUND | gcc=NOT_FOUND | cl=NOT_FOUND | clang++=NOT_FOUND | python=FOUND —— 本机无 C++ 工具链，编译与运行自测程序均无法执行"
+        }
+      ],
+      "metrics": {
+        "headers": 6,
+        "sources": 7,
+        "reportIds": 6,
+        "imuReportBytes": 113,
+        "lowFreqReportBytes": 24,
+        "digitizerReportBytes": 102,
+        "vendorStatusReportBytes": 24,
+        "vendorOutReportBytes": 264,
+        "batteryReportBytes": 13,
+        "maxReportLength": 264,
+        "frameHeaderBytes": 16,
+        "jniSymbols": 16,
+        "staticCheckFiles": 14,
+        "staticCheckProblems": 0,
+        "compilation": "未执行（本机无 C++ 工具链）"
+      }
+    },
+    "L2": {
+      "laneId": "L2",
+      "laneName": "Android 设备桥与 Gadget",
+      "agent": "android-devices",
+      "status": "PARTIAL",
+      "deliverables": 37,
+      "verificationTotal": 7,
+      "verificationPassed": 4,
+      "blockers": 0,
+      "deviations": 6,
+      "breaking": 0,
+      "generatedAt": "2026-09-20T12:26:21+08:00",
+      "highlight": [
+        "等 L1 交付 libapx.so 与 android/app/src/main/cpp/CMakeLists.txt 后，按 reports/L2.md 的 MS1 端到端步骤做真机验证（先 status/speed 再 up，验证毕必做 down）",
+        "请 L3 补齐 AndroidManifest 六个权限并把 <service> 指向 .core.AgentService，同时补三个通知文案",
+        "请 main 裁决两条协议补充（Report 5 需 Input+Feature；传感器掩码位域与 SET_SAMPLE_RATE payload 约定）并递增协议版本",
+        "MS2 补 Report 6 电池（需 L1 增加 packBattery）与 Report 4 Consumer 按键（需 L3 采集 KeyEvent）",
+        "真机验证后把脚本与 App 的挂载结果（dmesg / ls /sys/class/udc、PC 设备管理器与传感器面板截图）回填 verification"
+      ],
+      "errors": [],
+      "violations": [],
+      "blockersDetail": [],
+      "deviationsDetail": [
+        {
+          "target": "android/app/src/main/AndroidManifest.xml",
+          "desc": "缺失 L2 六个运行时权限；且 <service> 指向 .ui.AgentForegroundService，与 core/AgentService 类名不一致",
+          "proposedChange": "由 L3 取消文末 6 行 TODO 注释改为生效声明：HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION（+ACCESS_BACKGROUND_LOCATION 可选）、VIBRATE、CAMERA；并把 <service android:name=\".ui.AgentForegroundService\"> 改为 android:name=\".core.AgentService\"（或让 ui 侧服务继承包装并复用同一 ACTION_START/STOP）",
+          "impact": "minor"
+        },
+        {
+          "target": "shared/ + android/app/src/main/cpp/（L1）",
+          "desc": "libapx.so 与 10 个 native 入口尚未交付，ApxNative.isAvailable=false，GadgetManager 会以「shared/ 未提供 HID 报告描述符」进入 ERROR（不挂半个设备）",
+          "proposedChange": "L1 按 core/ApxNative.kt 文件头的符号清单实现：库名 apx；符号 Java_com_allperiph_core_ApxNative_{nativeInit,protocolVersion,hidReportDescriptor,hidMaxReportLength,hidReportSize,packImuBatch,packLowFreq,packVendorStatus,parseVendorOut,crc32}；因 Kotlin 侧声明为 object，第二参数为 jobject；并在 android/app/src/main/cpp/CMakeLists.txt 产出 target apx",
+          "impact": "minor"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.7（Report ID 5）",
+          "desc": "状态上报（手机→PC）需经中断 IN 端点上行，描述符必须把 Report ID 5 声明为 Input + Feature 双用途；协议文本只写了 FEATURE",
+          "proposedChange": "由 main 在 §2.7 补一句「Report ID 5 同时声明 Input 与 Feature，状态经 IN 端点上行」，并同步 L1 的描述符生成",
+          "impact": "none"
+        },
+        {
+          "target": "docs/PROTOCOL.md §2.7（SET_SENSOR_MASK / SET_SAMPLE_RATE）",
+          "desc": "u64 掩码位域与采样率 payload 中「bit7=1 表示低频通道」为我方实现约定，协议未定义",
+          "proposedChange": "由 main 补：掩码 bit0..5 = Report 1 批量通道、bit16..25 = Report 2 低频通道；SET_SAMPLE_RATE payload = {u8 sensorId(bit7=0 批量 / 1 低频), u32 rateHz}",
+          "impact": "none"
+        },
+        {
+          "target": "shared/（L1）+ §2.8 / §2.6",
+          "desc": "Report 6（Battery System）与 Report 4（Consumer 按键）本轮未实现：电池需 packBattery，按键采集属 UI/输入侧",
+          "proposedChange": "MS2 前由 L1 增加 packBattery 打包接口（字段见 §2.8）；Report 4 由 L3 在 UI 侧采集 KeyEvent 后经 HidTransport 发送",
+          "impact": "minor"
+        },
+        {
+          "target": "android/app/src/main/res/values/strings.xml（L3）",
+          "desc": "AgentService 需要 agent_notify_title / agent_notify_text / agent_channel_name 三个文案",
+          "proposedChange": "L3 补入即可自动生效；在此之前 L2 用内置兜底文案，不阻塞编译（已按名查找实现解耦）",
+          "impact": "none"
+        }
+      ],
+      "failedVerification": [
+        {
+          "command": "python -c \"import re,pathlib;t=pathlib.Path('android/app/src/main/AndroidManifest.xml').read_text(encoding='utf-8');ls=[l for l in t.splitlines() if '<uses-permission' in l and '<!--' not in l];print('declared:',[re.search(r'name=.([A-Za-z_.]+)',l).group(1) for l in ls]);need=['HIGH_SAMPLING_RATE_SENSORS','BODY_SENSORS','ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','VIBRATE','CAMERA'];print('missing:',[n for n in need if n not in ''.join(ls)])\"",
+          "actual": "declared 仅 6 项（FOREGROUND_SERVICE、FOREGROUND_SERVICE_CONNECTED_DEVICE、POST_NOTIFICATIONS、WAKE_LOCK、REQUEST_IGNORE_BATTERY_OPTIMIZATIONS、INTERNET）；missing: HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION、VIBRATE、CAMERA —— 六项仍在 TODO 注释里。AndroidManifest.xml 归 L3，L2 不得越权修改，已记入 contractDeviations（neededFrom=L3）"
+        },
+        {
+          "command": "cd android && ./gradlew :app:assembleDebug（或用 Android Studio Gradle Sync 编译）",
+          "actual": "未执行：本机无 java / gradle / git，也无 Android SDK（PowerShell 检测均报 CommandNotFoundException）。改为逐文件人工复核，本轮已修复 4 处编译期错误：① EventBus.onMain 把 lambda 传给 handler 形参（改为 on(T::class.java, null, block)）；② NmeaSource.requestLocationUpdates 传 Handler 但该重载收 Looper（改传 handler.looper）；③ NMEA SAM lambda 的带标签 return 改为 if 判断；④ AgentService 引用尚不存在的 R.string.agent_*（改为按名查找 + 兜底文案）"
+        },
+        {
+          "command": "adb shell su -c 'sh /data/local/tmp/apx_gadget.sh status' && adb shell su -c 'sh /data/local/tmp/apx_gadget.sh speed'",
+          "actual": "未执行：当前无已 root 的真机与 USB 3.0 线缆，且 L1 尚未交付 libapx.so（描述符与打包接口缺失）。完整 MS1 端到端步骤见 reports/L2.md"
+        }
+      ],
+      "metrics": {
+        "kotlinFiles": 31,
+        "moduleReadmes": 5,
+        "shellScripts": 1,
+        "imuMaxBatch": 16,
+        "hidMaxReportBytes": 1024,
+        "compilation": "静态复核（本机无 JDK/Gradle/Android SDK），已修复 4 处编译期错误",
+        "verificationPassed": "4/7"
+      }
+    },
+    "L3": {
+      "laneId": "L3",
+      "laneName": "Android 副屏与 App UI",
+      "agent": "android-screen-ui",
+      "status": "PARTIAL",
+      "deliverables": 21,
+      "verificationTotal": 4,
+      "verificationPassed": 3,
+      "blockers": 1,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": "2026-09-20T18:40:00+08:00",
+      "highlight": [
+        "与 L4 联合做帧格式对接测试（先用 loopback 假流，不接真驱动）",
+        "副屏延迟预算实测：解码耗时 / 队列深度 / 端到端估算三个指标对比目标（≤30ms）",
+        "发布前复核 INTERNET 权限"
+      ],
+      "errors": [],
+      "violations": [],
+      "blockersDetail": [
+        {
+          "desc": "本机无 Android 真机回归环境与 PC 侧编译环境，副屏无法端到端验证",
+          "neededFrom": "",
+          "owner": "main"
+        }
+      ],
+      "deviationsDetail": [],
+      "failedVerification": [
+        {
+          "command": "副屏端到端：PC 推流 → 手机解码渲染 → 触控回传",
+          "actual": "未执行：需要 PC 侧编译产物（本机无 VS/WDK）+ 真机联调；PC 侧 pc/display/ 虽有源码但同样未真机验证"
+        }
+      ],
+      "metrics": {
+        "deliverableCount": 21,
+        "verifiedPassed": 3,
+        "verifiedTotal": 4
+      }
+    },
+    "L4": {
+      "laneId": "L4",
+      "laneName": "PC 副屏驱动与推流",
+      "agent": "pc-display",
+      "status": "PARTIAL",
+      "deliverables": 43,
+      "verificationTotal": 4,
+      "verificationPassed": 1,
+      "blockers": 1,
+      "deviations": 1,
+      "breaking": 1,
+      "generatedAt": "2026-09-20T18:45:00+08:00",
+      "highlight": [
+        "删除 pc/display/compat/，ApxShared.cmake 改为强制依赖 shared/（FATAL_ERROR 而非静默降级）",
+        "在带 VS2022 的机器上完整构建 apxdisp，并跑 --self-test",
+        "与 L3 联合做副屏帧格式对接（先用 loopback 假流）",
+        "补齐 idd/apxdisp_idd.vcxproj 与 .inf（当前只有骨架）"
+      ],
+      "errors": [],
+      "violations": [],
+      "blockersDetail": [
+        {
+          "desc": "无 VS2022 / WDK 环境，无法完成 IddCx、HID minidriver 与完整链接验证",
+          "neededFrom": "",
+          "owner": "main"
+        }
+      ],
+      "deviationsDetail": [
+        {
+          "target": "",
+          "desc": "pc/display/compat/apx/frame.h 是 shared/ 尚未交付时的替身，且内容已漂移",
+          "proposedChange": "",
+          "impact": "breaking"
+        }
+      ],
+      "failedVerification": [
+        {
+          "command": "检查 pc/display/inject/hid/apxhid.c 是否可编译",
+          "actual": "未执行：本机无 WDK。档 3 属可选能力，缺失不影响档 1/2 可用"
+        },
+        {
+          "command": "检查 pc/display/idd/IddDriver.cpp 是否可编译",
+          "actual": "未执行：本机无 WDK。当前交付为骨架 + 方案文档，README 给出免编译的替代路径"
+        },
+        {
+          "command": "副屏端到端：apxdisp --self-test / 真机推流",
+          "actual": "未执行：需 VS2022 完整构建（本机无）+ 已 root 真机联调"
+        }
+      ],
+      "metrics": {
+        "deliverableCount": 42,
+        "verifiedPassed": 1,
+        "verifiedTotal": 4,
+        "sourceFiles": 51
+      }
+    },
+    "L5": {
+      "laneId": "L5",
+      "laneName": "PC 宿主服务与工具",
+      "agent": "pc-host",
+      "status": "PARTIAL",
+      "deliverables": 35,
+      "verificationTotal": 3,
+      "verificationPassed": 1,
+      "blockers": 2,
+      "deviations": 2,
+      "breaking": 2,
+      "generatedAt": "2026-09-20T18:50:00+08:00",
+      "highlight": [
+        "补齐 pc/tools/ 三件套，sensor_dump 优先（MS1 验收依赖）",
+        "实现 ui/panel.cpp（或先做命令行版并入 sensor_dump）",
+        "删除 pc/host/compat/，ApxShared.cmake 改为强制依赖 shared/",
+        "按协议 v1.2 同步 HID 报告解析（低频 Report ID 7..15、Consumer 位图、sensorId 字段移除）"
+      ],
+      "errors": [],
+      "violations": [],
+      "blockersDetail": [
+        {
+          "desc": "无 VS2022 / Windows SDK 环境，Windows 专有实现无法编译验证",
+          "neededFrom": "",
+          "owner": "main"
+        },
+        {
+          "desc": "pc/tools/ 三件套未交付",
+          "neededFrom": "",
+          "owner": "L5 自身"
+        }
+      ],
+      "deviationsDetail": [
+        {
+          "target": "",
+          "desc": "pc/host/compat/apx/*.h 是 shared/ 尚未交付时的替身，且内容已过时（例如仍写着 kReportLowFreq = 2）",
+          "proposedChange": "",
+          "impact": "breaking"
+        },
+        {
+          "target": "",
+          "desc": "协议 v1.2 落地后，shared/ 的低频传感器由共用 Report ID 2 拆成 9 个独立 Report ID 7..15，且低频报告删除了 sensorId 字段、ConsumerKey 由 3B 改为 4B 位图",
+          "proposedChange": "",
+          "impact": "breaking"
+        }
+      ],
+      "failedVerification": [
+        {
+          "command": "cd pc/host && cmake -S . -B build -G \"Visual Studio 17 2022\" -A x64 && cmake --build build",
+          "actual": "未执行：本机无 VS2022/Windows SDK。仅 Windows 专有实现（usb_enum_win / bulk_transport_win / hid_transport_win）未验证，平台无关部分代码结构完整"
+        },
+        {
+          "command": "在已连接复合设备的机器上运行 sensor_dump，确认 Windows 传感器面板/设备管理器能看到手机传感器",
+          "actual": "未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）"
+        }
+      ],
+      "metrics": {
+        "deliverableCount": 35,
+        "verifiedPassed": 1,
+        "verifiedTotal": 3,
+        "sourceFiles": 34
+      }
+    }
+  },
+  "openIssues": [
+    {
+      "desc": "本机无 C++ 编译器，无法执行编译与自测验证（cmake/g++/cl 均 NOT_FOUND）",
+      "neededFrom": "main：提供带工具链的机器（或安装 cmake + MSVC/MinGW），否则 L1 只能停在静态检查级别",
+      "owner": "main",
+      "laneId": "L1",
+      "type": "BLOCKER"
+    },
+    {
+      "desc": "Report 5 状态包 u8 vs u64 掩码的协议冲突未裁决，影响 L5 解析与 MS1 联调",
+      "neededFrom": "main：裁决并回写 §2.7 代码块，同时通知 L5 更新解析",
+      "owner": "main",
+      "laneId": "L1",
+      "type": "BLOCKER"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7 + §2.9（Report 5 状态包）",
+      "desc": "协议 §2.7 代码块写 u8 moduleMask，而 §2.9 说 moduleMask 用 bit32..37（需 64 位），core/ApxNative.kt 也按 jlong 传；已按 v1.1 §2.9 + L2 的 Kotlin 签名实现：moduleMask 为 u64 + 尾部 lastSeq，状态包 24B。副作用：pc/host(L5) 现有 parseVendorStatus 按 16B / data[3] 取掩码，需同步更新",
+      "proposedChange": "由 main 裁决并回写 §2.7 代码块为 u64 moduleMask；同时通知 L5 更新 ctrl_frame.cpp 的解析偏移（status[1]/linkSpeed[2]/mask[3..10]/errorCode[11..14]/uptime[15..22]/lastSeq[23]）",
+      "impact": "breaking",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.4（Report ID 2 复用）",
+      "desc": "一个 Report ID 复用 10 种低频传感器，单位/指数随 sensorId 变化，描述符无法静态声明 UNIT；v0..v2 声明为厂商自定义（0xFF00），语义与定标由 units.h 决定、PC 侧按偏移解析。Windows 无法把低频 TLC 原生识别为光/接近/气压等具体传感器",
+      "proposedChange": "由 main 裁决：为每个低频传感器分配独立 Report ID（如 7..16）以便原生枚举；或接受复用并确认由自研 PC 宿主解析",
+      "impact": "minor",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.6（Report ID 4 Consumer）",
+      "desc": "协议用「键编号 + 状态」编码（非 usage 位图），Windows 无法原生识别为多媒体键；描述符声明为厂商自定义 2 字节",
+      "proposedChange": "改为 usage 位图（0xE9/0xEA/0xE2/0x30/0xCD/0xB6/0xB5）可免驱识别；若保留编号编码则由 PC 宿主翻译后注入",
+      "impact": "minor",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（Report ID 5 三用途）",
+      "desc": "协议正文已含 v1.1 裁决「必须同时声明 Input、Output、Feature」，我按此实现（Input 24B 状态上行 / Output 264B 命令 / Feature 24B）；与 L2 回报中的同一条提议一致，无需再改",
+      "proposedChange": "无（协议已裁决，实现已对齐）",
+      "impact": "none",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.5（Digitizer 压力字段）",
+      "desc": "压力为 0..65535 定制高精度字段，标准 Tip Pressure usage 取值待真机确认；暂声明为厂商自定义（0xFF00:0x0004），坐标 X/Y 声明在 Generic Desktop 页（0x01:0x30/0x31）以贴合 Windows 绝对坐标解析",
+      "proposedChange": "真机上确认标准 usage 后改回 Digitizer 页对应 usage；在此之前不影响自研触控注入（按偏移解析）",
+      "impact": "minor",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.8（Battery TLC）",
+      "desc": "仅电量百分比声明为标准百分比 usage，电压/电流/温度/剩余时间声明为填充，由 PC 侧按 §2.8 偏移解析；Windows「HID 电池」原生识别的 usage 组合待真机确认",
+      "proposedChange": "若需 Windows 原生电池显示，由 main 明确 Battery System 页 usage 编号后补齐描述符声明",
+      "impact": "minor",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "android/app/src/main/java/com/allperiph/core/（L2 目录）UsbBulkChannel 缺失",
+      "desc": "screen/transport/JniBulkTransport.kt 反射绑定 com.allperiph.core.UsbBulkChannel（open/read/write/close/isOpen），该 Kotlin object 属 L2 目录，我未越权创建；原生实现已备好（nativeSetPath/Open/Read/Write/Close/IsOpen），端点路径默认 /dev/usb-ffs/apx/ep{n} 可用 nativeSetPath 覆盖",
+      "proposedChange": "由 L2 在 core/ 加一个 ~25 行 object 转发到这些 native；路径约定以 L2 的 ConfigFS 挂载为准",
+      "impact": "minor",
+      "laneId": "L1",
+      "type": "DEVIATION"
+    },
+    {
+      "command": "Get-Command cmake,g++,gcc,cl,clang++,python -ErrorAction SilentlyContinue",
+      "actual": "cmake=NOT_FOUND | g++=NOT_FOUND | gcc=NOT_FOUND | cl=NOT_FOUND | clang++=NOT_FOUND | python=FOUND —— 本机无 C++ 工具链，编译与运行自测程序均无法执行",
+      "laneId": "L1",
+      "type": "UNVERIFIED",
+      "desc": "cmake=NOT_FOUND | g++=NOT_FOUND | gcc=NOT_FOUND | cl=NOT_FOUND | clang++=NOT_FOUND | python=FOUND —— 本机无 C++ 工具链，编译与运行自测程序均无法执行"
+    },
+    {
+      "target": "android/app/src/main/AndroidManifest.xml",
+      "desc": "缺失 L2 六个运行时权限；且 <service> 指向 .ui.AgentForegroundService，与 core/AgentService 类名不一致",
+      "proposedChange": "由 L3 取消文末 6 行 TODO 注释改为生效声明：HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION（+ACCESS_BACKGROUND_LOCATION 可选）、VIBRATE、CAMERA；并把 <service android:name=\".ui.AgentForegroundService\"> 改为 android:name=\".core.AgentService\"（或让 ui 侧服务继承包装并复用同一 ACTION_START/STOP）",
+      "impact": "minor",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "shared/ + android/app/src/main/cpp/（L1）",
+      "desc": "libapx.so 与 10 个 native 入口尚未交付，ApxNative.isAvailable=false，GadgetManager 会以「shared/ 未提供 HID 报告描述符」进入 ERROR（不挂半个设备）",
+      "proposedChange": "L1 按 core/ApxNative.kt 文件头的符号清单实现：库名 apx；符号 Java_com_allperiph_core_ApxNative_{nativeInit,protocolVersion,hidReportDescriptor,hidMaxReportLength,hidReportSize,packImuBatch,packLowFreq,packVendorStatus,parseVendorOut,crc32}；因 Kotlin 侧声明为 object，第二参数为 jobject；并在 android/app/src/main/cpp/CMakeLists.txt 产出 target apx",
+      "impact": "minor",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（Report ID 5）",
+      "desc": "状态上报（手机→PC）需经中断 IN 端点上行，描述符必须把 Report ID 5 声明为 Input + Feature 双用途；协议文本只写了 FEATURE",
+      "proposedChange": "由 main 在 §2.7 补一句「Report ID 5 同时声明 Input 与 Feature，状态经 IN 端点上行」，并同步 L1 的描述符生成",
+      "impact": "none",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（SET_SENSOR_MASK / SET_SAMPLE_RATE）",
+      "desc": "u64 掩码位域与采样率 payload 中「bit7=1 表示低频通道」为我方实现约定，协议未定义",
+      "proposedChange": "由 main 补：掩码 bit0..5 = Report 1 批量通道、bit16..25 = Report 2 低频通道；SET_SAMPLE_RATE payload = {u8 sensorId(bit7=0 批量 / 1 低频), u32 rateHz}",
+      "impact": "none",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "shared/（L1）+ §2.8 / §2.6",
+      "desc": "Report 6（Battery System）与 Report 4（Consumer 按键）本轮未实现：电池需 packBattery，按键采集属 UI/输入侧",
+      "proposedChange": "MS2 前由 L1 增加 packBattery 打包接口（字段见 §2.8）；Report 4 由 L3 在 UI 侧采集 KeyEvent 后经 HidTransport 发送",
+      "impact": "minor",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "android/app/src/main/res/values/strings.xml（L3）",
+      "desc": "AgentService 需要 agent_notify_title / agent_notify_text / agent_channel_name 三个文案",
+      "proposedChange": "L3 补入即可自动生效；在此之前 L2 用内置兜底文案，不阻塞编译（已按名查找实现解耦）",
+      "impact": "none",
+      "laneId": "L2",
+      "type": "DEVIATION"
+    },
+    {
+      "command": "python -c \"import re,pathlib;t=pathlib.Path('android/app/src/main/AndroidManifest.xml').read_text(encoding='utf-8');ls=[l for l in t.splitlines() if '<uses-permission' in l and '<!--' not in l];print('declared:',[re.search(r'name=.([A-Za-z_.]+)',l).group(1) for l in ls]);need=['HIGH_SAMPLING_RATE_SENSORS','BODY_SENSORS','ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','VIBRATE','CAMERA'];print('missing:',[n for n in need if n not in ''.join(ls)])\"",
+      "actual": "declared 仅 6 项（FOREGROUND_SERVICE、FOREGROUND_SERVICE_CONNECTED_DEVICE、POST_NOTIFICATIONS、WAKE_LOCK、REQUEST_IGNORE_BATTERY_OPTIMIZATIONS、INTERNET）；missing: HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION、VIBRATE、CAMERA —— 六项仍在 TODO 注释里。AndroidManifest.xml 归 L3，L2 不得越权修改，已记入 contractDeviations（neededFrom=L3）",
+      "laneId": "L2",
+      "type": "UNVERIFIED",
+      "desc": "declared 仅 6 项（FOREGROUND_SERVICE、FOREGROUND_SERVICE_CONNECTED_DEVICE、POST_NOTIFICATIONS、WAKE_LOCK、REQUEST_IGNORE_BATTERY_OPTIMIZATIONS、INTERNET）；missing: HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION、VIBRATE、CAMERA —— 六项仍在 TODO 注释里。AndroidManifest.xml 归 L3，L2 不得越权修改，已记入 contractDeviations（neededFrom=L3）"
+    },
+    {
+      "command": "cd android && ./gradlew :app:assembleDebug（或用 Android Studio Gradle Sync 编译）",
+      "actual": "未执行：本机无 java / gradle / git，也无 Android SDK（PowerShell 检测均报 CommandNotFoundException）。改为逐文件人工复核，本轮已修复 4 处编译期错误：① EventBus.onMain 把 lambda 传给 handler 形参（改为 on(T::class.java, null, block)）；② NmeaSource.requestLocationUpdates 传 Handler 但该重载收 Looper（改传 handler.looper）；③ NMEA SAM lambda 的带标签 return 改为 if 判断；④ AgentService 引用尚不存在的 R.string.agent_*（改为按名查找 + 兜底文案）",
+      "laneId": "L2",
+      "type": "UNVERIFIED",
+      "desc": "未执行：本机无 java / gradle / git，也无 Android SDK（PowerShell 检测均报 CommandNotFoundException）。改为逐文件人工复核，本轮已修复 4 处编译期错误：① EventBus.onMain 把 lambda 传给 handler 形参（改为 on(T::class.java, null, block)）；② NmeaSource.requestLocationUpdates 传 Handler 但该重载收 Looper（改传 handler.looper）；③ NMEA SAM lambda 的带标签 return 改为 if 判断；④ AgentService 引用尚不存在的 R.string.agent_*（改为按名查找 + 兜底文案）"
+    },
+    {
+      "command": "adb shell su -c 'sh /data/local/tmp/apx_gadget.sh status' && adb shell su -c 'sh /data/local/tmp/apx_gadget.sh speed'",
+      "actual": "未执行：当前无已 root 的真机与 USB 3.0 线缆，且 L1 尚未交付 libapx.so（描述符与打包接口缺失）。完整 MS1 端到端步骤见 reports/L2.md",
+      "laneId": "L2",
+      "type": "UNVERIFIED",
+      "desc": "未执行：当前无已 root 的真机与 USB 3.0 线缆，且 L1 尚未交付 libapx.so（描述符与打包接口缺失）。完整 MS1 端到端步骤见 reports/L2.md"
+    },
+    {
+      "desc": "本机无 Android 真机回归环境与 PC 侧编译环境，副屏无法端到端验证",
+      "neededFrom": "",
+      "owner": "main",
+      "laneId": "L3",
+      "type": "BLOCKER"
+    },
+    {
+      "command": "副屏端到端：PC 推流 → 手机解码渲染 → 触控回传",
+      "actual": "未执行：需要 PC 侧编译产物（本机无 VS/WDK）+ 真机联调；PC 侧 pc/display/ 虽有源码但同样未真机验证",
+      "laneId": "L3",
+      "type": "UNVERIFIED",
+      "desc": "未执行：需要 PC 侧编译产物（本机无 VS/WDK）+ 真机联调；PC 侧 pc/display/ 虽有源码但同样未真机验证"
+    },
+    {
+      "desc": "无 VS2022 / WDK 环境，无法完成 IddCx、HID minidriver 与完整链接验证",
+      "neededFrom": "",
+      "owner": "main",
+      "laneId": "L4",
+      "type": "BLOCKER"
+    },
+    {
+      "target": "",
+      "desc": "pc/display/compat/apx/frame.h 是 shared/ 尚未交付时的替身，且内容已漂移",
+      "proposedChange": "",
+      "impact": "breaking",
+      "laneId": "L4",
+      "type": "DEVIATION"
+    },
+    {
+      "command": "检查 pc/display/inject/hid/apxhid.c 是否可编译",
+      "actual": "未执行：本机无 WDK。档 3 属可选能力，缺失不影响档 1/2 可用",
+      "laneId": "L4",
+      "type": "UNVERIFIED",
+      "desc": "未执行：本机无 WDK。档 3 属可选能力，缺失不影响档 1/2 可用"
+    },
+    {
+      "command": "检查 pc/display/idd/IddDriver.cpp 是否可编译",
+      "actual": "未执行：本机无 WDK。当前交付为骨架 + 方案文档，README 给出免编译的替代路径",
+      "laneId": "L4",
+      "type": "UNVERIFIED",
+      "desc": "未执行：本机无 WDK。当前交付为骨架 + 方案文档，README 给出免编译的替代路径"
+    },
+    {
+      "command": "副屏端到端：apxdisp --self-test / 真机推流",
+      "actual": "未执行：需 VS2022 完整构建（本机无）+ 已 root 真机联调",
+      "laneId": "L4",
+      "type": "UNVERIFIED",
+      "desc": "未执行：需 VS2022 完整构建（本机无）+ 已 root 真机联调"
+    },
+    {
+      "desc": "无 VS2022 / Windows SDK 环境，Windows 专有实现无法编译验证",
+      "neededFrom": "",
+      "owner": "main",
+      "laneId": "L5",
+      "type": "BLOCKER"
+    },
+    {
+      "desc": "pc/tools/ 三件套未交付",
+      "neededFrom": "",
+      "owner": "L5 自身",
+      "laneId": "L5",
+      "type": "BLOCKER"
+    },
+    {
+      "target": "",
+      "desc": "pc/host/compat/apx/*.h 是 shared/ 尚未交付时的替身，且内容已过时（例如仍写着 kReportLowFreq = 2）",
+      "proposedChange": "",
+      "impact": "breaking",
+      "laneId": "L5",
+      "type": "DEVIATION"
+    },
+    {
+      "target": "",
+      "desc": "协议 v1.2 落地后，shared/ 的低频传感器由共用 Report ID 2 拆成 9 个独立 Report ID 7..15，且低频报告删除了 sensorId 字段、ConsumerKey 由 3B 改为 4B 位图",
+      "proposedChange": "",
+      "impact": "breaking",
+      "laneId": "L5",
+      "type": "DEVIATION"
+    },
+    {
+      "command": "cd pc/host && cmake -S . -B build -G \"Visual Studio 17 2022\" -A x64 && cmake --build build",
+      "actual": "未执行：本机无 VS2022/Windows SDK。仅 Windows 专有实现（usb_enum_win / bulk_transport_win / hid_transport_win）未验证，平台无关部分代码结构完整",
+      "laneId": "L5",
+      "type": "UNVERIFIED",
+      "desc": "未执行：本机无 VS2022/Windows SDK。仅 Windows 专有实现（usb_enum_win / bulk_transport_win / hid_transport_win）未验证，平台无关部分代码结构完整"
+    },
+    {
+      "command": "在已连接复合设备的机器上运行 sensor_dump，确认 Windows 传感器面板/设备管理器能看到手机传感器",
+      "actual": "未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）",
+      "laneId": "L5",
+      "type": "UNVERIFIED",
+      "desc": "未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）"
+    }
+  ],
+  "compliance": [],
+  "verdict": {
+    "milestones": [
+      {
+        "id": "MS1",
+        "name": "全链路 Hello World（加速度计 → HID → 传感器面板）",
+        "verdict": "未达成",
+        "reason": "依赖 L1 协议与 L2 传感器/Gadget；需 L1 已验证通过且 L2 有交付物"
+      },
+      {
+        "id": "MS2",
+        "name": "传感器全家桶 + 电池 + 按键",
+        "verdict": "未达成",
+        "reason": "依赖 L2 全部完成且验证全通过"
+      },
+      {
+        "id": "MS3",
+        "name": "GPS over CDC ACM → Location API / gpsd",
+        "verdict": "未达成",
+        "reason": "依赖 L2 的 GPS 模块（PC 端 OS 原生识别，无额外依赖）"
+      },
+      {
+        "id": "MS4",
+        "name": "副屏闭环（虚拟显示器 + 推流 + 触控上行）",
+        "verdict": "待集成",
+        "reason": "依赖 L3 渲染/触控与 L4 驱动/推流两端同时可用"
+      },
+      {
+        "id": "MS5",
+        "name": "相机 / 音频（优先复用 Android 14+ DeviceAsWebcam）",
+        "verdict": "未达成",
+        "reason": "依赖厂商内核是否启用 UVC / UAC2"
+      },
+      {
+        "id": "MS6",
+        "name": "产品化（控制面板、自启、自愈、SDK）",
+        "verdict": "未达成",
+        "reason": "依赖五路全部完成"
+      }
+    ],
+    "nextActions": [
+      "补齐未验证项后才能提升里程碑判定：L1, L2, L3, L4, L5",
+      "由 main 裁决 breaking 级协议偏离并递增 PROTOCOL.md 版本号：L1, L4, L5"
+    ]
+  }
+}

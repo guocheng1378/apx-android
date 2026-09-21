@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设置页（复用块）：快捷键模板（**可折叠**）· 功能开关（含自动排序）· 环境摘要 · 主题方案 · 维护。
+  竖屏底部留 96dp 给悬浮底栏；横屏（layout-land）由外层覆盖为 16dp。
+
+  折叠的原因：模板列表有 10 套预置 + 1 行自建入口，展开 ≈ 800dp，正好把一屏占满，
+  导致"功能开关 / 主题方案"永远在第二屏。现在默认只留「当前模板 + 更换/展开」一行。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pageSettings"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="96dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="4dp">
+
+        <!-- 快捷键模板：默认折叠，只显示当前这一套 -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="快捷键模板" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="按场景一键铺满触控板页的快捷键条；也可以把当前这条存成自己的模板"
+                android:textAppearance="@style/APTextCaption" />
+
+            <LinearLayout
+                android:id="@+id/rowTemplateCurrent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="8dp">
+
+                <TextView
+                    android:id="@+id/tvTemplateCurrent"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="—"
+                    android:textAppearance="@style/APTextSubtitle" />
+
+                <TextView
+                    android:id="@+id/btnToggleTemplates"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="12dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="2dp"
+                    android:paddingBottom="6dp"
+                    android:text="更换 / 展开"
+                    android:textColor="@color/md_primary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/templatesBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="10dp"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- 功能开关：模块启停 + 快捷键排序（同一张卡，风格统一也省一屏） -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="功能开关" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/rowsModules"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:background="@color/card_stroke" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="快捷键自动排序"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="最常用的自动排到前面；手动拖过就自动关掉"
+                        android:textAppearance="@style/APTextCaption" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/swHotkeySort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 环境摘要：详细链路与延迟预算在「状态」页，这里只留一行结论 -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="环境摘要" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvDiag"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/common_unknown"
+                android:textAppearance="@style/APTextCaption" />
+        </LinearLayout>
+
+        <!-- 主题方案 -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="主题方案" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/themeBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </LinearLayout>
+
+        <!-- 模块配色：触控板 / 键盘 / 快捷键 各自一套（默认跟随主题） -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="模块配色" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="给触控板、键盘、快捷键分别选一套色调；不选就是跟随主题色"
+                android:textAppearance="@style/APTextCaption" />
+
+            <LinearLayout
+                android:id="@+id/skinBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="8dp" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="8dp"
+                android:background="@color/card_stroke" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingTop="12dp">
+
+                <Button
+                    android:id="@+id/btnExportTheme"
+                    style="@style/APButtonGhost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="导出" />
+
+                <Button
+                    android:id="@+id/btnImportTheme"
+                    style="@style/APButtonGhost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="导入" />
+
+                <Button
+                    android:id="@+id/btnShareTheme"
+                    style="@style/APButtonGhost"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:text="分享" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 背景与手感：背景（纯色 / 相册图）、动效速度、震动强度、按键音 -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="背景与手感" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="背景可换纯色或相册里的图片；动效快慢、震动强弱、按键音色整体调"
+                android:textAppearance="@style/APTextCaption" />
+
+            <LinearLayout
+                android:id="@+id/fxBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="8dp" />
+        </LinearLayout>
+
+        <!-- 维护：两个按钮各占整行（并排时窄屏上文字会顶到边） -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="@string/section_settings" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <Button
+                android:id="@+id/btnBattery"
+                style="@style/APButtonGhost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/action_battery_whitelist" />
+
+            <Button
+                android:id="@+id/btnRefresh"
+                style="@style/APButtonGhost"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/action_refresh" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

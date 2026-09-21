@@ -1,0 +1,167 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-09-20T12:00:54+08:00",
+  "lanes": {
+    "L1": {
+      "laneId": "L1",
+      "laneName": "协议与公共库",
+      "agent": "core-proto",
+      "status": "UNKNOWN",
+      "deliverables": 0,
+      "verificationTotal": 0,
+      "verificationPassed": 0,
+      "blockers": 0,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": null,
+      "highlight": [],
+      "errors": [
+        "未找到回报文件"
+      ],
+      "violations": []
+    },
+    "L2": {
+      "laneId": "L2",
+      "laneName": "Android 设备桥与 Gadget",
+      "agent": "android-devices",
+      "status": "UNKNOWN",
+      "deliverables": 0,
+      "verificationTotal": 0,
+      "verificationPassed": 0,
+      "blockers": 0,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": null,
+      "highlight": [],
+      "errors": [
+        "未找到回报文件"
+      ],
+      "violations": []
+    },
+    "L3": {
+      "laneId": "L3",
+      "laneName": "Android 副屏与 App UI",
+      "agent": "android-screen-ui",
+      "status": "UNKNOWN",
+      "deliverables": 0,
+      "verificationTotal": 0,
+      "verificationPassed": 0,
+      "blockers": 0,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": null,
+      "highlight": [],
+      "errors": [
+        "未找到回报文件"
+      ],
+      "violations": []
+    },
+    "L4": {
+      "laneId": "L4",
+      "laneName": "PC 副屏驱动与推流",
+      "agent": "pc-display",
+      "status": "UNKNOWN",
+      "deliverables": 0,
+      "verificationTotal": 0,
+      "verificationPassed": 0,
+      "blockers": 0,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": null,
+      "highlight": [],
+      "errors": [
+        "未找到回报文件"
+      ],
+      "violations": []
+    },
+    "L5": {
+      "laneId": "L5",
+      "laneName": "PC 宿主服务与工具",
+      "agent": "pc-host",
+      "status": "UNKNOWN",
+      "deliverables": 0,
+      "verificationTotal": 0,
+      "verificationPassed": 0,
+      "blockers": 0,
+      "deviations": 0,
+      "breaking": 0,
+      "generatedAt": null,
+      "highlight": [],
+      "errors": [
+        "未找到回报文件"
+      ],
+      "violations": []
+    }
+  },
+  "openIssues": [
+    {
+      "laneId": "L1",
+      "type": "REPORT_ERROR",
+      "desc": "未找到回报文件"
+    },
+    {
+      "laneId": "L2",
+      "type": "REPORT_ERROR",
+      "desc": "未找到回报文件"
+    },
+    {
+      "laneId": "L3",
+      "type": "REPORT_ERROR",
+      "desc": "未找到回报文件"
+    },
+    {
+      "laneId": "L4",
+      "type": "REPORT_ERROR",
+      "desc": "未找到回报文件"
+    },
+    {
+      "laneId": "L5",
+      "type": "REPORT_ERROR",
+      "desc": "未找到回报文件"
+    }
+  ],
+  "compliance": [],
+  "verdict": {
+    "milestones": [
+      {
+        "id": "MS1",
+        "name": "全链路 Hello World（加速度计 → HID → 传感器面板）",
+        "verdict": "未达成",
+        "reason": "依赖 L1 协议与 L2 传感器/Gadget；需 L1 已验证通过且 L2 有交付物"
+      },
+      {
+        "id": "MS2",
+        "name": "传感器全家桶 + 电池 + 按键",
+        "verdict": "未达成",
+        "reason": "依赖 L2 全部完成且验证全通过"
+      },
+      {
+        "id": "MS3",
+        "name": "GPS over CDC ACM → Location API / gpsd",
+        "verdict": "未达成",
+        "reason": "依赖 L2 的 GPS 模块（PC 端 OS 原生识别，无额外依赖）"
+      },
+      {
+        "id": "MS4",
+        "name": "副屏闭环（虚拟显示器 + 推流 + 触控上行）",
+        "verdict": "未达成",
+        "reason": "依赖 L3 渲染/触控与 L4 驱动/推流两端同时可用"
+      },
+      {
+        "id": "MS5",
+        "name": "相机 / 音频（优先复用 Android 14+ DeviceAsWebcam）",
+        "verdict": "未达成",
+        "reason": "依赖厂商内核是否启用 UVC / UAC2"
+      },
+      {
+        "id": "MS6",
+        "name": "产品化（控制面板、自启、自愈、SDK）",
+        "verdict": "未达成",
+        "reason": "依赖五路全部完成"
+      }
+    ],
+    "nextActions": [
+      "向 L1, L2, L3, L4, L5 点名索要回报；超时仍无响应则标注「需人工介入」"
+    ]
+  }
+}

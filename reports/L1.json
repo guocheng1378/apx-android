@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "1.0",
+  "laneId": "L1",
+  "laneName": "协议与公共库",
+  "agent": "core-proto",
+  "generatedAt": "2026-09-20T12:57:37+08:00",
+  "status": "PARTIAL",
+  "scope": {
+    "ownedDirs": [
+      "shared/",
+      "android/app/src/main/cpp/"
+    ],
+    "touchedFiles": [
+      "shared/CMakeLists.txt",
+      "shared/README.md",
+      "shared/include/apx/sensors_id.h",
+      "shared/include/apx/frame.h",
+      "shared/include/apx/units.h",
+      "shared/include/apx/clock.h",
+      "shared/include/apx/hid_layout.h",
+      "shared/include/apx/hid_descriptor.h",
+      "shared/src/sensors_id.cpp",
+      "shared/src/frame.cpp",
+      "shared/src/units.cpp",
+      "shared/src/clock.cpp",
+      "shared/src/hid_layout.cpp",
+      "shared/src/hid_descriptor.cpp",
+      "shared/tests/apx_selftest.cpp",
+      "android/app/src/main/cpp/CMakeLists.txt",
+      "android/app/src/main/cpp/apx_jni.cpp"
+    ]
+  },
+  "deliverables": [
+    { "path": "shared/include/apx/sensors_id.h", "kind": "source", "built": "untested", "notes": "§2.3/§2.4/§2.9 编号唯一真源：IMU 0..5 直接用、低频原值|0x10 → 0x10..0x19；sensorBit/kMaskImuAll/kMaskLowFreqAll/kMaskAll；§2.9 模块位 kModuleTouch..kModuleDisplay = bit32..37（u64）+ kMaskModules；lowFreqToGlobal/globalToLowFreqRaw/isImuSensor/isLowFreqSensor/isValidSensorId" },
+    { "path": "shared/src/sensors_id.cpp", "kind": "source", "built": "untested", "notes": "sensorName(uint8)/moduleName(uint64) 名称表" },
+    { "path": "shared/include/apx/frame.h", "kind": "source", "built": "untested", "notes": "§3 ApxFrameHeader 16B（magic 'APX1' / streamId / flags / headerExtWords / payloadLen 含 CRC / seq），packed + static_assert；kStream* 与 kFlagKeyFrame|kFlagLastFragment|kFlagDropable；CRC32、显式小端 putU16/32/64 + getU16/32/64、writeHeader/readHeader、appendPayloadCrc/verifyPayload、fragmentCapacity/fragmentCountFor/buildFragment、FrameAssembler" },
+    { "path": "shared/src/frame.cpp", "kind": "source", "built": "untested", "notes": "CRC32（IEEE 802.3 反射 0xEDB88320）；帧头 magic 校验；分片每片自带 CRC 并置 kFlagLastFragment；组装按到达顺序拼接、逐片校验 CRC、错即整帧丢弃" },
+    { "path": "shared/include/apx/units.h", "kind": "source", "built": "untested", "notes": "§2.2：m/s²→g、rad/s→°/s、µT→G、hPa→Pa、°C→K、%；HidUnit 常量；UnitSpec(name/hidUnit/exponent/scale/offset)；quantizeI32/quantizeI16（饱和）/dequantize（严格逆运算）/alignAxes(AxisRotation)" },
+    { "path": "shared/src/units.cpp", "kind": "source", "built": "untested", "notes": "26 槽位换算表（索引 = 全局传感器编号），pow10 指数定标" },
+    { "path": "shared/include/apx/hid_layout.h", "kind": "source", "built": "untested", "notes": "§2.3–2.8 六个报告 POD：ImuBatchHeader(16)/LowFreqReport(24)/DigitizerHeader(12)+DigitizerContact(8)+PenExtra(10)/ConsumerKey/VendorCommandHeader(8)/VendorStatus(24, v1.1)/BatteryReport(13)；packed+static_assert；kCmd*/kState*/kEvent*/kSpeed*/kStatus*/LinkSpeed 常量；reportSizeById、packImuBatch/packLowFreq/packVendorStatus/packBattery/packConsumerKey/parseVendorOut" },
+    { "path": "shared/src/hid_layout.cpp", "kind": "source", "built": "untested", "notes": "定长打包（IMU 按 N=16 发 113B，多余位填 0，有效样本看 sampleCount）；状态包 u64 掩码 + lastSeq；§2.7 OUT 解析含 Report ID/长度/边界三重校验" },
+    { "path": "shared/include/apx/hid_descriptor.h", "kind": "source", "built": "untested", "notes": "Usage Page/Usage 常量集中处（0x01/0x0C/0x0D/0x20/0x85/0xFF00）；buildReportDescriptor/writeReportDescriptor/maxReportLength/usagePageOf/usageOf/tlcName/tlcReportIds" },
+    { "path": "shared/src/hid_descriptor.cpp", "kind": "source", "built": "untested", "notes": "6 个 TLC 描述符字节流：①IMU 0x20/0x0073（i16×3×16，UNIT=G EXP=-3）113B ②低频 0x20/0x0001（tsNs 秒 EXP=-9 + 复用 i32×3）24B ③Digitizer 0x0D/0x0004（位级 InRange/TipSwitch/Eraser/Barrel + ContactCount/ContactId/X/Y/压力/倾斜）102B ④Consumer 3B ⑤Vendor 0xFF00（Input 24B + Output 264B + Feature 24B）⑥Battery 0x85 13B；首字节均为 Report ID；物理量均带 UNIT + UNIT_EXPONENT" },
+    { "path": "shared/include/apx/clock.h", "kind": "source", "built": "untested", "notes": "§1：steadyNowNs()（Windows QPC / POSIX CLOCK_MONOTONIC）+ ClockSync（pc ≈ phone + offset；最小 RTT 样本 + 指数平滑；driftPpm；phoneToPc/pcToPhone；Result 含 minRtt/lastRtt/samples）" },
+    { "path": "shared/src/clock.cpp", "kind": "source", "built": "untested", "notes": "off = (pcSend + rtt/2) - phoneTs；rtt<0 的异常样本丢弃；漂移取 offset 对手机时间的变化率（ppm）" },
+    { "path": "shared/CMakeLists.txt", "kind": "build", "built": "untested", "notes": "C++17 静态库目标 apx_shared（PUBLIC include/、cxx_std_17、MSVC /utf-8）；顶层时默认开 APX_BUILD_SELFTEST 产出 apx_selftest 并注册 ctest；被 add_subdirectory 引入时只出静态库" },
+    { "path": "shared/tests/apx_selftest.cpp", "kind": "test", "built": "untested", "notes": "零依赖自测：编译期尺寸 static_assert、CRC32 标准向量 0xCBF43926、帧头小端往返、载荷 CRC 校验、分片→组装往返与坏片丢弃、单位换算/往返/饱和、六个报告打包与解析往返、内联 HID item 解析器逐 Report ID 统计位数并与长度常量比对、时钟偏移与漂移" },
+    { "path": "shared/README.md", "kind": "doc", "built": "yes", "notes": "构建与自测命令（cmake -S shared -B shared/build）、六个报告长度表、单位与指数表、Bulk 帧格式、时钟算法、6 条已知限制" },
+    { "path": "android/app/src/main/cpp/CMakeLists.txt", "kind": "build", "built": "untested", "notes": "产物 libapx.so（target 名 apx，对应 System.loadLibrary(\"apx\")）；add_subdirectory 引入 <root>/shared 并强制关闭自测；可选链接 liblog" },
+    { "path": "android/app/src/main/cpp/apx_jni.cpp", "kind": "source", "built": "untested", "notes": "按 core/ApxNative.kt 文件头固化 10 个 JNI 符号（第二参数 jobject）：nativeInit/protocolVersion(0x0100)/hidReportDescriptor/hidMaxReportLength/hidReportSize/packImuBatch/packLowFreq/packVendorStatus/parseVendorOut/crc32；另配 UsbBulkChannel 的 nativeSetPath/Open/Read/Write/Close/IsOpen（默认 /dev/usb-ffs/apx/ep{n}）" }
+  ],
+  "verification": [
+    {
+      "command": "Get-Command cmake,g++,gcc,cl,clang++,python -ErrorAction SilentlyContinue",
+      "expected": "至少一个 C++ 编译器，可执行 cmake -S shared -B shared/build && cmake --build shared/build && ./apx_selftest",
+      "actual": "cmake=NOT_FOUND | g++=NOT_FOUND | gcc=NOT_FOUND | cl=NOT_FOUND | clang++=NOT_FOUND | python=FOUND —— 本机无 C++ 工具链，编译与运行自测程序均无法执行",
+      "passed": false
+    },
+    {
+      "command": "python shared/tests/_staticcheck.py（临时脚本，已删除）：14 个源文件的括号配平（剔除注释后）+ #include \"apx/*.h\" 可解析性 + 测试与 JNI 引用的每个 apx:: 符号是否能在头文件里找到定义",
+      "expected": "problems: 0",
+      "actual": "files: 14 problems: 0（脚本已删除，未留在交付目录）",
+      "passed": true
+    },
+    {
+      "command": "python scripts/aggregate.py",
+      "expected": "L1 行非 INVALID、越权 0",
+      "actual": "L1 | PARTIAL | 交付 17 | 验证 2/3 | 阻塞 2 —— schema 合法，无越权",
+      "passed": true
+    }
+  ],
+  "contractDeviations": [
+    {
+      "target": "docs/PROTOCOL.md §2.7 + §2.9（Report 5 状态包）",
+      "desc": "协议 §2.7 代码块写 u8 moduleMask，而 §2.9 说 moduleMask 用 bit32..37（需 64 位），core/ApxNative.kt 也按 jlong 传；已按 v1.1 §2.9 + L2 的 Kotlin 签名实现：moduleMask 为 u64 + 尾部 lastSeq，状态包 24B。副作用：pc/host(L5) 现有 parseVendorStatus 按 16B / data[3] 取掩码，需同步更新",
+      "proposedChange": "由 main 裁决并回写 §2.7 代码块为 u64 moduleMask；同时通知 L5 更新 ctrl_frame.cpp 的解析偏移（status[1]/linkSpeed[2]/mask[3..10]/errorCode[11..14]/uptime[15..22]/lastSeq[23]）",
+      "impact": "breaking"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.4（Report ID 2 复用）",
+      "desc": "一个 Report ID 复用 10 种低频传感器，单位/指数随 sensorId 变化，描述符无法静态声明 UNIT；v0..v2 声明为厂商自定义（0xFF00），语义与定标由 units.h 决定、PC 侧按偏移解析。Windows 无法把低频 TLC 原生识别为光/接近/气压等具体传感器",
+      "proposedChange": "由 main 裁决：为每个低频传感器分配独立 Report ID（如 7..16）以便原生枚举；或接受复用并确认由自研 PC 宿主解析",
+      "impact": "minor"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.6（Report ID 4 Consumer）",
+      "desc": "协议用「键编号 + 状态」编码（非 usage 位图），Windows 无法原生识别为多媒体键；描述符声明为厂商自定义 2 字节",
+      "proposedChange": "改为 usage 位图（0xE9/0xEA/0xE2/0x30/0xCD/0xB6/0xB5）可免驱识别；若保留编号编码则由 PC 宿主翻译后注入",
+      "impact": "minor"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（Report ID 5 三用途）",
+      "desc": "协议正文已含 v1.1 裁决「必须同时声明 Input、Output、Feature」，我按此实现（Input 24B 状态上行 / Output 264B 命令 / Feature 24B）；与 L2 回报中的同一条提议一致，无需再改",
+      "proposedChange": "无（协议已裁决，实现已对齐）",
+      "impact": "none"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.5（Digitizer 压力字段）",
+      "desc": "压力为 0..65535 定制高精度字段，标准 Tip Pressure usage 取值待真机确认；暂声明为厂商自定义（0xFF00:0x0004），坐标 X/Y 声明在 Generic Desktop 页（0x01:0x30/0x31）以贴合 Windows 绝对坐标解析",
+      "proposedChange": "真机上确认标准 usage 后改回 Digitizer 页对应 usage；在此之前不影响自研触控注入（按偏移解析）",
+      "impact": "minor"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.8（Battery TLC）",
+      "desc": "仅电量百分比声明为标准百分比 usage，电压/电流/温度/剩余时间声明为填充，由 PC 侧按 §2.8 偏移解析；Windows「HID 电池」原生识别的 usage 组合待真机确认",
+      "proposedChange": "若需 Windows 原生电池显示，由 main 明确 Battery System 页 usage 编号后补齐描述符声明",
+      "impact": "minor"
+    },
+    {
+      "target": "android/app/src/main/java/com/allperiph/core/（L2 目录）UsbBulkChannel 缺失",
+      "desc": "screen/transport/JniBulkTransport.kt 反射绑定 com.allperiph.core.UsbBulkChannel（open/read/write/close/isOpen），该 Kotlin object 属 L2 目录，我未越权创建；原生实现已备好（nativeSetPath/Open/Read/Write/Close/IsOpen），端点路径默认 /dev/usb-ffs/apx/ep{n} 可用 nativeSetPath 覆盖",
+      "proposedChange": "由 L2 在 core/ 加一个 ~25 行 object 转发到这些 native；路径约定以 L2 的 ConfigFS 挂载为准",
+      "impact": "minor"
+    }
+  ],
+  "risks": [
+    {
+      "level": "high",
+      "desc": "本机无 C++ 工具链（cmake/g++/cl 均 NOT_FOUND），shared/ 未编译过，NDK 侧亦未构建；只能靠静态检查与人工复核",
+      "mitigation": "shared/tests/apx_selftest.cpp 覆盖 CRC 标准向量、描述符字节长度自洽、定标往返、打包/解析往返、分片组装、时钟偏移，任一有工具链的机器 cmake -S shared -B shared/build && cmake --build shared/build && ./apx_selftest 即可一键复验；README 给出确切命令"
+    },
+    {
+      "level": "high",
+      "desc": "Report 5 状态包按 v1.1（u64 掩码 + lastSeq，24B）实现，与 pc/host 现有 16B 解析不兼容，跨路联调会读到错误掩码",
+      "mitigation": "已在 contractDeviations 标 impact=breaking 并给出确切新偏移；请 main 转 L5 同步 parseVendorStatus 与 VendorStatusInfo.moduleMask 改为 u64"
+    },
+    {
+      "level": "medium",
+      "desc": "HID UNIT 常量（G / deg/s / Gauss / Pascal / Kelvin / lux 等）取自 HID Sensor Usage Tables，量级未经真实 Windows 主机验证",
+      "mitigation": "常量集中在 units.h 的 HidUnit 枚举，单处可改；MS1 用 Windows 传感器面板核对数值，偏差时只调 exponent"
+    },
+    {
+      "level": "medium",
+      "desc": "描述符仅经自研解析器校验字节长度自洽，未经 usbhid 解析或 Windows 枚举验证",
+      "mitigation": "自测程序内联最小 HID item 解析器，逐 Report ID 统计位数并与 hid_layout.h 长度枚举比对；真机再用 hid-tools / 设备管理器复核"
+    },
+    {
+      "level": "low",
+      "desc": "IMU 报告按 N=16 定长发送（113B），不足 16 样本时尾部填 0",
+      "mitigation": "sampleCount 声明有效样本数，接收方按 sampleCount 截断，符合 §2.3 报告定长要求"
+    }
+  ],
+  "blockers": [
+    {
+      "desc": "本机无 C++ 编译器，无法执行编译与自测验证（cmake/g++/cl 均 NOT_FOUND）",
+      "neededFrom": "main：提供带工具链的机器（或安装 cmake + MSVC/MinGW），否则 L1 只能停在静态检查级别",
+      "owner": "main"
+    },
+    {
+      "desc": "Report 5 状态包 u8 vs u64 掩码的协议冲突未裁决，影响 L5 解析与 MS1 联调",
+      "neededFrom": "main：裁决并回写 §2.7 代码块，同时通知 L5 更新解析",
+      "owner": "main"
+    }
+  ],
+  "metrics": {
+    "headers": 6,
+    "sources": 7,
+    "reportIds": 6,
+    "imuReportBytes": 113,
+    "lowFreqReportBytes": 24,
+    "digitizerReportBytes": 102,
+    "vendorStatusReportBytes": 24,
+    "vendorOutReportBytes": 264,
+    "batteryReportBytes": 13,
+    "maxReportLength": 264,
+    "frameHeaderBytes": 16,
+    "jniSymbols": 16,
+    "staticCheckFiles": 14,
+    "staticCheckProblems": 0,
+    "compilation": "未执行（本机无 C++ 工具链）"
+  },
+  "nextSteps": [
+    "在带工具链的机器上执行 cmake -S shared -B shared/build && cmake --build shared/build && ./shared/build/apx_selftest，把结果回填 verification",
+    "请 main 裁决并回写 §2.7：moduleMask 取 u64（§2.9 bit32..37）+ lastSeq，状态包 24B",
+    "同步 L5：pc/host/src/ctrl/ctrl_frame.cpp 的 parseVendorStatus 与 VendorStatusInfo 需按 24B 新偏移更新",
+    "同步 L2：在 core/ 补 UsbBulkChannel Kotlin object 转发到已实现的 6 个 native；确认 ConfigFS FFS 端点路径（默认 /dev/usb-ffs/apx/ep{n}）",
+    "MS1 真机核对：Windows 传感器面板的量级（UNIT/EXP）、hid-tools 解析描述符、设备管理器枚举 6 个 TLC"
+  ]
+}

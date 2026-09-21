@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>全能外设 · PC 控制台</title>
+<style>
+  :root{
+    --bg:#0f1524; --surface:#1a2338; --surface2:#151c2e; --stroke:#2a3a5a;
+    --primary:#22d3ee; --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+    --txt:#e8eef8; --dim:#9fb2cc;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif;padding:0 0 48px}
+  header{display:flex;align-items:center;gap:12px;padding:18px 24px 10px}
+  header h1{font-size:20px;flex:1}
+  .badge{font-size:11px;font-weight:700;padding:4px 12px;border-radius:99px;background:#12253c;border:1px solid var(--stroke);color:var(--idle,#6b7c99)}
+  .badge.ok{color:var(--ok)} .badge.err{color:var(--err)} .badge.warn{color:var(--warn)}
+  main{max-width:960px;margin:0 auto;padding:0 16px}
+  .sec{color:var(--primary);font-size:12px;font-weight:700;letter-spacing:.12em;margin:22px 4px 8px}
+  .card{background:var(--surface);border:1px solid var(--stroke);border-radius:14px;padding:16px;margin-bottom:12px}
+  .row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #21304e}
+  .row:last-child{border-bottom:0}
+  .row .lbl{flex:1}
+  .row .lbl b{display:block;font-size:14px}
+  .row .lbl span{color:var(--dim);font-size:12px}
+  .val{color:var(--dim);font-size:13px;margin-right:4px}
+  .val.ok{color:var(--ok)} .val.err{color:var(--err)} .val.warn{color:var(--warn)}
+  button{background:transparent;border:1px solid var(--primary);color:var(--primary);border-radius:10px;
+         padding:7px 16px;font-size:13px;cursor:pointer;transition:.15s}
+  button:hover{background:#12253c}
+  button.primary{background:var(--primary);color:#04212b;font-weight:700;border-color:var(--primary)}
+  button.primary:hover{background:#1ab8d6}
+  button.danger{border-color:var(--err);color:var(--err)}
+  button:disabled{opacity:.4;cursor:default}
+  input,select{background:var(--surface2);border:1px solid var(--stroke);color:var(--txt);
+               border-radius:8px;padding:6px 10px;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--primary)}
+  input[type=range]{padding:0;accent-color:var(--primary);width:160px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .switch{position:relative;width:42px;height:24px;flex:none}
+  .switch input{opacity:0;width:0;height:0}
+  .switch i{position:absolute;inset:0;background:#22304e;border-radius:99px;transition:.2s;cursor:pointer}
+  .switch i::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#9fb2cc;top:3px;left:3px;transition:.2s}
+  .switch input:checked+i{background:var(--primary)}
+  .switch input:checked+i::after{left:21px;background:#04212b}
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#12253c;
+         border:1px solid var(--stroke);border-radius:10px;padding:10px 20px;font-size:13px;display:none;z-index:9}
+  .muted{color:var(--dim);font-size:12px;padding-top:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>全能外设 · PC 控制台</h1>
+  <span class="badge" id="bConn">检测中…</span>
+  <span class="badge" id="bLink">链路未知</span>
+</header>
+<main>
+  <!-- ═══ 连接 ═══ -->
+  <div class="sec">连接</div>
+  <div class="card">
+    <div class="row"><div class="lbl"><b>USB 设备</b><span id="devDetail">—</span></div>
+      <span class="val" id="devStatus">未知</span>
+      <button onclick="act('device.rescan')">重新扫描</button></div>
+    <div class="row"><div class="lbl"><b>链路模式</b><span>数据面走 USB / 无线</span></div>
+      <select id="selMode" onchange="setMode(this.value)">
+        <option value="usb">USB 优先</option>
+        <option value="wireless">无线优先</option>
+        <option value="auto">自动</option>
+      </select></div>
+    <div class="row"><div class="lbl"><b>无线连接</b><span>输入手机 IP 连入</span></div>
+      <input id="ipAddr" placeholder="192.168.x.x" style="width:130px">
+      <button onclick="wirelessConnect()">连入</button>
+      <button class="danger" onclick="act('wireless.disconnect')">断开</button></div>
+  </div>
+
+  <!-- ═══ 外设 ═══ -->
+  <div class="sec">外设</div>
+  <div class="grid">
+    <div class="card">
+      <div class="row"><div class="lbl"><b>副屏（数位屏）</b><span id="scrInfo">分辨率与编码</span></div>
+        <label class="switch"><input type="checkbox" id="swScreen" onchange="act('screen.toggle')"><i></i></label></div>
+      <div class="row"><div class="lbl"><span>分辨率</span></div>
+        <select id="selRes" onchange="setRes(this.value)">
+          <option value="1920x1080">1920×1080</option>
+          <option value="2560x1440">2560×1440</option>
+          <option value="1280x800">1280×800</option>
+        </select></div>
+      <div class="row"><div class="lbl"><span>编码器</span></div>
+        <select id="selEnc" onchange="act('display.setEncoder',{encoder:this.value})">
+          <option value="h264">H.264</option>
+          <option value="jpeg">JPEG</option>
+          <option value="raw">Raw</option>
+        </select></div>
+      <div class="row"><div class="lbl"><span>自适应码率</span></div>
+        <label class="switch"><input type="checkbox" id="swAbr" onchange="act('display.setAdaptiveBitrate')"><i></i></label></div>
+      <div class="row"><button class="primary" onclick="act('display.plug')">插入虚拟显示器</button>
+        <button onclick="act('scene.present')">演示场景</button></div>
+    </div>
+    <div class="card">
+      <div class="row"><div class="lbl"><b>触控板</b><span>手机变电脑触控板</span></div>
+        <label class="switch"><input type="checkbox" id="swTpad" onchange="act('touchpad.toggle')"><i></i></label></div>
+      <div class="row"><div class="lbl"><span>灵敏度 <b id="vSens" style="color:var(--txt)">1.0</b></span></div>
+        <input type="range" id="rSens" min="0.2" max="3" step="0.1" value="1"
+               oninput="document.getElementById('vSens').textContent=this.value"
+               onchange="act('touchpad.setSensitivity',{value:+this.value})"></div>
+      <div class="row"><div class="lbl"><span>滚动步长</span></div>
+        <input type="number" id="nStep" min="1" max="20" value="3" style="width:64px"
+               onchange="act('touchpad.setScrollStep',{step:+this.value})"></div>
+      <div class="row"><div class="lbl"><span>指针加速度</span></div>
+        <label class="switch"><input type="checkbox" id="swAccel" onchange="act('touchpad.toggleAcceleration')"><i></i></label></div>
+      <div class="row"><div class="lbl"><span>自然滚动</span></div>
+        <label class="switch"><input type="checkbox" id="swNat" onchange="act('touchpad.toggleNaturalScroll')"><i></i></label></div>
+    </div>
+    <div class="card">
+      <div class="row"><div class="lbl"><b>摄像头</b><span id="camInfo">手机摄像头做 PC 网络摄像头</span></div>
+        <label class="switch"><input type="checkbox" id="swCam" onchange="act('camera.toggle')"><i></i></label></div>
+      <div class="row"><div class="lbl"><span>路由</span></div>
+        <select id="selCam" onchange="act('camera.setRoute',{route:this.value})">
+          <option value="system">系统摄像头</option><option value="uvc">UVC 复合设备</option>
+        </select></div>
+      <div class="row"><div class="lbl"><b>音频路由</b></div>
+        <select id="selAud" onchange="act('audio.setRoute',{route:this.value})">
+          <option value="usb">USB 输出</option><option value="wireless">无线</option><option value="mute">静音</option>
+        </select></div>
+      <div class="row"><div class="lbl"><b>快捷键</b><span>手机侧物理键映射</span></div>
+        <button onclick="act('hotkey.toggle')">启用/停用</button></div>
+    </div>
+    <div class="card">
+      <div class="row"><div class="lbl"><b>传感器</b><span>环境光/气压/温湿度等</span></div>
+        <button onclick="act('sensor.allOn')">全开</button>
+        <button onclick="act('sensor.allOff')">全关</button></div>
+      <div class="muted" id="sensorList">—</div>
+      <div class="row"><div class="lbl"><b>蓝牙配对</b><span>HID 设备模式</span></div>
+        <button onclick="act('bluetooth.pair')">配对</button></div>
+      <div class="row"><div class="lbl"><b>剪贴板</b><span>PC → 手机推送</span></div>
+        <button onclick="clip()">推送</button></div>
+    </div>
+  </div>
+
+  <!-- ═══ 状态 ═══ -->
+  <div class="sec">状态</div>
+  <div class="card">
+    <div class="row"><div class="lbl"><b>设备</b></div><span class="val" id="stSerial">—</span></div>
+    <div class="row"><div class="lbl"><b>RTT</b></div><span class="val" id="stRtt">—</span></div>
+    <div class="row"><div class="lbl"><b>协议版本</b></div><span class="val" id="stProto">—</span></div>
+  </div>
+
+  <!-- ═══ 设置 ═══ -->
+  <div class="sec">设置</div>
+  <div class="card">
+    <div class="row"><div class="lbl"><b>开机自启</b></div>
+      <label class="switch"><input type="checkbox" id="swAuto" onchange="act('config.toggleAutostart')"><i></i></label></div>
+    <div class="row"><div class="lbl"><b>日志级别</b></div>
+      <select id="selLog" onchange="act('config.setLogLevel',{level:this.value})">
+        <option value="debug">debug</option><option value="info">info</option>
+        <option value="warn">warn</option><option value="error">error</option>
+      </select></div>
+    <div class="row"><div class="lbl"><b>诊断包</b><span>导出运行诊断 JSON</span></div>
+      <a href="/api/q/diag.download"><button>下载</button></a></div>
+  </div>
+</main>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+function toast(msg, ok=true){
+  const t=$('toast'); t.textContent=msg; t.style.display='block';
+  t.style.borderColor = ok?'var(--ok)':'var(--err)';
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 2200);
+}
+async function act(name, params){
+  try{
+    const r = await fetch('/api/act/'+name, {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(params||{})});
+    const j = await r.json();
+    if(j && j.ok===false) { toast(j.error||'操作失败', false); }
+    else { toast('已执行：'+name); refresh(); }
+  }catch(e){ toast('请求失败：'+e.message, false); }
+}
+function setMode(m){ act('link.setMode',{mode:m}); }
+function setRes(v){ const [w,h]=v.split('x'); act('display.setResolution',{w:+w,h:+h}); }
+async function wirelessConnect(){
+  const ip=$('ipAddr').value.trim(); if(!ip) return toast('请输入 IP',false);
+  await act('wireless.connect',{host:ip});
+}
+async function clip(){
+  try{ const txt = await navigator.clipboard.readText();
+    await act('clipboard.push',{text:txt}); toast('已推送剪贴板');
+  }catch(e){ toast('读取剪贴板失败', false); }
+}
+function fmtUptime(s){
+  if(!s && s!==0) return '—';
+  const h=Math.floor(s/3600), m=Math.floor(s%3600/60);
+  return h? `${h} 小时 ${m} 分` : `${m} 分 ${Math.floor(s%60)} 秒`;
+}
+let lastState=null;
+async function refresh(){
+  try{
+    const r = await fetch('/api/q/state'); const j = await r.json();
+    lastState = j;
+    const L = j.link||{};
+    const dev = !!L.connected;
+    const bc=$('bConn');
+    bc.textContent = dev? '设备已连接' : '未检测到设备';
+    bc.className = 'badge ' + (dev?'ok':'warn');
+    $('bLink').textContent = `链路：${L.transport||'—'} · ${L.speedLabel||'—'} · RTT ${L.rttMs!=null&&L.rttMs>=0?L.rttMs+'ms':'—'}`;
+    $('bLink').className='badge '+(dev?'ok':'warn');
+    $('devStatus').textContent = dev?'已连接':'未连接';
+    $('devStatus').className = 'val '+(dev?'ok':'err');
+    // deviceName 是原始设备路径，展示层取序列号做友好名
+    $('devDetail').textContent = L.serial ? ('手机 ' + L.serial) : '等待手机接入…';
+    $('stSerial').textContent = L.serial || '—';
+    $('stRtt').textContent = L.rttMs!=null&&L.rttMs>=0 ? L.rttMs+' ms' : '—';
+    $('stProto').textContent = L.protocolVersion || '—';
+    if(L.mode) $('selMode').value=L.mode;
+    if(j.display){
+      $('swScreen').checked=!!j.display.enabled; $('swAbr').checked=!!j.display.adaptive;
+      $('scrInfo').textContent=`${j.display.width||'?'}×${j.display.height||'?'} @ ${j.display.refreshHz||'?'}Hz · ${j.display.backendLabel||''}`;
+      if(j.display.codec) $('selEnc').value=j.display.codec;
+    }
+    if(j.touchpad){ $('swTpad').checked=!!j.touchpad.enabled; }
+    if(j.camera){ $('swCam').checked=!!j.camera.enabled; if(j.camera.route)$('selCam').value=j.camera.route; }
+    if(j.audio && j.audio.route) $('selAud').value=j.audio.route;
+    const sl=$('sensorList');
+    if(Array.isArray(j.sensors)){ sl.textContent = j.sensors.map(s=>
+        `${s.name}: ${s.ok?'✓ 可用':'✗ 不可用'}`).join('　'); }
+  }catch(e){ $('bConn').textContent='服务离线'; $('bConn').className='badge err'; }
+}
+refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

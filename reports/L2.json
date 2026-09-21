@@ -1,0 +1,227 @@
+{
+  "schemaVersion": "1.0",
+  "laneId": "L2",
+  "laneName": "Android 设备桥与 Gadget",
+  "agent": "android-devices",
+  "generatedAt": "2026-09-20T12:26:21+08:00",
+  "status": "PARTIAL",
+  "scope": {
+    "ownedDirs": [
+      "android/app/src/main/java/com/allperiph/core/",
+      "android/app/src/main/java/com/allperiph/sensor/",
+      "android/app/src/main/java/com/allperiph/gadget/",
+      "android/app/src/main/java/com/allperiph/gps/",
+      "android/app/src/main/java/com/allperiph/vibe/",
+      "scripts/"
+    ],
+    "touchedFiles": [
+      "android/app/src/main/java/com/allperiph/core/AgentRuntime.kt",
+      "android/app/src/main/java/com/allperiph/core/AgentService.kt",
+      "android/app/src/main/java/com/allperiph/core/AppPaths.kt",
+      "android/app/src/main/java/com/allperiph/core/ApxIds.kt",
+      "android/app/src/main/java/com/allperiph/core/ApxNative.kt",
+      "android/app/src/main/java/com/allperiph/core/ClockSync.kt",
+      "android/app/src/main/java/com/allperiph/core/EventBus.kt",
+      "android/app/src/main/java/com/allperiph/core/Events.kt",
+      "android/app/src/main/java/com/allperiph/core/Log.kt",
+      "android/app/src/main/java/com/allperiph/core/Module.kt",
+      "android/app/src/main/java/com/allperiph/core/Transport.kt",
+      "android/app/src/main/java/com/allperiph/core/VendorCommand.kt",
+      "android/app/src/main/java/com/allperiph/core/README.md",
+      "android/app/src/main/java/com/allperiph/sensor/SensorEngine.kt",
+      "android/app/src/main/java/com/allperiph/sensor/SensorSpec.kt",
+      "android/app/src/main/java/com/allperiph/sensor/SamplingPolicy.kt",
+      "android/app/src/main/java/com/allperiph/sensor/SampleRing.kt",
+      "android/app/src/main/java/com/allperiph/sensor/OrientationFusion.kt",
+      "android/app/src/main/java/com/allperiph/sensor/README.md",
+      "android/app/src/main/java/com/allperiph/gadget/GadgetManager.kt",
+      "android/app/src/main/java/com/allperiph/gadget/ConfigFsLayout.kt",
+      "android/app/src/main/java/com/allperiph/gadget/UsbHalArbiter.kt",
+      "android/app/src/main/java/com/allperiph/gadget/UdcProbe.kt",
+      "android/app/src/main/java/com/allperiph/gadget/RootShell.kt",
+      "android/app/src/main/java/com/allperiph/gadget/HidDevice.kt",
+      "android/app/src/main/java/com/allperiph/gadget/SerialDevice.kt",
+      "android/app/src/main/java/com/allperiph/gadget/README.md",
+      "android/app/src/main/java/com/allperiph/gps/GpsModule.kt",
+      "android/app/src/main/java/com/allperiph/gps/NmeaSource.kt",
+      "android/app/src/main/java/com/allperiph/gps/README.md",
+      "android/app/src/main/java/com/allperiph/vibe/VibeModule.kt",
+      "android/app/src/main/java/com/allperiph/vibe/VibratorController.kt",
+      "android/app/src/main/java/com/allperiph/vibe/TorchController.kt",
+      "android/app/src/main/java/com/allperiph/vibe/IrController.kt",
+      "android/app/src/main/java/com/allperiph/vibe/LedController.kt",
+      "android/app/src/main/java/com/allperiph/vibe/README.md",
+      "scripts/apx_gadget.sh"
+    ]
+  },
+  "deliverables": [
+    { "path": "android/app/src/main/java/com/allperiph/core/Module.kt", "kind": "source", "built": "untested", "notes": "模块生命周期契约 + ModuleRegistry（顺序启动 / 逆序停止）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/AgentService.kt", "kind": "source", "built": "untested", "notes": "常驻前台服务编排；onDestroy + JVM shutdown hook 双重兜底恢复 USB 配置" },
+    { "path": "android/app/src/main/java/com/allperiph/core/AgentRuntime.kt", "kind": "source", "built": "untested", "notes": "ModuleContext 实现 + 可热替换传输口（链路自愈无需重建模块）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/EventBus.kt", "kind": "source", "built": "untested", "notes": "同步事件总线；本轮修复 onMain 参数错位（编译期错误）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/Events.kt", "kind": "source", "built": "untested", "notes": "状态/控制事件定义，数据面不走总线" },
+    { "path": "android/app/src/main/java/com/allperiph/core/Log.kt", "kind": "source", "built": "untested", "notes": "logcat + 512 条环形缓冲 + 事件广播" },
+    { "path": "android/app/src/main/java/com/allperiph/core/Transport.kt", "kind": "source", "built": "untested", "notes": "HidTransport / SerialSink + Null / Delegating 实现（路线 B 只保留接口）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/ApxIds.kt", "kind": "source", "built": "untested", "notes": "PROTOCOL 全部枚举与魔数集中处；IMU_MAX_BATCH=16、HID_MAX_REPORT_BYTES=1024" },
+    { "path": "android/app/src/main/java/com/allperiph/core/AppPaths.kt", "kind": "source", "built": "untested", "notes": "sysfs / ConfigFS / 设备节点 / USB 标识常量，禁止其它模块内联路径" },
+    { "path": "android/app/src/main/java/com/allperiph/core/ClockSync.kt", "kind": "source", "built": "untested", "notes": "elapsedRealtimeNanos 时基 + 最小 RTT + 指数平滑偏移估计（§1）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/VendorCommand.kt", "kind": "source", "built": "untested", "notes": "§2.7 Vendor OUT 命令解码（字节解析交给 shared）" },
+    { "path": "android/app/src/main/java/com/allperiph/core/ApxNative.kt", "kind": "source", "built": "untested", "notes": "shared/ 唯一 Kotlin 入口；本轮改为 object 并固化 10 个 JNI 符号契约（libapx.so）" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/SensorEngine.kt", "kind": "source", "built": "untested", "notes": "M1 采集引擎：apx-sensor 只写环形缓冲，apx-emit 攒批 N≤16 上报（§2.3）" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/SensorSpec.kt", "kind": "source", "built": "untested", "notes": "Android Sensor.TYPE ↔ HID 传感器 ID 映射；两套启用位域（批量 bit0..5 / 低频 bit16..25）" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/SamplingPolicy.kt", "kind": "source", "built": "untested", "notes": "架构 §6.3 采样率裁决：200Hz 硬上限 + 硬件 minDelay + 降级原因；不使用 SensorDirectChannel" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/SampleRing.kt", "kind": "source", "built": "untested", "notes": "单生产者/单消费者环形缓冲，写入零分配；丢样计数供 §2.3 flags bit1" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/OrientationFusion.kt", "kind": "source", "built": "untested", "notes": "加速度+磁力 → 方向/倾角（§2.2 手机端预融合）；无磁力计时上报 NOT_AVAILABLE" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/GadgetManager.kt", "kind": "source", "built": "untested", "notes": "M2 主流程：探测→抢占→挂载→开节点→看门狗→自愈→卸载；同时实现 HidTransport" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/UsbHalArbiter.kt", "kind": "source", "built": "untested", "notes": "架构 §6.2 UDC 抢占：setprop sys.usb.config none + 轮询等待解绑，退出恢复原配置（空值退回 adb）" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/UdcProbe.kt", "kind": "source", "built": "untested", "notes": "§6.1 速度门禁：枚举 /sys/class/udc，解析 current_speed → LinkSpeed" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/ConfigFsLayout.kt", "kind": "source", "built": "untested", "notes": "纯函数生成挂载/卸载/清场命令序列；f_hid+f_acm 默认开，f_uvc/uac2/ncm 预留可选" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/RootShell.kt", "kind": "source", "built": "untested", "notes": "root 操作唯一出口：常驻 su + 退出码标记，逐条取返回值；无 root 返回 null" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/HidDevice.kt", "kind": "source", "built": "untested", "notes": "/dev/hidg0 O_NONBLOCK 读写；IN 写失败丢帧不阻塞，OUT 4ms 轮询" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/SerialDevice.kt", "kind": "source", "built": "untested", "notes": "/dev/ttyGS0（CDC ACM）非阻塞写入" },
+    { "path": "android/app/src/main/java/com/allperiph/gps/GpsModule.kt", "kind": "source", "built": "untested", "notes": "M3：NMEA 原样写入 ACM；链路未就绪直接丢，不堆积" },
+    { "path": "android/app/src/main/java/com/allperiph/gps/NmeaSource.kt", "kind": "source", "built": "untested", "notes": "addNmeaListener + requestLocationUpdates（保持 GNSS 工作）；本轮修复 Looper 参数" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/VibeModule.kt", "kind": "source", "built": "untested", "notes": "M5：cmd 0x01/0x02/0x03/0x04 落地，广播 VibeStatusEvent；stop() 复位手电/振动" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/VibratorController.kt", "kind": "source", "built": "untested", "notes": "振动 oneShot/cancel；amplitude 0=系统默认强度" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/TorchController.kt", "kind": "source", "built": "untested", "notes": "手电筒 turnOnTorchWithStrengthLevel（minSdk 34 可用）" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/IrController.kt", "kind": "source", "built": "untested", "notes": "红外：无硬件返回 false 并上报「无硬件」，绝不崩溃" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/LedController.kt", "kind": "source", "built": "untested", "notes": "通知灯：Android 5.0 后无公开 API，保留接口并明确 false" },
+    { "path": "scripts/apx_gadget.sh", "kind": "script", "built": "untested", "notes": "可 adb shell 直接执行的 status/speed/up/down/heal；POSIX sh；失败自动回滚 USB 配置" },
+    { "path": "android/app/src/main/java/com/allperiph/core/README.md", "kind": "doc", "built": "yes", "notes": "core 模块职责、约束落点、JNI 契约、已知限制" },
+    { "path": "android/app/src/main/java/com/allperiph/sensor/README.md", "kind": "doc", "built": "yes", "notes": "线程模型、时间戳来源、采样率硬约束与降级路径" },
+    { "path": "android/app/src/main/java/com/allperiph/gadget/README.md", "kind": "doc", "built": "yes", "notes": "挂载顺序、三条硬约束落点、已知限制、adb 验证命令" },
+    { "path": "android/app/src/main/java/com/allperiph/gps/README.md", "kind": "doc", "built": "yes", "notes": "NMEA→ACM 设计要点与 PC 侧验证方式" },
+    { "path": "android/app/src/main/java/com/allperiph/vibe/README.md", "kind": "doc", "built": "yes", "notes": "§2.7 payload 语义表与优雅降级策略" }
+  ],
+  "verification": [
+    {
+      "command": "cd android/app/src/main/java/com/allperiph && python -c \"统计 core/sensor/gadget/gps/vibe 下 kt 中 HIGH_SAMPLING_RATE_SENSORS / SensorDirectChannel / ByteBuffer 出现次数\"",
+      "expected": "HIGH_SAMPLING_RATE_SENSORS 被引用；SensorDirectChannel 仅出现在「不使用」注释；ByteBuffer=0（二进制布局不落 Kotlin）",
+      "actual": "HIGH_SAMPLING_RATE_SENSORS: 3（SamplingPolicy 运行时校验 2 处 + README 1 处）；SensorDirectChannel: 1（仅 SamplingPolicy.kt:18 与 README 的「不使用」注释）；ByteBuffer: 0；IMU_MAX_BATCH = 16 成立",
+      "passed": true
+    },
+    {
+      "command": "python -c \"import re,pathlib;t=pathlib.Path('android/app/build.gradle.kts').read_text(encoding='utf-8');print('compileSdk',re.search(r'compileSdk\\s*=\\s*(\\d+)',t).group(1));print('minSdk',re.search(r'minSdk\\s*=\\s*(\\d+)',t).group(1));print('kotlinPlugin', 'org.jetbrains.kotlin.android' in t)\"",
+      "expected": "compileSdk 35 / minSdk 34 / Kotlin 插件存在",
+      "actual": "compileSdk 35；minSdk 34；kotlinPlugin True",
+      "passed": true
+    },
+    {
+      "command": "python -c \"import re,pathlib;t=pathlib.Path('android/app/src/main/AndroidManifest.xml').read_text(encoding='utf-8');ls=[l for l in t.splitlines() if '<uses-permission' in l and '<!--' not in l];print('declared:',[re.search(r'name=.([A-Za-z_.]+)',l).group(1) for l in ls]);need=['HIGH_SAMPLING_RATE_SENSORS','BODY_SENSORS','ACCESS_FINE_LOCATION','ACCESS_COARSE_LOCATION','VIBRATE','CAMERA'];print('missing:',[n for n in need if n not in ''.join(ls)])\"",
+      "expected": "HIGH_SAMPLING_RATE_SENSORS / ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION / VIBRATE / CAMERA / BODY_SENSORS 六项均已生效声明",
+      "actual": "declared 仅 6 项（FOREGROUND_SERVICE、FOREGROUND_SERVICE_CONNECTED_DEVICE、POST_NOTIFICATIONS、WAKE_LOCK、REQUEST_IGNORE_BATTERY_OPTIMIZATIONS、INTERNET）；missing: HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION、VIBRATE、CAMERA —— 六项仍在 TODO 注释里。AndroidManifest.xml 归 L3，L2 不得越权修改，已记入 contractDeviations（neededFrom=L3）",
+      "passed": false
+    },
+    {
+      "command": "Select-String -Path scripts/apx_gadget.sh -SimpleMatch -Pattern '[[','declare ','local ','echo -n','function ' 与关键步骤关键字检索",
+      "expected": "shebang 为 #!/system/bin/sh；无 bash 专属语法；含 setprop sys.usb.config none、current_speed、report_desc、restore_prop",
+      "actual": "shebang=#!/system/bin/sh；bashism 命中 2 处均为注释/字符串（第 25 行说明文字、第 176 行 sed 输出前缀），无真实 bash 语法；关键步骤命中 16 处（setprop none / current_speed / restore_prop / report_desc）",
+      "passed": true
+    },
+    {
+      "command": "cd android && ./gradlew :app:assembleDebug（或用 Android Studio Gradle Sync 编译）",
+      "expected": "BUILD SUCCESSFUL，31 个 kt 文件编译通过",
+      "actual": "未执行：本机无 java / gradle / git，也无 Android SDK（PowerShell 检测均报 CommandNotFoundException）。改为逐文件人工复核，本轮已修复 4 处编译期错误：① EventBus.onMain 把 lambda 传给 handler 形参（改为 on(T::class.java, null, block)）；② NmeaSource.requestLocationUpdates 传 Handler 但该重载收 Looper（改传 handler.looper）；③ NMEA SAM lambda 的带标签 return 改为 if 判断；④ AgentService 引用尚不存在的 R.string.agent_*（改为按名查找 + 兜底文案）",
+      "passed": false
+    },
+    {
+      "command": "python scripts/aggregate.py",
+      "expected": "L2 行 schema 校验通过、越权检查 0 条",
+      "actual": "L2 status=PARTIAL，交付 37 项，验证 4/7 通过，schema 错误 0 条，越权 0 条（控制台与 reports/STATUS.json 一致）",
+      "passed": true
+    },
+    {
+      "command": "adb shell su -c 'sh /data/local/tmp/apx_gadget.sh status' && adb shell su -c 'sh /data/local/tmp/apx_gadget.sh speed'",
+      "expected": "打印 UDC、current_speed=super-speed、/dev/hidg0 与 /dev/ttyGS0 存在；随后 App 挂载后 PC 传感器面板出现加速度数据",
+      "actual": "未执行：当前无已 root 的真机与 USB 3.0 线缆，且 L1 尚未交付 libapx.so（描述符与打包接口缺失）。完整 MS1 端到端步骤见 reports/L2.md",
+      "passed": false
+    }
+  ],
+  "contractDeviations": [
+    {
+      "target": "android/app/src/main/AndroidManifest.xml",
+      "desc": "缺失 L2 六个运行时权限；且 <service> 指向 .ui.AgentForegroundService，与 core/AgentService 类名不一致",
+      "proposedChange": "由 L3 取消文末 6 行 TODO 注释改为生效声明：HIGH_SAMPLING_RATE_SENSORS、BODY_SENSORS、ACCESS_FINE_LOCATION、ACCESS_COARSE_LOCATION（+ACCESS_BACKGROUND_LOCATION 可选）、VIBRATE、CAMERA；并把 <service android:name=\".ui.AgentForegroundService\"> 改为 android:name=\".core.AgentService\"（或让 ui 侧服务继承包装并复用同一 ACTION_START/STOP）",
+      "impact": "minor"
+    },
+    {
+      "target": "shared/ + android/app/src/main/cpp/（L1）",
+      "desc": "libapx.so 与 10 个 native 入口尚未交付，ApxNative.isAvailable=false，GadgetManager 会以「shared/ 未提供 HID 报告描述符」进入 ERROR（不挂半个设备）",
+      "proposedChange": "L1 按 core/ApxNative.kt 文件头的符号清单实现：库名 apx；符号 Java_com_allperiph_core_ApxNative_{nativeInit,protocolVersion,hidReportDescriptor,hidMaxReportLength,hidReportSize,packImuBatch,packLowFreq,packVendorStatus,parseVendorOut,crc32}；因 Kotlin 侧声明为 object，第二参数为 jobject；并在 android/app/src/main/cpp/CMakeLists.txt 产出 target apx",
+      "impact": "minor"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（Report ID 5）",
+      "desc": "状态上报（手机→PC）需经中断 IN 端点上行，描述符必须把 Report ID 5 声明为 Input + Feature 双用途；协议文本只写了 FEATURE",
+      "proposedChange": "由 main 在 §2.7 补一句「Report ID 5 同时声明 Input 与 Feature，状态经 IN 端点上行」，并同步 L1 的描述符生成",
+      "impact": "none"
+    },
+    {
+      "target": "docs/PROTOCOL.md §2.7（SET_SENSOR_MASK / SET_SAMPLE_RATE）",
+      "desc": "u64 掩码位域与采样率 payload 中「bit7=1 表示低频通道」为我方实现约定，协议未定义",
+      "proposedChange": "由 main 补：掩码 bit0..5 = Report 1 批量通道、bit16..25 = Report 2 低频通道；SET_SAMPLE_RATE payload = {u8 sensorId(bit7=0 批量 / 1 低频), u32 rateHz}",
+      "impact": "none"
+    },
+    {
+      "target": "shared/（L1）+ §2.8 / §2.6",
+      "desc": "Report 6（Battery System）与 Report 4（Consumer 按键）本轮未实现：电池需 packBattery，按键采集属 UI/输入侧",
+      "proposedChange": "MS2 前由 L1 增加 packBattery 打包接口（字段见 §2.8）；Report 4 由 L3 在 UI 侧采集 KeyEvent 后经 HidTransport 发送",
+      "impact": "minor"
+    },
+    {
+      "target": "android/app/src/main/res/values/strings.xml（L3）",
+      "desc": "AgentService 需要 agent_notify_title / agent_notify_text / agent_channel_name 三个文案",
+      "proposedChange": "L3 补入即可自动生效；在此之前 L2 用内置兜底文案，不阻塞编译（已按名查找实现解耦）",
+      "impact": "none"
+    }
+  ],
+  "risks": [
+    {
+      "level": "high",
+      "desc": "UDC 抢占失败或被厂商 HAL 拦截会导致手机整根 USB 失效（连 adb 都断）",
+      "mitigation": "写 UDC 前 setprop sys.usb.config none 并轮询等待解绑；挂载失败/stop()/onDestroy/JVM shutdown hook 四处恢复；原配置为空时退回 adb；SIGKILL 场景用 scripts/apx_gadget.sh down 人工兜底"
+    },
+    {
+      "level": "high",
+      "desc": "L1 未交付 libapx.so 时描述符与打包为空，MS1 无法端到端出数",
+      "mitigation": "ApxNative 降级为 isAvailable=false，GadgetManager 明确报「shared/ 未提供描述符」而不是挂出一个残缺设备；MS1 前须先拿到 L1 产物"
+    },
+    {
+      "level": "medium",
+      "desc": "大量手机 Type-C 仅 USB 2.0，速度门禁会常态化降级",
+      "mitigation": "挂载前读 current_speed，非 SuperSpeed 广播 LinkSpeedDegradedEvent 并进 DEGRADED 状态，bcdUSB 按实测二选一（0x0300/0x0200）"
+    },
+    {
+      "level": "medium",
+      "desc": "SELinux enforcing 下 /dev/hidg0 的 chmod 666 可能失败，App 侧打开节点被拒",
+      "mitigation": "chmod 作为 optional 步骤；失败时给出可读错误，App 以 root 身份打开不受影响"
+    },
+    {
+      "level": "medium",
+      "desc": "/dev/hidg0 同一时刻只允许一个 IN 请求在途，主机不取走会阻塞写入",
+      "mitigation": "HidDevice 全程 O_NONBLOCK；写失败直接丢帧，传感器为可丢数据面"
+    },
+    {
+      "level": "low",
+      "desc": "GPS 模块需持续 GNSS 定位才会吐 NMEA，是主要耗电来源",
+      "mitigation": "模块可按需关闭（掩码/开关），UI 明示耗电；NMEA 丢帧不重试不堆积"
+    }
+  ],
+  "blockers": [],
+  "metrics": {
+    "kotlinFiles": 31,
+    "moduleReadmes": 5,
+    "shellScripts": 1,
+    "imuMaxBatch": 16,
+    "hidMaxReportBytes": 1024,
+    "compilation": "静态复核（本机无 JDK/Gradle/Android SDK），已修复 4 处编译期错误",
+    "verificationPassed": "4/7"
+  },
+  "nextSteps": [
+    "等 L1 交付 libapx.so 与 android/app/src/main/cpp/CMakeLists.txt 后，按 reports/L2.md 的 MS1 端到端步骤做真机验证（先 status/speed 再 up，验证毕必做 down）",
+    "请 L3 补齐 AndroidManifest 六个权限并把 <service> 指向 .core.AgentService，同时补三个通知文案",
+    "请 main 裁决两条协议补充（Report 5 需 Input+Feature；传感器掩码位域与 SET_SAMPLE_RATE payload 约定）并递增协议版本",
+    "MS2 补 Report 6 电池（需 L1 增加 packBattery）与 Report 4 Consumer 按键（需 L3 采集 KeyEvent）",
+    "真机验证后把脚本与 App 的挂载结果（dmesg / ls /sys/class/udc、PC 设备管理器与传感器面板截图）回填 verification"
+  ]
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标：手机 → USB → PC 的抽象（仅矢量占位，正式版替换为自适应图标） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF6750A4"
+        android:pathData="M10,6h20a4,4 0,0 1,4 4v28a4,4 0,0 1,-4 4h-20a4,4 0,0 1,-4 -4v-28a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,12h8v24h-8z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M40,20h4v8h-4zM36,14h4v20h-4zM44,26h4v4h-4z" />
+</vector>

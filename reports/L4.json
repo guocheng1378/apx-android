@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "laneId": "L4",
+  "laneName": "PC 副屏驱动与推流",
+  "agent": "pc-display",
+  "generatedAt": "2026-09-20T18:45:00+08:00",
+  "status": "PARTIAL",
+  "scope": {
+    "ownedDirs": ["pc/display/"],
+    "touchedFiles": ["reports/L4.json", "reports/L4.md"]
+  },
+  "deliverables": [
+    { "path": "pc/display/CMakeLists.txt", "kind": "build", "built": "yes", "notes": "分模块静态库（common/capture/encode/transport/inject/pipeline）+ 平台条件编译 + apxdisp CLI + --self-test 入口" },
+    { "path": "pc/display/cmake/ApxShared.cmake", "kind": "build", "built": "yes", "notes": "优先使用 shared/ 真源，缺失时降级到 compat/ 替身（**该降级应改为 FATAL_ERROR**，见 blockers）" },
+    { "path": "pc/display/common/log.cpp", "kind": "source", "built": "yes", "notes": "日志" },
+    { "path": "pc/display/common/clock.cpp", "kind": "source", "built": "yes", "notes": "时基转换（QPC ↔ 手机 elapsedRealtimeNanos）" },
+    { "path": "pc/display/common/crc32.cpp", "kind": "source", "built": "yes", "notes": "帧校验" },
+    { "path": "pc/display/common/types.hpp", "kind": "source", "built": "yes", "notes": "公共类型" },
+    { "path": "pc/display/capture/i_capture.hpp", "kind": "source", "built": "yes", "notes": "抓屏抽象接口" },
+    { "path": "pc/display/capture/capture_factory.cpp", "kind": "source", "built": "yes", "notes": "抓屏后端工厂（运行时选择）" },
+    { "path": "pc/display/capture/null_capture.cpp", "kind": "source", "built": "yes", "notes": "空实现（无显示器/自测用）" },
+    { "path": "pc/display/capture/dda_capture_win.cpp", "kind": "source", "built": "yes", "notes": "Desktop Duplication 抓屏，输出 DirtyRects / MoveRects（只编码变化区域）" },
+    { "path": "pc/display/encode/i_encoder.hpp", "kind": "source", "built": "yes", "notes": "编码器抽象" },
+    { "path": "pc/display/encode/encoder_factory.cpp", "kind": "source", "built": "yes", "notes": "按硬件可用性选择编码器" },
+    { "path": "pc/display/encode/dynlib.hpp", "kind": "source", "built": "yes", "notes": "动态加载 vendor SDK（缺失时优雅降级）" },
+    { "path": "pc/display/encode/nvenc_encoder.cpp", "kind": "source", "built": "untested", "notes": "NVENC 封装（需 NVIDIA Video Codec SDK 头，本机未放置 → APXDISP_HAVE_NVENC_SDK=OFF）" },
+    { "path": "pc/display/encode/qsv_encoder.cpp", "kind": "source", "built": "untested", "notes": "QuickSync 封装（需 oneVPL 头）" },
+    { "path": "pc/display/encode/amf_encoder.cpp", "kind": "source", "built": "untested", "notes": "AMF 封装（需 AMD AMF SDK 头）" },
+    { "path": "pc/display/encode/mf_encoder.cpp", "kind": "source", "built": "untested", "notes": "Media Foundation 硬编回退。**zig 的 mingw 头与 WRL 智能指针不兼容**，故本机未能编译验证；MSVC 下应正常" },
+    { "path": "pc/display/encode/lz4.cpp", "kind": "source", "built": "yes", "notes": "LZ4 软件回退（无硬件编码器时）" },
+    { "path": "pc/display/encode/raw_lz4_encoder.cpp", "kind": "source", "built": "yes", "notes": "无损压缩编码器（调试与低带宽场景）" },
+    { "path": "pc/display/protocol/frame_format.hpp", "kind": "source", "built": "yes", "notes": "按 PROTOCOL §3 的帧格式定义" },
+    { "path": "pc/display/transport/i_transport.hpp", "kind": "source", "built": "yes", "notes": "传输抽象（控制面可靠 / 视频可丢包）" },
+    { "path": "pc/display/transport/frame_writer.cpp", "kind": "source", "built": "yes", "notes": "ApxFrameHeader + 扩展头 + dirtyRect + 码流分片组帧" },
+    { "path": "pc/display/transport/loopback_transport.cpp", "kind": "source", "built": "yes", "notes": "回环传输（无设备时的自测通道，也是与手机端做假流联调的手段）" },
+    { "path": "pc/display/transport/ctrl_channel.cpp", "kind": "source", "built": "yes", "notes": "控制面握手 HELLO/CONFIG/BYE（PROTOCOL §4）" },
+    { "path": "pc/display/transport/link_monitor.cpp", "kind": "source", "built": "yes", "notes": "心跳 / RTT / 断线判定 / 退避重连（1s→2s→4s→8s）" },
+    { "path": "pc/display/transport/link_monitor.hpp", "kind": "source", "built": "yes", "notes": "**main 修复**：嵌套类 Config 的默认成员初始化器导致 Clang/GCC 编译失败，已把结构提到类外" },
+    { "path": "pc/display/transport/transport_factory.cpp", "kind": "source", "built": "yes", "notes": "传输后端工厂" },
+    { "path": "pc/display/transport/usb_transport_win.cpp", "kind": "source", "built": "yes", "notes": "WinUSB 后端。**main 修复**：原用 UsbBulkOut/UsbBulkIn（Windows 头不提供的规范符号），且端点方向判定缺失，已改为按 PipeId 最高位判定方向" },
+    { "path": "pc/display/transport/usb_transport_libusb.cpp", "kind": "source", "built": "untested", "notes": "libusb 跨平台后端（可选，本机未启用 APXDISP_USE_LIBUSB）" },
+    { "path": "pc/display/inject/i_inject.hpp", "kind": "source", "built": "yes", "notes": "注入抽象（三档）" },
+    { "path": "pc/display/inject/touch_frame.cpp", "kind": "source", "built": "yes", "notes": "触控帧解析 + 归一化坐标映射（MappedPoint）" },
+    { "path": "pc/display/inject/inject_factory.cpp", "kind": "source", "built": "yes", "notes": "注入档位工厂" },
+    { "path": "pc/display/inject/inject_sendinput_win.cpp", "kind": "source", "built": "yes", "notes": "档 1：SendInput + MOUSEEVENTF_ABSOLUTE（免驱，默认）" },
+    { "path": "pc/display/inject/inject_synthetic_pointer_win.cpp", "kind": "source", "built": "yes", "notes": "档 2：InjectSyntheticPointerInput（真触摸/笔）。**main 修复**：POINTER_FLAG_IN_RANGE/IN_CONTACT 实为 INRANGE/INCONTACT；POINTER_FLAG_ERASER 在 Windows 不存在，已降级为 SECONDBUTTON；lastPos_ 类型由 POINT 改为 MappedPoint" },
+    { "path": "pc/display/inject/hid/apxhid.c", "kind": "source", "built": "untested", "notes": "**档 3：KMDF HID minidriver**（完整数位板语义：压感/倾斜/橡皮擦）。需 WDK 编译 + EV 签名" },
+    { "path": "pc/display/inject/hid/apxhid.inf", "kind": "source", "built": "untested", "notes": "档 3 安装文件" },
+    { "path": "pc/display/inject/hid/apxhid_ioctl.h", "kind": "source", "built": "untested", "notes": "档 3 用户态↔内核态 IOCTL 约定" },
+    { "path": "pc/display/inject/hid/README.md", "kind": "doc", "built": "yes", "notes": "档 3 设计与签名说明" },
+    { "path": "pc/display/pipeline/pipeline.cpp", "kind": "source", "built": "yes", "notes": "抓屏→编码→组帧→传输→注入 的编排" },
+    { "path": "pc/display/app/main.cpp", "kind": "source", "built": "yes", "notes": "apxdisp CLI 入口（含 --self-test）" },
+    { "path": "pc/display/idd/README.md", "kind": "doc", "built": "yes", "notes": "**main 补充**：IddCx 方案调研 + 三条落地路径对比 + EV 签名流程 + 与用户态接口约定。核心结论：推荐直接复用已签名的开源驱动（itsmikethetech/Virtual-Display-Driver），省掉 EV 证书门槛；且驱动可独立替换，capture/ 应按显示器名称/索引匹配" },
+    { "path": "pc/display/idd/IddDriver.cpp", "kind": "source", "built": "no", "notes": "**main 补充**：IddCx 骨架（DriverEntry → DeviceAdd → AdapterInitAsync → MonitorCreate/Arrival → 5 回调）。**未经 WDK 编译验证**（本机无 WDK），代码中已明确标注" },
+    { "path": "pc/display/idd/build.ps1", "kind": "build", "built": "no", "notes": "**main 补充**：WDK MSBuild 构建脚本（自动定位 WDKContentRoot 与 vswhere）。无 .vcxproj 时会给出明确提示而非静默失败" }
+  ],
+  "verification": [
+    {
+      "command": "python -m ziglang c++ -std=c++20 -w -c -I shared/include -I pc/display -DAPXDISP_ENABLE_DDA=1 <各 .cpp> -o <out.o>",
+      "expected": "全部源文件编译通过（平台无关部分与 Windows 专有部分均通过）",
+      "actual": "**23/24 逐文件编译通过**（由 main 实测）。唯一例外 mf_encoder.cpp 依赖 wrl/client.h，而 zig 自带 mingw 头与 WMF 的 WRL 智能指针不兼容——属工具链限制，非代码问题。**注意：这是 main 代跑的首次真正编译验证；此前 L4 未编译过，一编译即暴露 4 个真实 bug（见 deliverables 中的 main 修复标注）**",
+      "passed": true
+    },
+    {
+      "command": "检查 pc/display/inject/hid/apxhid.c 是否可编译",
+      "expected": "需要 WDK（KMDF）",
+      "actual": "未执行：本机无 WDK。档 3 属可选能力，缺失不影响档 1/2 可用",
+      "passed": false
+    },
+    {
+      "command": "检查 pc/display/idd/IddDriver.cpp 是否可编译",
+      "expected": "需要 WDK（UMDF2 + IddCx）",
+      "actual": "未执行：本机无 WDK。当前交付为骨架 + 方案文档，README 给出免编译的替代路径",
+      "passed": false
+    },
+    {
+      "command": "副屏端到端：apxdisp --self-test / 真机推流",
+      "expected": "抓屏→编码→组帧→传输全链路跑通",
+      "actual": "未执行：需 VS2022 完整构建（本机无）+ 已 root 真机联调",
+      "passed": false
+    }
+  ],
+  "contractDeviations": [
+    { "desc": "pc/display/compat/apx/frame.h 是 shared/ 尚未交付时的替身，且内容已漂移", "impact": "breaking", "neededFrom": "L4 自身", "resolution": "**待处理**：shared/ 已交付（自测 230 项全绿），应删除 compat/ 并把 cmake/ApxShared.cmake 的静默降级改为 FATAL_ERROR。静默降级会让编译成功但产物是错版本，比直接失败更危险" }
+  ],
+  "risks": [
+    { "level": "high", "desc": "本机无 WDK/VS，IddCx 驱动与 HID minidriver（档 3）无法编译与签名验证", "mitigation": "README 给出免编译替代路径（现成已签名驱动）；档 3 属可选能力，档 1/2 已可用" },
+    { "level": "high", "desc": "副屏链路两端均未端到端验证，单独编译通过不代表协议对接正确", "mitigation": "先用 loopback_transport 与手机端做假流联调，验证帧格式与脏矩形语义后再接真驱动" },
+    { "level": "medium", "desc": "EV 代码签名证书是分发门槛（约 $300/年 + 企业主体审核），不是技术门槛", "mitigation": "路径 A 复用已签名开源驱动，可完全绕过" },
+    { "level": "medium", "desc": "本次发现的 4 个 bug 说明代码此前从未编译过，可能存在更多同类问题（尤其 Windows 专有 API 与 vendor SDK 路径）", "mitigation": "在带 VS2022 的机器上做一次完整构建，把所有 built=yes 的条目重新验证" }
+  ],
+  "blockers": [
+    { "owner": "main", "desc": "无 VS2022 / WDK 环境，无法完成 IddCx、HID minidriver 与完整链接验证", "need": "Windows + VS2022 + WDK 10.0.22621+ 的构建机" }
+  ],
+  "metrics": {
+    "deliverableCount": 42,
+    "verifiedPassed": 1,
+    "verifiedTotal": 4,
+    "sourceFiles": 51
+  },
+  "nextSteps": [
+    "删除 pc/display/compat/，ApxShared.cmake 改为强制依赖 shared/（FATAL_ERROR 而非静默降级）",
+    "在带 VS2022 的机器上完整构建 apxdisp，并跑 --self-test",
+    "与 L3 联合做副屏帧格式对接（先用 loopback 假流）",
+    "补齐 idd/apxdisp_idd.vcxproj 与 .inf（当前只有骨架）"
+  ],
+  "notes": [
+    "本回报由 main 于 agent 会话终止后代为整理（Known members: none）。",
+    "deliverables 依据工作区实际文件清单（51 个源文件）与 main 的逐文件编译实测填写。原回报只写了 1 项（json 自身），与实际严重不符。",
+    "idd/ 三个文件为 main 补充交付（L4 未做）。",
+    "main 修复的 4 个 bug 已在对应 deliverable 的 notes 中标注。"
+  ]
+}

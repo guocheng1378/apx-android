@@ -1,0 +1,34 @@
+{
+  "buildFiles": [
+    "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\app\\src\\main\\cpp\\CMakeLists.txt",
+    "C:\\Users\\Administrator\\Desktop\\全能外设\\shared\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\Administrator\\devtools\\android-sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\app\\.cxx\\Debug\\2b5z6q2x\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\Administrator\\devtools\\android-sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\app\\.cxx\\Debug\\2b5z6q2x\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "apx::@6890427a1f51a3e7e1df": {
+      "artifactName": "apx",
+      "abi": "x86",
+      "output": "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\app\\build\\intermediates\\cxx\\Debug\\2b5z6q2x\\obj\\x86\\libapx.so",
+      "runtimeFiles": []
+    },
+    "apx_shared::@af366c855e1ac15f025f": {
+      "artifactName": "apx_shared",
+      "abi": "x86",
+      "output": "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\app\\.cxx\\Debug\\2b5z6q2x\\x86\\apx_shared\\libapx_shared.a",
+      "runtimeFiles": []
+    }
+  }
+}

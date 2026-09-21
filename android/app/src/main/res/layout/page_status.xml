@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  状态页（复用块）：大号启动开关；**启动后**才展开运行摘要 / 链路诊断 / 延迟预算。
+  竖屏底部留 96dp 给悬浮底栏；横屏（layout-land）由外层覆盖为 16dp。
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pageStatus"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipToPadding="false"
+    android:fillViewport="true"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="96dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="4dp">
+
+        <!-- 大号启动开关：整卡都是状态显示，右侧开关放大到易点区域 -->
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/app_name"
+                    android:textAppearance="@style/APTextCaption" />
+
+                <TextView
+                    android:id="@+id/tvOverall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="4dp"
+                    android:text="@string/common_off"
+                    android:textColor="@color/md_on_background"
+                    android:textSize="30sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvOverallSub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="6dp"
+                    android:text="@string/common_unknown"
+                    android:textAppearance="@style/APTextCaption" />
+            </LinearLayout>
+
+            <Switch
+                android:id="@+id/swMaster"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:scaleX="1.45"
+                android:scaleY="1.45" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvIdleHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="4dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="8dp"
+            android:text="@string/hint_idle"
+            android:textAppearance="@style/APTextCaption" />
+
+        <!-- 未启动时的功能说明：打开开关前先让用户知道能得到什么（启动后自动隐藏） -->
+        <LinearLayout
+            android:id="@+id/boxIdleFeatures"
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="已实现"
+                android:textAppearance="@style/APTextSubtitle" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:text="触控板 —— 手机当鼠标：滑动控光标，轻点左键、双指右键、长按拖选"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="键盘（USB）—— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），PC 免驱识别为标准键盘"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="常用快捷键 —— 多套场景模板一键铺开，可拖拽排序、长按按住不放"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="多媒体 —— 音量增减、播放暂停、上一首 / 下一首"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="副屏投送 —— 手机屏幕作为 PC 的第二显示器（USB 3.0 下更流畅）"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="麦克风 —— UAC2 音频，把手机麦克风上行给 PC"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="音响 —— UAC2 音频，把 PC 声音下行到手机扬声器"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="蓝牙 HID（鼠标 / 多媒体）—— 不接 USB 也能当鼠标、控制播放"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="14dp"
+                android:text="尚未接通（计划中）"
+                android:textAppearance="@style/APTextSubtitle" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:text="蓝牙键盘 —— 待 BtHidDevice 增 reportKeyboard 后接入（蓝牙 HID 已有鼠标 / 多媒体）"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="摄像头 —— 手机摄像头作为 PC 摄像头（UVC 复合设备）"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="传感器 —— IMU / 光感 / 气压等数据上行给 PC"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="GPS 定位 —— NMEA 经由 CDC ACM 串口上行"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="振动 / 手电 / 红外 —— 由 PC 反向控制手机"
+                android:textAppearance="@style/APTextCaption" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/boxRunning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                style="@style/APCardFlat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="运行摘要"
+                    android:textAppearance="@style/APTextSubtitle" />
+
+                <TextView
+                    android:id="@+id/tvRunningSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="6dp"
+                    android:text="@string/common_unknown"
+                    android:textAppearance="@style/APTextCaption" />
+            </LinearLayout>
+
+            <!-- 链路诊断 -->
+            <LinearLayout
+                style="@style/APCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/card_link"
+                    android:textAppearance="@style/APTextSubtitle" />
+
+                <LinearLayout
+                    android:id="@+id/rowsLink"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingTop="6dp" />
+
+                <TextView
+                    android:id="@+id/tvLinkRtt"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="8dp"
+                    android:text="@string/label_link_rt"
+                    android:textAppearance="@style/APTextCaption" />
+            </LinearLayout>
+
+            <!-- 延迟预算说明（MS4 目标 ≤30ms） -->
+            <LinearLayout
+                style="@style/APCardFlat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/latency_budget_title"
+                    android:textAppearance="@style/APTextSubtitle" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="6dp"
+                    android:text="@string/latency_budget_body"
+                    android:textAppearance="@style/APTextCaption" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

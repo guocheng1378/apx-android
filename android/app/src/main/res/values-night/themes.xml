@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MIUIX 深色主题：与 values/themes.xml 同名覆盖。
+  与亮色的差异只有「系统栏描边方向」和「对话框父类」——颜色本身仍引用同一套
+  @color/md_* 令牌（值由 values-night/colors.xml 提供）。
+-->
+<resources>
+
+    <style name="Theme.AllPeriph" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/md_background</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="android:colorPrimary">@color/md_primary</item>
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:statusBarColor">@color/md_background</item>
+        <item name="android:navigationBarColor">@color/md_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+
+    <style name="Theme.AllPeriph.Miuix" parent="Theme.AllPeriph" />
+
+    <style name="Theme.AllPeriph.Miuix.Fullscreen" parent="Theme.AllPeriph.Miuix">
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <style name="Theme.AllPeriph.Fullscreen" parent="Theme.AllPeriph">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/surface_render</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+    </style>
+
+    <style name="Theme.AllPeriph.Miuix.Dialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:windowBackground">@color/md_surface</item>
+    </style>
+</resources>

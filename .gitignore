@@ -1,0 +1,56 @@
+# 全能外设 GitHub ignore rules
+
+# build artifacts
+/build_host/
+/build_display/
+/build_selftest/
+**/build/
+shared/build/
+pc/host/out/
+pc/display/out/
+*.obj
+*.tlog
+*.lastbuildstate
+*.recipe
+*.vcxproj.user
+*.user
+
+# android / gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+*.apk
+*.aab
+*.dex
+*.class
+
+# ide
+.vs/
+.idea/
+.vscode/
+*.swp
+
+# root debug / log / screenshot
+/*.txt
+/*.log
+/*.old
+/*.err
+/*.out
+/*.png
+/_edgeprofile/
+
+# root probe / dump artifacts
+/*.exe
+/*.h264
+/*.bin
+/apx_dump.bin
+
+# dev toolchain (huge, do not commit)
+/.tools/
+
+# misc project-local
+/.attic/
+/.codebuddy/
+/.salesforce-ui-script-recorder/

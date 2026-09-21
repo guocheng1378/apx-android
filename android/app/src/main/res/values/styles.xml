@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- 卡片：18dp 圆角白卡 + 极浅描边（MIUIX 卡片） -->
+    <style name="APCard">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">18dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <!-- 低强调卡片（说明性内容） -->
+    <style name="APCardFlat">
+        <item name="android:background">@drawable/bg_card_flat</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">18dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <!-- 文本层级 -->
+    <style name="APTextTitle">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/md_on_background</item>
+    </style>
+
+    <style name="APTextSubtitle">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/md_on_surface</item>
+    </style>
+
+    <style name="APTextBody">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/md_on_surface</item>
+    </style>
+
+    <style name="APTextCaption">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/md_on_surface_variant</item>
+    </style>
+
+    <!-- 主按钮：MIUIX 胶囊实底（蓝底白字），无阴影抖动 -->
+    <style name="APButtonPrimary">
+        <item name="android:background">@drawable/bg_btn_primary</item>
+        <item name="android:textColor">@color/md_on_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:paddingTop">14dp</item>
+        <item name="android:paddingBottom">14dp</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 次按钮：MIUIX 胶囊描边（蓝字细描边） -->
+    <style name="APButtonGhost">
+        <item name="android:background">@drawable/bg_btn_ghost</item>
+        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:paddingStart">22dp</item>
+        <item name="android:paddingEnd">22dp</item>
+        <item name="android:paddingTop">13dp</item>
+        <item name="android:paddingBottom">13dp</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- 状态徽章：胶囊（底色浅，文字由代码按语义色着色） -->
+    <style name="APBadge">
+        <item name="android:background">@drawable/bg_badge</item>
+        <item name="android:textColor">@color/state_ok</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingBottom">5dp</item>
+    </style>
+
+    <!-- 分区标题：主色小标题（触控板 / 状态 / 设置） -->
+    <style name="APSectionTitle">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:paddingStart">4dp</item>
+        <item name="android:paddingBottom">8dp</item>
+    </style>
+</resources>

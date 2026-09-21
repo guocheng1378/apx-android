@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "1.0",
+  "laneId": "L3",
+  "laneName": "Android 副屏与 App UI",
+  "agent": "android-screen-ui",
+  "generatedAt": "2026-09-20T18:40:00+08:00",
+  "status": "PARTIAL",
+  "scope": {
+    "ownedDirs": [
+      "android/app/src/main/java/com/allperiph/screen/",
+      "android/app/src/main/java/com/allperiph/ui/",
+      "android/app/src/main/res/",
+      "android/app/src/main/AndroidManifest.xml"
+    ],
+    "touchedFiles": []
+  },
+  "deliverables": [
+    { "path": "android/app/src/main/java/com/allperiph/screen/VideoDecoder.kt", "kind": "source", "built": "yes", "notes": "MediaCodec 异步低延迟解码（H.264/HEVC/AV1）" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/VideoReceiver.kt", "kind": "source", "built": "yes", "notes": "接收 bulk 视频流（streamId 0），解析 ApxFrameHeader + 扩展头 + dirtyRect" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/VideoSurfaceView.kt", "kind": "source", "built": "yes", "notes": "渲染到 SurfaceView，全屏沉浸 + 常亮" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/TouchUplink.kt", "kind": "source", "built": "yes", "notes": "触控/笔上行（PROTOCOL §3.2，走 bulk 而非 HID）" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/TouchMapper.kt", "kind": "source", "built": "yes", "notes": "坐标归一化到虚拟屏分辨率 0..65535" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/LatencyStats.kt", "kind": "source", "built": "yes", "notes": "解码耗时 / 队列深度 / 端到端估算" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/ScreenEvents.kt", "kind": "source", "built": "yes", "notes": "副屏模块事件定义" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/ScreenModule.kt", "kind": "source", "built": "yes", "notes": "副屏模块生命周期（Module 接口实现）" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/protocol/", "kind": "source", "built": "yes", "notes": "副屏侧协议编解码" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/transport/", "kind": "source", "built": "yes", "notes": "副屏传输通道抽象" },
+    { "path": "android/app/src/main/java/com/allperiph/screen/README.md", "kind": "doc", "built": "yes", "notes": "职责 / 接口 / 验证方法 / 已知限制" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/MainActivity.kt", "kind": "source", "built": "yes", "notes": "主控制面：模块开关、连接状态、链路诊断" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/AgentController.kt", "kind": "source", "built": "yes", "notes": "服务编排：各模块启停与状态回流" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/AgentForegroundService.kt", "kind": "source", "built": "yes", "notes": "唯一前台服务，负责进程兜底与常驻通知" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/EnvChecks.kt", "kind": "source", "built": "yes", "notes": "root / USB 速度 / 电池优化白名单等前置检测" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/NotificationChannels.kt", "kind": "source", "built": "yes", "notes": "通知渠道创建" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/ScreenActivity.kt", "kind": "source", "built": "yes", "notes": "副屏全屏渲染 + 触控采集宿主 Activity" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/StatusRows.kt", "kind": "source", "built": "yes", "notes": "状态行组件（Material 3）" },
+    { "path": "android/app/src/main/java/com/allperiph/ui/README.md", "kind": "doc", "built": "yes", "notes": "UI 与服务编排说明" },
+    { "path": "android/app/src/main/res/", "kind": "source", "built": "yes", "notes": "drawable / layout / values（含主题、字符串、通知文案）" },
+    { "path": "android/app/src/main/AndroidManifest.xml", "kind": "source", "built": "yes", "notes": "权限与组件声明，见下方 verification 的实测结论" }
+  ],
+  "verification": [
+    {
+      "command": "cd android && $env:JAVA_HOME=<jdk17> && gradle assembleDebug --no-daemon",
+      "expected": "BUILD SUCCESSFUL，且 :app:buildCMakeDebug[arm64-v8a] 等任务执行（JNI 桥编译）",
+      "actual": "BUILD SUCCESSFUL in 52s；4 个 ABI 的 CMake 任务均成功。**由 main 代跑**（本机无 Android SDK 的一方已由 main 备好工具链），screen/ui/res/Manifest 全部参与编译并通过",
+      "passed": true
+    },
+    {
+      "command": "检查 AndroidManifest.xml 的权限声明是否已从 TODO 注释改为生效声明",
+      "expected": "HIGH_SAMPLING_RATE_SENSORS / BODY_SENSORS / ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION / VIBRATE / CAMERA 六项均以 <uses-permission> 生效",
+      "actual": "**六项全部已生效声明**，另额外声明 FOREGROUND_SERVICE_CONNECTED_DEVICE / POST_NOTIFICATIONS / WAKE_LOCK / ACCESS_BACKGROUND_LOCATION。L2 此前两次报告的「6 项权限仍在 TODO」已过时——L3 后续已补齐。**由 main 实测复核**",
+      "passed": true
+    },
+    {
+      "command": "检查 <service> 是否指向存在的类",
+      "expected": "android:name 指向实际存在的 Service 类",
+      "actual": "指向 .ui.AgentForegroundService，该类文件存在且参与编译成功（此前曾指向不存在的 .ui.AgentService）",
+      "passed": true
+    },
+    {
+      "command": "副屏端到端：PC 推流 → 手机解码渲染 → 触控回传",
+      "expected": "手机显示虚拟屏画面，触摸可回传到 PC",
+      "actual": "未执行：需要 PC 侧编译产物（本机无 VS/WDK）+ 真机联调；PC 侧 pc/display/ 虽有源码但同样未真机验证",
+      "passed": false
+    }
+  ],
+  "contractDeviations": [],
+  "risks": [
+    { "level": "medium", "desc": "副屏链路两端（L3 解码渲染 / L4 抓屏推流）都未做端到端验证，各自单独编译通过不代表协议对接正确", "mitigation": "优先用 PC 侧 loopback_transport 与手机侧做假流测试，先打通帧格式与脏矩形语义" },
+    { "level": "low", "desc": "Manifest 中 INTERNET 权限仅为 adb forward 调试通道所需，发布版可移除", "mitigation": "发布前复核该权限是否有其他用途" }
+  ],
+  "blockers": [
+    { "owner": "main", "desc": "本机无 Android 真机回归环境与 PC 侧编译环境，副屏无法端到端验证", "need": "带 MSVC/VS2022 的 Windows 机器 + 已 root 真机" }
+  ],
+  "metrics": {
+    "deliverableCount": 21,
+    "verifiedPassed": 3,
+    "verifiedTotal": 4
+  },
+  "nextSteps": [
+    "与 L4 联合做帧格式对接测试（先用 loopback 假流，不接真驱动）",
+    "副屏延迟预算实测：解码耗时 / 队列深度 / 端到端估算三个指标对比目标（≤30ms）",
+    "发布前复核 INTERNET 权限"
+  ],
+  "notes": [
+    "本回报由 main 于 agent 会话终止后代为整理（团队注册表返回 Known members: none，L3 已停止）。",
+    "deliverables 依据工作区实际文件清单与 main 的编译实测填写，非 L3 自报。",
+    "L3 的代码质量较高：Manifest 中主动引用了 [main 裁决 2026-09-20] 的架构决定。"
+  ]
+}

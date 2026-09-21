@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 媒体页：上一曲。黑白单色，由代码 setColorFilter 着色 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M7,6 h2.3 v12 h-2.3 z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M19,6.4 v11.2 L9.6,12 z" />
+</vector>

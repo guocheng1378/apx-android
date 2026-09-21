@@ -1,0 +1,49 @@
+{
+  "views": {
+    "overview": {
+      "ok": true,
+      "title": "总览",
+      "cards": 4
+    },
+    "screen": {
+      "ok": true,
+      "title": "副屏",
+      "cards": 4
+    },
+    "devices": {
+      "ok": true,
+      "title": "外设",
+      "cards": 5
+    },
+    "touchpad": {
+      "ok": true,
+      "title": "触控板",
+      "cards": 4
+    },
+    "connection": {
+      "ok": true,
+      "title": "连接与配对",
+      "cards": 2
+    },
+    "hotkeys": {
+      "ok": true,
+      "title": "快捷键",
+      "cards": 4
+    },
+    "settings": {
+      "ok": true,
+      "title": "设置与诊断",
+      "cards": 4
+    }
+  },
+  "pageErrors": [],
+  "consoleErrors": [
+    "[error] Failed to load resource: the server responded with a status of 404 (File not found)",
+    "[error] Failed to load resource: the server responded with a status of 501 (Unsupported method ('POST'))",
+    "[error] Failed to load resource: the server responded with a status of 501 (Unsupported method ('POST'))"
+  ],
+  "ok": true,
+  "hotkey_recording": "ok",
+  "action_feedback": "ok",
+  "demoModeBanner": true
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 前台服务通知小图标（必须为白色剪影，否则 Android 5.0+ 通知图标会被系统着色） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M7,2h10a2,2 0,0 1,2 2v16a2,2 0,0 1,-2 2h-10a2,2 0,0 1,-2 -2v-16a2,2 0,0 1,2 -2zM9,6h6v1h-6z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M19,8h2v8h-2zM17,6h2v12h-2z" />
+</vector>

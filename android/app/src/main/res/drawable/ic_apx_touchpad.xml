@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 页签图标：触控板（圆角面板 + 中心触点）。黑白单色，由代码 setColorFilter 着色 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M5.5,3.5 h13 a2,2 0 0 1 2,2 v13 a2,2 0 0 1 -2,2 h-13 a2,2 0 0 1 -2,-2 v-13 a2,2 0 0 1 2,-2 z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.8" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M12,8.6 a2.4,2.4 0 1 0 0,4.8 a2.4,2.4 0 1 0 0,-4.8 z" />
+</vector>

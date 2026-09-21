@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  顶栏（复用块）：页名 + 副说明 + 全局状态徽章。
+  竖屏显示；横屏沉浸操控面里整条隐藏（layout-land 用 include + visibility=gone）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/headerBar"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="10dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvPageTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="触控板"
+            android:textAppearance="@style/APTextTitle"
+            android:textSize="24sp" />
+
+        <TextView
+            android:id="@+id/tvPageSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:textAppearance="@style/APTextCaption" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/badgeStatus"
+        style="@style/APBadge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/common_unknown" />
+</LinearLayout>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MIUIX / HyperOS 深色取值（v1.16）。
+  与 values/colors.xml 同名同义 —— 主题方案切到「深色」或系统进入夜间时，
+  下面这些值自动覆盖，布局 / 样式 / drawable 一律不用改。
+-->
+<resources>
+    <color name="md_primary">#FF4C93FF</color>
+    <color name="md_on_primary">#FFFFFFFF</color>
+    <color name="md_primary_container">#FF1B3A6B</color>
+    <color name="md_on_primary_container">#FFB8D2FF</color>
+
+    <color name="md_secondary">#FFFF8A3D</color>
+    <color name="md_on_secondary">#FF2A1400</color>
+    <color name="md_secondary_container">#FF3A2412</color>
+    <color name="md_on_secondary_container">#FFFFD9BC</color>
+
+    <color name="md_tertiary">#FF34C77B</color>
+    <color name="md_on_tertiary">#FF062B18</color>
+
+    <color name="md_error">#FFF97066</color>
+    <color name="md_on_error">#FF3B0A0A</color>
+    <color name="md_error_container">#FF4A1A16</color>
+    <color name="md_on_error_container">#FFFFD9D5</color>
+
+    <color name="md_background">#FF000000</color>
+    <color name="md_on_background">#FFEDEDED</color>
+    <color name="md_surface">#FF1C1C1E</color>
+    <color name="md_on_surface">#FFEDEDED</color>
+    <color name="md_surface_variant">#FF2C2C2E</color>
+    <color name="md_on_surface_variant">#FF9BA1A6</color>
+    <color name="md_outline">#FF2C2C2E</color>
+    <color name="md_surface_container_low">#FF141416</color>
+
+    <color name="state_ok">#FF34C77B</color>
+    <color name="state_warn">#FFF7B45C</color>
+    <color name="state_error">#FFF97066</color>
+    <color name="state_idle">#FF7C848C</color>
+
+    <color name="card_stroke">#FF2C2C2E</color>
+    <color name="badge_bg">#FF1B3A6B</color>
+
+    <!-- MIUIX 液态玻璃底栏（深色：半透明白玻璃，与浅色主题镜像） -->
+    <color name="nav_bg">#F21C1C1E</color>
+    <color name="nav_stroke">#3DFFFFFF</color>
+    <!-- 选中胶囊：玻璃主体 / 高光 / 边缘亮线 / 外圈柔光 / 底部内阴影 -->
+    <color name="nav_pill">#2EFFFFFF</color>
+    <color name="nav_pill_shine">#3DFFFFFF</color>
+    <color name="nav_pill_stroke">#29FFFFFF</color>
+    <color name="nav_pill_halo">#1FFFFFFF</color>
+    <color name="nav_pill_shade">#33000000</color>
+    <color name="accent_glow">#1A4C93FF</color>
+
+    <!-- 副屏渲染面：深色下同样纯黑 -->
+    <color name="surface_render">#FF000000</color>
+    <color name="scrim">#B3000000</color>
+
+    <color name="miuix_bg">#FF000000</color>
+    <color name="miuix_card">#FF1C1C1E</color>
+    <color name="miuix_text">#FFEDEDED</color>
+    <color name="miuix_text_secondary">#FF9BA1A6</color>
+    <color name="miuix_text_tertiary">#FF6B7075</color>
+    <color name="miuix_divider">#FF2C2C2E</color>
+    <color name="miuix_stroke">#FF2C2C2E</color>
+    <color name="miuix_accent">#FF4C93FF</color>
+    <color name="miuix_accent_soft">#FF1B3A6B</color>
+    <color name="miuix_danger">#FFF97066</color>
+</resources>

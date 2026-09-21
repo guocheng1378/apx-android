@@ -1,0 +1,6 @@
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/CMakeFiles/apx.dir
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/CMakeFiles/rebuild_cache.dir
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/apx_shared/CMakeFiles/apx_shared.dir
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/apx_shared/CMakeFiles/edit_cache.dir
+C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/x86_64/apx_shared/CMakeFiles/rebuild_cache.dir

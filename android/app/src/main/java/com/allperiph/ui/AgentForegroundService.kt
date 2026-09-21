@@ -1,0 +1,200 @@
+package com.allperiph.ui
+
+import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import com.allperiph.core.AgentStateEvent
+import com.allperiph.core.EventBus
+import com.allperiph.core.GadgetStateEvent
+import com.allperiph.core.LinkSpeed
+import com.allperiph.core.Log
+import com.allperiph.core.ModuleState
+import com.allperiph.R
+
+/**
+ * 【M6】常驻前台服务（架构 §1 Hardware Agent 的宿主）。
+ *
+ * 本服务是 **Manifest 中唯一声明**的前台服务，负责「编排 + 通知 + 进程兜底」；
+ * 业务逻辑全在各自模块里。（原 `core/AgentService` 已按 main 裁决废弃：
+ * UDC/Gadget 只能有一个所有者，重复的前台服务会互相抢占 USB 配置。）
+ *
+ * 要点：
+ * - `foregroundServiceType=connectedDevice`（Manifest 与此处必须一致，Android 14 强校验）；
+ * - 缺通知权限时 `startForeground` 会抛异常，此处吞掉并继续运行（代理逻辑不依赖通知）；
+ * - 进程被杀时靠 shutdown hook 逆序停止模块，尽力恢复 USB 配置（架构 §6.2）。
+ */
+class AgentForegroundService : Service() {
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val disposables = ArrayList<EventBus.Disposable>()
+    private var shutdownHook: Thread? = null
+
+    @Volatile
+    private var lastScreenText = "外设运行中"
+
+    @Volatile
+    private var lastLink: LinkSpeed = LinkSpeed.UNKNOWN
+
+    override fun onCreate() {
+        super.onCreate()
+        Log.i(TAG, "onCreate")
+        NotificationChannels.ensure(this)
+        AgentController.build(this)
+        subscribeEvents()
+        installShutdownHook()
+        running = true
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_STOP -> {
+                AgentController.stopAll()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_REPROBE -> {
+                AgentController.refreshEnv(this) { updateNotification() }
+                return START_STICKY
+            }
+        }
+        startForegroundGuarded()
+        AgentController.startEnabled(this)
+        // 自检涉及 su（可能耗时数百毫秒），必须异步
+        AgentController.refreshEnv(this) { updateNotification() }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        Log.i(TAG, "onDestroy")
+        for (d in disposables) d.dispose()
+        disposables.clear()
+        AgentController.stopAll()
+        shutdownHook?.let {
+            runCatching { Runtime.getRuntime().removeShutdownHook(it) }
+            shutdownHook = null
+        }
+        running = false
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    // ————————————————————————— 通知 —————————————————————————
+
+    private fun startForegroundGuarded() {
+        val n = buildNotification()
+        try {
+            startForeground(
+                NOTIFY_ID,
+                n,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+            )
+        } catch (t: Throwable) {
+            // 常见原因：未授予 POST_NOTIFICATIONS。代理逻辑仍可运行，不崩溃。
+            Log.w(TAG, "startForeground 失败：${t.message}")
+        }
+    }
+
+    private fun updateNotification() {
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (!EnvChecks.notificationGranted(this)) return
+        runCatching { nm.notify(NOTIFY_ID, buildNotification()) }
+            .onFailure { Log.w(TAG, "更新通知失败：${it.message}") }
+    }
+
+    private fun buildNotification(): Notification {
+        val openPi = PendingIntent.getActivity(
+            this, 1,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val stopPi = PendingIntent.getService(
+            this, 2,
+            Intent(this, AgentForegroundService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val text = getString(
+            R.string.notify_text_running,
+            lastLink.label,
+            lastScreenText,
+        )
+        return Notification.Builder(this, NotificationChannels.CHANNEL_STATUS)
+            .setContentTitle(getString(R.string.notify_title))
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_stat_agent)
+            .setContentIntent(openPi)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .addAction(
+                Notification.Action.Builder(
+                    R.drawable.ic_stat_peripheral,
+                    getString(R.string.notify_action_open),
+                    openPi,
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    R.drawable.ic_stat_peripheral,
+                    getString(R.string.notify_action_stop),
+                    stopPi,
+                ).build()
+            )
+            .build()
+    }
+
+    private fun subscribeEvents() {
+        disposables += EventBus.on<GadgetStateEvent>(mainHandler) {
+            lastLink = it.linkSpeed
+            updateNotification()
+        }
+        disposables += EventBus.on<AgentStateEvent>(mainHandler) {
+            lastLink = it.linkSpeed
+            updateNotification()
+        }
+        // v1.12：ScreenStatusEvent 订阅随副屏功能移除
+    }
+
+    private fun installShutdownHook() {
+        val hook = Thread({
+            Log.w(TAG, "shutdown hook：逆序停止模块，尽量恢复 USB 配置")
+            AgentController.stopAll()
+        }, "apx-ui-shutdown-hook")
+        shutdownHook = hook
+        runCatching { Runtime.getRuntime().addShutdownHook(hook) }
+            .onFailure { Log.w(TAG, "addShutdownHook 失败：${it.message}") }
+    }
+
+    companion object {
+        private const val TAG = "AgentForegroundService"
+        private const val NOTIFY_ID = 0x9A2
+
+        const val ACTION_START = "com.allperiph.action.START"
+        const val ACTION_STOP = "com.allperiph.action.STOP"
+        const val ACTION_REPROBE = "com.allperiph.action.REPROBE"
+
+        @Volatile
+        var running: Boolean = false
+            private set
+
+        fun start(context: Context) {
+            val i = Intent(context, AgentForegroundService::class.java).setAction(ACTION_START)
+            runCatching { context.startForegroundService(i) }
+                .onFailure { Log.e(TAG, "启动前台服务失败", it) }
+        }
+
+        fun stop(context: Context) {
+            context.startService(
+                Intent(context, AgentForegroundService::class.java).setAction(ACTION_STOP)
+            )
+        }
+    }
+}

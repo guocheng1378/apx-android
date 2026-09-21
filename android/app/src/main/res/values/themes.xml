@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      主界面主题：MIUIX / HyperOS 亮色（v1.16 全 App 统一）。
+      不依赖 androidx / Material 库，只用 framework 的 Material.Light，
+      与 app/build.gradle.kts 的「零第三方依赖」约定一致。
+    -->
+    <style name="Theme.AllPeriph" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/md_background</item>
+        <item name="android:colorBackground">@color/md_background</item>
+        <item name="android:colorPrimary">@color/md_primary</item>
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:statusBarColor">@color/md_background</item>
+        <item name="android:navigationBarColor">@color/md_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+    </style>
+
+    <!--
+      触控板操控面：与主界面同一套 MIUIX 令牌（别名保留，语义上指明"操控面"）。
+      v1.16 起不再单独定义颜色，避免两处色板漂移。
+    -->
+    <style name="Theme.AllPeriph.Miuix" parent="Theme.AllPeriph" />
+
+    <!-- 操控面全屏形态（隐藏系统栏，操控区最大化） -->
+    <style name="Theme.AllPeriph.Miuix.Fullscreen" parent="Theme.AllPeriph.Miuix">
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <!--
+      副屏渲染 Activity：全屏纯黑无装饰（画面就是渲染面，不参与亮色化）；
+      系统栏由 WindowInsetsController 运行时隐藏。
+    -->
+    <style name="Theme.AllPeriph.Fullscreen" parent="Theme.AllPeriph">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@color/surface_render</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+    </style>
+
+    <!-- 快捷键编辑弹窗：亮色 + 蓝强调（供 AlertDialog.Builder(ctx, R.style...)） -->
+    <style name="Theme.AllPeriph.Miuix.Dialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">@color/md_primary</item>
+        <item name="android:windowBackground">@color/md_surface</item>
+    </style>
+</resources>

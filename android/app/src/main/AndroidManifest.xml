@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  全能外设 · Android 端 Manifest（权属：ui/screen 负责人）
+  namespace 必须与 build.gradle 的 android.namespace 一致：com.allperiph
+
+  说明：本文件只声明 UI / 副屏 / 前台服务相关的组件与权限。
+  其它模块的运行时权限请在各自的 library manifest 中声明（见文末 TODO 块），
+  若最终为单 module 工程则由 main 决定合并方式，避免重复声明。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ============ UI / 前台服务相关权限 ============ -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- USB 连接设备（Gadget + 副屏链路）对应的前台服务类型 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!--
+      Android 14+ 对 connectedDevice 类型的前台服务额外要求「下列任一」权限，
+      只声明 FOREGROUND_SERVICE_CONNECTED_DEVICE 仍会 startForeground 失败：
+        BLUETOOTH_ADVERTISE/CONNECT/SCAN、CHANGE_NETWORK_STATE、CHANGE_WIFI_STATE、
+        CHANGE_WIFI_MULTICAST_STATE、NFC、TRANSMIT_IR、UWB_RANGING 或 USB Device/Accessory。
+      这里取 CHANGE_NETWORK_STATE：本 gadget 内置 f_ncm 网卡 function，
+      持有该权限语义相符，且属普通权限、无需运行时弹窗。
+    -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 无线模式主通道：局域网 WiFi 上手机做服务端（TcpBulkTransport 服务端形态），
+         PC 主动连入；也兼容 adb forward 回环。USB 有线模式（JNI bulk）不需要此权限，
+         但无线是正式交付形态之一，故必须声明。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 接收 PC 的 UDP 发现广播（无线配对） -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- ===== 以下权限由各业务模块使用，统一在本 Manifest 声明（单 module 工程）===== -->
+    <!-- sensor：Android 12+ 下 registerListener 上限 200Hz，超过须声明此权限；无权限时降级 -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <!-- gps：读取 NMEA → CDC ACM；后台定位用于锁屏时保持 NMEA 输出 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- vibe：振动马达；手电筒走 CameraManager.setTorchMode -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- bthid：BluetoothHidDevice 注册（API 31+ 运行时权限，UI 侧请求） -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- audio：UAC2 声卡单向采集手机麦克风（AudioRecord）并播放 PC 下行的声音 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- AOA（Android Open Accessory）附件模式：PC 作为 Host 时的备用传输通道（架构 §2 路线 B） -->
+    <uses-feature
+        android:name="android.hardware.usb.accessory"
+        android:required="false" />
+
+    <!-- 触控与手写笔为可选硬件：缺失时仍可安装，仅在 UI 提示降级 -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen.multitouch"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.stylus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher_app"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher_app"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AllPeriph"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
+        tools:targetApi="34">
+
+        <!-- 主控制面：模块开关、连接状态、链路诊断
+             v1.19：横竖屏用**资源限定符**切换布局（res/layout-land/），因此不再拦截
+             orientation / screenSize 等配置变化 —— 交给系统重建 Activity，
+             这样横屏必定加载 layout-land（沉浸操控面），竖屏必定回到带标题+悬浮底栏的布局。 -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensor"
+            android:configChanges="keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 全屏触控板：手势在手机端识别，上行相对鼠标（与副屏互斥）
+             v1.14：改用 MIUIX 亮色全屏主题（页签式操控面，见 themes.xml） -->
+        <activity
+            android:name=".touchpad.TouchpadActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorPortrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
+
+        <!-- 旧 KeyboardActivity（USB 快捷键键盘）/ HotkeyActivity（多媒体键）已于 v1.22 删除：
+             两者都成了无入口死代码，功能分别并入操控面的键盘页与「遥控键盘」键位 -->
+
+        <!-- 摄像头 Activity 已随 v1.12 收摊移除 -->
+
+        <!--
+          [main 裁决 2026-09-20，2026-09-21 执行完毕] 本服务是**唯一**前台服务，负责
+          core / gadget / sensor / gps / vibe / screen 的生命周期编排与常驻通知。裁决理由：
+            1) AndroidManifest.xml 归 L3，且 ui.MainActivity 直接调用本服务；
+            2) 分层正确——Service 只做通知与进程兜底，业务编排委托 ui.AgentController 与各模块；
+            3) core/AgentService（L2）与之职责重复。已于 2026-09-21 由 main 废弃删除
+               （core/AgentService.kt 及 agent_notify_* 死资源一并清理），
+               避免两个前台服务同时抢占 Gadget（架构 §6.2：UDC 只能有一个所有者）。
+        -->
+        <service
+            android:name=".ui.AgentForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!-- 通知渠道 meta（渠道由 NotificationChannels 运行时创建，此处仅占位说明） -->
+        <meta-data
+            android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"
+            android:value="allperiph_status" />
+    </application>
+
+</manifest>

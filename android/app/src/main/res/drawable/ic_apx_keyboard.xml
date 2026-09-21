@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 页签图标：键盘（键位面板 + 空格键）。黑白单色，由代码 setColorFilter 着色 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,6 h17 a2,2 0 0 1 2,2 v8 a2,2 0 0 1 -2,2 h-17 a2,2 0 0 1 -2,-2 v-8 a2,2 0 0 1 2,-2 z"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.8" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M5.6,9 h2 v2 h-2 z M9.2,9 h2 v2 h-2 z M12.8,9 h2 v2 h-2 z M16.4,9 h2 v2 h-2 z M8,12.6 h8 v2 h-8 z" />
+</vector>

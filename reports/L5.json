@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "laneId": "L5",
+  "laneName": "PC 宿主服务与工具",
+  "agent": "pc-host",
+  "generatedAt": "2026-09-20T18:50:00+08:00",
+  "status": "PARTIAL",
+  "scope": {
+    "ownedDirs": ["pc/host/", "pc/tools/"],
+    "touchedFiles": ["reports/L5.json", "reports/L5.md"]
+  },
+  "deliverables": [
+    { "path": "pc/host/CMakeLists.txt", "kind": "build", "built": "no", "notes": "构建定义已就位；未在 MSVC 下构建验证（本机无 VS）" },
+    { "path": "pc/host/cmake/ApxShared.cmake", "kind": "build", "built": "yes", "notes": "优先使用 shared/ 真源，缺失时降级 compat/ 替身（**该降级应改为 FATAL_ERROR**，见 contractDeviations）" },
+    { "path": "pc/host/include/apxpc/discovery/usb_types.hpp", "kind": "source", "built": "yes", "notes": "设备/接口/端点类型定义" },
+    { "path": "pc/host/include/apxpc/discovery/enumerator.hpp", "kind": "source", "built": "yes", "notes": "按 VID/PID 与 USB 速度识别复合设备" },
+    { "path": "pc/host/include/apxpc/discovery/descriptor_parse.hpp", "kind": "source", "built": "yes", "notes": "描述符解析" },
+    { "path": "pc/host/include/apxpc/discovery/monitor.hpp", "kind": "source", "built": "yes", "notes": "插拔事件监控" },
+    { "path": "pc/host/src/discovery/usb_enum_win.cpp", "kind": "source", "built": "no", "notes": "SetupAPI/WinUSB 枚举（需 Windows SDK，未本机验证）" },
+    { "path": "pc/host/src/discovery/usb_enum_sysfs.cpp", "kind": "source", "built": "no", "notes": "Linux sysfs 枚举" },
+    { "path": "pc/host/src/discovery/usb_enum_libusb.cpp", "kind": "source", "built": "no", "notes": "libusb 枚举（可选后端）" },
+    { "path": "pc/host/src/discovery/usb_types.cpp", "kind": "source", "built": "yes", "notes": "类型实现" },
+    { "path": "pc/host/src/discovery/descriptor_parse.cpp", "kind": "source", "built": "yes", "notes": "描述符解析实现" },
+    { "path": "pc/host/src/discovery/monitor.cpp", "kind": "source", "built": "yes", "notes": "设备监控实现" },
+    { "path": "pc/host/include/apxpc/ctrl/ctrl_frame.hpp", "kind": "source", "built": "yes", "notes": "控制面帧格式（PROTOCOL §4）" },
+    { "path": "pc/host/include/apxpc/ctrl/ctrl_client.hpp", "kind": "source", "built": "yes", "notes": "握手 HELLO/HELLO_ACK/CONFIG/CONFIG_ACK/BYE、心跳 RTT、断线自愈" },
+    { "path": "pc/host/include/apxpc/ctrl/transport.hpp", "kind": "source", "built": "yes", "notes": "控制面传输抽象" },
+    { "path": "pc/host/src/ctrl/ctrl_frame.cpp", "kind": "source", "built": "yes", "notes": "帧编解码" },
+    { "path": "pc/host/src/ctrl/ctrl_client.cpp", "kind": "source", "built": "yes", "notes": "客户端实现" },
+    { "path": "pc/host/src/ctrl/transport_registry.cpp", "kind": "source", "built": "yes", "notes": "传输后端注册" },
+    { "path": "pc/host/src/ctrl/bulk_transport_win.cpp", "kind": "source", "built": "no", "notes": "WinUSB 批量传输（未本机验证）" },
+    { "path": "pc/host/src/ctrl/bulk_transport_libusb.cpp", "kind": "source", "built": "no", "notes": "libusb 批量传输" },
+    { "path": "pc/host/src/ctrl/bulk_transport_null.cpp", "kind": "source", "built": "yes", "notes": "空实现（自测用）" },
+    { "path": "pc/host/src/ctrl/hid_transport_win.cpp", "kind": "source", "built": "no", "notes": "Windows HID 通道（未本机验证）" },
+    { "path": "pc/host/src/ctrl/hid_transport_hidraw.cpp", "kind": "source", "built": "no", "notes": "Linux hidraw 通道" },
+    { "path": "pc/host/include/apxpc/sensors/sensor_reader.hpp", "kind": "source", "built": "yes", "notes": "**读取系统已集成的传感器**（Windows Sensor API / Linux IIO）——这是验证 MS1「手机传感器变成 PC 本机传感器」的关键抽象" },
+    { "path": "pc/host/src/sensors/sensor_reader_factory.cpp", "kind": "source", "built": "yes", "notes": "按平台选择读取器" },
+    { "path": "pc/host/include/apxpc/ui/panel.hpp", "kind": "source", "built": "no", "notes": "控制面板接口定义**已有，但缺 .cpp 实现**（见 risks）" },
+    { "path": "pc/host/src/log/log.cpp", "kind": "source", "built": "yes", "notes": "日志" },
+    { "path": "pc/host/src/platform/clock.cpp", "kind": "source", "built": "yes", "notes": "时基" },
+    { "path": "pc/host/src/util/crc32.cpp", "kind": "source", "built": "yes", "notes": "CRC32" },
+    { "path": "pc/host/include/apxpc/format.hpp", "kind": "source", "built": "yes", "notes": "格式化输出" },
+    { "path": "pc/host/include/apxpc/log.hpp", "kind": "source", "built": "yes", "notes": "日志接口" },
+    { "path": "pc/host/include/apxpc/status.hpp", "kind": "source", "built": "yes", "notes": "状态结构" },
+    { "path": "pc/host/include/apxpc/version.hpp", "kind": "source", "built": "yes", "notes": "版本号" },
+    { "path": "pc/host/include/apxpc/util/crc32.hpp", "kind": "source", "built": "yes", "notes": "CRC32 接口" },
+    { "path": "pc/host/include/apxpc/platform/clock.hpp", "kind": "source", "built": "yes", "notes": "时基接口" }
+  ],
+  "verification": [
+    {
+      "command": "python scripts/aggregate.py",
+      "expected": "L5 行出现在汇总矩阵中，schema 校验通过（verification 至少 1 条）",
+      "actual": "**此前 L5 被判 INVALID，原因是 verification 为空数组**（违反 REQ §schema：verification 至少 1 条）。本回报已补齐真实条目，schema 违规解除",
+      "passed": true
+    },
+    {
+      "command": "cd pc/host && cmake -S . -B build -G \"Visual Studio 17 2022\" -A x64 && cmake --build build",
+      "expected": "MSVC 构建通过",
+      "actual": "未执行：本机无 VS2022/Windows SDK。仅 Windows 专有实现（usb_enum_win / bulk_transport_win / hid_transport_win）未验证，平台无关部分代码结构完整",
+      "passed": false
+    },
+    {
+      "command": "在已连接复合设备的机器上运行 sensor_dump，确认 Windows 传感器面板/设备管理器能看到手机传感器",
+      "expected": "枚举出 HID 传感器读数（MS1 验收）",
+      "actual": "未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）",
+      "passed": false
+    }
+  ],
+  "contractDeviations": [
+    { "desc": "pc/host/compat/apx/*.h 是 shared/ 尚未交付时的替身，且内容已过时（例如仍写着 kReportLowFreq = 2）", "impact": "breaking", "neededFrom": "L5 自身", "resolution": "**待处理**：shared/ 已交付且自测 230 项全绿。应删除 compat/ 并把 cmake/ApxShared.cmake 的静默降级改为 FATAL_ERROR。静默降级会让编译成功但产物是错版本，比直接失败更危险" },
+    { "desc": "协议 v1.2 落地后，shared/ 的低频传感器由共用 Report ID 2 拆成 9 个独立 Report ID 7..15，且低频报告删除了 sensorId 字段、ConsumerKey 由 3B 改为 4B 位图", "impact": "breaking", "neededFrom": "L1（已交付）", "resolution": "**待 L5 同步解析代码**：不能再按固定 ID 2 判断低频报告；sensorId 改由 Report ID 承载（可用 shared/ 新增的 sensorIdOfLowFreqReport()）" }
+  ],
+  "risks": [
+    { "level": "high", "desc": "**pc/tools/ 整个目录不存在**，任务书要求的 sensor_dump / gps_probe / link_bench 三件套全部未交付。这三者是 MS1–MS3 的验收工具，缺了就无法验证「手机传感器已变成 PC 本机传感器」", "mitigation": "优先补 sensor_dump（MS1 验收直接依赖它），gps_probe 与 link_bench 次之" },
+    { "level": "high", "desc": "ui/panel.hpp 有接口但**无 .cpp 实现**，控制面板无法运行", "mitigation": "先做无依赖的命令行版本（并入 sensor_dump），图形面板次之" },
+    { "level": "medium", "desc": "全部 Windows 专有实现未经编译验证（本机无 VS/SDK），可能含与 L4 类似的 API 误用", "mitigation": "在带 VS2022 的机器上完整构建一次" },
+    { "level": "medium", "desc": "协议 v1.2 变更后，若按旧布局解析 HID 报告会读到错位数据（数据看着有值但全错）", "mitigation": "同步 Report ID 7..15 的解析逻辑，并直接用 shared/ 的映射函数" }
+  ],
+  "blockers": [
+    { "owner": "main", "desc": "无 VS2022 / Windows SDK 环境，Windows 专有实现无法编译验证", "need": "Windows + VS2022 构建机" },
+    { "owner": "L5 自身", "desc": "pc/tools/ 三件套未交付", "need": "补齐 sensor_dump / gps_probe / link_bench" }
+  ],
+  "metrics": {
+    "deliverableCount": 35,
+    "verifiedPassed": 1,
+    "verifiedTotal": 3,
+    "sourceFiles": 34
+  },
+  "nextSteps": [
+    "补齐 pc/tools/ 三件套，sensor_dump 优先（MS1 验收依赖）",
+    "实现 ui/panel.cpp（或先做命令行版并入 sensor_dump）",
+    "删除 pc/host/compat/，ApxShared.cmake 改为强制依赖 shared/",
+    "按协议 v1.2 同步 HID 报告解析（低频 Report ID 7..15、Consumer 位图、sensorId 字段移除）"
+  ],
+  "notes": [
+    "本回报由 main 于 agent 会话终止后代为整理（Known members: none）。",
+    "**L5 此前被判 INVALID 的直接原因是 verification 为空数组**，本次已补齐。",
+    "deliverables 依据工作区实际文件清单（35 个文件）填写。原回报为空壳。",
+    "sensor_reader.hpp 的设计值得肯定：它把「读系统已集成传感器」抽象成单一接口，是 MS1 验收的核心抓手。"
+  ]
+}
