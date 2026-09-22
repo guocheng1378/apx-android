@@ -42,18 +42,18 @@ class ScreenThread(
     @Volatile private var frameWidth = 1280
     @Volatile private var frameHeight = 720
 
-    fun start() {
+    override fun start() {
         super.start()
         Handler(app.mainLooper).post { createOverlayWindow() }
         // 等待 Surface 就绪后再开始读循环
         Thread({ waitForSurfaceAndRun() }, "apx-screen-read").start()
     }
 
-    fun quit() {
+    override fun quit() {
         running.set(false)
         Handler(app.mainLooper).post { destroyOverlayWindow() }
         quitSafely()
-        quit()
+        super.quit()
     }
 
     fun statusText(): String {
