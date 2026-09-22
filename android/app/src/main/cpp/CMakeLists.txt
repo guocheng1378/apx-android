@@ -22,6 +22,7 @@ add_subdirectory("${APX_SHARED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/apx_shared")
 
 add_library(apx SHARED
     apx_jni.cpp
+    uvc_output_jni.cpp
 )
 target_include_directories(apx PRIVATE "${APX_SHARED_DIR}/include")
 target_link_libraries(apx PRIVATE apx_shared)
