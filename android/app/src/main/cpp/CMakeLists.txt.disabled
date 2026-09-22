@@ -1,3 +1,0 @@
-# 暂时禁用 native 编译，仅构建 Kotlin APK。
-# CI 成功后恢复此文件。
-message(FATAL_ERROR "Native build disabled for CI debug")
