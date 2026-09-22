@@ -46,11 +46,12 @@ jobs:
       - name: Find APK
         if: always()
         run: find . -name "*.apk" -type f 2>/dev/null
+        working-directory: .
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: apx-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 7
