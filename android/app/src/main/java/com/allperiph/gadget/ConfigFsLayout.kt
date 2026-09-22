@@ -1,7 +1,6 @@
 package com.allperiph.gadget
 
-import com.allperiph.core.AudioConst
-import com.allperiph.core.GadgetConst
+import com.allperiph.core.Log
 import com.allperiph.core.SysPath
 import com.allperiph.core.UsbId
 
@@ -131,7 +130,7 @@ data class Step(
 
 object ConfigFsLayout {
 
-    /** 生成挂载命令序列 */
+    /** 生成挂载命令序列（含 UDC 绑定） */
     fun mount(o: GadgetOptions, udc: String): List<Step> {
         if (o.reuse) return mountReuse(o)
 
@@ -222,12 +221,12 @@ object ConfigFsLayout {
                     "test \"\$ok\" = \"1\"",
             )
         }
+        // UDC 绑定已移至 UdcBinder（多步策略：常规 → 杀 HAL → 重试）。
+        // 这里只做诊断日志，不再尝试绑定。
         steps += Step(
-            "ok=0; for t in 1 2 3; do " +
-                "if printf '%s' '$udc' > '$g/UDC' 2>/tmp/apx_udc_err; then ok=1; break; else " +
-                "echo \"udc try \$t rc=\$? err=\$(cat /tmp/apx_udc_err)\" >> /data/local/tmp/apx_unbind.txt; " +
-                "sleep 1; fi; done; " +
-                "test \$ok -eq 1",
+            "echo \"pre-bind: udc=$udc\" >> /data/local/tmp/apx_ffs.txt; " +
+                "cat '/sys/class/udc/$udc/state' 2>/dev/null >> /data/local/tmp/apx_ffs.txt",
+            optional = true,
         )
         steps += Step("chmod 666 '${SysPath.HIDG_DEVICE}'", optional = true)
         steps += Step("chmod 666 '${SysPath.ACM_DEVICE}'", optional = true)
