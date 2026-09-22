@@ -46,7 +46,16 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: set -o pipefail && ./gradlew assembleDebug --no-daemon 2>&1 | tail -200
+        run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+        shell: bash
+
+      - name: Show build errors
+        if: failure()
+        run: |
+          echo "========== BUILD FAILED =========="
+          grep -A 5 -i "error:" /tmp/build.log 2>/dev/null || true
+          grep -A 5 -i "FAILURE" /tmp/build.log 2>/dev/null || true
+          tail -80 /tmp/build.log 2>/dev/null || true
 
       - name: Find APK
         if: always()
