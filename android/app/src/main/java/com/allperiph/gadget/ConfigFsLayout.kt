@@ -9,10 +9,12 @@ import com.allperiph.core.UsbId
  * 复合设备的 ConfigFS 布局（纯函数：只生成命令序列，不执行）。
  *
  * v2.0：支持两种模式：
- * - 全量模式（mount）：创建独立 gadget（适合全新设备）
- * - 复用模式（mountReuse）：往 g1 里添加 function（适合 Android 设备，参考 android-hid-client）
+ * - 全量模式（mount）：创建独立 gadget
+ * - 复用模式（mountReuse）：往 g1 里添加 function
  *
- * 复用模式只添加 g1 上缺失的 function，不重复添加已有功能。
+ * 复用模式只添加 g1 上缺失的 function。
+ * g1 已有：uac2.0, ncm.gs6, gsi.ncm, ffs.* 等
+ * 需要新加：HID, ACM, UVC（streaming header 已有，需补 control header）
  */
 enum class GadgetFeature(
     val instance: String,
@@ -22,26 +24,20 @@ enum class GadgetFeature(
 ) {
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
-    UAC2("uac2.usb0", true, true, "f_uac2 声卡"),
-    UVC("uvc.usb0", false, true, "f_uvc 摄像头"),
-    NCM("ncm.usb0", false, true, "f_ncm 网卡"),
-    FFS(
-        "ffs.apx",
-        false,
-        true,
-        "f_fs FunctionFS（副屏 bulk）",
-    ),
+    // UVC：g1 上已有 uvc.0 且 streaming header 完整（720p/1080p/360p MJPEG），
+    // 但缺少 control header 链接。复用模式下补上 control header 即可。
+    UVC("uvc.0", true, true, "f_uvc 摄像头（g1 复用，streaming 已有，补 control header）"),
     ;
 
     companion object {
         fun defaults(): Set<GadgetFeature> = entries.filter { it.enabledByDefault }.toSet()
 
         /**
-         * g1 复用模式的 feature 列表：只加 g1 上缺失的 function。
-         * g1 已有：uac2.0, uvc.0, ncm.gs6, gsi.ncm, ffs.adb 等
-         * 需要新加：HID, ACM（GPS）
+         * g1 复用模式的 feature 列表。
+         * g1 已有：uac2.0（声卡）, ncm.gs6（网卡）, gsi.ncm, ffs.*
+         * 需要新加：HID（键鼠传感器）, ACM（GPS）, UVC（摄像头）
          */
-        fun g1ReuseDefaults(): Set<GadgetFeature> = setOf(HID, ACM)
+        fun g1ReuseDefaults(): Set<GadgetFeature> = setOf(HID, ACM, UVC)
     }
 }
 
@@ -70,9 +66,9 @@ data class Step(
 object ConfigFsLayout {
 
     /**
-     * g1 复用模式：往 g1 里添加 function（参考 android-hid-client）。
+     * g1 复用模式：往 g1 里添加 function。
      * 
-     * 关键：必须在 UDC 已解绑的状态下调用（由 UsbHalArbiter.unbindUdc() 保证）。
+     * 关键：必须在 UDC 已解绑的状态下调用。
      * 流程：创建 function 目录 → 写参数 → 链到 configs/b.1
      */
     fun mountReuse(o: GadgetOptions): List<Step> {
@@ -84,12 +80,27 @@ object ConfigFsLayout {
             val fd = "$g/functions/${f.instance}"
             val optional = f.optional
 
-            // 如果 function 目录已存在（比如 g1 上已有 uac2.0），先清理旧的 symlink
+            // 清理旧 symlink
             steps += Step("rm -f '$configDir/${f.instance}' 2>/dev/null", optional = true)
-            // 如果 function 目录已存在，删除重建
-            steps += Step("rmdir '$fd' 2>/dev/null", optional = true)
-            steps += Step("mkdir '$fd'", optional = true)
-            steps += functionProps(f, fd, o)
+
+            when (f) {
+                GadgetFeature.UVC -> {
+                    // g1 上已有 uvc.0 且 streaming header 完整，
+                    // 但 control header 缺失。补上 control header 链接。
+                    // control 目录结构：header/h（内核自动生成）→ class/{fs,hs,ss}/h（需手动创建）
+                    steps += Step("mkdir -p '$fd/control/header/h'", optional = true)
+                    steps += Step("ln -sf '$fd/control/header/h' '$fd/control/class/fs/h'", optional = true)
+                    steps += Step("ln -sf '$fd/control/header/h' '$fd/control/class/hs/h'", optional = true)
+                    steps += Step("ln -sf '$fd/control/header/h' '$fd/control/class/ss/h'", optional = true)
+                }
+                else -> {
+                    // HID/ACM：如果 function 目录已存在，删除重建
+                    steps += Step("rmdir '$fd' 2>/dev/null", optional = true)
+                    steps += Step("mkdir '$fd'", optional = true)
+                    steps += functionProps(f, fd, o)
+                }
+            }
+
             // 链接到 configs/b.1
             steps += Step(
                 "cd '$configDir' && ln -s '../../functions/${f.instance}' '${f.instance}'",
@@ -100,12 +111,13 @@ object ConfigFsLayout {
         // chmod 设备节点
         steps += Step("chmod 666 '${SysPath.HIDG_DEVICE}'", optional = true)
         steps += Step("chmod 666 '${SysPath.ACM_DEVICE}'", optional = true)
+        steps += Step("chmod 666 /dev/video* 2>/dev/null", optional = true)
 
         return steps
     }
 
     /**
-     * 全量模式：创建独立 gadget（适合全新设备或需要完全自定义的场景）。
+     * 全量模式：创建独立 gadget。
      */
     fun mount(o: GadgetOptions, udc: String): List<Step> {
         if (o.reuse) return mountReuse(o)
