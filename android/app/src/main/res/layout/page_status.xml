@@ -124,13 +124,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="副屏投送 —— 手机屏幕作为 PC 的第二显示器（USB 3.0 下更流畅）"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
                 android:text="麦克风 —— UAC2 音频，把手机麦克风上行给 PC"
                 android:textAppearance="@style/APTextCaption" />
 
@@ -149,6 +142,13 @@
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="摄像头 —— UVC 免驱 webcam（Camera2 → MJPEG → V4L2）；需 ROM 内核支持 UVC Gadget，不支持时模块报错不影响其他功能"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingTop="14dp"
@@ -159,14 +159,23 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="蓝牙键盘 —— 待 BtHidDevice 增 reportKeyboard 后接入（蓝牙 HID 已有鼠标 / 多媒体）"
+                android:text="副屏 —— 代码已移植；需 root + 悬浮窗权限 + PC 端 apxhost 发流，真机未验证"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:id="@+id/tvOverlayHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:text="→ 点这里开启「显示在其他应用上层」（副屏画面要用）"
+                android:textColor="@color/md_primary"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="摄像头 —— 手机摄像头作为 PC 摄像头（UVC 复合设备）"
+                android:text="蓝牙键盘 —— 待 BtHidDevice 增 reportKeyboard 后接入（蓝牙 HID 已有鼠标 / 多媒体）"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
@@ -188,6 +197,41 @@
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
                 android:text="振动 / 手电 / 红外 —— 由 PC 反向控制手机"
+                android:textAppearance="@style/APTextCaption" />
+        </LinearLayout>
+
+        <!-- 三步上手：开启后用户经常不知道下一步，这里给固定引导（常显，方便随时回看） -->
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="怎么用（三步）"
+                android:textAppearance="@style/APTextSubtitle" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="8dp"
+                android:text="① 手机：打开本页上方开关。PC 插线后 USB 会短暂断开重连，属正常现象"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="② PC：运行仓库里的 apxhost.exe（build_host\\Release），浏览器打开 http://127.0.0.1:47990"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="③ 使用：触控板 / 键盘 / 麦克风 / 音响即插即用；副屏与摄像头需在 PC 面板里启用，且需 PC 端推流配合"
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 

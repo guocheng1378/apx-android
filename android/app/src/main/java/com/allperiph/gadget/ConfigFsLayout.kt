@@ -36,10 +36,33 @@ enum class GadgetFeature(
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
     UAC2("uac2.usb0", true, true, "f_uac2 声卡（手机麦克风 + 扬声器；内核无此 function 时自动跳过）"),
-    // v1.13：UVC 已启用——CameraModule 实现了 Camera2→V4L2 数据面。
-    // ConfigFS 树由 GadgetManager 挂载，V4L2 节点由内核 f_uvc 创建。
-    // 真机若 UDC 绑定失败，optional=true 允许降级（跳过 UVC，其余模块正常）。
-    UVC("uvc.usb0", true, true, "f_uvc 摄像头（MJPEG 720p@30，CameraModule 数据面已实现）"),
+    // v1.11：UVC 默认关闭——真机实测 configfs 树 build 后 UDC 绑定被内核拒绝
+    // （udc-state=[not attached]，2026-09-21 22:07），整复合设备挂载失败。
+    // 内核 f_uvc 存在（CONFIG_USB_CONFIGFS_F_UVC=y），问题在 configfs 属性/
+    // symlink 组合未被当前内核接受；待数据面完成后由 CameraModule 单独挂载
+    // 迭代（App 内可抓 dmesg 定位具体被拒环节），不再拖累主开关。
+    /**
+     * f_uvc 摄像头。**默认关闭 —— v1.34 真机诊断已确认本 ROM 不可用**，原因不是描述符写错，
+     * 而是**内核的 UVC configfs 软链操作会挂住内核**：
+     *
+     * ```
+     * RootShell: timeout: ln -sf .../control/header/h → .../control/class/fs/h
+     * RootShell: timeout: ln -sf .../streaming/mjpeg/m → .../streaming/header/h/m
+     * GadgetManager: step failed: ln -sf ... (code=-1) → gadget error: ConfigFS 挂载失败
+     * ```
+     *
+     * 挂住之后同一 shell 里后续所有 configfs 操作都失败，整个复合设备挂载被迫中止
+     * （HID/ACM/音频一并不可用）。而 `ln -sf` 是 UVC 描述符组装的**必需**环节
+     * （header 与格式/速率的关联），无法绕过。
+     *
+     * 逐层 mkdir 与帧目录路径已按真机修正（`streaming/mjpeg/m/720p`，configfs 须逐层建）；
+     * 内核自动生成的树（含 control/header/h、streaming/{mjpeg,uncompressed,framebased}）
+     * 已由 mount 内的 `ls -R` 落盘证实。代码保留以便在其他 ROM 上复用。
+     *
+     * 想让摄像头出图，走 ModuleId.CAMERA 注释里的另一条路线：
+     * **系统摄像头** —— Camera2 采集 → 编码 → 经 NCM/TCP 上行（与副屏共用同一条 bulk 通道）。
+     */
+    UVC("uvc.usb0", false, true, "f_uvc 摄像头（本 ROM 的 configfs 软链会挂内核，默认关闭）"),
     NCM("ncm.usb0", false, true, "f_ncm 网卡/控制面"),
     /**
      * f_fs FunctionFS（副屏 bulk：video 下行 / touch 上行）。
@@ -283,6 +306,13 @@ object ConfigFsLayout {
         // UAC2 的 PCM 节点默认仅 audio 组可读写，而 App 属 untrusted_app 打不开；
         // 挂载期间 SELinux 已切 permissive，这里一并放开，供音频模块直接 read/write。
         steps += Step("chmod 666 /dev/snd/pcmC*D* 2>/dev/null", optional = true)
+        // v1.34 调试：UDC 绑定被拒的原因**只存在于内核日志**，而 adb 侧没有 su，
+        // 只能借 App 自己的 root shell 把 dmesg 落盘，事后再读。
+        steps += Step("dmesg > /data/local/tmp/apx_dmesg.txt 2>&1", optional = true)
+        steps += Step(
+            "dmesg | grep -i -E 'uvc|udc|gadget|ffs|configfs|video' > /data/local/tmp/apx_dmesg_uvc.txt 2>&1",
+            optional = true
+        )
         return steps
     }
 
@@ -370,31 +400,65 @@ object ConfigFsLayout {
                 steps += Step("printf '%s' '${AudioConst.P_TERMINAL}' > '$fd/p_terminal'", optional)
             }
             GadgetFeature.UVC -> {
-                // v1.13：f_uvc 摄像头 configfs 树（内核 gadget-testing.rst UVC 节）。
+                // v1.11：f_uvc 摄像头 configfs 树（内核 gadget-testing.rst UVC 节）。
                 // 真机内核已确认 CONFIG_USB_CONFIGFS_F_UVC=y 且 usb_f_uvc 已加载。
                 // 选 **MJPEG**：Windows usbvideo.sys 原生支持、无 GUID 对齐烦恼，
                 // 且 Camera2 ImageReader(JPEG) 产出可直接喂 V4L2 输出节点（零转码）。
                 // 所有写均为 optional：缺属性文件名（内核版本差异）不致命。
                 val fdU = "'$fd"
+                // v1.34 诊断：mkdir functions/uvc.usb0 之后，内核会**自动生成** control/
+                // 与 streaming/ 骨架（含它支持的格式目录名）。把它 ls -R 下来，
+                // 才知道这台内核认的格式目录到底是 mjpeg / uncompressed 还是别的。
+                steps += Step(
+                    "{ echo '--- uvc tree after mkdir:'; ls -R $fdU'; } > /data/local/tmp/apx_uvc_tree.txt 2>&1",
+                    optional = true
+                )
                 // —— 控制面 ——
+                //
+                // v1.34 真机修正（第三个坑，**最致命**）：
+                // 下面两步 `ln -sf control/header/h → control/class/{fs,ss}/h` 在本机
+                // 会**挂住内核**，RootShell 直接超时（日志 `timeout: ln -sf .../class/fs/h`）。
+                // 挂住之后，同一 shell 里后续的 configfs 操作全部失败
+                // （streaming/mjpeg/m 的 mkdir 拿不到 code=-1 之外的任何信息），
+                // 整个挂载被迫中止 —— 这才是"UVC 拖垮主开关"的源头。
+                //
+                // 内核在 mkdir functions/uvc.usb0 时**已自动生成**
+                // `control/header/h`（ls -R 落盘证实，含 bcdUVC / dwClockFrequency），
+                // 因此这里不再手动建软链，交给内核默认即可。
                 steps += Step("mkdir -p $fdU/control/header/h'")
-                steps += Step("ln -sf $fdU/control/header/h' $fdU/control/class/fs/h", optional = true)
-                steps += Step("ln -sf $fdU/control/header/h' $fdU/control/class/ss/h", optional = true)
                 // —— MJPEG 格式 + 720p@30 帧 ——
-                steps += Step("mkdir -p $fdU/streaming/mjpeg/m/frame/720p'")
+                //
+                // v1.34 真机修正：帧目录**没有 frame 这一层**。
+                // 内核 f_uvc 的 configfs 布局是 `streaming/<format>/<frames>/<name>`，
+                // 即 `streaming/mjpeg/m/720p`。此前写成 `.../m/frame/720p`，
+                // mkdir 被内核拒绝（step failed code=-1），而这一步非 optional，
+                // 直接把整个复合设备挂载中止 —— 这正是"UVC 拖垮主开关"的真因。
+                // v1.34 真机修正（第二个坑）：configfs 的 mkdir 会触发内核创建对象，
+                // **必须逐层创建** —— `mkdir -p .../mjpeg/m/720p` 一次建两层会被拒
+                // （step failed code=-1）。树的存在性已由上面的 ls -R 落盘证实：
+                // streaming/ 下内核已给出 mjpeg / uncompressed / framebased 三种格式。
+                // 诊断期：先全部 optional，让流程能走到末尾并把 dmesg 落盘，
+                // 才能读到内核拒绝 mkdir 的真实原因（定位后按结论收紧）。
+                steps += Step("mkdir -p $fdU/streaming/mjpeg/m'", optional = true)
+                steps += Step("dmesg | tail -40 > /data/local/tmp/apx_uvc_err.txt 2>&1", optional = true)
+                steps += Step(
+                    "{ echo '--- after mkdir m:'; ls -R $fdU/streaming'; } >> /data/local/tmp/apx_uvc_tree.txt 2>&1",
+                    optional = true
+                )
+                steps += Step("mkdir -p $fdU/streaming/mjpeg/m/720p'", optional = true)
                 steps += Step("printf '%s' '1' > $fdU/streaming/mjpeg/m/bmaControls'", optional = true)
                 steps += Step("printf '%s' '0' > $fdU/streaming/mjpeg/m/bCopyProtect'", optional = true)
                 steps += Step("printf '%s' '0' > $fdU/streaming/mjpeg/m/bmInterlaceFlags'", optional = true)
                 steps += Step("printf '%s' '0' > $fdU/streaming/mjpeg/m/bVariableSize'", optional = true)
-                steps += Step("printf '%s' '1280' > $fdU/streaming/mjpeg/m/frame/720p/wWidth'")
-                steps += Step("printf '%s' '720' > $fdU/streaming/mjpeg/m/frame/720p/wHeight'")
+                steps += Step("printf '%s' '1280' > $fdU/streaming/mjpeg/m/720p/wWidth'")
+                steps += Step("printf '%s' '720' > $fdU/streaming/mjpeg/m/720p/wHeight'")
                 // 1280*720*8*30 ≈ 221 Mbps
-                steps += Step("printf '%s' '221184000' > $fdU/streaming/mjpeg/m/frame/720p/dwMinBitRate'", optional = true)
-                steps += Step("printf '%s' '221184000' > $fdU/streaming/mjpeg/m/frame/720p/dwMaxBitRate'", optional = true)
-                steps += Step("printf '%s' '524288' > $fdU/streaming/mjpeg/m/frame/720p/dwMaxVideoFrameBufferSize'", optional = true)
+                steps += Step("printf '%s' '221184000' > $fdU/streaming/mjpeg/m/720p/dwMinBitRate'", optional = true)
+                steps += Step("printf '%s' '221184000' > $fdU/streaming/mjpeg/m/720p/dwMaxBitRate'", optional = true)
+                steps += Step("printf '%s' '524288' > $fdU/streaming/mjpeg/m/720p/dwMaxVideoFrameBufferSize'", optional = true)
                 // 30fps = 333333×100ns；bFrameIntervalType=1（单一间隔）
-                steps += Step("printf '%s' '1' > $fdU/streaming/mjpeg/m/frame/720p/bFrameIntervalType'", optional = true)
-                steps += Step("printf '%s' '333333' > $fdU/streaming/mjpeg/m/frame/720p/dwFrameInterval'")
+                steps += Step("printf '%s' '1' > $fdU/streaming/mjpeg/m/720p/bFrameIntervalType'", optional = true)
+                steps += Step("printf '%s' '333333' > $fdU/streaming/mjpeg/m/720p/dwFrameInterval'")
                 steps += Step("printf '%s' '1' > $fdU/streaming/mjpeg/m/bDefaultFrameInterval'", optional = true)
                 // —— 流头部与三类速率引用 ——
                 steps += Step("mkdir -p $fdU/streaming/header/h'")

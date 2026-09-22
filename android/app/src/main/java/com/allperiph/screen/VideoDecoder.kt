@@ -8,8 +8,8 @@ import android.view.Surface
 /**
  * H.264/H.265 硬解码器：接收 PC 编码帧 → MediaCodec 解码 → Surface 渲染。
  *
- * 使用 MediaCodec 异步模式（API 21+），延迟最低。
- * 帧格式由 PC 端 IddCx + DDA 抓屏 + NVENC 硬编决定。
+ * 使用 MediaCodec 同步模式（API 21+）。帧格式由 PC 端 IddCx + DDA 抓屏 + NVENC 硬编决定。
+ * v1.34 从 v21 移植；v21 用异步模式，本地按同步模式实现（更简单、与单线程读循环契合）。
  */
 class VideoDecoder(
     private var width: Int = 1280,
@@ -40,7 +40,7 @@ class VideoDecoder(
         }
 
         frameCount = 0
-        Log.i(TAG, "解码器已启动: ${mime} ${width}x${height}")
+        Log.i(TAG, "解码器已启动: $mime ${width}x${height}")
     }
 
     /**
@@ -56,7 +56,7 @@ class VideoDecoder(
         try {
             val inputIndex = c.dequeueInputBuffer(TIMEOUT_US)
             if (inputIndex >= 0) {
-                val buffer = c.getInputBuffer(inputIndex)!!
+                val buffer = c.getInputBuffer(inputIndex) ?: return
                 buffer.clear()
                 buffer.put(data, offset, length)
                 c.queueInputBuffer(inputIndex, 0, length, frameCount * 33333L, 0)

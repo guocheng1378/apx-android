@@ -48,6 +48,8 @@
     <!-- audio：UAC2 声卡单向采集手机麦克风（AudioRecord）并播放 PC 下行的声音 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- screen：副屏 overlay 窗口（PC 下行视频帧渲染到 SYSTEM_ALERT_WINDOW） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- AOA（Android Open Accessory）附件模式：PC 作为 Host 时的备用传输通道（架构 §2 路线 B） -->
     <uses-feature

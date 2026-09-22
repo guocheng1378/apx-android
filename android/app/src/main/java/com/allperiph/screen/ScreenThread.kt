@@ -1,50 +1,69 @@
 package com.allperiph.screen
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.graphics.PixelFormat
-import android.media.MediaCodec
-import android.media.MediaFormat
+import android.graphics.SurfaceTexture
 import android.os.Handler
 import android.os.HandlerThread
-import android.view.*
-import android.widget.FrameLayout
+import android.provider.Settings
+import android.view.Surface
+import android.view.TextureView
+import android.view.WindowManager
+import com.allperiph.R
 import com.allperiph.core.Log
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.UsbBulkChannel
-import java.nio.ByteBuffer
+import com.allperiph.ui.NotificationChannels
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 副屏核心线程：从 USB bulk 读取 PC 视频帧 → 解码 → 渲染；采集触控 → 上报。
+ * 副屏核心线程：从 USB bulk 读取 PC 视频帧 → MediaCodec 解码 → TextureView 渲染。
  *
- * 数据流（§3.3 Video Stream）：
- *   PC → Phone: APX1 帧头(16B) + H.264/H.265/MJPEG 编码帧
- *   Phone → PC: APX1 帧头(16B) + Digitizer HID 报告(33B)
+ * v1.34（从 v21 移植，**剥离了触控上行**）：仅 PC → 手机单向显示，ep2 不再使用。
+ *
+ * **v1.34 真机修正 —— "打开开关后全屏黑屏"**：
+ * 最初的实现用全屏 [SurfaceView] overlay，而 SurfaceView 在没有视频帧时默认渲染为
+ * **黑色**，且窗口只加了 FLAG_NOT_FOCUSABLE（不挡按键但仍**消费触摸**）——
+ * 用户一开主开关就得到一块点不动的全屏黑块。三处修正：
+ *
+ * 1. [WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE]：触摸穿透，overlay 纯显示不挡操作；
+ * 2. SurfaceView → [TextureView]：TextureView 无内容时**完全透明**，
+ *    待机期（PC 未推流）不再有黑块，首帧到达后自动出现画面；
+ * 3. 启动时发一条常驻通知（CHANNEL_STATUS），点击打开应用 —— 用户有明确的"出口"
+ *    去关闭副屏开关，而不是被黑屏困住。
+ *
+ * 数据流（PROTOCOL.md §3.1 Video Stream）：
+ *   PC → Phone: APX1 帧头(16B) + 扩展头 + DirtyRect[] + 编码帧分片
  *
  * 线程模型：
- *   - 本线程：USB bulk 读循环（阻塞在 read() 上）
- *   - 主线程：SurfaceView 渲染 + 触控事件收集
- *   - 解码器：MediaCodec 异步模式在本线程回调
+ *   - 本线程（HandlerThread "apx-screen"）：USB bulk 读循环（阻塞在 read() 上）
+ *   - 主线程：TextureView 创建 / 销毁 + 解码器重建
+ *   - 解码器：MediaCodec 同步模式，在本线程 dequeueInputBuffer / dequeueOutputBuffer
+ *
+ * 前置条件：用户已授予 [Settings.canDrawOverlays]（SYSTEM_ALERT_WINDOW）。
  */
 class ScreenThread(
     private val app: Context,
-    private val ctx: ModuleContext
+    @Suppress("UNUSED_PARAMETER") ctx: ModuleContext
 ) : HandlerThread("apx-screen") {
 
-    private var surfaceView: SurfaceView? = null
+    private var textureView: TextureView? = null
     private var videoDecoder: VideoDecoder? = null
-    private var touchCollector: TouchCollector? = null
     private var windowManager: WindowManager? = null
     private val running = AtomicBoolean(true)
     private var streamId = 0  // 复用 UsbBulkChannel streamId=0
 
-    // 分辨率（PC 通过控制帧协商）
+    // 分辨率（PC 通过控制帧协商；默认 720p）
     @Volatile private var frameWidth = 1280
     @Volatile private var frameHeight = 720
 
     override fun start() {
         super.start()
-        Handler(app.mainLooper).post { createOverlayWindow() }
+        Handler(app.mainLooper).post {
+            if (createOverlayWindow()) postNotification()
+        }
         // 等待 Surface 就绪后再开始读循环
         Thread({ waitForSurfaceAndRun() }, "apx-screen-read").start()
     }
@@ -63,60 +82,106 @@ class ScreenThread(
 
     // ——————————— Overlay 窗口（主线程）———————————
 
-    private fun createOverlayWindow() {
+    /** @return true = overlay 创建成功（据此决定是否发通知） */
+    private fun createOverlayWindow(): Boolean {
+        if (!Settings.canDrawOverlays(app)) {
+            Log.e(TAG, "缺少 SYSTEM_ALERT_WINDOW 权限，无法显示副屏")
+            // 用户可见：否则副屏"启动了却没画面"，只能靠 logcat 才发现原因
+            Handler(app.mainLooper).post {
+                android.widget.Toast.makeText(
+                    app,
+                    "副屏需要「显示在其他应用上层」权限：系统设置 → 应用 → 全能外设 → 开启后重开主开关",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            running.set(false)
+            return false
+        }
         windowManager = app.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            if (android.os.Build.VERSION.SDK_INT >= 26)
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            // FLAG_NOT_TOUCHABLE 是关键：overlay 只显示画面，触摸全部穿透到下面的应用
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.TRANSLUCENT
         )
 
-        surfaceView = SurfaceView(app).apply {
-            holder.addCallback(object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) {
-                    initDecoder(holder.surface)
+        // TextureView 而非 SurfaceView：无视频帧时完全透明（SurfaceView 会渲染成黑块）
+        textureView = TextureView(app).apply {
+            surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
+                    initDecoder(Surface(st))
                 }
-                override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
-                    touchCollector = TouchCollector(w, h)
-                    touchCollector?.onReport = { report -> sendTouchReport(report) }
-                }
-                override fun surfaceDestroyed(holder: SurfaceHolder) {
+
+                override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = Unit
+
+                override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                     videoDecoder?.stop()
                     videoDecoder = null
+                    return true
                 }
-            })
-            setOnTouchListener { _, event ->
-                touchCollector?.onTouchEvent(event) ?: false
+
+                override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
             }
+            // 纯显示：不可点击，配合 FLAG_NOT_TOUCHABLE 双保险
+            isClickable = false
+            isFocusable = false
         }
 
-        windowManager?.addView(surfaceView, params)
+        windowManager?.addView(textureView, params)
+        Log.i(TAG, "副屏 overlay 已创建（待机透明，等待 PC 推流）")
+        return true
     }
 
     private fun destroyOverlayWindow() {
-        surfaceView?.let {
+        cancelNotification()
+        textureView?.let {
             runCatching { windowManager?.removeView(it) }
         }
-        surfaceView = null
+        textureView = null
         videoDecoder?.stop()
         videoDecoder = null
     }
 
     // ——————————— 解码器 ————————————
 
-    private fun initDecoder(surface: android.view.Surface) {
+    private fun initDecoder(surface: Surface) {
         videoDecoder = VideoDecoder(frameWidth, frameHeight)
         videoDecoder!!.configure(surface)
         Log.i(TAG, "解码器已配置: ${frameWidth}x${frameHeight}")
+    }
+
+    // ——————————— 待机通知（副屏的"出口"）———————————
+
+    private fun postNotification() {
+        NotificationChannels.ensure(app)
+        runCatching {
+            val pi = PendingIntent.getActivity(
+                app, REQ_NOTIFY_CLICK,
+                Intent(app, com.allperiph.ui.MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = android.app.Notification.Builder(app, NotificationChannels.CHANNEL_STATUS)
+                .setSmallIcon(R.drawable.ic_apx_touchpad)
+                .setContentTitle("副屏待机中")
+                .setContentText("等待 PC 推流；点击打开应用，可关闭副屏开关")
+                .setContentIntent(pi)
+                .setOngoing(true)
+                .build()
+            app.getSystemService(android.app.NotificationManager::class.java)?.notify(NOTIFY_ID, n)
+        }.onFailure { Log.w(TAG, "副屏通知发送失败: ${it.message}") }
+    }
+
+    private fun cancelNotification() {
+        runCatching {
+            app.getSystemService(android.app.NotificationManager::class.java)?.cancel(NOTIFY_ID)
+        }
     }
 
     // ——————————— USB bulk 读循环 ————————————
@@ -124,7 +189,7 @@ class ScreenThread(
     private fun waitForSurfaceAndRun() {
         // 等待 Surface 就绪（最多 5 秒）
         var waitCount = 0
-        while (running.get() && surfaceView?.holder?.surface == null && waitCount < 50) {
+        while (running.get() && textureView?.isAvailable != true && waitCount < 50) {
             Thread.sleep(100)
             waitCount++
         }
@@ -134,7 +199,7 @@ class ScreenThread(
         UsbBulkChannel.setPaths(streamId, null, null)
         val openRc = UsbBulkChannel.open(streamId)
         if (openRc != 0) {
-            Log.e(TAG, "USB bulk 打开失败: rc=$openRc")
+            Log.e(TAG, "USB bulk 打开失败: rc=$openRc（本机走 NCM/TCP 前此为预期失败）")
             return
         }
         Log.i(TAG, "USB bulk 通道已打开，开始读帧")
@@ -145,23 +210,20 @@ class ScreenThread(
 
         try {
             while (running.get()) {
-                // 1. 读帧头（16 字节）
                 val headerRead = readFull(headerBuf, 16)
                 if (headerRead != 16) {
                     Log.w(TAG, "帧头读取不完整: $headerRead bytes")
                     continue
                 }
-
-                // 2. 校验 magic
                 if (headerBuf[0] != 'A'.code.toByte() ||
                     headerBuf[1] != 'P'.code.toByte() ||
                     headerBuf[2] != 'X'.code.toByte() ||
-                    headerBuf[3] != '1'.code.toByte()) {
+                    headerBuf[3] != '1'.code.toByte()
+                ) {
                     Log.w(TAG, "帧 magic 错误，跳过")
                     continue
                 }
 
-                // 3. 解析 streamId 和 payloadLen（小端）
                 val frameStreamId = headerBuf[4].toInt() and 0xFF
                 val payloadLen = (headerBuf[8].toInt() and 0xFF) or
                     ((headerBuf[9].toInt() and 0xFF) shl 8) or
@@ -173,19 +235,16 @@ class ScreenThread(
                     continue
                 }
 
-                // 4. 读 payload
                 val payloadRead = readFull(readBuf, payloadLen)
                 if (payloadRead != payloadLen) {
                     Log.w(TAG, "payload 读取不完整: $payloadRead/$payloadLen")
                     continue
                 }
 
-                // 5. 按 streamId 分流
                 when (frameStreamId) {
                     STREAM_VIDEO -> handleVideoFrame(readBuf, payloadLen)
                     STREAM_CTRL -> handleControlFrame(readBuf, payloadLen)
-                    STREAM_TOUCH -> { /* 触控是上行，不处理下行 */ }
-                    else -> { /* 未知 streamId，忽略 */ }
+                    else -> { /* 未知 streamId（含 STREAM_TOUCH 上行），忽略 */ }
                 }
             }
         } catch (e: Exception) {
@@ -199,13 +258,6 @@ class ScreenThread(
     /** 将编码帧送入 MediaCodec 解码 */
     private fun handleVideoFrame(data: ByteArray, len: Int) {
         val decoder = videoDecoder ?: return
-        // 检查是否为关键帧（flags bit0）
-        val flags = data[5].toInt() and 0xFF  // 帧头 flags 字段（offset 5）
-        // 关键帧时重置解码器（处理分辨率切换等场景）
-        if (flags and 0x01 != 0) {
-            // 关键帧：如果分辨率变了，重建解码器
-            // （实际分辨率从帧头的 width/height 字段读取）
-        }
         decoder.decode(data, 0, len)
     }
 
@@ -221,11 +273,12 @@ class ScreenThread(
                     Log.i(TAG, "PC 请求分辨率: ${w}x${h}")
                     frameWidth = w
                     frameHeight = h
-                    // 重建解码器
                     Handler(app.mainLooper).post {
-                        surfaceView?.holder?.surface?.let { surface ->
-                            videoDecoder?.stop()
-                            initDecoder(surface)
+                        textureView?.let { tv ->
+                            if (tv.isAvailable) {
+                                videoDecoder?.stop()
+                                initDecoder(Surface(tv.surfaceTexture))
+                            }
                         }
                     }
                 }
@@ -235,35 +288,6 @@ class ScreenThread(
                 running.set(false)
             }
         }
-    }
-
-    // ——————————— 触控上报（上行）———————————
-
-    private fun sendTouchReport(report: ByteArray): Boolean {
-        if (!running.get() || !UsbBulkChannel.isOpen(streamId)) return false
-
-        // 包装成 APX1 帧：header(16B) + payload
-        val frame = ByteArray(16 + report.size)
-        // magic: APX1
-        frame[0] = 'A'.code.toByte()
-        frame[1] = 'P'.code.toByte()
-        frame[2] = 'X'.code.toByte()
-        frame[3] = '1'.code.toByte()
-        // streamId = kStreamTouch (2)
-        frame[4] = STREAM_TOUCH.toByte()
-        // flags = kFlagKeyFrame (0x01)
-        frame[5] = 0x01
-        // payloadLen (小端)
-        val len = report.size
-        frame[8] = (len and 0xFF).toByte()
-        frame[9] = ((len shr 8) and 0xFF).toByte()
-        frame[10] = ((len shr 16) and 0xFF).toByte()
-        frame[11] = ((len shr 24) and 0xFF).toByte()
-        // payload
-        System.arraycopy(report, 0, frame, 16, report.size)
-
-        val written = UsbBulkChannel.write(streamId, frame, 0, frame.size)
-        return written == frame.size
     }
 
     // ——————————— 工具方法 ————————————
@@ -282,9 +306,10 @@ class ScreenThread(
     companion object {
         private const val TAG = "ScreenThread"
         private const val STREAM_VIDEO = 0  // kStreamVideo
-        private const val STREAM_TOUCH = 2  // kStreamTouch
         private const val STREAM_CTRL = 3   // kStreamControl
         private const val CMD_RESOLUTION = 0x10
         private const val CMD_DISCONNECT = 0x7F
+        private const val REQ_NOTIFY_CLICK = 100
+        private const val NOTIFY_ID = 2001
     }
 }

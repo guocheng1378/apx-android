@@ -3,19 +3,30 @@ package com.allperiph.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.ImageFormat
-import android.hardware.camera2.*
+import android.hardware.camera2.CameraAccessException
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraDevice
+import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.Log
 import android.util.Range
+import com.allperiph.core.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
+import com.allperiph.core.ModuleMask
 import com.allperiph.core.ModuleState
 
 /**
- * M7 USB 摄像头模块：Camera2 → MJPEG → V4L2 gadget → PC 免驱识别。
+ * M7 USB 摄像头模块：Camera2 → JPEG → V4L2 gadget → PC 免驱识别为 webcam。
+ *
+ * v1.35 修正：native V4L2 实现一直在 libapx.so 中
+ * （apx_jni.cpp 的 camera.UvcOutput 段），此前注释误称缺失。
+ * 真正的前置条件：GadgetFeature.UVC 需挂载（ConfigFsLayout 中默认关闭——
+ * 本 ROM 的 configfs 软链会挂死内核，见 GadgetFeature.UVC 注释；支持的 ROM 上可开）。
  *
  * 原理：
  * - 内核 f_uvc 创建 V4L2 video 输出节点（/dev/videoN）
@@ -23,9 +34,11 @@ import com.allperiph.core.ModuleState
  * - PC 通过 USB UVC 协议读取，识别为标准摄像头（零驱动）
  *
  * 前置条件：
- * - ConfigFsLayout 挂载时 UVC feature 启用（GadgetFeature.UVC）
+ * - [com.allperiph.gadget.GadgetManager] 挂载时 UVC feature 启用（GadgetFeature.UVC）
+ *   注：v1.11 实测 UVC configfs 在真机不被内核接受，需先调通（dmesg 抓被拒环节）
  * - 内核已加载 usb_f_uvc 模块
- * - Camera2 API 可用（至少一个摄像头）
+ * - Camera2 API 可用（至少一个摄像头）+ CAMERA 权限已授予
+ * - libapx.so 中含 uvc_output_jni 实现（**目前缺**，运行时模块会 ERROR）
  */
 class CameraModule(private val app: Context) : Module {
 
@@ -45,16 +58,32 @@ class CameraModule(private val app: Context) : Module {
         if (state.isActive) return
         state = ModuleState.STARTING
 
+        // CAMERA 是运行时权限，且必须由 Activity 发起请求 —— 本模块无界面，
+        // 授权入口在主页（打开主开关时弹出）。这里只做兜底检查 + 用户可见提示。
+        if (app.checkSelfPermission(android.Manifest.permission.CAMERA) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            fail("需要「相机」权限：系统设置 → 应用 → 全能外设 → 权限 → 相机，授权后重开开关")
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    app,
+                    "摄像头需要「相机」权限：系统设置 → 应用 → 全能外设 → 权限 → 相机",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
+
         try {
-            // 1. 打开 V4L2 gadget 设备节点
+            // 1. 打开 V4L2 gadget 设备节点（native 未实现时这里会失败）
             uvcOutput = UvcOutput()
             val devicePath = uvcOutput!!.findDevice()
             if (devicePath == null) {
-                fail("未找到 f_uvc V4L2 设备节点（/dev/videoN），请确认 UVC feature 已挂载")
+                fail("未找到 f_uvc V4L2 设备节点（/dev/videoN）——UVC feature 未挂载或 native 未实现")
                 return
             }
             if (!uvcOutput!!.open(devicePath)) {
-                fail("无法打开 $devicePath")
+                fail("无法打开 $devicePath（native V4L2 输出未实现？见 shared/src/uvc_output_jni.cpp）")
                 return
             }
             Log.i(TAG, "V4L2 设备已打开: $devicePath")
@@ -191,12 +220,12 @@ class CameraModule(private val app: Context) : Module {
     override fun statusText(): String = when (state) {
         ModuleState.RUNNING -> "720p@30fps UVC streaming"
         ModuleState.DEGRADED -> "降级: USB 2.0 带宽受限"
-        ModuleState.ERROR -> "error (see log)"
+        ModuleState.ERROR -> "error (见 log；多半是 native V4L2 未实现)"
         else -> state.name.lowercase()
     }
 
-    /** §2.9 位域 bit 7 = camera */
-    override fun maskBits(): Long = if (state.isActive) (1L shl 7) else 0L
+    /** §2.9 bit39 摄像头（修正 v21 错误用的 bit 7） */
+    override fun maskBits(): Long = if (state.isActive) ModuleMask.CAMERA else 0L
 
     companion object {
         private const val TAG = "CameraModule"

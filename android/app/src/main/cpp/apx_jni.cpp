@@ -43,6 +43,9 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/functionfs.h>
 #define APX_HAVE_FUNCTIONFS_UAPI 1
+// V4L2：f_uvc 摄像头 gadget 的输出节点（Camera2 采集 JPEG → write 到 /dev/videoN）
+#include <linux/videodev2.h>
+#define APX_HAVE_V4L2_UAPI 1
 #endif
 
 namespace {
@@ -823,3 +826,136 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
 }
 
 }  // extern "C"
+
+// ===================== camera.UvcOutput（f_uvc V4L2 输出） =====================
+//
+// 数据流：Camera2 → JPEG 帧 → write() 到 f_uvc 创建的 /dev/videoN → PC 经 UVC 协议读取。
+// 与副屏（FunctionFS bulk）不同，这里**不做任何协议封装**：整帧 MJPEG 直接交给内核，
+// 由 f_uvc 按 UVC Payload 头切分上行，PC 侧看到的就是标准 USB 摄像头（免驱）。
+#if defined(APX_HAVE_POSIX_IO) && defined(APX_HAVE_V4L2_UAPI)
+
+namespace {
+
+/// CameraModule 是单例（AgentController 只注册一个），全局 fd 即可
+int gUvcFd = -1;
+
+/// 与 camera/CameraModule.kt 的 720p 采集尺寸保持一致
+const int kUvcWidth = 1280;
+const int kUvcHeight = 720;
+
+/// 小写化（不引入 <algorithm>，避免 NDK 版本差异）
+std::string uvcToLower(const char* s) {
+    std::string out;
+    for (const char* p = s; *p != '\0'; ++p) {
+        const char c = *p;
+        out.push_back((c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c);
+    }
+    return out;
+}
+
+/**
+ * 探测 f_uvc 创建的 V4L2 输出节点：driver 或 card 名含 "uvc"（大小写不敏感）。
+ *
+ * 不强制检查 V4L2_CAP_VIDEO_OUTPUT：gadget 侧的 capability 标记在内核版本间不一致
+ * （有的写在 capabilities、有的只在 device_caps），按名字匹配更稳。
+ */
+bool isUvcOutputNode(const char* path) {
+    const int fd = ::open(path, O_RDWR | O_NONBLOCK);
+    if (fd < 0) return false;
+    struct v4l2_capability cap{};
+    const bool ok = ::ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0;
+    ::close(fd);
+    if (!ok) return false;
+    const std::string drv = uvcToLower(reinterpret_cast<const char*>(cap.driver));
+    const std::string card = uvcToLower(reinterpret_cast<const char*>(cap.card));
+    return drv.find("uvc") != std::string::npos || card.find("uvc") != std::string::npos;
+}
+
+}  // namespace
+
+extern "C" {
+
+JNIEXPORT jstring JNICALL
+Java_com_allperiph_camera_UvcOutput_nativeFindDevice(JNIEnv* env, jobject) {
+    for (int i = 0; i < 16; ++i) {
+        const std::string path = "/dev/video" + std::to_string(i);
+        if (isUvcOutputNode(path.c_str())) {
+            APX_LOGI("uvc: 找到输出节点 %s", path.c_str());
+            return env->NewStringUTF(path.c_str());
+        }
+    }
+    APX_LOGW("uvc: 未找到 V4L2 输出节点（UVC feature 未挂载？）");
+    return nullptr;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_allperiph_camera_UvcOutput_nativeOpen(JNIEnv* env, jobject, jstring path) {
+    if (path == nullptr) return -EINVAL;
+    const char* p = env->GetStringUTFChars(path, nullptr);
+    if (p == nullptr) return -EINVAL;
+    const std::string dev(p);
+    env->ReleaseStringUTFChars(path, p);
+
+    if (gUvcFd >= 0) ::close(gUvcFd);
+    gUvcFd = ::open(dev.c_str(), O_WRONLY | O_NONBLOCK);
+    if (gUvcFd < 0) {
+        const int e = errno;
+        APX_LOGW("uvc: open %s 失败 errno=%d", dev.c_str(), e);
+        return -e;
+    }
+
+    // 设置输出格式（MJPEG）。部分 gadget 节点接受默认格式，
+    // S_FMT 失败只告警不致命 —— 继续按默认格式写帧。
+    struct v4l2_format fmt{};
+    fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
+    fmt.fmt.pix.width = static_cast<__u32>(kUvcWidth);
+    fmt.fmt.pix.height = static_cast<__u32>(kUvcHeight);
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+    fmt.fmt.pix.field = V4L2_FIELD_NONE;
+    fmt.fmt.pix.sizeimage = static_cast<__u32>(kUvcWidth * kUvcHeight / 2);
+    if (::ioctl(gUvcFd, VIDIOC_S_FMT, &fmt) != 0) {
+        APX_LOGW("uvc: VIDIOC_S_FMT 失败 errno=%d（按默认格式继续）", errno);
+    } else {
+        APX_LOGI("uvc: 输出格式 %ux%u MJPEG", fmt.fmt.pix.width, fmt.fmt.pix.height);
+    }
+    return 0;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_allperiph_camera_UvcOutput_nativeWriteFrame(JNIEnv* env, jobject, jbyteArray data) {
+    if (gUvcFd < 0) return -ENOTCONN;
+    if (data == nullptr) return -EINVAL;
+    const jsize len = env->GetArrayLength(data);
+    if (len <= 0) return 0;
+
+    std::vector<uint8_t> buf(static_cast<size_t>(len));
+    env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
+
+    // write 可能只写一部分，循环写完整帧
+    size_t off = 0;
+    while (off < buf.size()) {
+        const ssize_t n = ::write(gUvcFd, buf.data() + off, buf.size() - off);
+        if (n < 0) {
+            const int e = errno;
+            if (e == EINTR) continue;
+            APX_LOGW("uvc: write 失败 errno=%d", e);
+            return -e;
+        }
+        if (n == 0) return -EIO;
+        off += static_cast<size_t>(n);
+    }
+    return 0;
+}
+
+JNIEXPORT void JNICALL
+Java_com_allperiph_camera_UvcOutput_nativeClose(JNIEnv*, jobject) {
+    if (gUvcFd >= 0) {
+        ::close(gUvcFd);
+        gUvcFd = -1;
+        APX_LOGI("uvc: 输出节点已关闭");
+    }
+}
+
+}  // extern "C"
+
+#endif  // APX_HAVE_POSIX_IO && APX_HAVE_V4L2_UAPI

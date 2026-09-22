@@ -123,6 +123,9 @@ object ModuleMask {
 
     /** §2.9 bit37 副屏视频（bulk streamId 0） */
     const val SCREEN_VIDEO: Long = 1L shl 37
+
+    /** §2.9 bit39 摄像头（UVC 复合设备 / 系统摄像头） */
+    const val CAMERA: Long = 1L shl 39
 }
 
 /**

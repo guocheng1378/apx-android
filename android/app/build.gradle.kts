@@ -11,8 +11,8 @@ android {
         applicationId = "com.allperiph"
         minSdk = 34
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.7"
+        versionCode = 3
+        versionName = "1.8"
     }
 
     // v1.7：Release 签名（自签 30 年证书，keystore 在版本库外仅本机；密码内联仅开发期）
