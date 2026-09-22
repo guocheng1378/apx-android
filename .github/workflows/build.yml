@@ -45,8 +45,22 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
+      - name: Check directory structure
+        if: always()
+        run: |
+          echo "=== shared/ 目录 ==="
+          ls -la ../shared/ 2>/dev/null || echo "shared/ 不存在"
+          echo "=== shared/include/apx/ ==="
+          ls -la ../shared/include/apx/ 2>/dev/null || echo "shared/include/apx/ 不存在"
+          echo "=== shared/src/ ==="
+          ls -la ../shared/src/ 2>/dev/null || echo "shared/src/ 不存在"
+          echo "=== CMakeLists.txt ==="
+          cat src/main/cpp/CMakeLists.txt 2>/dev/null || echo "CMakeLists.txt 不存在"
+          echo "=== shared/CMakeLists.txt ==="
+          cat ../shared/CMakeLists.txt 2>/dev/null || echo "shared/CMakeLists.txt 不存在"
+
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace --info 2>&1 | tail -200
 
       - name: Find APK
         if: always()
