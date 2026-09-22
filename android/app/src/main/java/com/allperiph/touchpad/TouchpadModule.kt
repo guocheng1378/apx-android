@@ -85,22 +85,24 @@ class TouchpadModule : Module {
 
     /** MotionEvent → 更新触点快照（帧流线程周期发送） */
     private fun updatePtpContacts(ev: android.view.MotionEvent) {
-        when (ev.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN,
-            android.view.MotionEvent.ACTION_POINTER_DOWN -> {
-                val i = ev.actionIndex.coerceIn(0, ev.pointerCount - 1)
-                val pid = ev.getPointerId(i)
-                if (!contacts.containsKey(pid) && contacts.size < 5) {
-                    contacts[pid] = Contact(nextContactId, ev.getX(i), ev.getY(i))
-                    nextContactId = (nextContactId + 1) and 0x03
+        synchronized(contacts) {
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                    val i = ev.actionIndex.coerceIn(0, ev.pointerCount - 1)
+                    val pid = ev.getPointerId(i)
+                    if (!contacts.containsKey(pid) && contacts.size < 5) {
+                        contacts[pid] = Contact(nextContactId, ev.getX(i), ev.getY(i))
+                        nextContactId = (nextContactId + 1) and 0x03
+                    }
                 }
+                android.view.MotionEvent.ACTION_UP -> contacts.clear()
+                android.view.MotionEvent.ACTION_POINTER_UP -> contacts.remove(ev.getPointerId(ev.actionIndex))
             }
-            android.view.MotionEvent.ACTION_UP -> contacts.clear()
-            android.view.MotionEvent.ACTION_POINTER_UP -> contacts.remove(ev.getPointerId(ev.actionIndex))
-        }
-        for (i in 0 until ev.pointerCount) {
-            contacts[ev.getPointerId(i)]?.let { c ->
-                c.x = ev.getX(i); c.y = ev.getY(i)
+            for (i in 0 until ev.pointerCount) {
+                contacts[ev.getPointerId(i)]?.let { c ->
+                    c.x = ev.getX(i); c.y = ev.getY(i)
+                }
             }
         }
     }
@@ -128,18 +130,20 @@ class TouchpadModule : Module {
         bytes[0] = PTP_REPORT_ID.toByte()
         val n = contacts.size.coerceAtMost(5)
         var slot = 0
-        for ((_, c) in contacts) {
-            if (slot >= 5) break
-            val off = 1 + slot * PTP_FINGER_BYTES
-            bytes[off] = 0x03.toByte()          // bit0=Confidence=1（0 会被当掌压忽略）、bit1=TipSwitch=1
-            bytes[off + 1] = c.cid.toByte()
-            val x = ((c.x / surfW) * PTP_LOGICAL_MAX_X).toInt().coerceIn(0, PTP_LOGICAL_MAX_X)
-            val y = ((c.y / surfH) * PTP_LOGICAL_MAX_Y).toInt().coerceIn(0, PTP_LOGICAL_MAX_Y)
-            bytes[off + 5] = (x and 0xFF).toByte()
-            bytes[off + 6] = ((x shr 8) and 0xFF).toByte()
-            bytes[off + 7] = (y and 0xFF).toByte()
-            bytes[off + 8] = ((y shr 8) and 0xFF).toByte()
-            slot++
+        synchronized(contacts) {
+            for ((_, c) in contacts) {
+                if (slot >= 5) break
+                val off = 1 + slot * PTP_FINGER_BYTES
+                bytes[off] = 0x03.toByte()          // bit0=Confidence=1（0 会被当掌压忽略）、bit1=TipSwitch=1
+                bytes[off + 1] = c.cid.toByte()
+                val x = ((c.x / surfW) * PTP_LOGICAL_MAX_X).toInt().coerceIn(0, PTP_LOGICAL_MAX_X)
+                val y = ((c.y / surfH) * PTP_LOGICAL_MAX_Y).toInt().coerceIn(0, PTP_LOGICAL_MAX_Y)
+                bytes[off + 5] = (x and 0xFF).toByte()
+                bytes[off + 6] = ((x shr 8) and 0xFF).toByte()
+                bytes[off + 7] = (y and 0xFF).toByte()
+                bytes[off + 8] = ((y shr 8) and 0xFF).toByte()
+                slot++
+            }
         }
         // Scan Time 单位 100µs（描述符 exp(-4) Seconds）——毫秒/10
         val scan = ((android.os.SystemClock.uptimeMillis() / 10) and 0xFFFF).toInt()
@@ -255,11 +259,15 @@ class TouchpadModule : Module {
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
                 )
-            } else {
+            } else if (f.buttons != 0 || f.dx != 0 || f.dy != 0 || f.wheel != 0 || f.pan != 0) {
                 // Mouse TLC 复用 Report ID 2（PROTOCOL §2，hid_layout.h MouseReport）
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x02, f.buttons.toByte(), f.dx.toByte(), f.dy.toByte(), f.wheel.toByte(), f.pan.toByte())
                 )
+            } else {
+                // consumer=0 且鼠标数据全零：仍走 Consumer TLC 发释放帧，
+                // 确保 PC 端 Consumer 键（如缩放）能正确释放
+                ctx.hid.sendInputReport(byteArrayOf(0x04, 0, 0, 0))
             }
             // v1.11："tcp-ctrl" 无线承载分支随无线功能移除
             else -> Log.v(TAG, "bulk mouse dx=${f.dx} dy=${f.dy} btns=${f.buttons}")
