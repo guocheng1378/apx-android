@@ -24,13 +24,20 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install SDK components
+        run: sdkmanager "platform-tools" "build-tools;35.0.0" "platforms;android-35"
+
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: apx-debug
