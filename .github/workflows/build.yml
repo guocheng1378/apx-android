@@ -40,9 +40,15 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Find APK output
+      - name: Debug - list build outputs
         if: always()
-        run: find . -name "*.apk" -type f 2>/dev/null
+        run: |
+          echo "=== find all apk ==="
+          find . -name "*.apk" -type f 2>/dev/null
+          echo "=== ls app/build/outputs ==="
+          ls -laR app/build/outputs/ 2>/dev/null || echo "outputs dir not found"
+          echo "=== ls app/build/ ==="
+          ls -la app/build/ 2>/dev/null || echo "build dir not found"
 
       - name: Upload APK
         if: success()
