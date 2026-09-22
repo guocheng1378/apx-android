@@ -9,8 +9,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# shared/ 位于仓库根目录（本文件在 android/app/src/main/cpp 下，往上 5 级）
-get_filename_component(APX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
+# shared/ 位于仓库根目录（本文件在 android/app/src/main/cpp 下，往上 4 级）
+get_filename_component(APX_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../.." ABSOLUTE)
 set(APX_SHARED_DIR "${APX_ROOT}/shared")
 if(NOT EXISTS "${APX_SHARED_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "未找到 ${APX_SHARED_DIR}/CMakeLists.txt：shared/ 未就位")
