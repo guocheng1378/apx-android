@@ -21,23 +21,21 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK + NDK + CMake
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" "build-tools;35.0.0" "platforms;android-35"
+            "platform-tools" \
+            "build-tools;35.0.0" \
+            "platforms;android-35" \
+            "ndk;27.2.12479018" \
+            "cmake;3.22.1"
 
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
-
-      - name: Show Gradle info
-        run: |
-          ./gradlew --version
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          ls -la app/src/main/java/com/allperiph/ui/MainActivity.kt
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --info 2>&1 | tail -200
