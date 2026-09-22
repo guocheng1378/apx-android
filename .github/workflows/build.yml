@@ -46,7 +46,7 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon 2>&1 | tail -100
+        run: set -o pipefail && ./gradlew assembleDebug --no-daemon 2>&1 | tail -200
 
       - name: Find APK
         if: always()
