@@ -1,6 +1,7 @@
 package com.allperiph.touchpad
 
 import android.view.MotionEvent
+import java.util.concurrent.Executors
 import kotlin.math.hypot
 
 /** 归一化后的触控板帧（与 PC 端 MouseFrame 语义对齐，相对位移） */
@@ -33,6 +34,11 @@ class GestureEngine(private val sink: TouchpadSink) {
     private var lastPanV = 0
     private var lastScrollT = 0L
     private var inertial: Thread? = null
+
+    // v1.7d-fix：单击释放帧用共享单线程池，防止快速连击时线程无限创建
+    private val releaseExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "apx-tap-release").also { it.isDaemon = true }
+    }
 
     private fun kickInertia(wheel: Int, pan: Int, nowMs: Long) {
         lastWheelV = wheel; lastPanV = pan; lastScrollT = nowMs
@@ -89,15 +95,10 @@ class GestureEngine(private val sink: TouchpadSink) {
                 "armDrag skipped: ptr=$activePointers armed=$dragArmed sent=$dragSent")
             return false
         }
-        // 已经置位 = handleMove 在「超过长按时长」时先一步置了位 —— 长按同样成立，
-        // 不能当失败返回：真机长按时电容屏必然来几个 MOVE，置位后 550ms 定时器一跑
-        // 就被这里吞掉，表现正是"长按不震了"。
         if (dragArmed) {
             com.allperiph.core.Log.i("GestureEngine", "armDrag already armed → buzz")
             return true
         }
-        // 阈值放宽一倍：长按只要求「基本没动」，用 TAP_SLOP(12px) 太严 ——
-        // 电容屏长按时的轻微抖动就足以判掉，表现同样是"长按不震"。
         val moved = hypot((lastX - downX).toDouble(), (lastY - downY).toDouble())
         if (moved >= TAP_SLOP * 2f) {
             com.allperiph.core.Log.i("GestureEngine", "armDrag skipped: moved=$moved")
@@ -105,8 +106,6 @@ class GestureEngine(private val sink: TouchpadSink) {
         }
         dragArmed = true
         com.allperiph.core.Log.i("GestureEngine", "armDrag LOCKED")
-        // v1.7d：震动统一由 TouchpadModule.armDrag 直连 VibeModule 触发（单一路径）。
-        // 原此处 EventBus 路径与直连路径叠加，造成连续乱震，已移除。
         return true
     }
 
@@ -125,13 +124,11 @@ class GestureEngine(private val sink: TouchpadSink) {
                     val (cx, cy) = centroid(ev)
                     twoFingerCx = cx; twoFingerCy = cy
                 }
-                // 进入多指即取消长按拖动
                 dragArmed = false
                 if (dragSent) { sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L)); dragSent = false }
             }
             MotionEvent.ACTION_MOVE -> handleMove(ev)
             MotionEvent.ACTION_POINTER_UP -> {
-                // 双指轻点 = 右键：双指按下→抬起期间质心位移 < slop 且时长 < TAP_MS
                 if (activePointers == 2 && twoFingerDownTime > 0L) {
                     val dur = ev.eventTime - twoFingerDownTime
                     val (cx, cy) = centroid(ev)
@@ -150,24 +147,19 @@ class GestureEngine(private val sink: TouchpadSink) {
             }
             MotionEvent.ACTION_UP -> {
                 val dur = ev.eventTime - downTime
-                // v1.7c：双指滚动松手（120ms 内滚动过）→ 惯性滚动
                 if (System.currentTimeMillis() - lastScrollT < 120) startInertia()
                 if (dragSent) {
-                    // 长按拖动结束：释放全部按键
                     sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L))
                 } else if (pendingButtons != 0) {
-                    // 三指中键按住结束：释放
                     sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L))
                 } else if (activePointers == 1 && dur < TAP_MS &&
                     hypot((ev.x - downX).toDouble(), (ev.y - downY).toDouble()) < TAP_SLOP) {
-                    // v1.7d：轻点必须同时满足「时长短 + 位移小」——快速滑动 dur 也 <350ms，
-                    // 缺位移判定会把滑动误判成点击（真机反馈「滑动和点击分不出来」根因）
                     val ts = ev.eventTime * 1_000_000L
                     sink.send(TouchpadFrame(0, 0, 0x01, tsNs = ts))
-                    Thread {
+                    releaseExecutor.execute {
                         try { Thread.sleep(25) } catch (_: InterruptedException) {}
                         sink.send(TouchpadFrame(0, 0, 0x00, tsNs = ts + 25_000_000L))
-                    }.start()
+                    }
                     com.allperiph.core.Log.i("GestureEngine", "tap sent (dur=${dur}ms)")
                 }
                 pendingButtons = 0
@@ -188,7 +180,6 @@ class GestureEngine(private val sink: TouchpadSink) {
             1 -> {
                 val moved = hypot((ev.x - downX).toDouble(), (ev.y - downY).toDouble())
                 val dur = ev.eventTime - downTime
-                // 长按拖动：定时器已 arm（见 armDrag），此处只负责「移动即拖选」
                 if (!dragArmed && !dragSent && moved < TAP_SLOP && dur > LONG_PRESS_MS) {
                     dragArmed = true
                 }
@@ -210,20 +201,17 @@ class GestureEngine(private val sink: TouchpadSink) {
                 sink.send(TouchpadFrame(dx.toInt(), dy.toInt(), btn, tsNs = ev.eventTime * 1_000_000L))
             }
             2 -> {
-                // v1.7c：先判捏合——两指间距变化显著时输出 Zoom In/Out（Consumer 位图 7/8 位），
-                // 否则按质心位移 = 滚动
                 val d = fingerDist(ev)
                 if (twoFingerBaseDist > 0f) {
                     val scale = d / twoFingerBaseDist
                     if (scale > 1.25f || scale < 0.80f) {
-                        val zoomBit = if (scale > 1f) 0x0080 else 0x0100  // bit7 ZoomIn / bit8 ZoomOut
+                        val zoomBit = if (scale > 1f) 0x0080 else 0x0100
                         sink.send(TouchpadFrame(0, 0, 0, consumer = zoomBit, tsNs = ev.eventTime * 1_000_000L))
                         sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L))
                         lastX = ev.x; lastY = ev.y
                         return
                     }
                 }
-                // 双指：质心位移 = 滚动
                 val (cx, cy) = centroid(ev)
                 val dx = cx - lastX
                 val dy = cy - lastY
@@ -234,7 +222,6 @@ class GestureEngine(private val sink: TouchpadSink) {
                 sink.send(TouchpadFrame(0, 0, pendingButtons, wheel = w, pan = p, tsNs = ev.eventTime * 1_000_000L))
             }
             3 -> {
-                // 三指按住 = 中键按住（配合移动可中键拖动），抬起时由 UP 释放
                 if (pendingButtons and 0x04 == 0) {
                     pendingButtons = pendingButtons or 0x04
                     sink.send(TouchpadFrame(0, 0, pendingButtons, tsNs = ev.eventTime * 1_000_000L))
@@ -250,7 +237,6 @@ class GestureEngine(private val sink: TouchpadSink) {
         return sx / n to sy / n
     }
 
-    /** 前两指间距（捏合缩放预留；当前 HID mouse 通道无法承载 Ctrl+wheel，暂不产出） */
     private fun fingerDist(ev: MotionEvent): Float {
         if (ev.pointerCount < 2) return 0f
         return hypot(
@@ -260,8 +246,8 @@ class GestureEngine(private val sink: TouchpadSink) {
     }
 
     companion object {
-        private const val TAP_SLOP = 12f        // 轻点/位移判定阈值
-        private const val TAP_MS = 350L         // 轻点时长上限（v1.7d：200ms 真机太严，点击普遍 >200ms）
-        private const val LONG_PRESS_MS = 550L  // 长按拖动触发时长
+        private const val TAP_SLOP = 12f
+        private const val TAP_MS = 350L
+        private const val LONG_PRESS_MS = 550L
     }
 }
