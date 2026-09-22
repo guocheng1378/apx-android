@@ -49,11 +49,11 @@ class ScreenThread(
         Thread({ waitForSurfaceAndRun() }, "apx-screen-read").start()
     }
 
-    override fun quit() {
+    override fun quit(): Boolean {
         running.set(false)
         Handler(app.mainLooper).post { destroyOverlayWindow() }
         quitSafely()
-        super.quit()
+        return super.quit()
     }
 
     fun statusText(): String {
