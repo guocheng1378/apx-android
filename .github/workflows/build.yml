@@ -21,21 +21,26 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Accept Android SDK Licenses
-        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-
-      - name: Install SDK components
+      - name: Setup Android SDK
         run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
-            "platform-tools" \
-            "build-tools;35.0.0" \
-            "platforms;android-35"
+            "platform-tools" "build-tools;35.0.0" "platforms;android-35"
 
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9
 
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Show Gradle info
+        run: |
+          ./gradlew --version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls -la app/src/main/java/com/allperiph/ui/MainActivity.kt
+
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --info 2>&1 | tail -200
 
       - name: Upload APK
         if: success()
