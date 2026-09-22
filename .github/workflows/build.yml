@@ -40,20 +40,14 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Debug - list build outputs
+      - name: Find APK
         if: always()
-        run: |
-          echo "=== find all apk ==="
-          find . -name "*.apk" -type f 2>/dev/null
-          echo "=== ls app/build/outputs ==="
-          ls -laR app/build/outputs/ 2>/dev/null || echo "outputs dir not found"
-          echo "=== ls app/build/ ==="
-          ls -la app/build/ 2>/dev/null || echo "build dir not found"
+        run: find . -name "*.apk" -type f 2>/dev/null
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: apx-debug
-          path: android/app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 7
