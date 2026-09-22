@@ -38,16 +38,16 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --info 2>&1 | tail -200
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Find APK
+      - name: Find APK output
         if: always()
-        run: find . -name "*.apk" -type f 2>/dev/null || echo "No APK found"
+        run: find . -name "*.apk" -type f 2>/dev/null
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: apx-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: android/app/build/outputs/apk/debug/*.apk
           retention-days: 7
