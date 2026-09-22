@@ -33,8 +33,3 @@ if(APX_LOG_LIB)
 endif()
 
 target_compile_options(apx PRIVATE -Wall -Wextra)
-
-# Android 15+ (API 35) 要求 ELF LOAD 段按 16KB 对齐，否则系统弹兼容性警告
-if(ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64")
-    target_link_options(apx PRIVATE "-Wl,-z,max-page-size=16384")
-endif()
