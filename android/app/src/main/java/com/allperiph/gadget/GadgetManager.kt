@@ -23,7 +23,7 @@ class GadgetManager {
     private var opts = GadgetOptions(
         features = GadgetFeature.g1ReuseDefaults(),
     )
-    private val hal = UsbHalArbiter(RootShell())
+    private var hal: UsbHalArbiter? = null
     private var pollThread: Thread? = null
     private var lastUdcState = ""
 
@@ -33,8 +33,14 @@ class GadgetManager {
             return
         }
         _state = AgentStatus.STARTING
-        val sh = RootShell()
+        val sh = RootShell.open()
+        if (sh == null) {
+            _state = AgentStatus.ERROR
+            Log.e(TAG, "无法获取 root 权限")
+            return
+        }
         shell = sh
+        hal = UsbHalArbiter(sh)
 
         val reportSrc = File(contextFilesDir(ctx), GadgetConst.DESCRIPTOR_FILENAME)
         val descriptor = ApxNative.hidReportDescriptorOrNull()
@@ -49,11 +55,10 @@ class GadgetManager {
         }
 
         try {
-            sh.open()
-            if (!hal.acquire()) {
+            if (hal?.acquire() != true) {
                 Log.w(TAG, "HAL acquire 超时，继续尝试")
             }
-            val savedUdc = hal.unbindUdc()
+            val savedUdc = hal?.unbindUdc() ?: ""
             val steps = ConfigFsLayout.mountReuse(opts)
             for ((i, step) in steps.withIndex()) {
                 Log.v(TAG, "[$i/${steps.size}] ${step.cmd}")
@@ -65,7 +70,7 @@ class GadgetManager {
             }
             stageDescriptor(opts)
             if (savedUdc.isNotEmpty()) {
-                hal.rebindUdc(savedUdc)
+                hal?.rebindUdc(savedUdc)
             }
             sh.exec("chmod 666 '${SysPath.HIDG_DEVICE}' 2>/dev/null")
             sh.exec("chmod 666 '${SysPath.ACM_DEVICE}' 2>/dev/null")
@@ -82,12 +87,13 @@ class GadgetManager {
     fun stop() {
         stopUdcPoll()
         try {
-            hal.release()
+            hal?.release()
         } catch (e: Exception) {
             Log.w(TAG, "HAL release failed: ${e.message}")
         }
         shell?.close()
         shell = null
+        hal = null
         _state = AgentStatus.IDLE
     }
 
