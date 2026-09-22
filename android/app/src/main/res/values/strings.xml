@@ -2,13 +2,12 @@
 <resources>
     <string name="app_name">全能外设</string>
 
-    <!-- 主界面分区标题（功能 / 状态 / 设置 三分） -->
     <string name="section_connection">连接</string>
     <string name="section_devices">外设</string>
+    <string name="section_screen">副屏</string>
     <string name="section_status">状态</string>
     <string name="section_settings">设置</string>
 
-    <!-- 通用 -->
     <string name="common_unknown">未知</string>
     <string name="common_ok">正常</string>
     <string name="common_warn">降级</string>
@@ -16,7 +15,6 @@
     <string name="common_off">未启用</string>
     <string name="common_on">运行中</string>
 
-    <!-- USB 模式切换 -->
     <string name="card_usb_mode">USB 模式</string>
     <string name="usb_mode_normal_hint">当前是普通模式（ADB / 文件传输）。切到外设模式后，本机将作为复合设备接入电脑（HID 传感器 / 串口 / 触控），ADB 会让位并自动断开。</string>
     <string name="usb_mode_gadget_hint">当前是外设模式（复合设备已挂载），ADB 已让位。切回普通模式即可恢复 ADB 与文件传输。</string>
@@ -24,25 +22,21 @@
     <string name="action_switch_to_gadget">切换到外设模式</string>
     <string name="action_switch_to_normal">切回普通模式</string>
 
-    <!-- 通知渠道 -->
     <string name="notify_channel_status_name">全能外设运行状态</string>
     <string name="notify_channel_status_desc">显示 USB 链路与各模块的运行状态</string>
     <string name="notify_channel_alert_name">全能外设告警</string>
     <string name="notify_channel_alert_desc">链路降级、模块异常等需要关注的通知</string>
 
-    <!-- 通知内容 -->
     <string name="notify_title">全能外设正在运行</string>
     <string name="notify_text_running">USB 链路：%1$s · %2$s</string>
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
 
-    <!-- 主界面卡片标题 -->
     <string name="card_link">链路状态</string>
     <string name="card_display">设备状态</string>
     <string name="card_modules">功能开关</string>
     <string name="card_diag">环境与诊断</string>
 
-    <!-- 链路状态项 -->
     <string name="label_root">Root 授权</string>
     <string name="label_usb_speed">USB 速度</string>
     <string name="label_udc">UDC / Gadget</string>
@@ -51,13 +45,11 @@
     <string name="label_link_rt">链路延迟 / 丢包</string>
     <string name="label_link_rt_value">丢包估计 %1$.1f%% · CRC 错误 %2$d 帧 · %3$s</string>
 
-    <!-- 状态值 -->
     <string name="value_root_ok">已授权</string>
     <string name="value_root_missing">未授权（不可用）</string>
     <string name="value_battery_ok">已加入</string>
     <string name="value_battery_limited">未加入（后台会被冻结）</string>
 
-    <!-- 提示文案 -->
     <string name="hint_root_missing">未检测到 root：ConfigFS Gadget 无法挂载，全部虚拟设备均不可用。请刷入 Magisk/KernelSU 后重启。</string>
     <string name="hint_usb2">当前非 SuperSpeed（USB 2.0 480Mbps 或更低）。建议更换支持 USB 3.0 的线缆与接口。</string>
     <string name="hint_usb_ok">SuperSpeed 链路就绪。</string>
@@ -79,4 +71,34 @@
     <string name="action_open_pairing">无线配对（连接电脑）</string>
     <string name="action_start">启动服务</string>
     <string name="action_stop">停止服务</string>
+    <string name="action_open_screen">进入副屏</string>
+    <string name="action_open_camera">进入摄像头</string>
+
+    <string name="screen_card_title">副屏</string>
+    <string name="screen_off">未连接</string>
+    <string name="screen_connecting">正在连接…</string>
+    <string name="screen_connected">已连接 · %1$s</string>
+    <string name="screen_not_running">副屏模块未启动</string>
+    <string name="screen_enter">进入副屏</string>
+    <string name="screen_no_permission">权限被拒绝</string>
+    <string name="screen_action_connect">连接</string>
+    <string name="screen_action_disconnect">断开</string>
+    <string name="screen_status_hint">副屏已就绪</string>
+    <string name="screen_not_available_hint">副屏不可用</string>
+    <string name="screen_error_hint">副屏出错</string>
+    <string name="screen_connect_hint">正在连接副屏</string>
+
+    <string name="camera_card_title">摄像头</string>
+    <string name="camera_off">未连接</string>
+    <string name="camera_connecting">正在连接…</string>
+    <string name="camera_connected">已连接 · %1$s</string>
+    <string name="camera_not_running">摄像头模块未启动</string>
+    <string name="camera_enter">进入摄像头</string>
+    <string name="camera_no_permission">权限被拒绝</string>
+    <string name="camera_action_connect">连接</string>
+    <string name="camera_action_disconnect">断开</string>
+    <string name="camera_status_hint">摄像头已就绪</string>
+    <string name="camera_not_available_hint">摄像头不可用</string>
+    <string name="camera_error_hint">摄像头出错</string>
+    <string name="camera_connect_hint">正在连接摄像头</string>
 </resources>

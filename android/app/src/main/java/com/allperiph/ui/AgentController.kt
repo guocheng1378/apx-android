@@ -3,6 +3,7 @@ package com.allperiph.ui
 import android.content.Context
 import com.allperiph.audio.AudioModule
 import com.allperiph.bt.BtHidDevice
+import com.allperiph.camera.CameraModule
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
@@ -10,46 +11,34 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
+import com.allperiph.screen.ScreenModule
 import com.allperiph.touchpad.TouchpadModule
 import java.util.concurrent.Executors
 
 /**
  * 服务编排：进程内唯一的模块注册表与能力开关中枢。
- *
- * 职责：
- * 1. 组装 [AgentRuntime] 并按依赖顺序注册模块；
- * 2. 持久化每个模块的启用开关（SharedPreferences），支持单模块热启停；
- * 3. 环境自检（root / USB 速度 / 电池白名单）结果缓存。
  */
 object AgentController {
 
     private const val TAG = "AgentController"
     private const val PREFS = "apx_ui"
 
-    /** 注册顺序即启动顺序；停止时逆序。
-     *  v1.35：移除摄像头/副屏（UVC configfs 挂内核 + FFS 上下文被占满）
-     */
     val ORDER: List<String> = listOf(
         ModuleId.GADGET,
         ModuleId.AUDIO,
         ModuleId.TOUCHPAD,
         ModuleId.BTHID,
+        ModuleId.SCREEN,
+        ModuleId.CAMERA,
     )
 
-    @Volatile
-    var runtime: AgentRuntime? = null
+    @Volatile var runtime: AgentRuntime? = null
         private set
-
-    @Volatile
-    var running: Boolean = false
+    @Volatile var running: Boolean = false
         private set
-
-    @Volatile
-    var linkSpeed: LinkSpeed = LinkSpeed.UNKNOWN
+    @Volatile var linkSpeed: LinkSpeed = LinkSpeed.UNKNOWN
         private set
-
-    @Volatile
-    var env: EnvChecks.Env? = null
+    @Volatile var env: EnvChecks.Env? = null
         private set
 
     private val io = Executors.newSingleThreadExecutor { r ->
@@ -64,13 +53,14 @@ object AgentController {
             rt.register(AudioModule(app))
             rt.register(TouchpadModule())
             rt.register(BtHidDevice(app))
+            rt.register(ScreenModule(app))
+            rt.register(CameraModule(app))
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
     }
 
     fun module(id: String): Module? = runtime?.registry?.get(id)
-
     fun allModules(): List<Module> = runtime?.registry?.all() ?: emptyList()
 
     fun startEnabled(context: Context) {
@@ -80,8 +70,7 @@ object AgentController {
             if (!isEnabled(context, id)) continue
             val m = rt.registry.get(id) ?: continue
             if (m.state.isActive) continue
-            runCatching { m.start(rt) }
-                .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+            runCatching { m.start(rt) }.onFailure { Log.e(TAG, "启动 $id 失败", it) }
         }
     }
 
@@ -89,8 +78,7 @@ object AgentController {
         val rt = runtime ?: return
         for (id in ORDER.reversed()) {
             val m = rt.registry.get(id) ?: continue
-            runCatching { m.stop() }
-                .onFailure { Log.e(TAG, "停止 $id 失败", it) }
+            runCatching { m.stop() }.onFailure { Log.e(TAG, "停止 $id 失败", it) }
         }
         running = false
     }
@@ -100,15 +88,14 @@ object AgentController {
         val rt = runtime ?: return
         val m = rt.registry.get(id) ?: return
         if (enabled) {
-            if (!m.state.isActive) runCatching { m.start(rt) }
-                .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+            if (!m.state.isActive) runCatching { m.start(rt) }.onFailure { Log.e(TAG, "启动 $id 失败", it) }
         } else {
-            runCatching { m.stop() }
-                .onFailure { Log.e(TAG, "停止 $id 失败", it) }
+            runCatching { m.stop() }.onFailure { Log.e(TAG, "停止 $id 失败", it) }
         }
     }
 
-    fun defaultEnabled(id: String): Boolean = true
+    fun defaultEnabled(id: String): Boolean =
+        id != ModuleId.SCREEN && id != ModuleId.CAMERA
 
     fun isEnabled(context: Context, id: String): Boolean =
         prefs(context).getBoolean("enable.$id", defaultEnabled(id))
@@ -146,6 +133,8 @@ object AgentController {
         ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
         ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
         ModuleId.BTHID -> "蓝牙 HID（鼠标/键盘/多媒体）"
+        ModuleId.SCREEN -> "副屏（USB 有线扩展屏）"
+        ModuleId.CAMERA -> "摄像头（UVC 免驱）"
         else -> id
     }
 
