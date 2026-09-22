@@ -36,12 +36,10 @@ enum class GadgetFeature(
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
     UAC2("uac2.usb0", true, true, "f_uac2 声卡（手机麦克风 + 扬声器；内核无此 function 时自动跳过）"),
-    // v1.11：UVC 默认关闭——真机实测 configfs 树 build 后 UDC 绑定被内核拒绝
-    // （udc-state=[not attached]，2026-09-21 22:07），整复合设备挂载失败。
-    // 内核 f_uvc 存在（CONFIG_USB_CONFIGFS_F_UVC=y），问题在 configfs 属性/
-    // symlink 组合未被当前内核接受；待数据面完成后由 CameraModule 单独挂载
-    // 迭代（App 内可抓 dmesg 定位具体被拒环节），不再拖累主开关。
-    UVC("uvc.usb0", false, true, "f_uvc 摄像头（configfs 树待真机调通后启用）"),
+    // v1.13：UVC 已启用——CameraModule 实现了 Camera2→V4L2 数据面。
+    // ConfigFS 树由 GadgetManager 挂载，V4L2 节点由内核 f_uvc 创建。
+    // 真机若 UDC 绑定失败，optional=true 允许降级（跳过 UVC，其余模块正常）。
+    UVC("uvc.usb0", true, true, "f_uvc 摄像头（MJPEG 720p@30，CameraModule 数据面已实现）"),
     NCM("ncm.usb0", false, true, "f_ncm 网卡/控制面"),
     /**
      * f_fs FunctionFS（副屏 bulk：video 下行 / touch 上行）。
@@ -372,7 +370,7 @@ object ConfigFsLayout {
                 steps += Step("printf '%s' '${AudioConst.P_TERMINAL}' > '$fd/p_terminal'", optional)
             }
             GadgetFeature.UVC -> {
-                // v1.11：f_uvc 摄像头 configfs 树（内核 gadget-testing.rst UVC 节）。
+                // v1.13：f_uvc 摄像头 configfs 树（内核 gadget-testing.rst UVC 节）。
                 // 真机内核已确认 CONFIG_USB_CONFIGFS_F_UVC=y 且 usb_f_uvc 已加载。
                 // 选 **MJPEG**：Windows usbvideo.sys 原生支持、无 GUID 对齐烦恼，
                 // 且 Camera2 ImageReader(JPEG) 产出可直接喂 V4L2 输出节点（零转码）。
