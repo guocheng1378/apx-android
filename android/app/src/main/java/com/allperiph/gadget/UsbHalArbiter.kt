@@ -11,7 +11,8 @@ import com.allperiph.core.SysProp
  * `sys.usb.config` 置为 `none` 让 HAL 解绑，否则写入会 EBUSY；退出时必须恢复原配置，
  * 否则手机整根 USB 功能失效（连 adb 都断）。
  *
- * 本类只负责「抢占/归还」，不负责挂载；所有状态变更都有日志，便于现场排查。
+ * v1.35 修复：HAL 解绑后会监听 UDC 空闲事件并自动重绑 g1，与 apx 竞争同一个
+ * UDC。解决：在 acquire() 阶段主动 kill HAL 进程（init 会在绑定完成后自动重启）。
  */
 class UsbHalArbiter(private val shell: RootShell) {
 
@@ -66,24 +67,61 @@ class UsbHalArbiter(private val shell: RootShell) {
         // 厂商 HAL 兜底：实测 Xiaomi HyperOS 收到 sys.usb.config=none 之后
         // **并不会真正释放 UDC**（我们写自己的 UDC 时报 EBUSY）。这里把所有
         // gadget 的 UDC 一并清空，逼内核完成解绑。
-        //
-        // 两个要点：
-        // 1. 用 **glob 枚举**代替固定名字表。实测本机同时存在 g1 / g2 / apx，
-        //    厂商实际用哪个名字不可预设（`sys.usb.configfs=2` 时活动的是 g2），
-        //    写死名字必然漏。
-        // 2. **绝不加 `2>/dev/null`**。解绑失败若不报错，只会在之后写自己 UDC 时
-        //    以一个孤立的 EBUSY 暴露，根因完全不可见 —— 这条教训
-        //    REALDEVICE-NOTES §4 已记过一次，此处遵守。
         val unbind = shell.exec(
             "for u in /config/usb_gadget/*/UDC; do " +
                 "e=\$(echo '' > \"\$u\" 2>&1); rc=\$?; " +
                 "echo \"\$u rc=\$rc err=[\$e]\"; done",
         )
         Log.i(TAG, "清空系统 gadget UDC：code=${unbind.exitCode} out=[${unbind.out.take(300)}]")
+
+        // v1.35：HAL 进程在 UDC 空闲后会自动重绑 g1（监听 uevent）。
+        // 在解绑完成后、绑定 apx 之前，杀掉 HAL 进程。
+        // Android init 会在 apx 绑定完成后自动重启 HAL，但此时 UDC 已被占用，
+        // HAL 重启后检测到 UDC 非空闲就不会再抢。
+        killUsbHal()
+
         val free = waitUdcFree()
         acquired = true
         if (!free) Log.w(TAG, "UDC still busy after ${SysProp.RELEASE_WAIT_MS}ms, mount may fail")
         return free
+    }
+
+    /**
+     * 杀掉 USB HAL 进程，阻止它在 UDC 空闲后自动重绑 g1。
+     * 
+     * Android init 的逻辑：进程被杀后按 .rc 文件里的 restart 策略重启。
+     * USB HAL 通常是 oneshot 或 restart 策略。关键在于：HAL 重启时会读取
+     * sys.usb.config 决定绑定哪个 gadget——如果此时 apx 已绑定 UDC，
+     * HAL 会发现 UDC 非空闲而跳过绑定。
+     *
+     * 候选进程名（按常见 Android 版本排列）：
+     *   - android.hardware.usb@1.0-service
+     *   - android.hardware.usb@1.1-service
+     *   - android.hardware.usb.service
+     *   - android.hardware.usb.configstore@1.0-service
+     */
+    private fun killUsbHal() {
+        val candidates = listOf(
+            "android.hardware.usb.service",
+            "android.hardware.usb@1.1-service",
+            "android.hardware.usb@1.0-service",
+        )
+        var killed = false
+        for (name in candidates) {
+            val r = shell.exec("killall '$name' 2>/dev/null")
+            if (r.ok && r.exitCode == 0) {
+                Log.i(TAG, "USB HAL 已终止：$name")
+                killed = true
+                break
+            }
+        }
+        if (!killed) {
+            // 兜底：按包名模糊匹配
+            val r = shell.exec("pkill -f 'android.hardware.usb' 2>/dev/null")
+            Log.w(TAG, "USB HAL killall 未命中，pkill 结果：code=${r.exitCode}")
+        }
+        // 给 init 时间完成清理，但不能太长——HAL 重启后可能再次抢占
+        Thread.sleep(300)
     }
 
     /** 等待所有 gadget 的 UDC 文件被清空，即 HAL 已解绑 */
