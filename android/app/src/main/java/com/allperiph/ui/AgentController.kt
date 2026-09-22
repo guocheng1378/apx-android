@@ -3,6 +3,7 @@ package com.allperiph.ui
 import android.content.Context
 import com.allperiph.audio.AudioModule
 import com.allperiph.bt.BtHidDevice
+import com.allperiph.camera.CameraModule
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
@@ -31,13 +32,14 @@ object AgentController {
 
     /** 注册顺序即启动顺序；停止时逆序。
      *  v1.10：传感器移除（hidparse 除零蓝屏）。
-     *  v1.12：收摊——副屏/摄像头/GPS/振动整体移除，仅留五件套
-     *  （触控板/键盘/麦克风/音箱/蓝牙 HID）。*/
+     *  v1.13：重新加入摄像头（UVC 免驱），保留五件套 + 摄像头
+     *  （触控板/键盘/麦克风/音箱/蓝牙 HID/UVC 摄像头）。*/
     val ORDER: List<String> = listOf(
         ModuleId.GADGET,
         ModuleId.AUDIO,
         ModuleId.TOUCHPAD,
         ModuleId.BTHID,
+        ModuleId.CAMERA,
     )
 
     @Volatile
@@ -70,6 +72,7 @@ object AgentController {
             rt.register(AudioModule(app))         // UAC2 声卡搬运（手机麦克风 ↔ PC）
             rt.register(TouchpadModule())          // 触控板：手势 + 相对鼠标上行
             rt.register(BtHidDevice(app))          // 蓝牙 HID：PC 零驱动识别
+            rt.register(CameraModule(app))         // UVC 摄像头：Camera2 → V4L2 → PC 免驱
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -164,6 +167,7 @@ object AgentController {
         ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
         ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
         ModuleId.BTHID -> "蓝牙 HID（鼠标/键盘/多媒体）"
+        ModuleId.CAMERA -> "摄像头（UVC 免驱）"
         else -> id
     }
 
