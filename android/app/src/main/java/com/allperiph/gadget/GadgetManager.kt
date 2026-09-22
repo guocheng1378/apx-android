@@ -1,7 +1,6 @@
 package com.allperiph.gadget
 
 import android.content.Context
-import com.allperiph.core.AgentRuntime
 import com.allperiph.core.AgentStatus
 import com.allperiph.core.ApxNative
 import com.allperiph.core.GadgetConst
@@ -10,7 +9,7 @@ import com.allperiph.core.SysPath
 import java.io.File
 
 /**
- * ConfigFS 复合设备组装（架构 §2.3）—— 驱动 App 的「心脏」。
+ * ConfigFS 复合设备组装（架构 §2.3）。
  *
  * v2.0：复用 g1 模式
  * 不再创建独立 gadget（和 HAL 抢 UDC 会崩溃），改为往系统 g1 里添加 function。
@@ -37,7 +36,6 @@ class GadgetManager {
         val sh = RootShell()
         shell = sh
 
-        // 1. 生成报告描述符到本地文件
         val reportSrc = File(contextFilesDir(ctx), GadgetConst.DESCRIPTOR_FILENAME)
         val descriptor = ApxNative.hidReportDescriptorOrNull()
         if (descriptor != null) {
@@ -55,11 +53,7 @@ class GadgetManager {
             if (!hal.acquire()) {
                 Log.w(TAG, "HAL acquire 超时，继续尝试")
             }
-
-            // 2. 解绑 UDC（必须在添加 function 之前）
             val savedUdc = hal.unbindUdc()
-
-            // 3. 创建 function 目录 + 链接到 configs/b.1
             val steps = ConfigFsLayout.mountReuse(opts)
             for ((i, step) in steps.withIndex()) {
                 Log.v(TAG, "[$i/${steps.size}] ${step.cmd}")
@@ -69,11 +63,7 @@ class GadgetManager {
                     throw IllegalStateException("gadget error: ${step.cmd}")
                 }
             }
-
-            // 4. 写入报告描述符（必须在 hid.usb0 目录创建之后）
             stageDescriptor(opts)
-
-            // 5. 重绑 UDC
             if (savedUdc.isNotEmpty()) {
                 hal.rebindUdc(savedUdc)
             }
@@ -86,7 +76,6 @@ class GadgetManager {
         } catch (e: Exception) {
             _state = AgentStatus.ERROR
             Log.e(TAG, "gadget 挂载失败: ${e.message}")
-            AgentRuntime.reportFailure(e)
         }
     }
 
@@ -112,7 +101,6 @@ class GadgetManager {
         return dir
     }
 
-    /** 写入报告描述符到 hid.usb0/report_desc（必须在目录创建之后调用） */
     private fun stageDescriptor(o: GadgetOptions) {
         val src = o.reportDescSource ?: return
         val dest = "${o.functionDir(GadgetFeature.HID)}/report_desc"
