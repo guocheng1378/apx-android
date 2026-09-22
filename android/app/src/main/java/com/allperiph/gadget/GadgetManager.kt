@@ -6,14 +6,8 @@ import com.allperiph.core.AgentStatus
 import com.allperiph.core.ApxNative
 import com.allperiph.core.GadgetConst
 import com.allperiph.core.Log
-import com.allperiph.core.ModuleId
 import com.allperiph.core.SysPath
-import com.allperiph.core.UsbId
-import com.allperiph.core.UsbPath
 import java.io.File
-import java.io.RandomAccessFile
-import java.util.concurrent.TimeoutException
-import kotlin.math.min
 
 /**
  * ConfigFS 复合设备组装（架构 §2.3）—— 驱动 App 的「心脏」。
@@ -21,14 +15,12 @@ import kotlin.math.min
  * v2.0：复用 g1 模式
  * 不再创建独立 gadget（和 HAL 抢 UDC 会崩溃），改为往系统 g1 里添加 function。
  * 参考 android-hid-client 的 Device-Specific Workaround：
- *   unbind UDC → 添加 function → rebind UDC
- * HAL 不会抢——因为用的是 g1 本身。
+ *   unbind UDC → 添加 function + 写描述符 → rebind UDC
  */
 class GadgetManager {
     private var shell: RootShell? = null
     private var _state = AgentStatus.IDLE
     val state get() = _state
-    /** v2.0：g1 复用模式，只加 HID + ACM */
     private var opts = GadgetOptions(
         features = GadgetFeature.g1ReuseDefaults(),
     )
@@ -45,15 +37,15 @@ class GadgetManager {
         val sh = RootShell()
         shell = sh
 
+        // 1. 生成报告描述符到本地文件
         val reportSrc = File(contextFilesDir(ctx), GadgetConst.DESCRIPTOR_FILENAME)
         val descriptor = ApxNative.hidReportDescriptorOrNull()
         if (descriptor != null) {
             reportSrc.writeBytes(descriptor)
-            Log.i(TAG, "报告描述符已由 shared/ 生成：${descriptor.size}B → ${reportSrc.absolutePath}")
+            Log.i(TAG, "报告描述符已由 shared/ 生成：${descriptor.size}B")
         } else {
             Log.w(TAG, "shared/ 未返回报告描述符，尝试从已有文件加载")
         }
-
         if (opts.reportDescSource == null && reportSrc.exists()) {
             opts = opts.copy(reportDescSource = reportSrc.absolutePath)
         }
@@ -63,19 +55,25 @@ class GadgetManager {
             if (!hal.acquire()) {
                 Log.w(TAG, "HAL acquire 超时，继续尝试")
             }
-            stageDescriptor(opts)
 
-            // v2.0 核心流程：解绑 UDC → 挂载 function → 重绑 UDC
+            // 2. 解绑 UDC（必须在添加 function 之前）
             val savedUdc = hal.unbindUdc()
+
+            // 3. 创建 function 目录 + 链接到 configs/b.1
             val steps = ConfigFsLayout.mountReuse(opts)
             for ((i, step) in steps.withIndex()) {
                 Log.v(TAG, "[$i/${steps.size}] ${step.cmd}")
                 val r = sh.exec(step.cmd)
                 if (!r.ok && !step.optional) {
-                    Log.e(TAG, "mount step failed (${step.cmd}): code=${r.exitCode} err=[${r.err.take(120)}]")
+                    Log.e(TAG, "mount failed (${step.cmd}): code=${r.exitCode} err=[${r.err.take(120)}]")
                     throw IllegalStateException("gadget error: ${step.cmd}")
                 }
             }
+
+            // 4. 写入报告描述符（必须在 hid.usb0 目录创建之后）
+            stageDescriptor(opts)
+
+            // 5. 重绑 UDC
             if (savedUdc.isNotEmpty()) {
                 hal.rebindUdc(savedUdc)
             }
@@ -114,6 +112,7 @@ class GadgetManager {
         return dir
     }
 
+    /** 写入报告描述符到 hid.usb0/report_desc（必须在目录创建之后调用） */
     private fun stageDescriptor(o: GadgetOptions) {
         val src = o.reportDescSource ?: return
         val dest = "${o.functionDir(GadgetFeature.HID)}/report_desc"
