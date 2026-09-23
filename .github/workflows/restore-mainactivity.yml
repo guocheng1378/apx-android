@@ -1,6 +1,9 @@
 name: Restore and Edit MainActivity
 on:
-  workflow_dispatch: {}
+  push:
+    branches: [fix/touchpad-button-release]
+    paths:
+      - '.github/workflows/restore-mainactivity.yml'
 
 jobs:
   fix:
@@ -18,14 +21,14 @@ jobs:
 
           FILE="android/app/src/main/java/com/allperiph/ui/MainActivity.kt"
 
-          # 1. Remove副屏 comment from requestOverlayPermission()
+          # 1. Remove副屏 comment
           sed -i 's|// 副屏的悬浮窗授权入口|// 悬浮窗授权入口|g' "$FILE"
 
-          # 2. Remove ACCESS_FINE_LOCATION permission request from ensureNotificationPermission()
-          sed -i '/GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION，缺失时 GPS 模块 ERROR/,/ACCESS_FINE_LOCATION/{d}' "$FILE"
+          # 2. Remove ACCESS_FINE_LOCATION permission request
+          sed -i '/GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION/,/ACCESS_FINE_LOCATION/{d}' "$FILE"
           sed -i '/ACCESS_FINE_LOCATION/d' "$FILE"
 
-          # 3. Remove CAMERA check in buildModuleRows sw.setOnCheckedChangeListener
+          # 3. Remove CAMERA check in buildModuleRows
           sed -i '/拨开摄像头子开关时也要先要相机权限/d' "$FILE"
           sed -i '/m.id == com.allperiph.core.ModuleId.CAMERA/d' "$FILE"
 
@@ -37,11 +40,8 @@ jobs:
           # 5. Remove ensureCameraPermission() method
           sed -i '/请求 CAMERA 运行时权限/,/^    }/d' "$FILE"
 
-          # 6. Remove REQ_CAMERA constant
+          # 6. Remove REQ_CAMERA constant and Camera case
           sed -i '/REQ_CAMERA/d' "$FILE"
-
-          # 7. Remove Camera case from onRequestPermissionsResult
-          sed -i '/REQ_CAMERA = 200/d' "$FILE"
           sed -i '/授权成功且服务已在跑/,/摄像头模块已启动/d' "$FILE"
           sed -i '/AgentController.setModuleEnabled(this, com.allperiph.core.ModuleId.CAMERA/d' "$FILE"
 
@@ -53,13 +53,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add android/app/src/main/java/com/allperiph/ui/MainActivity.kt
-          git commit -m "fix: restore MainActivity.kt and remove Camera/GPS references
-
-- Restored file from correct commit (4e9bbab2)
-- Removed ModuleId.CAMERA references in buildModuleRows and bindActions
-- Removed ensureCameraPermission() method
-- Removed REQ_CAMERA constant
-- Removed Camera case from onRequestPermissionsResult
-- Removed ACCESS_FINE_LOCATION permission request (GPS module deleted)
-- Updated副屏 comment to副屏 in requestOverlayPermission"
+          git commit -m "fix: restore MainActivity.kt and remove Camera/GPS references" || echo "No changes"
           git push
