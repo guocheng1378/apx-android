@@ -38,14 +38,8 @@ jobs:
             "platforms;android-35" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
-          # Fix android-37 symlink issue on ubuntu-24.04
-          if [ -d "$ANDROID_HOME/platforms/android-37.0" ] && [ ! -d "$ANDROID_HOME/platforms/android-37" ]; then
-            ln -s "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
-          fi
           echo "=== SDK platforms ==="
           ls -la "$ANDROID_HOME/platforms/"
-          echo "=== NDK ==="
-          ls -la "$ANDROID_HOME/ndk/"
 
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9
@@ -64,8 +58,8 @@ jobs:
         if: failure()
         run: |
           echo "========== BUILD FAILED =========="
-          grep -A 5 -i "error:" /tmp/build.log 2>/dev/null || true
-          grep -A 5 -i "FAILURE" /tmp/build.log 2>/dev/null || true
+          grep -n -A 5 -i "error:" /tmp/build.log 2>/dev/null || true
+          echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
       - name: Find APK
