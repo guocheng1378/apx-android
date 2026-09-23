@@ -63,6 +63,9 @@ public:
     /// 停止推流（幂等）。不影响 session 的连接。
     void stop();
 
+    /// 请求下一编码帧为 IDR（手机切回副屏页时调用，秒出画）
+    bool requestKeyFrame();
+
     bool running() const;
     Status status() const;
 

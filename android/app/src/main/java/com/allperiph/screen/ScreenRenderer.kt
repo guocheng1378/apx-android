@@ -37,6 +37,14 @@ object ScreenRenderer {
 
     @Volatile
     private var running = false
+
+    /** 当前视频流尺寸（触摸坐标按画面比例映射必读；0 = 尚未知） */
+    @Volatile
+    var videoWidth = 0
+        private set
+    @Volatile
+    var videoHeight = 0
+        private set
     private var decodeThread: Thread? = null
 
     private val queue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
@@ -141,6 +149,8 @@ object ScreenRenderer {
             mime = newMime
             width = w
             height = h
+            videoWidth = w
+            videoHeight = h
             decodedFrames.set(0)
             Log.i(TAG, "解码器已启动：$newMime ${w}x$h")
             // 重建时的这一帧不能丢，否则要等到下一个关键帧才有画面
@@ -199,5 +209,7 @@ object ScreenRenderer {
         codec = null
         width = 0
         height = 0
+        videoWidth = 0
+        videoHeight = 0
     }
 }

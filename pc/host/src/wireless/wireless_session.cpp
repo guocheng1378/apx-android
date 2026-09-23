@@ -69,6 +69,10 @@ void WirelessSession::requestOpenScreen() {
     link_.requestOpenScreen();   // 只置原子标志，未连接时标志会被下次建链前的循环带过（无害）
 }
 
+bool WirelessSession::takeKeyFrameRequest() {
+    return link_.takeKeyFrameRequest();
+}
+
 // ————————————————————————————— 发现回调（信标线程） —————————————————————————————
 
 void WirelessSession::onBeacon(const PhoneBeacon& pb) {

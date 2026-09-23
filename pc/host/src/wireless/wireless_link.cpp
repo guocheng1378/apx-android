@@ -582,6 +582,9 @@ void WirelessLink::keepaliveLoop() {
                 } else if (cmd == kCmdKeyboard && bodyLen >= 3) {
                     injectKeyboard(payload[1], payload + 3, bodyLen - 3);
                     cKeyboard_.fetch_add(1);
+                } else if (cmd == 0x06) {
+                    // 手机副屏页 onResume：请求下一编码帧为 IDR（切回秒出画）
+                    keyFrameReq_.store(true);
                 } else if (cmd == kCmdTouch && bodyLen >= 9) {
                     injectTouch(payload[1], payload[2],
                                 apx::getU16(payload + 3), apx::getU16(payload + 5));

@@ -80,6 +80,10 @@ public:
     /// 只置标志，实际发送由保活线程在下个循环完成（≤500ms），线程安全。
     void requestOpenScreen() { pendingCmd_.fetch_or(1); }
 
+    /// 手机端请求关键帧（0x06，副屏页 onResume 时下发）。由 UI 轮询取走。
+    /// @return 自上次取走以来是否有新的请求
+    bool takeKeyFrameRequest() { return keyFrameReq_.exchange(false) != 0; }
+
 private:
     void keepaliveLoop();
     bool sendAll(const uint8_t* p, size_t n);
@@ -119,6 +123,8 @@ private:
     std::atomic<uint64_t> cPong_{0};
     /// 待发命令位图（bit1 = 0x05 打开副屏）；由任意线程置位，保活线程取走发送
     std::atomic<int> pendingCmd_{0};
+    /// 手机端请求关键帧（0x06）
+    std::atomic<bool> keyFrameReq_{false};
     std::atomic<uint64_t> cDropped_{0};
 };
 

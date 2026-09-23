@@ -68,6 +68,9 @@ public:
     /// 请求手机打开副屏页（仅置位，由 WirelessLink 保活线程发送，线程安全）
     void requestOpenScreen();
 
+    /// 手机端是否请求了关键帧（副屏页 onResume）。取走即清零。
+    bool takeKeyFrameRequest();
+
     /// 线程安全的状态快照
     SessionSnapshot snapshot() const;
 

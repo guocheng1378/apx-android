@@ -60,6 +60,10 @@ public:
     void stop();
     bool running() const { return running_.load(); }
 
+    /// 请求下一编码帧为 IDR（手机端切回副屏页时调用，立刻出画不用等 GOP）。
+    /// 只是置标志，由编码线程在下一次 encode 前消费。
+    void requestKeyFrame() { keyReq_.store(true); }
+
     const PipelineStats& stats() const { return stats_; }
 
     /// 实际生效的编码参数。**抓屏尺寸优先于配置**，所以它常与传入的 cfg 不同 ——
@@ -93,6 +97,7 @@ private:
     PipelineConfig cfg_{};
     TransportSpec  spec_{};   // start() 解析出的实际传输描述（供重连复用）
     std::atomic<bool> running_{false};
+    std::atomic<bool> keyReq_{false};   // 手机端请求下一帧为 IDR
 
     std::unique_ptr<ICapture>   capture_;
     std::unique_ptr<IEncoder>   encoder_;

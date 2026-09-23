@@ -1117,6 +1117,10 @@ void tick(Panel* p) {
                 p->lastMediaTryMs = nowMsLocal();
                 pumpMediaConnect(p, peerHost(s.peer));
             }
+            // 手机端切回副屏页：请求下一编码帧为 IDR，立刻出画
+            if (p->session->takeKeyFrameRequest()) {
+                if (p->screenPush) p->screenPush->requestKeyFrame();
+            }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
             // 音箱同理：连接没了就停采集，别让它在后台空转
@@ -1326,16 +1330,30 @@ int runPanel(const std::string& /*preferInstanceId*/) {
 #if defined(_WIN32)
     HANDLE mutex = ::CreateMutexW(nullptr, TRUE, L"Local\\AllPeriph.Panel.SingleInstance");
     if (::GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (mutex) ::CloseHandle(mutex);
+        // 已有实例：优先把它的窗口拉到前台（隐藏在托盘也找得到——窗口对象仍在）。
+        // 找不到窗口（持有者异常/正要退出）时重试片刻后**接管启动**，绝不让用户双击无响应。
         HWND prev = nullptr;
-        // 按窗口类名找已有实例（窗口类 L"AllPeriphPanel"，与创建处一致，不受语言环境影响）
-        prev = ::FindWindowW(L"AllPeriphPanel", nullptr);
-        if (prev) {
-            ::ShowWindow(prev, SW_SHOW);
-            ::SetForegroundWindow(prev);
+        for (int i = 0; i < 10; ++i) {
+            prev = ::FindWindowW(L"AllPeriphPanel", nullptr);
+            if (prev) break;
+            ::Sleep(300);
         }
-        APX_LOGI("面板已有实例在跑，本进程退出");
-        return 0;
+        if (prev) {
+            if (mutex) ::CloseHandle(mutex);
+            ::ShowWindow(prev, SW_RESTORE);
+            ::ShowWindow(prev, SW_SHOW);
+            // SetForegroundWindow 会被 Windows 前台锁定拒绝（新实例不是前台进程）——
+            // 窗口只在任务栏闪一下，用户就以为"双击打不开"。topmost 置一瞬再收回，
+            // 强制把窗口顶到眼前。
+            ::SetWindowPos(prev, HWND_TOPMOST, 0, 0, 0, 0,
+                           SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            ::SetWindowPos(prev, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            ::SetForegroundWindow(prev);
+            APX_LOGI("面板已有实例在跑，已拉起其窗口，本进程退出");
+            return 0;
+        }
+        // mutex 在但 3 秒内没等到窗口：视为持有者异常，本进程接管继续运行
+        APX_LOGW("检测到单实例锁但无面板窗口，接管运行");
     }
 #endif
     Gdiplus::GdiplusStartupInput gdiIn{};

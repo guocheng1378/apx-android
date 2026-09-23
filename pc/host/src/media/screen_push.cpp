@@ -155,6 +155,13 @@ void ScreenPush::stop() {
     APX_LOGI("副屏推流已停止");
 }
 
+bool ScreenPush::requestKeyFrame() {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    if (!impl_->pipe || !impl_->pipe->running()) return false;
+    impl_->pipe->requestKeyFrame();
+    return true;
+}
+
 bool ScreenPush::running() const {
     std::lock_guard<std::mutex> lk(impl_->mu);
     return impl_->pipe && impl_->pipe->running();

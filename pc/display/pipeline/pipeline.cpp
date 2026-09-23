@@ -224,6 +224,7 @@ void Pipeline::encodeThread() {
         }
 
         const int64_t t0 = nowNs();
+        if (keyReq_.exchange(false)) encoder_->forceKeyFrame();
         EncodedPacket pkt{};
         if (!encoder_->encode(frame, pkt)) {
             APX_LOG_W("编码失败：%s", encoder_->lastError().c_str());
