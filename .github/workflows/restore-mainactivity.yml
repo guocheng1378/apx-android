@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/restore-mainactivity.yml'
 
+permissions:
+  contents: write
+
 jobs:
   fix:
     runs-on: ubuntu-latest
