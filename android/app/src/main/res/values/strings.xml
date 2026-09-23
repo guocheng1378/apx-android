@@ -30,6 +30,7 @@
     <string name="notify_text_running">上行通道：%1$s</string>
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
+    <string name="notify_action_screen">副屏</string>
 
     <string name="card_link">链路状态</string>
     <string name="card_modules">功能开关</string>

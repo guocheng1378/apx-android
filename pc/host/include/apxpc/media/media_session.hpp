@@ -126,6 +126,12 @@ private:
     Status st_;
     FrameHandler handler_;
 
+    /// 生命周期互斥：connect（后台重试线程）与 disconnect（UI 线程）可能并发，
+    /// 而 reader_/writer_ 这对 std::thread 成员**不是线程安全的** —— 并发赋值/join
+    /// 会触发 STL 内部断言 → std::terminate → abort（0xC0000409，"莫名退出"真凶）。
+    /// recursive：connect 开头会先调自身的 disconnect() 做清理。
+    std::recursive_mutex lifecycleMu_;
+
 #if defined(_WIN32)
     SOCKET sock_ = INVALID_SOCKET;
 #else

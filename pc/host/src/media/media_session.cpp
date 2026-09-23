@@ -73,6 +73,8 @@ MediaSession::~MediaSession() { disconnect(); }
 // ------------------------------------------------------------------ 建链 ----
 
 bool MediaSession::connect(const std::string& host, uint16_t port, const std::string& token) {
+    // 生命周期串行化：见 hpp lifecycleMu_ 注释。disconnect() 会递归取同一把锁。
+    std::lock_guard<std::recursive_mutex> lkLife(lifecycleMu_);
     // 重连前先收掉旧连接：必须在**取锁之前**调用 —— disconnect() 自己要锁 mu_，
     // 持锁调用会直接死锁（与 wireless_link.cpp 同一处坑）。
     disconnect();
@@ -178,6 +180,8 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
 }
 
 void MediaSession::disconnect() {
+    // 与 connect 互斥：reader_/writer_ 的 join/赋值绝不能并发（见 hpp lifecycleMu_）
+    std::lock_guard<std::recursive_mutex> lkLife(lifecycleMu_);
     const bool wasRunning = running_.exchange(false);
 #if defined(_WIN32)
     const bool hadSock = (sock_ != INVALID_SOCKET);
@@ -185,7 +189,12 @@ void MediaSession::disconnect() {
     const bool hadSock = (sock_ != -1);
 #endif
     if (!wasRunning && !hadSock) {
-        // 从未连过（或已完全断开）：只清理状态，不去 join 不存在的线程
+        // 收流线程自己退出过（TCP 断 → readerLoop 调 teardown）：这里**必须**回收
+        // reader_/writer_ 对象 —— 线程虽死但对象仍 joinable，漏了 join 的话，
+        // 下次 connect 对其赋值会触发 std::terminate（"莫名退出"的真凶）。
+        // 线程已死，join 立即返回，不会阻塞。
+        if (reader_.joinable()) reader_.join();
+        if (writer_.joinable()) writer_.join();
         std::lock_guard<std::mutex> lk(mu_);
         st_.connected = false;
         return;

@@ -18,6 +18,7 @@ import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
+import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.core.TcpCtrlBridge
 import com.allperiph.R
 
@@ -121,6 +122,13 @@ class AgentForegroundService : Service() {
             Intent(this, AgentForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兜底
+        val screenPi = PendingIntent.getActivity(
+            this, 3,
+            Intent(this, com.allperiph.screen.ScreenActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         // 链路口径必须与真实的输入择路一致（优先级见 TouchpadModule.dispatch）：
         // USB HID → 蓝牙 HID → Wi‑Fi 控制。原文案只有「USB / 蓝牙」两档，于是无蓝牙
         // 适配器的 PC 走 Wi‑Fi 时会显示「蓝牙 HID」——那是一台压根没有蓝牙的机器。
@@ -156,11 +164,31 @@ class AgentForegroundService : Service() {
             .addAction(
                 Notification.Action.Builder(
                     R.drawable.ic_stat_peripheral,
+                    getString(R.string.notify_action_screen),
+                    screenPi,
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    R.drawable.ic_stat_peripheral,
                     getString(R.string.notify_action_stop),
                     stopPi,
                 ).build()
             )
             .build()
+    }
+
+    /** PC 请求打开副屏（面板开了副屏推流）：能弹就直接弹，被拦则靠通知「副屏」动作兜底 */
+    private fun onPcOpenScreen() {
+        runCatching {
+            startActivity(
+                Intent(this, com.allperiph.screen.ScreenActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            Log.w(TAG, "后台打开副屏被系统拦截：${it.message}（通知「副屏」按钮可用）")
+        }
+        updateNotification()
     }
 
     private fun subscribeEvents() {
@@ -172,6 +200,7 @@ class AgentForegroundService : Service() {
             lastLink = it.linkSpeed
             updateNotification()
         }
+        disposables += EventBus.on<ScreenOpenRequestEvent>(mainHandler) { onPcOpenScreen() }
         // v1.12：ScreenStatusEvent 订阅随副屏功能移除
     }
 

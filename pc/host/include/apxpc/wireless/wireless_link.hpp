@@ -13,6 +13,8 @@
 //   0x01 鼠标   [1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)
 //   0x02 多媒体 [1..2]=u16 位图（LE）——按位边沿注入
 //   0x03 键盘   [1]=mod [2]=0 [3..8]=k1..k6（HID usage，页 0x07）
+//   0x05 打开副屏（**PC → 手机**：面板开副屏推流时请求手机弹出副屏页；
+//        手机端 Android 10+ 后台弹页会被系统拦，靠常驻通知「副屏」动作兜底）
 //
 // 注入免驱动：Windows 标准 SendInput（架构 §2.2「无线模式零新驱动」）。
 // 本文件不做任何伪装：注入失败/无对应 VK 时只记日志并计入 dropped。
@@ -74,10 +76,17 @@ public:
     Status status() const;
     Counters counters() const;
 
+    /// 请求手机打开副屏页（面板开副屏推流时调用）。
+    /// 只置标志，实际发送由保活线程在下个循环完成（≤500ms），线程安全。
+    void requestOpenScreen() { pendingCmd_.fetch_or(1); }
+
 private:
     void keepaliveLoop();
     bool sendAll(const uint8_t* p, size_t n);
     bool buildPing(uint8_t* buf, size_t cap, size_t& len, uint32_t seq);
+
+    /// 组一条 control 命令帧（body=[cmd]）。buildPing 的通用版
+    bool buildCmd(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd, uint32_t seq);
 
     // ---- 注入（仅在保活线程调用，状态无需加锁）----
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
@@ -108,6 +117,8 @@ private:
     std::atomic<uint64_t> cKeyboard_{0};
     std::atomic<uint64_t> cTouch_{0};
     std::atomic<uint64_t> cPong_{0};
+    /// 待发命令位图（bit1 = 0x05 打开副屏）；由任意线程置位，保活线程取走发送
+    std::atomic<int> pendingCmd_{0};
     std::atomic<uint64_t> cDropped_{0};
 };
 

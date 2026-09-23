@@ -455,6 +455,22 @@ bool WirelessLink::buildPing(uint8_t* buf, size_t cap, size_t& len, uint32_t seq
     return true;
 }
 
+bool WirelessLink::buildCmd(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd, uint32_t seq) {
+    apx::ApxFrameHeader h{};
+    std::memcpy(h.magic, "APX1", 4);
+    h.streamId = apx::kStreamControl;
+    h.flags = 0;
+    h.headerExtWords = 0;
+    h.payloadLen = 1 + apx::kFrameCrcSize;   // body=[cmd] + CRC
+    h.seq = seq;
+    if (cap < apx::kFrameHeaderSize + h.payloadLen) return false;
+    if (!apx::writeHeader(buf, cap, h)) return false;
+    buf[apx::kFrameHeaderSize] = cmd;
+    apx::putU32(buf + apx::kFrameHeaderSize + 1, apx::crc32(&cmd, 1));
+    len = apx::kFrameHeaderSize + h.payloadLen;
+    return true;
+}
+
 void WirelessLink::keepaliveLoop() {
     uint32_t seq = 1;
     int64_t lastPingAt = 0;
@@ -492,6 +508,18 @@ void WirelessLink::keepaliveLoop() {
                 pingSentAt = now;
             }
             lastPingAt = now;
+        }
+
+        // 1.5) 待发命令（PC → 手机）：打开副屏等控制命令，紧随心跳之后送出
+        if (pendingCmd_.exchange(0) & 1) {
+            uint8_t buf[64];
+            size_t len = 0;
+            if (buildCmd(buf, sizeof(buf), len, 0x05, seq++)) {
+                if (!sendAll(buf, len)) {
+                    APX_LOGW("打开副屏命令发送失败，视为链路断开");
+                    break;
+                }
+            }
         }
 
         // 2) 读（500ms 超时）

@@ -1,7 +1,9 @@
 package com.allperiph.wireless
 
 import com.allperiph.core.ApxFrame
+import com.allperiph.core.EventBus
 import com.allperiph.core.Log
+import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.core.TcpCtrlBridge
 import java.io.InputStream
 import java.io.OutputStream
@@ -222,7 +224,9 @@ class TcpControlChannel(
             }
             if (n <= 0) break
             feed(buf, n)
-            if (pump()) sendControl(PONG)
+            val ev = pump()
+            if (ev and 1 != 0) sendControl(PONG)
+            if (ev and 2 != 0) EventBus.post(ScreenOpenRequestEvent())
         }
         Log.i(TAG, "PC 连接已断开：$peerText")
         teardown(sock)
@@ -277,9 +281,9 @@ class TcpControlChannel(
         }
     }
 
-    /** @return 是否收到 ping（需回 pong） */
-    private fun pump(): Boolean {
-        var sawPing = false
+    /** @return 位图：bit0=收到 ping（需回 pong），bit1=收到打开副屏请求（0x05） */
+    private fun pump(): Int {
+        var flags = 0
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
@@ -295,9 +299,13 @@ class TcpControlChannel(
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL &&
-                    payloadLen >= 1 && rxBuf[off + ApxFrame.HEADER_SIZE] == 'p'.code.toByte()
+                    payloadLen >= 1
                 ) {
-                    sawPing = true
+                    when (rxBuf[off + ApxFrame.HEADER_SIZE]) {
+                        'p'.code.toByte() -> flags = flags or 1
+                        // 0x05 = PC 请求打开副屏（面板开副屏推流时下发）
+                        0x05.toByte() -> flags = flags or 2
+                    }
                 }
                 off += total
             }
@@ -306,7 +314,7 @@ class TcpControlChannel(
                 rxLen -= off
             }
         }
-        return sawPing
+        return flags
     }
 
     // ————————————————————————————— 发送 —————————————————————————————

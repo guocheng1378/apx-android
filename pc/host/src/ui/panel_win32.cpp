@@ -488,7 +488,10 @@ void toggleScreen(Panel* p) {
     if (!p->screenPush->start(p->media.get(), apxpc::media::ScreenPushOptions{}, &err)) {
         const std::wstring msg = L"副屏启动失败：\n\n" + toWide(err);
         MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
+        return;
     }
+    // 唤起手机：让手机自动进副屏页（前台直接弹；后台被 Android 拦时通知「副屏」动作兜底）
+    if (p->session) p->session->requestOpenScreen();
 }
 
 // ——————————————————— 音箱卡片（系统声音 → 手机扬声器） ———————————————————
@@ -1317,6 +1320,24 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 bool panelAvailable() { return true; }
 
 int runPanel(const std::string& /*preferInstanceId*/) {
+    // 单实例：面板没有互斥保护时，"安装版 + 编译版"或误双击会出现两个实例，
+    // 两条无线连接互相抢手机的单对端通道、SendInput 双份注入 —— 表现就是"莫名抽风/退出"。
+    // 已有实例在跑时：把它拉到前台后本进程退出（与托盘双击同语义）。
+#if defined(_WIN32)
+    HANDLE mutex = ::CreateMutexW(nullptr, TRUE, L"Local\\AllPeriph.Panel.SingleInstance");
+    if (::GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (mutex) ::CloseHandle(mutex);
+        HWND prev = nullptr;
+        // 按窗口类名找已有实例（窗口类 L"AllPeriphPanel"，与创建处一致，不受语言环境影响）
+        prev = ::FindWindowW(L"AllPeriphPanel", nullptr);
+        if (prev) {
+            ::ShowWindow(prev, SW_SHOW);
+            ::SetForegroundWindow(prev);
+        }
+        APX_LOGI("面板已有实例在跑，本进程退出");
+        return 0;
+    }
+#endif
     Gdiplus::GdiplusStartupInput gdiIn{};
     ULONG_PTR gdiToken = 0;
     if (Gdiplus::GdiplusStartup(&gdiToken, &gdiIn, nullptr) != Gdiplus::Ok) {

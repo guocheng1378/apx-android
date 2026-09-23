@@ -59,3 +59,6 @@ data class AgentStateEvent(
     /** §2.7 lastSeq：最后被执行的控制命令 seq（被拒绝的命令不回显） */
     val lastSeq: Int = 0,
 )
+
+/** PC 请求打开副屏页（控制通道 0x05，由面板开启副屏推流时下发） */
+class ScreenOpenRequestEvent

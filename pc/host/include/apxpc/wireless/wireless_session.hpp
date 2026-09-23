@@ -65,6 +65,9 @@ public:
     /// 结束会话并回收后台线程（析构也会调）
     void stop();
 
+    /// 请求手机打开副屏页（仅置位，由 WirelessLink 保活线程发送，线程安全）
+    void requestOpenScreen();
+
     /// 线程安全的状态快照
     SessionSnapshot snapshot() const;
 
