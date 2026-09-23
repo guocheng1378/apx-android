@@ -21,28 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 副屏核心线程：从 USB bulk 读取 PC 视频帧 → MediaCodec 解码 → TextureView 渲染。
  *
- * v1.34（从 v21 移植，**剥离了触控上行**）：仅 PC → 手机单向显示，ep2 不再使用。
- *
- * **v1.34 真机修正 —— "打开开关后全屏黑屏"**：
- * 最初的实现用全屏 [SurfaceView] overlay，而 SurfaceView 在没有视频帧时默认渲染为
- * **黑色**，且窗口只加了 FLAG_NOT_FOCUSABLE（不挡按键但仍**消费触摸**）——
- * 用户一开主开关就得到一块点不动的全屏黑块。三处修正：
- *
- * 1. [WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE]：触摸穿透，overlay 纯显示不挡操作；
- * 2. SurfaceView → [TextureView]：TextureView 无内容时**完全透明**，
- *    待机期（PC 未推流）不再有黑块，首帧到达后自动出现画面；
- * 3. 启动时发一条常驻通知（CHANNEL_STATUS），点击打开应用 —— 用户有明确的"出口"
- *    去关闭副屏开关，而不是被黑屏困住。
- *
- * 数据流（PROTOCOL.md §3.1 Video Stream）：
- *   PC → Phone: APX1 帧头(16B) + 扩展头 + DirtyRect[] + 编码帧分片
- *
- * 线程模型：
- *   - 本线程（HandlerThread "apx-screen"）：USB bulk 读循环（阻塞在 read() 上）
- *   - 主线程：TextureView 创建 / 销毁 + 解码器重建
- *   - 解码器：MediaCodec 同步模式，在本线程 dequeueInputBuffer / dequeueOutputBuffer
- *
- * 前置条件：用户已授予 [Settings.canDrawOverlays]（SYSTEM_ALERT_WINDOW）。
+ * 优化 #6：4MB 读缓冲延迟分配——USB bulk 打开成功后再创建，
+ * quit() 时置 null 释放内存。避免副屏未激活时常驻 4MB。
  */
 class ScreenThread(
     private val app: Context,
@@ -53,9 +33,8 @@ class ScreenThread(
     private var videoDecoder: VideoDecoder? = null
     private var windowManager: WindowManager? = null
     private val running = AtomicBoolean(true)
-    private var streamId = 0  // 复用 UsbBulkChannel streamId=0
+    private var streamId = 0
 
-    // 分辨率（PC 通过控制帧协商；默认 720p）
     @Volatile private var frameWidth = 1280
     @Volatile private var frameHeight = 720
 
@@ -64,13 +43,13 @@ class ScreenThread(
         Handler(app.mainLooper).post {
             if (createOverlayWindow()) postNotification()
         }
-        // 等待 Surface 就绪后再开始读循环
         Thread({ waitForSurfaceAndRun() }, "apx-screen-read").start()
     }
 
     override fun quit(): Boolean {
         running.set(false)
         Handler(app.mainLooper).post { destroyOverlayWindow() }
+        readBuf = null  // 优化 #6：释放 4MB 缓冲
         quitSafely()
         return super.quit()
     }
@@ -82,11 +61,9 @@ class ScreenThread(
 
     // ——————————— Overlay 窗口（主线程）———————————
 
-    /** @return true = overlay 创建成功（据此决定是否发通知） */
     private fun createOverlayWindow(): Boolean {
         if (!Settings.canDrawOverlays(app)) {
             Log.e(TAG, "缺少 SYSTEM_ALERT_WINDOW 权限，无法显示副屏")
-            // 用户可见：否则副屏"启动了却没画面"，只能靠 logcat 才发现原因
             Handler(app.mainLooper).post {
                 android.widget.Toast.makeText(
                     app,
@@ -103,7 +80,6 @@ class ScreenThread(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // FLAG_NOT_TOUCHABLE 是关键：overlay 只显示画面，触摸全部穿透到下面的应用
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -111,7 +87,6 @@ class ScreenThread(
             PixelFormat.TRANSLUCENT
         )
 
-        // TextureView 而非 SurfaceView：无视频帧时完全透明（SurfaceView 会渲染成黑块）
         textureView = TextureView(app).apply {
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) {
@@ -128,7 +103,6 @@ class ScreenThread(
 
                 override fun onSurfaceTextureUpdated(st: SurfaceTexture) = Unit
             }
-            // 纯显示：不可点击，配合 FLAG_NOT_TOUCHABLE 双保险
             isClickable = false
             isFocusable = false
         }
@@ -156,7 +130,7 @@ class ScreenThread(
         Log.i(TAG, "解码器已配置: ${frameWidth}x${frameHeight}")
     }
 
-    // ——————————— 待机通知（副屏的"出口"）———————————
+    // ——————————— 待机通知 ————————————
 
     private fun postNotification() {
         NotificationChannels.ensure(app)
@@ -186,8 +160,10 @@ class ScreenThread(
 
     // ——————————— USB bulk 读循环 ————————————
 
+    // 优化 #6：延迟分配——只在 USB bulk 真正打开后才创建 4MB 缓冲
+    private var readBuf: ByteArray? = null
+
     private fun waitForSurfaceAndRun() {
-        // 等待 Surface 就绪（最多 5 秒）
         var waitCount = 0
         while (running.get() && textureView?.isAvailable != true && waitCount < 50) {
             Thread.sleep(100)
@@ -195,7 +171,6 @@ class ScreenThread(
         }
         if (!running.get()) return
 
-        // 打开 USB bulk 通道
         UsbBulkChannel.setPaths(streamId, null, null)
         val openRc = UsbBulkChannel.open(streamId)
         if (openRc != 0) {
@@ -204,12 +179,12 @@ class ScreenThread(
         }
         Log.i(TAG, "USB bulk 通道已打开，开始读帧")
 
-        // APX1 帧头固定 16 字节
         val headerBuf = ByteArray(16)
-        val readBuf = ByteArray(4 * 1024 * 1024)  // 4MB 读缓冲
+        readBuf = ByteArray(4 * 1024 * 1024)  // 优化 #6：此时才分配
 
         try {
             while (running.get()) {
+                val buf = readBuf ?: break
                 val headerRead = readFull(headerBuf, 16)
                 if (headerRead != 16) {
                     Log.w(TAG, "帧头读取不完整: $headerRead bytes")
@@ -230,38 +205,37 @@ class ScreenThread(
                     ((headerBuf[10].toInt() and 0xFF) shl 16) or
                     ((headerBuf[11].toInt() and 0xFF) shl 24)
 
-                if (payloadLen <= 0 || payloadLen > readBuf.size) {
+                if (payloadLen <= 0 || payloadLen > buf.size) {
                     Log.w(TAG, "非法 payloadLen=$payloadLen")
                     continue
                 }
 
-                val payloadRead = readFull(readBuf, payloadLen)
+                val payloadRead = readFull(buf, payloadLen)
                 if (payloadRead != payloadLen) {
                     Log.w(TAG, "payload 读取不完整: $payloadRead/$payloadLen")
                     continue
                 }
 
                 when (frameStreamId) {
-                    STREAM_VIDEO -> handleVideoFrame(readBuf, payloadLen)
-                    STREAM_CTRL -> handleControlFrame(readBuf, payloadLen)
-                    else -> { /* 未知 streamId（含 STREAM_TOUCH 上行），忽略 */ }
+                    STREAM_VIDEO -> handleVideoFrame(buf, payloadLen)
+                    STREAM_CTRL -> handleControlFrame(buf, payloadLen)
+                    else -> { /* 未知 streamId */ }
                 }
             }
         } catch (e: Exception) {
             if (running.get()) Log.e(TAG, "读循环异常", e)
         } finally {
             UsbBulkChannel.close(streamId)
+            readBuf = null  // 优化 #6：关闭时释放
             Log.i(TAG, "USB bulk 通道已关闭")
         }
     }
 
-    /** 将编码帧送入 MediaCodec 解码 */
     private fun handleVideoFrame(data: ByteArray, len: Int) {
         val decoder = videoDecoder ?: return
         decoder.decode(data, 0, len)
     }
 
-    /** 处理控制帧（分辨率协商等） */
     private fun handleControlFrame(data: ByteArray, len: Int) {
         if (len < 1) return
         val cmd = data[0].toInt() and 0xFF
@@ -290,14 +264,11 @@ class ScreenThread(
         }
     }
 
-    // ——————————— 工具方法 ————————————
-
-    /** 阻塞读取指定字节数 */
     private fun readFull(buf: ByteArray, needed: Int): Int {
         var offset = 0
         while (offset < needed) {
             val n = UsbBulkChannel.read(streamId, buf, needed - offset)
-            if (n <= 0) return offset  // EOF 或错误
+            if (n <= 0) return offset
             offset += n
         }
         return offset
@@ -305,8 +276,8 @@ class ScreenThread(
 
     companion object {
         private const val TAG = "ScreenThread"
-        private const val STREAM_VIDEO = 0  // kStreamVideo
-        private const val STREAM_CTRL = 3   // kStreamControl
+        private const val STREAM_VIDEO = 0
+        private const val STREAM_CTRL = 3
         private const val CMD_RESOLUTION = 0x10
         private const val CMD_DISCONNECT = 0x7F
         private const val REQ_NOTIFY_CLICK = 100
