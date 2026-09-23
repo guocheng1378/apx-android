@@ -38,7 +38,7 @@ import com.allperiph.core.ModuleState
  *   注：v1.11 实测 UVC configfs 在真机不被内核接受，需先调通（dmesg 抓被拒环节）
  * - 内核已加载 usb_f_uvc 模块
  * - Camera2 API 可用（至少一个摄像头）+ CAMERA 权限已授予
- * - libapx.so 中含 uvc_output_jni 实现（**目前缺**，运行时模块会 ERROR）
+ * - libapx.so 中含 uvc_output_jni 实现
  */
 class CameraModule(private val app: Context) : Module {
 
@@ -58,8 +58,6 @@ class CameraModule(private val app: Context) : Module {
         if (state.isActive) return
         state = ModuleState.STARTING
 
-        // CAMERA 是运行时权限，且必须由 Activity 发起请求 —— 本模块无界面，
-        // 授权入口在主页（打开主开关时弹出）。这里只做兜底检查 + 用户可见提示。
         if (app.checkSelfPermission(android.Manifest.permission.CAMERA) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
@@ -75,24 +73,21 @@ class CameraModule(private val app: Context) : Module {
         }
 
         try {
-            // 1. 打开 V4L2 gadget 设备节点（native 未实现时这里会失败）
             uvcOutput = UvcOutput()
             val devicePath = uvcOutput!!.findDevice()
             if (devicePath == null) {
-                fail("未找到 f_uvc V4L2 设备节点（/dev/videoN）——UVC feature 未挂载或 native 未实现")
+                fail("未找到 V4L2 设备节点（/dev/videoN）——UVC feature 未挂载")
                 return
             }
             if (!uvcOutput!!.open(devicePath)) {
-                fail("无法打开 $devicePath（native V4L2 输出未实现？见 shared/src/uvc_output_jni.cpp）")
+                fail("无法打开 $devicePath（V4L2 输出未实现）")
                 return
             }
             Log.i(TAG, "V4L2 设备已打开: $devicePath")
 
-            // 2. 启动 Camera2 后台线程
             cameraThread = HandlerThread("apx-camera").also { it.start() }
             handler = Handler(cameraThread!!.looper)
 
-            // 3. 打开后置摄像头
             openCamera()
         } catch (t: Throwable) {
             fail(t.message ?: "unknown")
@@ -103,7 +98,6 @@ class CameraModule(private val app: Context) : Module {
     private fun openCamera() {
         val mgr = app.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
-        // 优先后置摄像头
         val cameraId = mgr.cameraIdList.firstOrNull { id ->
             val chars = mgr.getCameraCharacteristics(id)
             chars.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
@@ -123,7 +117,6 @@ class CameraModule(private val app: Context) : Module {
 
         Log.i(TAG, "Camera $cameraId: ${size.width}x${size.height}")
 
-        // JPEG 采集，队列深度 2（一帧采集一帧编码，流水线）
         imageReader = ImageReader.newInstance(
             size.width, size.height, ImageFormat.JPEG, 2
         ).apply {
@@ -166,14 +159,11 @@ class CameraModule(private val app: Context) : Module {
         try {
             val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
                 addTarget(surface)
-                // 连续自动对焦
                 set(
                     CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 )
-                // 30fps
                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(30, 30))
-                // JPEG 质量 85（质量与带宽的平衡点）
                 set(CaptureRequest.JPEG_QUALITY, 85.toByte())
             }
 
@@ -218,13 +208,17 @@ class CameraModule(private val app: Context) : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> "720p@30fps UVC streaming"
-        ModuleState.DEGRADED -> "降级: USB 2.0 带宽受限"
-        ModuleState.ERROR -> "error (见 log；多半是 native V4L2 未实现)"
-        else -> state.name.lowercase()
+        ModuleState.RUNNING -> "720p@30fps UVC 摄像头推流中"
+        ModuleState.DEGRADED -> "摄像头降级：USB 2.0 带宽受限"
+        ModuleState.ERROR -> "摄像头错误：V4L2 设备未就绪（详见日志）"
+        else -> when (state) {
+            ModuleState.STARTING -> "摄像头启动中"
+            ModuleState.STOPPED, ModuleState.IDLE -> "摄像头已停止"
+            else -> state.name
+        }
     }
 
-    /** §2.9 bit39 摄像头（修正 v21 错误用的 bit 7） */
+    /** §2.9 bit39 摄像头 */
     override fun maskBits(): Long = if (state.isActive) ModuleMask.CAMERA else 0L
 
     companion object {
