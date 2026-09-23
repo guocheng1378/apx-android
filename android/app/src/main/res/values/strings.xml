@@ -22,17 +22,16 @@
     <string name="action_switch_to_normal">切回普通模式</string>
 
     <string name="notify_channel_status_name">全能外设运行状态</string>
-    <string name="notify_channel_status_desc">显示 USB 链路、各模块与副屏的运行状态</string>
+    <string name="notify_channel_status_desc">显示 USB 链路与各模块的运行状态</string>
     <string name="notify_channel_alert_name">全能外设告警</string>
     <string name="notify_channel_alert_desc">链路降级、模块异常等需要关注的通知</string>
 
     <string name="notify_title">全能外设正在运行</string>
-    <string name="notify_text_running">USB 链路：[%1$s] · 副屏 %2$s</string>
+    <string name="notify_text_running">USB 链路：%1$s</string>
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
 
     <string name="card_link">链路状态</string>
-    <string name="card_display">副屏（数位屏闭环）</string>
     <string name="card_modules">功能开关</string>
     <string name="card_diag">环境与诊断</string>
 
@@ -49,15 +48,15 @@
     <string name="value_battery_ok">已加入</string>
     <string name="value_battery_limited">未加入（后台会被冻结）</string>
 
-    <string name="hint_root_missing">未检测到 root：ConfigFS Gadget 无法挂载，全部虚拟设备（含副屏）均不可用。请刷入 Magisk/KernelSU 后重启。</string>
-    <string name="hint_usb2">当前非 SuperSpeed（USB 2.0 480Mbps 或更低）。副屏将在低分辨率/低帧率下降级运行，建议更换支持 USB 3.0 的线缆与接口。</string>
-    <string name="hint_usb_ok">SuperSpeed 链路就绪，副屏可全速运行。</string>
+    <string name="hint_root_missing">未检测到 root：ConfigFS Gadget 无法挂载，触控板与音频均不可用。请刷入 Magisk/KernelSU 后重启。</string>
+    <string name="hint_usb2">当前非 SuperSpeed（USB 2.0 480Mbps 或更低）。建议更换支持 USB 3.0 的线缆与接口。</string>
+    <string name="hint_usb_ok">SuperSpeed 链路就绪。</string>
     <string name="hint_battery">未加入电池优化白名单：后台会被系统冻结，USB 数据会间歇中断。建议点击「加入白名单」。</string>
     <string name="hint_idle">未启动 · 打开上方开关后显示链路与运行状态</string>
     <string name="hint_root_dialog_title">为什么需要 Root？</string>
-    <string name="hint_root_dialog_body">本应用要把手机变成 PC 的外设（鼠标 / 键盘 / 多媒体 / 副屏），必须往内核的 USB Gadget 配置目录（/sys/kernel/config/usb_gadget）写入描述符并绑定 UDC —— 这个目录只有 root 可写，Android 没有对第三方应用开放任何替代接口。
+    <string name="hint_root_dialog_body">本应用要把手机变成 PC 的外设（鼠标 / 键盘 / 多媒体），必须往内核的 USB Gadget 配置目录（/sys/kernel/config/usb_gadget）写入描述符并绑定 UDC —— 这个目录只有 root 可写，Android 没有对第三方应用开放任何替代接口。
 
-没有 root 时：界面、快捷键与模板编辑、状态诊断都照常可用，但所有「当外设」的能力（含副屏、UAC2 音频）无法启动，蓝牙 HID 也因系统权限限制无法注册。
+没有 root 时：界面、快捷键与模板编辑、状态诊断都照常可用，但所有「当外设」的能力（含触控板、UAC2 音频）无法启动，蓝牙 HID 也因系统权限限制无法注册。
 
 获取方式：解锁 Bootloader 后刷入 Magisk 或 KernelSU（部分内核自带，无需额外刷），重启后授予本应用 root 权限即可。</string>
     <string name="hint_root_short">需要 Root：ConfigFS 不可写，无法挂载 USB 设备</string>
@@ -65,21 +64,12 @@
     <string name="hint_all_ok">环境检查通过：root 已授权、链路为 SuperSpeed、后台不受限。</string>
     <string name="action_battery_whitelist">加入白名单</string>
     <string name="action_refresh">重新检测</string>
-    <string name="action_open_screen">进入副屏</string>
     <string name="action_open_hotkey">打开快捷键面板</string>
     <string name="action_open_touchpad">打开触控板</string>
-    <string name="action_open_camera">摄像头</string>
     <string name="action_open_pairing">无线配对（连接电脑）</string>
     <string name="action_start">启动服务</string>
     <string name="action_stop">停止服务</string>
 
-    <string name="screen_title">副屏</string>
-    <string name="screen_waiting">等待 PC 端推流…</string>
-    <string name="screen_resolution">虚拟屏 %1$d × %2$d</string>
-    <string name="screen_stats">解码 %1$.1f ms · 排队 %2$.1f ms · 端到端 ≈ %3$.1f ms · %4$.1f fps · 丢帧 %5$d</string>
-    <string name="screen_touch">触控上行 %1$.1f 帧/秒 · 累计 %2$d 帧 · 丢弃 %3$d</string>
-    <string name="screen_hint_exit">双指长按 0.7 秒退出副屏</string>
-
     <string name="latency_budget_title">延迟预算</string>
-    <string name="latency_budget_body">抓屏+编码（PC）8ms · 传输 1ms · 排队 ≤4ms · 解码 ≤8ms · 渲染+面板 ≈8ms · 触控上行 ≤2ms</string>
+    <string name="latency_budget_body">触控上行 ≤2ms</string>
 </resources>
