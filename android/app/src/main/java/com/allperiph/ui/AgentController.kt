@@ -3,7 +3,6 @@ package com.allperiph.ui
 import android.content.Context
 import com.allperiph.audio.AudioModule
 import com.allperiph.bt.BtHidDevice
-import com.allperiph.camera.CameraModule
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
@@ -11,7 +10,6 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
-import com.allperiph.screen.ScreenModule
 import com.allperiph.touchpad.TouchpadModule
 import java.util.concurrent.Executors
 
@@ -28,8 +26,6 @@ object AgentController {
         ModuleId.AUDIO,
         ModuleId.TOUCHPAD,
         ModuleId.BTHID,
-        ModuleId.SCREEN,
-        ModuleId.CAMERA,
     )
 
     @Volatile var runtime: AgentRuntime? = null
@@ -53,8 +49,6 @@ object AgentController {
             rt.register(AudioModule(app))
             rt.register(TouchpadModule())
             rt.register(BtHidDevice(app))
-            rt.register(ScreenModule(app))
-            rt.register(CameraModule(app))
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -94,8 +88,7 @@ object AgentController {
         }
     }
 
-    fun defaultEnabled(id: String): Boolean =
-        id != ModuleId.SCREEN && id != ModuleId.CAMERA
+    fun defaultEnabled(id: String): Boolean = true
 
     fun isEnabled(context: Context, id: String): Boolean =
         prefs(context).getBoolean("enable.$id", defaultEnabled(id))
@@ -133,8 +126,6 @@ object AgentController {
         ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
         ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
         ModuleId.BTHID -> "蓝牙 HID（鼠标/键盘/多媒体）"
-        ModuleId.SCREEN -> "副屏（USB 有线扩展屏）"
-        ModuleId.CAMERA -> "摄像头（UVC 免驱）"
         else -> id
     }
 
