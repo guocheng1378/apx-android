@@ -78,27 +78,15 @@ class TouchpadModule : Module {
     // =====================================================================
     // § 优化 #1：PTP 触点双缓冲（无锁快照替换）
     // =====================================================================
-    // 旧实现用 synchronized(contacts) 在 MotionEvent 线程和 8ms 帧线程之间
-    // 互斥：MotionEvent 是高频路径（每 MOVE 事件一次），帧线程每 8ms 轮询。
-    // 锁争用导致丢帧和 UI 抖动。
-    //
-    // 新方案：MotionEvent 线程写本地 mutableContacts 列表，完成后原子替换
-    // snapshot 引用（@Volatile 保证可见性）。帧线程只读 snapshot 快照，零锁。
-    // =====================================================================
-
     private class Contact(val cid: Int, @Volatile var x: Float, @Volatile var y: Float)
 
-    /** MotionEvent 线程写入的可变工作区（单线程访问，无需同步） */
     private val workingContacts = ArrayList<Contact>()
 
-    /** 帧线程读取的不可变快照（原子替换，@Volatile 保证 happens-before） */
     @Volatile private var snapshot: Array<Contact> = emptyArray()
 
     private var ptpThread: Thread? = null
 
-    /** MotionEvent → 更新触点快照（写工作区，完成后原子替换 snapshot） */
     private fun updatePtpContacts(ev: android.view.MotionEvent) {
-        // 基于工作区做修改，避免重建列表
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN,
             android.view.MotionEvent.ACTION_POINTER_DOWN -> {
@@ -123,11 +111,9 @@ class TouchpadModule : Module {
                 c.x = ev.getX(i); c.y = ev.getY(i)
             }
         }
-        // 原子替换快照——帧线程通过 @Volatile 读到一致的数组引用
         snapshot = workingContacts.toTypedArray()
     }
 
-    /** v1.8：8ms 周期帧流（PTP 设备标准行为） */
     fun startPtpStream() {
         if (ptpThread?.isAlive == true) return
         ptpThread = Thread {
@@ -144,16 +130,15 @@ class TouchpadModule : Module {
         ptpThread = null
     }
 
-    /** 把当前触点快照打包为 PTP 50B 输入报告（Report ID 16）—— 读 snapshot，零锁 */
     private fun sendPtpReport(ctx: ModuleContext) {
         val bytes = ByteArray(PTP_REPORT_SIZE)
         bytes[0] = PTP_REPORT_ID.toByte()
-        val snap = snapshot  // 读快照引用，无锁
+        val snap = snapshot
         val n = snap.size.coerceAtMost(5)
         for (slot in 0 until n) {
             val c = snap[slot]
             val off = 1 + slot * PTP_FINGER_BYTES
-            bytes[off] = 0x03.toByte()          // Confidence + TipSwitch
+            bytes[off] = 0x03.toByte()
             bytes[off + 1] = c.cid.toByte()
             val x = ((c.x / surfW) * PTP_LOGICAL_MAX_X).toInt().coerceIn(0, PTP_LOGICAL_MAX_X)
             val y = ((c.y / surfH) * PTP_LOGICAL_MAX_Y).toInt().coerceIn(0, PTP_LOGICAL_MAX_Y)
@@ -162,19 +147,16 @@ class TouchpadModule : Module {
             bytes[off + 7] = (y and 0xFF).toByte()
             bytes[off + 8] = ((y shr 8) and 0xFF).toByte()
         }
-        // Scan Time 单位 100µs
         val scan = ((android.os.SystemClock.uptimeMillis() / 10) and 0xFFFF).toInt()
         bytes[46] = (scan and 0xFF).toByte()
         bytes[47] = ((scan shr 8) and 0xFF).toByte()
-        bytes[48] = n.toByte()               // Contact Count
-        bytes[49] = 0                           // Buttons（Clickpad 无实体键）
+        bytes[48] = n.toByte()
+        bytes[49] = 0
         ctx.hid.sendInputReport(bytes)
     }
 
-    /** 上行出口路径（动态择路；日志只记录变化） */
     @Volatile private var lastPath = ""
 
-    /** v1.7d：长按定时器到点，由 Activity 调用 */
     fun armDrag() {
         val eng = engineRef.get() ?: return
         val locked = eng.armDrag()
@@ -243,10 +225,6 @@ class TouchpadModule : Module {
 
     override fun maskBits(): Long = if (state.isActive) (1L shl 33) else 0
 
-    /**
-     * 动态择路上行：蓝牙 HID → HID Mouse TLC（有线，Report ID 2）→
-     * TCP 控制面（无蓝牙机器，v1.7）→ 日志。
-     */
     private fun dispatch(ctx: ModuleContext, f: TouchpadFrame) {
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
         val path = when {
@@ -265,12 +243,11 @@ class TouchpadModule : Module {
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
                 )
-            } else if (f.buttons != 0 || f.dx != 0 || f.dy != 0 || f.wheel != 0 || f.pan != 0) {
+            } else {
+                // Mouse report (buttons + deltas) — works for both press and release
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x02, f.buttons.toByte(), f.dx.toByte(), f.dy.toByte(), f.wheel.toByte(), f.pan.toByte())
                 )
-            } else {
-                ctx.hid.sendInputReport(byteArrayOf(0x04, 0, 0, 0))
             }
             else -> Log.v(TAG, "bulk mouse dx=${f.dx} dy=${f.dy} btns=${f.buttons}")
         }
