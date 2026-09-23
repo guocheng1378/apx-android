@@ -29,8 +29,12 @@ import java.io.File
 /**
  * M2 复合设备管理器：ConfigFS 生命周期（探测 → 抢占 → 挂载 → 自愈 → 卸载）。
  *
- * 同时充当**传输实现**（[HidTransport] + [SerialSink]），挂载成功后注入 [AgentRuntime]，
- * 业务模块拿到的代理无需重建。
+ * 优化 #3：
+ * - heal() 增加退避策略，连续失败达到上限后停止自愈，
+ *   避免内核 ConfigFS 挂了无限循环 heal→fail→heal。
+ * - 连接恢复（收到心跳）时重置计数。
+ * - start() 里所有提前 return 路径确保 arbiter.release()，
+ *   避免 USB HAL 占用泄漏。
  */
 class GadgetManager(
     private val app: Context,
@@ -67,6 +71,13 @@ class GadgetManager(
 
     @Volatile
     private var lastError: String? = null
+
+    // ———— 优化 #3：heal 退避策略 ————
+    private var healCount = 0
+    private companion object HealLimits {
+        const val MAX_HEAL = 3
+        val HEAL_BACKOFF_MS = longArrayOf(2000, 5000, 15000)
+    }
 
     override fun start(ctx: ModuleContext) {
         synchronized(lock) {
@@ -136,6 +147,7 @@ class GadgetManager(
                     )
                     Log.e(TAG, "UDC 状态：${udcState.out.take(300)}")
                     fail("ConfigFS 挂载失败")
+                    arb.release()
                     return
                 }
                 currentOptions = options
@@ -143,6 +155,7 @@ class GadgetManager(
                 val hid = HidDevice()
                 if (!hid.open()) {
                     fail("${SysPath.HIDG_DEVICE} 打不开（权限或 SELinux 限制）")
+                    arb.release()
                     return
                 }
                 hid.setReportListener { onHidReport(it) }
@@ -164,6 +177,7 @@ class GadgetManager(
                 startFfsDescriptorWriter()
 
                 lastError = null
+                healCount = 0  // 挂载成功，重置自愈计数
                 state = if (best.speed.isSuperSpeed) ModuleState.RUNNING else ModuleState.DEGRADED
                 publishState("mounted on ${best.name} (${best.rawSpeed})")
                 startWatchdog()
@@ -249,6 +263,7 @@ class GadgetManager(
         if (cmd.cmd == VendorCmd.HEARTBEAT) {
             lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
             everConnected = true
+            healCount = 0  // 优化 #3：连接恢复，重置自愈计数
         }
         runtime.beginCommand(cmd.seq)
         EventBus.post(VendorCommandEvent(cmd))
@@ -263,7 +278,18 @@ class GadgetManager(
                 Log.w(TAG, "heal skipped: shell=${sh != null} udc=${best?.name}")
                 return
             }
-            Log.w(TAG, "heal: $reason")
+            // 优化 #3：退避策略，连续失败超过上限时停止自愈
+            if (healCount >= MAX_HEAL) {
+                Log.e(TAG, "heal 已连续失败 $healCount 次（上限 $MAX_HEAL），停止自愈等待手动干预")
+                return
+            }
+            val backoff = HEAL_BACKOFF_MS[healCount.coerceAtMost(HEAL_BACKOFF_MS.size - 1)]
+            Log.w(TAG, "heal: $reason (attempt ${healCount + 1}/$MAX_HEAL, backoff ${backoff}ms)")
+            healCount++
+
+            // 退避等待（可被 shutdown 中断）
+            try { Thread.sleep(backoff) } catch (_: InterruptedException) { return }
+
             closeDevices()
             val options = GadgetOptions(
                 bcdUsb = if (best.speed.isSuperSpeed) UsbId.BCD_USB_30 else UsbId.BCD_USB_20,
@@ -357,6 +383,7 @@ class GadgetManager(
             udc = null
             everConnected = false
             lastHeartbeatMs = 0L
+            healCount = 0
             state = ModuleState.STOPPED
             publishState("stopped")
         }
