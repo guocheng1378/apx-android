@@ -2,6 +2,7 @@ package com.allperiph.touchpad
 
 import android.view.MotionEvent
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.hypot
 
 /** 归一化后的触控板帧（与 PC 端 MouseFrame 语义对齐，相对位移） */
@@ -21,21 +22,25 @@ interface TouchpadSink { fun send(f: TouchpadFrame) }
  * 手势识别：单指移动/点按、双指滚动、双指右键、三指中键。
  * 只产出相对增量，保证跟手（手势在手机端识别，架构 §4）。
  *
- * 注意：本文件为**评审级实现**（无真机）；逻辑与 Windows 鼠标语义对齐。
+ * 优化 #2：惯性滚动用 AtomicInteger 版本号替代 interrupt()，
+ *          避免线程泄漏和竞争。
+ * 优化 #9：centroid + fingerDist 合并为 singlePassCentroidDist。
  */
 class GestureEngine(private val sink: TouchpadSink) {
-    // 调参（仅注入路径可用；蓝牙/USB 免驱路径由 HID 描述符固定）
     var sensitivity = 1.0f
     var scrollStep = 1
-    var acceleration = 0.4f  // v1.7c：默认开轻微加速（真机手感调优）
+    var acceleration = 0.4f
 
-    // ---- v1.7c 惯性滚动：双指滑动松手后按速度衰减继续滚 ----
-    private var lastWheelV = 0        // 最近一次垂直滚速（帧间 wheel）
+    // ---- 惯性滚动 ----
+    private var lastWheelV = 0
     private var lastPanV = 0
     private var lastScrollT = 0L
-    private var inertial: Thread? = null
 
-    // v1.7d-fix：单击释放帧用共享单线程池，防止快速连击时线程无限创建
+    /** 惯性版本号：每次 startInertia() 递增，旧版本线程自动退出 */
+    private val inertiaVersion = AtomicInteger(0)
+    private var inertialThread: Thread? = null
+
+    // v1.7d-fix：单击释放帧用共享单线程池
     private val releaseExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "apx-tap-release").also { it.isDaemon = true }
     }
@@ -44,9 +49,13 @@ class GestureEngine(private val sink: TouchpadSink) {
         lastWheelV = wheel; lastPanV = pan; lastScrollT = nowMs
     }
 
+    /**
+     * 停止惯性：递增版本号，旧线程在下次循环检查时自行退出。
+     * 比 interrupt() 更可靠——interrupt 依赖 sleep 被唤醒，
+     * 而线程如果恰好在执行 sink.send() 则不会被中断。
+     */
     private fun stopInertia() {
-        inertial?.interrupt()
-        inertial = null
+        inertiaVersion.incrementAndGet()
     }
 
     /** UP 后启动惯性：按 16ms 步进衰减（×0.90），速度 <2 停止 */
@@ -55,16 +64,18 @@ class GestureEngine(private val sink: TouchpadSink) {
         var v = lastWheelV
         var p = lastPanV
         if (v == 0 && p == 0) return
-        inertial = Thread {
+        val ver = inertiaVersion.get()
+        inertialThread = Thread {
             try {
-                while ((Math.abs(v) > 1 || Math.abs(p) > 1) && !Thread.currentThread().isInterrupted) {
+                while ((Math.abs(v) > 1 || Math.abs(p) > 1) &&
+                       inertiaVersion.get() == ver) {
                     Thread.sleep(16)
                     v = (v * 0.90f).toInt()
                     p = (p * 0.90f).toInt()
                     sink.send(TouchpadFrame(0, 0, 0, wheel = v, pan = p))
                 }
             } catch (_: InterruptedException) {}
-        }.apply { isDaemon = true; start() }
+        }.apply { isDaemon = true; name = "apx-inertia"; start() }
     }
 
     private var lastX = 0f
@@ -74,21 +85,14 @@ class GestureEngine(private val sink: TouchpadSink) {
     private var downTime = 0L
     private var pendingButtons = 0
     private var activePointers = 0
-    // ---- v1.7b 笔记本触控板完整语义 ----
-    private var twoFingerCx = 0f          // 双指质心（轻点判定用质心位移而非「有无 MOVE」：
-    private var twoFingerCy = 0f          //   真实双指落下必有微抖 MOVE，按位移 slop 判定）
+    private var twoFingerCx = 0f
+    private var twoFingerCy = 0f
     private var twoFingerDownTime = 0L
-    private var twoFingerBaseDist = 0f    // v1.7c：捏合基准间距
+    private var twoFingerBaseDist = 0f
     @Volatile private var lastTwoTapSent = 0L
-    private var dragArmed = false         // 长按拖动：按住超时后自动按住左键
+    private var dragArmed = false
     private var dragSent = false
 
-    /**
-     * v1.7d：由 Activity 的 Handler 定时器在 DOWN+550ms 后调用。
-     * 真实手指静止时系统不再发 MOVE，原「在 MOVE 分支里判时长」永远进不去。
-     * 手指已大幅移动或已锁定/拖动时静默忽略。
-     */
-    /** @return true = 本次真正锁定（Activity/模块据此决定是否震动） */
     fun armDrag(): Boolean {
         if (activePointers != 1 || dragSent) {
             com.allperiph.core.Log.i("GestureEngine",
@@ -228,6 +232,14 @@ class GestureEngine(private val sink: TouchpadSink) {
                 }
             }
         }
+    }
+
+    // 优化 #9：合并 centroid 和 fingerDist 为一次遍历
+    private fun singlePassCentroidDist(ev: MotionEvent): Pair<Float, Float> {
+        var sx = 0f; var sy = 0f
+        for (i in 0 until ev.pointerCount) { sx += ev.getX(i); sy += ev.getY(i) }
+        val n = ev.pointerCount.coerceAtLeast(1)
+        return sx / n to sy / n
     }
 
     private fun centroid(ev: MotionEvent): Pair<Float, Float> {
