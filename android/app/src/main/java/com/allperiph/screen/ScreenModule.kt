@@ -62,8 +62,13 @@ class ScreenModule(private val app: Context) : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> screenThread?.statusText() ?: "running"
-        else -> state.name.lowercase()
+        ModuleState.RUNNING -> screenThread?.statusText() ?: "副屏运行中"
+        else -> when (state) {
+            ModuleState.STARTING -> "副屏启动中"
+            ModuleState.STOPPED, ModuleState.IDLE -> "副屏已停止"
+            ModuleState.ERROR -> "副屏错误"
+            else -> state.name
+        }
     }
 
     /** §2.9 bit37 副屏视频（bulk streamId 0） */
