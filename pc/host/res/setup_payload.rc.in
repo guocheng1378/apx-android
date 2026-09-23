@@ -1,0 +1,13 @@
+// 安装包载荷：把桌面端可执行文件整个作为 RCDATA 嵌进 apxsetup.exe。
+//
+// 本文件是模板，由 CMake 在**配置阶段**用 configure_file 生成真正可编译的 .rc
+// （见 pc/host/CMakeLists.txt）—— 因为载荷路径含构建目录，逐机不同，不能写死。
+// 之所以在配置阶段而不是用 $<CONFIG>：多配置生成器会让 file(GENERATE) 为每个
+// 配置各写一遍同名文件，内容互相覆盖，结果不确定。
+//
+// code_page(65001)：仓库路径可能含中文，必须告诉 rc.exe 按 UTF-8 读本文件。
+#pragma code_page(65001)
+
+#define IDR_PAYLOAD 200
+
+IDR_PAYLOAD RCDATA "@APX_PAYLOAD_EXE@"

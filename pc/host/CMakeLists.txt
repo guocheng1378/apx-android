@@ -232,6 +232,33 @@ if(WIN32)
   set_target_properties(apxdesktop PROPERTIES WIN32_EXECUTABLE TRUE)
   target_link_options(apxdesktop PRIVATE "/ENTRY:mainCRTStartup")
   target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 gdiplus setupapi cfgmgr32)
+
+  # 安装包要内嵌桌面端可执行文件。用固定路径的副本做载荷，好处是 .rc 的路径在
+  # **配置阶段**就完全确定 —— 换成 $<CONFIG> 的话，多配置生成器会让 file(GENERATE)
+  # 为每个配置各写一遍同名文件，内容互相覆盖，结果不确定。
+  set(APX_PAYLOAD_DIR "${CMAKE_BINARY_DIR}/payload")
+  set(APX_PAYLOAD_EXE "${APX_PAYLOAD_DIR}/apxdesktop.exe")
+  file(TO_NATIVE_PATH "${APX_PAYLOAD_EXE}" APX_PAYLOAD_EXE_NATIVE)
+  configure_file("${APXPC_ROOT}/res/setup_payload.rc.in"
+                 "${CMAKE_BINARY_DIR}/setup_payload.rc" @ONLY)
+
+  add_custom_command(TARGET apxdesktop POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${APX_PAYLOAD_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:apxdesktop>" "${APX_PAYLOAD_EXE}"
+    COMMENT "暂存安装包载荷 apxdesktop.exe")
+
+  # ------------------------------------------------------------ 目标：安装包
+  # 自包含、免第三方打包工具（NSIS/Inno/WiX 都不在目标机器上）：把 apxdesktop.exe
+  # 作为 RCDATA 打进 apxsetup.exe，运行时释放到 %LOCALAPPDATA%\AllPeriph。
+  add_executable(apxsetup
+    "${APXPC_ROOT}/src/setup_main.cpp"
+    "${CMAKE_BINARY_DIR}/setup_payload.rc")
+  target_include_directories(apxsetup PRIVATE "${APXPC_ROOT}/include")
+  target_link_libraries(apxsetup PRIVATE shell32 ole32 shlwapi user32 advapi32)
+  set_target_properties(apxsetup PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(apxsetup PRIVATE "/ENTRY:mainCRTStartup")
+  # 必须先完成 apxdesktop（含其 POST_BUILD 载荷暂存），资源才能找到载荷文件
+  add_dependencies(apxsetup apxdesktop)
 endif()
 
 # ---------------------------------------------------------------- 示例

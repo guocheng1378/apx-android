@@ -119,6 +119,31 @@ exe，窗口与托盘共用同一枚。**手机端图标一改，重跑脚本即
 > `SelectObject` 还原的话读到的是那张 1×1 单色位图 —— 现象是整窗一片空白，
 > 只有原生子控件可见。
 
+### 2.2.2 安装包（apxsetup.exe）
+
+目标机器上 NSIS / Inno / WiX 都没有，而仓库坚持不引第三方依赖 —— 于是按同一思路
+自己产一个**自包含安装包**：CMake 在**配置阶段**用 `res/setup_payload.rc.in`
+生成 `.rc`，把 `apxdesktop.exe` 整个作为 `RCDATA` 打进 `apxsetup.exe`，
+**单文件即可分发**，无需任何打包工具链。
+
+| 项 | 落点 |
+|---|---|
+| 程序目录 | `%LOCALAPPDATA%\Programs\AllPeriph`（免 UAC；Windows 免管理员安装的惯例位置） |
+| 用户配置 | `%LOCALAPPDATA%\AllPeriph\config.json`（与程序目录**分离**，卸载不清设置） |
+| 开始菜单 | `%APPDATA%\...\Start Menu\Programs\全能外设.lnk` |
+| 卸载项 | `HKCU\...\Uninstall\AllPeriph`（DisplayName / 版本 / 图标 / UninstallString / QuietUninstallString） |
+| 自启迁移 | 原本开着 → 改指到安装位置；原本没开 → **不擅自打开**（尊重用户现状） |
+
+命令：`--install`（默认）/ `--uninstall` / `--silent-install` / `--silent-uninstall`。
+
+> 为什么 `.rc` 放在**配置阶段**生成、而不是 `file(GENERATE)` + `$<CONFIG>`：
+> 多配置生成器会为每个配置各写一遍同名文件，内容互相覆盖，结果不确定。
+
+> **踩坑**：卸载器 `uninstall.exe` 就住在安装目录里，`killProcessesUnder(安装目录)`
+> 会把**自己**杀掉 —— 现象是卸载退出码 0、但一件事都没做（真机踩过）。必须先排除
+> 当前进程。此外正在运行的程序删不掉自己，末尾交回
+> `cmd /c timeout /t 2 & rmdir /s /q "<目录>"` 收尾。
+
 > ⚠️ **真机教训（务必保留）**：手势帧的生产者是 **UI 线程**，在 UI 线程直接 `socket.write`
 > 会抛 `NetworkOnMainThreadException` 被 catch 吞掉，表现为「链路在线、光标纹丝不动」，
 > 只有 60ms 后子线程发的「释放帧」能漏过去。所有出站帧一律走**队列 + 专用 writer 线程**。
