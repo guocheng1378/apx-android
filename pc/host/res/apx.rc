@@ -1,0 +1,8 @@
+// 桌面端资源：应用图标（窗口 + 托盘共用同一枚）。
+//
+// IDI_APPICON 与 src/ui/panel_win32.cpp 里的 kAppIconId 必须保持一致。
+// apx.ico 由 scripts/make_icon.ps1 从手机端矢量图标生成，勿手工替换
+// （要改图标请先改 android .../drawable/ic_launcher_app.xml，再重跑脚本）。
+#define IDI_APPICON 101
+
+IDI_APPICON ICON "apx.ico"

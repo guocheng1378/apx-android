@@ -81,7 +81,7 @@ TrayIcon::TrayIcon() = default;
 TrayIcon::~TrayIcon() { quit(); }
 
 #if defined(_WIN32)
-bool TrayIcon::create(const std::string& tip) {
+bool TrayIcon::create(const std::string& tip, HICON icon) {
     WNDCLASS wc{};
     wc.lpfnWndProc = trayWndProc;
     wc.hInstance = GetModuleHandle(nullptr);
@@ -97,7 +97,7 @@ bool TrayIcon::create(const std::string& tip) {
     nid.uID = 1;
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
-    nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+    nid.hIcon = icon ? icon : LoadIcon(nullptr, IDI_APPLICATION);
     // tip 是 UTF-8；逐字节"加宽"会把中文变成乱码，必须走 MultiByteToWideChar
     lstrcpyn(nid.szTip, utf8ToWide(tip).c_str(), ARRAYSIZE(nid.szTip));
     Shell_NotifyIcon(NIM_ADD, &nid);
@@ -127,7 +127,7 @@ void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(c
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }
 
 #else
-bool TrayIcon::create(const std::string&) { return true; }
+bool TrayIcon::create(const std::string&, HICON) { return true; }
 void TrayIcon::quit() { if (onQuit_) onQuit_(); }
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }

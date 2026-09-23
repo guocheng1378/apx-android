@@ -29,8 +29,9 @@ public:
     TrayIcon();
     ~TrayIcon();
 
-    // 创建托盘图标并启动消息循环线程。tip 为悬浮提示。
-    bool create(const std::string& tip);
+    // 创建托盘图标并启动消息循环线程。tip 为悬浮提示（UTF-8）。
+    // icon 为空时退回系统默认图标；桌面端会传入 exe 内嵌的应用图标。
+    bool create(const std::string& tip, HICON icon = nullptr);
     void setQuitCallback(std::function<void()> cb);
     // 打开面板回调（默认浏览 http://127.0.0.1:port）
     void setOpenCallback(std::function<void()> cb);

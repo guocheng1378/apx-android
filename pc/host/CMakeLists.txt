@@ -33,6 +33,11 @@ endif()
 
 include(CheckIncludeFileCXX)
 
+# .rc（应用图标资源）需要显式启用 RC 语言
+if(WIN32)
+  enable_language(RC)
+endif()
+
 # C++/WinRT（Windows.Devices.Sensors）需要 Windows SDK + cppwinrt 生成头
 if(WIN32)
   check_include_file_cxx("winrt/Windows.Devices.Sensors.h" APXPC_HAVE_CPPWINRT)
@@ -210,17 +215,23 @@ add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
 target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")
 target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service)
 if(WIN32)
-  target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32)
+  # gdiplus：面板自绘（Windows 自带组件，不算第三方依赖）
+  target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32 gdiplus)
 endif()
 
 # 桌面端可执行：GUI 子系统（双击无控制台）。入口仍是 main()，用 /ENTRY 绕开
-# MSVC 对 WinMain 的强制要求。
-add_executable(apxdesktop "${APXPC_ROOT}/src/desktop_main.cpp")
+# MSVC 对 WinMain 的强制要求。图标资源（res/apx.rc → apx.ico）打进 exe，
+# 窗口与托盘共用同一枚。
+set(APXDESKTOP_SRC "${APXPC_ROOT}/src/desktop_main.cpp")
+if(WIN32)
+  list(APPEND APXDESKTOP_SRC "${APXPC_ROOT}/res/apx.rc")
+endif()
+add_executable(apxdesktop ${APXDESKTOP_SRC})
 target_link_libraries(apxdesktop PRIVATE apxpc_ui apxpc_wireless apxpc_core)
 if(WIN32)
   set_target_properties(apxdesktop PROPERTIES WIN32_EXECUTABLE TRUE)
   target_link_options(apxdesktop PRIVATE "/ENTRY:mainCRTStartup")
-  target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 setupapi cfgmgr32)
+  target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 gdiplus setupapi cfgmgr32)
 endif()
 
 # ---------------------------------------------------------------- 示例

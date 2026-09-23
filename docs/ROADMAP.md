@@ -103,6 +103,22 @@ App「状态」页打开总开关后，手机作为 USB 复合设备被 Windows 
 `MultiByteToWideChar`）；`WirelessLink::connect()` 持 `mu_` 调 `disconnect()` 的
 **自死锁**（重连时才会触发，改成取锁前先收旧连接）。
 
+**视觉与手机端统一**：面板的色值 / 圆角 / 字级全部取自
+`android/.../values/{colors,styles}.xml` —— 底 `#F2F3F5`、白卡 18px 圆角 +
+`#EDEDED` 描边、主色 `#3482FF`、分区标题 13px 粗体蓝字、状态语义色
+ok/warn/error/idle。除两个输入框外**全部 GDI+ 自绘**（圆角胶囊按钮 / 圆形单选 /
+MIUI 开关），不做原生控件的 owner-draw —— 后者拿不到手机端那种观感。
+
+应用图标同样来自手机端：`scripts/make_icon.ps1` 按
+`drawable/ic_launcher_app.xml` 的几何与配色生成 `pc/host/res/apx.ico`
+（16/24/32/48/64/128 用标准 BMP 条目，256 用 PNG 条目），经 `res/apx.rc` 打进
+exe，窗口与托盘共用同一枚。**手机端图标一改，重跑脚本即同步**。
+
+> GDI+ 两个坑（都已踩过）：① `GraphicsPath` 拷贝构造是 protected，不能按值返回，
+> 圆角路径要用出参构造；② 双缓冲 `BitBlt` 必须**在位图仍选中时**执行，先
+> `SelectObject` 还原的话读到的是那张 1×1 单色位图 —— 现象是整窗一片空白，
+> 只有原生子控件可见。
+
 > ⚠️ **真机教训（务必保留）**：手势帧的生产者是 **UI 线程**，在 UI 线程直接 `socket.write`
 > 会抛 `NetworkOnMainThreadException` 被 catch 吞掉，表现为「链路在线、光标纹丝不动」，
 > 只有 60ms 后子线程发的「释放帧」能漏过去。所有出站帧一律走**队列 + 专用 writer 线程**。
