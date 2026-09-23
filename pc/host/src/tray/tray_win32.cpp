@@ -26,6 +26,17 @@ const UINT WM_TRAY = WM_APP + 1;
 const UINT IDM_OPEN = 1001;
 const UINT IDM_QUIT = 1002;
 
+// UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
+std::wstring utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()),
+                                      nullptr, 0);
+    if (n <= 0) return {};
+    std::wstring w(static_cast<size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), w.data(), n);
+    return w;
+}
+
 LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_TRAY) {
         if (lp == WM_RBUTTONUP) {
@@ -87,8 +98,8 @@ bool TrayIcon::create(const std::string& tip) {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
     nid.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
-    std::wstring t(tip.begin(), tip.end());
-    lstrcpyn(nid.szTip, t.c_str(), ARRAYSIZE(nid.szTip));
+    // tip 是 UTF-8；逐字节"加宽"会把中文变成乱码，必须走 MultiByteToWideChar
+    lstrcpyn(nid.szTip, utf8ToWide(tip).c_str(), ARRAYSIZE(nid.szTip));
     Shell_NotifyIcon(NIM_ADD, &nid);
 
     running_ = true;
@@ -123,7 +134,7 @@ void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(c
 #endif
 
 // ---------------------------------------------------------------- 开机自启
-bool setAutostart(bool enable, const std::string& exePath) {
+bool setAutostart(bool enable, const std::string& exePath, const std::string& args) {
 #if defined(_WIN32)
     HKEY hk; std::string path = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     if (RegOpenKeyExA(HKEY_CURRENT_USER, path.c_str(), 0, KEY_SET_VALUE, &hk) != ERROR_SUCCESS) return false;
@@ -133,7 +144,8 @@ bool setAutostart(bool enable, const std::string& exePath) {
             char buf[MAX_PATH] = {0}; GetModuleFileNameA(nullptr, buf, MAX_PATH);
             exe = buf;
         }
-        exe = "\"" + exe + "\" serve";
+        exe = "\"" + exe + "\"";
+        if (!args.empty()) exe += " " + args;
         RegSetValueExA(hk, "AllPeriph", 0, REG_SZ, reinterpret_cast<const BYTE*>(exe.c_str()), static_cast<DWORD>(exe.size() + 1));
     } else {
         RegDeleteValueA(hk, "AllPeriph");

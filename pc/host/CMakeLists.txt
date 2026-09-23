@@ -185,6 +185,7 @@ endif()
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_link.cpp"
   "${APXPC_ROOT}/src/wireless/beacon_listener.cpp"
+  "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
 )
 add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
 target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
@@ -198,6 +199,28 @@ add_executable(apxhost "${APXPC_ROOT}/src/host_main.cpp")
 target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless)
 if(WIN32)
   target_link_libraries(apxhost PRIVATE ws2_32 shell32 user32 hid setupapi cfgmgr32)
+endif()
+
+# ---------------------------------------------------------------- 目标：桌面端面板
+# 纯 Win32 + common controls（不引 Qt/wx），兑现 apxpc/ui/panel.hpp 的 runPanel。
+set(APXPC_UI_SRC
+  "${APXPC_ROOT}/src/ui/panel_win32.cpp"
+)
+add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
+target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")
+target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service)
+if(WIN32)
+  target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32)
+endif()
+
+# 桌面端可执行：GUI 子系统（双击无控制台）。入口仍是 main()，用 /ENTRY 绕开
+# MSVC 对 WinMain 的强制要求。
+add_executable(apxdesktop "${APXPC_ROOT}/src/desktop_main.cpp")
+target_link_libraries(apxdesktop PRIVATE apxpc_ui apxpc_wireless apxpc_core)
+if(WIN32)
+  set_target_properties(apxdesktop PROPERTIES WIN32_EXECUTABLE TRUE)
+  target_link_options(apxdesktop PRIVATE "/ENTRY:mainCRTStartup")
+  target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 setupapi cfgmgr32)
 endif()
 
 # ---------------------------------------------------------------- 示例
@@ -220,7 +243,7 @@ if(APXPC_BUILD_TESTS)
 endif()
 
 # ---------------------------------------------------------------- 安装
-install(TARGETS apxhost RUNTIME DESTINATION bin)
+install(TARGETS apxhost apxdesktop RUNTIME DESTINATION bin)
 if(APXPC_BUILD_SDK)
   install(TARGETS apxpc_sdk ARCHIVE DESTINATION lib)
   install(DIRECTORY "${APXPC_ROOT}/sdk/include/" DESTINATION include)

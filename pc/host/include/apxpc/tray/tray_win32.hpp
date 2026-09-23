@@ -18,8 +18,10 @@
 
 namespace apxpc::tray {
 
-// 开机自启：写入/删除 HKCU\...\Run 下的 AllPeriph 项
-bool setAutostart(bool enable, const std::string& exePath = {});
+// 开机自启：写入/删除 HKCU\...\Run 下的 AllPeriph 项。
+// args 默认 "serve"（CLI 宿主以常驻服务方式自启）；桌面端传空串，直接拉起 GUI。
+bool setAutostart(bool enable, const std::string& exePath = {},
+                  const std::string& args = "serve");
 bool autostartEnabled();
 
 class TrayIcon {

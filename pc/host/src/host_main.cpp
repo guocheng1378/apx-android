@@ -18,8 +18,7 @@
 #include <apxpc/sensors/sensor_reader.hpp>
 #include <apxpc/version.hpp>
 #include <apxpc/app/service.hpp>
-#include <apxpc/wireless/wireless_link.hpp>
-#include <apxpc/wireless/beacon_listener.hpp>
+#include <apxpc/wireless/wireless_session.hpp>
 
 #include <atomic>
 #include <chrono>
@@ -111,7 +110,8 @@ int doSensors() {
 
 // -------------------------------------------------------- Wi-Fi 控制通道 ----
 // 手机做服务端（TCP 9500），本端连入后把收到的 streamId=3 控制帧用 SendInput
-// 注入本机。两种入口：手工指定地址（wireless）与信标自动发现（wireless-listen）。
+// 注入本机。状态机在 apxpc::wireless::WirelessSession 里 —— 桌面端面板共用同一套，
+// 这里只是把它套上命令行输出。
 
 /// 解析 "ip:port"；省略端口时用手机侧默认端口
 std::pair<std::string, uint16_t> parseSpec(const std::string& spec) {
@@ -121,78 +121,62 @@ std::pair<std::string, uint16_t> parseSpec(const std::string& spec) {
 }
 
 /// 跑一段会话并周期打印注入计数（这是「链路真的在送数据」的客观证据）。
-/// seconds <= 0 表示一直运行到链路断开。
-int runWirelessSession(const std::string& host, uint16_t port, const std::string& token,
-                       int seconds) {
-    apxpc::wireless::WirelessLink link;
-    if (!link.connect(host, port, token)) {
-        std::printf("连接 %s:%u 失败：%s\n", host.c_str(), static_cast<unsigned>(port),
-                    link.status().error.c_str());
-        return 1;
+/// seconds <= 0 表示一直运行到用户 Ctrl+C。
+int runWirelessCli(bool autoDiscover, const std::string& host, uint16_t port, int seconds) {
+    apxpc::wireless::WirelessSession session;
+    if (autoDiscover) {
+        std::puts("正在监听手机信标（手机端打开「Wi‑Fi 控制」模块）…");
+        session.startAuto();
+    } else {
+        session.connectManual(host, port);
     }
-    std::printf("已连接 %s:%u —— 手机端滑动触摸板 / 按键盘即注入本机。\n",
-                host.c_str(), static_cast<unsigned>(port));
 
     const auto t0 = std::chrono::steady_clock::now();
+    bool announced = false;
+    int rc = 0;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        const auto st = link.status();
-        const auto c = link.counters();
+        const auto s = session.snapshot();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - t0)
                             .count();
-        std::printf("\r[%4llds] %-4s RTT %5.0fms | 鼠标 %6llu  键盘 %6llu  "
-                    "多媒体 %5llu  丢弃 %llu   ",
-                    static_cast<long long>(ms / 1000),
-                    st.connected ? "在线" : "断开",
-                    st.rttMs,
-                    static_cast<unsigned long long>(c.mouse),
-                    static_cast<unsigned long long>(c.keyboard),
-                    static_cast<unsigned long long>(c.consumer),
-                    static_cast<unsigned long long>(c.dropped));
-        std::fflush(stdout);
-        if (!st.connected) {
-            std::puts("\n链路已断开");
-            return 2;
+
+        if (!announced && s.phase == apxpc::wireless::LinkPhase::Connected) {
+            announced = true;
+            std::printf("\n已连接 %s —— 手机端滑动触摸板 / 按键盘即注入本机。\n",
+                        s.peer.c_str());
         }
+        if (s.phase == apxpc::wireless::LinkPhase::Failed) {
+            std::printf("\n连接失败：%s\n", s.error.c_str());
+            return 1;
+        }
+        // 自动发现：等 20 秒还没信标就如实报错，而不是无限干等
+        if (autoDiscover && !announced && ms > 20'000) {
+            std::puts("\n超时：未收到手机信标。请确认手机与 PC 在同一局域网，"
+                      "或改用 apxhost wireless <手机IP>:9500");
+            return 1;
+        }
+
+        std::printf("\r[%4llds] %-14s RTT %5.0fms | 鼠标 %6llu  键盘 %6llu  多媒体 %5llu  丢帧 %llu   ",
+                    static_cast<long long>(ms / 1000),
+                    apxpc::wireless::linkPhaseName(s.phase),
+                    s.rttMs,
+                    static_cast<unsigned long long>(s.counters.mouse),
+                    static_cast<unsigned long long>(s.counters.keyboard),
+                    static_cast<unsigned long long>(s.counters.consumer),
+                    static_cast<unsigned long long>(s.counters.dropped));
+        std::fflush(stdout);
+
         if (seconds > 0 && ms >= static_cast<long long>(seconds) * 1000) break;
     }
-    std::puts("");
-    return 0;
-}
 
-/// 监听手机反向信标并自动连入（首个信标触发）
-int runWirelessListen(int seconds) {
-    apxpc::wireless::BeaconListener listener;
-    std::atomic<bool> found{false};
-    std::string host;
-    uint16_t port = 9500;
-    std::string token;
-
-    const bool ok = listener.start([&](const apxpc::wireless::PhoneBeacon& pb) {
-        if (found.load()) return;
-        // 先写数据再置标志：读者以 found 的 acquire 读保证看到上面几行
-        host = pb.host;
-        port = pb.port;
-        token = pb.token;
-        found.store(true);
-    });
-    if (!ok) {
-        std::puts("信标监听启动失败（UDP 9501 被占？）。可改用："
-                  "apxhost wireless <手机IP>:9500");
-        return 1;
-    }
-    std::puts("正在等待手机信标（手机端打开「Wi‑Fi 控制」模块）…");
-    for (int i = 0; i < 400 && !found.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    listener.stop();   // 必须在监听线程之外调用（回调里 join 自己会死锁）
-    if (!found.load()) {
-        std::puts("超时：未收到手机信标。请确认手机与 PC 在同一局域网，"
-                  "或改用 apxhost wireless <手机IP>:9500");
-        return 1;
-    }
-    return runWirelessSession(host, port, token, seconds);
+    const auto c = session.snapshot().counters;
+    std::printf("\n最终统计：鼠标 %llu  键盘 %llu  多媒体 %llu  丢帧 %llu\n",
+                static_cast<unsigned long long>(c.mouse),
+                static_cast<unsigned long long>(c.keyboard),
+                static_cast<unsigned long long>(c.consumer),
+                static_cast<unsigned long long>(c.dropped));
+    return rc;
 }
 
 int interactive() {
@@ -241,11 +225,11 @@ int main(int argc, char** argv) {
             }
             const auto hp = parseSpec(argv[2]);
             const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
-            return runWirelessSession(hp.first, hp.second, "", secs);
+            return runWirelessCli(false, hp.first, hp.second, secs);
         }
         if (cmd == "wireless-listen") {
             const int secs = argc > 2 ? std::atoi(argv[2]) : 0;
-            return runWirelessListen(secs);
+            return runWirelessCli(true, {}, 0, secs);
         }
 
         // ---- 常驻服务 / Web 控制面板 ----

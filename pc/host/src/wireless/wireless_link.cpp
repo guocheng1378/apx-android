@@ -158,8 +158,11 @@ void ensureWsa() {
 
 bool WirelessLink::connect(const std::string& host, uint16_t port,
                            const std::string& token) {
-    std::lock_guard<std::mutex> lk(mu_);
+    // 重连前先收掉旧连接：必须在**取锁之前**调用 —— disconnect() 自己要锁 mu_，
+    // 持锁调用会直接死锁（std::mutex 不可重入）。
     if (running_.load()) disconnect();
+
+    std::lock_guard<std::mutex> lk(mu_);
 
 #if !defined(_WIN32)
     st_.connected = false;

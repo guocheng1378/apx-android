@@ -27,12 +27,14 @@ echo [1/2] 配置 CMake...
 cmake -S pc\host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
 if errorlevel 1 goto FAIL
 
-echo [2/2] 编译 apxhost...
-cmake --build build_host --config Release --target apxhost
+echo [2/2] 编译 apxhost / apxdesktop...
+cmake --build build_host --config Release --target apxhost apxdesktop
 if errorlevel 1 goto FAIL
 
 echo.
-echo [完成] 产物：build_host\Release\apxhost.exe
+echo [完成] 产物：
+echo         build_host\Release\apxhost.exe      命令行 / Web 控制面
+echo         build_host\Release\apxdesktop.exe   桌面端 · 无线控制中枢（双击运行）
 echo.
 
 rem 传 nobuild 参数则只构建、不启动

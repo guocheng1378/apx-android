@@ -79,6 +79,30 @@ App「状态」页打开总开关后，手机作为 USB 复合设备被 Windows 
 **验证证据**（真机 + 本机 PC）：控制面 RTT 4–6ms、丢弃 0；手机滑动 176 帧使 PC 光标
 位移 (459,590) 像素；手机长按「复制」芯片期间 PC `GetAsyncKeyState` 探到 VK_CONTROL / VK_C 按下。
 
+### 2.2.1 桌面端（apxdesktop.exe）
+
+命令行对日常使用不友好，故按仓库既定路线（`ui/panel.hpp`：**纯 Win32 + common controls，
+不引 Qt/wx**）补上桌面窗口，同时兑现了此前只声明未实现的 `runPanel()`。
+
+| 项 | 落点 |
+|---|---|
+| 会话状态机 | `include/apxpc/wireless/wireless_session.hpp` + `src/wireless/wireless_session.cpp` |
+| 面板窗口 | `src/ui/panel_win32.cpp`（状态大字 + 自动/手动连接 + 实时计数 + 开机自启 + 托盘） |
+| 入口 | `src/desktop_main.cpp`（GUI 子系统，`/ENTRY:mainCRTStartup` 保留 `main()`） |
+| 构建 | `cmake --build build_host --target apxdesktop`（`build.bat` 已一并构建） |
+
+**分层理由**：连接是 3 秒级阻塞操作，**绝不能放 UI 线程**。`WirelessSession` 把
+「发现 → 建链 → 断线自动回到等待」收在后台线程；UI 只表达意图（`startAuto` /
+`connectManual` / `disconnect`）并按 400ms 定时器读快照，不做任何跨线程回调 ——
+避免"回调里刷 UI"这类竞态（Android 侧已经栽过一次同类问题）。
+
+**行为约定**：关闭窗口 / 最小化 = 收进托盘（输入注入要继续工作）；退出走托盘右键
+「退出」或窗口里的「退出」按钮。`runPanel` 在非 Windows 返回 -1（CLI/SDK 不受影响）。
+
+顺带修掉两处旧瑕疵：`TrayIcon` 托盘提示按字节加宽 UTF-8 导致**中文乱码**（改走
+`MultiByteToWideChar`）；`WirelessLink::connect()` 持 `mu_` 调 `disconnect()` 的
+**自死锁**（重连时才会触发，改成取锁前先收旧连接）。
+
 > ⚠️ **真机教训（务必保留）**：手势帧的生产者是 **UI 线程**，在 UI 线程直接 `socket.write`
 > 会抛 `NetworkOnMainThreadException` 被 catch 吞掉，表现为「链路在线、光标纹丝不动」，
 > 只有 60ms 后子线程发的「释放帧」能漏过去。所有出站帧一律走**队列 + 专用 writer 线程**。
