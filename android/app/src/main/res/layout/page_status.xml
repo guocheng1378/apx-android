@@ -24,48 +24,101 @@
             style="@style/APCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:padding="20dp">
 
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/app_name"
-                    android:textAppearance="@style/APTextCaption" />
-
-                <TextView
-                    android:id="@+id/tvOverall"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="4dp"
-                    android:text="@string/common_off"
-                    android:textColor="@color/md_on_background"
-                    android:textSize="30sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvOverallSub"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingTop="6dp"
-                    android:text="@string/common_unknown"
-                    android:textAppearance="@style/APTextCaption" />
-            </LinearLayout>
-
-            <Switch
-                android:id="@+id/swMaster"
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
-                android:scaleX="1.45"
-                android:scaleY="1.45" />
+                android:text="@string/app_name"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:id="@+id/tvOverall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:text="@string/common_off"
+                android:textColor="@color/md_on_background"
+                android:textSize="30sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvOverallSub"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
+                android:text="@string/common_unknown"
+                android:textAppearance="@style/APTextCaption" />
+
+            <!-- 三个传输开关（取代单总开关）：打开即启用该类下全部功能 -->
+            <LinearLayout
+                android:id="@+id/rowsTransport"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="无线"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <Switch
+                        android:id="@+id/swWifi"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="蓝牙"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <Switch
+                        android:id="@+id/swBt"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="USB"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <Switch
+                        android:id="@+id/swUsb"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
 
         <TextView
@@ -103,7 +156,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="键盘（USB）—— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），PC 免驱识别为标准键盘"
+                android:text="键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义）；插线与 Wi‑Fi 两种接法，PC 都免驱识别为键盘"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
@@ -138,21 +191,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="蓝牙 HID（鼠标 / 多媒体）—— 不接 USB 也能当鼠标、控制播放"
+                android:text="蓝牙 HID（鼠标 / 多媒体）—— PC 自带蓝牙时，不插线也能当鼠标、控制播放"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：手机当服务端，PC 端 apxhost 连入后触控板 / 键盘 / 快捷键直接生效"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
-                android:text="摄像头 —— UVC 免驱 webcam（Camera2 → MJPEG → V4L2）；需 ROM 内核支持 UVC Gadget，不支持时模块报错不影响其他功能"
+                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：同一局域网下，PC 端「全能外设」自动发现手机，触控板 / 键盘 / 快捷键直接生效"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
@@ -166,23 +212,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="副屏 —— 代码已移植；需 root + 悬浮窗权限 + PC 端 apxhost 发流，真机未验证"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:id="@+id/tvOverlayHint"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="4dp"
-                android:text="→ 点这里开启「显示在其他应用上层」（副屏画面要用）"
-                android:textColor="@color/md_primary"
+                android:text="蓝牙键盘 —— 蓝牙 HID 目前只有鼠标 / 多媒体，键盘待接入（走 Wi‑Fi 控制时键盘已可用）"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="蓝牙键盘 —— 待 BtHidDevice 增 reportKeyboard 后接入（蓝牙 HID 已有鼠标 / 多媒体）"
+                android:text="摄像头 —— UVC 免驱 webcam（Camera2 → MJPEG → V4L2）；代码已完成但当前未编译进包（见 src/disabled/camera，GadgetFeature.UVC 默认关闭），且需 ROM 内核支持 UVC Gadget"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
@@ -224,21 +261,21 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="① 手机：打开本页上方开关。PC 插线后 USB 会短暂断开重连，属正常现象"
+                android:text="① 手机：打开本页上方开关。插数据线时 PC 的 USB 会短暂断开重连，属正常现象"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="② PC：跑 build_host\\Release\\apxhost.exe。无线：apxhost wireless-listen（自动发现手机）或 apxhost wireless 手机IP:9500；有线：apxhost ui"
+                android:text="② PC：安装并打开「全能外设」（开始菜单里），它会自动发现同一局域网内的手机"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="③ 使用：触控板 / 键盘 / 麦克风 / 音响即插即用；副屏与摄像头需在 PC 面板里启用，且需 PC 端推流配合"
+                android:text="③ 使用：不插线时在手机侧打开「Wi‑Fi 控制」模块，触控板 / 键盘 / 快捷键随即生效；麦克风与音响走 USB，需插线并开启对应模块"
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 

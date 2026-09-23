@@ -2,6 +2,7 @@ package com.allperiph.ui
 
 import android.content.Context
 import com.allperiph.audio.AudioModule
+import com.allperiph.audio.WirelessAudioModule
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
@@ -10,6 +11,7 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
+import com.allperiph.screen.ScreenModule
 import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.wireless.WirelessModule
 import java.util.concurrent.Executors
@@ -30,6 +32,11 @@ object AgentController {
         // 无蓝牙 PC 的输入承载（局域网 TCP）。放最后启动、最先停止：
         // 它是「输入出口」，不依赖也不阻塞前面的设备类模块。
         ModuleId.WIRELESS,
+        // Wi‑Fi 音频同样挂最后：它只依赖「媒体连接已连入」，不需要 USB device 节点。
+        // 放在 WIRELESS 之后，保证承载层先就位再挂订阅。
+        ModuleId.WIFI_AUDIO,
+        // 副屏同样是承载层的消费者：订阅 streamId=0，连入前收到的帧会被丢弃并计数。
+        ModuleId.SCREEN,
     )
 
     @Volatile var runtime: AgentRuntime? = null
@@ -54,6 +61,8 @@ object AgentController {
             rt.register(TouchpadModule())
             rt.register(BtHidDevice(app))
             rt.register(WirelessModule())
+            rt.register(WirelessAudioModule())
+            rt.register(ScreenModule())
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -108,6 +117,35 @@ object AgentController {
 
     fun defaultEnabled(id: String): Boolean = true
 
+    // —— 传输分类（有线 / 无线）：状态页 3 个开关，设置页按类分组 ——
+    /** 传输类顺序：无线 → 蓝牙 → 有线(USB) */
+    val TRANSPORTS: List<String> = listOf("wifi", "bt", "usb")
+
+    fun transportLabel(t: String): String = when (t) {
+        "wifi" -> "无线"
+        "bt" -> "蓝牙"
+        "usb" -> "有线（USB）"
+        else -> t
+    }
+
+    /** 模块 → 所属传输类（决定它出现在设置页哪个分组、由哪个开关统一启停） */
+    fun groupOf(id: String): String = when (id) {
+        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN -> "wifi"
+        ModuleId.BTHID -> "bt"
+        ModuleId.GADGET, ModuleId.AUDIO, ModuleId.TOUCHPAD -> "usb"
+        else -> "wifi"
+    }
+
+    /** 某传输类下的全部模块（开关 ON 整组启用、OFF 整组停用） */
+    fun groupModules(t: String): List<String> = ORDER.filter { groupOf(it) == t }
+
+    fun isTransportEnabled(context: Context, t: String): Boolean =
+        prefs(context).getBoolean("transport.$t", false)
+
+    fun setTransportEnabled(context: Context, t: String, on: Boolean) {
+        prefs(context).edit().putBoolean("transport.$t", on).apply()
+    }
+
     fun isEnabled(context: Context, id: String): Boolean =
         prefs(context).getBoolean("enable.$id", defaultEnabled(id))
 
@@ -143,8 +181,10 @@ object AgentController {
         ModuleId.GADGET -> "USB Gadget（复合设备）"
         ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
         ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
-        ModuleId.BTHID -> "蓝牙 HID（鼠标/键盘/多媒体）"
+        ModuleId.BTHID -> "蓝牙 HID（鼠标 / 多媒体）"
         ModuleId.WIRELESS -> "Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）"
+        ModuleId.WIFI_AUDIO -> "Wi‑Fi 音频（音箱 / 麦克风）"
+        ModuleId.SCREEN -> "副屏（Wi‑Fi 镜像 PC 桌面）"
         else -> id
     }
 

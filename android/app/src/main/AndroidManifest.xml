@@ -83,6 +83,15 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
+        <!-- 副屏全屏（Wi‑Fi 收流 + 硬解 + TextureView 渲染） -->
+        <activity
+            android:name=".screen.ScreenActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
+
         <!-- 前台服务 -->
         <service
             android:name=".ui.AgentForegroundService"

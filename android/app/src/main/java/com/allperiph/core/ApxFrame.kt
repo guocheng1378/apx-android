@@ -23,12 +23,24 @@ object ApxFrame {
     const val HEADER_SIZE = 16
     const val CRC_SIZE = 4
 
-    /** streamId 取值（与 frame.h 的 kStream* 一一对应） */
-    const val STREAM_VIDEO = 0
-    const val STREAM_AUDIO = 1
-    const val STREAM_TOUCH = 2
-    const val STREAM_CONTROL = 3
-    const val STREAM_TELEMETRY = 4
+    /**
+     * streamId 取值（与 `shared/include/apx/frame.h` 的 kStream* 一一对应）。
+     * v1.11 起**带方向语义**：下行 = PC → 手机，上行 = 手机 → PC。
+     * 音频之所以分成两个号：「音箱」（PC 声 → 手机扬声器）与「麦克风»
+     * （手机录音 → PC）方向相反，共用 STREAM_AUDIO 会互相污染。
+     */
+    const val STREAM_VIDEO = 0      // 下行：副屏画面
+    const val STREAM_AUDIO = 1      // 下行：音箱（PC 系统声，PCM s16le/48k/立体声）
+    const val STREAM_TOUCH = 2      // 预留
+    const val STREAM_CONTROL = 3    // 双向：控制面（鼠标/键盘/多媒体/心跳）
+    const val STREAM_TELEMETRY = 4  // 预留
+    const val STREAM_MIC = 5        // 上行：麦克风（手机录音，PCM s16le/48k/立体声）
+    const val STREAM_CAMERA = 6     // 上行：摄像头（JPEG 帧）
+
+    /** flags 位（与 frame.h 的 kFlag* 对应） */
+    const val FLAG_KEY_FRAME = 1 shl 0
+    const val FLAG_LAST_FRAGMENT = 1 shl 1
+    const val FLAG_DROPABLE = 1 shl 2
 
     /** 单帧载荷上限（含 CRC），与 kMaxFramePayload 一致；超出的帧直接判为非法 */
     const val MAX_PAYLOAD = 4 * 1024 * 1024
@@ -56,7 +68,7 @@ object ApxFrame {
      * @param body     业务载荷（不含 CRC）
      * @param seq      帧序号（同一逻辑帧的各分片相同）
      */
-    fun build(streamId: Int, body: ByteArray, seq: Int): ByteArray {
+    fun build(streamId: Int, body: ByteArray, seq: Int, flags: Int = 0): ByteArray {
         val payloadLen = body.size + CRC_SIZE
         val out = ByteArray(HEADER_SIZE + payloadLen)
         out[0] = 'A'.code.toByte()
@@ -64,7 +76,7 @@ object ApxFrame {
         out[2] = 'X'.code.toByte()
         out[3] = '1'.code.toByte()
         out[4] = streamId.toByte()
-        out[5] = 0                        // flags
+        out[5] = flags.toByte()
         putU16(out, 6, 0)                 // headerExtWords
         putU32(out, 8, payloadLen)
         putU32(out, 12, seq)
@@ -84,6 +96,28 @@ object ApxFrame {
 
     /** 读帧头里的 streamId */
     fun streamIdAt(buf: ByteArray, off: Int): Int = buf[off + 4].toInt() and 0xFF
+
+    /** 读帧头里的 flags */
+    fun flagsAt(buf: ByteArray, off: Int): Int = buf[off + 5].toInt() and 0xFF
+
+    /** 读帧头里的 seq */
+    fun seqAt(buf: ByteArray, off: Int): Int = getU32(buf, off + 12)
+
+    /** 载荷剔除尾部 u32 CRC 后的 body 长度（协议：payloadLen 含那 4 字节）；非法返回 -1 */
+    fun bodyLenOf(payloadLen: Int): Int = if (payloadLen < CRC_SIZE) -1 else payloadLen - CRC_SIZE
+
+    /**
+     * 取出 body（**不含**尾部 CRC）。接收侧普遍不校验 CRC，但消费方（解码器 /
+     * AudioTrack / JPEG 预览）只想要干净载荷，所以统一在这里剥掉。
+     * @return body 副本；越界或长度非法返回 null
+     */
+    fun bodyAt(buf: ByteArray, off: Int, payloadLen: Int): ByteArray? {
+        val n = bodyLenOf(payloadLen)
+        if (n < 0 || off + HEADER_SIZE < 0) return null
+        val end = off + HEADER_SIZE + n
+        if (end > buf.size) return null
+        return buf.copyOfRange(off + HEADER_SIZE, end)
+    }
 
     /** 整个帧的字节数（帧头 + 载荷） */
     fun totalSize(payloadLen: Int): Int = HEADER_SIZE + payloadLen

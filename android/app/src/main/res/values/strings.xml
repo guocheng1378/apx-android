@@ -27,7 +27,7 @@
     <string name="notify_channel_alert_desc">链路降级、模块异常等需要关注的通知</string>
 
     <string name="notify_title">全能外设正在运行</string>
-    <string name="notify_text_running">外设运行中 · %1$s</string>
+    <string name="notify_text_running">上行通道：%1$s</string>
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
 

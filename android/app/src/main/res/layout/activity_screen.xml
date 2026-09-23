@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  副屏全屏页：TextureView 铺满，左上角浮一行状态字。
+  用 TextureView 而非 SurfaceView：沉浸式/过渡时 SurfaceView 容易出黑块与层级问题。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <TextureView
+        android:id="@+id/surfaceScreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:id="@+id/tvScreenHint"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:paddingStart="10dp"
+        android:paddingTop="6dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="6dp"
+        android:background="#99000000"
+        android:text="副屏"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp" />
+</FrameLayout>

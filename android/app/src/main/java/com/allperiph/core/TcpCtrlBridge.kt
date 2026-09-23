@@ -32,6 +32,7 @@ object TcpCtrlBridge {
     private const val CMD_MOUSE = 0x01
     private const val CMD_CONSUMER = 0x02
     private const val CMD_KEYBOARD = 0x03
+    private const val CMD_TOUCH = 0x04
 
     @Volatile
     private var sink: Sink? = null
@@ -45,6 +46,9 @@ object TcpCtrlBridge {
     }
 
     fun ready(): Boolean = sink?.ready == true
+
+    /** 发任意控制面本体（不含帧头/CRC）。供音频状态上报等扩展帧使用。 */
+    fun sendControl(body: ByteArray): Boolean = emit(body)
 
     /** 鼠标相对位移：[0x01, buttons, dx, dy, wheel] */
     fun mouse(buttons: Int, dx: Int, dy: Int, wheel: Int): Boolean = emit(
@@ -70,6 +74,26 @@ object TcpCtrlBridge {
         p[0] = CMD_KEYBOARD.toByte()
         p[1] = mod.toByte()
         for (i in 0 until minOf(keys.size, 6)) p[3 + i] = keys[i].toByte()
+        return emit(p)
+    }
+
+    /**
+     * 副屏触摸（绝对坐标）：[0x04, action, buttons, x_lo, x_hi, y_lo, y_hi, pointer, 0]。
+     * 坐标按手机画面区域归一化 0..65535；action：0=down 1=up 2=move 3=cancel。
+     * 触摸是 60 帧/秒的小帧，走**常连的 9500 控制通道**（9502 媒体通道仅在
+     * 推流/音箱时才建立，不能作为触摸的承载 —— 实测踩过）。
+     */
+    fun touch(action: Int, buttons: Int, x: Int, y: Int, pointerId: Int = 0): Boolean {
+        val p = ByteArray(9)
+        p[0] = CMD_TOUCH.toByte()
+        p[1] = action.toByte()
+        p[2] = buttons.toByte()
+        p[3] = (x and 0xFF).toByte()
+        p[4] = ((x shr 8) and 0xFF).toByte()
+        p[5] = (y and 0xFF).toByte()
+        p[6] = ((y shr 8) and 0xFF).toByte()
+        p[7] = (pointerId and 0xFF).toByte()
+        p[8] = 0
         return emit(p)
     }
 

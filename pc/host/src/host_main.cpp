@@ -19,9 +19,12 @@
 #include <apxpc/version.hpp>
 #include <apxpc/app/service.hpp>
 #include <apxpc/wireless/wireless_session.hpp>
+#include <apxpc/media/media_session.hpp>
+#include <apxpc/media/audio_capture.hpp>
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -52,6 +55,13 @@ void printUsage() {
         "                     秒数省略则一直运行到断开）\n"
         "  apxhost wireless-listen [秒数]\n"
         "                     监听手机 UDP 信标并自动连入（手机 IP 变了也不用改配置）\n"
+        "  apxhost media <手机IP>[:端口] [秒数]\n"
+        "                     连入手机媒体通道（默认端口 9502）并打印各路计数。\n"
+        "                     副屏/音箱为下行（本端发出），麦克风/摄像头为上行\n"
+        "  apxhost speaker <手机IP>[:端口] [秒数] [设备序号]\n"
+        "                     把本机系统声音（WASAPI loopback）送到手机扬声器，\n"
+        "                     并实时显示音量条 —— 用于确认采集到的就是正在放的声音。\n"
+        "                     会先列出所有播放设备；不填序号 = 跟随系统默认\n"
         "  apxhost --help\n"
         "\n"
         "交互命令：\n"
@@ -113,10 +123,12 @@ int doSensors() {
 // 注入本机。状态机在 apxpc::wireless::WirelessSession 里 —— 桌面端面板共用同一套，
 // 这里只是把它套上命令行输出。
 
-/// 解析 "ip:port"；省略端口时用手机侧默认端口
-std::pair<std::string, uint16_t> parseSpec(const std::string& spec) {
+/// 解析 "ip:port"；省略端口时用该子命令的默认端口
+/// （控制面 9500 / 媒体 9502 —— 见 Android `TcpControlChannel.PORT` 与
+/// `TcpMediaChannel.MEDIA_PORT`）
+std::pair<std::string, uint16_t> parseSpec(const std::string& spec, uint16_t defPort = 9500) {
     const size_t c = spec.rfind(':');
-    if (c == std::string::npos) return {spec, 9500};
+    if (c == std::string::npos) return {spec, defPort};
     return {spec.substr(0, c), static_cast<uint16_t>(std::atoi(spec.c_str() + c + 1))};
 }
 
@@ -179,6 +191,139 @@ int runWirelessCli(bool autoDiscover, const std::string& host, uint16_t port, in
     return rc;
 }
 
+// ---------------------------------------------------------------- 媒体通道 ----
+// 与控制面并列的第二条连接（手机 9502）：副屏/音箱下行，麦克风/摄像头上行。
+// 这条 CLI 是调试用 —— 桌面端面板里是同一套 apxpc::media::MediaSession。
+
+/// 跑一段媒体会话并周期打印各路计数（「哪条流真的在走」的客观证据）。
+/// 设 tone=true 时顺便推一路 440Hz 正弦到「音箱」流，便于听音验证下行通路。
+int runMediaCli(const std::string& host, uint16_t port, int seconds, bool tone) {
+    apxpc::media::MediaSession session;
+    if (!session.connect(host, port)) {
+        std::printf("连接 %s:%u 失败：%s\n", host.c_str(), static_cast<unsigned>(port),
+                    session.status().error.c_str());
+        return 1;
+    }
+    std::printf("媒体通道已连接 %s:%u\n", host.c_str(), static_cast<unsigned>(port));
+
+    const auto t0 = std::chrono::steady_clock::now();
+    double tonePhase = 0.0;
+    while (true) {
+        // 音箱下行：48k/立体声/16bit，每 10ms 一片（192 字节有符号 PCM），
+        // 与 Android 侧 AudioTrack 的分片粒度一致（见 MediaSession 头注释）
+        if (tone) {
+            constexpr int kBytes = apxpc::media::kAudioBytesPerMs * 10;
+            int16_t pcm[kBytes / 2];
+            for (int i = 0; i < kBytes / 2; i += 2) {
+                const auto v = static_cast<int16_t>(6000.0 * std::sin(tonePhase));
+                tonePhase += 2.0 * 3.14159265358979 * 440.0 / apxpc::media::kAudioSampleRate;
+                if (tonePhase > 6.283185307) tonePhase -= 6.283185307;
+                pcm[i] = v;       // L
+                pcm[i + 1] = v;   // R
+            }
+            session.sendFrame(apxpc::media::kStreamAudio,
+                              reinterpret_cast<const uint8_t*>(pcm), kBytes, 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+
+        const auto st = session.status();
+        const auto c = session.counters();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        std::printf("\r[%4llds] %-4s | 副屏 %6llu帧 音箱 %6llu帧 | 麦克风 %6llu帧 摄像头 %6llu帧 | 丢 %llu 重同步 %llu   ",
+                    static_cast<long long>(ms / 1000),
+                    st.connected ? "在线" : "断开",
+                    static_cast<unsigned long long>(c.videoFrames),
+                    static_cast<unsigned long long>(c.audioFrames),
+                    static_cast<unsigned long long>(c.micFrames),
+                    static_cast<unsigned long long>(c.cameraFrames),
+                    static_cast<unsigned long long>(c.dropped),
+                    static_cast<unsigned long long>(c.resync));
+        std::fflush(stdout);
+        if (!st.connected) {
+            std::puts("\n媒体链路已断开");
+            return 2;
+        }
+        if (seconds > 0 && ms >= static_cast<long long>(seconds) * 1000) break;
+    }
+    std::puts("");
+    return 0;
+}
+
+// ------------------------------------------------------------------ 音箱 ----
+// 把 PC 的**系统声音**（WASAPI loopback）送到手机扬声器。这是「音箱」的真实音源 ——
+// 面板里的同名开关走的是同一套 apxpc::media::AudioCapture。
+// 这条 CLI 的价值是：不用开面板就能确认「采集到的是本机正在放的声音」。
+int runSpeakerCli(const std::string& host, uint16_t port, int seconds, int deviceIdx) {
+    // 先列一遍可选的播放设备 —— "采错了设备"是这块最常见的坑，得让用户有据可依
+    const auto devs = apxpc::media::AudioCapture::listRenderDevices();
+    std::puts("可选的播放设备（不指定序号 = 跟随系统默认播放设备）：");
+    if (devs.empty()) std::puts("  （没有枚举到任何播放设备）");
+    for (size_t i = 0; i < devs.size(); ++i) {
+        std::printf("  [%zu] %s%s\n", i, devs[i].name.c_str(),
+                    devs[i].isDefault ? "   · 系统默认" : "");
+    }
+
+    apxpc::media::AudioCaptureOptions opt;
+    if (deviceIdx >= 0) {
+        if (deviceIdx >= static_cast<int>(devs.size())) {
+            std::printf("设备序号 %d 不存在（共 %zu 个）\n", deviceIdx, devs.size());
+            return 1;
+        }
+        opt.deviceId = devs[static_cast<size_t>(deviceIdx)].id;
+        std::printf("将采集：[%d] %s\n", deviceIdx, devs[static_cast<size_t>(deviceIdx)].name.c_str());
+    } else {
+        std::printf("将采集：跟随系统默认（当前 %s）\n",
+                    apxpc::media::AudioCapture::defaultRenderDeviceName().c_str());
+    }
+
+    apxpc::media::MediaSession session;
+    if (!session.connect(host, port)) {
+        std::printf("连接 %s:%u 失败：%s\n", host.c_str(), static_cast<unsigned>(port),
+                    session.status().error.c_str());
+        return 1;
+    }
+
+    apxpc::media::AudioCapture cap;
+    std::string err;
+    if (!cap.start(&session, opt, &err)) {
+        std::printf("音箱采集启动失败：%s\n", err.c_str());
+        return 1;
+    }
+    std::printf("音箱已开始：把本机系统声音送到手机扬声器（%ds）\n", seconds);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        const auto s = cap.status();
+        // 音量条：让「链路在跑但系统本身静音」一眼可辨，不用去猜
+        const int bars = static_cast<int>(s.peak * 20.0 + 0.5);
+        std::string meter(20, ' ');
+        for (int i = 0; i < bars && i < 20; ++i) meter[i] = '#';
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0)
+                            .count();
+        std::printf("\r[%4llds] %llu 片 · %llu KB · 丢 %llu · 峰值 [%s] %.2f   ",
+                    static_cast<long long>(ms / 1000),
+                    static_cast<unsigned long long>(s.framesSent),
+                    static_cast<unsigned long long>(s.bytesSent / 1024),
+                    static_cast<unsigned long long>(s.dropped), meter.c_str(), s.peak);
+        std::fflush(stdout);
+        if (!session.status().connected) {
+            std::puts("\n媒体链路已断开");
+            cap.stop();
+            return 2;
+        }
+        if (seconds > 0 && ms >= static_cast<long long>(seconds) * 1000) break;
+    }
+    cap.stop();
+    std::puts("");
+    return 0;
+}
+
 int interactive() {
     std::puts("apxhost 交互模式。输入 help 查看命令，quit 退出。");
     std::string line;
@@ -230,6 +375,28 @@ int main(int argc, char** argv) {
         if (cmd == "wireless-listen") {
             const int secs = argc > 2 ? std::atoi(argv[2]) : 0;
             return runWirelessCli(true, {}, 0, secs);
+        }
+
+        // ---- 媒体通道（副屏 / 音箱 / 麦克风 / 摄像头）----
+        if (cmd == "media") {
+            if (argc < 3) {
+                std::fputs("用法：apxhost media <手机IP>[:端口] [秒数] [tone]\n", stderr);
+                return 1;
+            }
+            const auto hp = parseSpec(argv[2], apxpc::media::kMediaPort);
+            const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
+            const bool tone = argc > 4 && std::strcmp(argv[4], "tone") == 0;
+            return runMediaCli(hp.first, hp.second, secs, tone);
+        }
+        if (cmd == "speaker") {
+            if (argc < 3) {
+                std::fputs("用法：apxhost speaker <手机IP>[:端口] [秒数]\n", stderr);
+                return 1;
+            }
+            const auto hp = parseSpec(argv[2], apxpc::media::kMediaPort);
+            const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
+            const int devIdx = argc > 4 ? std::atoi(argv[4]) : -1;
+            return runSpeakerCli(hp.first, hp.second, secs, devIdx);
         }
 
         // ---- 常驻服务 / Web 控制面板 ----

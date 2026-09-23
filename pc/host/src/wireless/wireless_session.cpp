@@ -163,6 +163,12 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
     snap_.upMs = ls.upMs;
     snap_.error = ls.error;
     snap_.counters = cs;
+    // 手机侧 Wi‑Fi 音频模块状态（随控制面 'a' 状态帧上报，透传到面板）
+    snap_.phoneAudioKnown = ls.phoneAudioKnown;
+    snap_.phoneAudioState = ls.phoneAudioState;
+    snap_.phoneAudioSpk = ls.phoneAudioSpk;
+    snap_.phoneAudioMic = ls.phoneAudioMic;
+    snap_.phoneAudioDropped = ls.phoneAudioDropped;
     if (changed) APX_LOGI("无线会话状态：{}", linkPhaseName(ph));
 }
 

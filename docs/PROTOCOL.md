@@ -156,7 +156,7 @@ u8  reserved = 0
 OUT（PC → 手机）
 u8  reportId = 5
 u8  cmd      0x01=振动 0x02=停止振动 0x03=手电筒 0x04=红外发送
-             0x10=设置传感器启用掩码 0x11=设置采样率 0x12=设置副屏模式 0x7F=心跳
+             0x10=设置传感器启用掩码 0x11=设置采样率 0x12=设置副屏模式（已废弃）0x7F=心跳
 u8  seq
 u8  reserved
 u32 payloadLen    0..256
@@ -227,9 +227,9 @@ u32 remainingMin  0xFFFFFFFF=未知
 | 34 | 电池状态 | 6 |
 | 35 | GPS（CDC ACM） | — |
 | 36 | 振动 / 手电 / 红外 | 5 |
-| 37 | 副屏视频 | bulk streamId 0 |
+| 37 | ~~副屏视频~~ | **已终止**（原 bulk streamId 0，保留未用） |
 | 38 | 触控板（相对位移） | 2 |
-| 39 | 摄像头 | UVC / 系统方案 |
+| 39 | 摄像头 | UVC / 系统方案（代码在 `app/src/disabled/`，**未编译**） |
 
 **`moduleMask`** 使用上表的 bit32–bit39 语域表示模块级启用状态，与传感器掩码共用 64 位宽度但互不重叠。
 
@@ -304,7 +304,11 @@ PC 端**零驱动**直接识别。它使用**另一份独立的报告描述符**
 
 ---
 
-## 3. Bulk 通道（副屏与高带宽流）
+## 3. Bulk 通道（APX1 帧）
+
+> **现状**：`streamId=3` 是当前唯一真机在跑的通道 —— **Wi‑Fi 控制的输入上行**（见 §3.3）。
+> `streamId=0`（视频）随副屏终止而**保留未用**，§3.1 为历史定义。
+> `streamId=1/2/4` 同样未接入。
 
 `shared/include/apx/frame.h` 定义统一帧头：
 
@@ -318,9 +322,22 @@ struct ApxFrameHeader {          // 16 字节
     u32      seq;
 };
 ```
-校验：payload 尾部追加 `u32 crc32`（不纳入 `payloadLen`？——**纳入**，即 payloadLen 含 CRC 长度）。
+**长度与校验（权威定义，实现必须逐条对齐）**：
 
-### 3.1 streamId 0 — Video（PC → 手机）
+- `payloadLen` **含**尾部 `u32 crc32`，**也含**扩展头（`headerExtWords * 4` 字节）。
+- **帧总长 = 16 + payloadLen**（`apx::frameTotalSize`）。校验长度自洽时**不得**再额外
+  加 `headerExtWords * 4` —— 那等于把扩展头算两次（视频帧恒差 20 字节）。
+- **CRC32 覆盖范围 = 16 字节帧头之后的全部字节，不含尾部那 4 字节 CRC。**
+  即等价于 `apx::verifyPayload(payload, payloadLen)`。
+- 两侧统一（`shared/src/frame.cpp`、`pc/display/transport/frame_writer.cpp`、
+  `android/.../core/ApxFrame.kt`、`pc/host/src/wireless/wireless_link.cpp`）。
+
+> ⚠️ 这对定义是本协议的**历史踩坑点**：CRC 覆盖范围与长度自洽两处都曾出现「含帧头 /
+> 不含帧头」「扩展头算一次还是两次」的分歧，且因为**接收侧普遍不校验 CRC**（如 Android
+> `TcpControlChannel` 只在发送时算），错误会静默存活到某一端开始校验才爆发。
+> 改这三个常量中任何一个，都要两端同时改并跑 `apxdisp --self-test`。
+
+### 3.1 streamId 0 — Video（PC → 手机）· ❌ 副屏已终止，保留未用
 
 扩展头：
 ```
@@ -335,11 +352,68 @@ DirtyRect：`{u16 x, u16 y, u16 w, u16 h}` 紧跟扩展头；其后为码流分�
 ### 3.2 streamId 2 — Touch（手机 → PC，低延迟优先）
 
 载荷直接复用 §2.5 的触点结构，另附 `u64 tsNs`。此通道与 HID Report ID 3 **二选一**启用：
-副屏场景用 bulk（延迟更低），独立数位板场景用 HID（免驱）。默认 **bulk**。
+需要把绝对坐标映射到虚拟屏的场景（原副屏方案，**已终止**）走 bulk；独立数位板场景走
+HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 目前均未接入。
 
 ### 3.3 streamId 3 — Control
 
-JSON 或 TLV 控制面：能力协商、分辨率切换、编解码参数、心跳与 RTT 测量。**控制面永远走可靠顺序通道**（AOA bulk 或 NCM TCP），视频走可丢包通道。
+**v1 实际实现（真机在跑）**：`streamId=3` 即 **Wi‑Fi 控制通道**，载荷为「**单字节子命令 +
+定长参数**」。两端必须同步修改：PC 端 `pc/host/src/wireless/wireless_link.cpp`，手机端
+`android/.../wireless/TcpControlChannel.kt`。
+
+```
+0x01 鼠标   [1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)
+0x02 多媒体 [1..2]=u16 位图（LE）
+0x03 键盘   [1]=mod [2]=0 [3..8]=k1..k6（HID usage 页 0x07，PC 侧查表转 VK）
+```
+
+承载约定：**手机做服务端**（TCP `9500`），PC 主动连入；UDP `9501` 广播
+`APX1PHONE <name> <port> <token>` 供 PC 自动发现。令牌（token）字段保留但 v1 默认留空
+（局域网工具，不做鉴权）；**不匹配时服务端直接关连接、不回执** —— 回执字节会与紧随其后的
+帧混淆。
+
+> 下文原设计的「JSON / TLV 控制面 + 分辨率切换 + 编解码参数 + 心跳 RTT」**未实现**，
+> 且 `streamId=3` 已被上述 v1 布局占用；若将来要恢复该设计，需另选 streamId 或做版本协商。
+
+**控制面永远走可靠顺序通道**（AOA bulk 或 NCM TCP），视频走可丢包通道。
+
+### 3.4 媒体通道（TCP 9502，v1.11 新增）
+
+**为什么与控制面分成两条连接**：控制面（9500）是单对端语义，且承担 60 次/秒的输入小帧；
+把 10Mbps 级视频混进同一条连接，视频的拥塞会直接卡住输入延迟。分开后两条链路可独立启停
+（关副屏不影响键盘鼠标）。落点：手机 `wireless/TcpMediaChannel.kt`、
+PC `pc/host/src/media/media_session.cpp`。
+
+| 端口 | 传输 | 角色 | 用途 |
+|---|---|---|---|
+| 9500 | TCP | 手机做服务端 | 控制面（§3.3） |
+| 9501 | UDP | 手机广播 | 信标 `APX1PHONE <name> <port> <token>` |
+| 9502 | TCP | 手机做服务端 | **媒体**：副屏 / 音箱 / 麦克风 / 摄像头 |
+
+握手与 9500 **逐字节相同**：`u32 LE 长度 + UTF-8 令牌`。
+⚠️ **令牌为空也必须发/收那 4 字节长度** —— 接收侧永远先读 4 字节；省掉它会让对端把
+随后的帧头当成长度而直接关连接（真机踩过两次，见 `pc/display/transport/tcp_transport_win.cpp`
+的 `exchangeToken` / `sendBytes` 注释）。
+
+**流号与方向**（v1.11 起带方向，同一连接上按 streamId 解复用）：
+
+| streamId | 名称 | 方向 | 载荷 |
+|---|---|---|---|
+| 0 | `video` | PC → 手机 | 副屏画面：`[VideoExtHeader 20B][DirtyRect×N][码流]`，见 §3.1 |
+| 1 | `audio` | PC → 手机 | 音箱：PCM **s16le / 48000Hz / 立体声**（192 字节/ms，10ms 一片 = 1920B） |
+| 5 | `mic` | 手机 → PC | 麦克风：与 `audio` 同格式 |
+| 6 | `camera` | 手机 → PC | 摄像头：单帧 JPEG（不分片） |
+| 2 / 4 | `touch` / `telemetry` | — | 预留未接入 |
+
+> 音频刻意分成 1（下行）与 5（上行）：音箱与麦克风方向相反，共用一个号会互相污染。
+
+**分片与重组**：视频帧超过 256KiB 会切成多个分片帧，**同一逻辑帧的各分片 `seq` 相同**，
+**只有末片**带 `flags` bit1（`last_fragment`）。接收侧按 seq 顺序拼接
+（C++ 侧 `apx::FrameAssembler`，Kotlin 侧 `core/ApxStreams.kt` 的 `FragmentJoiner`）。
+中间丢片表现为 **seq 跳变** —— 此时丢弃已攒部分、从新 seq 重来（宁可花屏一帧，也不能把两帧拼成一帧）。
+
+**背压策略**：发送侧对「可丢」的大块载荷（视频 / 摄像头）单独设闸 ——
+队列积压过半即丢弃新帧、优先保住音频的时效性；丢弃计数**如实上报**，不静默。
 
 ---
 

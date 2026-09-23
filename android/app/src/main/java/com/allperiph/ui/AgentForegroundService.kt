@@ -10,12 +10,15 @@ import android.content.pm.ServiceInfo
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.AgentStateEvent
 import com.allperiph.core.EventBus
 import com.allperiph.core.GadgetStateEvent
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
+import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
+import com.allperiph.core.TcpCtrlBridge
 import com.allperiph.R
 
 /**
@@ -118,10 +121,22 @@ class AgentForegroundService : Service() {
             Intent(this, AgentForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        // 链路口径按实际通道：有 USB 速度显示 USB 档位，否则显示蓝牙。
-        // 原文案 "%1$s" 只有一个占位符却传了两个参数，蓝牙模式下会显示
-        // "USB 链路：unknown"（LinkSpeed.UNKNOWN.label 是英文 "unknown"）。
-        val linkText = if (lastLink == LinkSpeed.UNKNOWN) "蓝牙 HID" else "USB ${lastLink.label}"
+        // 链路口径必须与真实的输入择路一致（优先级见 TouchpadModule.dispatch）：
+        // USB HID → 蓝牙 HID → Wi‑Fi 控制。原文案只有「USB / 蓝牙」两档，于是无蓝牙
+        // 适配器的 PC 走 Wi‑Fi 时会显示「蓝牙 HID」——那是一台压根没有蓝牙的机器。
+        val rt = AgentController.runtime
+        // 判据必须和 TouchpadModule.dispatch 完全一致：蓝牙看 isConnected 而非 state。
+        // 模块「已注册（待 PC 配对）」时 state 也是 RUNNING，只看 state 会把一条
+        // 根本没人连的蓝牙链路报成当前通道。
+        val btConnected =
+            (AgentController.module(ModuleId.BTHID) as? BtHidDevice)?.isConnected == true
+        val linkText = when {
+            rt != null && rt.hid.isReady() ->
+                if (lastLink == LinkSpeed.UNKNOWN) "USB 链路" else "USB ${lastLink.label}"
+            btConnected -> "蓝牙 HID"
+            TcpCtrlBridge.ready() -> "Wi‑Fi 控制"
+            else -> "未连接"
+        }
         val text = getString(R.string.notify_text_running, linkText)
         return Notification.Builder(this, NotificationChannels.CHANNEL_STATUS)
             .setContentTitle(getString(R.string.notify_title))

@@ -36,6 +36,13 @@ struct SessionSnapshot {
     long long upMs = 0;        // 已连接时长
     std::string error;         // 最近一次失败原因（空 = 无）
     WirelessLink::Counters counters{};
+
+    // 手机侧 Wi‑Fi 音频模块状态（由手机经控制面 'a' 状态帧周期上报）
+    int phoneAudioState = -1;       // <0 = 未收到；否则 ModuleState 编码 0..6
+    bool phoneAudioSpk = false;     // 音箱下行（AudioTrack）是否初始化成功
+    bool phoneAudioMic = false;     // 麦克风上行是否可用
+    uint32_t phoneAudioDropped = 0; // 手机侧丢弃的音频帧
+    bool phoneAudioKnown = false;   // 是否收到过状态帧
 };
 
 class WirelessSession {

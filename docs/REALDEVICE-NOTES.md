@@ -9,7 +9,7 @@
 | 项 | 值 |
 |---|---|
 | 设备 | Xiaomi / HyperOS（Android 16），UDC = `a600000.dwc3` |
-| 链路速度 | **high-speed（非 SuperSpeed）** → 副屏与多路高清受限，需降级提示 |
+| 链路速度 | **high-speed（非 SuperSpeed）** → 高带宽流受限，需降级提示（文案见 `GadgetManager`） |
 | root | KernelSU |
 | PC 侧工具 | adb、JDK 17、Gradle 8.9、Android SDK 35、`python -m ziglang`（编译 `shared/`） |
 
@@ -137,7 +137,7 @@ Period count: min=4      max=16
 `register` 而忘了加进 `ORDER`，模块会**静默地永不启动**（连一条日志都没有），
 极易误判成"模块内部出错"。新增模块时两处都要改。
 
-### 3.8 FunctionFS 在本机不可用（副屏 bulk 通道走不通）
+### 3.8 FunctionFS 在本机不可用（原为副屏 bulk 通道）
 
 **结论：`f_fs` 能建、能挂，但 bind 阶段必失败 —— 本机无法新增 FFS 实例。**
 
@@ -166,8 +166,12 @@ ffs.apx exists: yes                 ← configfs 里 functions/ffs.apx 建成功
 **工程结论**：
 - `GadgetFeature.FFS` **默认关闭**（`enabledByDefault = false`），代码保留，
   以便在 FFS 上下文充足的 ROM 上复用
-- 副屏 `usb://video` **改走架构 §4 主线通道**：`f_ncm` 网卡 + TCP
-  （`TcpBulkTransport` 已实现；PC 端免驱识别为网卡，带宽足够副屏）
+- 原副屏 `usb://video` 计划改走 `f_ncm` 网卡 + TCP（PC 端免驱识别为网卡，带宽足够）。
+  **⚠️ 这条计划随副屏终止一并作废**，且当时提到的 `TcpBulkTransport` **已从代码库中删除**——
+  `docs/ARCHITECTURE.md` 与本文旧版对它的引用属历史记录，**不要照此查找该类**。
+  当前真机在跑的无线通道是 `android/.../wireless/TcpControlChannel.kt` + `core/ApxFrame.kt`
+  （APX1 组帧）与 PC 端 `pc/host/src/wireless/wireless_link.cpp`；
+  `GadgetFeature.NCM` 保持默认关闭。
 - **教训**：`ffs` function 一旦加入 gadget，失败会表现为「UDC EBUSY」这种与 FFS
   **毫无字面关联**的错误。**排查 gadget 挂载失败时必须同时看 dmesg**，
   否则会一直在 UDC 抢占上兜圈子。
@@ -227,8 +231,8 @@ echo ''   > /config/usb_gadget/g1/UDC    # ✅ 正确
     ForEach-Object { pnputil /remove-device "$($_.InstanceId)" }
   ```
 
-- 副屏 `usb://video` → `/dev/usb-ffs/apx/ep1` 打不开（errno=2）：`GadgetFeature` 里**没有
-  FunctionFS 项**，属通道未落地，非环境问题。（架构 §4 主线通道为 `f_hid/f_acm/f_uvc/f_uac2/f_ncm`。）
+- （历史）副屏 `usb://video` → `/dev/usb-ffs/apx/ep1` 打不开（errno=2）：`GadgetFeature` 里
+  **没有 FunctionFS 项**，属通道未落地，非环境问题。**副屏已终止，此条仅作追溯。**
 
 ## 7. 真机验证方法（每次都按此执行）
 

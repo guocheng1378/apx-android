@@ -61,6 +61,10 @@ public:
     bool running() const { return running_.load(); }
 
     const PipelineStats& stats() const { return stats_; }
+
+    /// 实际生效的编码参数。**抓屏尺寸优先于配置**，所以它常与传入的 cfg 不同 ——
+    /// 面板要显示"真实推的是多少分辨率"就得读这里，不能拿自己填的值当结论。
+    VideoParams usedVideo() const { return usedVp_; }
     std::string lastError() const;
 
     // 单步执行（供自测/离线：抓一帧 → 编码 → 组帧 → 写通道）
@@ -68,6 +72,11 @@ public:
 
     // 上行：读一帧触控并注入（返回 false 表示无数据）
     bool pollTouchOnce(uint32_t timeoutMs = 5);
+
+    // 复用**外部已建立**的传输实例。设置后 start() 不再自行 createTransport。
+    // 为什么需要：手机侧的媒体通道是单对端语义（一份连接同时跑副屏/音频/摄像头），
+    // 副屏不能再自开第二条 TCP —— 必须借用上层已经连好的那条。
+    void setTransport(std::unique_ptr<ITransport> t) { injectedTransport_ = std::move(t); }
 
     // 供自测使用的内部句柄
     ITransport* transport() { return transport_.get(); }
@@ -87,6 +96,7 @@ private:
 
     std::unique_ptr<ICapture>   capture_;
     std::unique_ptr<IEncoder>   encoder_;
+    std::unique_ptr<ITransport> injectedTransport_;   // setTransport() 注入；start() 优先用它
     std::unique_ptr<ITransport> transport_;
     std::unique_ptr<IInjector>  injector_;
     std::unique_ptr<FrameWriter> frameWriter_;

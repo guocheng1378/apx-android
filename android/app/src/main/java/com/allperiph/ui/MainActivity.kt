@@ -72,11 +72,18 @@ class MainActivity : Activity() {
 
     private lateinit var tvOverall: TextView
     private lateinit var tvOverallSub: TextView
-    private lateinit var swMaster: Switch
+    private lateinit var swWifi: Switch
+    private lateinit var swBt: Switch
+    private lateinit var swUsb: Switch
     private lateinit var rowsLink: LinearLayout
     private lateinit var tvLinkRtt: TextView
     private lateinit var badgeStatus: TextView
-    private lateinit var rowsModules: LinearLayout
+    private lateinit var groupWifi: LinearLayout
+    private lateinit var groupBt: LinearLayout
+    private lateinit var groupUsb: LinearLayout
+    private lateinit var rowsWifi: LinearLayout
+    private lateinit var rowsBt: LinearLayout
+    private lateinit var rowsUsb: LinearLayout
     private lateinit var tvDiag: TextView
     private lateinit var btnBattery: Button
     private lateinit var btnRefresh: Button
@@ -86,7 +93,6 @@ class MainActivity : Activity() {
     private lateinit var tvRunningSummary: TextView
     private lateinit var tvIdleHint: TextView
     private lateinit var boxIdleFeatures: LinearLayout
-    private lateinit var tvOverlayHint: TextView
 
     // 触控板页：手势提示 + 常用快捷键条
     private lateinit var touchHint: TextView
@@ -245,10 +251,17 @@ class MainActivity : Activity() {
 
         tvOverall = findViewById(R.id.tvOverall)
         tvOverallSub = findViewById(R.id.tvOverallSub)
-        swMaster = findViewById(R.id.swMaster)
+        swWifi = findViewById(R.id.swWifi)
+        swBt = findViewById(R.id.swBt)
+        swUsb = findViewById(R.id.swUsb)
         rowsLink = findViewById(R.id.rowsLink)
         tvLinkRtt = findViewById(R.id.tvLinkRtt)
-        rowsModules = findViewById(R.id.rowsModules)
+        groupWifi = findViewById(R.id.groupWifi)
+        groupBt = findViewById(R.id.groupBt)
+        groupUsb = findViewById(R.id.groupUsb)
+        rowsWifi = findViewById(R.id.rowsWifi)
+        rowsBt = findViewById(R.id.rowsBt)
+        rowsUsb = findViewById(R.id.rowsUsb)
         tvDiag = findViewById(R.id.tvDiag)
         btnBattery = findViewById(R.id.btnBattery)
         btnRefresh = findViewById(R.id.btnRefresh)
@@ -257,8 +270,6 @@ class MainActivity : Activity() {
         tvRunningSummary = findViewById(R.id.tvRunningSummary)
         tvIdleHint = findViewById(R.id.tvIdleHint)
         boxIdleFeatures = findViewById(R.id.boxIdleFeatures)
-        tvOverlayHint = findViewById(R.id.tvOverlayHint)
-        tvOverlayHint.setOnClickListener { requestOverlayPermission() }
 
         touchHint = findViewById(R.id.tvTouchHint)
         chipRow = findViewById(R.id.chipRow)
@@ -938,13 +949,15 @@ class MainActivity : Activity() {
     }
 
     private fun buildModuleRows() {
-        rowsModules.removeAllViews()
+        rowsWifi.removeAllViews()
+        rowsBt.removeAllViews()
+        rowsUsb.removeAllViews()
         moduleRows.clear()
         val inflater = LayoutInflater.from(this)
         // 保证 runtime 与模块注册表已建立（不启动任何模块）
         val rt = AgentController.build(this)
         for (m in rt.registry.all()) {
-            val v = inflater.inflate(R.layout.item_module_row, rowsModules, false)
+            val v = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
             val row = ModuleRow(
                 root = v,
                 name = v.findViewById(R.id.tvName),
@@ -960,29 +973,35 @@ class MainActivity : Activity() {
                 AgentController.setModuleEnabled(this, m.id, checked)
                 refresh()
             }
-            rowsModules.addView(v)
+            // 按传输类归入对应分组容器（设置页按类显示/隐藏）
+            when (AgentController.groupOf(m.id)) {
+                "bt" -> rowsBt
+                "usb" -> rowsUsb
+                else -> rowsWifi
+            }.addView(v)
             moduleRows[m.id] = row
         }
     }
 
     private fun bindActions() {
-        swMaster.setOnCheckedChangeListener { _, checked ->
-            if (checked) {
-                AgentForegroundService.start(this)
-                // 文案覆盖两条通道：蓝牙 HID 免线即用，USB 需 PC 端配合。
-                // 原文案只提"插上 USB 线"，纯蓝牙使用时会误导。
-                toast("手机侧已就绪 —— 蓝牙 HID 配对后即可用；USB 方式需 PC 端运行 apxhost.exe")
-            } else {
-                AgentForegroundService.stop(this)
-            }
-            handler.postDelayed({ refresh() }, 300)
-        }
+        // 三个传输开关取代单总开关：打开即整组启用该类下的功能并拉起服务；
+        // 关闭则整组停用，仅当三类全关才停服务。
+        swWifi.isChecked = AgentController.isTransportEnabled(this, "wifi")
+        swBt.isChecked = AgentController.isTransportEnabled(this, "bt")
+        swUsb.isChecked = AgentController.isTransportEnabled(this, "usb")
+        swWifi.setOnCheckedChangeListener { _, c -> onTransportToggle("wifi", c) }
+        swBt.setOnCheckedChangeListener { _, c -> onTransportToggle("bt", c) }
+        swUsb.setOnCheckedChangeListener { _, c -> onTransportToggle("usb", c) }
         btnBattery.setOnClickListener { requestBatteryWhitelist() }
         // 快捷键「编辑」入口：一屏管理所有快捷键（上移 / 下移 / 改 / 删 / 新建）
         findViewById<TextView>(R.id.btnEditChips).setOnClickListener { hotkeyBoard.managerDialog() }
         // 游戏手柄入口：全屏虚拟摇杆 + 按键，经 USB HID 上报（§2.13 Report ID 22）
         findViewById<TextView>(R.id.btnGamepad).setOnClickListener {
             startActivity(Intent(this, GamepadActivity::class.java))
+        }
+        // 副屏入口：全屏显示 PC 推来的桌面画面（Wi‑Fi 媒体通道 streamId=0）
+        findViewById<TextView>(R.id.btnScreen).setOnClickListener {
+            startActivity(Intent(this, com.allperiph.screen.ScreenActivity::class.java))
         }
         // 环境摘要点开：为什么必须 root、没有 root 还能用什么
         tvDiag.setOnClickListener { showRootHelp() }
@@ -1256,25 +1275,6 @@ class MainActivity : Activity() {
         requestPermissions(arrayOf(android.Manifest.permission.CAMERA), REQ_CAMERA)
     }
 
-    /**
-     * 副屏的悬浮窗授权入口：跳系统「显示在其他应用上层」页。
-     * SYSTEM_ALERT_WINDOW 属于特殊权限，**不能运行时弹窗授予**，只能把用户送到设置页。
-     */
-    private fun requestOverlayPermission() {
-        if (android.provider.Settings.canDrawOverlays(this)) {
-            toast("悬浮窗权限已授予")
-            return
-        }
-        runCatching {
-            startActivity(
-                android.content.Intent(
-                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    android.net.Uri.parse("package:$packageName")
-                )
-            )
-        }.onFailure { toast("无法打开系统设置页") }
-    }
-
     /** Root 说明（点设置页「环境摘要」弹出） */
     private fun showRootHelp() {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
@@ -1297,24 +1297,50 @@ class MainActivity : Activity() {
 
     // ————————————————————————— 渲染 —————————————————————————
 
+    /** 传输开关：整组启用 / 停用该类下全部模块，并维护前台服务生命周期 */
+    private fun onTransportToggle(t: String, on: Boolean) {
+        AgentController.setTransportEnabled(this, t, on)
+        for (id in AgentController.groupModules(t)) {
+            AgentController.setModuleEnabled(this, id, on)
+        }
+        if (on) {
+            AgentForegroundService.start(this)
+        } else if (!AgentController.isTransportEnabled(this, "wifi") &&
+            !AgentController.isTransportEnabled(this, "bt") &&
+            !AgentController.isTransportEnabled(this, "usb")
+        ) {
+            AgentForegroundService.stop(this)
+        }
+        // setModuleEnabled 的启停走后台线程，这里先刷新分组显隐与开关态
+        handler.post { refresh() }
+    }
+
+    private fun anyTransportOn(): Boolean =
+        AgentController.isTransportEnabled(this, "wifi") ||
+            AgentController.isTransportEnabled(this, "bt") ||
+            AgentController.isTransportEnabled(this, "usb")
+
     private fun refresh() {
-        // 大号启动开关
+        // 大号启动开关（原单总开关）→ 任一类传输开关打开即视为已启用
         val serviceRunning = AgentForegroundService.running || AgentController.running
-        if (swMaster.isChecked != serviceRunning) swMaster.isChecked = serviceRunning
+        val anyOn = anyTransportOn()
         // 启动后才展开状态信息（未启动只有开关与一句提示）
-        boxRunning.visibility = if (serviceRunning) View.VISIBLE else View.GONE
-        tvIdleHint.visibility = if (serviceRunning) View.GONE else View.VISIBLE
+        boxRunning.visibility = if (anyOn) View.VISIBLE else View.GONE
+        tvIdleHint.visibility = if (anyOn) View.GONE else View.VISIBLE
         // 未启动时列出"开启后可用"，启动后让位给真实的链路 / 模块状态
-        boxIdleFeatures.visibility = if (serviceRunning) View.GONE else View.VISIBLE
-        // 未 root：ConfigFS 写不进去，开了也必然失败 —— 开关置灰，提示换成 root 引导。
+        boxIdleFeatures.visibility = if (anyOn) View.GONE else View.VISIBLE
+        // 未 root：ConfigFS 写不进去，开了也必然失败 —— 提示换成 root 引导。
         // lastEnv 未探测完时为 null，此时不置灰，避免刚进页面闪一下。
         val rootMissing = lastEnv?.rooted == false
-        swMaster.isEnabled = serviceRunning || !rootMissing
-        if (!serviceRunning) {
+        if (!anyOn) {
             tvIdleHint.text = getString(
                 if (rootMissing) R.string.hint_root_missing else R.string.hint_idle
             )
         }
+        // 设置页按传输类分组：某类开关打开才显示其模块行（"打开才出现对应功能"）
+        groupWifi.visibility = if (AgentController.isTransportEnabled(this, "wifi")) View.VISIBLE else View.GONE
+        groupBt.visibility = if (AgentController.isTransportEnabled(this, "bt")) View.VISIBLE else View.GONE
+        groupUsb.visibility = if (AgentController.isTransportEnabled(this, "usb")) View.VISIBLE else View.GONE
 
         val st = AgentController.overallState()
         tvOverall.text = stateLabel(st)

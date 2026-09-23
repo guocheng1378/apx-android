@@ -44,7 +44,9 @@ bool CtrlSession::send(CtrlMsg type, const void* payload, size_t len) {
     const uint8_t* hb = reinterpret_cast<const uint8_t*>(&hdr);
     frame.insert(frame.end(), hb, hb + sizeof(hdr));
     frame.insert(frame.end(), tlv.begin(), tlv.end());
-    const uint32_t crc = crc32Of(frame.data(), frame.size());
+    // v1.11 修复：与 FrameWriter 统一为「帧头之后」。原先按整帧（含帧头）算，
+    // 对端按「帧头之后」校验时这些控制帧一律被拒。
+    const uint32_t crc = crc32Of(frame.data() + sizeof(hdr), frame.size() - sizeof(hdr));
     uint8_t cb[4];
     putU32(cb, crc);
     frame.insert(frame.end(), cb, cb + 4);

@@ -264,7 +264,12 @@ bool TcpTransport::listenAndAccept(uint16_t port) {
 }
 
 bool TcpTransport::exchangeToken(bool asClient, const std::string& token) {
-    if (token.empty()) return true;  // 未启用令牌
+    // ⚠️ 令牌为空也必须走完握手，**不能提前 return**。
+    // 协议约定是「u32 LE 长度 + UTF-8 令牌」，长度为 0 时那 4 字节照样要发/收。
+    // 此前"空令牌直接返回"，与手机端不对称：`TcpMediaChannel` / `TcpControlChannel`
+    // 永远先读 4 字节长度，于是把紧随其后的**视频帧头当成令牌长度**，
+    // 判定「握手长度非法」后直接关连接 —— 现象是 PC 侧编码正常（29fps）但
+    // 发几帧就「TCP 对端关闭」。真机 2026-09-24 定位。
     if (asClient) {
         uint32_t len = static_cast<uint32_t>(token.size());
         uint8_t hdr[4] = {static_cast<uint8_t>(len), static_cast<uint8_t>(len >> 8),
@@ -302,9 +307,19 @@ bool TcpTransport::open(const TransportSpec& spec) {
 
     const bool asClient = !spec.host.empty();
     if (asClient) {
-        if (!connectTo(spec.host, spec.port)) { cleanupSocket(); return false; }
+        // 失败必须留日志：早前这条路径静默返回 false，只能看到对端"读取令牌头失败"，
+        // 排查时极易误判成握手写法的问题（真机踩过）。
+        if (!connectTo(spec.host, spec.port)) {
+            APX_LOG_E("%s", lastError_.c_str());
+            cleanupSocket();
+            return false;
+        }
     } else {
-        if (!listenAndAccept(spec.port)) { cleanupSocket(); return false; }
+        if (!listenAndAccept(spec.port)) {
+            APX_LOG_E("%s", lastError_.c_str());
+            cleanupSocket();
+            return false;
+        }
     }
 
     int yes = 1;
@@ -350,7 +365,13 @@ void TcpTransport::close() {
 }
 
 bool TcpTransport::sendBytes(const uint8_t* data, size_t len) {
-    if (!opened_.load() || sock_ == INVALID_SOCKET) return false;
+    // ⚠️ 门禁只能用 socket，**不能用 opened_**：令牌握手发生在 open() 里
+    // `opened_ = true` 之前（见 open() 中 exchangeToken 的调用位置），用 opened_
+    // 会让握手包被静默拒发（失败且不写 lastError_）。真机 2026-09-24 定位：
+    // 表现是客户端 open() 返回 false 而日志里一条错误消息都没有，
+    // 对端只看到"读取令牌头失败"。这也说明此前**令牌握手路径从未真正跑通过**
+    // （非空令牌同样发不出去），只是一直没人带令牌连过。
+    if (sock_ == INVALID_SOCKET) return false;
     std::lock_guard<std::mutex> lk(writeMu_);
     size_t sent = 0;
     while (sent < len) {

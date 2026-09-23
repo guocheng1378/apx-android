@@ -32,7 +32,8 @@ static std::vector<uint8_t> makeFrame(uint8_t streamId, const std::vector<uint8_
     std::vector<uint8_t> f(sizeof(h) + payload.size() + 4);
     std::memcpy(f.data(), &h, sizeof h);
     std::memcpy(f.data() + sizeof h, payload.data(), payload.size());
-    const uint32_t crc = crc32Of(f.data(), f.size() - 4);
+    // 与 FrameWriter 同口径（帧头之后），保证造出来的帧与真实发送的一致
+    const uint32_t crc = crc32Of(f.data() + sizeof h, f.size() - sizeof h - 4);
     std::memcpy(f.data() + f.size() - 4, &crc, 4);
     return f;
 }

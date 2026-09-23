@@ -1,6 +1,7 @@
 # 全能外设（AllPeriph）
 
-把手机变成电脑的外设：**副屏、触控板、摄像头、音频**，电脑端一个本地 Web 控制面板统一管理。
+把手机变成电脑的外设：**触控板、键盘、多媒体键、麦克风与音响**。电脑端一个桌面控制面板
+（托盘常驻）统一管理，命令行宿主 `apxhost` 供调试与脚本用。
 支持**有线（USB，性能最高且手机同时充电）**与**无线（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）**两条主线。
 
 - 电脑端：C++20（Windows），**零第三方依赖**，自写 winsock HTTP/1.1 + SSE。
@@ -14,36 +15,58 @@
 > 路线图与接口预留：[`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
 > **当前阶段**：有线（USB）能力已收尾（鼠标/键盘/多媒体/游戏手柄/串口/音频均可在
-> Windows 免驱枚举）。后续主线是 **蓝牙补全** 与 **Wi‑Fi 控制**，两者的扩展点已在
-> [`docs/ROADMAP.md`](./docs/ROADMAP.md) 中说明。
+> Windows 免驱枚举）；**Wi‑Fi 控制**已实现并真机端到端验证通过（无蓝牙适配器的 PC
+> 也能用）。后续主线是 **蓝牙补全**（键盘 / 手柄），扩展点与实施顺序见
+> [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
+>
+> **不在当前交付范围**：① 副屏视频 —— **用户已决策终止**；
+> ② 摄像头 —— 代码一度完成，现停在 `android/app/src/disabled/camera/`，**不参与编译**
+> （`GadgetFeature.UVC` 亦为默认关闭）。两者都**不应**被当作可用能力描述。
 
 ---
 
-## 一、最简单的用法（3 步）
+## 一、最简单的用法
+
+### A. 最终用户：装包即用（推荐）
+
+拿到 `apxsetup.exe`（单文件，不依赖任何打包工具链）双击安装：
+
+```bat
+apxsetup.exe                    :: 装到 %LOCALAPPDATA%\Programs\AllPeriph，并建开始菜单快捷方式
+apxsetup.exe --uninstall
+apxsetup.exe --silent-install :: 静默安装（另有 --silent-uninstall）
+```
+
+从开始菜单打开「全能外设」后，面板即开始监听手机信标；**手机侧打开「Wi‑Fi 控制」模块
+便会自动连入**，无需填写任何地址。关闭窗口 = 收进托盘（输入注入照常工作）。
+
+### B. 开发：源码构建
 
 > 前提：Windows 10/11 + Visual Studio 2022（含「使用 C++ 的桌面开发」）+ CMake ≥ 3.20。
 
 在仓库根目录执行：
 
 ```bat
-:: 1) 编译电脑端宿主服务（产物：build_host\Release\apxhost.exe）
+:: 一键构建三个产物（apxhost / apxdesktop / apxsetup）；加 nobuild 参数则只构建不启动
+build.bat
+
+:: 或只要命令行宿主（产物：build_host\Release\apxhost.exe）
 cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
 cmake --build build_host --config Release --target apxhost
 
-:: 2) 启动并自动打开控制面板（会自动定位 pc\host\web，无需任何配置）
-build_host\Release\apxhost.exe ui
+:: 免安装直接跑桌面端面板
+build_host\Release\apxdesktop.exe
 ```
 
-宿主会自动在「exe 同级 `web\`」以及逐级向上的 `pc\host\web\` 中寻找前端目录（零配置）。
-如需显式指定，可设置环境变量：`set "APXPC_WEB_DEV_DIR=%CD%\pc\host\web"`。
-
-面板默认地址：**http://127.0.0.1:47990**（端口被占用时会自动 +1，并在日志/托盘提示）。
-
+`apxhost` 附带一个零构建的本地 Web 控制面板（前端在 `pc\host\web`），会自动定位目录并
+打开 **http://127.0.0.1:47990**（端口被占用时自动 +1，并在日志/托盘提示）。
 只想后台常驻、不自动开浏览器：
 
 ```bat
 build_host\Release\apxhost.exe serve
 ```
+
+如需显式指定前端目录：`set "APXPC_WEB_DEV_DIR=%CD%\pc\host\web"`。
 
 ---
 
@@ -55,14 +78,15 @@ build_host\Release\apxhost.exe serve
 ├─ LICENSE                           MIT 许可证
 ├─ .gitignore                        构建产物与临时文件忽略规则
 ├─ .gitattributes                    换行统一（.bat=CRLF / .sh=LF）
-├─ build.bat                         一键构建并打开面板（Windows，双击即用）
+├─ build.bat                         一键构建 apxhost / apxdesktop / apxsetup，随后打开 Web 面板
 ├─ run.bat                           仅启动面板（需先构建）
 │
 ├─ docs/                             设计与协议文档
 │   ├─ ARCHITECTURE.md               双主线架构、通道表、Report ID 复用、降级代价
 │   ├─ PROTOCOL.md                   帧格式、Mouse TLC、触控板载荷、控制面命令
 │   ├─ REALDEVICE-NOTES.md           蓝牙 HID / Wi‑Fi 传输的真机实测结论
-│   └─ REQ-五路回报.md               需求记录
+│   ├─ ROADMAP.md                    能力现状、蓝牙/Wi‑Fi 两条线的扩展点与实施顺序
+│   └─ REQ-五路回报.md               需求记录（历史）
 │
 ├─ shared/                           两端共享契约（core-proto 协议库）
 │   ├─ CMakeLists.txt
@@ -81,8 +105,15 @@ build_host\Release\apxhost.exe serve
 │   │   ├─ include/apxpc/            公共头：app / api / bandwidth / config / ctrl /
 │   │   │                            discovery / display / hotkey / log / net /
 │   │   │                            platform / sensors / tray / ui / version / ...
+│   │   ├─ res/                      图标（apx.ico）+ 安装包载荷模板（setup_payload.rc.in）
 │   │   ├─ src/
-│   │   │   ├─ host_main.cpp         命令行入口（serve / ui / pair / scene / list）
+│   │   │   ├─ host_main.cpp         命令行入口（serve / ui / pair / scene / list /
+│   │   │   │                        wireless / wireless-listen）
+│   │   │   ├─ desktop_main.cpp      桌面端面板入口（apxdesktop.exe，GUI 子系统）
+│   │   │   ├─ setup_main.cpp        安装/卸载（apxsetup.exe，把自己体内的载荷落盘）
+│   │   │   ├─ wireless/             Wi‑Fi 控制通道：WirelessLink（TCP 客户端 +
+│   │   │   │                        SendInput 注入）+ BeaconListener（UDP 信标发现）
+│   │   │   ├─ ui/panel_win32.cpp    桌面端面板（纯 Win32 + GDI+ 自绘，无第三方依赖）
 │   │   │   ├─ app/host_service.cpp  常驻服务编排：HTTP + 热键 + 托盘 + 配置 + 状态广播
 │   │   │   ├─ api/action_router.cpp 动作路由 + 状态聚合（面板唯一控制面）
 │   │   │   ├─ net/http_server.cpp   winsock HTTP/1.1 + SSE + Origin 校验 + 静态资源
@@ -109,7 +140,8 @@ build_host\Release\apxhost.exe serve
 │   │   └─ tests/
 │   │       └─ arbiter_test.cpp       带宽仲裁离线单测
 │   │
-│   ├─ display/                      副屏推流与触控注入（有线模式核心）
+│   ├─ display/                      副屏推流与触控注入（**副屏已决策终止**：不在 build.bat
+│   │                                范围内；传输与注入层保留，可单独构建离线自测）
 │   │   ├─ CMakeLists.txt
 │   │   ├─ app/main.cpp              apxdisp 命令行（--self-test 等）
 │   │   ├─ capture/                  抓屏（Desktop Duplication / null）
@@ -133,13 +165,16 @@ build_host\Release\apxhost.exe serve
 ├─ android/                          手机端（Kotlin）
 │   ├─ app/src/main/AndroidManifest.xml
 │   ├─ app/src/main/cpp/             JNI 桥（apx_jni.cpp，仅参数搬运 + 调 shared/）
+│   ├─ app/src/disabled/             停用区（**不参与编译**）：camera/（摄像头）、screen/（副屏）
 │   └─ app/src/main/java/com/allperiph/
-│       ├─ core/                     模块契约与传输接口（Module / Transport / ApxNative）
+│       ├─ core/                     模块契约与传输接口（Module / Transport / ApxNative /
+│       │                            ApxFrame 组帧 / TcpCtrlBridge 出口）
 │       ├─ gadget/                   ConfigFS 布局与 Gadget 管理（USB 有线）
 │       ├─ hid/                      USB HID 键盘与键码映射
 │       ├─ touchpad/                 触控板（相对鼠标手势）
 │       ├─ audio/                    UAC2 双向音频
 │       ├─ bt/                       蓝牙 HID 设备（鼠标 / 多媒体）
+│       ├─ wireless/                 Wi‑Fi 控制服务端（TCP 9500）+ UDP 信标广播
 │       └─ ui/                       主界面、游戏手柄、服务编排（AgentController）
 │
 ├─ scripts/                          辅助脚本（apx_gadget.sh / aggregate.py / verify_ms1.ps1）
@@ -159,7 +194,12 @@ build_host\Release\apxhost.exe serve
 | `apxhost pair` | 启动服务并进入无线配对引导 |
 | `apxhost scene` | 启动服务并应用场景编排 |
 | `apxhost list` | 枚举设备后退出 |
+| `apxhost wireless <手机IP>[:端口] [秒数]` | 连入手机 Wi‑Fi 控制通道并注入输入（默认端口 9500） |
+| `apxhost wireless-listen [秒数]` | 监听手机 UDP 信标并自动连入（**手机 IP 变了也不用改配置**） |
 | （无参数）`apxhost` | 进入交互式命令循环 |
+
+日常使用建议直接跑桌面端 `apxdesktop.exe`（装包后是开始菜单里的「全能外设」），
+它把上面的发现 / 建链 / 注入 / 托盘常驻包成了一个窗口。
 
 ### 环境变量
 
@@ -173,7 +213,9 @@ build_host\Release\apxhost.exe serve
 %LOCALAPPDATA%\AllPeriph\config.json
 ```
 
-包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、副屏/触控板/摄像头/音频参数、热键绑定与场景绑定。
+包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、触控板参数、热键绑定与
+场景绑定；另保留副屏（`display*`）与摄像头（`camera*`）的参数位 —— 二者当前不可用，
+字段仅为兼容与后续复用保留。
 字段缺失会自动回落默认值，不会因旧配置崩溃。
 
 ---
@@ -188,7 +230,7 @@ cmake --build build_host --config Release --target apxhost
 :: 产物：build_host\Release\apxhost.exe
 ```
 
-### 2) 电脑端副屏模块（有线模式，可选）
+### 2) 电脑端副屏模块（**已终止**，仅供追溯，可选）
 
 ```bat
 cmake -S pc/display -B build_display
@@ -236,15 +278,18 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
 
 ### 无线模式（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）
 
-- **蓝牙 HID** 承载全部输入类（触控板 / 键盘 / 多媒体键），免驱。
-- **局域网 TCP** 承载副屏视频、触控注入、控制面与状态：
-  - 推荐形态：**手机做服务端**（监听固定端口 `9500`），电脑主动连入；
-  - 也支持 `adb forward` 回环：`tcp://127.0.0.1:9500`。
-- 面板「连接与配对」视图提供二维码 / 手动地址 / 令牌与链路质量。
+- **Wi‑Fi 控制（已落地，真机验证通过）**：手机做服务端（TCP `9500`）+ UDP `9501` 广播信标
+  `APX1PHONE <name> <port> <token>`，电脑**主动连入**（出站连接，Windows 防火墙默认放行），
+  收到 `streamId=3` 控制帧后用 `SendInput` 注入。**无蓝牙适配器的 PC 也完整可用。**
+  触控板 / 键盘 / 多媒体键在手机侧统一按「蓝牙 → USB HID → Wi‑Fi → 如实降级」择优。
+- **蓝牙 HID（部分）**：已承载触控板与多媒体键，免驱；**键盘与手柄待补**。
+  注意：描述符一变，PC 端**旧配对记录必须删除重连**，否则 Windows 会拿缓存描述符解析导致错位。
+- **面板**：桌面端可用「自动发现」（监听信标）或填 IP；`adb forward` 回环（`tcp://127.0.0.1:9500`）
+  仅开发期联调，不是产品形态。
 
-> **后续路线**：本文描述的是目标形态。当前已落地的是**有线（USB）主线**；
-> **蓝牙键盘/手柄**与 **Wi‑Fi 控制面**的扩展点、实施顺序见
-> [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
+> **后续路线**：主线是**蓝牙补全**（键盘 → 手柄）。现状是鼠标/多媒体/键盘各自在模块内择路，
+> 尚未收敛到统一的 `InputHub`；手柄无 Wi‑Fi 出口（`SendInput` 无法模拟游戏手柄）。
+> 扩展点与实施顺序见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
 
 ---
 
@@ -252,24 +297,37 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
 
 本项目的硬性原则：**不可用的能力必须明确标注，绝不伪装成功。**
 
-- 副屏若当前无「支持运行时插拔的虚拟显示器驱动」，会走**后端 C 降级**：关屏只停推流，
-  显示器仍留在系统中，面板以琥珀色横幅明确标注。
-- 带宽不足时按优先级降级（触控上行 > 副屏视频 > 音频 > 摄像头），
-  并以占用条可视化，日志记录「为谁降了什么」。
+- 手机端各模块用 `ModuleState`（RUNNING / DEGRADED / ERROR / STOPPED）如实上报，状态页与
+  设置页照原样展示 —— 抢不到 UDC、蓝牙权限不足、内核不支持 UVC，都直接标出来而非静默。
+- Wi‑Fi 控制链路的**表盘口径与真实择路完全一致**：USB HID 就绪显示 USB 档位，否则蓝牙
+  已连接显示蓝牙，否则 Wi‑Fi 控制，否则「未连接」—— 不含糊，也不把没连上的链路报成当前通道。
+- 带宽不足时按优先级降级（触控上行 > 视频 > 音频 > 摄像头）并记录「为谁降了什么」。
+  其中视频 / 摄像头两项对应模块当前不可用，相关降级逻辑保留在 `pc/display/` 内。
 
 ---
 
 ## 八、已知限制（发布前须知）
 
-1. **Android 端未在本机编译验证**：需在有 Android SDK 的机器上执行 `gradlew.bat assembleDebug`。
-2. **`apxdisp`（副屏）整体链接存在既有构建问题**：`pc/display/encode/mf_encoder.cpp` 在本机
-   Windows SDK（10.0.22621）的 WRL `ComPtr<IMFSample>` 处报错，与本次无线传输改动无关。
-   如需单独验证传输层，可只构建子目标：
+1. **Android 端已在本机编译验证**：`gradle assembleDebug` 通过（JDK 17 + Android SDK 35 +
+   Gradle 8.9），产物 `android/app/build/outputs/apk/debug/app-debug.apk`。
+   真机结论见 [`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md)。
+2. **`apxdisp`（副屏）可正常构建**（副屏已终止，此条仅供追溯）。早前在 Windows SDK
+   10.0.22621 的 WRL `ComPtr<IMFSample>` 处报错，**已修复**（见
+   `reports/MAIN-INTERVENTIONS.md`）。本机实测：
    ```bat
-   cmake --build build_display --config Release --target apxdisp_transport tcp_transport_test
+   cmake -S pc/display -B build_display
+   cmake --build build_display --config Release              :: apxdisp.exe 构建成功
+   build_display\Release\apxdisp.exe --self-test             :: 67 项全部通过
+   build_display\Release\tcp_transport_test.exe              :: ALL PASS
    ```
-3. **无线虚拟设备（声卡 / 摄像头）**仍处规划阶段，无线模式下这两类能力需要对接第三方
-   虚拟设备驱动；无法满足时面板会如实标注，不做静默失败。
+   注意 `pc/display/` **不在 `build.bat` 的构建范围内**（它属副屏模块）。
+3. **无线虚拟设备**：
+   - **摄像头**：Windows 11（22000+）的 `MFCreateVirtualCamera` 走**用户态 Media Source
+     DLL**，**不需要内核驱动、不需要驱动签名**；代价是需要 Win11 与写 `HKLM` 的 COM 注册
+     （即需要管理员，与 `apxsetup.exe` 免 UAC 的安装方式不兼容）。
+   - **麦克风 / 声卡**：Windows **没有**原生虚拟麦克风 API，必须用第三方已签名虚拟声卡
+     （如 VB-Cable）或自研驱动（需 EV 签名 + 微软认证）。
+   - 无法满足时面板会如实标注，不做静默失败。
 
 ---
 
@@ -283,5 +341,7 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
 
 - **零第三方依赖 / 零 CDN**：电脑端与面板均不引入外部库，保证离线可用。
 - **面板交互**：动作按钮统一 pending / success / error 三态；失败**就地**在卡片内展示原因，不弹窗打断。
-- **传输统一**：USB / TCP / 无线调试统一收敛到 `pc/display/transport/i_transport.hpp` 的 `ITransport`。
+- **传输统一**：Wi‑Fi 控制通道的 TCP 客户端与组帧收敛在 `pc/host/src/wireless/wireless_link.cpp`
+  与 `android/.../core/ApxFrame.kt`（APX1 帧，与 `shared/` 的 CRC 算法一致）。
+  `pc/display/transport/i_transport.hpp` 是副屏时代的传输抽象，随副屏一并停用。
 - **共享契约先行**：`shared/include/apx/` 同时影响手机端与电脑端，改动需两端同步。

@@ -57,6 +57,12 @@ object ModuleId {
 
     /** Wi‑Fi 控制（局域网 TCP）：无蓝牙适配器的 PC 上承载触控板 / 键盘 / 多媒体 */
     const val WIRELESS = "wireless"
+
+    /** Wi‑Fi 音频（局域网 TCP）：PC 系统声下行到手机扬声器 + 手机麦克风上行给 PC */
+    const val WIFI_AUDIO = "wifi_audio"
+
+    /** 副屏（局域网 TCP）：接收 PC 推来的桌面画面并硬解显示（镜像，非扩展屏） */
+    const val SCREEN = "screen"
 }
 
 /**

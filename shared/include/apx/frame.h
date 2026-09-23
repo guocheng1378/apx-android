@@ -24,12 +24,18 @@ struct ApxFrameHeader {
 #pragma pack(pop)
 static_assert(sizeof(ApxFrameHeader) == 16, "ApxFrameHeader 必须 16 字节");
 
+// 通道号（v1.11 起**带方向语义**，两端必须一致）：
+//   下行 = PC → 手机，上行 = 手机 → PC。
+// 之所以给音频分成两个号，是因为「音箱」（PC 声 → 手机扬声器）与「麦克风」
+// （手机录音 → PC）方向相反，共用 kStreamAudio 会互相污染解析。
 enum : uint8_t {
-    kStreamVideo     = 0,
-    kStreamAudio     = 1,
-    kStreamTouch     = 2,
-    kStreamControl   = 3,
-    kStreamTelemetry = 4,
+    kStreamVideo     = 0,   // 下行：副屏画面（H264/HEVC/AV1/RAW_LZ4，分片）
+    kStreamAudio     = 1,   // 下行：音箱 —— PC 系统声（PCM s16le / 48k / 立体声）
+    kStreamTouch     = 2,   // 上行：副屏触摸（8 字节小帧，格式见 touch_inject.hpp / MediaOut.touch）
+    kStreamControl   = 3,   // 双向：控制面（鼠标 / 键盘 / 多媒体 / 心跳）
+    kStreamTelemetry = 4,   // 预留
+    kStreamMic       = 5,   // 上行：麦克风 —— 手机录音（PCM s16le / 48k / 立体声）
+    kStreamCamera    = 6,   // 上行：摄像头 —— JPEG 帧（Camera2 → ImageReader）
 };
 
 enum : uint8_t {

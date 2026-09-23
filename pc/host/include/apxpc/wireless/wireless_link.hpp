@@ -41,6 +41,14 @@ public:
         double rttMs = -1;     // 实测控制面 RTT；-1 = 未测得
         std::string error;     // 最近一次失败原因（空 = 无）
         int64_t upMs = 0;      // 已连接时长（毫秒）
+
+        // 手机侧 Wi‑Fi 音频模块状态：由手机经控制面 'a' 状态帧周期上报。
+        // phoneAudioState < 0 = 尚未收到任何状态帧；否则为 ModuleState 编码（0..6，见 android）。
+        int phoneAudioState = -1;
+        bool phoneAudioSpk = false;     // 音箱下行（AudioTrack）是否初始化成功
+        bool phoneAudioMic = false;     // 麦克风上行是否可用
+        uint32_t phoneAudioDropped = 0; // 手机侧丢弃的音频帧
+        bool phoneAudioKnown = false;   // 是否收到过状态帧
     };
 
     /// 注入计数：既用于面板展示，也是「链路真的通了」的客观证据
@@ -48,6 +56,7 @@ public:
         uint64_t mouse = 0;
         uint64_t consumer = 0;
         uint64_t keyboard = 0;
+        uint64_t touch = 0;
         uint64_t pong = 0;
         uint64_t dropped = 0;   // 认不出的控制帧/无法注入的键
     };
@@ -72,6 +81,7 @@ private:
 
     // ---- 注入（仅在保活线程调用，状态无需加锁）----
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
+    void injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y);
     void injectConsumer(uint16_t bitmap);
     void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count);
 
@@ -96,6 +106,7 @@ private:
     std::atomic<uint64_t> cMouse_{0};
     std::atomic<uint64_t> cConsumer_{0};
     std::atomic<uint64_t> cKeyboard_{0};
+    std::atomic<uint64_t> cTouch_{0};
     std::atomic<uint64_t> cPong_{0};
     std::atomic<uint64_t> cDropped_{0};
 };

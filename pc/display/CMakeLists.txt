@@ -152,7 +152,11 @@ target_link_libraries(apxdisp_inject PUBLIC apxdisp_common)
 
 add_library(apxdisp_pipeline STATIC ${APXDISP_PIPELINE_SRC})
 target_include_directories(apxdisp_pipeline PUBLIC "${APXDISP_ROOT}")
-target_link_libraries(apxdisp_pipeline PUBLIC apxdisp_common apxdisp_capture apxdisp_encode apxdisp_transport)
+# apxdisp_inject 是**必需**依赖：Pipeline 会调 createInjector / parseTouchFrame
+# （触控注入与触控帧解析）。此前漏声明，只因为 apxdisp.exe 自己又链了一遍才没暴露；
+# 一旦有别的目标单独链接 apxdisp_pipeline（如桌面端面板复用副屏管线），
+# 就会在链接期报 createInjector / parseTouchFrame 未解析。
+target_link_libraries(apxdisp_pipeline PUBLIC apxdisp_common apxdisp_capture apxdisp_encode apxdisp_transport apxdisp_inject)
 
 if(WIN32)
   target_link_libraries(apxdisp_capture    PUBLIC d3d11 dxgi dxguid)

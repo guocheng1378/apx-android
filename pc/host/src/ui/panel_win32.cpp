@@ -16,10 +16,11 @@
 
 #if defined(_WIN32)
 
-#include "apxpc/log.hpp"
-#include "apxpc/tray/tray_win32.hpp"
-#include "apxpc/wireless/wireless_session.hpp"
-
+// ⚠️ 这几个宏必须在**任何** apxpc 头之前定义。
+// `apxpc/media/media_session.hpp` 自己会 include <winsock2.h>，而它会连锁拉进
+// <windows.h> —— 若那时 UNICODE/_UNICODE 还没定义，windows.h 就按 ANSI 配置定型，
+// 后面再 define 也没用（include guard 已生效）。症状很隐蔽：本文件里
+// `LoadIconW(nullptr, IDI_APPLICATION)` 突然报 "LPSTR 不能转 LPCWSTR"。
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -32,15 +33,29 @@
 #ifndef _UNICODE
 #define _UNICODE
 #endif
+
+#include "apxpc/log.hpp"
+#include "apxpc/media/audio_capture.hpp"
+#include "apxpc/media/media_session.hpp"
+#include "apxpc/media/screen_push.hpp"
+#include "apxpc/tray/tray_win32.hpp"
+#include "apxpc/wireless/wireless_session.hpp"
+
 #include <windows.h>
 #include <windowsx.h>   // GET_X_LPARAM / GET_Y_LPARAM
+// WIN32_LEAN_AND_MEAN 把 commctrl.h 从 windows.h 里剔掉了，需显式包含：
+// 地址框的提示气泡用 EM_SETCUEBANNER / CBCM_SETCUEBANNER，都在这个头里。
+#include <commctrl.h>
 
 #include <objidl.h>
 #include <gdiplus.h>
 
+#include <atomic>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 #pragma comment(lib, "gdiplus")
 
@@ -75,7 +90,9 @@ constexpr Gdiplus::ARGB fieldBg        = 0xFFF2F3F5;   // 输入框底（同背�
 constexpr int kAppIconId = 101;   // 对应 pc/host/res/apx.rc 的 IDI_APPICON
 
 constexpr int kClientW = 560;
-constexpr int kClientH = 512;
+// 512 → 628（加「副屏」卡片）→ 768（加「音箱」卡片）→ 784（音箱卡片要一行设备下拉）：
+// 每加一张卡片 / 一行控件就把底部一排下推
+constexpr int kClientH = 808;
 constexpr int kMargin = 16;
 constexpr int kCardX = kMargin;
 constexpr int kCardW = kClientW - 2 * kMargin;   // 528
@@ -85,9 +102,12 @@ constexpr int kContentX = kCardX + kCardPad;     // 34
 enum : int {
     IDC_EDIT_HOST = 1008,
     IDC_EDIT_PORT = 1009,
+    IDC_COMBO_DEV = 1010,   // 音箱：采集哪块播放设备
 };
 
 constexpr UINT_PTR kRefreshTimer = 1;
+/// 媒体建链失败后的重试间隔（面板每 400ms 一跳，不加节流会疯狂重连）
+constexpr long long kMediaRetryMs = 3000;
 constexpr UINT kMsgTrayQuit = WM_APP + 1;
 
 struct Rect {
@@ -102,46 +122,111 @@ struct Rect {
 };
 
 // ——————————————————— 布局（一处定义，绘制与命中检测共用） ———————————————————
+// 工具分两类：无线（蓝牙 / Wi‑Fi）、有线（USB）。连接区给 3 个传输开关，
+// 没有总开关；打开哪个开关，下方「对应功能」才出现 —— 所以高度随开关动态算。
 struct Layout {
     Rect badge;
-    Rect cardState, cardMode, cardData;
-    Rect statusBig, statusDetail;
-    Rect radioAuto, radioManual;
-    Rect fieldHost, fieldPort, editHost, editPort;
-    Rect btnConnect, btnDisconnect;
+    Rect cardConn;                 // 连接卡：3 个传输开关 + 连接详情
+    Rect titleConn;
+    Rect lblWifi, swWifi, lblBt, swBt, lblUsb, swUsb;
+    Rect connStatus;               // 连接详情（peer / RTT / 时长）
+    Rect fieldHost, fieldPort, editHost, editPort;   // 无线手动地址
+
+    Rect hdrWireless;              // 「无线」分类标题（无线开关开时出现）
+    Rect cardScreen, labelScreen, switchScreen, screenStatus, screenDetail;
+    Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
+         speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
+    Rect cardMic, labelMic, micStatus, micDetail;
+
+    Rect hdrWired;                 // 「有线」分类标题（蓝牙或 USB 开时出现）
+    Rect cardBt, labelBtCard, btStatus, btDetail;
+    Rect cardUsb, labelUsbCard, usbStatus, usbDetail;
+
     Rect switchAuto, labelAuto;
     Rect btnHide, btnQuit;
+    int totalH = 0;                // 整窗高度（随开关变化）
 };
 
-const Layout& layout() {
-    static const Layout L = [] {
-        Layout l;
-        l.badge = {kClientW - kMargin - 104, 26, 104, 26};
+/// 当前哪些传输开关是开的 —— 决定下方出现哪些功能卡
+struct VisToggles { bool wifi = false, bt = false, usb = false; };
 
-        l.cardState = {kCardX, 80, kCardW, 118};      // 80 .. 198
-        l.cardMode = {kCardX, 210, kCardW, 148};      // 210 .. 358
-        l.cardData = {kCardX, 370, kCardW, 80};       // 370 .. 450
+Layout layout(const VisToggles& v) {
+    Layout l;
+    l.badge = {kClientW - kMargin - 104, 26, 104, 26};
 
-        l.statusBig = {kContentX, 122, kCardW - 2 * kCardPad, 36};
-        l.statusDetail = {kContentX, 162, kCardW - 2 * kCardPad, 18};
+    int y = 80;
+    // —— 连接卡：蓝牙 / 无线 / USB 三个开关，无总开关 ——
+    l.cardConn = {kCardX, y, kCardW, 150};
+    l.titleConn = {kContentX, y + 14, 200, 18};
+    const int swY = y + 46, swW = 46, swH = 24;
+    l.lblWifi = {kContentX, swY, 48, swH};
+    l.swWifi = {kContentX + 48, swY, swW, swH};
+    l.lblBt = {kContentX + 168, swY, 44, swH};
+    l.swBt = {kContentX + 212, swY, swW, swH};
+    l.lblUsb = {kContentX + 320, swY, 44, swH};
+    l.swUsb = {kContentX + 364, swY, swW, swH};
+    l.connStatus = {kContentX, y + 84, kCardW - 2 * kCardPad, 20};
+    // 无线手动地址：始终展示，便于需要时填手机 IP（自动发现失败时兜底）
+    l.fieldHost = {kContentX, y + 114, 200, 30};
+    l.editHost = {l.fieldHost.x + 9, l.fieldHost.y, l.fieldHost.w - 18, l.fieldHost.h};
+    l.fieldPort = {l.fieldHost.x + l.fieldHost.w + 8, y + 114, 60, 30};
+    l.editPort = {l.fieldPort.x + 9, l.fieldPort.y, l.fieldPort.w - 18, l.fieldPort.h};
+    y = l.cardConn.y + l.cardConn.h + 14;
 
-        l.radioAuto = {kContentX, 252, kCardW - 2 * kCardPad, 24};
-        l.radioManual = {kContentX, 278, kCardW - 2 * kCardPad, 24};
-
-        l.fieldHost = {kContentX + 44, 310, 176, 30};
-        l.editHost = {l.fieldHost.x + 9, l.fieldHost.y, l.fieldHost.w - 18, l.fieldHost.h};
-        l.fieldPort = {l.fieldHost.x + l.fieldHost.w + 8, 310, 60, 30};
-        l.editPort = {l.fieldPort.x + 9, l.fieldPort.y, l.fieldPort.w - 18, l.fieldPort.h};
-        l.btnConnect = {l.fieldPort.x + l.fieldPort.w + 12, 309, 92, 32};
-        l.btnDisconnect = {l.btnConnect.x + l.btnConnect.w + 8, 309, 92, 32};
-
-        l.switchAuto = {kMargin + 4, 464, 46, 24};
-        l.labelAuto = {l.switchAuto.x + l.switchAuto.w + 10, 464, 140, 24};
-        l.btnQuit = {kClientW - kMargin - 4 - 92, 460, 92, 32};
-        l.btnHide = {l.btnQuit.x - 8 - 104, 460, 104, 32};
-        return l;
-    }();
-    return L;
+    if (v.wifi) {
+        l.hdrWireless = {kCardX, y, kCardW, 28};
+        y += 34;
+        // 副屏
+        l.cardScreen = {kCardX, y, kCardW, 104};
+        l.labelScreen = {kContentX, y + 14, 300, 24};
+        l.switchScreen = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
+        l.screenStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
+        l.screenDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
+        y += 104 + 14;
+        // 音箱（含采集设备下拉 + 试听）
+        l.cardSpeaker = {kCardX, y, kCardW, 172};
+        l.labelSpeaker = {kContentX, y + 14, 300, 24};
+        l.switchSpeaker = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
+        l.speakerStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
+        l.labelSpeakerDev = {kContentX, y + 70, 64, 26};
+        l.speakerCombo = {kContentX + 68, y + 70, kCardW - 2 * kCardPad - 68, 26};
+        l.speakerDevice = {kContentX, y + 104, kCardW - 2 * kCardPad, 18};
+        l.speakerDetail = {kContentX, y + 124, kCardW - 2 * kCardPad, 18};
+        l.btnTestSpeaker = {kContentX, y + 144, 92, 28};
+        y += 172 + 14;
+        // 麦克风（手机麦克风上行，PC 收流）
+        l.cardMic = {kCardX, y, kCardW, 96};
+        l.labelMic = {kContentX, y + 14, 300, 24};
+        l.micStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
+        l.micDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
+        y += 96 + 14;
+    }
+    if (v.bt || v.usb) {
+        l.hdrWired = {kCardX, y, kCardW, 28};
+        y += 34;
+        if (v.bt) {
+            l.cardBt = {kCardX, y, kCardW, 92};
+            l.labelBtCard = {kContentX, y + 14, 300, 24};
+            l.btStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
+            l.btDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
+            y += 92 + 14;
+        }
+        if (v.usb) {
+            l.cardUsb = {kCardX, y, kCardW, 100};
+            l.labelUsbCard = {kContentX, y + 14, 300, 24};
+            l.usbStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
+            l.usbDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
+            y += 100 + 14;
+        }
+    }
+    // 底部：开机自启 + 次要按钮
+    l.switchAuto = {kMargin + 4, y + 4, 46, 24};
+    l.labelAuto = {l.switchAuto.x + l.switchAuto.w + 10, y + 4, 140, 24};
+    l.btnQuit = {kClientW - kMargin - 4 - 92, y, 92, 32};
+    l.btnHide = {l.btnQuit.x - 8 - 104, y, 104, 32};
+    y += 40;
+    l.totalH = y + 16;
+    return l;
 }
 
 // ——————————————————— 绘制小工具 ———————————————————
@@ -203,7 +288,10 @@ std::string toUtf8(const std::wstring& w) {
 }
 
 // ——————————————————— 面板 ———————————————————
-enum class Hit { None, RadioAuto, RadioManual, Connect, Disconnect, Autostart, Hide, Quit };
+enum class Hit {
+    None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
+    Autostart, Hide, Quit, TestSpeaker
+};
 
 struct Panel {
     HWND hwnd = nullptr;
@@ -223,12 +311,43 @@ struct Panel {
     std::unique_ptr<WirelessSession> session;
     std::unique_ptr<TrayIcon> tray;
 
-    bool autoMode = true;
+    // 媒体通道（第二条连接，手机 9502）：副屏与音箱/麦克风/摄像头共用同一条
+    // —— 手机侧媒体通道是单对端语义，不能为副屏另开一条。
+    std::unique_ptr<apxpc::media::MediaSession> media;
+    std::unique_ptr<apxpc::media::ScreenPush> screenPush;
+    /// 「音箱」：把系统声音（WASAPI loopback）送到手机扬声器
+    std::unique_ptr<apxpc::media::AudioCapture> audio;
+
+    // 媒体建链是 3 秒级**阻塞**操作，绝不能放 UI 线程（会整窗卡住）。
+    // 用一次性工作线程 + 忙标志：join 只在确认线程已收手时调用，因此不会阻塞 UI。
+    std::thread mediaThread;
+    std::atomic<bool> mediaBusy{false};
+    long long lastMediaTryMs = 0;   // 上次尝试连媒体的时间（失败后节流重试）
+
+    // 三个传输开关（连接区，无总开关）。默认只开无线 = 原"自动发现并立刻连入"行为。
+    bool wifiEnabled = true;     // 无线（Wi‑Fi 控制 + 音频 + 副屏）：PC 实际发起连接
+    bool btEnabled = false;      // 蓝牙 HID：由手机端配对后启用，PC 仅展示状态
+    bool usbEnabled = false;     // USB gadget：由手机端插线授权后启用，PC 仅展示状态
+    bool autoMode = true;        // 无线手动地址模式（关 = 自动发现）
     bool autostart = false;
+
+    /// 音箱要采哪块播放设备。**空 = 跟随系统默认**（默认一变就重开采集）。
+    std::string speakerDeviceId;
+    /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
+    std::vector<std::string> speakerDevIds;
+    /// 上一轮"默认设备 ID + 全部端点 ID"的指纹。设备增删或默认易主时靠它发现，
+    /// 用来刷新下拉标题 —— 否则会一直写着"跟随系统默认（旧的某块）"。
+    std::string lastDevSig;
+    long long lastDevCheckMs = 0;   // 设备指纹检查的节流时间戳
+
     Hit hot = Hit::None;
     Hit pressed = Hit::None;
     bool tracking = false;      // 已注册 WM_MOUSELEAVE
     std::wstring repaintKey;    // 状态指纹：没变就不重绘
+
+    // 试听：不依赖系统是否在放声音，一键把测试音推到手机，用于验证下行链路
+    std::atomic<uint64_t> testToneSent{0};   // 本次试听实际送到手机的分片数
+    std::atomic<bool> testToneBusy{false};    // 试听推流进行中
 };
 
 Gdiplus::ARGB phaseColor(LinkPhase ph) {
@@ -251,6 +370,18 @@ std::wstring phaseText(const SessionSnapshot& s) {
     }
 }
 
+/// 卡片大字：说「现在能干什么」，而不是把顶栏徽章的状态词再抄一遍
+/// —— 徽章已经写着「已连接」了，卡片再放大一次「已连接」是纯重复。
+std::wstring phaseSentence(const SessionSnapshot& s) {
+    switch (s.phase) {
+        case LinkPhase::Connected:   return L"手机已连上，可直接用";
+        case LinkPhase::Connecting:  return L"正在接入手机…";
+        case LinkPhase::Discovering: return L"正在找同一 Wi‑Fi 下的手机";
+        case LinkPhase::Failed:      return L"没连上手机";
+        default:                     return L"尚未连接";
+    }
+}
+
 std::wstring detailText(const SessionSnapshot& s) {
     if (s.phase == LinkPhase::Connected) {
         const long long sec = s.upMs / 1000;
@@ -269,43 +400,310 @@ std::wstring detailText(const SessionSnapshot& s) {
         case LinkPhase::Failed:
             return L"请检查手机 IP / 是否在同一局域网，然后重新点「连接」";
         default:
-            return L"选「自动发现」并点连接；或填好地址后点连接";
+            return L"选「自动发现」后点「连接」；或改用「手动指定地址」填手机 IP";
     }
 }
 
 /// 状态指纹：只有真正变化时才重绘（避免每 400ms 无谓整窗重画）
-std::wstring statusKey(const SessionSnapshot& s) {
-    wchar_t buf[320];
-    std::swprintf(buf, 320, L"%d|%s|%.0f|%lld|%llu|%llu|%llu|%llu|%s",
+std::wstring statusKey(Panel* p, const SessionSnapshot& s) {
+    const uint64_t mic = p->media ? p->media->counters().micFrames : 0;
+    wchar_t buf[640];
+    std::swprintf(buf, 640,
+                  L"%d|%d|%d|%d|%s|%.0f|%lld|%llu|%llu|%llu|%llu|%llu|%s|%d|%d|%d|%u|%d",
+                  p->wifiEnabled ? 1 : 0, p->btEnabled ? 1 : 0, p->usbEnabled ? 1 : 0,
                   static_cast<int>(s.phase), toWide(s.peer).c_str(), s.rttMs,
                   s.upMs / 1000,
                   static_cast<unsigned long long>(s.counters.mouse),
                   static_cast<unsigned long long>(s.counters.keyboard),
                   static_cast<unsigned long long>(s.counters.consumer),
                   static_cast<unsigned long long>(s.counters.dropped),
-                  toWide(s.error).c_str());
+                  static_cast<unsigned long long>(mic),
+                  toWide(s.error).c_str(),
+                  s.phoneAudioState, s.phoneAudioSpk ? 1 : 0, s.phoneAudioMic ? 1 : 0,
+                  s.phoneAudioDropped, s.phoneAudioKnown ? 1 : 0);
     return buf;
 }
 
-bool hitEnabled(Hit h, const SessionSnapshot& s) {
-    if (h == Hit::Connect) return s.phase != LinkPhase::Connected;
-    if (h == Hit::Disconnect) return s.phase != LinkPhase::Idle;
-    if (h == Hit::None) return false;
-    return true;
+// ——————————————————— 副屏卡片（媒体通道 + 推流） ———————————————————
+// 文案原则同别处：说清「现在能不能用」，绝不把没连上的状态说成可用。
+
+long long nowMsLocal() { return static_cast<long long>(GetTickCount64()); }
+
+bool screenMediaUp(Panel* p) { return p->media && p->media->status().connected; }
+
+std::wstring screenBig(Panel* p) {
+    const bool up = screenMediaUp(p);
+    if (!p->screenPush) return up ? L"未开始" : L"等待媒体连接";
+    const auto s = p->screenPush->status();
+    if (s.running) return L"正在投屏";
+    if (!s.error.empty()) return L"投屏失败";
+    if (!up) return L"等待媒体连接";
+    return L"未开始";
+}
+
+Gdiplus::ARGB screenColor(Panel* p) {
+    if (!p->screenPush) return tok::stateIdle;
+    const auto s = p->screenPush->status();
+    if (s.running) return tok::stateOk;
+    if (!s.error.empty()) return tok::stateError;
+    return tok::stateIdle;
+}
+
+std::wstring screenDetail(Panel* p) {
+    const bool up = screenMediaUp(p);
+    if (p->screenPush) {
+        const auto s = p->screenPush->status();
+        if (s.running) {
+            wchar_t b[256];
+            std::swprintf(b, 256, L"%.1f fps · 已送 %llu 帧 · %ux%u · 编码 %.1f ms · 丢帧 %llu",
+                          s.fps, static_cast<unsigned long long>(s.framesSent),
+                          s.width, s.height, s.encodeMs,
+                          static_cast<unsigned long long>(s.framesDropped));
+            return b;
+        }
+        if (!s.error.empty()) return toWide(s.error);
+    }
+    if (!up) return L"媒体通道未连上（副屏与音频共用它，需与手机同一 Wi‑Fi）";
+    return L"打开右侧开关：把本机桌面投到手机（免驱，抓的是当前桌面）";
+}
+
+/// 切换副屏推流。启动前先确认媒体通道在 —— 否则给出**明确原因**，不静默失败。
+void toggleScreen(Panel* p) {
+    if (!p->screenPush) return;
+    if (p->screenPush->running()) {
+        p->screenPush->stop();
+        return;
+    }
+    if (!screenMediaUp(p)) {
+        MessageBoxW(p->hwnd,
+                    L"副屏需要先建立媒体通道。\n\n"
+                    L"请确认：\n"
+                    L"  · 手机与电脑在同一 Wi‑Fi\n"
+                    L"  · 手机端已打开「Wi‑Fi 控制」模块\n"
+                    L"  · 上方「连接状态」显示已连接",
+                    L"全能外设", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    std::string err;
+    if (!p->screenPush->start(p->media.get(), apxpc::media::ScreenPushOptions{}, &err)) {
+        const std::wstring msg = L"副屏启动失败：\n\n" + toWide(err);
+        MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
+    }
+}
+
+// ——————————————————— 音箱卡片（系统声音 → 手机扬声器） ———————————————————
+// 这一块的文案目标很明确：用户报「没声音」时，卡片自己要能说清是三种情况里的哪一种
+//   ① 面板没开采集    ② 开了，但系统本身没在放声音    ③ 采的不是他在听的那块声卡
+// 第 ③ 种最容易白忙 —— 所以"采集自<设备名>"必须独立成行、不能被截断。
+
+/// 低于此电平就认为"系统当前没在放声音"（loopback 静音会直接给 SILENT 标记）
+constexpr double kSilentPeak = 0.003;
+
+std::wstring speakerBig(Panel* p) {
+    if (!p->audio) return L"未开启";
+    const auto s = p->audio->status();
+    if (s.running) {
+        if (s.peak > kSilentPeak) {
+            wchar_t b[64];
+            std::swprintf(b, 64, L"正在播放 · 电平 %.0f%%", s.peak * 100.0);
+            return b;
+        }
+        return L"已开启 · 系统当前没有声音";
+    }
+    if (!s.error.empty()) return L"开启失败";
+    return screenMediaUp(p) ? L"未开启" : L"等待媒体连接";
+}
+
+Gdiplus::ARGB speakerColor(Panel* p) {
+    if (!p->audio) return tok::stateIdle;
+    const auto s = p->audio->status();
+    if (s.running) return s.peak > kSilentPeak ? tok::stateOk : tok::stateWarn;
+    if (!s.error.empty()) return tok::stateError;
+    return tok::stateIdle;
+}
+
+/// 手机侧 Wi‑Fi 音频模块状态文案（来自手机周期上报的 'a' 状态帧；ModuleState 编码 0..6）
+std::wstring phoneAudioText(const SessionSnapshot& s) {
+    if (!s.phoneAudioKnown) return L"手机侧音频状态未上报";
+    switch (s.phoneAudioState) {
+        case 2:  // RUNNING
+            if (s.phoneAudioSpk && s.phoneAudioMic) return L"手机侧：双向正常";
+            if (s.phoneAudioSpk) return L"手机侧：仅音箱下行";
+            if (s.phoneAudioMic) return L"手机侧：仅麦克风（手机不播）";
+            return L"手机侧：运行中（未就绪）";
+        case 3:  // DEGRADED
+            return s.phoneAudioSpk ? L"手机侧降级：仅音箱" : L"手机侧降级：仅麦克风（手机不播）";
+        case 4:  return L"手机侧音频错误";
+        case 1:  return L"手机侧音频启动中";
+        case 5:  return L"手机侧音频停止中";
+        default: return L"手机侧音频未启动";
+    }
+}
+
+Gdiplus::ARGB phoneAudioColor(const SessionSnapshot& s) {
+    if (!s.phoneAudioKnown) return tok::stateIdle;
+    switch (s.phoneAudioState) {
+        case 2:  return (s.phoneAudioSpk || s.phoneAudioMic) ? tok::stateOk : tok::stateWarn;
+        case 3:  return tok::stateWarn;
+        case 4:  return tok::stateError;
+        default: return tok::stateIdle;
+    }
+}
+
+std::wstring speakerDeviceLine(Panel* p) {
+    if (!p->audio) return L"";
+    const auto s = p->audio->status();
+    // 只在真的在采时显示"实际采的是哪块"。未开始时下拉里已写着会采哪块，重复没意义；
+    // 但采起来之后这条**必须**有 —— 跟随默认时系统可能把默认换掉，实际采的与下拉
+    // 选中的未必是同一块，这个差异正是"手机上没声音"最需要被看见的东西。
+    if (!s.running || s.device.empty()) return L"";
+    return (s.followingDefault ? L"实际采集：" : L"采集自：") + toWide(s.device);
+}
+
+std::wstring speakerDetail(Panel* p) {
+    const bool up = screenMediaUp(p);
+    if (p->audio) {
+        const auto s = p->audio->status();
+        if (s.running) {
+            wchar_t b[256];
+            std::swprintf(b, 256, L"%uHz %uch · 已送 %llu 片 · 丢弃 %llu",
+                          s.sampleRate, s.channels,
+                          static_cast<unsigned long long>(s.framesSent),
+                          static_cast<unsigned long long>(s.dropped));
+            return b;
+        }
+        if (!s.error.empty()) return toWide(s.error);
+    }
+    if (!up) return L"媒体通道未连上（与副屏共用它，需与手机同一 Wi‑Fi）";
+    return L"打开右侧开关：把本机系统声音送到手机扬声器（免驱，采的是系统默认播放设备）";
+}
+
+/// 「默认设备 ID + 全部端点 ID」的指纹。用来发现设备增删或默认易主。
+std::string speakerDevSignature() {
+    std::string sig = apxpc::media::AudioCapture::defaultRenderDeviceId();
+    for (const auto& d : apxpc::media::AudioCapture::listRenderDevices()) {
+        sig += '|';
+        sig += d.id;
+    }
+    return sig;
+}
+
+/// 把「跟随系统默认 + 每一块实体播放设备」填进下拉。
+/// 列表每次刷新都保留当前选择；若存的设备已不在列表里（拔了/禁用了），
+/// 回落到「跟随系统默认」而不是留一个选不中的空项。
+void refreshSpeakerCombo(Panel* p) {
+    HWND cb = GetDlgItem(p->hwnd, IDC_COMBO_DEV);
+    if (!cb) return;
+
+    const auto devs = apxpc::media::AudioCapture::listRenderDevices();
+    const std::string defName = apxpc::media::AudioCapture::defaultRenderDeviceName();
+
+    p->speakerDevIds.clear();
+    SendMessageW(cb, CB_RESETCONTENT, 0, 0);
+
+    // 第 0 项：跟随系统默认。把当前默认设备名写进标题里 —— 用户不必展开就知道会采哪块。
+    std::wstring first = L"跟随系统默认";
+    if (!defName.empty()) first += L"（" + toWide(defName) + L"）";
+    SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(first.c_str()));
+    p->speakerDevIds.emplace_back();
+
+    for (const auto& d : devs) {
+        std::wstring item = toWide(d.name);
+        if (d.isDefault) item += L"   · 系统默认";
+        SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+        p->speakerDevIds.push_back(d.id);
+    }
+
+    int sel = 0;
+    if (!p->speakerDeviceId.empty()) {
+        for (size_t i = 0; i < p->speakerDevIds.size(); ++i) {
+            if (p->speakerDevIds[i] == p->speakerDeviceId) {
+                sel = static_cast<int>(i);
+                break;
+            }
+        }
+        if (sel == 0) p->speakerDeviceId.clear();   // 已不存在 → 回到跟随默认
+    }
+    SendMessageW(cb, CB_SETCURSEL, sel, 0);
+}
+
+/// 下拉换设备。正在放音就**立刻换过去** —— 换了不生效比不能换更让人困惑。
+void onSpeakerDeviceChanged(Panel* p) {
+    HWND cb = GetDlgItem(p->hwnd, IDC_COMBO_DEV);
+    if (!cb) return;
+    const int sel = static_cast<int>(SendMessageW(cb, CB_GETCURSEL, 0, 0));
+    if (sel < 0 || sel >= static_cast<int>(p->speakerDevIds.size())) return;
+    const std::string want = p->speakerDevIds[static_cast<size_t>(sel)];
+    if (want == p->speakerDeviceId) return;
+    p->speakerDeviceId = want;
+    if (!p->audio || !p->audio->running()) return;
+
+    apxpc::media::AudioCaptureOptions opt;
+    opt.deviceId = p->speakerDeviceId;
+    std::string err;
+    if (!p->audio->start(p->media.get(), opt, &err)) {
+        const std::wstring msg = L"切换采集设备失败：\n\n" + toWide(err);
+        MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
+    }
+}
+
+/// 试听：合成一段测试音直接推到手机，用于验证「下行链路是否真通到手机扬声器」。
+/// 不依赖系统此刻有没有在放声音 —— 点一下手机该出声；没声就是手机音量/模块问题。
+void testSpeakerClick(Panel* p) {
+    if (!p->media || !p->media->status().connected) {
+        MessageBoxW(p->hwnd, L"手机还没连上，先连上手机再试听。",
+                    L"全能外设", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    if (p->testToneBusy.exchange(true)) return;   // 已在推流，忽略重复点击
+    p->testToneSent.store(0);
+    InvalidateRect(p->hwnd, nullptr, FALSE);
+    std::thread([p] {
+        apxpc::media::AudioCapture::playTestTone(p->media.get(), 2, &p->testToneSent);
+        p->testToneBusy.store(false);
+        InvalidateRect(p->hwnd, nullptr, FALSE);
+    }).detach();
+}
+
+/// 切换音箱。启动前先确认媒体通道在 —— 否则给出**明确原因**，不静默失败。
+void toggleSpeaker(Panel* p) {
+    if (!p->audio) return;
+    if (p->audio->running()) {
+        p->audio->stop();
+        return;
+    }
+    if (!screenMediaUp(p)) {
+        MessageBoxW(p->hwnd,
+                    L"音箱需要先建立媒体通道。\n\n"
+                    L"请确认：\n"
+                    L"  · 手机与电脑在同一 Wi‑Fi\n"
+                    L"  · 手机端已打开「Wi‑Fi 控制」与「Wi‑Fi 音频」模块\n"
+                    L"  · 上方「连接状态」显示已连接",
+                    L"全能外设", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    apxpc::media::AudioCaptureOptions opt;
+    opt.deviceId = p->speakerDeviceId;   // 空 = 跟随系统默认
+    std::string err;
+    if (!p->audio->start(p->media.get(), opt, &err)) {
+        const std::wstring msg = L"音箱启动失败：\n\n" + toWide(err);
+        MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
+    }
 }
 
 Hit hitTest(Panel* p, int x, int y) {
-    const Layout& L = layout();
-    const auto s = p->session->snapshot();
+    const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
     Hit h = Hit::None;
-    if (L.radioAuto.has(x, y)) h = Hit::RadioAuto;
-    else if (L.radioManual.has(x, y)) h = Hit::RadioManual;
-    else if (L.btnConnect.has(x, y)) h = Hit::Connect;
-    else if (L.btnDisconnect.has(x, y)) h = Hit::Disconnect;
+    if (L.swWifi.has(x, y) || L.lblWifi.has(x, y)) h = Hit::SwitchWifi;
+    else if (L.swBt.has(x, y) || L.lblBt.has(x, y)) h = Hit::SwitchBt;
+    else if (L.swUsb.has(x, y) || L.lblUsb.has(x, y)) h = Hit::SwitchUsb;
+    else if (L.switchScreen.has(x, y) || L.labelScreen.has(x, y)) h = Hit::SwitchScreen;
+    else if (L.switchSpeaker.has(x, y) || L.labelSpeaker.has(x, y)) h = Hit::SwitchSpeaker;
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
-    return hitEnabled(h, s) ? h : Hit::None;
+    else if (L.btnTestSpeaker.has(x, y)) h = Hit::TestSpeaker;
+    return h == Hit::None ? Hit::None : h;
 }
 
 // ——————————————————— 绘制 ———————————————————
@@ -313,6 +711,8 @@ void paintButton(Gdiplus::Graphics& g, const Rect& r, const std::wstring& label,
                  bool enabled, bool hot, bool pressed, Gdiplus::Font& f) {
     Gdiplus::ARGB fill;
     Gdiplus::ARGB fg;
+    Gdiplus::ARGB stroke = 0;
+    bool drawStroke = false;
     if (!enabled) {
         fill = tok::variant;
         fg = tok::tertiary;
@@ -322,8 +722,17 @@ void paintButton(Gdiplus::Graphics& g, const Rect& r, const std::wstring& label,
     } else {
         fill = pressed ? 0xFFE0E3E8 : (hot ? 0xFFE6E9EE : tok::variant);
         fg = tok::onSurface;
+        drawStroke = true;   // 白卡上的浅色按钮边界太弱，加描边才看得清
+        stroke = hot ? tok::primary : 0xFFC9CED6;
     }
-    fillRound(g, r, static_cast<float>(r.h) / 2.0f, fill);   // MIUIX 胶囊
+    Gdiplus::GraphicsPath path;
+    buildRoundRect(r, static_cast<float>(r.h) / 2.0f, path);
+    Gdiplus::SolidBrush b(fill);
+    g.FillPath(&b, &path);
+    if (drawStroke) {
+        Gdiplus::Pen pen(stroke, 1.5f);
+        g.DrawPath(&pen, &path);
+    }
     text(g, label, r, f, fg, 1);
 }
 
@@ -355,7 +764,7 @@ void paintSwitch(Gdiplus::Graphics& g, const Rect& r, bool on, bool hot) {
 }
 
 void paint(HWND hwnd, Panel* p) {
-    const Layout& L = layout();
+    const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
     const auto s = p->session->snapshot();
 
     RECT crc{};
@@ -375,54 +784,137 @@ void paint(HWND hwnd, Panel* p) {
         Gdiplus::SolidBrush bg(tok::bg);
         g.FillRectangle(&bg, 0, 0, cw, ch);
 
-        // —— 顶栏：应用名 + 副标题 + 状态徽章（对齐手机 header_bar）——
+        // —— 顶栏：应用名 + 副标题 + 状态徽章 ——
         text(g, L"全能外设", Rect{kMargin + 4, 18, 260, 32}, *p->fTitle, tok::onSurface);
-        text(g, L"无线控制中枢", Rect{kMargin + 5, 50, 260, 18}, *p->fCaption, tok::onVariant);
+        text(g, L"手机当鼠标 / 键盘 / 声卡 / 摄像头用", Rect{kMargin + 5, 50, 360, 18},
+             *p->fCaption, tok::onVariant);
 
         fillRound(g, L.badge, static_cast<float>(L.badge.h) / 2.0f, tok::primarySoft);
         text(g, phaseText(s), L.badge, *p->fBadge, phaseColor(s.phase), 1);
 
-        // —— 卡 1：连接状态 ——
-        fillRound(g, L.cardState, 18.0f, tok::surface);
-        text(g, L"连接状态", Rect{kContentX, 98, 200, 18}, *p->fSection, tok::primary);
-        text(g, phaseText(s), L.statusBig, *p->fStatus, phaseColor(s.phase));
-        text(g, detailText(s), L.statusDetail, *p->fCaption, tok::onVariant);
-
-        // —— 卡 2：连接方式 ——
-        fillRound(g, L.cardMode, 18.0f, tok::surface);
-        text(g, L"连接方式", Rect{kContentX, 228, 200, 18}, *p->fSection, tok::primary);
-        paintRadio(g, L.radioAuto, L"自动发现手机（监听信标，推荐）", p->autoMode,
-                   p->hot == Hit::RadioAuto, *p->fBody);
-        paintRadio(g, L.radioManual, L"手动指定地址", !p->autoMode,
-                   p->hot == Hit::RadioManual, *p->fBody);
-
+        // —— 连接卡：三个传输开关（蓝牙 / 无线 / USB），无总开关 ——
+        fillRound(g, L.cardConn, 18.0f, tok::surface);
+        text(g, L"连接方式", L.titleConn, *p->fSection, tok::primary);
+        paintSwitch(g, L.swWifi, p->wifiEnabled, p->hot == Hit::SwitchWifi);
+        text(g, L"无线", L.lblWifi, *p->fBody, p->wifiEnabled ? tok::onSurface : tok::onVariant);
+        paintSwitch(g, L.swBt, p->btEnabled, p->hot == Hit::SwitchBt);
+        text(g, L"蓝牙", L.lblBt, *p->fBody, p->btEnabled ? tok::onSurface : tok::onVariant);
+        paintSwitch(g, L.swUsb, p->usbEnabled, p->hot == Hit::SwitchUsb);
+        text(g, L"USB", L.lblUsb, *p->fBody, p->usbEnabled ? tok::onSurface : tok::onVariant);
+        // 连接详情（无线才真正连；蓝牙/USB 由手机侧发起）
+        if (s.phase == LinkPhase::Connected) {
+            const long long sec = s.upMs / 1000;
+            wchar_t b[256];
+            std::swprintf(b, 256, L"%s · RTT %.0f ms · 已连 %lld:%02lld:%02lld",
+                          toWide(s.peer).c_str(), s.rttMs, sec / 3600, (sec / 60) % 60,
+                          sec % 60);
+            text(g, b, L.connStatus, *p->fCaption, tok::onVariant);
+        } else if (!p->wifiEnabled) {
+            text(g, L"打开「无线」开关以连接手机（蓝牙 / USB 由手机端发起）", L.connStatus,
+                 *p->fCaption, tok::onVariant);
+        } else {
+            text(g, detailText(s), L.connStatus, *p->fCaption, tok::onVariant);
+        }
+        // 无线手动地址（始终展示，自动发现失败时兜底）
         text(g, L"地址", Rect{kContentX, L.fieldHost.y, 44, L.fieldHost.h}, *p->fBody,
              tok::onVariant);
-        // 输入框：自绘浅底胶囊，原生 EDIT 叠在上面（底色同值，视觉上是一体）
         fillRound(g, L.fieldHost, 8.0f, tok::fieldBg);
         fillRound(g, L.fieldPort, 8.0f, tok::fieldBg);
 
-        paintButton(g, L.btnConnect, L"连接", true, s.phase != LinkPhase::Connected,
-                    p->hot == Hit::Connect, p->pressed == Hit::Connect, *p->fBtn);
-        paintButton(g, L.btnDisconnect, L"断开", false, s.phase != LinkPhase::Idle,
-                    p->hot == Hit::Disconnect, p->pressed == Hit::Disconnect, *p->fBtn);
+        // —— 无线分类：打开「无线」才出现 ——
+        if (p->wifiEnabled) {
+            text(g, L"无线", L.hdrWireless, *p->fSection, tok::primary);
+            // 副屏
+            fillRound(g, L.cardScreen, 18.0f, tok::surface);
+            text(g, L"副屏（把本机桌面投到手机）", L.labelScreen, *p->fSection, tok::primary);
+            {
+                const bool pushing = p->screenPush && p->screenPush->status().running;
+                paintSwitch(g, L.switchScreen, pushing, p->hot == Hit::SwitchScreen);
+                text(g, screenBig(p), L.screenStatus, *p->fBody, screenColor(p));
+                text(g, screenDetail(p), L.screenDetail, *p->fCaption, tok::onVariant);
+            }
+            // 音箱
+            fillRound(g, L.cardSpeaker, 18.0f, tok::surface);
+            text(g, L"音箱（把电脑声音投到手机）", L.labelSpeaker, *p->fSection, tok::primary);
+            {
+                const bool playing = p->audio && p->audio->running();
+                paintSwitch(g, L.switchSpeaker, playing, p->hot == Hit::SwitchSpeaker);
+                text(g, speakerBig(p), L.speakerStatus, *p->fBody, speakerColor(p));
+                text(g, L"采集设备", L.labelSpeakerDev, *p->fCaption, tok::onVariant);
+                const std::wstring dev = speakerDeviceLine(p);
+                if (!dev.empty()) {
+                    text(g, dev, L.speakerDevice, *p->fCaption, tok::onVariant);
+                }
+                text(g, speakerDetail(p), L.speakerDetail, *p->fCaption, tok::onVariant);
 
-        // —— 卡 3：数据 ——
-        fillRound(g, L.cardData, 18.0f, tok::surface);
-        text(g, L"数据", Rect{kContentX, 388, 200, 18}, *p->fSection, tok::primary);
-        {
-            wchar_t buf[256];
-            std::swprintf(buf, 256,
-                          L"鼠标 %llu    ·    键盘 %llu    ·    多媒体 %llu    ·    丢帧 %llu",
-                          static_cast<unsigned long long>(s.counters.mouse),
-                          static_cast<unsigned long long>(s.counters.keyboard),
-                          static_cast<unsigned long long>(s.counters.consumer),
-                          static_cast<unsigned long long>(s.counters.dropped));
-            text(g, buf, Rect{kContentX, 412, kCardW - 2 * kCardPad, 20}, *p->fBody,
-                 tok::onSurface);
+                const bool ttBusy = p->testToneBusy.load();
+                const uint64_t ttSent = p->testToneSent.load();
+                paintButton(g, L.btnTestSpeaker,
+                            ttBusy ? L"试听中…" : (ttSent > 0 ? L"再试听" : L"试听"),
+                            true, p->media && p->media->status().connected,
+                            p->hot == Hit::TestSpeaker, p->pressed == Hit::TestSpeaker, *p->fBtn);
+
+                const std::wstring phoneTxt =
+                    (s.phase == LinkPhase::Connected) ? phoneAudioText(s) : std::wstring();
+                const int tx = L.btnTestSpeaker.x + L.btnTestSpeaker.w + 10;
+                const int tw = kCardW - 2 * kCardPad - L.btnTestSpeaker.w - 10;
+                if (ttSent > 0 || ttBusy) {
+                    wchar_t tb[96];
+                    std::swprintf(tb, 96, L"已送手机 %llu 片%s",
+                                  static_cast<unsigned long long>(ttSent),
+                                  ttBusy ? L" · 推流中" : L"");
+                    text(g, tb, Rect{tx, L.btnTestSpeaker.y, tw, 28}, *p->fCaption,
+                         tok::onVariant);
+                } else if (!phoneTxt.empty()) {
+                    text(g, phoneTxt, Rect{tx, L.btnTestSpeaker.y, tw, 28}, *p->fCaption,
+                         phoneAudioColor(s));
+                }
+            }
+            // 麦克风（手机麦克风上行，PC 收流）
+            fillRound(g, L.cardMic, 18.0f, tok::surface);
+            text(g, L"麦克风（手机当电脑麦克风）", L.labelMic, *p->fSection, tok::primary);
+            {
+                const uint64_t mic = p->media ? p->media->counters().micFrames : 0;
+                Gdiplus::ARGB col = tok::stateIdle;
+                std::wstring st;
+                if (s.phase != LinkPhase::Connected) {
+                    st = L"未连接";
+                } else if (!s.phoneAudioKnown) {
+                    st = L"等待手机音频状态";
+                } else if (s.phoneAudioMic) {
+                    st = L"手机麦克风已上行"; col = tok::stateOk;
+                } else {
+                    st = L"手机麦克风未开启"; col = tok::stateWarn;
+                }
+                text(g, st, L.micStatus, *p->fBody, col);
+                wchar_t b[128];
+                std::swprintf(b, 128, L"PC 已收 %llu 帧 · 48k/16bit/立体声",
+                              static_cast<unsigned long long>(mic));
+                text(g, b, L.micDetail, *p->fCaption, tok::onVariant);
+            }
         }
 
-        // —— 底部：开机自启开关 + 次要按钮 ——
+        // —— 有线分类：打开「蓝牙」或「USB」才出现 ——
+        if (p->btEnabled || p->usbEnabled) {
+            text(g, L"有线", L.hdrWired, *p->fSection, tok::primary);
+            if (p->btEnabled) {
+                fillRound(g, L.cardBt, 18.0f, tok::surface);
+                text(g, L"蓝牙键鼠（手机当无线鼠标 / 键盘）", L.labelBtCard, *p->fSection,
+                     tok::primary);
+                text(g, L"由手机端蓝牙配对后自动启用", L.btStatus, *p->fBody, tok::stateIdle);
+                text(g, L"PC 免驱识别为鼠标 / 键盘 / 多媒体键", L.btDetail, *p->fCaption,
+                     tok::onVariant);
+            }
+            if (p->usbEnabled) {
+                fillRound(g, L.cardUsb, 18.0f, tok::surface);
+                text(g, L"USB 外设（插线即用）", L.labelUsbCard, *p->fSection, tok::primary);
+                text(g, L"插线并在手机端授权后启用", L.usbStatus, *p->fBody, tok::stateIdle);
+                text(g, L"UAC2 声卡（音箱）+ HID 键鼠，免驱零配置", L.usbDetail, *p->fCaption,
+                     tok::onVariant);
+            }
+        }
+
+        // —— 底部：开机自启 + 次要按钮 ——
         paintSwitch(g, L.switchAuto, p->autostart, p->hot == Hit::Autostart);
         text(g, L"开机自启", L.labelAuto, *p->fBody, tok::onSurface);
         paintButton(g, L.btnHide, L"隐藏到托盘", false, true, p->hot == Hit::Hide,
@@ -440,6 +932,17 @@ void paint(HWND hwnd, Panel* p) {
 }
 
 // ——————————————————— 行为 ———————————————————
+/// 功能卡随传输开关显隐，整窗高度也要跟着变（AdjustWindowRect 算标题栏）
+void resizeToLayout(Panel* p) {
+    if (!p->hwnd) return;
+    const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
+    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT rc{0, 0, kClientW, L.totalH};
+    AdjustWindowRectEx(&rc, style, FALSE, 0);
+    SetWindowPos(p->hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
 void applyConnect(Panel* p) {
     if (!p->session) return;
     if (p->autoMode) {
@@ -461,18 +964,29 @@ void applyConnect(Panel* p) {
 
 void performHit(Panel* p, Hit h) {
     switch (h) {
-        case Hit::RadioAuto:
-            p->autoMode = true;
-            p->session->startAuto();
+        case Hit::SwitchWifi:
+            // 无线开关 = 实际发起/断开 Wi‑Fi 控制连接（无独立「连接」按钮）
+            p->wifiEnabled = !p->wifiEnabled;
+            if (p->wifiEnabled) applyConnect(p);
+            else if (p->session) p->session->disconnect();
+            resizeToLayout(p);
             break;
-        case Hit::RadioManual:
-            p->autoMode = false;   // 只切模式，等用户点「连接」
+        case Hit::SwitchBt:
+            p->btEnabled = !p->btEnabled;       // 蓝牙由手机侧配对后启用，PC 仅揭示设置
+            resizeToLayout(p);
             break;
-        case Hit::Connect:
-            applyConnect(p);
+        case Hit::SwitchUsb:
+            p->usbEnabled = !p->usbEnabled;     // USB 由手机侧插线授权后启用
+            resizeToLayout(p);
             break;
-        case Hit::Disconnect:
-            p->session->disconnect();
+        case Hit::SwitchScreen:
+            toggleScreen(p);
+            break;
+        case Hit::SwitchSpeaker:
+            toggleSpeaker(p);
+            break;
+        case Hit::TestSpeaker:
+            testSpeakerClick(p);
             break;
         case Hit::Autostart:
             p->autostart = !p->autostart;
@@ -509,7 +1023,7 @@ void makeFonts(Panel* p) {
     p->fSection.reset(new Font(face, 13.0f, FontStyleBold, UnitPixel));
     p->fBody.reset(new Font(face, 13.5f, FontStyleRegular, UnitPixel));
     p->fStatus.reset(new Font(face, 30.0f, FontStyleBold, UnitPixel));
-    p->fBtn.reset(new Font(face, 13.0f, FontStyleRegular, UnitPixel));
+    p->fBtn.reset(new Font(face, 14.0f, FontStyleBold, UnitPixel));
     p->fBadge.reset(new Font(face, 12.0f, FontStyleBold, UnitPixel));
 
     p->hEditFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -519,7 +1033,7 @@ void makeFonts(Panel* p) {
 }
 
 void createChildren(Panel* p) {
-    const Layout& L = layout();
+    const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
     auto mkEdit = [&](int id, const Rect& r, const wchar_t* text) {
         HWND e = CreateWindowExW(
             0, L"EDIT", text,
@@ -529,8 +1043,26 @@ void createChildren(Panel* p) {
         SendMessageW(e, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
         return e;
     };
-    mkEdit(IDC_EDIT_HOST, L.editHost, L"192.168.2.182");
+    // 地址框默认留空：预填某个具体 IP 只对开发机成立，出厂包里等于误导用户。
+    // 用系统「提示气泡」（cue banner）说明该填什么，一聚焦就消失。
+    HWND hostEdit = mkEdit(IDC_EDIT_HOST, L.editHost, L"");
+    SendMessageW(hostEdit, EM_SETCUEBANNER, TRUE,
+                 reinterpret_cast<LPARAM>(L"手机 IP，例：192.168.1.20"));
     mkEdit(IDC_EDIT_PORT, L.editPort, L"9500");
+
+    // 音箱的「采集设备」下拉：原生 COMBOBOX（与上面的 EDIT 同一套做法，
+    // 自绘一个带滚动列表的下拉不值得）
+    const Rect& rc = L.speakerCombo;
+    HWND combo = CreateWindowExW(
+        0, L"COMBOBOX", nullptr,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+        rc.x, rc.y, rc.w, rc.h + 8 * 20,   // 高度参数 = 展开后的下拉高度
+        p->hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_COMBO_DEV)), nullptr, nullptr);
+    if (combo) {
+        SendMessageW(combo, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+    }
+    refreshSpeakerCombo(p);
+    p->lastDevSig = speakerDevSignature();   // 首帧指纹，避免首个 tick 立刻重刷
 }
 
 void refreshNow(Panel* p) {
@@ -539,10 +1071,104 @@ void refreshNow(Panel* p) {
     EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), !p->autoMode);
 }
 
+/// 从控制链路的 "host:port" 里取出 host —— 媒体通道连的是同一台手机
+std::string peerHost(const std::string& peer) {
+    const size_t c = peer.rfind(':');
+    return c == std::string::npos ? peer : peer.substr(0, c);
+}
+
+/// 节流地发起一次媒体建链。
+/// **绝不能在 UI 线程里直接 connect** —— 它是 3 秒级阻塞操作，会把整个窗口卡死
+/// （这与 WirelessSession 把建链放后台线程是同一个理由）。
+void pumpMediaConnect(Panel* p, const std::string& host) {
+    if (!p->media || host.empty()) return;
+    if (p->mediaBusy.load()) return;                        // 上一轮还在连
+    if (p->mediaThread.joinable()) p->mediaThread.join();   // 已结束，join 立即返回
+    p->mediaBusy.store(true);
+    p->mediaThread = std::thread([p, host] {
+        const bool ok = p->media->connect(host, apxpc::media::kMediaPort);
+        if (ok) APX_LOGI("媒体通道已连接 {}:{}", host, apxpc::media::kMediaPort);
+        p->mediaBusy.store(false);
+    });
+}
+
 void tick(Panel* p) {
     if (!p->session) return;
     const auto s = p->session->snapshot();
-    const std::wstring key = statusKey(s);
+
+    // —— 控制面（Wi‑Fi）连接跟着「无线」开关走（无独立连接按钮）——
+    if (p->wifiEnabled) {
+        if (s.phase == LinkPhase::Idle || s.phase == LinkPhase::Failed) applyConnect(p);
+    } else if (s.phase != LinkPhase::Idle) {
+        p->session->disconnect();
+    }
+
+    // —— 媒体通道生命周期：跟着控制链路走 ——
+    // 控制面连上才连媒体；控制面断开就把媒体一起收掉并停掉副屏，
+    // 否则会留下一条没人管的连接，一直占着手机侧的单对端名额。
+    if (p->media) {
+        const bool controlUp = (s.phase == LinkPhase::Connected);
+        const bool mediaUp = p->media->status().connected;
+        if (controlUp) {
+            if (!mediaUp && nowMsLocal() - p->lastMediaTryMs >= kMediaRetryMs) {
+                p->lastMediaTryMs = nowMsLocal();
+                pumpMediaConnect(p, peerHost(s.peer));
+            }
+        } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
+            if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
+            // 音箱同理：连接没了就停采集，别让它在后台空转
+            if (p->audio && p->audio->running()) p->audio->stop();
+            if (p->mediaThread.joinable()) p->mediaThread.join();
+            p->media->disconnect();
+        }
+    }
+
+    // 每 2 秒比一次设备指纹（枚举要走 COM，别每 400ms 都问）。指纹变了有两种情形，
+    // 两种都得处理，否则面板会**看起来一切正常、实际采的是错的那块**：
+    //   ① 用户换了系统默认设备 —— 下拉标题里写的还是旧设备名；
+    //   ② 插拔了耳机/显示器 —— 列表里多一项或少一项，选中的那块可能已经没了。
+    if (p->audio && nowMsLocal() - p->lastDevCheckMs >= 2000) {
+        p->lastDevCheckMs = nowMsLocal();
+        const std::string sig = speakerDevSignature();
+        if (sig != p->lastDevSig) {
+            p->lastDevSig = sig;
+            refreshSpeakerCombo(p);   // 名字/项数都变了，下拉要跟上
+            // 若在"跟随系统默认"，采集得跟着新默认走。查 deviceId 而不是只信 sig：
+            // 上面的刷新可能把"选中的设备被拔掉"回落成了跟随默认，这里一并接住。
+            if (p->audio->running() && p->speakerDeviceId.empty()) {
+                APX_LOGI("默认播放设备已切换，音箱改采新默认设备");
+                apxpc::media::AudioCaptureOptions opt;   // deviceId 留空 = 跟新的默认
+                std::string err;
+                if (!p->audio->start(p->media.get(), opt, &err)) {
+                    APX_LOGW("跟随默认设备重开采集失败：{}", err);
+                }
+            }
+        }
+    }
+
+    std::wstring key = statusKey(p, s);
+    key += screenBig(p);
+    if (p->screenPush) {
+        const auto ss = p->screenPush->status();
+        wchar_t b[192];
+        std::swprintf(b, 192, L"|%d|%.1f|%llu|%llu|%u|%u|%s",
+                      ss.running ? 1 : 0, ss.fps,
+                      static_cast<unsigned long long>(ss.framesSent),
+                      static_cast<unsigned long long>(ss.framesDropped),
+                      ss.width, ss.height, toWide(ss.error).c_str());
+        key += b;
+    }
+    key += speakerBig(p);
+    if (p->audio) {
+        const auto as = p->audio->status();
+        wchar_t b[192];
+        // 电平量化到 5% 一档：既能让音量条动起来，又不至于每 400ms 都被小数抖动逼着重绘
+        std::swprintf(b, 192, L"|%d|%d|%llu|%s", as.running ? 1 : 0,
+                      static_cast<int>(as.peak * 20.0), 
+                      static_cast<unsigned long long>(as.framesSent),
+                      toWide(as.error).c_str());
+        key += b;
+    }
     if (key != p->repaintKey) {
         p->repaintKey = key;
         InvalidateRect(p->hwnd, nullptr, FALSE);
@@ -553,6 +1179,13 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto* p = reinterpret_cast<Panel*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 
     switch (msg) {
+        case WM_COMMAND: {
+            if (p && LOWORD(wp) == IDC_COMBO_DEV && HIWORD(wp) == CBN_SELCHANGE) {
+                onSpeakerDeviceChanged(p);
+                return 0;
+            }
+            break;
+        }
         case WM_CREATE: {
             auto* cs = reinterpret_cast<CREATESTRUCTW*>(lp);
             p = static_cast<Panel*>(cs->lpCreateParams);
@@ -718,7 +1351,8 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         return -1;
     }
 
-    RECT rc{0, 0, kClientW, kClientH};
+    const int initH = layout({panel.wifiEnabled, panel.btEnabled, panel.usbEnabled}).totalH;
+    RECT rc{0, 0, kClientW, initH};
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     AdjustWindowRectEx(&rc, style, FALSE, 0);
     HWND hwnd = CreateWindowExW(0, L"AllPeriphPanel", L"全能外设", style, CW_USEDEFAULT,
@@ -738,20 +1372,33 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         SetForegroundWindow(hwnd);
     });
     panel.tray->setQuitCallback([hwnd] { PostMessageW(hwnd, kMsgTrayQuit, 0, 0); });
-    panel.tray->create("全能外设 · 无线控制中枢", icon);
+    panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
+
+    // 媒体通道与副屏推流：媒体连接随控制链路自动建立/收掉（见 tick），
+    // 副屏则由卡片上的开关启停 —— 不再需要单独跑 apxdisp.exe。
+    panel.media = std::make_unique<apxpc::media::MediaSession>();
+    panel.screenPush = std::make_unique<apxpc::media::ScreenPush>();
+    panel.audio = std::make_unique<apxpc::media::AudioCapture>();
 
     // 初始：自动发现并立刻进入等待
     panel.session->startAuto();
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
-    APX_LOGI("控制面板已启动（无线控制中枢）");
+    APX_LOGI("控制面板已启动（手机当鼠标 / 键盘用）");
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+    // 收尾顺序不能乱：先停推流（它还在往媒体连接里写帧），再等建链线程收手，
+    // 最后才断媒体 —— 否则工作线程可能访问已析构的 MediaSession。
+    if (panel.screenPush) panel.screenPush->stop();
+    if (panel.audio) panel.audio->stop();
+    if (panel.mediaThread.joinable()) panel.mediaThread.join();
+    if (panel.media) panel.media->disconnect();
     return 0;
 }
 

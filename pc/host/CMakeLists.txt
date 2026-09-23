@@ -199,9 +199,49 @@ if(WIN32)
   target_link_libraries(apxpc_wireless PUBLIC ws2_32)
 endif()
 
+# ---------------------------------------------------------------- 目标：媒体通道
+# 与控制面**并列的第二条连接**（手机 9502）：副屏画面 / 音箱 下行，
+# 麦克风 / 摄像头 上行。分开的理由见 media_session.hpp 头部注释
+# （控制面已真机验证是单对端语义，不能拿大流量去挤它）。
+set(APXPC_MEDIA_SRC
+  "${APXPC_ROOT}/src/media/media_session.cpp"
+  "${APXPC_ROOT}/src/media/audio_capture.cpp"
+  "${APXPC_ROOT}/src/media/touch_inject.cpp"
+)
+add_library(apxpc_media STATIC ${APXPC_MEDIA_SRC})
+target_include_directories(apxpc_media PUBLIC "${APXPC_ROOT}/include")
+target_link_libraries(apxpc_media PUBLIC apxpc_core)
+if(WIN32)
+  # ole32/uuid：WASAPI（MMDeviceEnumerator / IAudioClient）走 COM；
+  # 音箱的「系统声音采集」是 loopback，Windows 自带能力，不需要任何驱动。
+  target_link_libraries(apxpc_media PUBLIC ws2_32 ole32 uuid)
+endif()
+
+# ---------------------------------------------------------------- 目标：副屏推流
+# 复用 pc/display 的抓屏（DDA）/ 编码（MF）/ 组帧（FrameWriter）/ 三线程编排（Pipeline）
+# —— 那套已是完整实现，没必要重写；这里只把传输层换成**共用的媒体连接**
+# （手机侧媒体通道是单对端语义，副屏不能自开第二条 TCP）。
+#
+# 关掉 apxdisp.exe 与它的单测：这里只要静态库，能显著省构建时间。
+set(APXDISP_BUILD_APP   OFF CACHE BOOL "" FORCE)
+set(APXDISP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory("${APXPC_ROOT}/../display" "${CMAKE_BINARY_DIR}/apxdisp_in_host")
+
+set(APXPC_SCREEN_SRC
+  "${APXPC_ROOT}/src/media/screen_push.cpp"
+)
+add_library(apxpc_screen STATIC ${APXPC_SCREEN_SRC})
+target_include_directories(apxpc_screen PUBLIC "${APXPC_ROOT}/include")
+target_link_libraries(apxpc_screen PUBLIC apxpc_media apxdisp_pipeline)
+if(WIN32)
+  # winmm：timeBeginPeriod(1) —— 把系统定时器粒度从默认 15.6ms 提到 1ms，
+  # 否则高帧率的节流等待会被撑大（apxdisp 也为此链了它）。
+  target_link_libraries(apxpc_screen PUBLIC winmm)
+endif()
+
 # ---------------------------------------------------------------- 目标：apxhost 可执行文件
 add_executable(apxhost "${APXPC_ROOT}/src/host_main.cpp")
-target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless)
+target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless apxpc_media)
 if(WIN32)
   target_link_libraries(apxhost PRIVATE ws2_32 shell32 user32 hid setupapi cfgmgr32)
 endif()
@@ -213,7 +253,7 @@ set(APXPC_UI_SRC
 )
 add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
 target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")
-target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service)
+target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service apxpc_media apxpc_screen)
 if(WIN32)
   # gdiplus：面板自绘（Windows 自带组件，不算第三方依赖）
   target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32 gdiplus)

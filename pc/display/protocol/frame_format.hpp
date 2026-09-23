@@ -92,9 +92,22 @@ inline bool validateFrame(const uint8_t* frame, size_t len) {
     if (std::memcmp(frame, "APX1", 4) != 0) return false;
     apx::ApxFrameHeader h{};
     std::memcpy(&h, frame, sizeof(h));
-    if (sizeof(h) + h.headerExtWords * 4 + h.payloadLen != len) return false;
+    // v1.11 修复：长度自洽按 shared/include/apx/frame.h 的权威定义
+    //   frameTotalSize = kFrameHeaderSize + payloadLen
+    // 即 payloadLen **已经包含**扩展头（见本文件头注释：payloadLen 覆盖「扩展头 +
+    // dirtyRects + 码流分片 + crc32」）。此处原先额外再加 headerExtWords*4，
+    // 等于把扩展头算了两次（视频帧恒差 20 字节），于是每一帧都过不了长度校验 ——
+    // 这是 apxdisp --self-test 三项失败的真正首因，CRC 口径只是第二处。
+    // parseFrame 的切法（payload + extBytes 起算）与 frame.h 一致，可印证。
+    if (sizeof(h) + h.payloadLen != len) return false;
     const uint32_t crcStored = getU32(frame + len - kCrcLen);
-    const uint32_t crcCalc   = crc32Of(frame, len - kCrcLen);
+    // v1.11 修复：CRC 覆盖范围必须与发送侧一致 —— FrameWriter（buildVideoFrame /
+    // buildControlFrame）与手机端 FrameReader/ApxFrame 都按「16 字节帧头之后」算，
+    // 此处原先误按「整帧含帧头」校验，于是 parseFrame 把每一个真帧都判成坏帧：
+    // 现象是 apxdisp --self-test 的「解帧校验 / last_fragment / 分片拼回」三项失败
+    // （拼回=0），而 tcp_transport_test 仍 PASS（它自造帧、不走本函数）。
+    // 这与 frame_writer.cpp v1.10 修的是同一类错，当时漏改了这里。
+    const uint32_t crcCalc = crc32Of(frame + sizeof(h), len - sizeof(h) - kCrcLen);
     return crcStored == crcCalc;
 }
 

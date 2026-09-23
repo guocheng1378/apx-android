@@ -37,6 +37,7 @@ enum : uint8_t {
     kCmdMouse    = 0x01,
     kCmdConsumer = 0x02,
     kCmdKeyboard = 0x03,
+    kCmdTouch    = 0x04,   // 副屏触摸（绝对坐标），见 Android TcpCtrlBridge.touch
 };
 
 /// HID Keyboard Page (0x07) usage → Windows 虚拟键码；无对应返回 0（如实跳过）
@@ -286,6 +287,7 @@ WirelessLink::Counters WirelessLink::counters() const {
     c.mouse = cMouse_.load();
     c.consumer = cConsumer_.load();
     c.keyboard = cKeyboard_.load();
+    c.touch = cTouch_.load();
     c.pong = cPong_.load();
     c.dropped = cDropped_.load();
     return c;
@@ -332,6 +334,33 @@ void WirelessLink::injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t whe
     }
 #else
     (void)buttons; (void)dx; (void)dy; (void)wheel;
+#endif
+}
+
+/// 副屏触摸：绝对坐标（归一化 0..65535）→ MOUSEEVENTF_ABSOLUTE 映射主显示器。
+/// action：0=down 1=up 2=move 3=cancel；down/up 的按键由 buttons 决定（双指=右键）。
+void WirelessLink::injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) {
+#if defined(_WIN32)
+    constexpr uint8_t kDown = 0, kUp = 1, kCancel = 3;
+    DWORD click = 0;
+    if (action == kDown) {
+        click = (buttons & 0x02) ? MOUSEEVENTF_RIGHTDOWN
+              : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEDOWN
+                                 : MOUSEEVENTF_LEFTDOWN;
+    } else if (action == kUp || action == kCancel) {
+        // 取消也按释放处理：绝不能把键留在按下状态
+        click = (buttons & 0x02) ? MOUSEEVENTF_RIGHTUP
+              : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEUP
+                                 : MOUSEEVENTF_LEFTUP;
+    }
+    INPUT m{};
+    m.type = INPUT_MOUSE;
+    m.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | click;
+    m.mi.dx = static_cast<LONG>(x);
+    m.mi.dy = static_cast<LONG>(y);
+    ::SendInput(1, &m, sizeof(INPUT));
+#else
+    (void)action; (void)buttons; (void)x; (void)y;
 #endif
 }
 
@@ -499,6 +528,18 @@ void WirelessLink::keepaliveLoop() {
                         st_.rttMs = static_cast<double>(nowMs() - pingSentAt);
                     }
                     cPong_.fetch_add(1);
+                } else if (cmd == 'a' && bodyLen >= 8) {
+                    // 手机侧 Wi‑Fi 音频模块状态上报（tag 'a'）：让 PC 也能看到手机播放端
+                    std::lock_guard<std::mutex> lk(mu_);
+                    st_.phoneAudioKnown = true;
+                    st_.phoneAudioState = static_cast<int>(payload[1]);
+                    st_.phoneAudioSpk = (payload[2] != 0);
+                    st_.phoneAudioMic = (payload[3] != 0);
+                    st_.phoneAudioDropped =
+                        static_cast<uint32_t>(payload[4]) |
+                        (static_cast<uint32_t>(payload[5]) << 8) |
+                        (static_cast<uint32_t>(payload[6]) << 16) |
+                        (static_cast<uint32_t>(payload[7]) << 24);
                 } else if (cmd == kCmdMouse && bodyLen >= 5) {
                     injectMouse(payload[1],
                                 static_cast<int8_t>(payload[2]),
@@ -513,6 +554,10 @@ void WirelessLink::keepaliveLoop() {
                 } else if (cmd == kCmdKeyboard && bodyLen >= 3) {
                     injectKeyboard(payload[1], payload + 3, bodyLen - 3);
                     cKeyboard_.fetch_add(1);
+                } else if (cmd == kCmdTouch && bodyLen >= 9) {
+                    injectTouch(payload[1], payload[2],
+                                apx::getU16(payload + 3), apx::getU16(payload + 5));
+                    cTouch_.fetch_add(1);
                 } else {
                     cDropped_.fetch_add(1);
                 }

@@ -95,7 +95,7 @@ class GadgetManager(
                 udc = best
                 linkSpeed = best.speed
                 if (!best.speed.isSuperSpeed) {
-                    val msg = "当前链路为 ${best.rawSpeed}，非 USB 3.0 SuperSpeed：副屏/多路高清受限，已降级运行"
+                    val msg = "当前链路为 ${best.rawSpeed}，非 USB 3.0 SuperSpeed：音频与摄像头带宽受限，已降级运行"
                     Log.w(TAG, msg)
                     EventBus.post(LinkSpeedDegradedEvent(best.speed, msg))
                 }

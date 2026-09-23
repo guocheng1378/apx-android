@@ -34,7 +34,7 @@ if errorlevel 1 goto FAIL
 echo.
 echo [完成] 产物：
 echo         build_host\Release\apxhost.exe      命令行 / Web 控制面（调试用）
-echo         build_host\Release\apxdesktop.exe   桌面端 · 无线控制中枢（免安装直接跑）
+echo         build_host\Release\apxdesktop.exe   桌面端 · 手机当鼠标 / 键盘用（免安装直接跑）
 echo         build_host\Release\apxsetup.exe     安装包（单文件，含桌面端）
 echo.
 
