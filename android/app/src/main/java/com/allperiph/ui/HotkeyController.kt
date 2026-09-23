@@ -4,6 +4,7 @@ import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.ApxNative
 import com.allperiph.core.Log
 import com.allperiph.core.ModuleId
+import com.allperiph.core.TcpCtrlBridge
 
 /**
  * 快捷键（多媒体键）发送中枢（M6 UI 侧按键采集，架构 §4 Report ID 4）。
@@ -42,16 +43,21 @@ object HotkeyController {
     fun current(): Int = bitmap
 
     private fun send() {
-        val rep = ApxNative.packConsumerBitmapOrNull(bitmap)
-        if (rep.isEmpty()) {
-            Log.w(TAG, "Consumer 报告打包失败（libapx 不可用）")
-            return
-        }
         // 1) 有线：HID TLC（Report ID 4，sendInputReport 首字节须为 Report ID）
         val rt = AgentController.runtime
-        if (rt != null && rt.hid.isReady() && rt.hid.sendInputReport(rep)) return
-        // 2) 无线：蓝牙 HID Consumer TLC
-        // v1.11：TCP 控制面第三路随无线功能移除
-        (AgentController.module(ModuleId.BTHID) as? BtHidDevice)?.reportConsumer(bitmap)
+        if (rt != null && rt.hid.isReady()) {
+            val rep = ApxNative.packConsumerBitmapOrNull(bitmap)
+            if (rep.isNotEmpty() && rt.hid.sendInputReport(rep)) return
+            // 打包失败/发送失败都不中断：继续尝试后面的出口，最后如实降级
+        }
+        // 2) 无线蓝牙：Consumer TLC（未连接时内部直接返回）
+        val bt = AgentController.module(ModuleId.BTHID) as? BtHidDevice
+        if (bt != null && bt.isConnected) {
+            bt.reportConsumer(bitmap)
+            return
+        }
+        // 3) Wi‑Fi 控制面：无蓝牙适配器的 PC（局域网 TCP → PC 端 SendInput）
+        if (TcpCtrlBridge.consumer(bitmap)) return
+        Log.w(TAG, "多媒体键无可用出口（USB 未挂载 / 蓝牙未连接 / Wi‑Fi 未连入）")
     }
 }

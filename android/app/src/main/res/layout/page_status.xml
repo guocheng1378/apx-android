@@ -145,6 +145,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
+                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：手机当服务端，PC 端 apxhost 连入后触控板 / 键盘 / 快捷键直接生效"
+                android:textAppearance="@style/APTextCaption" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="6dp"
                 android:text="摄像头 —— UVC 免驱 webcam（Camera2 → MJPEG → V4L2）；需 ROM 内核支持 UVC Gadget，不支持时模块报错不影响其他功能"
                 android:textAppearance="@style/APTextCaption" />
 
@@ -224,7 +231,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="② PC：运行仓库里的 apxhost.exe（build_host\\Release），浏览器打开 http://127.0.0.1:47990"
+                android:text="② PC：跑 build_host\\Release\\apxhost.exe。无线：apxhost wireless-listen（自动发现手机）或 apxhost wireless 手机IP:9500；有线：apxhost ui"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView

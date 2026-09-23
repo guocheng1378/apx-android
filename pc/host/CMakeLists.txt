@@ -178,9 +178,24 @@ if(WIN32)
   target_link_libraries(apxpc_service PUBLIC ws2_32 shell32 user32 ole32)
 endif()
 
+# ---------------------------------------------------------- 目标：Wi‑Fi 控制通道
+# 无蓝牙适配器的 PC（本机实测无任何蓝牙设备）上承载触控板 / 键盘 / 多媒体：
+# 手机做服务端（TCP 9500），本端做客户端主动连入，收到 streamId=3 控制帧后
+# 用 SendInput 注入系统 —— 免驱，符合架构 §2.2「无线模式零新驱动」。
+set(APXPC_WIRELESS_SRC
+  "${APXPC_ROOT}/src/wireless/wireless_link.cpp"
+  "${APXPC_ROOT}/src/wireless/beacon_listener.cpp"
+)
+add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
+target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
+target_link_libraries(apxpc_wireless PUBLIC apxpc_core)
+if(WIN32)
+  target_link_libraries(apxpc_wireless PUBLIC ws2_32)
+endif()
+
 # ---------------------------------------------------------------- 目标：apxhost 可执行文件
 add_executable(apxhost "${APXPC_ROOT}/src/host_main.cpp")
-target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service)
+target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless)
 if(WIN32)
   target_link_libraries(apxhost PRIVATE ws2_32 shell32 user32 hid setupapi cfgmgr32)
 endif()

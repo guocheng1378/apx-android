@@ -3,6 +3,7 @@ package com.allperiph.hid
 import android.os.Handler
 import android.os.Looper
 import com.allperiph.core.Log
+import com.allperiph.core.TcpCtrlBridge
 import com.allperiph.ui.AgentController
 
 /**
@@ -10,7 +11,7 @@ import com.allperiph.ui.AgentController
  *
  * 协议与 ui/KeyboardPanels 一致：[0x15, mod, 0, k1..k6] 共 9 字节，
  * 修饰键位图 / usage code 均为 USB HID Keyboard Page (0x07) 标准值。
- * 有线独占（同 KeyboardPanels）；蓝牙键盘待 BtHidDevice 增 reportKeyboard 后接入。
+ * 出口：有线走 USB HID（rid 21）；无蓝牙 PC 走 Wi‑Fi 控制面（[TcpCtrlBridge]）。
  *
  * sticky 修饰键：点 Ctrl/Alt/Shift/Win 点亮 → 下一次 tap 带上该修饰 → 发完自动清。
  */
@@ -206,17 +207,25 @@ object HidKeys {
         }
     }
 
-    /** rid 21：[id, mod, 0, k1..k6]；keys 为空 = 全释放 */
+    /**
+     * 出口择优：USB HID（rid 21）→ Wi‑Fi 控制面。
+     *
+     * 第二档是给**无蓝牙适配器的 PC** 用的：手机把同一套 (mod, keys) 语义经
+     * APX1 控制帧上行，PC 端 `apxhost` 翻译成 SendInput 键事件（HID usage → VK）。
+     * 两条链路都不可用时只记日志、如实降级，绝不假装已送达。
+     *
+     * rid 21：[id, mod, 0, k1..k6]；keys 为空 = 全释放
+     */
     private fun send(mod: Int, keys: IntArray) {
-        val rt = AgentController.runtime ?: return
-        if (!rt.hid.isReady()) {
-            Log.w(TAG, "HID 未就绪（请先进外设模式）")
-            return
+        val rt = AgentController.runtime
+        if (rt != null && rt.hid.isReady()) {
+            val rep = ByteArray(9)
+            rep[0] = REPORT_ID
+            rep[1] = mod.toByte()
+            for (i in 0 until minOf(keys.size, 6)) rep[3 + i] = keys[i].toByte()
+            if (rt.hid.sendInputReport(rep)) return
         }
-        val rep = ByteArray(9)
-        rep[0] = REPORT_ID
-        rep[1] = mod.toByte()
-        for (i in 0 until minOf(keys.size, 6)) rep[3 + i] = keys[i].toByte()
-        if (!rt.hid.sendInputReport(rep)) Log.w(TAG, "键盘报告发送失败")
+        if (TcpCtrlBridge.keyboard(mod, keys)) return
+        Log.w(TAG, "键盘无可用出口：USB 未挂载且 Wi‑Fi 控制通道未连入")
     }
 }

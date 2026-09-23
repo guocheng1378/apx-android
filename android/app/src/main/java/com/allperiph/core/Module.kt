@@ -54,6 +54,9 @@ object ModuleId {
 
     /** 蓝牙 HID 设备（PC 零驱动识别为鼠标/键盘/多媒体键） */
     const val BTHID = "bthid"
+
+    /** Wi‑Fi 控制（局域网 TCP）：无蓝牙适配器的 PC 上承载触控板 / 键盘 / 多媒体 */
+    const val WIRELESS = "wireless"
 }
 
 /**

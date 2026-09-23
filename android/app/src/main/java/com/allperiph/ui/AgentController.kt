@@ -11,6 +11,7 @@ import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
 import com.allperiph.touchpad.TouchpadModule
+import com.allperiph.wireless.WirelessModule
 import java.util.concurrent.Executors
 
 /**
@@ -26,6 +27,9 @@ object AgentController {
         ModuleId.AUDIO,
         ModuleId.TOUCHPAD,
         ModuleId.BTHID,
+        // 无蓝牙 PC 的输入承载（局域网 TCP）。放最后启动、最先停止：
+        // 它是「输入出口」，不依赖也不阻塞前面的设备类模块。
+        ModuleId.WIRELESS,
     )
 
     @Volatile var runtime: AgentRuntime? = null
@@ -49,6 +53,7 @@ object AgentController {
             rt.register(AudioModule(app))
             rt.register(TouchpadModule())
             rt.register(BtHidDevice(app))
+            rt.register(WirelessModule())
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -139,6 +144,7 @@ object AgentController {
         ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
         ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
         ModuleId.BTHID -> "蓝牙 HID（鼠标/键盘/多媒体）"
+        ModuleId.WIRELESS -> "Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）"
         else -> id
     }
 

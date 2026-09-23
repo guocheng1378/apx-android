@@ -52,15 +52,42 @@ App「状态」页打开总开关后，手机作为 USB 复合设备被 Windows 
 > rid 1/2/3），替换 `BtHidDevice.kt` 里硬编码的 `BtHidDescriptor.bytes`（那份缺 Report ID、键盘结构也不符）。
 > 需要补一个 JNI：`ApxNative.hidBtReportDescriptor()` → `apx::buildBtReportDescriptor()`。
 
-### 2.2 Wi‑Fi 控制（局域网 TCP）
+### 2.2 Wi‑Fi 控制（局域网 TCP）—— **已实现，真机验证通过**
 
-- 推荐形态：**手机做服务端**（`ServerSocket(9500)`），PC 主动连入；也支持 `adb forward` 回环；
-- 承载：副屏视频、触控注入、控制命令、状态上报；
-- 免 root、免线缆，补齐 USB 挂载不了的机型。
+**形态**：**手机做服务端**（`ServerSocket(9500)`），PC 主动连入。
+选这个方向是因为 PC 发起的是**出站**连接，Windows 防火墙默认放行，用户不必开入站规则。
 
-PC 端**已具备**完整 TCP 传输：`pc/display/transport/tcp_transport_win.cpp` +
-`frame_writer.cpp`（帧复用/解复用）+ `ctrl_channel.cpp`（控制面会话）+ `i_transport.hpp`
-（`ITransport`/`IChannel`）。**缺口只在 Android 侧的 TCP 实现**。
+**无蓝牙 PC 的完整闭环**（本机实测无任何蓝牙设备，纯 WiFi 跑通）：
+
+| 环节 | 落点 |
+|---|---|
+| Android 承载 | `core/ApxFrame.kt`（APX1 组帧）+ `wireless/TcpControlChannel.kt`（服务端 + writer 线程） |
+| Android 出口 | `core/TcpCtrlBridge.kt`；触控板/键盘/多媒体三处以「蓝牙 → USB HID → TCP → 日志」择优 |
+| Android 发现 | `wireless/WirelessBeacon.kt`：UDP 9501 广播 `APX1PHONE <name> <port> <token>` |
+| PC 客户端 | `pc/host/src/wireless/wireless_link.cpp`（握手 + 解帧 + SendInput 注入） |
+| PC 发现 | `pc/host/src/wireless/beacon_listener.cpp`（收信标自动连入） |
+| CLI | `apxhost wireless <ip>:port [秒数]` / `apxhost wireless-listen [秒数]` |
+
+**控制面子命令**（streamId=3，改一边必须改另一边：
+
+```
+0x01 鼠标   [1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)
+0x02 多媒体 [1..2]=u16 位图（LE）
+0x03 键盘   [1]=mod [2]=0 [3..8]=k1..k6（HID usage 页 0x07，PC 侧 usage→VK）
+```
+
+**验证证据**（真机 + 本机 PC）：控制面 RTT 4–6ms、丢弃 0；手机滑动 176 帧使 PC 光标
+位移 (459,590) 像素；手机长按「复制」芯片期间 PC `GetAsyncKeyState` 探到 VK_CONTROL / VK_C 按下。
+
+> ⚠️ **真机教训（务必保留）**：手势帧的生产者是 **UI 线程**，在 UI 线程直接 `socket.write`
+> 会抛 `NetworkOnMainThreadException` 被 catch 吞掉，表现为「链路在线、光标纹丝不动」，
+> 只有 60ms 后子线程发的「释放帧」能漏过去。所有出站帧一律走**队列 + 专用 writer 线程**。
+
+> 令牌（token）字段保留但 v1 默认留空（局域网工具，不做鉴权）；两侧行为必须对称。
+> 令牌不匹配时服务端**直接关连接、不回执** —— 回执字节会与紧随其后的帧混淆。
+
+**尚未接入**：手柄（`SendInput` 无法模拟游戏手柄，需 ViGEmBus 等第三方驱动，
+归入架构 §2.2「阶段二 借力第三方」）；副屏视频（用户已决策终止）。
 
 ---
 
@@ -84,9 +111,11 @@ runtime.attachHid(btHid)      // 或蓝牙 HID（同接口）
 runtime.attachSerial(tcpChan) // Wi‑Fi 挂载后
 ```
 
-**Wi‑Fi 的落地方式**：新增 `core/TcpChannel.kt`，实现 `SerialSink` 语义
-（`write` 把 `shared/frame.h` 的 `APX1` 帧写入 socket；`isReady` = 已连接），
-在连接建立后 `runtime.attachSerial(tcpChannel)`。上层（副屏/控制/状态）零改动。
+**Wi‑Fi 的落地方式（已实现）**：`wireless/TcpControlChannel.kt` 实现 `TcpCtrlBridge.Sink`
+（`sendControl` 组 `APX1` 帧后**入队**，由专用 writer 线程写出；`ready` = 已连接）。
+输入模块经 `TcpCtrlBridge`（`mouse` / `consumer` / `keyboard`）出口，不感知承载。
+注意：**不要在调用线程直接写 socket** —— 手势帧来自 UI 线程，会触发
+`NetworkOnMainThreadException`（§2.2 真机教训）。
 
 ### 3.2 输入出口：统一到 `InputSink`（**建议新增，当前是分散判断**）
 
@@ -142,7 +171,11 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 2. **蓝牙键盘**：JNI 暴露 `buildBtReportDescriptor`，`BtHidDevice` 换 native 描述符 +
    补 `reportKeyboard`，接进 `BtInputSink`。真机配对验证键盘可打字。
 3. **蓝牙手柄**：扩展 `buildBtReportDescriptor` 加 gamepad TLC（rid 4），补 `reportGamepad`。
-4. **Wi‑Fi 控制**：新增 `core/TcpChannel.kt`（服务端 9500 + `frame.h` 组帧），
-   `attachSerial` 挂载；PC 端复用 `tcp_transport_win.cpp` 对接，跑通「副屏 + 控制面」。
+4. ~~**Wi‑Fi 控制**~~：✅ 已完成（§2.2）：Android 服务端 + `TcpCtrlBridge` 出口 +
+   UDP 信标发现；PC 端 `WirelessLink` 注入（鼠标 / 键盘 / 多媒体）。真机端到端验证通过。
+
+> 仍未做：**输入出口统一到 `InputHub`**（§3.2）。当前鼠标/多媒体/键盘各自择路，
+> 手柄（`ui/GamepadController`）尚无 TCP 出口 —— 因 `SendInput` 无法模拟手柄，
+> 需第三方虚拟手柄驱动，见 §2.2「尚未接入」。
 
 > 每一步都遵循项目硬性原则：**不可用则如实标注（`ModuleState.DEGRADED/ERROR`），绝不伪装成功。**

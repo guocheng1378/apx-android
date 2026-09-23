@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Wi‑Fi 控制通道（局域网 TCP + UDP 信标，见 wireless/TcpControlChannel.kt） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- 蓝牙 HID -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
