@@ -159,6 +159,18 @@ object ApxNative {
         if (isAvailable) runCatching { packConsumerBitmap(keyBitmap) }.getOrDefault(ByteArray(0))
         else ByteArray(0)
 
+    /**
+     * §2.13 Report ID 22：USB 游戏手柄（16 键位图 + 4 轴，7B）。
+     * @param buttons bit0..15 → 按钮 1..16；x/y 左摇杆、rx/ry 右摇杆（-127..127，内部限幅）
+     * @return 完整报告（首字节 Report ID=22）；失败返回空数组
+     */
+    external fun packGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int): ByteArray
+
+    /** [packGamepad] 的安全包装；libapx 不可用时返回空数组。 */
+    fun packGamepadOrNull(buttons: Int, x: Int, y: Int, rx: Int, ry: Int): ByteArray =
+        if (isAvailable) runCatching { packGamepad(buttons, x, y, rx, ry) }.getOrDefault(ByteArray(0))
+        else ByteArray(0)
+
     /** §3 帧 CRC32（M4 bulk 通道用） */
     external fun crc32(data: ByteArray): Int
 

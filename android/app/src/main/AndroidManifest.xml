@@ -16,6 +16,9 @@
     <!-- 蓝牙 HID -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
+    <!-- 按键反馈震动（Feedback.tap → Vibrator） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- 音频 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
@@ -51,6 +54,7 @@
             android:launchMode="singleTop"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AllPeriph">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -64,6 +68,15 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensorPortrait"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
+
+        <!-- 全屏游戏手柄（横屏） -->
+        <activity
+            android:name=".ui.GamepadActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 

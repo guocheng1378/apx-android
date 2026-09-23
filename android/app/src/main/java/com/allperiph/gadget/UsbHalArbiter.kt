@@ -26,16 +26,12 @@ class UsbHalArbiter(private val shell: RootShell) {
         if (acquired) return true
         var current = shell.getprop(SysProp.USB_CONFIG)
 
-        if (current.isBlank() || current == "none") {
-            Log.w(TAG, "sys.usb.config='$current' 属异常残留，先恢复 adb 以重建 gadget 子系统")
-            shell.setprop(SysProp.USB_CONFIG, "adb")
-            Thread.sleep(RECOVER_WAIT_MS)
-            current = shell.getprop(SysProp.USB_CONFIG)
-            Log.i(TAG, "恢复后 sys.usb.config='$current'")
-        }
-
+        // ⚠️ 这里**绝不能**用 setprop 去改写 sys.usb.config（设 none / 设 adb / 恢复原值都不行）：
+        // 一加13 ColorOS16 实测会让 init 在 USB 属性处理路径上收到 SIGABRT，
+        // PID 1 崩溃 = **整机重启**（uptime 归零，crash buffer 可见 init Fatal signal 6）。
+        // 抢占只做 configfs 的 UDC 清空（见下），属性一律只读不写。
         savedConfig = current.takeIf { it.isNotBlank() && it != "none" }
-        Log.i(TAG, "acquire UDC: original sys.usb.config='${savedConfig ?: ""}'")
+        Log.i(TAG, "acquire UDC：只读属性不改写，原值='${savedConfig ?: ""}'")
 
         val enforce = shell.exec("getenforce").out.trim()
         if (enforce.startsWith("Enforcing")) {
@@ -45,10 +41,8 @@ class UsbHalArbiter(private val shell: RootShell) {
             Log.i(TAG, "SELinux 状态=$enforce")
         }
 
-        if (!shell.setprop(SysProp.USB_CONFIG, "none")) {
-            Log.w(TAG, "setprop none failed (可能被厂商 HAL 拦截)")
-        }
-        Thread.sleep(MIN_RELEASE_WAIT_MS)
+        // 不再 setprop none（会让 init 崩溃、整机重启，见上）。
+        // UDC 的释放完全靠下面 glob 写空所有 gadget 的 UDC 完成。
 
         val unbind = shell.exec(
             "for u in /config/usb_gadget/*/UDC; do " +
@@ -87,11 +81,17 @@ class UsbHalArbiter(private val shell: RootShell) {
     fun release() {
         if (!acquired) return
         acquired = false
-        val target = savedConfig?.takeIf { it.isNotBlank() } ?: "adb"
-        Log.i(TAG, "release UDC: restore sys.usb.config='$target'")
-        if (!shell.setprop(SysProp.USB_CONFIG, target)) {
-            Log.w(TAG, "restore failed, try fallback adb")
-            shell.setprop(SysProp.USB_CONFIG, "adb")
+        // 同样**绝不 setprop**。归还 = 解绑我们的 gadget + 把 UDC 交还系统 g1。
+        // UDC 控制器名只读获取（sys.usb.controller，回退 ro.boot.usbcontroller）。
+        val udcName = shell.getprop("sys.usb.controller").ifBlank {
+            shell.getprop("ro.boot.usbcontroller")
+        }
+        shell.exec("for x in /config/usb_gadget/*/UDC; do echo '' > \"\$x\" 2>/dev/null; done")
+        if (udcName.isNotBlank()) {
+            val r = shell.exec("echo '$udcName' > '/config/usb_gadget/g1/UDC' 2>&1; echo rc=\$?")
+            Log.i(TAG, "UDC 已归还 g1：${r.out.trim()}")
+        } else {
+            Log.w(TAG, "未知 UDC 控制器名，仅解绑未回绑（重插 USB 可恢复）")
         }
         savedConfig = null
     }

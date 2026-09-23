@@ -50,6 +50,7 @@ enum : uint16_t {
 enum : uint16_t {
     kUsagePointer = 0x0001,
     kUsageMouse   = 0x0002,
+    kUsageGamepad = 0x0005,  // Game Pad（游戏手柄，v1.x）
     // kUsageAxisX(0x30) / kUsageAxisY(0x31) 已在下方「绝对坐标」段声明并复用
     kUsageWheel   = 0x0038,
     kUsageAcPan   = 0x0238,
@@ -146,8 +147,10 @@ enum : uint16_t {
 
 // ---- Generic Desktop Page（0x01）Usage（绝对坐标用）-----------------------
 enum : uint16_t {
-    kUsageAxisX = 0x0030,
-    kUsageAxisY = 0x0031,
+    kUsageAxisX  = 0x0030,
+    kUsageAxisY  = 0x0031,
+    kUsageAxisRx = 0x0033,  // 右摇杆 X（v1.x 游戏手柄）
+    kUsageAxisRy = 0x0034,  // 右摇杆 Y（v1.x 游戏手柄）
 };
 
 // ---- Consumer Page（0x0C）Usage -------------------------------------------

@@ -37,7 +37,9 @@ object Feedback {
         }
         val vib = v.context.getSystemService(Vibrator::class.java) ?: return
         if (!vib.hasVibrator()) return
-        vib.vibrate(VibrationEffect.createOneShot(ms, amp))
+        // 防御：按键反馈属非关键路径，个别 ROM 即便声明了 VIBRATE 仍可能抛
+        // SecurityException，绝不能让它把整个页面带崩（曾实测点页签闪退）。
+        runCatching { vib.vibrate(VibrationEffect.createOneShot(ms, amp)) }
     }
 
     /** 按键音：随 [ThemeSkin] 的音效档位（"键盘"用系统键盘敲击音） */

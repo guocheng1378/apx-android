@@ -5,7 +5,7 @@
     · 顶栏（headerBar）整条隐藏 —— include 仍在，id 保留给代码
     · MIUIX 悬浮底栏（tabBar）整条隐藏 —— 改用四指左右滑切页
   · 通知栏 / 手势条由 MainActivity.applyImmersive() 一并盖掉
-    ① 触控板页：**左手势面 + 右侧常用快捷键竖列**（横屏双手持握：左手滑、右手点快捷键）
+    ① 触控板页：与竖屏同模板（上=手势面，下=快捷键条）
     ② 键盘页  ：全键盘铺满整屏
     ③ 状态页 / ④ 设置页：复用竖屏块（无底栏，内容可滚到底）
 -->
@@ -34,19 +34,22 @@
             android:layout_height="0dp"
             android:layout_weight="1">
 
-            <!-- ① 触控板页：左手势面（大） + 右侧快捷键竖列 -->
+            <!-- ① 触控板页：与竖屏同模板（上=手势面，下=快捷键条），横屏不再左右分栏 -->
             <LinearLayout
                 android:id="@+id/pageTouchpad"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:padding="8dp">
+                android:orientation="vertical"
+                android:paddingStart="16dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="16dp"
+                android:paddingBottom="16dp">
 
                 <FrameLayout
                     android:id="@+id/touchArea"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1.75"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
                     android:background="@drawable/bg_card">
 
                     <TextView
@@ -59,57 +62,60 @@
                         android:textAppearance="@style/APTextCaption" />
                 </FrameLayout>
 
-                <!-- 右手区：常用快捷键竖排（点击发送 / 长按编辑） -->
                 <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:paddingStart="10dp">
+                    android:id="@+id/chipSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="4dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="4dp"
+                    android:paddingBottom="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="常用快捷键"
+                        android:textAppearance="@style/APTextSubtitle" />
+
+                    <TextView
+                        android:id="@+id/btnGamepad"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
+                        android:text="手柄"
+                        android:textColor="@color/md_primary"
+                        android:textAppearance="@style/APTextCaption" />
+
+                    <TextView
+                        android:id="@+id/btnEditChips"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="2dp"
+                        android:paddingBottom="4dp"
+                        android:text="编辑"
+                        android:textColor="@color/md_primary"
+                        android:textAppearance="@style/APTextCaption" />
+                </LinearLayout>
+
+                <ScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="100dp"
+                    android:scrollbars="none">
 
                     <LinearLayout
-                        android:id="@+id/chipSection"
+                        android:id="@+id/chipRow"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="4dp"
-                        android:paddingBottom="8dp">
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="常用快捷键"
-                            android:textAppearance="@style/APTextSubtitle" />
-
-                        <TextView
-                            android:id="@+id/btnEditChips"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:paddingStart="10dp"
-                            android:paddingTop="4dp"
-                            android:paddingEnd="2dp"
-                            android:paddingBottom="4dp"
-                            android:text="编辑"
-                            android:textColor="@color/md_primary"
-                            android:textAppearance="@style/APTextCaption" />
-                    </LinearLayout>
-
-                    <ScrollView
-                        android:layout_width="match_parent"
-                        android:layout_height="0dp"
-                        android:layout_weight="1"
-                        android:fillViewport="true"
-                        android:scrollbars="none">
-
-                        <LinearLayout
-                            android:id="@+id/chipRow"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical" />
-                    </ScrollView>
-                </LinearLayout>
+                        android:orientation="vertical" />
+                </ScrollView>
             </LinearLayout>
 
             <!-- ② 键盘页：全键盘铺满 -->

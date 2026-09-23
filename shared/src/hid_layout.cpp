@@ -55,6 +55,8 @@ const char* reportIdName(uint8_t id) {
         case kReportHumidity:     return "humidity";
         case kReportStepCounter:  return "step-counter";
         case kReportHeartRate:    return "heart-rate";
+        case kReportKeyboard:     return "keyboard";
+        case kReportGamepad:      return "gamepad";
         default:                  return "unknown";
     }
 }
@@ -77,6 +79,8 @@ uint32_t reportSizeById(uint8_t reportId) {
         case kReportHumidity:
         case kReportStepCounter:
         case kReportHeartRate: return kSizeLowFreqReport;
+        case kReportKeyboard:  return 9;                 // 1 + 修饰1 + reserved1 + 6
+        case kReportGamepad:   return kSizeGamepadReport;
         default:               return 0;
     }
 }
@@ -246,6 +250,27 @@ size_t packMouse(uint8_t* dst, size_t cap, uint8_t buttons,
     dst[4] = static_cast<uint8_t>(clampI8(wheel));
     dst[5] = static_cast<uint8_t>(clampI8(pan));
     return kSizeMouseReport;
+}
+
+// ---------------------------------------------------------- §2.13 手柄 ----
+// 16 键位图 + 4 轴（左摇杆 X/Y、右摇杆 Rx/Ry）。轴限幅到 [-127, 127]。
+size_t packGamepad(uint8_t* dst, size_t cap, uint16_t buttons,
+                   int x, int y, int rx, int ry) {
+    if (dst == nullptr || cap < kSizeGamepadReport) return 0;
+
+    const auto clampI8 = [](int v) -> int8_t {
+        if (v > 127) return 127;
+        if (v < -127) return static_cast<int8_t>(-127);
+        return static_cast<int8_t>(v);
+    };
+
+    dst[0] = kReportGamepad;
+    put16(dst + 1, buttons);
+    dst[3] = static_cast<uint8_t>(clampI8(x));
+    dst[4] = static_cast<uint8_t>(clampI8(y));
+    dst[5] = static_cast<uint8_t>(clampI8(rx));
+    dst[6] = static_cast<uint8_t>(clampI8(ry));
+    return kSizeGamepadReport;
 }
 
 uint16_t consumerKeyBitUsage(uint8_t bit) {

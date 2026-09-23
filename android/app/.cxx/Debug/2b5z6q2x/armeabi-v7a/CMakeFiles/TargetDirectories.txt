@@ -1,6 +1,0 @@
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/CMakeFiles/apx.dir
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/CMakeFiles/edit_cache.dir
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/CMakeFiles/rebuild_cache.dir
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/apx_shared/CMakeFiles/apx_shared.dir
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/apx_shared/CMakeFiles/edit_cache.dir
-C:/Users/Administrator/Desktop/全能外设/android/app/.cxx/Debug/2b5z6q2x/armeabi-v7a/apx_shared/CMakeFiles/rebuild_cache.dir

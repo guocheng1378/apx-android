@@ -28,6 +28,14 @@ class UdcBinder(private val shell: RootShell) {
 
         /** HAL 服务名候选（不同 Android 版本/厂商不同） */
         private val HAL_SERVICES = listOf(
+            // 一加13 / ColorOS16 实测的真实服务名（getprop init.svc.vendor.usb-hal-1-2），
+            // 必须排在最前 —— 原来的候选全是 AOSP 通用名，在这台机器上根本不存在，
+            // 导致 stopHal() 永远返回 false，"杀 HAL 重绑"这级降级形同虚设。
+            "vendor.usb-hal-1-3",
+            "vendor.usb-hal-1-2",
+            "vendor.usb-hal-1-1",
+            "vendor.usb-hal-1-0",
+            "vendor.usb-hal",
             "android.hardware.usb.service",
             "android.hardware.usb@1.0-service",
             "android.hardware.usb@1.1-service",

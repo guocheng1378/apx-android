@@ -233,6 +233,18 @@ Java_com_allperiph_core_ApxNative_packConsumerBitmap(JNIEnv* env, jobject, jint 
     return toByteArray(env, buf.data(), n);
 }
 
+// §2.13 Report ID 22 —— USB 游戏手柄（16 键位图 + 4 轴，7B）。
+JNIEXPORT jbyteArray JNICALL
+Java_com_allperiph_core_ApxNative_packGamepad(JNIEnv* env, jobject, jint buttons,
+                                              jint x, jint y, jint rx, jint ry) {
+    std::vector<uint8_t> buf(apx::kSizeGamepadReport);
+    const size_t n = apx::packGamepad(buf.data(), buf.size(),
+                                      static_cast<uint16_t>(buttons & 0xFFFF),
+                                      x, y, rx, ry);
+    if (n == 0) return nullptr;
+    return toByteArray(env, buf.data(), n);
+}
+
 // 返回 int[]：{cmd, seq, payloadLen, payload...}
 JNIEXPORT jintArray JNICALL
 Java_com_allperiph_core_ApxNative_parseVendorOut(JNIEnv* env, jobject, jbyteArray report) {

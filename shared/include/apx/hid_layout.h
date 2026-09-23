@@ -41,6 +41,9 @@ enum : uint8_t {
     // v1.11：USB 快捷键键盘——ID 避开 1..20 全部历史编号（Windows 缓存驱动
     // 可能还记着旧布局，复用 3/16 等废弃 ID 有解析错位风险）。
     kReportKeyboard     = 21,  // §2.12 IN 键盘（修饰1 + reserved1 + 按键数组6）
+    // v1.x：USB 游戏手柄——标准 HID Game Controls（Generic Desktop/Gamepad），
+    // Windows 免驱识别为「USB 游戏控制器」。
+    kReportGamepad      = 22,  // §2.13 IN 手柄（16 键位图 2B + 4 轴 8bit）
 };
 
 // 低频传感器 Report ID 列表（§2.4，顺序即描述符内的声明顺序）
@@ -167,6 +170,19 @@ struct MouseReport {
     int8_t  pan;        // 水平滚动（右滚为正）
 };
 static_assert(sizeof(MouseReport) == 6);
+
+// §2.13 Report ID 22 —— 游戏手柄（标准 HID Gamepad，Windows 免驱识别为
+// 「USB 游戏控制器」）。16 按钮位图 + 4 轴（左摇杆 X/Y、右摇杆 Rx/Ry），
+// 轴为 8bit 有符号（-127..127），0 = 回中。
+struct GamepadReport {
+    uint8_t  reportId;   // =22
+    uint16_t buttons;    // bit0..15 → 按钮 1..16（1=按下）
+    int8_t   x;          // 左摇杆 X（右为正）
+    int8_t   y;          // 左摇杆 Y（下为正）
+    int8_t   rx;         // 右摇杆 X
+    int8_t   ry;         // 右摇杆 Y
+};
+static_assert(sizeof(GamepadReport) == 7);
 
 // §2.10 触控板按键位（MouseReport.buttons）
 enum : uint8_t {
@@ -312,6 +328,7 @@ enum : uint32_t {
     kSizeVendorOutReport = 8u + 256u,                                 // 264（最大）
     kSizeVendorStatusRep = 24u,                                       // 24（v1.1：u64 掩码 + lastSeq）
     kSizeBatteryReport   = 13u,                                       // 13
+    kSizeGamepadReport   = 7u,                                        // v1.x：手柄（1+2+4）
 };
 
 // 指定 Report ID 的完整报告长度（含 Report ID 字节）；未知 ID 返回 0
@@ -348,6 +365,11 @@ size_t packConsumerBitmap(uint8_t* dst, size_t cap, uint16_t keyBitmap);
 // 返回写入字节数（= kSizeMouseReport），失败返回 0。
 size_t packMouse(uint8_t* dst, size_t cap, uint8_t buttons,
                  int dx, int dy, int wheel, int pan);
+
+// §2.13 游戏手柄：16 键位图 + 4 轴。轴入参为 int，内部限幅到 [-127, 127]。
+// 返回写入字节数（= kSizeGamepadReport），失败返回 0。
+size_t packGamepad(uint8_t* dst, size_t cap, uint16_t buttons,
+                   int x, int y, int rx, int ry);
 
 // §2.6 位序号 → Consumer Page Usage（供描述符生成，避免两处各写一份映射）
 uint16_t consumerKeyBitUsage(uint8_t bit);

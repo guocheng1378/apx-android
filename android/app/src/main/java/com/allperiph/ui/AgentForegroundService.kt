@@ -37,9 +37,6 @@ class AgentForegroundService : Service() {
     private var shutdownHook: Thread? = null
 
     @Volatile
-    private var lastScreenText = "外设运行中"
-
-    @Volatile
     private var lastLink: LinkSpeed = LinkSpeed.UNKNOWN
 
     override fun onCreate() {
@@ -121,11 +118,11 @@ class AgentForegroundService : Service() {
             Intent(this, AgentForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val text = getString(
-            R.string.notify_text_running,
-            lastLink.label,
-            lastScreenText,
-        )
+        // 链路口径按实际通道：有 USB 速度显示 USB 档位，否则显示蓝牙。
+        // 原文案 "%1$s" 只有一个占位符却传了两个参数，蓝牙模式下会显示
+        // "USB 链路：unknown"（LinkSpeed.UNKNOWN.label 是英文 "unknown"）。
+        val linkText = if (lastLink == LinkSpeed.UNKNOWN) "蓝牙 HID" else "USB ${lastLink.label}"
+        val text = getString(R.string.notify_text_running, linkText)
         return Notification.Builder(this, NotificationChannels.CHANNEL_STATUS)
             .setContentTitle(getString(R.string.notify_title))
             .setContentText(text)
@@ -186,12 +183,22 @@ class AgentForegroundService : Service() {
             private set
 
         fun start(context: Context) {
+            // 乐观置 true：startForegroundService 是异步的，服务 onCreate 前若 refresh
+            // 读到 running=false 会把 swMaster 回弹成关，进而发 ACTION_STOP 把刚启动的
+            // 服务又停掉（启动竞态，真机复现：服务反复 onCreate/onDestroy、UI 一直显示
+            // 「未启动」）。这里同步置 true，失败再回滚。
+            running = true
             val i = Intent(context, AgentForegroundService::class.java).setAction(ACTION_START)
             runCatching { context.startForegroundService(i) }
-                .onFailure { Log.e(TAG, "启动前台服务失败", it) }
+                .onFailure {
+                    running = false
+                    Log.e(TAG, "启动前台服务失败", it)
+                }
         }
 
         fun stop(context: Context) {
+            // 同样乐观置 false，避免 stop 到 onDestroy 之间的 refresh 误判「仍在运行」。
+            running = false
             context.startService(
                 Intent(context, AgentForegroundService::class.java).setAction(ACTION_STOP)
             )

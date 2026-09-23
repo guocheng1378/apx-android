@@ -21,6 +21,10 @@ android/build/
 android/app/build/
 android/local.properties
 android/captures/
+# NDK / CMake 构建产物（可再生，勿提交）
+android/app/.cxx/
+android/.cxx/
+android/.kotlin/
 *.apk
 *.aab
 *.dex

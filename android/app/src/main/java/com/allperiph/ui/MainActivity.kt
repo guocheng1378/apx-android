@@ -50,14 +50,17 @@ import com.allperiph.hid.HotkeyStore
 import com.allperiph.hid.HotkeyTemplates
 
 /**
- * 【M6】主控制面（v1.16 四页签，MIUIX / HyperOS 亮色）。
+ * 【M6】主控制面（v1.16 三页签底栏 + 横屏键盘，MIUIX / HyperOS 亮色）。
  *
  * 设计目标：手机掏出来就是外设，不再有"进入操控面"的中间页 ——
  *   ① 触控板页：整页手势面（事件兜底到 onTouchEvent 喂手势引擎）+ 常用快捷键条
- *   ② 键盘页  ：[KeyboardPanels] 三套键位（快捷 / 遥控 / 游戏）
+ *   ② 键盘页  ：[KeyboardPanels] 三套键位（快捷 / 遥控 / 游戏），**只在横屏呈现**
  *   ③ 状态页  ：大号启动开关；**启动后**才展开运行摘要 / 链路诊断 / 延迟预算
  *   ④ 设置页  ：快捷键模板（办公·AI·编程·剪辑·放映）· 功能开关 · 环境诊断 ·
  *              主题方案（跟随系统 / 浅色 / 深色，经 [ThemePref]）· 维护
+ *
+ * 朝向即操控面：竖屏默认触控板，横屏默认全键盘。底栏只保留「触控板 / 状态 / 设置」
+ * 三个页签（键盘页不占底栏位），旋屏时自动切换对应操控面。
  *
  * 所有 IO（su、sysfs、设备节点）都在后台线程，本 Activity 只做事件订阅与视图刷新。
  * 主题实现：覆写 [attachBaseContext] 注入 uiMode，深色取值来自 res/values-night/。
@@ -327,6 +330,30 @@ class MainActivity : Activity() {
         headerBar.visibility = if (landscape) View.GONE else View.VISIBLE
         tabBarView.visibility = if (landscape) View.GONE else View.VISIBLE
 
+        // 竖屏布局里 pageKeyboard / pageTouchpad 的 paddingBottom（104dp / 90dp）是给悬浮
+        // 底栏留位的；横屏底栏隐藏、且旋屏不重建（configChanges 含 orientation → layout-land
+        // 不生效），所以这里必须手动把底部留白去掉，否则横屏键盘下方会顶出一大片白
+        // （真机复现：键盘内容只到约 2/3 屏高，下面 300px 空白）。
+        if (::pageKeyboardView.isInitialized) {
+            pageKeyboardView.setPadding(
+                pageKeyboardView.paddingLeft, pageKeyboardView.paddingTop,
+                pageKeyboardView.paddingRight, if (landscape) dp(2) else dp(104),
+            )
+        }
+        if (::pageTouchpadView.isInitialized) {
+            pageTouchpadView.setPadding(
+                pageTouchpadView.paddingLeft, pageTouchpadView.paddingTop,
+                pageTouchpadView.paddingRight, if (landscape) dp(16) else dp(90),
+            )
+        }
+
+        // 朝向即操控面：竖屏=触控板，横屏=全键盘（键盘页已移出底栏，横屏自动呈现）。
+        // 旋屏时 Activity 不重建（configChanges 含 orientation），这里是唯一的切页时机。
+        if (::pager.isInitialized) {
+            val target = if (landscape) PAGE_KEYBOARD else PAGE_TOUCHPAD
+            if (pager.displayedChild != target) showPage(target)
+        }
+
         if (landscape) navGlass.setIndicator(null)
         applyImmersive()
         applyNavBarWidth()
@@ -422,14 +449,16 @@ class MainActivity : Activity() {
 
     /** 底部页签：绑定点击与选中态（胶囊底 + 图标 / 文字同步染色） */
     private fun buildTabs() {
+        // 键盘页在横屏沉浸模式下自动呈现、不占底栏位，故底栏只剩「触控板 / 状态 / 设置」。
+        // 页签顺序与 TAB_PAGES 映射一一对应（tabIndex → ViewFlipper 页面 index）。
         listOf(
             intArrayOf(R.id.tabTouchpad, R.id.ivTabTouchpad, R.id.tvTabTouchpad, R.id.tabPillTouchpad),
-            intArrayOf(R.id.tabKeyboard, R.id.ivTabKeyboard, R.id.tvTabKeyboard, R.id.tabPillKeyboard),
             intArrayOf(R.id.tabStatus, R.id.ivTabStatus, R.id.tvTabStatus, R.id.tabPillStatus),
             intArrayOf(R.id.tabSettings, R.id.ivTabSettings, R.id.tvTabSettings, R.id.tabPillSettings),
-        ).forEachIndexed { i, ids ->
+        ).forEachIndexed { tabIndex, ids ->
+            val page = TAB_PAGES[tabIndex]
             val tab = findViewById<LinearLayout>(ids[0])
-            tab.setOnClickListener { showPage(i) }
+            tab.setOnClickListener { showPage(page) }
             // 液态玻璃按压：落点处扩散出一圈玻璃波前 + 整体微缩，松手带 overshoot 弹回。
             // 震动与触摸音效由 [Feedback] 统一发出，和键盘键帽同一套手感。
             tab.setOnTouchListener { v, e ->
@@ -439,7 +468,7 @@ class MainActivity : Activity() {
                         v.animate().scaleX(0.92f).scaleY(0.92f)
                             .setDuration(ThemeSkin.motionMs(this@MainActivity, 140L)).start()
                         Feedback.tap(v)
-                        playGlassRipple(v, tabPills[i], e.x, e.y)
+                        playGlassRipple(v, tabPills[tabIndex], e.x, e.y)
                     }
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         v.animate().cancel()
@@ -455,7 +484,8 @@ class MainActivity : Activity() {
             tabLabels += findViewById<TextView>(ids[2])
             tabPills += findViewById<LinearLayout>(ids[3])
         }
-        showPage(0)
+        // 初始页跟随朝向：竖屏=触控板，横屏=键盘（与 applyOrientationLayout 保持一致）
+        showPage(if (landscape) PAGE_KEYBOARD else PAGE_TOUCHPAD)
     }
 
     /**
@@ -493,7 +523,7 @@ class MainActivity : Activity() {
         tvPageSub.text = PAGE_SUBS[i]
         if (i == PAGE_TOUCHPAD) renderChips()
         tabViews.indices.forEach { k ->
-            val on = k == i
+            val on = TAB_PAGES[k] == i
             val color = resources.getColor(if (on) R.color.md_primary else R.color.state_idle)
             tabIcons[k].setColorFilter(color)
             tabLabels[k].setTextColor(color)
@@ -513,8 +543,9 @@ class MainActivity : Activity() {
             navGlass.setIndicator(null)
             return
         }
-        if (pager.displayedChild !in tabPills.indices) return
-        val pill = tabPills[pager.displayedChild]
+        val tabIndex = TAB_PAGES.indexOf(pager.displayedChild)
+        if (tabIndex < 0) return
+        val pill = tabPills[tabIndex]
         if (pill.width <= 0) return
         val bl = IntArray(2)
         val pl = IntArray(2)
@@ -552,7 +583,7 @@ class MainActivity : Activity() {
         indicatorAnimator?.cancel()
         navGlass.setIndicator(null)
         val bar = findViewById<View>(R.id.tabBar)
-        val pill = tabPills.getOrNull(pager.displayedChild) ?: return
+        val pill = tabPills.getOrNull(TAB_PAGES.indexOf(pager.displayedChild)) ?: return
         val bl = IntArray(2)
         val pl = IntArray(2)
         bar.getLocationInWindow(bl)
@@ -601,7 +632,7 @@ class MainActivity : Activity() {
 
     /**
      * 主页版皮肤：颜色跟当前模板的主题色（深色下自动提亮）。
-     * 竖屏每行 4 个、不固定行数；横屏固定「两列 × 5 行」并让行高均分铺满右手区。
+     * 触控板页横竖屏共用竖屏模板：每行 4 个、不固定行数（横屏触控板已不做左右分栏）。
      */
     private fun boardStyle(): HotkeyBoard.Style {
         // 快捷键配色优先用用户选的皮肤；没选则沿用当前模板的主题色
@@ -615,10 +646,10 @@ class MainActivity : Activity() {
             chipBg = softTint(tint),
             chipStroke = (tint and 0x00FFFFFF) or (0x40 shl 24),
             chipRadiusDp = 14,
-            padVDp = if (landscape) 18 else 11,
-            perRow = if (landscape) 2 else 4,
-            fixedRows = if (landscape) 5 else 0,
-            stretchRows = landscape,
+            padVDp = 11,
+            perRow = 4,
+            fixedRows = 0,
+            stretchRows = false,
             accent = resources.getColor(R.color.md_primary),
             textPrimary = resources.getColor(R.color.md_on_surface),
             textSecondary = resources.getColor(R.color.md_on_surface_variant),
@@ -938,7 +969,9 @@ class MainActivity : Activity() {
         swMaster.setOnCheckedChangeListener { _, checked ->
             if (checked) {
                 AgentForegroundService.start(this)
-                toast("手机侧已就绪 —— PC 端运行 apxhost.exe 并插上 USB 线即可使用")
+                // 文案覆盖两条通道：蓝牙 HID 免线即用，USB 需 PC 端配合。
+                // 原文案只提"插上 USB 线"，纯蓝牙使用时会误导。
+                toast("手机侧已就绪 —— 蓝牙 HID 配对后即可用；USB 方式需 PC 端运行 apxhost.exe")
             } else {
                 AgentForegroundService.stop(this)
             }
@@ -947,6 +980,10 @@ class MainActivity : Activity() {
         btnBattery.setOnClickListener { requestBatteryWhitelist() }
         // 快捷键「编辑」入口：一屏管理所有快捷键（上移 / 下移 / 改 / 删 / 新建）
         findViewById<TextView>(R.id.btnEditChips).setOnClickListener { hotkeyBoard.managerDialog() }
+        // 游戏手柄入口：全屏虚拟摇杆 + 按键，经 USB HID 上报（§2.13 Report ID 22）
+        findViewById<TextView>(R.id.btnGamepad).setOnClickListener {
+            startActivity(Intent(this, GamepadActivity::class.java))
+        }
         // 环境摘要点开：为什么必须 root、没有 root 还能用什么
         tvDiag.setOnClickListener { showRootHelp() }
         // 模块配色：导出 / 导入 / 分享
@@ -1291,8 +1328,17 @@ class MainActivity : Activity() {
         val mask = AgentController.runtime?.registry?.mask() ?: 0
         val maskText = java.lang.Integer.bitCount(mask)
         tvOverallSub.text = "$envSummary · 启用模块 $maskText 个"
-        tvRunningSummary.text = "$envSummary · 启用模块 $maskText 个 · " +
-            getString(if (lastEnv?.superSpeed == true) R.string.hint_usb_ok else R.string.hint_usb2)
+        // 运行摘要的链路口径按实际通道：有 USB 速度才显示 USB 档位；纯蓝牙时提示配对。
+        // 原文案固定走 USB 分支，没插线也会显示"建议更换 USB 3.0 线缆"，误导。
+        val btRunning = AgentController.module(ModuleId.BTHID)?.state?.isActive == true
+        val usbSpeed = lastEnv?.linkSpeed ?: LinkSpeed.UNKNOWN
+        val linkText = when {
+            usbSpeed.isSuperSpeed -> getString(R.string.hint_usb_ok)
+            usbSpeed != LinkSpeed.UNKNOWN -> getString(R.string.hint_usb2)
+            btRunning -> "蓝牙 HID 已就绪，PC 端配对后即可使用"
+            else -> getString(R.string.common_unknown)
+        }
+        tvRunningSummary.text = "$envSummary · 启用模块 $maskText 个 · $linkText"
 
         // 链路行
         val env = lastEnv
@@ -1464,7 +1510,15 @@ class MainActivity : Activity() {
 
         private const val PAGE_TOUCHPAD = 0
         private const val PAGE_KEYBOARD = 1
+        private const val PAGE_STATUS = 2
+        private const val PAGE_SETTINGS = 3
 
+        /**
+         * 底栏页签 → ViewFlipper 页面 index 的映射。
+         * 键盘页在横屏沉浸模式下自动呈现、不再占底栏位，故底栏只剩三个页签：
+         * 触控板(0) / 状态(2) / 设置(3)，tabIndex 与页面 index 不再一一对应。
+         */
+        private val TAB_PAGES = intArrayOf(PAGE_TOUCHPAD, PAGE_STATUS, PAGE_SETTINGS)
 
         /** 横屏切页手势的手指数（四指，避开触控板自身的一~三指手势） */
         private const val FINGERS_TO_SWITCH = 4

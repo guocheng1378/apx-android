@@ -10,7 +10,12 @@
 > 项目首页文档：[`README.md`](./README.md) ·
 > 架构说明：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) ·
 > 协议定义：[`docs/PROTOCOL.md`](./docs/PROTOCOL.md) ·
-> 真机实测记录：[`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md)
+> 真机实测记录：[`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md) ·
+> 路线图与接口预留：[`docs/ROADMAP.md`](./docs/ROADMAP.md)
+
+> **当前阶段**：有线（USB）能力已收尾（鼠标/键盘/多媒体/游戏手柄/串口/音频均可在
+> Windows 免驱枚举）。后续主线是 **蓝牙补全** 与 **Wi‑Fi 控制**，两者的扩展点已在
+> [`docs/ROADMAP.md`](./docs/ROADMAP.md) 中说明。
 
 ---
 
@@ -127,17 +132,15 @@ build_host\Release\apxhost.exe serve
 │
 ├─ android/                          手机端（Kotlin）
 │   ├─ app/src/main/AndroidManifest.xml
-│   ├─ app/src/main/cpp/             JNI（uvc/alsa 等 native 实现）
+│   ├─ app/src/main/cpp/             JNI 桥（apx_jni.cpp，仅参数搬运 + 调 shared/）
 │   └─ app/src/main/java/com/allperiph/
-│       ├─ core/                     模块契约与传输接口（Module / Transport / ...）
-│       ├─ gadget/                   ConfigFS 布局与 Gadget 管理
-│       ├─ screen/                   副屏（VideoReceiver / TouchUplink / VideoDecoder）
-│       │   └─ transport/            BulkTransport / JniBulkTransport / TcpBulkTransport / Transports
-│       ├─ camera/                   UVC 摄像头
+│       ├─ core/                     模块契约与传输接口（Module / Transport / ApxNative）
+│       ├─ gadget/                   ConfigFS 布局与 Gadget 管理（USB 有线）
+│       ├─ hid/                      USB HID 键盘与键码映射
+│       ├─ touchpad/                 触控板（相对鼠标手势）
 │       ├─ audio/                    UAC2 双向音频
-│       ├─ bt/                       蓝牙 HID 设备
-│       ├─ hid/                      HID 报告描述符 + 键码映射
-│       └─ ui/                       MainActivity / AgentController 等
+│       ├─ bt/                       蓝牙 HID 设备（鼠标 / 多媒体）
+│       └─ ui/                       主界面、游戏手柄、服务编排（AgentController）
 │
 ├─ scripts/                          辅助脚本（apx_gadget.sh / aggregate.py / verify_ms1.ps1）
 └─ reports/                          生成的报告（.md / .json）
@@ -226,8 +229,10 @@ build_display\Release\tcp_transport_test.exe
 
 ### 有线模式（USB）
 
-手机通过 USB 复合设备（HID + UAC2 + UVC）被电脑免驱识别，性能最高，且手机同时充电。
-副屏、触控板、音频、摄像头走复合设备；**需要 Gadget 权限（通常需 root）**。
+手机通过 USB 复合设备被电脑免驱识别，性能最高，且手机同时充电。
+Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键 / 游戏手柄、CDC 串口、UAC2 音频**。
+**需要 Gadget 权限（通常需 root）**；部分机型 `init` 会以亚秒级频率抢占 UDC 导致挂不上，
+这类机型请走无线模式（详见 [`docs/ROADMAP.md`](./docs/ROADMAP.md) §1.2）。
 
 ### 无线模式（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）
 
@@ -236,6 +241,10 @@ build_display\Release\tcp_transport_test.exe
   - 推荐形态：**手机做服务端**（监听固定端口 `9500`），电脑主动连入；
   - 也支持 `adb forward` 回环：`tcp://127.0.0.1:9500`。
 - 面板「连接与配对」视图提供二维码 / 手动地址 / 令牌与链路质量。
+
+> **后续路线**：本文描述的是目标形态。当前已落地的是**有线（USB）主线**；
+> **蓝牙键盘/手柄**与 **Wi‑Fi 控制面**的扩展点、实施顺序见
+> [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
 
 ---
 

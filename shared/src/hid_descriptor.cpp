@@ -482,6 +482,41 @@ void buildTlcKeyboard(Builder& b) {
     b.endCollection();
 }
 
+// ==================== TLC 7：游戏手柄（§2.13）============================
+// 标准 HID Gamepad（Generic Desktop / Game Pad 0x05），Windows 免驱识别为
+// 「USB 游戏控制器」。16 按钮位图 + 4 轴（左摇杆 X/Y、右摇杆 Rx/Ry），
+// 轴为 8bit 有符号（-127..127，0=回中）。报告长度 1+2+4=7B。
+void buildTlcGamepad(Builder& b) {
+    b.usagePage(kPageGenericDesktop);
+    b.usage(kUsageGamepad);
+    b.collection(0x01);              // Application
+    b.reportId(kReportGamepad);
+
+    // 16 按钮位图：Button Page 1..16，各 1 bit
+    b.usagePage(kPageButton);
+    b.usageMin(kUsageButton1);
+    b.usageMax(kUsageButton1 + 15);
+    b.logicalMin(0);
+    b.logicalMax(1);
+    b.reportSize(1);
+    b.reportCount(16);
+    b.input(kDataVar);
+
+    // 4 轴：X/Y/Rx/Ry，8bit 有符号（usage 不连续，逐个声明）
+    b.usagePage(kPageGenericDesktop);
+    b.usage(kUsageAxisX);
+    b.usage(kUsageAxisY);
+    b.usage(kUsageAxisRx);
+    b.usage(kUsageAxisRy);
+    b.logicalMin(-127);
+    b.logicalMax(127);
+    b.reportSize(8);
+    b.reportCount(4);
+    b.input(kDataVar);
+
+    b.endCollection();
+}
+
 // ======================== TLC 2：触控板鼠标（§2.10）========================
 // 相对位移鼠标，复用 v1.2 废弃的 Report ID 2。
 //
@@ -781,6 +816,7 @@ std::vector<uint8_t> buildReportDescriptor() {
     buildTlcMouse(b);   // v1.4：触控板相对位移鼠标（Report ID 2）
     buildTlcConsumer(b);
     buildTlcKeyboard(b);   // v1.11：USB 快捷键键盘（Report ID 21）
+    buildTlcGamepad(b);    // v1.x：USB 游戏手柄（Report ID 22）
     buildTlcVendor(b);
     buildTlcBattery(b);
     return b.out;
@@ -975,6 +1011,7 @@ const TlcMeta kTlcMeta[] = {
     { kReportDigitizer,    kPageDigitizer, kUsageTouchScreen,       "digitizer"           },
     { kReportConsumer,     kPageConsumer,  kUsageConsumerControl,   "consumer"            },
     { kReportKeyboard,     kPageGenericDesktop, kUsageKeyboard,     "usb-keyboard"        },
+    { kReportGamepad,      kPageGenericDesktop, kUsageGamepad,      "usb-gamepad"         },
     { kReportVendor,       kPageVendor,    0x0001,                  "vendor-ctrl"         },
     { kReportBattery,      kPageBattery,   0x0001,                  "battery"             },
 };
@@ -1011,6 +1048,7 @@ const uint8_t* tlcReportIds(size_t& count) {
         kReportHumidity,     kReportStepCounter,    kReportHeartRate,
         kReportDigitizer,    kReportConsumer,       kReportVendor, kReportBattery,
         kReportKeyboard,     // v1.11：USB 快捷键键盘（rid 21）
+        kReportGamepad,      // v1.x：USB 游戏手柄（rid 22）
     };
     count = sizeof(kIds) / sizeof(kIds[0]);
     return kIds;
