@@ -6,6 +6,10 @@
 *.ps1 text eol=crlf
 *.sh  text eol=lf
 
+# gradlew 没有扩展名，不会被上面的规则命中；必须显式锁成 LF，
+# 否则 Windows 提交后 CI(Linux) 里执行会报 /bin/sh^M: bad interpreter
+gradlew text eol=lf
+
 # 二进制
 *.png binary
 *.ico binary

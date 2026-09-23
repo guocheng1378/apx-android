@@ -3,7 +3,6 @@ package com.allperiph.ui
 import android.content.Context
 import com.allperiph.audio.AudioModule
 import com.allperiph.bt.BtHidDevice
-import com.allperiph.camera.CameraModule
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.Log
@@ -11,7 +10,6 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
-import com.allperiph.screen.ScreenModule
 import com.allperiph.touchpad.TouchpadModule
 import java.util.concurrent.Executors
 
@@ -35,13 +33,15 @@ object AgentController {
      *  v1.10：传感器移除（hidparse 除零蓝屏）。
      *  v1.12：副屏/摄像头/GPS/振动整体移除，仅留五件套
      *  v1.34：副屏 + 摄像头从 v21 移植回来（去 TouchCollector、适配 bit37/bit39）*/
+    // ⚠️ USB gadget 方案在本机走不通（2026-09-23 结论，真机逐条验证）：
+    // 1. `setprop sys.usb.config` 会让 init SIGABRT → **整机重启**；
+    // 2. 不停 HAL 时，系统 init 以亚秒级频率把 g1 绑回 UDC，App 层抢不到
+    //    （`udc-core: couldn't find an available UDC or it's busy`）；
+    // 3. 复用系统 g1 追加 function → 软链恒定 EINVAL，该 ROM 不允许。
+    // 因此所有**依赖 USB** 的模块一律不启动：gadget（复合设备）、audio（UAC2）、
+    // touchpad（USB HID 鼠标）。只保留不依赖 USB 的蓝牙 HID。
     val ORDER: List<String> = listOf(
-        ModuleId.GADGET,
-        ModuleId.AUDIO,
-        ModuleId.TOUCHPAD,
         ModuleId.BTHID,
-        ModuleId.SCREEN,
-        ModuleId.CAMERA,
     )
 
     @Volatile
@@ -74,8 +74,7 @@ object AgentController {
             rt.register(AudioModule(app))         // UAC2 声卡搬运（手机麦克风 ↔ PC）
             rt.register(TouchpadModule())          // 触控板：手势 + 相对鼠标上行
             rt.register(BtHidDevice(app))          // 蓝牙 HID：PC 零驱动识别
-            rt.register(ScreenModule(app))         // 副屏：PC 视频帧 → 解码 → overlay 显示
-            rt.register(CameraModule(app))        // 摄像头：Camera2 → JPEG → V4L2（native 待补）
+            // 摄像头/副屏实验模块已临时移出源码集（见 app/src/disabled/），数据面稳定后恢复
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -91,24 +90,34 @@ object AgentController {
     fun startEnabled(context: Context) {
         val rt = runtime ?: build(context)
         running = true
-        for (id in ORDER) {
-            if (!isEnabled(context, id)) continue
-            val m = rt.registry.get(id) ?: continue
-            if (m.state.isActive) continue
-            runCatching { m.start(rt) }
-                .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+        // 启动涉及 root/su、configfs 写入、HAL 重绑等长时间阻塞操作，
+        // 必须放到后台线程；否则主线程阻塞 >5s 会触 ANR（「应用已停止运行」弹窗）。
+        io.execute {
+            for (id in ORDER) {
+                if (!isEnabled(context, id)) continue
+                val m = rt.registry.get(id) ?: continue
+                if (m.state.isActive) continue
+                runCatching { m.start(rt) }
+                    .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+            }
         }
     }
 
     /** 逆序停止全部模块 */
     fun stopAll() {
         val rt = runtime ?: return
-        for (id in ORDER.reversed()) {
-            val m = rt.registry.get(id) ?: continue
-            runCatching { m.stop() }
-                .onFailure { Log.e(TAG, "停止 $id 失败", it) }
-        }
         running = false
+        // 同 startEnabled：stop 同样含 configfs 卸载、UDC 归还等阻塞操作，
+        // 必须在后台线程执行，否则主线程阻塞 >5s 会 ANR。
+        // 实测触发过一次：`Input Dispatching Timeout ...
+        // GadgetManager.stop(GadgetManager.kt:514) ... AgentController.stopAll`。
+        io.execute {
+            for (id in ORDER.reversed()) {
+                val m = rt.registry.get(id) ?: continue
+                runCatching { m.stop() }
+                    .onFailure { Log.e(TAG, "停止 $id 失败", it) }
+            }
+        }
     }
 
     /** 单模块热启停 */
@@ -117,11 +126,17 @@ object AgentController {
         val rt = runtime ?: return
         val m = rt.registry.get(id) ?: return
         if (enabled) {
-            if (!m.state.isActive) runCatching { m.start(rt) }
-                .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+            // 同 startEnabled：启动阻塞操作必须走 io 线程，避免主线程 ANR。
+            if (!m.state.isActive) io.execute {
+                runCatching { m.start(rt) }
+                    .onFailure { Log.e(TAG, "启动 $id 失败", it) }
+            }
         } else {
-            runCatching { m.stop() }
-                .onFailure { Log.e(TAG, "停止 $id 失败", it) }
+            // 同启动：stop 也含阻塞操作，走 io 线程避免主线程 ANR。
+            io.execute {
+                runCatching { m.stop() }
+                    .onFailure { Log.e(TAG, "停止 $id 失败", it) }
+            }
         }
     }
 
@@ -137,7 +152,7 @@ object AgentController {
      * 想试用时在状态页的开关区手动打开即可。
      */
     fun defaultEnabled(id: String): Boolean =
-        id != ModuleId.SCREEN && id != ModuleId.CAMERA
+        id == ModuleId.BTHID
 
     fun isEnabled(context: Context, id: String): Boolean =
         prefs(context).getBoolean("enable.$id", defaultEnabled(id))
