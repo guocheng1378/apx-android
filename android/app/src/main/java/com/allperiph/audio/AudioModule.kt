@@ -94,7 +94,6 @@ class AudioModule(private val app: Context) : Module {
         }
         state = ModuleState.STOPPING
         running = false
-        // 线程内是阻塞 read/write，join 带超时避免卡住逆序停止
         runCatching { micToPc?.join(800) }
         runCatching { pcToSpk?.join(800) }
         micToPc = null
@@ -104,20 +103,18 @@ class AudioModule(private val app: Context) : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> "音频 双向 48k/16bit/立体声（card $cardIndex）"
-        ModuleState.DEGRADED -> "音频 单向（另一方向未打开）"
+        ModuleState.RUNNING -> "音频运行中 · 双向 48kHz/16bit"
+        ModuleState.DEGRADED -> "音频运行中 · 单向（另一方向未打开）"
         ModuleState.ERROR -> lastError ?: "音频错误"
-        else -> "音频未启动"
+        else -> when (state) {
+            ModuleState.STARTING -> "音频启动中"
+            ModuleState.STOPPED, ModuleState.IDLE -> "音频已停止"
+            else -> state.name
+        }
     }
 
     // ————————————————————————————— 内部 —————————————————————————————
 
-    /**
-     * 在 `/proc/asound/cards` 中按关键字定位声卡号。
-     *
-     * 该文件行形如：` 1 [UAC2Gadget     ]: UAC2_Gadget - UAC2_Gadget`，
-     * 取方括号前的数字为 card 号。
-     */
     private fun locateCard(): Int? {
         val text = runCatching { File(CARDS).readText() }.getOrNull() ?: return null
         val re = Regex("""^\s*(\d+)\s*\[([^\]]+)\]""", RegexOption.MULTILINE)
@@ -130,7 +127,6 @@ class AudioModule(private val app: Context) : Module {
         return null
     }
 
-    /** 手机麦克风 → PC：`AudioRecord` 采集，写入 ALSA playback 流 */
     private fun startMicToPc(card: Int): Boolean {
         val path = "/dev/snd/pcmC${card}D0p"
         val stream = AlsaPcm.open(path, playback = true) ?: return false
@@ -144,7 +140,6 @@ class AudioModule(private val app: Context) : Module {
 
         micToPc = thread(start = true, name = "apx-audio-tx") {
             var rec: AudioRecord? = null
-            // v1.13：硬件音效（AEC/NS/AGC）句柄，finally 中统一释放
             val fx = mutableListOf<android.media.audiofx.AudioEffect>()
             try {
                 rec = AudioRecord(
@@ -158,9 +153,7 @@ class AudioModule(private val app: Context) : Module {
                     Log.w(TAG, "AudioRecord 初始化失败（缺 RECORD_AUDIO 权限？）")
                     return@thread
                 }
-                // v1.13：音频线程提实时优先级，降低调度抖动
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
-                // v1.13：回声消除 / 降噪 / 自动增益（设备支持才启用，失败静默降级）
                 val sid = rec.audioSessionId
                 if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) {
                     runCatching {
@@ -200,7 +193,6 @@ class AudioModule(private val app: Context) : Module {
         return true
     }
 
-    /** PC → 手机扬声器：读 ALSA capture 流，经 `AudioTrack` 播放 */
     private fun startPcToSpeaker(card: Int): Boolean {
         val path = "/dev/snd/pcmC${card}D0c"
         val stream = AlsaPcm.open(path, playback = false) ?: return false
@@ -208,7 +200,6 @@ class AudioModule(private val app: Context) : Module {
         pcToSpk = thread(start = true, name = "apx-audio-rx") {
             var track: AudioTrack? = null
             try {
-                // v1.13：播放线程同提实时优先级
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
                 val minBuf = AudioTrack.getMinBufferSize(RATE, OUT_CHANNEL, ENCODING)
                 track = AudioTrack.Builder()
@@ -225,10 +216,8 @@ class AudioModule(private val app: Context) : Module {
                             .setChannelMask(OUT_CHANNEL)
                             .build(),
                     )
-                    // v1.13：缓冲收紧至 minBuf×2 / 40ms 帧×4，配合低延迟通路
                     .setBufferSizeInBytes(maxOf(minBuf * 2, FRAME_BYTES * 4))
                     .setTransferMode(AudioTrack.MODE_STREAM)
-                    // v1.13：低延迟输出通路（fast mixer，设备支持时生效）
                     .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                     .build()
                 track.play()

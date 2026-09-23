@@ -926,8 +926,6 @@ class MainActivity : Activity() {
             val enabled = AgentController.isEnabled(this, m.id)
             row.sw.isChecked = enabled
             row.sw.setOnCheckedChangeListener { _, checked ->
-                // 拨开摄像头子开关时也要先要相机权限（主开关路径之外的第二入口）
-                if (m.id == com.allperiph.core.ModuleId.CAMERA && checked) ensureCameraPermission()
                 AgentController.setModuleEnabled(this, m.id, checked)
                 refresh()
             }
@@ -939,9 +937,6 @@ class MainActivity : Activity() {
     private fun bindActions() {
         swMaster.setOnCheckedChangeListener { _, checked ->
             if (checked) {
-                // 摄像头模块启用时先要相机权限（Camera2 无权限 openCamera 直接失败）
-                if (AgentController.isEnabled(this, com.allperiph.core.ModuleId.CAMERA)) {
-                    ensureCameraPermission()
                 }
                 AgentForegroundService.start(this)
                 toast("手机侧已就绪 —— PC 端运行 apxhost.exe 并插上 USB 线即可使用")
@@ -973,7 +968,6 @@ class MainActivity : Activity() {
     private val REQ_EXPORT_THEME = 4101
     private val REQ_IMPORT_THEME = 4102
     private val REQ_PICK_BG = 4103
-    private val REQ_CAMERA = 200
 
     /** 一行设置项：左标题 + 右取值胶囊（模块配色与背景手感共用） */
     private fun settingRow(title: String, value: String, tint: Int, onClick: () -> Unit): View {
@@ -1217,13 +1211,6 @@ class MainActivity : Activity() {
         android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 
-    /** 请求 CAMERA 运行时权限（系统弹窗授权，一次永久）。是否需要由调用方判断。 */
-    private fun ensureCameraPermission() {
-        if (checkSelfPermission(android.Manifest.permission.CAMERA) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
-        requestPermissions(arrayOf(android.Manifest.permission.CAMERA), REQ_CAMERA)
-    }
 
     /**
      * 副屏的悬浮窗授权入口：跳系统「显示在其他应用上层」页。
@@ -1397,10 +1384,7 @@ class MainActivity : Activity() {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
                 PackageManager.PERMISSION_GRANTED
             ) add(Manifest.permission.RECORD_AUDIO)
-            // GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION，缺失时 GPS 模块 ERROR
-            if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
                 PackageManager.PERMISSION_GRANTED
-            ) add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
         if (perms.isNotEmpty()) requestPermissions(perms.toTypedArray(), REQ_NOTIFICATION)
     }
@@ -1436,13 +1420,6 @@ class MainActivity : Activity() {
                     renderEnv(env)
                 }
             }
-            REQ_CAMERA ->
-                // 授权成功且服务已在跑 → 热启动摄像头模块（不用重开主开关）
-                if (grantResults.firstOrNull() ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED && AgentController.running
-                ) {
-                    AgentController.setModuleEnabled(this, com.allperiph.core.ModuleId.CAMERA, true)
-                    toast("相机权限已授予，摄像头模块已启动")
                 }
         }
     }

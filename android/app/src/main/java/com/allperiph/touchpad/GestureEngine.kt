@@ -113,6 +113,12 @@ class GestureEngine(private val sink: TouchpadSink) {
         return true
     }
 
+    fun armRightDrag() {
+        if (activePointers < 2) return
+        pendingButtons = pendingButtons or 0x02  // bit1 = right click
+        com.allperiph.core.Log.i("GestureEngine", "armRightDrag: buttons=$pendingButtons")
+    }
+
     fun onTouch(ev: MotionEvent) {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -232,14 +238,6 @@ class GestureEngine(private val sink: TouchpadSink) {
                 }
             }
         }
-    }
-
-    // 优化 #9：合并 centroid 和 fingerDist 为一次遍历
-    private fun singlePassCentroidDist(ev: MotionEvent): Pair<Float, Float> {
-        var sx = 0f; var sy = 0f
-        for (i in 0 until ev.pointerCount) { sx += ev.getX(i); sy += ev.getY(i) }
-        val n = ev.pointerCount.coerceAtLeast(1)
-        return sx / n to sy / n
     }
 
     private fun centroid(ev: MotionEvent): Pair<Float, Float> {

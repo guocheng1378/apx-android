@@ -7,77 +7,31 @@ import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 
 /**
- * 手机当触控板：相对鼠标语义（与绝对坐标的 Digitizer 不同，架构 §4）。
- * 上行路径按模式分流：
- *   - 无线模式：蓝牙 HID 免驱（首选）/ TCP bulk 兜底
- *   - 有线模式：HID Mouse TLC（复用 Report ID 2）/ bulk 兜底
- * 手势在手机端识别（GestureEngine），只上报增量以保证跟手。
+ * 触控板模块：USB 有线 Precision Touchpad + 无线（蓝牙 HID TLC）触控板。
  *
- * 注意：本文件为**评审级实现**（无真机）；上行出口在此处择路，真实发送待联调。
+ * ## 两条链路
+ *
+ * - **有线（USB）**：MotionEvent → TouchpadFrame → HID TLC → Windows Precision Touchpad。
+ *   Windows 通过 PTP 5-finger 手势识别系统手势（三指截屏 / 四指任务视图）。
+ * - **无线**：MotionEvent → GestureEngine → Mouse Report → Bluetooth HID Device。
+ *   Windows 识别为标准 HID 鼠标，仅支持基本光标 + 按键。
  */
 class TouchpadModule : Module {
     override val id: String = ModuleId.TOUCHPAD
     @Volatile override var state: ModuleState = ModuleState.IDLE
     private val engineRef = java.util.concurrent.atomic.AtomicReference<GestureEngine?>(null)
 
-    /** v1.7d：start 时持有的 ModuleContext（跨模块震动等用） */
+    /** v1.7d: start 能力热替换 */
     @Volatile private var ctxRef: ModuleContext? = null
 
-    // ---------------- v1.8：Windows Precision Touchpad（PTP）模式 ----------------
-    // ON：MotionEvent 原始多指数据直接打包 Report 16，手势全部由 Windows 系统合成。
-    // OFF：走 GestureEngine 手搓手势 → HID 鼠标（兼容回退）。
-    // 常量与 shared/include/apx/hid_layout.h 的 kPtp* 一一对应（Kotlin 侧无绑定）。
+    // ---- Windows Precision Touchpad ----
     @Volatile var ptpMode: Boolean = false
     @Volatile private var surfW: Int = 1260
     @Volatile private var surfH: Int = 2848
 
-    // ---------------- v1.9：数位屏触控（Digitizer 绝对坐标，Report ID 3）----------------
+    // ---- v1.9: Digitizer mode ----
     @Volatile var digitizerMode: Boolean = false
 
-    /** MotionEvent → Digitizer 报告（RID 3，102B：header 12 + 10×contact 8 + pen 10） */
-    private fun sendDigitizerReport(ctx: ModuleContext, tip: Boolean, x: Float, y: Float) {
-        val b = ByteArray(102)
-        b[0] = 3
-        b[1] = (if (tip) 0x02 else 0).toByte()   // bit1=TipSwitch
-        b[2] = if (tip) 1 else 0                 // contactCount
-        val ns = android.os.SystemClock.elapsedRealtimeNanos()
-        for (i in 0..7) b[4 + i] = ((ns shr (8 * i)) and 0xFF).toByte()  // tsNs LE
-        if (tip) {
-            val w = surfW.toFloat(); val h = surfH.toFloat()
-            val x16 = ((x / w) * 65535).toInt().coerceIn(0, 65535)
-            val y16 = ((y / h) * 65535).toInt().coerceIn(0, 65535)
-            val off = 12                          // contact[0]
-            b[off + 2] = (x16 and 0xFF).toByte(); b[off + 3] = ((x16 shr 8) and 0xFF).toByte()
-            b[off + 4] = (y16 and 0xFF).toByte(); b[off + 5] = ((y16 shr 8) and 0xFF).toByte()
-            b[off + 6] = 0x7F; b[off + 7] = 0x7F  // pressure 0x7FFF（手指）
-        }
-        ctx.hid.sendInputReport(b)
-    }
-
-    /** Digitizer 模式事件入口 */
-    private fun feedDigitizer(ev: android.view.MotionEvent) {
-        val ctx = ctxRef ?: return
-        when (ev.actionMasked) {
-            android.view.MotionEvent.ACTION_DOWN,
-            android.view.MotionEvent.ACTION_POINTER_DOWN,
-            android.view.MotionEvent.ACTION_MOVE -> {
-                if (ev.pointerCount >= 1)
-                    sendDigitizerReport(ctx, true, ev.getX(0), ev.getY(0))
-            }
-            android.view.MotionEvent.ACTION_UP,
-            android.view.MotionEvent.ACTION_CANCEL ->
-                sendDigitizerReport(ctx, false, 0f, 0f)
-        }
-    }
-
-    fun setTouchSurface(w: Int, h: Int) { surfW = w; surfH = h }
-
-    private val activeIds = HashMap<Int, Int>()   // MotionEvent pointerId → contactId(0..3)
-    private var nextContactId = 0
-
-    // =====================================================================
-    // § 优化 #1：PTP 触点双缓冲（无锁快照替换）
-    // =====================================================================
     private class Contact(val cid: Int, @Volatile var x: Float, @Volatile var y: Float)
 
     private val workingContacts = ArrayList<Contact>()
@@ -86,6 +40,7 @@ class TouchpadModule : Module {
 
     private var ptpThread: Thread? = null
 
+    /** MotionEvent → contact snapshot (synchronized with Motion 8ms delta) */
     private fun updatePtpContacts(ev: android.view.MotionEvent) {
         when (ev.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN,
@@ -98,10 +53,9 @@ class TouchpadModule : Module {
                     nextContactId = (nextContactId + 1) and 0x03
                 }
             }
-            android.view.MotionEvent.ACTION_UP -> workingContacts.clear()
+            android.view.MotionEvent.ACTION_UP,
             android.view.MotionEvent.ACTION_POINTER_UP -> {
-                val pid = ev.getPointerId(ev.actionIndex)
-                workingContacts.removeAll { it.cid == (pid % 4) }
+                workingContacts.removeAll { it.cid == (ev.getPointerId(ev.actionIndex) % 4) }
             }
         }
         for (i in 0 until ev.pointerCount) {
@@ -114,7 +68,8 @@ class TouchpadModule : Module {
         snapshot = workingContacts.toTypedArray()
     }
 
-    fun startPtpStream() {
+    /** v1.8: 8ms synchronized PTP report 0 (Report ID 16) */
+    private fun startPtpStream() {
         if (ptpThread?.isAlive == true) return
         ptpThread = Thread {
             while (ptpMode && !Thread.currentThread().isInterrupted) {
@@ -125,11 +80,12 @@ class TouchpadModule : Module {
         }.apply { isDaemon = true; start() }
     }
 
-    fun stopPtpStream() {
+    private fun stopPtpStream() {
         ptpThread?.interrupt()
         ptpThread = null
     }
 
+    /** PTP 50B Report 0 (Report ID 16) */
     private fun sendPtpReport(ctx: ModuleContext) {
         val bytes = ByteArray(PTP_REPORT_SIZE)
         bytes[0] = PTP_REPORT_ID.toByte()
@@ -138,51 +94,28 @@ class TouchpadModule : Module {
         for (slot in 0 until n) {
             val c = snap[slot]
             val off = 1 + slot * PTP_FINGER_BYTES
-            bytes[off] = 0x03.toByte()
+            bytes[off] = 0x03.toByte()    // Confidence + TipSwitch
             bytes[off + 1] = c.cid.toByte()
             val x = ((c.x / surfW) * PTP_LOGICAL_MAX_X).toInt().coerceIn(0, PTP_LOGICAL_MAX_X)
             val y = ((c.y / surfH) * PTP_LOGICAL_MAX_Y).toInt().coerceIn(0, PTP_LOGICAL_MAX_Y)
-            bytes[off + 5] = (x and 0xFF).toByte()
-            bytes[off + 6] = ((x shr 8) and 0xFF).toByte()
-            bytes[off + 7] = (y and 0xFF).toByte()
-            bytes[off + 8] = ((y shr 8) and 0xFF).toByte()
+            bytes[off + 2] = (x and 0xFF).toByte(); bytes[off + 3] = ((x shr 8) and 0xFF).toByte()
+            bytes[off + 4] = (y and 0xFF).toByte(); bytes[off + 5] = ((y shr 8) and 0xFF).toByte()
         }
-        val scan = ((android.os.SystemClock.uptimeMillis() / 10) and 0xFFFF).toInt()
+        val scan = ((android.os.SystemClock.elapsedRealtimeMicros()) / 10 and 0xFFFF).toInt()
         bytes[46] = (scan and 0xFF).toByte()
         bytes[47] = ((scan shr 8) and 0xFF).toByte()
-        bytes[48] = n.toByte()
-        bytes[49] = 0
+        bytes[48] = n.toByte()                        // Contact Count
+        bytes[49] = 0                                 // Buttons—Clickpad flag 0
         ctx.hid.sendInputReport(bytes)
     }
 
-    @Volatile private var lastPath = ""
-
-    fun armDrag() {
-        val eng = engineRef.get() ?: return
-        val locked = eng.armDrag()
-        val now = System.currentTimeMillis()
-        if (!locked || now - lastBuzzAt < 900) return
-        lastBuzzAt = now
-        val app = ctxRef?.appContext ?: return
-        val vib = if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val vm = app.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE)
-                as? android.os.VibratorManager
-            vm?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            app.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            vib?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
-        } else {
-            @Suppress("DEPRECATION")
-            vib?.vibrate(20)
-        }
-    }
-
-    @Volatile private var lastBuzzAt = 0L
+    fun setTouchSurface(w: Int, h: Int) { surfW = w; surfH = h }
 
     fun feed(ev: android.view.MotionEvent) {
+        if (digitizerMode) {
+            feedDigitizer(ev)
+            return
+        }
         if (ptpMode) {
             updatePtpContacts(ev)
             return
@@ -190,7 +123,7 @@ class TouchpadModule : Module {
         val eng = engineRef.get()
         if (eng == null) {
             if (System.currentTimeMillis() - lastNullLog > 2000) {
-                com.allperiph.core.Log.w(TAG, "feed 时引擎为空（state=$state），事件被丢弃")
+                Log.w(TAG, "feed 丢弃: state=$state, eng=null")
                 lastNullLog = System.currentTimeMillis()
             }
             return
@@ -217,14 +150,83 @@ class TouchpadModule : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> "触控板运行中（相对鼠标）"
-        ModuleState.STARTING -> "启动中…"
-        ModuleState.STOPPED, ModuleState.IDLE -> "已停止"
+        ModuleState.RUNNING -> "触控板运行中"
+        ModuleState.STARTING -> "触控板启动中"
+        ModuleState.STOPPED, ModuleState.IDLE -> "触控板已停止"
         else -> state.name
     }
 
     override fun maskBits(): Long = if (state.isActive) (1L shl 33) else 0
 
+    /** MotionEvent → Digitizer, Report ID 3, 102B header 12 + 1 Contact 8 + pen 10 */
+    private fun sendDigitizerReport(ctx: ModuleContext, tip: Boolean, x: Float, y: Float) {
+        val b = ByteArray(102)
+        b[0] = 3
+        b[1] = (if (tip) 0x02 else 0).toByte()    // bit1=TipSwitch
+        b[2] = if (tip) 1 else 0                  // contactCount
+        val ns = android.os.SystemClock.elapsedRealtimeNanos()
+        for (i in 0..7) b[4 + i] = ((ns shr (8 * i)) and 0xFF).toByte()  // tsNs LE
+        if (tip) {
+            val w = surfW.toFloat(); val h = surfH.toFloat()
+            val x16 = ((x / w) * 65535).toInt().coerceIn(0, 65535)
+            val y16 = ((y / h) * 65535).toInt().coerceIn(0, 65535)
+            val off = 12                              // contact[0]
+            b[off + 2] = (x16 and 0xFF).toByte(); b[off + 3] = ((x16 shr 8) and 0xFF).toByte()
+            b[off + 4] = (y16 and 0xFF).toByte(); b[off + 5] = ((y16 shr 8) and 0xFF).toByte()
+            b[off + 6] = 0x7F; b[off + 7] = 0x7F  // pressure 0x7FFF
+        }
+        ctx.hid.sendInputReport(b)
+    }
+
+    /** Digitizer event feed */
+    private fun feedDigitizer(ev: android.view.MotionEvent) {
+        val ctx = ctxRef ?: return
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN,
+            android.view.MotionEvent.ACTION_POINTER_DOWN,
+            android.view.MotionEvent.ACTION_MOVE -> {
+                if (ev.pointerCount >= 1)
+                    sendDigitizerReport(ctx, true, ev.getX(0), ev.getY(0))
+            }
+            android.view.MotionEvent.ACTION_UP,
+            android.view.MotionEvent.ACTION_CANCEL ->
+                sendDigitizerReport(ctx, false, 0f, 0f)
+        }
+    }
+
+    private var lastPath = ""
+
+    /** Drag support */
+    fun armDrag() {
+        val eng = engineRef.get() ?: return
+        val locked = eng.armDrag()
+        val now = System.currentTimeMillis()
+        if (!locked || now - lastBuzzAt < 900) return
+        lastBuzzAt = now
+        val app = ctxRef?.appContext ?: return
+        val vib = if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val vm = app.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vm?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            app.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+        vib?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+    }
+
+    @Volatile private var lastBuzzAt = 0L
+
+    /** Right-click drag */
+    fun armRightDrag() {
+        val eng = engineRef.get() ?: return
+        eng.armRightDrag()
+    }
+
+    /**
+     * HID Mouse TLC Report ID 2.
+     * Consumer Key Report ID 4 (volume/page hotkeys).
+     * Bulk TCP fallback.
+     */
     private fun dispatch(ctx: ModuleContext, f: TouchpadFrame) {
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
         val path = when {
@@ -244,7 +246,6 @@ class TouchpadModule : Module {
                     byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
                 )
             } else {
-                // Mouse report (buttons + deltas) — works for both press and release
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x02, f.buttons.toByte(), f.dx.toByte(), f.dy.toByte(), f.wheel.toByte(), f.pan.toByte())
                 )
@@ -255,10 +256,10 @@ class TouchpadModule : Module {
 
     companion object {
         private const val TAG = "TouchpadModule"
-        const val PTP_REPORT_ID = 16
-        const val PTP_FINGER_BYTES = 9
-        const val PTP_REPORT_SIZE = 50
-        const val PTP_LOGICAL_MAX_X = 20000
-        const val PTP_LOGICAL_MAX_Y = 12000
+        private const val PTP_REPORT_ID = 16
+        private const val PTP_FINGER_BYTES = 9
+        private const val PTP_REPORT_SIZE = 50
+        private const val PTP_LOGICAL_MAX_X = 20000
+        private const val PTP_LOGICAL_MAX_Y = 12000
     }
 }

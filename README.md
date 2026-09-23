@@ -1,10 +1,10 @@
 # 全能外设（AllPeriph）
 
-把手机变成电脑的外设：**副屏、触控板、传感器、摄像头、音频**，电脑端一个本地 Web 控制面板统一管理。
+把手机变成电脑的外设：**副屏、触控板、摄像头、音频**，电脑端一个本地 Web 控制面板统一管理。
 支持**有线（USB，性能最高且手机同时充电）**与**无线（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）**两条主线。
 
 - 电脑端：C++20（Windows），**零第三方依赖**，自写 winsock HTTP/1.1 + SSE。
-- 控制面板：原生 HTML/CSS/JS 单页应用，**零构建、零 CDN、离线可用**，浏览器打开即用。
+- 控制面板：原生 HTML/CJS/JS 单页应用，**零构建、零 CDN、离线可用**，浏览器打开即用。
 - 手机端：Kotlin（Android），蓝牙 HID + 局域网 TCP + USB Gadget（有线模式）。
 
 > 项目首页文档：[`README.md`](./README.md) ·
@@ -66,7 +66,6 @@ build_host\Release\apxhost.exe serve
 │   │   ├─ frame.h                   统一帧头（magic 'APX1' + streamId）
 │   │   ├─ hid_layout.h              HID 报告布局（含触控板 MouseReport，复用 Report ID 2）
 │   │   ├─ hid_descriptor.h          HID 描述符构建入口
-│   │   ├─ sensors_id.h              传感器 ID 定义
 │   │   ├─ clock.h / units.h         时基与单位
 │   ├─ src/                          上述头文件的实现（*.cpp）
 │   └─ tests/
@@ -78,7 +77,7 @@ build_host\Release\apxhost.exe serve
 │   │   │                            discovery / display / hotkey / log / net /
 │   │   │                            platform / sensors / tray / ui / version / ...
 │   │   ├─ src/
-│   │   │   ├─ host_main.cpp         命令行入口（serve / ui / pair / scene / list / sensors）
+│   │   │   ├─ host_main.cpp         命令行入口（serve / ui / pair / scene / list）
 │   │   │   ├─ app/host_service.cpp  常驻服务编排：HTTP + 热键 + 托盘 + 配置 + 状态广播
 │   │   │   ├─ api/action_router.cpp 动作路由 + 状态聚合（面板唯一控制面）
 │   │   │   ├─ net/http_server.cpp   winsock HTTP/1.1 + SSE + Origin 校验 + 静态资源
@@ -128,17 +127,20 @@ build_host\Release\apxhost.exe serve
 │
 ├─ android/                          手机端（Kotlin）
 │   ├─ app/src/main/AndroidManifest.xml
-│   ├─ app/src/main/cpp/             JNI（vibrate/uvc/alsa 等 native 实现）
+│   ├─ app/src/main/cpp/             JNI（uvc/alsa 等 native 实现）
 │   └─ app/src/main/java/com/allperiph/
 │       ├─ core/                     模块契约与传输接口（Module / Transport / ...）
 │       ├─ gadget/                   ConfigFS 布局与 Gadget 管理
 │       ├─ screen/                   副屏（VideoReceiver / TouchUplink / VideoDecoder）
 │       │   └─ transport/            BulkTransport / JniBulkTransport / TcpBulkTransport / Transports
-│       ├─ sensor/ gps/ audio/ vibe/ 各类外设模块
+│       ├─ camera/                   UVC 摄像头
+│       ├─ audio/                    UAC2 双向音频
+│       ├─ bt/                       蓝牙 HID 设备
+│       ├─ hid/                      HID 报告描述符 + 键码映射
 │       └─ ui/                       MainActivity / AgentController 等
 │
 ├─ scripts/                          辅助脚本（apx_gadget.sh / aggregate.py / verify_ms1.ps1）
-└─ reports/                          生成的报告（22 个 .md / 21 个 .json）
+└─ reports/                          生成的报告（.md / .json）
 ```
 
 ---
@@ -153,8 +155,7 @@ build_host\Release\apxhost.exe serve
 | `apxhost serve` | 启动常驻服务，**不**自动打开浏览器 |
 | `apxhost pair` | 启动服务并进入无线配对引导 |
 | `apxhost scene` | 启动服务并应用场景编排 |
-| `apxhost list` | 枚举设备与系统传感器后退出 |
-| `apxhost sensors` | 打印系统传感器读数 |
+| `apxhost list` | 枚举设备后退出 |
 | （无参数）`apxhost` | 进入交互式命令循环 |
 
 ### 环境变量
@@ -169,7 +170,7 @@ build_host\Release\apxhost.exe serve
 %LOCALAPPDATA%\AllPeriph\config.json
 ```
 
-包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、副屏/触控板/摄像头/音频参数、七类热键绑定与场景绑定。
+包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、副屏/触控板/摄像头/音频参数、热键绑定与场景绑定。
 字段缺失会自动回落默认值，不会因旧配置崩溃。
 
 ---
@@ -225,8 +226,8 @@ build_display\Release\tcp_transport_test.exe
 
 ### 有线模式（USB）
 
-手机通过 USB 复合设备（HID + CDC + UAC2 + UVC）被电脑免驱识别，性能最高，且手机同时充电。
-副屏、HID 传感器、音频、摄像头走复合设备；**需要 Gadget 权限（通常需 root）**。
+手机通过 USB 复合设备（HID + UAC2 + UVC）被电脑免驱识别，性能最高，且手机同时充电。
+副屏、触控板、音频、摄像头走复合设备；**需要 Gadget 权限（通常需 root）**。
 
 ### 无线模式（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）
 
@@ -244,8 +245,7 @@ build_display\Release\tcp_transport_test.exe
 
 - 副屏若当前无「支持运行时插拔的虚拟显示器驱动」，会走**后端 C 降级**：关屏只停推流，
   显示器仍留在系统中，面板以琥珀色横幅明确标注。
-- 传感器若在 Windows 侧驱动异常（如 Code 10），面板的可用性网格会标为不可用并给出原因。
-- 带宽不足时按优先级降级（触控上行 > HID 传感器 > 副屏视频 > 音频 > UVC 摄像头），
+- 带宽不足时按优先级降级（触控上行 > 副屏视频 > 音频 > 摄像头），
   并以占用条可视化，日志记录「为谁降了什么」。
 
 ---
@@ -259,10 +259,8 @@ build_display\Release\tcp_transport_test.exe
    ```bat
    cmake --build build_display --config Release --target apxdisp_transport tcp_transport_test
    ```
-3. **无线虚拟设备（传感器 / 声卡 / 摄像头）**仍处规划阶段，无线模式下这三类能力需要对接第三方
+3. **无线虚拟设备（声卡 / 摄像头）**仍处规划阶段，无线模式下这两类能力需要对接第三方
    虚拟设备驱动；无法满足时面板会如实标注，不做静默失败。
-4. **Windows 传感器后端**：本机 SDK 未导出 `SENSOR_TYPE_*` 常量，经典 WinRT/ISensor 后端默认关闭
-   （`APXPC_BUILD_WIN_BACKENDS=OFF`），改用可链接占位实现，面板对空传感器列表如实呈现。
 
 ---
 

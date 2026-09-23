@@ -1,42 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  全能外设 · Android 端 Manifest（权属：ui/screen 负责人）
-  namespace 必须与 build.gradle 的 android.namespace 一致：com.allperiph
-
-  说明：本文件只声明 UI / 副屏 / 前台服务相关的组件与权限。
-  其它模块的运行时权限请在各自的 library manifest 中声明（见文末 TODO 块），
-  若最终为单 module 工程则由 main 决定合并方式，避免重复声明。
+  全能外设 · Android 端 Manifest
+  namespace: com.allperiph
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- ============ UI / 前台服务相关权限 ============ -->
+    <!-- 前台服务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <!-- USB 连接设备（Gadget + 副屏链路）对应的前台服务类型 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- ===== 以下权限由各业务模块使用，统一在本 Manifest 声明（单 module 工程）===== -->
-    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
-    <uses-permission android:name="android.permission.BODY_SENSORS" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 蓝牙 HID -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- AOA（Android Open Accessory）附件模式 -->
-    <uses-feature
-        android:name="android.hardware.usb.accessory"
-        android:required="false" />
+    <!-- 音频 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- 悬浮窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- 触控与手写笔为可选硬件 -->
     <uses-feature
@@ -47,9 +31,6 @@
         android:required="false" />
     <uses-feature
         android:name="android.hardware.stylus"
-        android:required="false" />
-    <uses-feature
-        android:name="android.hardware.usb.host"
         android:required="false" />
 
     <application
@@ -63,13 +44,13 @@
         android:largeHeap="true"
         tools:targetApi="34">
 
-        <!-- 主控制面 -->
+        <!-- 主控制面：竖屏=触控板，横屏=全键盘 -->
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="sensor"
-            android:configChanges="keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -77,7 +58,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 全屏触控板 -->
+        <!-- 全屏触控板（纯竖屏） -->
         <activity
             android:name=".touchpad.TouchpadActivity"
             android:exported="false"
