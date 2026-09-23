@@ -1,0 +1,65 @@
+name: Restore and Edit MainActivity
+on:
+  workflow_dispatch: {}
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/touchpad-button-release
+          fetch-depth: 0
+
+      - name: Restore file from merge commit and apply edits
+        run: |
+          # Restore the correct file from the merge commit
+          git show 4e9bbab2:android/app/src/main/java/com/allperiph/ui/MainActivity.kt > android/app/src/main/java/com/allperiph/ui/MainActivity.kt
+
+          FILE="android/app/src/main/java/com/allperiph/ui/MainActivity.kt"
+
+          # 1. Remove副屏 comment from requestOverlayPermission()
+          sed -i 's|// 副屏的悬浮窗授权入口|// 悬浮窗授权入口|g' "$FILE"
+
+          # 2. Remove ACCESS_FINE_LOCATION permission request from ensureNotificationPermission()
+          sed -i '/GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION，缺失时 GPS 模块 ERROR/,/ACCESS_FINE_LOCATION/{d}' "$FILE"
+          sed -i '/ACCESS_FINE_LOCATION/d' "$FILE"
+
+          # 3. Remove CAMERA check in buildModuleRows sw.setOnCheckedChangeListener
+          sed -i '/拨开摄像头子开关时也要先要相机权限/d' "$FILE"
+          sed -i '/m.id == com.allperiph.core.ModuleId.CAMERA/d' "$FILE"
+
+          # 4. Remove CAMERA check in bindActions master switch
+          sed -i '/摄像头模块启用时先要相机权限/d' "$FILE"
+          sed -i '/AgentController.isEnabled(this, com.allperiph.core.ModuleId.CAMERA))/d' "$FILE"
+          sed -i '/ensureCameraPermission()/d' "$FILE"
+
+          # 5. Remove ensureCameraPermission() method
+          sed -i '/请求 CAMERA 运行时权限/,/^    }/d' "$FILE"
+
+          # 6. Remove REQ_CAMERA constant
+          sed -i '/REQ_CAMERA/d' "$FILE"
+
+          # 7. Remove Camera case from onRequestPermissionsResult
+          sed -i '/REQ_CAMERA = 200/d' "$FILE"
+          sed -i '/授权成功且服务已在跑/,/摄像头模块已启动/d' "$FILE"
+          sed -i '/AgentController.setModuleEnabled(this, com.allperiph.core.ModuleId.CAMERA/d' "$FILE"
+
+          echo "=== Verification: should be empty ==="
+          grep -n 'ModuleId.CAMERA\|REQ_CAMERA\|ensureCameraPermission\|ACCESS_FINE_LOCATION\|副屏' "$FILE" || echo "Clean!"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add android/app/src/main/java/com/allperiph/ui/MainActivity.kt
+          git commit -m "fix: restore MainActivity.kt and remove Camera/GPS references
+
+- Restored file from correct commit (4e9bbab2)
+- Removed ModuleId.CAMERA references in buildModuleRows and bindActions
+- Removed ensureCameraPermission() method
+- Removed REQ_CAMERA constant
+- Removed Camera case from onRequestPermissionsResult
+- Removed ACCESS_FINE_LOCATION permission request (GPS module deleted)
+- Updated副屏 comment to副屏 in requestOverlayPermission"
+          git push
