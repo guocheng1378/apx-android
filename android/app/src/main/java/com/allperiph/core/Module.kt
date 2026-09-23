@@ -3,7 +3,7 @@ package com.allperiph.core
 import android.os.Handler
 
 /**
- * 模块生命周期契约（core/ 提供的骨架，M1–M6 全部遵守）。
+ * 模块生命周期契约（core/ 提供的骨架）。
  * 约定：start() 幂等；stop() 可重复调用；任何抛出的异常由调用方记录而非向上扩散。
  */
 enum class ModuleState {
@@ -45,10 +45,6 @@ interface Module {
 /** 模块 ID 常量，避免字符串散落 */
 object ModuleId {
     const val GADGET = "gadget"
-    const val SENSOR = "sensor"
-    const val GPS = "gps"
-    const val VIBE = "vibe"
-    const val SCREEN = "screen"
 
     /** UAC2 声卡搬运（手机麦克风 ↔ PC 扬声器） */
     const val AUDIO = "audio"
@@ -58,9 +54,6 @@ object ModuleId {
 
     /** 蓝牙 HID 设备（PC 零驱动识别为鼠标/键盘/多媒体键） */
     const val BTHID = "bthid"
-
-    /** 摄像头（f_uvc 复合设备 / 系统摄像头双路线） */
-    const val CAMERA = "camera"
 }
 
 /**
