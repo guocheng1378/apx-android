@@ -40,6 +40,9 @@ class TouchpadModule : Module {
 
     private var ptpThread: Thread? = null
 
+    /** PTP contact ID allocator (cycles 0-3) */
+    @Volatile private var nextContactId: Int = 0
+
     /** MotionEvent → contact snapshot (synchronized with Motion 8ms delta) */
     private fun updatePtpContacts(ev: android.view.MotionEvent) {
         when (ev.actionMasked) {
@@ -101,7 +104,7 @@ class TouchpadModule : Module {
             bytes[off + 2] = (x and 0xFF).toByte(); bytes[off + 3] = ((x shr 8) and 0xFF).toByte()
             bytes[off + 4] = (y and 0xFF).toByte(); bytes[off + 5] = ((y shr 8) and 0xFF).toByte()
         }
-        val scan = ((android.os.SystemClock.elapsedRealtimeMicros()) / 10 and 0xFFFF).toInt()
+        val scan = ((android.os.SystemClock.elapsedRealtimeMicros()) / 10L and 0xFFFFL).toInt()
         bytes[46] = (scan and 0xFF).toByte()
         bytes[47] = ((scan shr 8) and 0xFF).toByte()
         bytes[48] = n.toByte()                        // Contact Count
