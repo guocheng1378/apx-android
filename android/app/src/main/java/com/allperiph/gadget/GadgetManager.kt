@@ -72,7 +72,6 @@ class GadgetManager(
     @Volatile
     private var lastError: String? = null
 
-    // ———— 优化 #3：heal 退避策略 ————
     private var healCount = 0
 
     override fun start(ctx: ModuleContext) {
@@ -118,30 +117,16 @@ class GadgetManager(
                     return
                 }
 
-                val systemGadget = "g1"
-                val systemConfig = "b.1"
-                Log.i(TAG, "build=reuse-v2，优先复用 $systemGadget/$systemConfig")
-
-                val ownRoot = resolveConfigfsRoot(sh)
-                FfsChannel.close()
-                runSteps(ConfigFsLayout.forceClean(GadgetOptions(configfsRoot = ownRoot)), sh)
-                val base = {
-                    GadgetOptions(
-                        bcdUsb = if (best.speed.isSuperSpeed) UsbId.BCD_USB_30 else UsbId.BCD_USB_20,
-                        reportLength = ApxNative.hidMaxReportLengthOrDefault(),
-                        reportDescSource = descFile,
-                    )
-                }
-                Log.i(TAG, "build=own-v3，直接自建 gadget（复用 g1 已证实不可行）")
-                val options = base().copy(configfsRoot = resolveConfigfsRoot(sh))
+                Log.i(TAG, "build=own-v3，直接自建 gadget")
+                val options = GadgetOptions(
+                    bcdUsb = if (best.speed.isSuperSpeed) UsbId.BCD_USB_30 else UsbId.BCD_USB_20,
+                    reportLength = ApxNative.hidMaxReportLengthOrDefault(),
+                    reportDescSource = descFile,
+                ).copy(configfsRoot = resolveConfigfsRoot(sh))
                 val mounted = runSteps(ConfigFsLayout.mount(options, best.name), sh)
                 if (!mounted) {
                     val diag = sh.exec("dmesg 2>/dev/null | tail -40 | tr '\\n' ' '")
                     Log.e(TAG, "内核日志：${diag.out.take(400)}")
-                    val udcState = sh.exec(
-                        "for u in /sys/class/udc/*/state; do echo \"\$u=[\$(cat \"\$u\" 2>&1)]\"; done",
-                    )
-                    Log.e(TAG, "UDC 状态：${udcState.out.take(300)}")
                     fail("ConfigFS 挂载失败")
                     arb.release()
                     return
@@ -169,11 +154,10 @@ class GadgetManager(
                 }
 
                 runtime.attachHid(this)
-
                 startFfsDescriptorWriter()
 
                 lastError = null
-                healCount = 0  // 挂载成功，重置自愈计数
+                healCount = 0
                 state = if (best.speed.isSuperSpeed) ModuleState.RUNNING else ModuleState.DEGRADED
                 publishState("mounted on ${best.name} (${best.rawSpeed})")
                 startWatchdog()
@@ -188,36 +172,22 @@ class GadgetManager(
         val sh = shell ?: return
         val probe = sh.exec("test -e '${SysPath.FFS_EP0}' && echo yes")
         if (!probe.out.contains("yes")) {
-            Log.w(TAG, "FunctionFS ep0 不存在（内核无 f_fs 或挂载失败）：副屏 bulk 通道不可用")
+            Log.w(TAG, "FunctionFS ep0 不存在：副屏 bulk 通道不可用")
             return
         }
         kotlin.concurrent.thread(start = true, name = "apx-ffs-desc") {
             val rc = FfsChannel.writeDescriptors()
-            sh.exec(
-                "f=/data/local/tmp/apx_ffs.txt; " +
-                    "echo 'rc=$rc' > \$f; " +
-                    "echo '== functions ==' >> \$f; " +
-                    "ls -1 /config/usb_gadget/${GadgetConst.GADGET_NAME}/functions >> \$f 2>&1; " +
-                    "echo '== ffs mount dir ==' >> \$f; " +
-                    "ls -l ${SysPath.FFS_MOUNT_DIR} >> \$f 2>&1; " +
-                    "chmod 644 \$f",
-            )
-            if (rc == 0) {
-                Log.i(TAG, "FunctionFS 描述符已写入：副屏 bulk 端点（ep1 下行 / ep2 上行）就绪")
-            } else {
-                Log.w(TAG, "FunctionFS 描述符写入失败 rc=$rc")
-            }
+            if (rc == 0) Log.i(TAG, "FunctionFS 描述符已写入：副屏 bulk 端点就绪")
+            else Log.w(TAG, "FunctionFS 描述符写入失败 rc=$rc")
         }
     }
 
     private fun registerSensorFeatureReports() {
         Log.i(TAG, "传感器 TLC 已移出描述符（蓝屏规避），跳过 Feature 登记")
-        return
     }
 
     private fun registerPtpFeatureReports() {
         Log.i(TAG, "PTP 描述符已移除，跳过 Feature 登记")
-        return
     }
 
     private fun stageDescriptor(bytes: ByteArray): String? {
@@ -259,7 +229,7 @@ class GadgetManager(
         if (cmd.cmd == VendorCmd.HEARTBEAT) {
             lastHeartbeatMs = android.os.SystemClock.elapsedRealtime()
             everConnected = true
-            healCount = 0  // 优化 #3：连接恢复，重置自愈计数
+            healCount = 0
         }
         runtime.beginCommand(cmd.seq)
         EventBus.post(VendorCommandEvent(cmd))
@@ -274,7 +244,6 @@ class GadgetManager(
                 Log.w(TAG, "heal skipped: shell=${sh != null} udc=${best?.name}")
                 return
             }
-            // 优化 #3：退避策略，连续失败超过上限时停止自愈
             if (healCount >= MAX_HEAL) {
                 Log.e(TAG, "heal 已连续失败 $healCount 次（上限 $MAX_HEAL），停止自愈等待手动干预")
                 return
@@ -282,8 +251,6 @@ class GadgetManager(
             val backoff = HEAL_BACKOFF_MS[healCount.coerceAtMost(HEAL_BACKOFF_MS.size - 1)]
             Log.w(TAG, "heal: $reason (attempt ${healCount + 1}/$MAX_HEAL, backoff ${backoff}ms)")
             healCount++
-
-            // 退避等待（可被 shutdown 中断）
             try { Thread.sleep(backoff) } catch (_: InterruptedException) { return }
 
             closeDevices()
@@ -318,28 +285,21 @@ class GadgetManager(
     private fun closeDevices() {
         runtime.detachHid()
         runtime.detachSerial()
-        hidDev?.close()
-        hidDev = null
-        serialDev?.close()
-        serialDev = null
+        hidDev?.close(); hidDev = null
+        serialDev?.close(); serialDev = null
     }
 
     private fun startWatchdog() {
         val t = kotlin.concurrent.thread(start = true, name = "apx-gadget-wd") {
             while (state.isActive) {
-                try {
-                    Thread.sleep(HEARTBEAT_INTERVAL_MS)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
+                try { Thread.sleep(HEARTBEAT_INTERVAL_MS) }
+                catch (e: InterruptedException) { Thread.currentThread().interrupt(); break }
                 sendStatusReport()
                 val elapsed = android.os.SystemClock.elapsedRealtime() - lastHeartbeatMs
                 if (everConnected && lastHeartbeatMs > 0 && elapsed > HEARTBEAT_TIMEOUT_MS) {
                     heal("heartbeat lost ${elapsed}ms")
                 }
             }
-            Log.i(TAG, "watchdog exit")
         }
         watchdog = t
     }
@@ -358,36 +318,26 @@ class GadgetManager(
     override fun stop() {
         synchronized(lock) {
             if (state == ModuleState.STOPPED || state == ModuleState.IDLE) {
-                state = ModuleState.STOPPED
-                return
+                state = ModuleState.STOPPED; return
             }
             state = ModuleState.STOPPING
-            watchdog?.interrupt()
-            watchdog = null
-            closeDevices()
-            FfsChannel.close()
-            val sh = shell
-            val options = currentOptions ?: GadgetOptions()
+            watchdog?.interrupt(); watchdog = null
+            closeDevices(); FfsChannel.close()
+            val sh = shell; val options = currentOptions ?: GadgetOptions()
             if (sh != null && !sh.isBroken) {
                 runSteps(ConfigFsLayout.unmount(options), sh)
                 runSteps(ConfigFsLayout.forceClean(options), sh)
             }
-            arbiter?.release()
-            arbiter = null
-            sh?.close()
-            shell = null
-            udc = null
-            everConnected = false
-            lastHeartbeatMs = 0L
-            healCount = 0
+            arbiter?.release(); arbiter = null
+            sh?.close(); shell = null
+            udc = null; everConnected = false; lastHeartbeatMs = 0L; healCount = 0
             state = ModuleState.STOPPED
             publishState("stopped")
         }
     }
 
     private fun fail(reason: String) {
-        lastError = reason
-        state = ModuleState.ERROR
+        lastError = reason; state = ModuleState.ERROR
         Log.e(TAG, "gadget error: $reason")
         runCatching {
             val sh = shell
@@ -395,11 +345,8 @@ class GadgetManager(
                 val options = currentOptions ?: GadgetOptions()
                 runSteps(ConfigFsLayout.forceClean(options), sh)
             }
-            arbiter?.release()
-            arbiter = null
-            closeDevices()
-            sh?.close()
-            shell = null
+            arbiter?.release(); arbiter = null
+            closeDevices(); sh?.close(); shell = null
         }.onFailure { Log.w(TAG, "失败清理异常：${it.message}") }
         publishState("error: $reason")
     }
@@ -412,25 +359,26 @@ class GadgetManager(
 
     override fun isReady(): Boolean = state.isActive && hidDev?.isReady() == true
 
-    override fun statusText(): String {
-        val u = udc
-        return buildString {
-            append("state=$state")
-            append(" udc=${u?.name ?: "-"}")
-            append(" speed=${linkSpeed.label}")
-            if (u != null && u.rawSpeed.isNotBlank()) append(" (${u.rawSpeed})")
-            lastError?.let { append(" err=$it") }
+    override fun statusText(): String = when (state) {
+        ModuleState.RUNNING -> {
+            val u = udc
+            val speed = if (linkSpeed.isSuperSpeed) "USB 3.0" else "USB 2.0"
+            "Gadget 运行中 · $speed · ${u?.name ?: ""}".trimEnd(' ', '·')
         }
+        ModuleState.DEGRADED -> "Gadget 降级运行（${linkSpeed.label}）"
+        ModuleState.STARTING -> "Gadget 启动中"
+        ModuleState.STOPPING -> "Gadget 停止中"
+        ModuleState.STOPPED -> "Gadget 已停止"
+        ModuleState.IDLE -> "Gadget 未启动"
+        ModuleState.ERROR -> lastError?.let { "Gadget 错误：$it" } ?: "Gadget 错误"
+        else -> state.name
     }
 
     companion object {
         private const val TAG = "GadgetManager"
         private const val DESC_FILE_NAME = "hid_report_desc.bin"
-
-        // ———— 优化 #3：heal 退避策略常量 ————
         private const val MAX_HEAL = 3
         private val HEAL_BACKOFF_MS = longArrayOf(2000, 5000, 15000)
-
         fun currentLinkSpeed(m: Module?): LinkSpeed? = (m as? GadgetManager)?.linkSpeed
     }
 }
