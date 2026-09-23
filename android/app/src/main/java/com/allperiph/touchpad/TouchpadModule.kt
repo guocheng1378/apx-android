@@ -104,7 +104,7 @@ class TouchpadModule : Module {
             bytes[off + 2] = (x and 0xFF).toByte(); bytes[off + 3] = ((x shr 8) and 0xFF).toByte()
             bytes[off + 4] = (y and 0xFF).toByte(); bytes[off + 5] = ((y shr 8) and 0xFF).toByte()
         }
-        val scan = ((android.os.SystemClock.elapsedRealtimeMicros()) / 10L and 0xFFFFL).toInt()
+        val scan = ((android.os.SystemClock.elapsedRealtime()) / 10L and 0xFFFFL).toInt()
         bytes[46] = (scan and 0xFF).toByte()
         bytes[47] = ((scan shr 8) and 0xFF).toByte()
         bytes[48] = n.toByte()                        // Contact Count
