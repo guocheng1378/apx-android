@@ -47,9 +47,6 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Clean build cache
-        run: ./gradlew clean --no-daemon
-
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
         shell: bash
