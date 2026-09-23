@@ -71,7 +71,6 @@ class BtHidDevice(private val appContext: Context) : Module {
     override fun start(ctx: ModuleContext) {
         state = ModuleState.STARTING
         if (!hasConnect()) {
-            // 如实降级：UI 尚未授予蓝牙权限时不启动，也不抛异常（Binder 回调线程会杀进程）
             state = ModuleState.DEGRADED
             Log.w(TAG, "缺少 BLUETOOTH_CONNECT 权限：蓝牙 HID 暂不可用，请在 UI 授权后重启模块")
             return
@@ -94,9 +93,6 @@ class BtHidDevice(private val appContext: Context) : Module {
             Log.w(TAG, "registerApp 时 BLUETOOTH_CONNECT 已被撤销，跳过注册")
             return
         }
-        // AppSdpSettings / AppQosSettings 是 android.bluetooth 包的顶层类（API 28+）；
-        // descriptors = 完整 HID 报告描述符字节流（buildBtReportDescriptor 同源）。
-        // 本调用在蓝牙 Binder 回调线程执行：任何 SecurityException 都不能外抛。
         runCatching {
             val qos = BluetoothHidDeviceAppQosSettings(
                 BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250, 11250)
@@ -110,23 +106,16 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
     }
 
-    /** PC 蓝牙地址经面板输入或扫码获得；连接后 PC 即可接收 HID 报告 */
     fun connect(host: BluetoothDevice) {
         runCatching { if (hasConnect()) hidDevice?.connect(host) }
     }
 
-    /** 发送鼠标报告（相对位移）。与 PC 端 MouseFrame 对齐 */
     fun reportMouse(buttons: Int, dx: Int, dy: Int, wheel: Int, pan: Int) {
         if (!isConnected || !hasConnect()) return
         val r = byteArrayOf(0x01, buttons.toByte(), dx.toByte(), dy.toByte(), wheel.toByte(), pan.toByte())
         runCatching { hidDevice?.sendReport(null, 0x01, r) }
     }
 
-    /**
-     * 发送 Consumer 按键位图（媒体键）。蓝牙版描述符的 Consumer TLC Report ID = 3
-     * （§2.11：1=Mouse 2=Keyboard 3=Consumer），sendReport 的 data 不含 reportId，
-     * 只含 u16 位图（LE）。按下与释放均发全量位图，PC 按位比对得边沿。
-     */
     fun reportConsumer(keyBitmap: Int) {
         if (!isConnected || !hasConnect()) return
         val r = byteArrayOf((keyBitmap and 0xFF).toByte(), ((keyBitmap shr 8) and 0xFF).toByte())
@@ -136,17 +125,20 @@ class BtHidDevice(private val appContext: Context) : Module {
 
     override fun statusText(): String = when (state) {
         ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体）" else "蓝牙 HID 已注册（待 PC 配对）"
-        ModuleState.STARTING -> "注册中…"
-        ModuleState.ERROR -> "无蓝牙适配器"
+        ModuleState.STARTING -> "蓝牙 HID 启动中"
+        ModuleState.DEGRADED -> "蓝牙 HID 权限不足"
+        ModuleState.ERROR -> "蓝牙 HID 错误：无蓝牙适配器"
+        ModuleState.STOPPING -> "蓝牙 HID 停止中"
+        ModuleState.STOPPED -> "蓝牙 HID 已停止"
+        ModuleState.IDLE -> "蓝牙 HID 未启动"
         else -> state.name
     }
 
-    override fun maskBits(): Long = if (state.isActive) (1L shl 34) else 0  // §2.9 蓝牙 HID 位
+    override fun maskBits(): Long = if (state.isActive) (1L shl 34) else 0
 
     companion object { private const val TAG = "BtHidDevice" }
 }
 
-/** 蓝牙 HID 裁剪版描述符（鼠标 + 键盘 + 多媒体键），与 shared/src/hid_descriptor.cpp buildBtReportDescriptor 同义 */
 object BtHidDescriptor {
     val bytes: ByteArray = byteArrayOf(
         0x05, 0x01, 0x09, 0x02, 0xA1.toByte(), 0x01, 0x09, 0x01, 0xA1.toByte(), 0x00,
