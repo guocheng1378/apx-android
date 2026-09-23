@@ -1,6 +1,14 @@
 package com.allperiph.core
 
 /**
+ * IMU flags (PROTOCOL §2.3).
+ */
+object ImuFlag {
+    const val NEED_RESYNC = 0x01
+    const val SAMPLE_LOST = 0x02
+}
+
+/**
  * 时钟与同步（PROTOCOL §1）。
  * 手机端时基统一 [nowNs]（单调、含深睡）；与 PC 的偏移用**最小 RTT** 估计 + 指数平滑。
  */
