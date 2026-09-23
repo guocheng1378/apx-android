@@ -7,8 +7,8 @@ import android.os.Looper
 /**
  * 运行时容器：实现 [ModuleContext]，持有模块注册表与可热替换的传输口。
  *
- * 依赖方向：模块只依赖 core 的接口；gadget 挂载成功后通过 [attachHid] / [attachSerial]
- * 把真实实现注入，业务模块引用的代理对象无需重建（链路自愈时重新 attach 即可）。
+ * 优化 #10：snapshotStatus() 增加脏标记缓存，
+ * 只在模块状态变化时重算 snapshot，避免每帧（8ms）都 map + fold。
  */
 class AgentRuntime(private val app: Context) : ModuleContext {
 
@@ -41,7 +41,6 @@ class AgentRuntime(private val app: Context) : ModuleContext {
 
     // ————————— §2.7 lastSeq / errorCode：命令执行回显（v1.1）—————————
 
-    /** 最后**执行成功**的命令 seq；被拒绝的命令不更新，PC 侧据此判断命令是否生效 */
     @Volatile
     var lastSeq: Int = 0
         private set
@@ -51,22 +50,16 @@ class AgentRuntime(private val app: Context) : ModuleContext {
     @Volatile
     private var pendingRejected: Boolean = false
 
-    /** 收到一条 OUT 命令时调用（HID 读线程内，命令分发前） */
     fun beginCommand(seq: Int) {
         pendingSeq = seq
         pendingRejected = false
     }
 
-    /** 消费者判定无法执行时调用：置错误码，并阻止本条命令回显 seq */
     fun rejectCommand(code: Int) {
         lastErrorCode = code
         pendingRejected = true
     }
 
-    /**
-     * 命令分发完成后调用（EventBus 为同步派发，返回即代表同步消费者已处理完）。
-     * 未被拒绝 → 回显 seq 并清除错误码；被拒绝 → 保留错误码，不回显。
-     */
     fun endCommand() {
         val seq = pendingSeq
         pendingSeq = -1
@@ -85,9 +78,23 @@ class AgentRuntime(private val app: Context) : ModuleContext {
     fun attachSerial(t: SerialSink) = serialPort.attach(t)
     fun detachSerial() = serialPort.detach()
 
-    /** 汇总状态，供 UI 与 Report 5 上报共用 */
+    // ———— 优化 #10：snapshotStatus 缓存 ————
+    // watchdog 每 HEARTBEAT_INTERVAL_MS（约 1s）调一次，但 8ms PTP 帧线程
+    // 也会间接触发（通过 EventBus post 后重算）。用脏标记避免重复 fold。
+    @Volatile
+    private var cachedStates: List<ModuleState>? = null
+
+    /** 标记模块状态有变化，下次 snapshotStatus 重算 */
+    fun invalidateSnapshot() {
+        cachedStates = null
+    }
+
+    /**
+     * 汇总状态，供 UI 与 Report 5 上报共用。
+     * 优化：只在模块状态变化时重新遍历注册表。
+     */
     fun snapshotStatus(linkSpeed: LinkSpeed): AgentStateEvent {
-        val states = registry.all().map { it.state }
+        val states = cachedStates ?: registry.all().map { it.state }.also { cachedStates = it }
         val overall = when {
             states.any { it == ModuleState.ERROR } -> ModuleState.ERROR
             states.any { it == ModuleState.DEGRADED } -> ModuleState.DEGRADED
