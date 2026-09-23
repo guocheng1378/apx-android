@@ -74,10 +74,6 @@ class GadgetManager(
 
     // ———— 优化 #3：heal 退避策略 ————
     private var healCount = 0
-    private companion object HealLimits {
-        const val MAX_HEAL = 3
-        val HEAL_BACKOFF_MS = longArrayOf(2000, 5000, 15000)
-    }
 
     override fun start(ctx: ModuleContext) {
         synchronized(lock) {
@@ -430,6 +426,10 @@ class GadgetManager(
     companion object {
         private const val TAG = "GadgetManager"
         private const val DESC_FILE_NAME = "hid_report_desc.bin"
+
+        // ———— 优化 #3：heal 退避策略常量 ————
+        private const val MAX_HEAL = 3
+        private val HEAL_BACKOFF_MS = longArrayOf(2000, 5000, 15000)
 
         fun currentLinkSpeed(m: Module?): LinkSpeed? = (m as? GadgetManager)?.linkSpeed
     }
