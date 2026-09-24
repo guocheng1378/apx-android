@@ -37,6 +37,7 @@
 #include "apxpc/log.hpp"
 #include "apxpc/media/audio_capture.hpp"
 #include "apxpc/media/media_session.hpp"
+#include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/wireless/wireless_session.hpp"
@@ -103,6 +104,7 @@ enum : int {
     IDC_EDIT_HOST = 1008,
     IDC_EDIT_PORT = 1009,
     IDC_COMBO_DEV = 1010,   // 音箱：采集哪块播放设备
+    IDC_COMBO_MIC = 1011,   // 麦克风桥：手机声音渲染到哪块播放设备
 };
 
 constexpr UINT_PTR kRefreshTimer = 1;
@@ -136,7 +138,8 @@ struct Layout {
     Rect cardScreen, labelScreen, switchScreen, screenStatus, screenDetail;
     Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
-    Rect cardMic, labelMic, micStatus, micDetail;
+    Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
+    Rect cardCam, labelCam, camStatus, camPreview, camDetail;
 
     Rect hdrWired;                 // 「有线」分类标题（蓝牙或 USB 开时出现）
     Rect cardBt, labelBtCard, btStatus, btDetail;
@@ -194,12 +197,23 @@ Layout layout(const VisToggles& v) {
         l.speakerDetail = {kContentX, y + 124, kCardW - 2 * kCardPad, 18};
         l.btnTestSpeaker = {kContentX, y + 144, 92, 28};
         y += 172 + 14;
-        // 麦克风（手机麦克风上行，PC 收流）
-        l.cardMic = {kCardX, y, kCardW, 96};
+        // 麦克风（手机麦克风上行 → PC 收流；可转发到 PC 播放设备）
+        l.cardMic = {kCardX, y, kCardW, 152};
         l.labelMic = {kContentX, y + 14, 300, 24};
+        l.switchMicFwd = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
         l.micStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
-        l.micDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
-        y += 96 + 14;
+        l.labelMicDev = {kContentX, y + 74, 64, 26};
+        l.micCombo = {kContentX + 68, y + 74, kCardW - 2 * kCardPad - 68, 26};
+        l.micDetail = {kContentX, y + 108, kCardW - 2 * kCardPad, 18};
+        y += 152 + 14;
+        // 摄像头（Wi‑Fi）：手机相机 JPEG 上行，卡内实时预览
+        const int camPreviewH = 220;
+        l.cardCam = {kCardX, y, kCardW, 14 + 24 + 20 + 8 + camPreviewH + 8 + 18 + 12};
+        l.labelCam = {kContentX, y + 14, 300, 24};
+        l.camStatus = {kContentX, y + 44, kCardW - 2 * kCardPad, 20};
+        l.camPreview = {kContentX, y + 70, kCardW - 2 * kCardPad, camPreviewH};
+        l.camDetail = {kContentX, y + 70 + camPreviewH + 8, kCardW - 2 * kCardPad, 18};
+        y += l.cardCam.h + 14;
     }
     if (v.bt || v.usb) {
         l.hdrWired = {kCardX, y, kCardW, 28};
@@ -317,6 +331,10 @@ struct Panel {
     std::unique_ptr<apxpc::media::ScreenPush> screenPush;
     /// 「音箱」：把系统声音（WASAPI loopback）送到手机扬声器
     std::unique_ptr<apxpc::media::AudioCapture> audio;
+    /// 「麦克风」：手机麦克风上行 PCM 渲染到 PC 播放设备（虚拟声卡 → 微信当麦克风）
+    std::unique_ptr<apxpc::media::MicBridge> micBridge;
+    std::string micDeviceId;                 // 渲染到的 endpoint id（空 = 默认）
+    std::vector<std::string> micDevIds;      // 下拉各项对应的 id
 
     // 媒体建链是 3 秒级**阻塞**操作，绝不能放 UI 线程（会整窗卡住）。
     // 用一次性工作线程 + 忙标志：join 只在确认线程已收手时调用，因此不会阻塞 UI。
@@ -335,6 +353,11 @@ struct Panel {
     std::string speakerDeviceId;
     /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
     std::vector<std::string> speakerDevIds;
+    /// 摄像头预览：媒体收流线程存最新 JPEG，paint 时解码绘制（400ms 一拍天然限频）
+    std::mutex camMu;
+    std::vector<uint8_t> camJpeg;
+    bool camJpegValid = false;
+
     /// 上一轮"默认设备 ID + 全部端点 ID"的指纹。设备增删或默认易主时靠它发现，
     /// 用来刷新下拉标题 —— 否则会一直写着"跟随系统默认（旧的某块）"。
     std::string lastDevSig;
@@ -650,6 +673,63 @@ void onSpeakerDeviceChanged(Panel* p) {
     }
 }
 
+/// ————————————————— 麦克风桥（手机麦 → PC 播放设备） —————————————————
+
+void refreshMicCombo(Panel* p) {
+    HWND cb = GetDlgItem(p->hwnd, IDC_COMBO_MIC);
+    if (!cb) return;
+    const auto devs = apxpc::media::AudioCapture::listRenderDevices();
+    const std::string defName = apxpc::media::AudioCapture::defaultRenderDeviceName();
+
+    p->micDevIds.clear();
+    SendMessageW(cb, CB_RESETCONTENT, 0, 0);
+
+    std::wstring first = L"跟随系统默认";
+    if (!defName.empty()) first += L"（" + toWide(defName) + L"）";
+    SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(first.c_str()));
+    p->micDevIds.emplace_back();
+
+    for (const auto& d : devs) {
+        std::wstring item = toWide(d.name);
+        if (d.isDefault) item += L"   · 系统默认";
+        SendMessageW(cb, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
+        p->micDevIds.push_back(d.id);
+    }
+
+    int sel = 0;
+    if (!p->micDeviceId.empty()) {
+        for (size_t i = 0; i < p->micDevIds.size(); ++i) {
+            if (p->micDevIds[i] == p->micDeviceId) { sel = static_cast<int>(i); break; }
+        }
+        if (sel == 0) p->micDeviceId.clear();
+    }
+    SendMessageW(cb, CB_SETCURSEL, sel, 0);
+}
+
+void onMicDeviceChanged(Panel* p) {
+    HWND cb = GetDlgItem(p->hwnd, IDC_COMBO_MIC);
+    if (!cb) return;
+    const int sel = static_cast<int>(SendMessageW(cb, CB_GETCURSEL, 0, 0));
+    if (sel < 0 || sel >= static_cast<int>(p->micDevIds.size())) return;
+    p->micDeviceId = p->micDevIds[static_cast<size_t>(sel)];
+    if (!p->micBridge || !p->micBridge->running()) return;
+    // 转发中换设备：立即重启桥，换了不生效比不能换更让人困惑
+    p->micBridge->start(p->micDeviceId);
+}
+
+/// 转发开关：把手机麦克风上行 PCM 渲染到选定播放设备。
+/// 装了虚拟声卡（如 VB-Cable）时选它的输入端，微信/会议选其输出端即可用手机麦。
+void toggleMicForward(Panel* p) {
+    if (!p->micBridge) return;
+    if (p->micBridge->running()) {
+        p->micBridge->stop();
+        InvalidateRect(p->hwnd, nullptr, FALSE);
+        return;
+    }
+    p->micBridge->start(p->micDeviceId);
+    InvalidateRect(p->hwnd, nullptr, FALSE);
+}
+
 /// 试听：合成一段测试音直接推到手机，用于验证「下行链路是否真通到手机扬声器」。
 /// 不依赖系统此刻有没有在放声音 —— 点一下手机该出声；没声就是手机音量/模块问题。
 void testSpeakerClick(Panel* p) {
@@ -702,6 +782,7 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.swUsb.has(x, y) || L.lblUsb.has(x, y)) h = Hit::SwitchUsb;
     else if (L.switchScreen.has(x, y) || L.labelScreen.has(x, y)) h = Hit::SwitchScreen;
     else if (L.switchSpeaker.has(x, y) || L.labelSpeaker.has(x, y)) h = Hit::SwitchSpeaker;
+    else if (L.switchMicFwd.has(x, y) || L.labelMic.has(x, y)) h = Hit::SwitchMic;
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
@@ -873,7 +954,7 @@ void paint(HWND hwnd, Panel* p) {
                          phoneAudioColor(s));
                 }
             }
-            // 麦克风（手机麦克风上行，PC 收流）
+            // 麦克风（手机麦克风上行 → PC 收流；转发 = 渲染到 PC 播放设备）
             fillRound(g, L.cardMic, 18.0f, tok::surface);
             text(g, L"麦克风（手机当电脑麦克风）", L.labelMic, *p->fSection, tok::primary);
             {
@@ -889,11 +970,95 @@ void paint(HWND hwnd, Panel* p) {
                 } else {
                     st = L"手机麦克风未开启"; col = tok::stateWarn;
                 }
+                // 转发开关（开关在，链路没连也能开——连上即生效）
+                const bool fwd = p->micBridge && p->micBridge->running();
+                paintSwitch(g, L.switchMicFwd, fwd, p->hot == Hit::SwitchMic);
                 text(g, st, L.micStatus, *p->fBody, col);
-                wchar_t b[128];
-                std::swprintf(b, 128, L"PC 已收 %llu 帧 · 48k/16bit/立体声",
-                              static_cast<unsigned long long>(mic));
-                text(g, b, L.micDetail, *p->fCaption, tok::onVariant);
+                text(g, L"转发到", L.labelMicDev, *p->fCaption, tok::onVariant);
+
+                std::wstring detail;
+                if (fwd) {
+                    const auto ms = p->micBridge->status();
+                    if (!ms.error.empty()) {
+                        detail = L"转发失败：" + toWide(ms.error);
+                    } else {
+                        wchar_t fb[192];
+                        std::swprintf(fb, 192, L"转发中 → %s（已送 %llu ms 丢 %llu）",
+                                      toWide(ms.device).c_str(),
+                                      static_cast<unsigned long long>(ms.played / 96),
+                                      static_cast<unsigned long long>(ms.dropped / 192));
+                        detail = fb;
+                        col = tok::stateOk;
+                    }
+                } else {
+                    detail = L"打开右上开关：选虚拟声卡（如 VB-Cable 输入）即可让微信/会议用手机麦；"
+                             L"选真实声卡 = 直接听手机的声音";
+                }
+                text(g, detail, L.micDetail, *p->fCaption, fwd ? col : tok::onVariant);
+            }
+
+            // 摄像头（手机相机 JPEG → 卡内实时预览）
+            fillRound(g, L.cardCam, 18.0f, tok::surface);
+            text(g, L"摄像头（手机相机 → PC）", L.labelCam, *p->fSection, tok::primary);
+            {
+                const uint64_t cam = p->media ? p->media->counters().cameraFrames : 0;
+                Gdiplus::ARGB col = tok::stateIdle;
+                std::wstring st;
+                if (s.phase != LinkPhase::Connected) {
+                    st = L"未连接";
+                } else if (cam == 0) {
+                    st = L"等待画面（确认手机摄像头权限已授予）";
+                } else {
+                    st = L"摄像头运行中"; col = tok::stateOk;
+                }
+                text(g, st, L.camStatus, *p->fBody, col);
+
+                std::vector<uint8_t> jpeg;
+                bool valid = false;
+                {
+                    std::lock_guard<std::mutex> lk(p->camMu);
+                    jpeg = p->camJpeg;
+                    valid = p->camJpegValid;
+                }
+                bool drawn = false;
+                if (valid && !jpeg.empty()) {
+                    IStream* stm = nullptr;
+                    if (::CreateStreamOnHGlobal(nullptr, TRUE, &stm) == S_OK) {
+                        ULONG written = 0;
+                        stm->Write(jpeg.data(), static_cast<ULONG>(jpeg.size()), &written);
+                        Gdiplus::Image img(stm, FALSE);
+                        if (img.GetLastStatus() == Gdiplus::Ok && img.GetWidth() > 0) {
+                            Gdiplus::RectF dst(
+                                static_cast<Gdiplus::REAL>(L.camPreview.x),
+                                static_cast<Gdiplus::REAL>(L.camPreview.y),
+                                static_cast<Gdiplus::REAL>(L.camPreview.w),
+                                static_cast<Gdiplus::REAL>(L.camPreview.h));
+                            Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
+                            g.FillRectangle(&bg, dst);
+                            g.SetInterpolationMode(Gdiplus::InterpolationModeBilinear);
+                            g.DrawImage(&img, dst, 0, 0,
+                                        static_cast<Gdiplus::REAL>(img.GetWidth()),
+                                        static_cast<Gdiplus::REAL>(img.GetHeight()),
+                                        Gdiplus::UnitPixel);
+                            drawn = true;
+                        }
+                        stm->Release();
+                    }
+                }
+                if (!drawn) {
+                    Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
+                    Gdiplus::RectF dst(
+                        static_cast<Gdiplus::REAL>(L.camPreview.x),
+                        static_cast<Gdiplus::REAL>(L.camPreview.y),
+                        static_cast<Gdiplus::REAL>(L.camPreview.w),
+                        static_cast<Gdiplus::REAL>(L.camPreview.h));
+                    g.FillRectangle(&bg, dst);
+                }
+
+                wchar_t cb[160];
+                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · JPEG · 无需虚拟摄像头即可预览",
+                              static_cast<unsigned long long>(cam));
+                text(g, cb, L.camDetail, *p->fCaption, tok::onVariant);
             }
         }
 
@@ -988,6 +1153,9 @@ void performHit(Panel* p, Hit h) {
         case Hit::SwitchSpeaker:
             toggleSpeaker(p);
             break;
+        case Hit::SwitchMic:
+            toggleMicForward(p);
+            break;
         case Hit::TestSpeaker:
             testSpeakerClick(p);
             break;
@@ -1064,7 +1232,18 @@ void createChildren(Panel* p) {
     if (combo) {
         SendMessageW(combo, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
     }
+    // 麦克风桥：渲染到哪块播放设备
+    const Rect& rcMic = L.micCombo;
+    HWND comboMic = CreateWindowExW(
+        0, L"COMBOBOX", nullptr,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
+        rcMic.x, rcMic.y, rcMic.w, rcMic.h + 8 * 20,
+        p->hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_COMBO_MIC)), nullptr, nullptr);
+    if (comboMic) {
+        SendMessageW(comboMic, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+    }
     refreshSpeakerCombo(p);
+    refreshMicCombo(p);
     p->lastDevSig = speakerDevSignature();   // 首帧指纹，避免首个 tick 立刻重刷
 }
 
@@ -1189,6 +1368,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_COMMAND: {
             if (p && LOWORD(wp) == IDC_COMBO_DEV && HIWORD(wp) == CBN_SELCHANGE) {
                 onSpeakerDeviceChanged(p);
+                return 0;
+            }
+            if (p && LOWORD(wp) == IDC_COMBO_MIC && HIWORD(wp) == CBN_SELCHANGE) {
+                onMicDeviceChanged(p);
                 return 0;
             }
             break;
@@ -1418,6 +1601,20 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     panel.media = std::make_unique<apxpc::media::MediaSession>();
     panel.screenPush = std::make_unique<apxpc::media::ScreenPush>();
     panel.audio = std::make_unique<apxpc::media::AudioCapture>();
+    panel.micBridge = std::make_unique<apxpc::media::MicBridge>();
+    // 手机麦克风上行（streamId=5）→ 桥（转发开关打开时才真正送渲染）
+    // 摄像头 JPEG（streamId=6）→ 卡内预览（paint 时解码，天然限频）
+    panel.media->setHandler([&panel](uint8_t streamId, uint8_t, uint32_t,
+                                     const uint8_t* body, size_t len) {
+        if (streamId == apxpc::media::kStreamMic && panel.micBridge &&
+            panel.micBridge->running()) {
+            panel.micBridge->feed(body, len);
+        } else if (streamId == apxpc::media::kStreamCamera) {
+            std::lock_guard<std::mutex> lk(panel.camMu);
+            panel.camJpeg.assign(body, body + len);
+            panel.camJpegValid = true;
+        }
+    });
 
     // 初始：自动发现并立刻进入等待
     panel.session->startAuto();

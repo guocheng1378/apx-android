@@ -970,6 +970,9 @@ class MainActivity : Activity() {
             val enabled = AgentController.isEnabled(this, m.id)
             row.sw.isChecked = enabled
             row.sw.setOnCheckedChangeListener { _, checked ->
+                if (checked && m.id == com.allperiph.core.ModuleId.CAMERA) {
+                    ensureCameraPermission()   // 摄像头开关打开时立即请求（首次必弹）
+                }
                 AgentController.setModuleEnabled(this, m.id, checked)
                 refresh()
             }
@@ -1463,6 +1466,10 @@ class MainActivity : Activity() {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
                 PackageManager.PERMISSION_GRANTED
             ) add(Manifest.permission.RECORD_AUDIO)
+            // 摄像头（CameraModule JPEG 上行）需要 CAMERA；不弹则模块启动时报错引导
+            if (checkSelfPermission(Manifest.permission.CAMERA) !=
+                PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.CAMERA)
             // GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION，缺失时 GPS 模块 ERROR
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
                 PackageManager.PERMISSION_GRANTED

@@ -209,6 +209,7 @@ endif()
 set(APXPC_MEDIA_SRC
   "${APXPC_ROOT}/src/media/media_session.cpp"
   "${APXPC_ROOT}/src/media/audio_capture.cpp"
+  "${APXPC_ROOT}/src/media/mic_bridge.cpp"
   "${APXPC_ROOT}/src/media/touch_inject.cpp"
 )
 add_library(apxpc_media STATIC ${APXPC_MEDIA_SRC})

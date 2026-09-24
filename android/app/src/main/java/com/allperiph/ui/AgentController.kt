@@ -37,6 +37,8 @@ object AgentController {
         ModuleId.WIFI_AUDIO,
         // 副屏同样是承载层的消费者：订阅 streamId=0，连入前收到的帧会被丢弃并计数。
         ModuleId.SCREEN,
+        // 摄像头（Wi‑Fi）：媒体承载的消费者，JPEG 上行 streamId=6
+        ModuleId.CAMERA,
     )
 
     @Volatile var runtime: AgentRuntime? = null
@@ -63,6 +65,7 @@ object AgentController {
             rt.register(WirelessModule())
             rt.register(WirelessAudioModule())
             rt.register(ScreenModule())
+            rt.register(com.allperiph.camera.CameraModule(app))
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")
         }
         return rt
@@ -130,7 +133,7 @@ object AgentController {
 
     /** 模块 → 所属传输类（决定它出现在设置页哪个分组、由哪个开关统一启停） */
     fun groupOf(id: String): String = when (id) {
-        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN -> "wifi"
+        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA -> "wifi"
         ModuleId.BTHID -> "bt"
         ModuleId.GADGET, ModuleId.AUDIO, ModuleId.TOUCHPAD -> "usb"
         else -> "wifi"
@@ -185,6 +188,7 @@ object AgentController {
         ModuleId.WIRELESS -> "Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）"
         ModuleId.WIFI_AUDIO -> "Wi‑Fi 音频（音箱 / 麦克风）"
         ModuleId.SCREEN -> "副屏（Wi‑Fi 镜像 PC 桌面）"
+        ModuleId.CAMERA -> "摄像头（Wi‑Fi：手机相机 → PC）"
         else -> id
     }
 
