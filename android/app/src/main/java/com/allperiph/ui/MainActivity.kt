@@ -983,6 +983,32 @@ class MainActivity : Activity() {
                 else -> rowsWifi
             }.addView(v)
             moduleRows[m.id] = row
+
+            // Wi‑Fi 音频行下挂两个方向子开关（音箱 / 麦克风分开控制）
+            if (m.id == com.allperiph.core.ModuleId.WIFI_AUDIO) {
+                val ctx = this
+                fun subRow(label: String, initial: Boolean, onToggle: (Boolean) -> Unit): android.view.View {
+                    val sub = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
+                    sub.findViewById<TextView>(R.id.tvName).text = label
+                    sub.findViewById<TextView>(R.id.tvDetail).visibility = android.view.View.GONE
+                    sub.findViewById<ImageView>(R.id.dot).visibility = android.view.View.GONE
+                    val sw = sub.findViewById<Switch>(R.id.sw)
+                    sw.isChecked = initial
+                    sw.setOnCheckedChangeListener { _, c -> onToggle(c) }
+                    rowsWifi.addView(sub)
+                    return sub
+                }
+                subRow("　· 音箱（PC 声音 → 手机扬声器）",
+                    com.allperiph.audio.WirelessAudioModule.isSpeakerOn(this)) { on ->
+                    (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
+                        as? com.allperiph.audio.WirelessAudioModule)?.applySpeaker(ctx, on)
+                }
+                subRow("　· 麦克风（手机麦克风 → PC）",
+                    com.allperiph.audio.WirelessAudioModule.isMicOn(this)) { on ->
+                    (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
+                        as? com.allperiph.audio.WirelessAudioModule)?.applyMic(ctx, on)
+                }
+            }
         }
     }
 

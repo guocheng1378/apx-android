@@ -51,6 +51,12 @@ class WirelessAudioModule : Module {
     @Volatile
     private var running = false
 
+    // ---- 方向子开关（设置页可分别启停；持久化，模块重开记忆）----
+    @Volatile
+    private var spkOn = true
+    @Volatile
+    private var micOn = true
+
     // ---- 音箱（PC → 手机扬声器）----
     private var track: AudioTrack? = null
     private var writerThread: Thread? = null
@@ -81,26 +87,36 @@ class WirelessAudioModule : Module {
         state = ModuleState.STARTING
         lastError = null
         running = true
+        spkOn = isSpeakerOn(ctx.appContext)
+        micOn = isMicOn(ctx.appContext)
 
         // 1) 订阅音箱流（PC 何时连入由承载层决定，这里先挂上）
         ApxStreams.register(ApxFrame.STREAM_AUDIO, audioConsumer)
-        val spkOk = startSpeaker()
-        speakerOk = spkOk
-        if (!spkOk) Log.w(TAG, "音箱播放初始化失败，本次仅尝试麦克风方向")
+        val spkOk = if (spkOn) {
+            val ok = startSpeaker()
+            speakerOk = ok
+            if (!ok) Log.w(TAG, "音箱播放初始化失败，本次仅尝试麦克风方向")
+            ok
+        } else { speakerOk = false; false }
 
         // 2) 启动麦克风上行
-        micOk = startMic()
-        if (!micOk) Log.w(TAG, "麦克风采集初始化失败（缺 RECORD_AUDIO 权限？）")
+        val micOkNow = if (micOn) {
+            val ok = startMic()
+            micOk = ok
+            if (!ok) Log.w(TAG, "麦克风采集初始化失败（缺 RECORD_AUDIO 权限？）")
+            ok
+        } else { micOk = false; false }
 
         state = when {
-            spkOk && micOk -> ModuleState.RUNNING
-            spkOk || micOk -> ModuleState.DEGRADED     // 单向可用，如实标注
+            spkOk && micOkNow -> ModuleState.RUNNING
+            spkOk || micOkNow -> ModuleState.DEGRADED     // 单向可用，如实标注
+            !spkOn && !micOn -> ModuleState.DEGRADED      // 两个方向都被用户关了：模块挂起待命
             else -> {
                 lastError = "音箱与麦克风都初始化失败"
                 ModuleState.ERROR
             }
         }
-        Log.i(TAG, "Wi‑Fi 音频已启动：音箱=${if (spkOk) "开" else "关"} 麦克风=${if (micOk) "开" else "关"}")
+        Log.i(TAG, "Wi‑Fi 音频已启动：音箱=${if (spkOk) "开" else "关"} 麦克风=${if (micOkNow) "开" else "关"}")
     }
 
     override fun stop() {
@@ -119,12 +135,66 @@ class WirelessAudioModule : Module {
         droppedFrames.set(0)
     }
 
+    /** 运行中热切换：音箱方向 */
+    fun applySpeaker(ctx: android.content.Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(K_SPK, on).apply()
+        if (!running) return
+        if (on && track == null) {
+            spkOn = true
+            playQueue.clear()
+            speakerOk = startSpeaker()
+            recomputeState()
+        } else if (!on && track != null) {
+            spkOn = false
+            writerThread?.let { runCatching { it.join(500) } }
+            writerThread = null
+            runCatching { track?.stop() }
+            runCatching { track?.release() }
+            track = null
+            speakerOk = false
+            recomputeState()
+        }
+    }
+
+    /** 运行中热切换：麦克风方向 */
+    fun applyMic(ctx: android.content.Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(K_MIC, on).apply()
+        if (!running) return
+        if (on && micThread == null) {
+            micOn = true
+            micOk = startMic()
+            recomputeState()
+        } else if (!on && micThread != null) {
+            micOn = false
+            micThread?.let { runCatching { it.join(500) } }
+            micThread = null
+            micOk = false
+            recomputeState()
+        }
+    }
+
+    private fun recomputeState() {
+        state = when {
+            (track != null) && micOk -> ModuleState.RUNNING
+            (track != null) || micOk -> ModuleState.DEGRADED
+            else -> ModuleState.DEGRADED   // 双方向关闭：挂起待命（模块开关仍开着）
+        }
+    }
+
     override fun statusText(): String = when (state) {
         ModuleState.RUNNING -> {
             val d = droppedFrames.get()
-            if (d > 0) "Wi‑Fi 音频运行中 · 丢片 $d" else "Wi‑Fi 音频运行中 · 双向 48kHz/16bit"
+            val dir = buildString {
+                if (track != null) append("音箱")
+                if (micOk) { if (isNotEmpty()) append("+") ; append("麦克风") }
+            }
+            if (d > 0) "Wi‑Fi 音频运行中（$dir）· 丢片 $d" else "Wi‑Fi 音频运行中（$dir）· 48kHz/16bit"
         }
-        ModuleState.DEGRADED -> "Wi‑Fi 音频降级 · ${if (micOk) "仅麦克风上行" else "仅有音箱下行"}"
+        ModuleState.DEGRADED -> when {
+            track == null && !micOk -> "Wi‑Fi 音频挂起 · 音箱/麦克风方向均关闭"
+            micOk -> "Wi‑Fi 音频降级 · 仅麦克风上行"
+            else -> "Wi‑Fi 音频降级 · 仅有音箱下行"
+        }
         ModuleState.ERROR -> lastError ?: "Wi‑Fi 音频错误"
         ModuleState.STARTING -> "Wi‑Fi 音频启动中"
         ModuleState.STOPPING -> "Wi‑Fi 音频停止中"
@@ -199,7 +269,7 @@ class WirelessAudioModule : Module {
             writerThread = thread(start = true, name = "apx-wifi-audio-tx") {
                 android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)
                 val tt = track ?: return@thread
-                while (running) {
+                while (running && spkOn) {
                     val chunk = try {
                         playQueue.poll(200, TimeUnit.MILLISECONDS)
                     } catch (_: InterruptedException) {
@@ -274,7 +344,7 @@ class WirelessAudioModule : Module {
                 }
                 rec.startRecording()
                 val buf = ByteArray(FRAME_BYTES)
-                while (running) {
+                while (running && micOn) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) continue
                     // MediaOut 只入队不碰 socket（见 core/MediaOut.kt）；未连入时返回 false，如实丢弃
@@ -304,6 +374,18 @@ class WirelessAudioModule : Module {
 
     companion object {
         private const val TAG = "WirelessAudio"
+        private const val PREFS = "apx_wifi_audio"
+        private const val K_SPK = "spk_on"
+        private const val K_MIC = "mic_on"
+
+        /** 方向子开关（UI 读取初值；模块实例存在时由 apply* 热切换） */
+        fun isSpeakerOn(c: android.content.Context): Boolean =
+            c.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+                .getBoolean(K_SPK, true)
+
+        fun isMicOn(c: android.content.Context): Boolean =
+            c.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+                .getBoolean(K_MIC, true)
 
         /** 与 PC 侧 `media_session.hpp` 的 kAudioSampleRate/kAudioChannels 必须一致 */
         private const val RATE = 48000
@@ -316,5 +398,8 @@ class WirelessAudioModule : Module {
 
         /** 播放队列容量：约 0.5 秒，够吸收无线抖动又不至于积出可感延迟 */
         private const val PLAY_QUEUE_CAP = 50
+
+        private fun prefs(c: android.content.Context) =
+            c.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
     }
 }
