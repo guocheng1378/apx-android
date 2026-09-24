@@ -188,6 +188,15 @@ void Pipeline::captureThread() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
                     continue;
                 }
+                // 分辨率可能变了（用户改虚拟屏分辨率）：编码器必须按新尺寸重建，
+                // 否则 NV12 错位 = 花屏（手机端也拿不到新 SPS）
+                const auto& ci = capture_->info();
+                if (ci.width > 0 && (ci.width != usedVp_.width || ci.height != usedVp_.height)) {
+                    APX_LOG_I("抓屏分辨率变化：{}x{} -> {}x{}，请求重建编码器",
+                              usedVp_.width, usedVp_.height, ci.width, ci.height);
+                    resizePending_.store(true);
+                    haveLastFrame_ = false;   // 旧尺寸的补帧副本作废
+                }
             }
             // 虚拟屏（IddCx）静态时 DWM 不持续 present（实测 0.0fps）——手机端
             // 只能靠偶发帧活着，视觉"一闪一闪"。按帧预算节拍重发上一帧补齐流。
@@ -245,6 +254,21 @@ void Pipeline::captureThread() {
 // ------------------------------------------------------------ 编码线程 ----
 void Pipeline::encodeThread() {
     while (running_.load()) {
+        // —— 抓屏分辨率变化：重建编码器（本线程独占 encoder_，无需加锁）——
+        // 旧尺寸的待编码帧直接丢弃（新配置吃旧尺寸帧必然错位）
+        if (resizePending_.exchange(false)) {
+            const auto& ci = capture_ ? capture_->info() : apxdisp::CaptureInfo{};
+            VideoParams vp = cfg_.video;
+            if (ci.width > 0 && ci.height > 0) { vp.width = ci.width; vp.height = ci.height; }
+            encoder_->shutdown();
+            if (encoder_->configure(vp)) {
+                usedVp_ = vp;
+                encoder_->forceKeyFrame();   // 新 SPS 随关键帧下发，手机端解码器自动重配
+                APX_LOG_I("编码器已按 {}x{} 重建", vp.width, vp.height);
+            } else {
+                APX_LOG_E("编码器重建失败：{}", lastError());
+            }
+        }
         RawFrame frame{};
         bool have = false;
         {

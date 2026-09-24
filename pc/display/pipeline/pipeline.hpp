@@ -132,6 +132,9 @@ private:
     bool haveLastFrame_ = false;
     int64_t lastFrameNs_ = 0;
 
+    // 抓屏分辨率在运行中变了（用户改虚拟屏分辨率）→ 编码线程需重建编码器
+    std::atomic<bool> resizePending_{false};
+
     PipelineStats stats_{};
     std::string lastError_;
 
