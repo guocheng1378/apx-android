@@ -1,0 +1,8 @@
+{
+  "code": 0,
+  "usage": "https://cors.isteed.cc/{URL}",
+  "attention": "The service has a rate limit. Do not use more than 64 threaded downloads. Do not perform high-frequency URL activity, as activity checks will be intercepted with keyword filtering.",
+  "attention_zh": "本服务有访问频率限制，请勿超过 64 线程下载。请勿进行高频率 URL 测活，测活将会进行关键词拦截处理。",
+  "note": "If a large number of requests cause the bill to exceed, the service will be stopped or restricted.",
+  "note_zh": "如大量请求导致账单超出额度，服务将被停止或限制。"
+}

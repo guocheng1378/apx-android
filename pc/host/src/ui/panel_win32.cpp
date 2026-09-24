@@ -1319,6 +1319,7 @@ void tick(Panel* p) {
         if (sig != p->lastDevSig) {
             p->lastDevSig = sig;
             refreshSpeakerCombo(p);   // 名字/项数都变了，下拉要跟上
+            refreshMicCombo(p);       // 麦克风桥的「转发到」下拉同步刷新
             // 若在"跟随系统默认"，采集得跟着新默认走。查 deviceId 而不是只信 sig：
             // 上面的刷新可能把"选中的设备被拔掉"回落成了跟随默认，这里一并接住。
             if (p->audio->running() && p->speakerDeviceId.empty()) {
