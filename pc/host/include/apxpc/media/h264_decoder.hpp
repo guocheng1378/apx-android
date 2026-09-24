@@ -38,6 +38,7 @@ private:
     std::vector<uint8_t> bgra_;
     uint32_t width_ = 0, height_ = 0;
     bool gotInputType_ = false;
+    bool outTypeSet_ = false;          // RGB32 输出类型是否已设（需首帧探测出分辨率后再设）
     std::string lastError_;
 };
 

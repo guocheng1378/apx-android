@@ -90,23 +90,16 @@ bool H264Decoder::init() {
         lastError_ = "SetInputType(H264) 失败";
         return false;
     }
-    // 输出：RGB32（免手动 NV12→RGB）
-    ComPtr<IMFMediaType> outType;
-    MFCreateMediaType(&outType);
-    outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-    outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
-    hr = t->SetOutputType(0, outType.Get(), 0);
-    if (FAILED(hr)) {
-        lastError_ = "SetOutputType(RGB32) 失败";
-        return false;
-    }
+    // 输出类型：**延迟设置**——H264 解码 MFT 在喂入首帧（从 SPS 探测出分辨率）之前，
+    // SetOutputType(RGB32) 会失败。这里只记录意图，decode() 里 ProcessInput 后再设。
+    outTypeSet_ = false;
     // 低延迟（Win8+ 的 H264 MFT 支持）
     ComPtr<ICodecAPI> codec;
     if (SUCCEEDED(t.As(&codec))) {
         VARIANT v{}; v.vt = VT_BOOL; v.boolVal = VARIANT_TRUE;
         codec->SetValue(&CODECAPI_AVLowLatencyMode, &v);
     }
-    hr = t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+    t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
 
     mft_ = t.Detach();
     inited_ = true;
@@ -145,12 +138,26 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
     // 循环取输出（可能先 NEED_MORE_INPUT，SPS/PPS+IDR 一起喂完后出帧）
     bool produced = false;
     while (true) {
+        // 输出类型延迟设置：首帧喂入、MFT 从 SPS 探测出分辨率后再设 RGB32
+        if (!outTypeSet_) {
+            ComPtr<IMFMediaType> outType;
+            if (SUCCEEDED(MFCreateMediaType(&outType))) {
+                outType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+                outType->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32);
+                if (SUCCEEDED(t->SetOutputType(0, outType.Get(), 0))) {
+                    outTypeSet_ = true;
+                    t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+                }
+            }
+        }
+
         MFT_OUTPUT_STREAM_INFO sinfo{};
         t->GetOutputStreamInfo(0, &sinfo);
         DWORD status = 0;
+        // 注意：不少同步 MFT 对 GetOutputStatus 返回 E_NOTIMPL——失败**不退出**，
+        // 直接尝试 ProcessOutput（NEED_MORE_INPUT 会自然返回）
         HRESULT hr = t->GetOutputStatus(&status);
-        if (FAILED(hr)) break;
-        if (!(status & MFT_OUTPUT_STATUS_SAMPLE_READY)) break;
+        if (SUCCEEDED(hr) && !(status & MFT_OUTPUT_STATUS_SAMPLE_READY)) break;
 
         MFT_OUTPUT_DATA_BUFFER odb{};
         odb.dwStreamID = 0;
@@ -164,6 +171,14 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
             odb.pSample = out.Get();
         }
         hr = t->ProcessOutput(0, 1, &odb, &status);
+        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) break;      // 正常：等下一帧输入
+        if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+            // 分辨率/格式变化：输出类型作废，下轮循环重设
+            outTypeSet_ = false;
+            width_ = 0; height_ = 0;
+            bgra_.clear();
+            continue;
+        }
         if (FAILED(hr)) break;
         if (odb.pSample) out = odb.pSample;
         if (!out) break;
