@@ -164,8 +164,9 @@ class CameraModule(private val app: Context) : Module {
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 )
                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(cfg.fps, cfg.fps))
-                // JPEG 质量 72：与副屏视频共带宽的折中（85 一张 ~110KB，72 ~65KB）
-                set(CaptureRequest.JPEG_QUALITY, 72.toByte())
+                // JPEG 质量 60：与副屏共带宽+共 CPU 的进一步折中（72 时 1MP 一帧 ~65KB，
+                // 采集编码仍偏重；60 约省 20% 编码时间，预览画质可接受）
+                set(CaptureRequest.JPEG_QUALITY, 60.toByte())
             }
 
             camera.createCaptureSession(

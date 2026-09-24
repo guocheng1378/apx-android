@@ -1107,9 +1107,9 @@ class MainActivity : Activity() {
                     label = {
                         val c = com.allperiph.camera.CameraPrefs.load(this)
                         val q = when (c.width) {
-                            640 -> "流畅 640×480"
                             1920 -> "高清 1920×1440"
-                            else -> "标准 1280×720"
+                            1280 -> "标准 1280×720"
+                            else -> "流畅 640×480"
                         }
                         "　· 清晰度：$q（点击切换）"
                     },
