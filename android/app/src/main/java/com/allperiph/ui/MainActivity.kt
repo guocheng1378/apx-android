@@ -474,11 +474,10 @@ class MainActivity : Activity() {
 
     /** 底部页签：绑定点击与选中态（胶囊底 + 图标 / 文字同步染色） */
     private fun buildTabs() {
-        // 键盘页常驻底栏：横屏自动呈现 + 竖屏也能手动进入（部分机型旋转事件不可靠，
-        // 给键盘一个不依赖朝向的入口 —— 真机踩过「横屏键盘没了」）
+        // 键盘页不占底栏位：横屏沉浸模式自动呈现（底栏 3 页签：触控板 / 状态 / 设置）。
+        // 朝向切换由 [applyOrientationLayout] + orientPoll 兜底轮询保证。
         listOf(
             intArrayOf(R.id.tabTouchpad, R.id.ivTabTouchpad, R.id.tvTabTouchpad, R.id.tabPillTouchpad),
-            intArrayOf(R.id.tabKeyboard, R.id.ivTabKeyboard, R.id.tvTabKeyboard, R.id.tabPillKeyboard),
             intArrayOf(R.id.tabStatus, R.id.ivTabStatus, R.id.tvTabStatus, R.id.tabPillStatus),
             intArrayOf(R.id.tabSettings, R.id.ivTabSettings, R.id.tvTabSettings, R.id.tabPillSettings),
         ).forEachIndexed { tabIndex, ids ->
@@ -1589,9 +1588,9 @@ class MainActivity : Activity() {
 
         /**
          * 底栏页签 → ViewFlipper 页面 index 的映射。
-         * 键盘页常驻底栏（竖屏也可进入；横屏自动呈现），页签：触控板 / 键盘 / 状态 / 设置。
+         * 键盘页不占底栏位（横屏自动呈现），页签：触控板(0) / 状态(2) / 设置(3)。
          */
-        private val TAB_PAGES = intArrayOf(PAGE_TOUCHPAD, PAGE_KEYBOARD, PAGE_STATUS, PAGE_SETTINGS)
+        private val TAB_PAGES = intArrayOf(PAGE_TOUCHPAD, PAGE_STATUS, PAGE_SETTINGS)
 
         /** 横屏切页手势的手指数（四指，避开触控板自身的一~三指手势） */
         private const val FINGERS_TO_SWITCH = 4
