@@ -456,14 +456,29 @@ class MainActivity : Activity() {
         tabBarView.elevation = 0f // 无底板 → 不要容器投影
         applyOrientationLayout() // 竖屏/横屏两套 chrome（横屏为沉浸操控面）
         findViewById<View>(R.id.contentStack).post { snapIndicator() }
+        // 朝向兜底：个别 ROM（MIUI 某些省电/分屏场景）旋屏不派发 onConfigurationChanged，
+        // 导致「横屏键盘没了」。每秒比对一次实际朝向，不一致就补切（幂等，代价可忽略）。
+        handler.postDelayed(orientPoll, 1000)
+    }
+
+    private val orientPoll = object : Runnable {
+        override fun run() {
+            val land = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (land != landscape) {
+                Log.i(TAG, "朝向兜底触发：config=$land vs applied=$landscape")
+                applyOrientationLayout()
+            }
+            handler.postDelayed(this, 1000)
+        }
     }
 
     /** 底部页签：绑定点击与选中态（胶囊底 + 图标 / 文字同步染色） */
     private fun buildTabs() {
-        // 键盘页在横屏沉浸模式下自动呈现、不占底栏位，故底栏只剩「触控板 / 状态 / 设置」。
-        // 页签顺序与 TAB_PAGES 映射一一对应（tabIndex → ViewFlipper 页面 index）。
+        // 键盘页常驻底栏：横屏自动呈现 + 竖屏也能手动进入（部分机型旋转事件不可靠，
+        // 给键盘一个不依赖朝向的入口 —— 真机踩过「横屏键盘没了」）
         listOf(
             intArrayOf(R.id.tabTouchpad, R.id.ivTabTouchpad, R.id.tvTabTouchpad, R.id.tabPillTouchpad),
+            intArrayOf(R.id.tabKeyboard, R.id.ivTabKeyboard, R.id.tvTabKeyboard, R.id.tabPillKeyboard),
             intArrayOf(R.id.tabStatus, R.id.ivTabStatus, R.id.tvTabStatus, R.id.tabPillStatus),
             intArrayOf(R.id.tabSettings, R.id.ivTabSettings, R.id.tvTabSettings, R.id.tabPillSettings),
         ).forEachIndexed { tabIndex, ids ->
@@ -1574,10 +1589,9 @@ class MainActivity : Activity() {
 
         /**
          * 底栏页签 → ViewFlipper 页面 index 的映射。
-         * 键盘页在横屏沉浸模式下自动呈现、不再占底栏位，故底栏只剩三个页签：
-         * 触控板(0) / 状态(2) / 设置(3)，tabIndex 与页面 index 不再一一对应。
+         * 键盘页常驻底栏（竖屏也可进入；横屏自动呈现），页签：触控板 / 键盘 / 状态 / 设置。
          */
-        private val TAB_PAGES = intArrayOf(PAGE_TOUCHPAD, PAGE_STATUS, PAGE_SETTINGS)
+        private val TAB_PAGES = intArrayOf(PAGE_TOUCHPAD, PAGE_KEYBOARD, PAGE_STATUS, PAGE_SETTINGS)
 
         /** 横屏切页手势的手指数（四指，避开触控板自身的一~三指手势） */
         private const val FINGERS_TO_SWITCH = 4
