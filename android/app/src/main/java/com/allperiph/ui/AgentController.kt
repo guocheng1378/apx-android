@@ -132,14 +132,17 @@ object AgentController {
     }
 
     /** 模块 → 所属传输类（决定它出现在设置页哪个分组、由哪个开关统一启停） */
-    fun groupOf(id: String): String = when (id) {
-        // 触控板归无线组：Wi‑Fi 模式下手势走控制通道（无需 USB）；
-        // USB 模式下它也能用（多出口择优），但日常入口放在无线组更直观
-        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA,
-        ModuleId.TOUCHPAD -> "wifi"
-        ModuleId.BTHID -> "bt"
-        ModuleId.GADGET, ModuleId.AUDIO -> "usb"
-        else -> "wifi"
+    fun groupOf(id: String): String = groupsOf(id).first()
+
+    /**
+     * 模块 → 出现的分组列表。**触控板在无线和 USB 两组都出现**：
+     * 它是多出口模块（USB HID / 蓝牙 / Wi‑Fi 控制通道择优），两种连接下都可用。
+     */
+    fun groupsOf(id: String): List<String> = when (id) {
+        ModuleId.TOUCHPAD -> listOf("wifi", "usb")
+        ModuleId.BTHID -> listOf("bt")
+        ModuleId.GADGET, ModuleId.AUDIO -> listOf("usb")
+        else -> listOf("wifi")
     }
 
     /** 某传输类下的全部模块（开关 ON 整组启用、OFF 整组停用） */

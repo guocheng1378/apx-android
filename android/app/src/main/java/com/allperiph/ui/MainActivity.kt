@@ -1029,32 +1029,39 @@ class MainActivity : Activity() {
         // 保证 runtime 与模块注册表已建立（不启动任何模块）
         val rt = AgentController.build(this)
         for (m in rt.registry.all()) {
-            val v = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
-            val row = ModuleRow(
-                root = v,
-                name = v.findViewById(R.id.tvName),
-                detail = v.findViewById(R.id.tvDetail),
-                dot = v.findViewById(R.id.dot),
-                sw = v.findViewById(R.id.sw),
-            )
-            row.name.text = AgentController.label(m.id)
-            row.detail.text = AgentController.detailOf(m)
-            val enabled = AgentController.isEnabled(this, m.id)
-            row.sw.isChecked = enabled
-            row.sw.setOnCheckedChangeListener { _, checked ->
-                if (checked && m.id == com.allperiph.core.ModuleId.CAMERA) {
-                    ensureCameraPermission()   // 摄像头开关打开时立即请求（首次必弹）
+            // 一个模块可能出现在多个分组（触控板：无线 + USB），每组一份独立视图，
+            // 开关状态通过 moduleRows 互相同步
+            val views = mutableListOf<ModuleRow>()
+            for (g in AgentController.groupsOf(m.id)) {
+                val v = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
+                val row = ModuleRow(
+                    root = v,
+                    name = v.findViewById(R.id.tvName),
+                    detail = v.findViewById(R.id.tvDetail),
+                    dot = v.findViewById(R.id.dot),
+                    sw = v.findViewById(R.id.sw),
+                )
+                row.name.text = AgentController.label(m.id)
+                row.detail.text = AgentController.detailOf(m)
+                val enabled = AgentController.isEnabled(this, m.id)
+                row.sw.isChecked = enabled
+                row.sw.setOnCheckedChangeListener { _, checked ->
+                    if (checked && m.id == com.allperiph.core.ModuleId.CAMERA) {
+                        ensureCameraPermission()   // 摄像头开关打开时立即请求（首次必弹）
+                    }
+                    AgentController.setModuleEnabled(this, m.id, checked)
+                    // 同组多份视图的状态联动
+                    views.forEach { it.sw.isChecked = checked }
+                    refresh()
                 }
-                AgentController.setModuleEnabled(this, m.id, checked)
-                refresh()
+                when (g) {
+                    "bt" -> rowsBt
+                    "usb" -> rowsUsb
+                    else -> rowsWifi
+                }.addView(v)
+                views += row
             }
-            // 按传输类归入对应分组容器（设置页按类显示/隐藏）
-            when (AgentController.groupOf(m.id)) {
-                "bt" -> rowsBt
-                "usb" -> rowsUsb
-                else -> rowsWifi
-            }.addView(v)
-            moduleRows[m.id] = row
+            moduleRows[m.id] = views.first()
 
             // Wi‑Fi 音频行下挂两个方向子开关（音箱 / 麦克风分开控制）
             if (m.id == com.allperiph.core.ModuleId.WIFI_AUDIO) {
