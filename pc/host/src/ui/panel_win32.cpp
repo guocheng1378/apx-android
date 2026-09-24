@@ -36,6 +36,7 @@
 
 #include "apxpc/log.hpp"
 #include "apxpc/media/audio_capture.hpp"
+#include "apxpc/media/h264_decoder.hpp"
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
@@ -421,10 +422,15 @@ struct Panel {
     bool autoRestoreDone = false;
     /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
     std::vector<std::string> speakerDevIds;
-    /// 摄像头预览：媒体收流线程存最新 JPEG，paint 时解码绘制（400ms 一拍天然限频）
+    /// 摄像头预览：媒体收流线程存最新帧（JPEG 或 H264 解码出的 BGRA），paint 绘制
     std::mutex camMu;
     std::vector<uint8_t> camJpeg;
     bool camJpegValid = false;
+    // H264 路径（手机端硬编）：解码出的 BGRA + 尺寸
+    std::unique_ptr<apxpc::media::H264Decoder> camDec;
+    std::vector<uint8_t> camRgb;
+    int camRgbW = 0, camRgbH = 0;
+    bool camRgbValid = false;
 
     /// 上一轮"默认设备 ID + 全部端点 ID"的指纹。设备增删或默认易主时靠它发现，
     /// 用来刷新下拉标题 —— 否则会一直写着"跟随系统默认（旧的某块）"。
@@ -1149,13 +1155,44 @@ void paint(HWND hwnd, Panel* p) {
 
                 std::vector<uint8_t> jpeg;
                 bool valid = false;
+                std::vector<uint8_t> rgb;
+                int rgbW = 0, rgbH = 0;
+                bool rgbValid = false;
                 {
                     std::lock_guard<std::mutex> lk(p->camMu);
                     jpeg = p->camJpeg;
                     valid = p->camJpegValid;
+                    rgb = p->camRgb;
+                    rgbW = p->camRgbW;
+                    rgbH = p->camRgbH;
+                    rgbValid = p->camRgbValid;
                 }
                 bool drawn = false;
-                if (valid && !jpeg.empty()) {
+                // H264 路径：解码出的 BGRA 直接 StretchDIBits
+                if (rgbValid && rgbW > 0 && rgbH > 0 && rgb.size() >= static_cast<size_t>(rgbW) * rgbH * 4) {
+                    Gdiplus::RectF dst(
+                        static_cast<Gdiplus::REAL>(L.camPreview.x),
+                        static_cast<Gdiplus::REAL>(L.camPreview.y),
+                        static_cast<Gdiplus::REAL>(L.camPreview.w),
+                        static_cast<Gdiplus::REAL>(L.camPreview.h));
+                    Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
+                    g.FillRectangle(&bg, dst);
+                    BITMAPINFO bi{};
+                    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                    bi.bmiHeader.biWidth = rgbW;
+                    bi.bmiHeader.biHeight = -rgbH;   // 自顶向下
+                    bi.bmiHeader.biPlanes = 1;
+                    bi.bmiHeader.biBitCount = 32;
+                    bi.bmiHeader.biCompression = BI_RGB;
+                    ::SetStretchBltMode(g.GetHDC(), COLORONCOLOR);
+                    ::StretchDIBits(g.GetHDC(),
+                                    L.camPreview.x, L.camPreview.y, L.camPreview.w, L.camPreview.h,
+                                    0, 0, rgbW, rgbH,
+                                    rgb.data(), &bi, DIB_RGB_COLORS, SRCCOPY);
+                    g.ReleaseHDC(g.GetHDC());
+                    drawn = true;
+                }
+                if (!drawn && valid && !jpeg.empty()) {
                     IStream* stm = nullptr;
                     if (::CreateStreamOnHGlobal(nullptr, TRUE, &stm) == S_OK) {
                         ULONG written = 0;
@@ -1934,10 +1971,25 @@ int runPanel(const std::string& /*preferInstanceId*/) {
             panel.micBridge->running()) {
             panel.micBridge->feed(body, len);
         } else if (streamId == apxpc::media::kStreamCamera && panel.camEnabled) {
-            // 开关关闭时直接丢弃：不解码不刷新（手机端上行照常，几 KB/s 可忽略）
-            std::lock_guard<std::mutex> lk(panel.camMu);
-            panel.camJpeg.assign(body, body + len);
-            panel.camJpegValid = true;
+            // 开关关闭时直接丢弃。载荷判别：FFD8 = 旧版 JPEG；否则 H264 AnnexB（新版硬编）
+            if (len >= 2 && body[0] == 0xFF && body[1] == 0xD8) {
+                std::lock_guard<std::mutex> lk(panel.camMu);
+                panel.camRgbValid = false;
+                panel.camJpeg.assign(body, body + len);
+                panel.camJpegValid = true;
+            } else {
+                // H264：收流线程解码（单线程使用 MFT，安全）
+                if (!panel.camDec) panel.camDec = std::make_unique<apxpc::media::H264Decoder>();
+                auto& dec = *panel.camDec;
+                if (dec.decode(body, len) && dec.width() > 0) {
+                    std::lock_guard<std::mutex> lk(panel.camMu);
+                    panel.camRgb = dec.bgra();
+                    panel.camRgbW = static_cast<int>(dec.width());
+                    panel.camRgbH = static_cast<int>(dec.height());
+                    panel.camRgbValid = true;
+                    panel.camJpegValid = false;
+                }
+            }
         }
     });
 

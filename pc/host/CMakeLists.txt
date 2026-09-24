@@ -211,6 +211,7 @@ set(APXPC_MEDIA_SRC
   "${APXPC_ROOT}/src/media/audio_capture.cpp"
   "${APXPC_ROOT}/src/media/mic_bridge.cpp"
   "${APXPC_ROOT}/src/media/touch_inject.cpp"
+  "${APXPC_ROOT}/src/media/h264_decoder.cpp"
 )
 add_library(apxpc_media STATIC ${APXPC_MEDIA_SRC})
 target_include_directories(apxpc_media PUBLIC "${APXPC_ROOT}/include")

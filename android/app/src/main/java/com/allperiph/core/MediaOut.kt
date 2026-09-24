@@ -43,12 +43,11 @@ object MediaOut {
         return s.send(ApxFrame.STREAM_MIC, body, 0)
     }
 
-    /** 摄像头 JPEG 上行。一帧一张 JPEG，不分片（单张远小于 4MiB 上限）。 */
-    fun camera(jpeg: ByteArray): Boolean {
+    /** 摄像头上行。JPEG 旧版或 H264（一 buffer 一帧）通用；flags 传关键帧标记。 */
+    fun camera(body: ByteArray, flags: Int = ApxFrame.FLAG_KEY_FRAME): Boolean {
         val s = sink ?: return false
-        if (!s.ready || jpeg.isEmpty()) return false
-        // keyframe 位对 JPEG 无实际含义，置位只是为了日志可读（每帧都是关键帧）
-        return s.send(ApxFrame.STREAM_CAMERA, jpeg, ApxFrame.FLAG_KEY_FRAME)
+        if (!s.ready || body.isEmpty()) return false
+        return s.send(ApxFrame.STREAM_CAMERA, body, flags)
     }
 
     // —— 副屏触摸（streamId=2，8 字节小帧，格式与 PC touch_inject.hpp 逐字节一致）——

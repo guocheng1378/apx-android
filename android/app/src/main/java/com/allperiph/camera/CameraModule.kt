@@ -2,34 +2,40 @@ package com.allperiph.camera
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.ImageFormat
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.media.ImageReader
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Range
+import android.view.Surface
+import com.allperiph.core.ApxFrame
 import com.allperiph.core.Log
 import com.allperiph.core.MediaOut
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
-import com.allperiph.core.ModuleMask
 import com.allperiph.core.ModuleState
 
 /**
- * 摄像头模块（**Wi‑Fi 路线**）：Camera2 → JPEG → MediaOut.camera()（streamId=6 上行）。
+ * 摄像头模块（**Wi‑Fi 路线，H264 硬编**）：
+ * Camera2 → YUV（Surface 直送）→ MediaCodec 硬编码 H264 → MediaOut（streamId=6 上行）。
  *
- * 与旧版（`app/src/disabled/camera/`，USB UVC 路线）的区别：旧版把 JPEG 写进
- * V4L2 gadget 让 PC 免驱识别为 USB 摄像头 —— 本 ROM 的 configfs 软链会挂死内核
- * （GadgetFeature.UVC 默认关），该路线已被否。本版经媒体通道上行 JPEG，
- * PC 端解码显示/再桥接成虚拟摄像头（见 pc/host 的 camera 处理）。
+ * ## 为什么从 JPEG 改成 H264 硬编（真机实测踩坑）
+ * 旧路线 Camera2 → ImageReader(JPEG)：相机的 JPEG 引擎编码大图**阻塞采集线程**，
+ * 1MP@12fps 都能把 CPU 打满 → 摄像头卡 + **共用同一条媒体连接的副屏一起卡**。
+ * 新路线走芯片 DSP 编码（Surface 零拷贝，CPU 趋近于零），帧率稳、发热降、副屏不受拖累。
  *
- * 带宽账：720p JPEG（质量 85）≈ 60–120KB/帧，20fps ≈ 1.2–2.4MB/s —— 局域网无压力。
+ * ## 协议
+ * streamId=6 载荷从 JPEG 改为 **H264 AnnexB AccessUnit**（一 buffer 一帧）。
+ * SPS/PPS 作为首包单独下发（flags=KEY_FRAME）；后续关键帧 flags=KEY_FRAME。
+ * PC 端按载荷判别：FFD8 开头 = 旧版 JPEG，否则 H264（新旧版本互不崩）。
  */
 class CameraModule(private val app: Context) : Module {
 
@@ -39,17 +45,17 @@ class CameraModule(private val app: Context) : Module {
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
-    private var imageReader: ImageReader? = null
+    private var encoder: MediaCodec? = null
+    private var inputSurface: Surface? = null
     private var cameraThread: HandlerThread? = null
     private var handler: Handler? = null
+    private var drainThread: Thread? = null
+    @Volatile private var draining = false
     private val frames = java.util.concurrent.atomic.AtomicLong(0)
     private val sentFrames = java.util.concurrent.atomic.AtomicLong(0)
     private var ctxRef: ModuleContext? = null
 
-    /**
-     * 参数（镜头/分辨率/帧率）变更后的热重启：运行中先停再按新配置拉起。
-     * 在后台线程执行，UI 可直接调用。
-     */
+    /** 参数（镜头/分辨率/帧率）变更后的热重启：运行中先停再按新配置拉起。 */
     fun hotRestart() {
         val ctx = ctxRef ?: return
         if (!state.isActive) return
@@ -65,7 +71,6 @@ class CameraModule(private val app: Context) : Module {
         state = ModuleState.STARTING
         ctxRef = ctx
 
-        // CAMERA 是运行时权限，必须由 Activity 发起请求（主页已随启动批量申请）。
         if (app.checkSelfPermission(android.Manifest.permission.CAMERA) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
@@ -109,37 +114,72 @@ class CameraModule(private val app: Context) : Module {
             return
         }
 
-        val chars = mgr.getCameraCharacteristics(cameraId)
-        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-        val size = chooseSize(map, cfg)
-
-        Log.i(TAG, "Camera $cameraId: ${size.width}x${size.height} @${cfg.fps}fps " +
+        val w = cfg.width
+        val h = cfg.height
+        Log.i(TAG, "Camera $cameraId: ${w}x${h} @${cfg.fps}fps H264硬编 " +
             if (wantFront) "(前置)" else "(后置)")
 
-        // JPEG 采集，队列深度 2（一帧采集一帧上行，流水线）
-        imageReader = ImageReader.newInstance(
-            size.width, size.height, ImageFormat.JPEG, 2
-        ).apply {
-            setOnImageAvailableListener({ reader ->
-                val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-                try {
-                    val buffer = image.planes[0].buffer
-                    val jpeg = ByteArray(buffer.remaining())
-                    buffer.get(jpeg)
-                    frames.incrementAndGet()
-                    if (MediaOut.camera(jpeg)) sentFrames.incrementAndGet()
-                } catch (e: Exception) {
-                    Log.e(TAG, "帧处理异常", e)
-                } finally {
-                    image.close()
-                }
-            }, handler)
+        // —— H264 硬编码器（Surface 输入：Camera2 直送，零拷贝零 CPU 转换）——
+        val fmt = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
+            setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+            )
+            setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)   // 2.5Mbps：1MP 内的预览足够清晰
+            setInteger(MediaFormat.KEY_FRAME_RATE, cfg.fps)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)   // 2s 一个关键帧
         }
+        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val surface = enc.createInputSurface()
+        enc.start()
+        encoder = enc
+        inputSurface = surface
+
+        // —— H264 出站 drain 线程：一 buffer 一帧（AccessUnit）——
+        draining = true
+        drainThread = Thread({
+            val info = MediaCodec.BufferInfo()
+            var configSent = false
+            while (draining) {
+                val c = encoder ?: break
+                val idx = try {
+                    c.dequeueOutputBuffer(info, 20_000)
+                } catch (t: Throwable) {
+                    break   // codec 已释放（stop 竞态）
+                }
+                when {
+                    idx == MediaCodec.INFO_TRY_AGAIN_LATER -> continue
+                    idx == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> continue
+                    idx >= 0 -> {
+                        val out = c.getOutputBuffer(idx)
+                        if (out != null && info.size > 0) {
+                            val isConfig = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
+                            val isKey = (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+                            out.position(info.offset)
+                            out.limit(info.offset + info.size)
+                            val au = ByteArray(info.size)
+                            out.get(au)
+                            frames.incrementAndGet()
+                            // SPS/PPS（codec config）必须先发：PC 端解码器初始化用
+                            val ok = MediaOut.camera(
+                                au,
+                                if (isConfig || isKey) ApxFrame.FLAG_KEY_FRAME else 0
+                            )
+                            if (ok) sentFrames.incrementAndGet()
+                            if (isConfig) configSent = true
+                            if (isKey && !isConfig && configSent) { /* 关键帧正常流 */ }
+                        }
+                        c.releaseOutputBuffer(idx, false)
+                    }
+                }
+            }
+        }, "apx-cam-drain").apply { isDaemon = true; start() }
 
         mgr.openCamera(cameraId, object : CameraDevice.StateCallback() {
             override fun onOpened(camera: CameraDevice) {
                 cameraDevice = camera
-                startPreview(size, cfg)
+                startPreview(surface, cfg)
             }
             override fun onDisconnected(camera: CameraDevice) {
                 camera.close()
@@ -152,21 +192,17 @@ class CameraModule(private val app: Context) : Module {
         }, handler)
     }
 
-    private fun startPreview(size: android.util.Size, cfg: CameraPrefs.Config) {
+    private fun startPreview(surface: Surface, cfg: CameraPrefs.Config) {
         val camera = cameraDevice ?: return
-        val surface = imageReader?.surface ?: return
 
         try {
             val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
-                addTarget(surface)
+                addTarget(surface)   // 直送硬编输入 Surface（YUV 零拷贝）
                 set(
                     CaptureRequest.CONTROL_AF_MODE,
                     CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 )
                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(cfg.fps, cfg.fps))
-                // JPEG 质量 60：与副屏共带宽+共 CPU 的进一步折中（72 时 1MP 一帧 ~65KB，
-                // 采集编码仍偏重；60 约省 20% 编码时间，预览画质可接受）
-                set(CaptureRequest.JPEG_QUALITY, 60.toByte())
             }
 
             camera.createCaptureSession(
@@ -176,7 +212,7 @@ class CameraModule(private val app: Context) : Module {
                         captureSession = session
                         session.setRepeatingRequest(request.build(), null, handler)
                         state = ModuleState.RUNNING
-                        Log.i(TAG, "Wi‑Fi 摄像头已启动: ${size.width}x${size.height}@${cfg.fps}fps JPEG")
+                        Log.i(TAG, "Wi‑Fi 摄像头已启动: ${cfg.width}x${cfg.height}@${cfg.fps}fps H264硬编")
                     }
                     override fun onConfigureFailed(session: CameraCaptureSession) {
                         fail("Camera2 会话配置失败")
@@ -189,39 +225,17 @@ class CameraModule(private val app: Context) : Module {
         }
     }
 
-    /**
-     * 按偏好选最接近的输出尺寸：精确命中 > 同比例不超过目标的最大 > **面积最接近目标**。
-     * 旧兜底是「任意最大尺寸」—— 部分机型 JPEG 档位稀疏（只有 4:3 大尺寸）时
-     * 会选中 4096x3072，4K JPEG@20fps 直接把手机 CPU 和带宽打满（副屏跟着卡）。
-     */
-    private fun chooseSize(
-        map: android.hardware.camera2.params.StreamConfigurationMap?,
-        cfg: CameraPrefs.Config,
-    ): android.util.Size {
-        val sizes = map?.getOutputSizes(ImageFormat.JPEG)?.toList()
-        val target = android.util.Size(cfg.width, cfg.height)
-        if (sizes.isNullOrEmpty()) return target
-        val tr = target.width.toDouble() / target.height
-        val sameRatio = sizes.filter {
-            kotlin.math.abs(it.width.toDouble() / it.height - tr) < 0.12
-        }
-        sameRatio.filter { it.width <= target.width && it.height <= target.height }
-            .maxByOrNull { it.width * it.height }
-            ?.let { return it }
-        sameRatio.minByOrNull { it.width * it.height }?.let { return it }
-        // 比例都对不上（机型怪异）：选**总像素最接近目标**的 —— 负载可控才是硬道理
-        val targetPx = target.width.toLong() * target.height
-        return sizes.minByOrNull {
-            kotlin.math.abs(it.width.toLong() * it.height - targetPx)
-        } ?: target
-    }
-
     override fun stop() {
         state = ModuleState.STOPPING
+        draining = false
         try { captureSession?.stopRepeating() } catch (_: Exception) {}
         captureSession?.close(); captureSession = null
         cameraDevice?.close(); cameraDevice = null
-        imageReader?.close(); imageReader = null
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        encoder = null
+        inputSurface?.release(); inputSurface = null
+        drainThread?.join(500); drainThread = null
         cameraThread?.quitSafely()
         try { cameraThread?.join(500) } catch (_: InterruptedException) {}
         cameraThread = null; handler = null
@@ -239,13 +253,13 @@ class CameraModule(private val app: Context) : Module {
         val cfg = CameraPrefs.load(app)
         return when (state) {
             ModuleState.RUNNING ->
-                "${cfg.width}x${cfg.height}@${cfg.fps}fps · 已采 ${frames.get()} 帧 / 上行 ${sentFrames.get()}"
+                "${cfg.width}x${cfg.height}@${cfg.fps}fps H264 · 已采 ${frames.get()} 帧 / 上行 ${sentFrames.get()}"
             ModuleState.ERROR -> "摄像头错误（见日志；常见为相机权限未授予）"
             else -> state.name.lowercase()
         }
     }
 
-    /** 不占协议功能位（与副屏同）：能力由实际 JPEG 流体现 */
+    /** 不占协议功能位（与副屏同）：能力由实际 H264 流体现 */
     override fun maskBits(): Long = 0L
 
     companion object {
