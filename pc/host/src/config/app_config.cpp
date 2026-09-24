@@ -14,7 +14,7 @@ std::map<std::string, HotkeyBinding> makeDefaults() {
     m["screen.cycle"]    = {{"ctrl", "alt"}, "F2", true};
     m["touchpad.toggle"] = {{"ctrl", "alt"}, "F3", true};
     m["sensor.toggle"]   = {{"ctrl", "alt"}, "F4", true};
-    m["camera.toggle"]   = {{"ctrl", "alt"}, "F5", false};
+
     m["audio.route"]     = {{"ctrl", "alt"}, "F6", true};
     m["device.toggle"]   = {{"ctrl", "alt"}, "F7", true};
     return m;
@@ -89,8 +89,7 @@ AppConfig loadConfig(const std::string& path) {
     cfg.touchpadAccel   = bol("touchpadAccel", true);
     cfg.touchpadNaturalScroll = bol("touchpadNaturalScroll", false);
 
-    cfg.cameraEnabled   = bol("cameraEnabled", false);
-    cfg.cameraRoute     = str("cameraRoute", "uvc");
+
     cfg.audioRoute      = str("audioRoute", "speaker");
 
     // 热键：仅覆盖文件中出现的项，缺失项保留默认
@@ -141,8 +140,7 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["touchpadAccel"]   = cfg.touchpadAccel;
     j["touchpadNaturalScroll"] = cfg.touchpadNaturalScroll;
 
-    j["cameraEnabled"]   = cfg.cameraEnabled;
-    j["cameraRoute"]     = cfg.cameraRoute;
+
     j["audioRoute"]      = cfg.audioRoute;
 
     auto hk = net::Json::makeObject();

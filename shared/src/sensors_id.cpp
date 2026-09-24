@@ -34,7 +34,7 @@ const char* moduleName(uint64_t bit) {
         case kModuleVibrate:  return "vibrate-torch-ir";
         case kModuleDisplay:  return "display-video";
         case kModuleTouchpad: return "touchpad";
-        case kModuleCamera:   return "camera";
+
         default:              return "?";
     }
 }

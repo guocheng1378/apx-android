@@ -14,7 +14,7 @@ enum class Prio : int {
     HidSensor = 1, // HID 传感器
     DisplayVideo = 3, // 副屏视频
     Audio = 4,     // 音频
-    UvcCamera = 5, // UVC 摄像头（最低）
+
 };
 
 struct Demand {

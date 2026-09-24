@@ -118,9 +118,7 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
     if (name == "sensor.allOff") { for (auto& [k, v] : sensorOn_) v = false; out["on"] = mapToJson(sensorOn_); return; }
     if (name == "sensor.setRate") { if (auto* v = p.find("rateHz")) { sensorRate_["imu"] = v->asInt(100); } out["rate"] = mapToJson(sensorRate_); return; }
 
-    // ---- 摄像头 / 音频 ----
-    if (name == "camera.toggle") { cfg_.cameraEnabled = !cfg_.cameraEnabled; persist(); out["enabled"] = cfg_.cameraEnabled; return; }
-    if (name == "camera.setRoute") { if (auto* v = p.find("route")) { cfg_.cameraRoute = v->asString(); persist(); } out["route"] = cfg_.cameraRoute; return; }
+
     if (name == "audio.setRoute") { if (auto* v = p.find("route")) { cfg_.audioRoute = v->asString(); persist(); } out["route"] = cfg_.audioRoute; return; }
 
     // ---- 设备 ----
@@ -232,7 +230,7 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
         cfg_.touchpadEnabled = false; sensorRate_["imu"] = 200; persist(); out["scene"] = "create"; return;
     }
     if (name == "scene.touchpad") {
-        cfg_.displayEnabled = false; cfg_.touchpadEnabled = true; cfg_.cameraEnabled = false;
+        cfg_.displayEnabled = false; cfg_.touchpadEnabled = true;
         std::string e, n; display_->unplug(&e, &n); persist(); out["scene"] = "touchpad"; return;
     }
 
@@ -357,13 +355,6 @@ net::Json ActionRouter::buildState() {
     tp["latencyMs"] = 1.2; tp["drops"] = 0;
     s["touchpad"] = tp;
 
-    // camera
-    net::Json cam = net::Json::makeObject();
-    cam["enabled"] = cfg_.cameraEnabled; cam["route"] = cfg_.cameraRoute;
-    cam["routeLabel"] = cfg_.cameraRoute == "uvc" ? "f_uvc 复合设备" : "系统摄像头";
-    cam["available"] = true; cam["note"] = cfg_.cameraRoute == "uvc" ? "需 gadget 支持，详见诊断" : "";
-    s["camera"] = cam;
-
     // audio
     net::Json aud = net::Json::makeObject();
     aud["enabled"] = cfg_.audioRoute != "mute"; aud["route"] = cfg_.audioRoute;
@@ -401,7 +392,7 @@ net::Json ActionRouter::buildState() {
     arbiter_.setDemand("HID 传感器", bandwidth::Prio::HidSensor, deviceConnected_ ? 1 : 0, deviceConnected_);
     arbiter_.setDemand("副屏视频", bandwidth::Prio::DisplayVideo, cfg_.displayEnabled ? cfg_.displayBitrateMbps : 0, cfg_.displayEnabled);
     arbiter_.setDemand("音频", bandwidth::Prio::Audio, aud["enabled"].asBool() ? 12 : 0, aud["enabled"].asBool());
-    arbiter_.setDemand("UVC 摄像头", bandwidth::Prio::UvcCamera, cfg_.cameraEnabled ? 18 : 0, cfg_.cameraEnabled);
+
     auto rep = arbiter_.compute();
     net::Json bw = net::Json::makeObject();
     bw["usedMbps"] = rep.usedMbps; bw["totalMbps"] = rep.totalMbps;
@@ -442,7 +433,7 @@ net::Json ActionRouter::buildState() {
     auto scene = [](const char* id, const char* n, const char* d) { net::Json o = net::Json::makeObject(); o["id"] = id; o["name"] = n; o["desc"] = d; return o; };
     sc.push(scene("present", "演示模式", "开副屏 + 通知静音 + 音频静音"));
     sc.push(scene("create", "创作模式", "关触控板 + 开数位板 + 高采样率"));
-    sc.push(scene("touchpad", "触控板模式", "关副屏 + 开触控板 + 关摄像头"));
+    sc.push(scene("touchpad", "触控板模式", "关副屏 + 开触控板"));
     s["scenes"] = sc;
 
     return s;

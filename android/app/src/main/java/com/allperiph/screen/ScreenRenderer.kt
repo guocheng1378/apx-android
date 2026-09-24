@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * ## 线程纪律
  * `MediaCodec.queueInputBuffer` 在输入缓冲用尽时会阻塞。收流线程上绝对不能做这件事
- * （会把同一连接上的音频与摄像头一起拖住），所以这里只把位流**入队**，
+ * （会把同一连接上的音频拖住），所以这里只把位流**入队**，
  * 由专用解码线程喂给解码器。
  */
 object ScreenRenderer {

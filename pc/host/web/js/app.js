@@ -129,7 +129,6 @@ function renderTopbar(s) {
   const items = [
     ['副屏',   s?.display?.enabled ? 'on' : ''],
     ['触控板', s?.touchpad?.enabled ? 'on' : ''],
-    ['摄像头', s?.camera?.enabled ? 'on' : (s?.camera?.available ? '' : 'warn')],
     ['音频',   s?.audio?.enabled ? 'on' : ''],
   ];
   for (const [name, cls] of items) {

@@ -18,7 +18,7 @@ const char* actionName(ActionId id) {
         case ActionId::ScreenCycle:    return "screen.cycle";
         case ActionId::TouchpadToggle: return "touchpad.toggle";
         case ActionId::SensorToggle:   return "sensor.toggle";
-        case ActionId::CameraToggle:   return "camera.toggle";
+
         case ActionId::AudioRoute:     return "audio.route";
         case ActionId::DeviceToggle:   return "device.toggle";
     }
@@ -30,7 +30,7 @@ ActionId actionFromName(const std::string& name) {
     if (name == "screen.cycle")    return ActionId::ScreenCycle;
     if (name == "touchpad.toggle") return ActionId::TouchpadToggle;
     if (name == "sensor.toggle")   return ActionId::SensorToggle;
-    if (name == "camera.toggle")   return ActionId::CameraToggle;
+
     if (name == "audio.route")     return ActionId::AudioRoute;
     if (name == "device.toggle")   return ActionId::DeviceToggle;
     return ActionId::ScreenToggle;
@@ -44,7 +44,7 @@ static std::map<ActionId, Binding> makeDefaultBindings() {
     m[ActionId::ScreenCycle]    = mk("F2");
     m[ActionId::TouchpadToggle] = mk("F3");
     m[ActionId::SensorToggle]   = mk("F4");
-    m[ActionId::CameraToggle]   = mk("F5");
+
     m[ActionId::AudioRoute]     = mk("F6");
     m[ActionId::DeviceToggle]   = mk("F7");
     return m;

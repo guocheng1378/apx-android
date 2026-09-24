@@ -178,6 +178,13 @@ void FrameSplitter::feed(const uint8_t* data, size_t len) {
 }
 
 bool FrameSplitter::next(std::vector<uint8_t>& frameOut) {
+    // 防 OOM：累积缓冲超过「单帧上限 + 余量」即视为在等待一个不可能合法的超大帧，
+    // 直接清空，绝不继续缓冲（A）。
+    if (buf_.size() - consumed_ > apx::kMaxFramePayload + apx::kFrameHeaderSize + (1u << 16)) {
+        buf_.clear();
+        consumed_ = 0;
+        return false;
+    }
     while (buf_.size() - consumed_ >= sizeof(apx::ApxFrameHeader)) {
         const uint8_t* p = buf_.data() + consumed_;
         if (std::memcmp(p, "APX1", 4) != 0) {
@@ -186,6 +193,12 @@ bool FrameSplitter::next(std::vector<uint8_t>& frameOut) {
         }
         apx::ApxFrameHeader h{};
         std::memcpy(&h, p, sizeof(h));
+        // A：取帧处立即校验载荷上下界，坏帧（过大/过小）直接丢弃，绝不先缓冲
+        if (!apx::isValidPayloadLen(h.payloadLen)) {
+            buf_.clear();
+            consumed_ = 0;
+            return false;
+        }
         const size_t total = sizeof(h) + static_cast<size_t>(h.headerExtWords) * 4 + h.payloadLen;
         if (total > buf_.size() - consumed_) return false;  // 数据未收全
         frameOut.assign(p, p + total);

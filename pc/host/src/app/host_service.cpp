@@ -143,7 +143,7 @@ int runService(const ServiceOptions& opt) {
         amap[hotkey::ActionId::ScreenCycle]    = [&] { fire("screen.cycle"); };
         amap[hotkey::ActionId::TouchpadToggle] = [&] { fire("touchpad.toggle"); };
         amap[hotkey::ActionId::SensorToggle]   = [&] { fire("sensor.toggle"); };
-        amap[hotkey::ActionId::CameraToggle]   = [&] { fire("camera.toggle"); };
+
         amap[hotkey::ActionId::AudioRoute]     = [&] { fire("audio.route"); };
         amap[hotkey::ActionId::DeviceToggle]   = [&] { fire("device.toggle"); };
         std::string err;

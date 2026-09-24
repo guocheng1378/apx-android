@@ -35,7 +35,7 @@ enum : uint8_t {
     kStreamControl   = 3,   // 双向：控制面（鼠标 / 键盘 / 多媒体 / 心跳）
     kStreamTelemetry = 4,   // 预留
     kStreamMic       = 5,   // 上行：麦克风 —— 手机录音（PCM s16le / 48k / 立体声）
-    kStreamCamera    = 6,   // 上行：摄像头 —— JPEG 帧（Camera2 → ImageReader）
+
 };
 
 enum : uint8_t {
@@ -48,6 +48,12 @@ constexpr uint32_t kFrameMagicLE   = 0x31585041u;  // 'A' 'P' 'X' '1' 按小端�
 constexpr size_t   kFrameHeaderSize = 16;
 constexpr size_t   kFrameCrcSize    = 4;
 constexpr size_t   kMaxFramePayload = 4u * 1024u * 1024u;  // 单帧载荷上限（含 CRC）
+
+// 接收侧快速校验：载荷必须至少容纳 CRC，且不超过单帧上限。
+// 取帧处（组装 / 分片）第一时间用其丢弃坏帧，避免按超大 payloadLen 无限缓冲导致 OOM（DoS）。
+inline bool isValidPayloadLen(uint32_t payloadLen) noexcept {
+    return payloadLen >= kFrameCrcSize && payloadLen <= kMaxFramePayload;
+}
 
 // ---------------------------------------------------------------- CRC32 ----
 // IEEE 802.3：反射多项式 0xEDB88320，初值 0xFFFFFFFF，结果取反

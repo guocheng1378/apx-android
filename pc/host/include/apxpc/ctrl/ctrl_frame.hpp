@@ -71,7 +71,7 @@ enum CapabilityBits : uint64_t {
     kCapBattery = 1ull << 3,
     kCapGps     = 1ull << 4,
     kCapDisplay = 1ull << 5,
-    kCapCamera  = 1ull << 6,
+
     kCapAudio   = 1ull << 7,
     kCapBulk    = 1ull << 8,   // 支持 bulk 控制面（否则只能走 HID Feature）
 };

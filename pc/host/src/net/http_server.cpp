@@ -17,6 +17,10 @@ namespace apxpc::net {
 
 namespace {
 
+constexpr size_t kMaxHeaderBuf  = 1u << 16;   // 请求头整体上限 64KB
+constexpr size_t kMaxHeaderLine = 8u << 10;   // 单行上限 8KB
+constexpr int    kMaxSseClients = 64;         // SSE 并发连接上限（D：防资源耗尽）
+
 std::string contentTypeFor(const std::string& path) {
     auto ext = [&](const char* e) { return path.size() > std::strlen(e) &&
         path.compare(path.size() - std::strlen(e), std::strlen(e), e) == 0; };
@@ -54,7 +58,11 @@ bool recvUntilHeaders(SOCKET s, std::string& buf) {
         int n = recv(s, tmp, sizeof tmp, 0);
         if (n <= 0) return false;
         buf.append(tmp, static_cast<size_t>(n));
-        if (buf.size() > 1 << 16) return true; // 防滥用
+        // B/C 附加：超整体上限或单行过长均视为畸形，直接拒绝（防止慢速/超长头耗尽内存）
+        if (buf.size() > kMaxHeaderBuf) return false;
+        const auto nl = buf.rfind('\n');
+        const size_t curLine = (nl == std::string::npos) ? buf.size() : (buf.size() - nl - 1);
+        if (curLine > kMaxHeaderLine) return false;
         if (buf.find("\r\n\r\n") != std::string::npos) return true;
     }
 }
@@ -113,7 +121,12 @@ bool HttpServer::tryBind(uint16_t port) {
     setsockopt(listen_, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&yes), sizeof yes);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    inet_pton(AF_INET, opt_.bind.c_str(), &addr.sin_addr);
+    // E: 必须校验 bind 地址；非法地址（空串/格式错/IPv6）应直接失败，绝不能静默回退到
+    // 0.0.0.0，否则会把可注入键鼠的控制面暴露到整个局域网。
+    if (inet_pton(AF_INET, opt_.bind.c_str(), &addr.sin_addr) != 1) {
+        APX_LOGE("非法 bind 地址 '{}'，绑定中止", opt_.bind.c_str());
+        closesocket(listen_); listen_ = INVALID_SOCKET; return false;
+    }
     addr.sin_port = htons(port);
     if (bind(listen_, reinterpret_cast<sockaddr*>(&addr), sizeof addr) == SOCKET_ERROR) {
         closesocket(listen_); listen_ = INVALID_SOCKET; return false;
@@ -132,10 +145,10 @@ bool HttpServer::start(const Options& opt) {
 
     uint16_t p = opt_.port == 0 ? 47990 : opt_.port;
     if (!tryBind(p)) {
-        if (!opt_.allowPortIncrement) { APX_LOGE("端口 {} 绑定失败", p); return false; }
+        if (!opt_.allowPortIncrement) { APX_LOGE("端口 {} 绑定失败", p); WSACleanup(); return false; }
         uint16_t tries = 0;
         while (!tryBind(p) && tries < 200) { p = static_cast<uint16_t>(p + 1); ++tries; }
-        if (listen_ == INVALID_SOCKET) { APX_LOGE("端口递增后仍无法绑定"); return false; }
+        if (listen_ == INVALID_SOCKET) { APX_LOGE("端口递增后仍无法绑定"); WSACleanup(); return false; }
         APX_LOGW("默认端口被占用，改用 {}", actualPort_);
     }
     running_ = true;
@@ -159,10 +172,13 @@ void HttpServer::stop() {
     running_ = false;
     if (listen_ != INVALID_SOCKET) { closesocket(listen_); listen_ = INVALID_SOCKET; }
     if (acceptThread_.joinable()) acceptThread_.join();
-    // 关闭所有 SSE
-    std::lock_guard<std::mutex> lk(sseMu_);
-    for (auto s : sseSockets_) closesocket(s);
-    sseSockets_.clear();
+    // 关闭所有 SSE：用 shutdown 唤醒阻塞在 recv 的 worker，真正的 closesocket 由 worker
+    // 自身负责（D2：避免 stop() 与 worker 对同一 fd 双重关闭，否则被内核复用后会误关别人的连接）。
+    // worker 退出时会自行从 sseSockets_ 移除并 closesocket。
+    {
+        std::lock_guard<std::mutex> lk(sseMu_);
+        for (auto s : sseSockets_) shutdown(s, SD_BOTH);
+    }
     WSACleanup();
 }
 
@@ -196,15 +212,32 @@ void HttpServer::worker(SOCKET client) {
             "Access-Control-Allow-Origin: " + (isLocalOrigin(origin) ? origin : "null") + "\r\n\r\n";
         sendAll(client, hdr);
         sendAll(client, ": connected\n\n");
+        // D: 连接数上限，防止每连接一个 detached 线程被耗尽线程/句柄
         {
             std::lock_guard<std::mutex> lk(sseMu_);
+            if (sseSockets_.size() >= kMaxSseClients) {
+                std::string r = "HTTP/1.1 503 Service Unavailable\r\n"
+                    "Content-Length: 0\r\nConnection: close\r\n\r\n";
+                sendAll(client, r);
+                closesocket(client);
+                return;
+            }
             sseSockets_.push_back(client);
+        }
+        // D: 给 SSE 连接加收超时，避免本线程永久阻塞在 recv（无数据时也能周期性检查 running_）
+        {
+            int rcvTmo = 2000;
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO,
+                       reinterpret_cast<const char*>(&rcvTmo), sizeof rcvTmo);
         }
         // 阻塞直到客户端断开
         char tmp[1];
         while (running_) {
             int n = recv(client, tmp, 1, 0);
-            if (n <= 0) break;
+            if (n > 0) continue;             // SSE 单向，客户端发来的数据忽略
+            if (n == 0) break;              // 对端正常关闭
+            if (WSAGetLastError() == WSAETIMEDOUT) continue;  // 超时，继续轮询 running_
+            break;                          // 其它错误
         }
         {
             std::lock_guard<std::mutex> lk(sseMu_);

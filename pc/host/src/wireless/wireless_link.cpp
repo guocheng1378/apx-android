@@ -596,7 +596,16 @@ void WirelessLink::keepaliveLoop() {
             APX_LOGW("Wi‑Fi 对端关闭连接");
             break;
         }
-        if (n > 0) acc.insert(acc.end(), rx, rx + n);
+        if (n > 0) {
+            // A: 防御：累积缓冲超过「单帧上限 + 余量」即视为在等待一个不可能合法的超大
+            // 帧，直接丢弃，避免按超大 payloadLen 无限缓冲导致内存耗尽（DoS）。
+            if (acc.size() > apx::kMaxFramePayload + apx::kFrameHeaderSize + (1u << 16)) {
+                acc.clear();
+                cDropped_.fetch_add(1);
+            } else {
+                acc.insert(acc.end(), rx, rx + n);
+            }
+        }
 
         // 3) 从累积缓冲里剥离完整 APX 帧
         size_t off = 0;
@@ -607,11 +616,24 @@ void WirelessLink::keepaliveLoop() {
                 cDropped_.fetch_add(1);
                 break;
             }
+            // A: 载荷上下界校验，坏帧（过大/过小）立即丢弃，绝不先缓冲
+            if (!apx::isValidPayloadLen(h.payloadLen)) {
+                acc.clear();
+                cDropped_.fetch_add(1);
+                break;
+            }
             const size_t total = apx::frameTotalSize(h);
             if (acc.size() - off < total) break;   // 半帧，等下次
             const uint8_t* payload = acc.data() + off + apx::kFrameHeaderSize;
             const uint32_t bodyLen =
                 h.payloadLen >= apx::kFrameCrcSize ? h.payloadLen - apx::kFrameCrcSize : 0;
+            // B: 控制面帧（注入鼠标/键盘/多媒体等）带 CRC，接收侧校验以防伪造/损坏注入
+            if (h.streamId == apx::kStreamControl && !apx::verifyPayload(payload, h.payloadLen)) {
+                APX_LOGW("控制帧 CRC 校验失败，丢弃（疑似伪造或链路损坏）");
+                cDropped_.fetch_add(1);
+                off += total;
+                continue;
+            }
 
             if (h.streamId == apx::kStreamControl && bodyLen >= 1) {
                 const uint8_t cmd = payload[0];

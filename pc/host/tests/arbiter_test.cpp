@@ -30,12 +30,12 @@ static void testOverBudgetWireless() {
     a.setDemand("hid", Prio::HidSensor, 1, true);         // 保
     a.setDemand("video", Prio::DisplayVideo, 12, true);   // 3+12=15 保
     a.setDemand("audio", Prio::Audio, 12, true);          // 15+12>20 -> 压缩到 5
-    a.setDemand("cam", Prio::UvcCamera, 18, true);        // 关停
+
     auto r = a.compute();
     CHECK(r.totalMbps == 20);
     CHECK(r.usedMbps <= 20.0 + 1e-9);
     // 顺序按优先级：touch, hid, video, audio, cam
-    CHECK(r.items.size() == 5);
+    CHECK(r.items.size() == 4);
     CHECK(r.items[0].name == "touch" && !r.items[0].degraded);
     CHECK(r.items[1].name == "hid" && !r.items[1].degraded);
     CHECK(r.items[2].name == "video" && !r.items[2].degraded);

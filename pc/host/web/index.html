@@ -113,12 +113,7 @@
         <label class="switch"><input type="checkbox" id="swNat" onchange="act('touchpad.toggleNaturalScroll')"><i></i></label></div>
     </div>
     <div class="card">
-      <div class="row"><div class="lbl"><b>摄像头</b><span id="camInfo">手机摄像头做 PC 网络摄像头</span></div>
-        <label class="switch"><input type="checkbox" id="swCam" onchange="act('camera.toggle')"><i></i></label></div>
-      <div class="row"><div class="lbl"><span>路由</span></div>
-        <select id="selCam" onchange="act('camera.setRoute',{route:this.value})">
-          <option value="system">系统摄像头</option><option value="uvc">UVC 复合设备</option>
-        </select></div>
+
       <div class="row"><div class="lbl"><b>音频路由</b></div>
         <select id="selAud" onchange="act('audio.setRoute',{route:this.value})">
           <option value="usb">USB 输出</option><option value="wireless">无线</option><option value="mute">静音</option>
@@ -220,7 +215,7 @@ async function refresh(){
       if(j.display.codec) $('selEnc').value=j.display.codec;
     }
     if(j.touchpad){ $('swTpad').checked=!!j.touchpad.enabled; }
-    if(j.camera){ $('swCam').checked=!!j.camera.enabled; if(j.camera.route)$('selCam').value=j.camera.route; }
+
     if(j.audio && j.audio.route) $('selAud').value=j.audio.route;
     const sl=$('sensorList');
     if(Array.isArray(j.sensors)){ sl.textContent = j.sensors.map(s=>

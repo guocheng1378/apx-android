@@ -82,14 +82,22 @@ constexpr Gdiplus::ARGB primaryHover   = 0xFF4C90FF;
 constexpr Gdiplus::ARGB primaryPressed = 0xFF2B6BE0;   // bg_btn_primary:state_pressed
 constexpr Gdiplus::ARGB primarySoft    = 0xFFE8F0FF;   // badge_bg
 constexpr Gdiplus::ARGB onSurface      = 0xFF191919;   // md_on_surface
-constexpr Gdiplus::ARGB onVariant      = 0xFF8C8C8C;   // md_on_surface_variant
-constexpr Gdiplus::ARGB tertiary       = 0xFFBDBDBD;   // miuix_text_tertiary
+constexpr Gdiplus::ARGB onVariant      = 0xFF595959;   // md_on_surface_variant（加深以保浅色 MiuiX 可读性）
+constexpr Gdiplus::ARGB tertiary       = 0xFF8C8C8C;   // miuix_text_tertiary
 constexpr Gdiplus::ARGB stateOk        = 0xFF12B76A;   // state_ok
 constexpr Gdiplus::ARGB stateWarn      = 0xFFF79009;   // state_warn
 constexpr Gdiplus::ARGB stateError     = 0xFFF04438;   // state_error
 constexpr Gdiplus::ARGB stateIdle      = 0xFF98A2B3;   // state_idle
 constexpr Gdiplus::ARGB fieldBg        = 0xFFF2F3F5;   // 输入框底（同背景色）
 }  // namespace tok
+
+// ——— DPI 适配（高分屏不再被系统位图拉伸发虚）———
+// gScale：当前 DPI 相对 96 的缩放系数。所有布局坐标 / 字号 / 子控件都乘它，
+// 于是 125%/150% 屏上 1 逻辑像素 = 1 设备像素，文字清晰不发糊。
+float gScale = 1.0f;
+
+/// 把逻辑像素按当前 DPI 系数换算成设备像素（专治写死的布局常量）。
+inline int D(int v) { return static_cast<int>(v * gScale); }
 
 constexpr int kAppIconId = 101;   // 对应 pc/host/res/apx.rc 的 IDI_APPICON
 
@@ -158,6 +166,71 @@ struct Layout {
     Rect btnHide, btnQuit;
     int totalH = 0;                // 整窗高度（随开关变化）
 };
+
+// ——— DPI：把 layout() 算出的逻辑坐标整体缩放到设备像素 ———
+// 集中一处缩放，layout() 内部仍可全部用 96-DPI 的逻辑常量书写，可读性不受影响。
+void scaleLayout(Layout& l) {
+    auto sc = [](Rect& r) {
+        r.x = static_cast<int>(r.x * gScale);
+        r.y = static_cast<int>(r.y * gScale);
+        r.w = static_cast<int>(r.w * gScale);
+        r.h = static_cast<int>(r.h * gScale);
+    };
+    sc(l.badge); sc(l.cardConn); sc(l.titleConn);
+    sc(l.lblWifi); sc(l.swWifi); sc(l.lblBt); sc(l.swBt); sc(l.lblUsb); sc(l.swUsb);
+    sc(l.connStatus);
+    sc(l.fieldHost); sc(l.fieldPort); sc(l.editHost); sc(l.editPort);
+    sc(l.hdrWireless);
+    sc(l.cardScreen); sc(l.labelScreen); sc(l.switchScreen); sc(l.segMirror); sc(l.segExtend);
+    sc(l.screenStatus); sc(l.screenDetail); sc(l.labelBitrate); sc(l.segBr1); sc(l.segBr2); sc(l.segBr3);
+    sc(l.labelRes); sc(l.segRes1); sc(l.segRes2); sc(l.segRes3); sc(l.segRes4);
+    sc(l.cardSpeaker); sc(l.labelSpeaker); sc(l.switchSpeaker); sc(l.speakerStatus);
+    sc(l.labelSpeakerDev); sc(l.speakerCombo); sc(l.speakerDevice); sc(l.speakerDetail); sc(l.btnTestSpeaker);
+    sc(l.cardMic); sc(l.labelMic); sc(l.switchMicFwd); sc(l.micStatus); sc(l.labelMicDev); sc(l.micCombo); sc(l.micDetail);
+    sc(l.phoneStateLine);
+    sc(l.hdrWired); sc(l.cardBt); sc(l.labelBtCard); sc(l.btStatus); sc(l.btDetail);
+    sc(l.cardUsb); sc(l.labelUsbCard); sc(l.usbStatus); sc(l.usbDetail);
+    sc(l.switchAuto); sc(l.labelAuto); sc(l.btnHide); sc(l.btnQuit);
+    l.totalH = static_cast<int>(l.totalH * gScale);
+}
+
+/// 设置进程 DPI 感知：优先 per-monitor v2，其次 per-monitor，再退 system。
+/// 不做这步，Windows 会在高分屏把窗口当 96-DPI 位图拉伸 → 整窗发虚（"看不清"主因）。
+void setDpiAwareness() {
+    HMODULE u = ::GetModuleHandleW(L"user32.dll");
+    if (u) {
+        using CtxFn = BOOL(WINAPI*)(void*);
+        auto f = reinterpret_cast<CtxFn>(::GetProcAddress(u, "SetProcessDpiAwarenessContext"));
+        if (f && f(reinterpret_cast<void*>(-4))) return;   // -4 = PER_MONITOR_AWARE_V2
+    }
+    HMODULE s = ::LoadLibraryW(L"shcore.dll");
+    if (s) {
+        using ShaFn = HRESULT(WINAPI*)(int);
+        auto f2 = reinterpret_cast<ShaFn>(::GetProcAddress(s, "SetProcessDpiAwareness"));
+        if (f2) f2(2 /*PROCESS_PER_MONITOR_DPI_AWARE*/);   // 忽略返回值：后面还有兜底
+        ::FreeLibrary(s);
+    }
+    ::SetProcessDPIAware();
+}
+
+/// 取得初始化时的系统 DPI（窗口建在主屏，用系统 DPI 近似即可）。
+UINT initialDpi() {
+    HMODULE u = ::GetModuleHandleW(L"user32.dll");
+    if (u) {
+        using GdfFn = UINT(WINAPI*)();
+        auto f = reinterpret_cast<GdfFn>(::GetProcAddress(u, "GetDpiForSystem"));
+        if (f) { const UINT d = f(); if (d > 0) return d; }
+    }
+    HDC dc = ::GetDC(nullptr);
+    const int d = dc ? ::GetDeviceCaps(dc, LOGPIXELSX) : 96;
+    if (dc) ::ReleaseDC(nullptr, dc);
+    return d > 0 ? static_cast<UINT>(d) : 96;
+}
+
+void updateScaleForDpi(UINT dpi) {
+    if (dpi <= 0) dpi = 96;
+    gScale = static_cast<float>(dpi) / 96.0f;
+}
 
 /// 当前哪些传输开关是开的 —— 决定下方出现哪些功能卡
 struct VisToggles { bool wifi = false, bt = false, usb = false; };
@@ -261,6 +334,7 @@ Layout layout(const VisToggles& v) {
     l.btnHide = {l.btnQuit.x - 8 - 104, y, 104, 32};
     y += 40;
     l.totalH = y + 16;
+    scaleLayout(l);   // 按当前 DPI 系数把整张布局换成像素坐标
     return l;
 }
 
@@ -916,14 +990,14 @@ void paintButton(Gdiplus::Graphics& g, const Rect& r, const std::wstring& label,
 
 void paintRadio(Gdiplus::Graphics& g, const Rect& row, const std::wstring& label, bool on,
                 bool hot, Gdiplus::Font& f) {
-    const float cx = static_cast<float>(row.x) + 9.0f;
+    const float cx = static_cast<float>(row.x) + 9.0f * gScale;
     const float cy = static_cast<float>(row.y + row.h / 2);
     const Gdiplus::ARGB ring = on ? tok::primary : (hot ? tok::onVariant : 0xFFC4C9D0);
-    Gdiplus::Pen pen(ring, 2.0f);
-    g.DrawEllipse(&pen, cx - 8.0f, cy - 8.0f, 16.0f, 16.0f);
+    Gdiplus::Pen pen(ring, 2.0f * gScale);
+    g.DrawEllipse(&pen, cx - 8.0f * gScale, cy - 8.0f * gScale, 16.0f * gScale, 16.0f * gScale);
     if (on) {
         Gdiplus::SolidBrush dot(tok::primary);
-        g.FillEllipse(&dot, cx - 4.0f, cy - 4.0f, 8.0f, 8.0f);
+        g.FillEllipse(&dot, cx - 4.0f * gScale, cy - 4.0f * gScale, 8.0f * gScale, 8.0f * gScale);
     }
     text(g, label, Rect{row.x + 26, row.y, row.w - 26, row.h}, f,
          on ? tok::onSurface : tok::onVariant);
@@ -963,8 +1037,8 @@ void paint(HWND hwnd, Panel* p) {
         g.FillRectangle(&bg, 0, 0, cw, ch);
 
         // —— 顶栏：应用名 + 副标题 + 状态徽章 ——
-        text(g, L"全能外设", Rect{kMargin + 4, 18, 260, 32}, *p->fTitle, tok::onSurface);
-        text(g, L"手机当鼠标 / 键盘 / 声卡用", Rect{kMargin + 5, 50, 360, 18},
+        text(g, L"全能外设", Rect{D(kMargin) + D(4), D(18), D(260), D(32)}, *p->fTitle, tok::onSurface);
+        text(g, L"手机当鼠标 / 键盘 / 声卡用", Rect{D(kMargin) + D(5), D(50), D(360), D(18)},
              *p->fCaption, tok::onVariant);
 
         fillRound(g, L.badge, static_cast<float>(L.badge.h) / 2.0f, tok::primarySoft);
@@ -994,7 +1068,7 @@ void paint(HWND hwnd, Panel* p) {
             text(g, detailText(s), L.connStatus, *p->fCaption, tok::onVariant);
         }
         // 无线手动地址（始终展示，自动发现失败时兜底）
-        text(g, L"地址", Rect{kContentX, L.fieldHost.y, 44, L.fieldHost.h}, *p->fBody,
+        text(g, L"地址", Rect{D(kContentX), L.fieldHost.y, D(44), L.fieldHost.h}, *p->fBody,
              tok::onVariant);
         fillRound(g, L.fieldHost, 8.0f, tok::fieldBg);
         fillRound(g, L.fieldPort, 8.0f, tok::fieldBg);
@@ -1060,17 +1134,18 @@ void paint(HWND hwnd, Panel* p) {
 
                 const std::wstring phoneTxt =
                     (s.phase == LinkPhase::Connected) ? phoneAudioText(s) : std::wstring();
-                const int tx = L.btnTestSpeaker.x + L.btnTestSpeaker.w + 10;
-                const int tw = kCardW - 2 * kCardPad - L.btnTestSpeaker.w - 10;
+                const int tx = L.btnTestSpeaker.x + L.btnTestSpeaker.w + D(10);
+                const int tw = static_cast<int>(kCardW * gScale) - 2 * D(kCardPad)
+                              - L.btnTestSpeaker.w - D(10);
                 if (ttSent > 0 || ttBusy) {
                     wchar_t tb[96];
                     std::swprintf(tb, 96, L"已送手机 %llu 片%s",
                                   static_cast<unsigned long long>(ttSent),
                                   ttBusy ? L" · 推流中" : L"");
-                    text(g, tb, Rect{tx, L.btnTestSpeaker.y, tw, 28}, *p->fCaption,
+                    text(g, tb, Rect{tx, L.btnTestSpeaker.y, tw, D(28)}, *p->fCaption,
                          tok::onVariant);
                 } else if (!phoneTxt.empty()) {
-                    text(g, phoneTxt, Rect{tx, L.btnTestSpeaker.y, tw, 28}, *p->fCaption,
+                    text(g, phoneTxt, Rect{tx, L.btnTestSpeaker.y, tw, D(28)}, *p->fCaption,
                          phoneAudioColor(s));
                 }
             }
@@ -1214,7 +1289,7 @@ void resizeToLayout(Panel* p) {
     if (!p->hwnd) return;
     const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT rc{0, 0, kClientW, L.totalH};
+    RECT rc{0, 0, static_cast<int>(kClientW * gScale), L.totalH};
     AdjustWindowRectEx(&rc, style, FALSE, 0);
     SetWindowPos(p->hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1368,23 +1443,46 @@ void performHit(Panel* p, Hit h) {
 
 // ——————————————————— 窗口 ———————————————————
 void makeFonts(Panel* p) {
+    // DPI 切换时会再次调用：先释放旧资源，避免 GDI 对象泄漏
+    if (p->hEditFont) { DeleteObject(p->hEditFont); p->hEditFont = nullptr; }
+    if (p->hFieldBrush) { DeleteObject(p->hFieldBrush); p->hFieldBrush = nullptr; }
     using Gdiplus::Font;
     using Gdiplus::FontStyleBold;
     using Gdiplus::FontStyleRegular;
     using Gdiplus::UnitPixel;
     const wchar_t* face = L"Microsoft YaHei UI";
-    p->fTitle.reset(new Font(face, 20.0f, FontStyleBold, UnitPixel));
-    p->fCaption.reset(new Font(face, 12.0f, FontStyleRegular, UnitPixel));
-    p->fSection.reset(new Font(face, 13.0f, FontStyleBold, UnitPixel));
-    p->fBody.reset(new Font(face, 13.5f, FontStyleRegular, UnitPixel));
-    p->fStatus.reset(new Font(face, 30.0f, FontStyleBold, UnitPixel));
-    p->fBtn.reset(new Font(face, 14.0f, FontStyleBold, UnitPixel));
-    p->fBadge.reset(new Font(face, 12.0f, FontStyleBold, UnitPixel));
+    const float k = gScale;   // 字号随 DPI 放大，高分屏不再发虚
+    p->fTitle.reset(new Font(face, 20.0f * k, FontStyleBold, UnitPixel));
+    p->fCaption.reset(new Font(face, 13.0f * k, FontStyleRegular, UnitPixel));
+    p->fSection.reset(new Font(face, 13.0f * k, FontStyleBold, UnitPixel));
+    p->fBody.reset(new Font(face, 14.0f * k, FontStyleRegular, UnitPixel));
+    p->fStatus.reset(new Font(face, 30.0f * k, FontStyleBold, UnitPixel));
+    p->fBtn.reset(new Font(face, 14.0f * k, FontStyleBold, UnitPixel));
+    p->fBadge.reset(new Font(face, 12.0f * k, FontStyleBold, UnitPixel));
 
-    p->hEditFont = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    p->hEditFont = CreateFontW(-static_cast<int>(15 * k), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                DEFAULT_CHARSET, OUT_TT_PRECIS, CLIP_DEFAULT_PRECIS,
                                CLEARTYPE_QUALITY, DEFAULT_PITCH, face);
     p->hFieldBrush = CreateSolidBrush(RGB(0xF2, 0xF3, 0xF5));
+}
+
+// 下拉框展开后的列表高度（随 DPI 缩放，否则高分屏下拉被压扁）
+int comboDropH() { return static_cast<int>(160 * gScale); }
+
+/// 按当前布局把四个原生子控件移动到正确位置（DPI 切换时重排用）
+void positionChildren(Panel* p) {
+    const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
+    const int drop = comboDropH();
+    if (HWND e = GetDlgItem(p->hwnd, IDC_EDIT_HOST))
+        MoveWindow(e, L.editHost.x, L.editHost.y, L.editHost.w, L.editHost.h, TRUE);
+    if (HWND e = GetDlgItem(p->hwnd, IDC_EDIT_PORT))
+        MoveWindow(e, L.editPort.x, L.editPort.y, L.editPort.w, L.editPort.h, TRUE);
+    if (HWND c = GetDlgItem(p->hwnd, IDC_COMBO_DEV))
+        MoveWindow(c, L.speakerCombo.x, L.speakerCombo.y, L.speakerCombo.w,
+                   L.speakerCombo.h + drop, TRUE);
+    if (HWND c = GetDlgItem(p->hwnd, IDC_COMBO_MIC))
+        MoveWindow(c, L.micCombo.x, L.micCombo.y, L.micCombo.w,
+                   L.micCombo.h + drop, TRUE);
 }
 
 void createChildren(Panel* p) {
@@ -1411,7 +1509,7 @@ void createChildren(Panel* p) {
     HWND combo = CreateWindowExW(
         0, L"COMBOBOX", nullptr,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
-        rc.x, rc.y, rc.w, rc.h + 8 * 20,   // 高度参数 = 展开后的下拉高度
+        rc.x, rc.y, rc.w, rc.h + comboDropH(),   // 高度参数 = 展开后的下拉高度（随 DPI 缩放）
         p->hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_COMBO_DEV)), nullptr, nullptr);
     if (combo) {
         SendMessageW(combo, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
@@ -1421,7 +1519,7 @@ void createChildren(Panel* p) {
     HWND comboMic = CreateWindowExW(
         0, L"COMBOBOX", nullptr,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST,
-        rcMic.x, rcMic.y, rcMic.w, rcMic.h + 8 * 20,
+        rcMic.x, rcMic.y, rcMic.w, rcMic.h + comboDropH(),
         p->hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_COMBO_MIC)), nullptr, nullptr);
     if (comboMic) {
         SendMessageW(comboMic, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
@@ -1735,6 +1833,29 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             PostQuitMessage(0);
             return 0;
 
+        case WM_DPICHANGED: {
+            // 跨屏拖动 / 改缩放比例时，Windows 发来新 DPI 和「建议窗口矩形」。
+            // 一律按新系数重建字体、重排子控件、按建议矩形缩放窗口，避免比例失调/发虚。
+            const UINT dpi = static_cast<UINT>(LOWORD(wp));
+            updateScaleForDpi(dpi);
+            makeFonts(p);   // 字号随 DPI 重建（makeFonts 内部先释放旧资源）
+            if (HWND e = GetDlgItem(hwnd, IDC_EDIT_HOST))
+                SendMessageW(e, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+            if (HWND e = GetDlgItem(hwnd, IDC_EDIT_PORT))
+                SendMessageW(e, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+            if (HWND c = GetDlgItem(hwnd, IDC_COMBO_DEV))
+                SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+            if (HWND c = GetDlgItem(hwnd, IDC_COMBO_MIC))
+                SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(p->hEditFont), TRUE);
+            positionChildren(p);
+            const auto* sug = reinterpret_cast<const RECT*>(lp);
+            SetWindowPos(hwnd, nullptr, sug->left, sug->top, sug->right - sug->left,
+                         sug->bottom - sug->top, SWP_NOZORDER | SWP_NOACTIVATE);
+            refreshNow(p);
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
+        }
+
         default:
             break;
     }
@@ -1746,6 +1867,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 bool panelAvailable() { return true; }
 
 int runPanel(const std::string& /*preferInstanceId*/) {
+#if defined(_WIN32)
+    // DPI 适配：必须在任何窗口/DC 创建之前声明，否则后续再设无效
+    setDpiAwareness();
+    updateScaleForDpi(initialDpi());
+#endif
     // 单实例：面板没有互斥保护时，"安装版 + 编译版"或误双击会出现两个实例，
     // 两条无线连接互相抢手机的单对端通道、SendInput 双份注入 —— 表现就是"莫名抽风/退出"。
     // 已有实例在跑时：把它拉到前台后本进程退出（与托盘双击同语义）。
@@ -1813,7 +1939,7 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     }
 
     const int initH = layout({panel.wifiEnabled, panel.btEnabled, panel.usbEnabled}).totalH;
-    RECT rc{0, 0, kClientW, initH};
+    RECT rc{0, 0, static_cast<int>(kClientW * gScale), initH};
     const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     AdjustWindowRectEx(&rc, style, FALSE, 0);
     HWND hwnd = CreateWindowExW(0, L"AllPeriphPanel", L"全能外设", style, CW_USEDEFAULT,

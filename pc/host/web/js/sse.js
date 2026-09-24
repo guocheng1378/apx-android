@@ -84,7 +84,7 @@ function demoState(tick) {
       e2eMs: 24 + Math.sin(t * .9) * 4,
     },
     touchpad: { enabled: false, path: 'bt', pathLabel: '蓝牙 HID（免驱）', latencyMs: 8.6, drops: 0 },
-    camera:    { enabled: false, route: 'uvc', routeLabel: 'f_uvc 复合设备', available: true, note: '' },
+
     audio:     { enabled: true, route: 'speaker', sampleRate: 48000, channels: 2 },
     sensors: [
       { id: 'accel',   name: '加速度计',   ok: false, note: 'Windows 侧 Code 10' },
@@ -149,14 +149,14 @@ function demoState(tick) {
       { id: 'screen.cycle',    label: '分辨率与方向切换', mods: ['ctrl', 'alt'], key: 'F2', enabled: true },
       { id: 'touchpad.toggle', label: '触控板开关',       mods: ['ctrl', 'alt'], key: 'F3', enabled: true },
       { id: 'sensor.toggle',   label: '传感器启停',       mods: ['ctrl', 'alt'], key: 'F4', enabled: true },
-      { id: 'camera.toggle',   label: '摄像头开关',       mods: ['ctrl', 'alt'], key: 'F5', enabled: false },
+
       { id: 'audio.route',     label: '音频路由',         mods: ['ctrl', 'alt'], key: 'F6', enabled: true },
       { id: 'device.toggle',   label: '设备连接 / 断开',  mods: ['ctrl', 'alt'], key: 'F7', enabled: true },
     ],
     scenes: [
       { id: 'present', name: '演示模式', desc: '开副屏 + 通知静音 + 音频静音' },
       { id: 'create',  name: '创作模式', desc: '关触控板 + 开数位板 + 高采样率' },
-      { id: 'touchpad', name: '触控板模式', desc: '关副屏 + 开触控板 + 关摄像头' },
+      { id: 'touchpad', name: '触控板模式', desc: '关副屏 + 开触控板' },
     ],
   };
 }

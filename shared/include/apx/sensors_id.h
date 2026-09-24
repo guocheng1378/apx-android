@@ -79,13 +79,13 @@ enum ModuleBit : uint64_t {
     // v1.4 新增：与 kModuleTouch 的区别是语义——触控是**绝对坐标**（副屏触控），
     // 触控板是**相对位移鼠标**（Report 2）。二者可同时成立，故各自占一位。
     kModuleTouchpad = 1ull << 38,  // 触控板（Report 2，相对位移）
-    kModuleCamera   = 1ull << 39,  // 摄像头（UVC / 系统方案）
+
 };
 
 // 模块位掩码（仅模块位，不含传感器位）
 inline constexpr uint64_t kMaskModules = kModuleTouch | kModuleKey | kModuleBattery |
                                          kModuleGps | kModuleVibrate | kModuleDisplay |
-                                         kModuleTouchpad | kModuleCamera;
+                                         kModuleTouchpad;
 
 const char* sensorName(uint8_t id);
 const char* moduleName(uint64_t bit);

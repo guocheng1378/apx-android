@@ -20,7 +20,7 @@ enum class ActionId {
     ScreenCycle,    // 分辨率与方向切换
     TouchpadToggle, // 触控板开关
     SensorToggle,   // 传感器启停
-    CameraToggle,   // 摄像头开关
+
     AudioRoute,     // 音频路由
     DeviceToggle,   // 设备连接 / 断开
 };

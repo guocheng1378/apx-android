@@ -35,7 +35,7 @@ import kotlin.concurrent.thread
  *
  * ## 线程纪律（关键）
  * [ApxStreams] 的回调跑在**媒体收流线程**上。`AudioTrack.write` 会阻塞（缓冲区满时
- * 正是它做背压的方式），直接在里面写就会把整条媒体连接的收流拖住 —— 副屏和摄像头
+ * 正是它做背压的方式），直接在里面写就会把整条媒体连接的收流拖住 —— 副屏
  * 一起遭殃。因此这里只做「入队」，由专用播放线程写 AudioTrack。
  */
 class WirelessAudioModule : Module {

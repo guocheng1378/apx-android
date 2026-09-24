@@ -114,7 +114,7 @@ int main() {
     CHECK_EQ(apx::kModuleTouch, 1ULL << 32);          // §2.9 触控
     CHECK_EQ(apx::kModuleDisplay, 1ULL << 37);        // §2.9 副屏视频
     CHECK_EQ(apx::kModuleTouchpad, 1ULL << 38);       // v1.4 触控板（相对位移）
-    CHECK_EQ(apx::kModuleCamera, 1ULL << 39);         // v1.4 摄像头
+
     CHECK_EQ(apx::kMaskModules >> 32, 0xFFULL);       // bit32..39 全模块
     CHECK((apx::kMaskModules & apx::kMaskAll) == 0ULL);  // 模块位与传感器位不重叠
 

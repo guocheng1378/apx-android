@@ -104,12 +104,6 @@ export function render(s) {
     ok: !!s?.touchpad?.available,
     note: s?.touchpad?.pathLabel || '',
   });
-  cells.push({
-    name: '摄像头',
-    ok: !!s?.camera?.available,
-    note: s?.camera?.note || '',
-  });
-
   return h('div.view', {}, [
     h('div.view-head', {}, [
       h('div', {}, [

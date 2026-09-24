@@ -81,7 +81,7 @@ public:
     void requestOpenScreen() { pendingCmd_.fetch_or(1); }
 
     /// 模块开关命令（0x10，PC → 手机）：让手机端启/停对应模块。
-    /// idx 两端约定：0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN 7=CAMERA
+    /// idx 两端约定：0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN
     void requestModule(int idx, bool on) {
         pendingModCmd_.fetch_or(1 << (idx * 2 + (on ? 0 : 1)));
     }

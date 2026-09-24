@@ -46,10 +46,6 @@ struct AppConfig {
     bool     touchpadAccel = true;
     bool     touchpadNaturalScroll = false;
 
-    // 摄像头
-    bool     cameraEnabled = false;
-    std::string cameraRoute = "uvc"; // uvc | system
-
     // 音频
     std::string audioRoute = "speaker"; // speaker | headset | phone | mute
 
