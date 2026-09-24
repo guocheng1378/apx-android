@@ -9,19 +9,16 @@
 - 手机端：Kotlin（Android），蓝牙 HID + 局域网 TCP + USB Gadget（有线模式）。
 
 > 项目首页文档：[`README.md`](./README.md) ·
+> **最终用户使用说明：[`docs/使用说明.md`](./docs/使用说明.md)** ·
 > 架构说明：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) ·
 > 协议定义：[`docs/PROTOCOL.md`](./docs/PROTOCOL.md) ·
 > 真机实测记录：[`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md) ·
 > 路线图与接口预留：[`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
-> **当前阶段**：有线（USB）能力已收尾（鼠标/键盘/多媒体/游戏手柄/串口/音频均可在
-> Windows 免驱枚举）；**Wi‑Fi 控制**已实现并真机端到端验证通过（无蓝牙适配器的 PC
-> 也能用）。后续主线是 **蓝牙补全**（键盘 / 手柄），扩展点与实施顺序见
-> [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
->
-> **不在当前交付范围**：① 副屏视频 —— **用户已决策终止**；
-> ② 摄像头 —— 代码一度完成，现停在 `android/app/src/disabled/camera/`，**不参与编译**
-> （`GadgetFeature.UVC` 亦为默认关闭）。两者都**不应**被当作可用能力描述。
+> **当前阶段**：有线（USB）能力已收尾；**Wi‑Fi 控制**已真机验证；
+> **Wi‑Fi 媒体**（副屏镜像/扩展屏 + 触摸、音箱、麦克风、摄像头）已落地，
+> 电脑面板四张媒体卡可用；蓝牙键盘/手柄仍在补全（见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)）。
+> 摄像头当前为面板内实时预览（虚拟摄像头设备待后续版本）。
 
 ---
 
@@ -140,8 +137,8 @@ build_host\Release\apxhost.exe serve
 │   │   └─ tests/
 │   │       └─ arbiter_test.cpp       带宽仲裁离线单测
 │   │
-│   ├─ display/                      副屏推流与触控注入（**副屏已决策终止**：不在 build.bat
-│   │                                范围内；传输与注入层保留，可单独构建离线自测）
+│   ├─ display/                      副屏推流与触控注入（抓屏 DDA / H264 编码 / TCP 传输 /
+│   │                                SendInput 注入；支持虚拟屏扩展屏与光标合成）
 │   │   ├─ CMakeLists.txt
 │   │   ├─ app/main.cpp              apxdisp 命令行（--self-test 等）
 │   │   ├─ capture/                  抓屏（Desktop Duplication / null）
@@ -165,8 +162,9 @@ build_host\Release\apxhost.exe serve
 ├─ android/                          手机端（Kotlin）
 │   ├─ app/src/main/AndroidManifest.xml
 │   ├─ app/src/main/cpp/             JNI 桥（apx_jni.cpp，仅参数搬运 + 调 shared/）
-│   ├─ app/src/disabled/             停用区（**不参与编译**）：camera/（摄像头）、screen/（副屏）
-│   └─ app/src/main/java/com/allperiph/
+│   ├─ app/src/main/java/com/allperiph/
+│       ├─ screen/                   副屏收流渲染 + 触摸回传（控制通道 0x04）
+│       ├─ camera/                   摄像头（Wi‑Fi JPEG 上行 streamId=6）
 │       ├─ core/                     模块契约与传输接口（Module / Transport / ApxNative /
 │       │                            ApxFrame 组帧 / TcpCtrlBridge 出口）
 │       ├─ gadget/                   ConfigFS 布局与 Gadget 管理（USB 有线）
@@ -230,7 +228,7 @@ cmake --build build_host --config Release --target apxhost
 :: 产物：build_host\Release\apxhost.exe
 ```
 
-### 2) 电脑端副屏模块（**已终止**，仅供追溯，可选）
+### 2) 电脑端副屏模块（包含在 build.bat 主构建中；也可单独构建）
 
 ```bat
 cmake -S pc/display -B build_display
@@ -311,7 +309,7 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
 1. **Android 端已在本机编译验证**：`gradle assembleDebug` 通过（JDK 17 + Android SDK 35 +
    Gradle 8.9），产物 `android/app/build/outputs/apk/debug/app-debug.apk`。
    真机结论见 [`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md)。
-2. **`apxdisp`（副屏）可正常构建**（副屏已终止，此条仅供追溯）。早前在 Windows SDK
+2. **`apxdisp`（副屏）可正常构建**。早前在 Windows SDK
    10.0.22621 的 WRL `ComPtr<IMFSample>` 处报错，**已修复**（见
    `reports/MAIN-INTERVENTIONS.md`）。本机实测：
    ```bat
