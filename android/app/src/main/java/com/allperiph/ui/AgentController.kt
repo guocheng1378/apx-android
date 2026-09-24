@@ -133,9 +133,12 @@ object AgentController {
 
     /** 模块 → 所属传输类（决定它出现在设置页哪个分组、由哪个开关统一启停） */
     fun groupOf(id: String): String = when (id) {
-        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA -> "wifi"
+        // 触控板归无线组：Wi‑Fi 模式下手势走控制通道（无需 USB）；
+        // USB 模式下它也能用（多出口择优），但日常入口放在无线组更直观
+        ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA,
+        ModuleId.TOUCHPAD -> "wifi"
         ModuleId.BTHID -> "bt"
-        ModuleId.GADGET, ModuleId.AUDIO, ModuleId.TOUCHPAD -> "usb"
+        ModuleId.GADGET, ModuleId.AUDIO -> "usb"
         else -> "wifi"
     }
 
