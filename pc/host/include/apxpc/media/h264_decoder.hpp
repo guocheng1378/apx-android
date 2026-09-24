@@ -33,6 +33,10 @@ public:
     uint64_t inFrames() const { return inFrames_; }
     uint64_t outFrames() const { return outFrames_; }
     uint32_t lastHr() const { return lastHr_; }
+    // 诊断探针：ProcessOutput 调用次数 / 其中 NEED_MORE_INPUT 次数 / 走 AVCC 转换的输入数
+    uint64_t poCalls() const { return poCalls_; }
+    uint64_t poNeedMore() const { return poNeedMore_; }
+    uint64_t avccFrames() const { return avccFrames_; }
 
 private:
     bool init();
@@ -47,6 +51,7 @@ private:
     std::string lastError_;
     uint64_t inFrames_ = 0, outFrames_ = 0;
     uint32_t lastHr_ = 0;
+    uint64_t poCalls_ = 0, poNeedMore_ = 0, avccFrames_ = 0;
 };
 
 }  // namespace apxpc::media

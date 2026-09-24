@@ -128,6 +128,10 @@ class CameraModule(private val app: Context) : Module {
             setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)   // 2.5Mbps：1MP 内的预览足够清晰
             setInteger(MediaFormat.KEY_FRAME_RATE, cfg.fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)   // 2s 一个关键帧
+            // 关键帧前自动附带 SPS/PPS（AnnexB）：PC 端解码器只认 AnnexB 参数集。
+            // 不加这个的话参数集只出现在 CSD 配置帧里，而 CSD 默认是**长度前缀(AVCC)**
+            // 格式 —— 两端格式对不上就是"PC 收满帧却一帧解不出"的黑屏根因。
+            setInteger(MediaFormat.KEY_PREPEND_HEADER_TO_SYNC_FRAMES, 1)
         }
         val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
         enc.configure(fmt, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -140,7 +144,6 @@ class CameraModule(private val app: Context) : Module {
         draining = true
         drainThread = Thread({
             val info = MediaCodec.BufferInfo()
-            var configSent = false
             while (draining) {
                 val c = encoder ?: break
                 val idx = try {
@@ -156,19 +159,20 @@ class CameraModule(private val app: Context) : Module {
                         if (out != null && info.size > 0) {
                             val isConfig = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
                             val isKey = (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
-                            out.position(info.offset)
-                            out.limit(info.offset + info.size)
-                            val au = ByteArray(info.size)
-                            out.get(au)
-                            frames.incrementAndGet()
-                            // SPS/PPS（codec config）必须先发：PC 端解码器初始化用
-                            val ok = MediaOut.camera(
-                                au,
-                                if (isConfig || isKey) ApxFrame.FLAG_KEY_FRAME else 0
-                            )
-                            if (ok) sentFrames.incrementAndGet()
-                            if (isConfig) configSent = true
-                            if (isKey && !isConfig && configSent) { /* 关键帧正常流 */ }
+                            // CSD 配置帧**丢弃**：它的格式是长度前缀(AVCC)，与后续 AnnexB
+                            // 帧流混发会让 PC 端解码器卡死。参数集已由 prepend 随关键帧带上。
+                            if (!isConfig) {
+                                out.position(info.offset)
+                                out.limit(info.offset + info.size)
+                                val au = ByteArray(info.size)
+                                out.get(au)
+                                frames.incrementAndGet()
+                                val ok = MediaOut.camera(
+                                    au,
+                                    if (isKey) ApxFrame.FLAG_KEY_FRAME else 0
+                                )
+                                if (ok) sentFrames.incrementAndGet()
+                            }
                         }
                         c.releaseOutputBuffer(idx, false)
                     }

@@ -13,9 +13,11 @@
 #include <mfidl.h>
 #include <mftransform.h>
 #include <mferror.h>
-#include <codecapi.h>
-#include <icodecapi.h>
+#include <codecapi.h>     // CODECAPI_AVLowLatencyMode
+#include <wmcodecdsp.h>   // CLSID_CMSH264DecoderMFT（微软官方 H264 软解 MFT）+ ICodecAPI 接口
 #include <wrl/client.h>
+
+#pragma comment(lib, "wmcodecdspuuid")   // CLSID_CMSH264DecoderMFT
 
 #include <algorithm>
 #include <cstring>
@@ -56,28 +58,30 @@ bool H264Decoder::init() {
         return false;
     }
 
-    // 枚举 H264 解码器 MFT（软件/硬件皆可）
-    IMFActivate** acts = nullptr;
-    UINT32 count = 0;
-    MFT_REGISTER_TYPE_INFO in{ MFMediaType_Video, MFVideoFormat_H264 };
-    hr = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
-                   MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-                   &in, nullptr, &acts, &count);
-    if (FAILED(hr) || count == 0) {
-        lastError_ = "未找到 H264 解码器 MFT";
+    // **首选微软官方软解 MFT**（CLSID_CMSH264DecoderMFT，微软文档推荐直接
+    // CoCreateInstance）：MFTEnumEx 枚举到的第一个可能是行为怪异的第三方/硬件
+    // 解码器（真机踩过：ProcessInput 全收、永不出帧）。官方失败再退回枚举。
+    ComPtr<IMFTransform> t;
+    hr = CoCreateInstance(CLSID_CMSH264DecoderMFT, nullptr, CLSCTX_INPROC_SERVER,
+                          IID_PPV_ARGS(&t));
+    if (FAILED(hr)) {
+        // 回退：枚举
+        IMFActivate** acts = nullptr;
+        UINT32 count = 0;
+        MFT_REGISTER_TYPE_INFO in{ MFMediaType_Video, MFVideoFormat_H264 };
+        hr = MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER,
+                       MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
+                       &in, nullptr, &acts, &count);
+        if (SUCCEEDED(hr) && count > 0) {
+            hr = acts[0]->ActivateObject(IID_PPV_ARGS(&t));
+        } else {
+            lastError_ = "未找到任何 H264 解码器 MFT";
+        }
         if (acts) {
             for (UINT32 i = 0; i < count; ++i) acts[i]->Release();
             CoTaskMemFree(acts);
         }
-        return false;
-    }
-    ComPtr<IMFTransform> t;
-    hr = acts[0]->ActivateObject(IID_PPV_ARGS(&t));
-    for (UINT32 i = 0; i < count; ++i) acts[i]->Release();
-    CoTaskMemFree(acts);
-    if (FAILED(hr)) {
-        lastError_ = "激活解码器失败";
-        return false;
+        if (FAILED(hr)) return false;
     }
 
     // 输入：H264（不给尺寸，MFT 从码流 SPS 自探测）
@@ -90,27 +94,9 @@ bool H264Decoder::init() {
         lastError_ = "SetInputType(H264) 失败";
         return false;
     }
-    // 官方流程：输入类型设置后**立即**从 MFT 枚举可用输出类型（自带分辨率，NV12 通常排第一）。
-    // 之前自己造的 NV12（无尺寸）被拒 → 输出类型一直没设 → 永远 NEED_MORE_INPUT。
-    for (DWORD ti = 0; ; ++ti) {
-        ComPtr<IMFMediaType> avail;
-        if (FAILED(t->GetOutputAvailableType(0, ti, &avail))) break;
-        GUID sub{};
-        if (FAILED(avail->GetGUID(MF_MT_SUBTYPE, &sub))) continue;
-        if (sub == MFVideoFormat_NV12) {
-            if (SUCCEEDED(t->SetOutputType(0, avail.Get(), 0))) {
-                outTypeSet_ = true;
-                UINT32 w = 0, h = 0;
-                if (SUCCEEDED(MFGetAttributeSize(avail.Get(), MF_MT_FRAME_SIZE, &w, &h))) {
-                    width_ = w; height_ = h;
-                    bgra_.assign(static_cast<size_t>(w) * h * 4, 0);
-                }
-            }
-            break;
-        }
-    }
-    // 输出类型**不在这里设置**：未喂帧时 MFT 还不知道分辨率，NV12/RGB32 都会被拒——
-    // 而 decode 必须先 ProcessInput（喂入 SPS/PPS）MFT 才知道尺寸。顺序见 decode()。
+    // 输出类型**不在这里设置**：未喂帧时 MFT 还不知道分辨率，提前设置的类型在
+    // 首帧后必然触发 STREAM_CHANGE，而二次 SetOutputType 会被拒 → 永远出不了帧。
+    // 统一策略：decode() 里喂入 SPS/PPS 后再枚举设置（一处、只设一次）。
     outTypeSet_ = false;
     // 低延迟（Win8+ 的 H264 MFT 支持）
     ComPtr<ICodecAPI> codec;
@@ -124,27 +110,54 @@ bool H264Decoder::init() {
     return true;
 }
 
+/// 枚举 MFT 提供的输出类型，挑 NV12 设置。分辨率探测交给 MFT（码流 SPS 决定）。
+/// 返回是否设置成功；STREAM_CHANGE 后也可复用来重建输出类型。
+static bool trySetOutputType(IMFTransform* t) {
+    for (DWORD ti = 0; ; ++ti) {
+        ComPtr<IMFMediaType> avail;
+        if (FAILED(t->GetOutputAvailableType(0, ti, &avail))) break;
+        GUID sub{};
+        if (FAILED(avail->GetGUID(MF_MT_SUBTYPE, &sub))) continue;
+        if (sub == MFVideoFormat_NV12) {
+            return SUCCEEDED(t->SetOutputType(0, avail.Get(), 0));
+        }
+    }
+    return false;
+}
+
 bool H264Decoder::decode(const uint8_t* au, size_t len) {
     if (!init()) return false;
     auto* t = static_cast<IMFTransform*>(mft_);
     if (!au || len == 0) return false;
 
-    // 输入样本
+    // 输入样本：**载荷格式自适应**（手机端 MediaCodec 两种输出都可能出现）
+    //   · AnnexB（00 00 00 01 / 00 00 01 起始码）→ 原样喂
+    //   · AVCC（4 字节大端长度前缀，CSD 配置帧常见）→ 长度前缀换成 4 字节起始码
+    // 旧版一律"再垫一层起始码"，遇到 AVCC 的 SPS/PPS 会把整段解坏 → 永不出帧。
+    size_t prefix = 0;
+    const bool isAnnexB = (len >= 4 && au[0] == 0 && au[1] == 0 &&
+                           ((au[2] == 1) || (au[2] == 0 && au[3] == 1)));
+    const bool isAvcc = !isAnnexB && len >= 5 &&
+                        (static_cast<uint32_t>(au[0]) << 24 | static_cast<uint32_t>(au[1]) << 16 |
+                         static_cast<uint32_t>(au[2]) << 8 | au[3]) == len - 4;
+    const size_t payload = isAvcc ? len - 4 : len;
+    if (!isAnnexB) prefix = 4;
+
     ComPtr<IMFSample> sample;
     if (FAILED(MFCreateSample(&sample))) { lastError_ = "MFCreateSample 失败"; return false; }
     ComPtr<IMFMediaBuffer> buf;
-    if (FAILED(MFCreateMemoryBuffer(static_cast<DWORD>(len + 4), &buf))) {
+    if (FAILED(MFCreateMemoryBuffer(static_cast<DWORD>(payload + prefix), &buf))) {
         lastError_ = "MFCreateMemoryBuffer 失败";
         return false;
     }
     BYTE* p = nullptr;
     if (FAILED(buf->Lock(&p, nullptr, nullptr))) return false;
-    // AnnexB 4 字节起始码（MediaCodec 输出即 0001；保险再垫一层起始码）
     static const BYTE sc[4] = {0, 0, 0, 1};
-    std::memcpy(p, sc, 4);
-    std::memcpy(p + 4, au, len);
+    if (prefix) std::memcpy(p, sc, 4);
+    std::memcpy(p + prefix, au + (isAvcc ? 4 : 0), payload);
     buf->Unlock();
-    buf->SetCurrentLength(static_cast<DWORD>(len + 4));
+    buf->SetCurrentLength(static_cast<DWORD>(payload + prefix));
+    if (isAvcc) ++avccFrames_;
     sample->AddBuffer(buf.Get());
     // 递增时间戳（100ns 单位，按 15fps 估）：H264 MFT 对全 0 时间戳会卡住帧缓冲不出帧
     sample->SetSampleTime(static_cast<LONGLONG>(inFrames_) * 666667);
@@ -160,20 +173,11 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
     // **喂入首帧（SPS/PPS）之后**再设输出类型。自己造的 NV12 类型（无尺寸）会被拒——
     // 正确做法：**枚举 MFT 提供的可用输出类型**（自带分辨率信息），挑 NV12 设置。
     if (!outTypeSet_) {
-        for (DWORD ti = 0; ; ++ti) {
-            ComPtr<IMFMediaType> avail;
-            if (FAILED(t->GetOutputAvailableType(0, ti, &avail))) break;
-            GUID sub{};
-            if (FAILED(avail->GetGUID(MF_MT_SUBTYPE, &sub))) continue;
-            if (sub == MFVideoFormat_NV12) {
-                if (SUCCEEDED(t->SetOutputType(0, avail.Get(), 0))) {
-                    outTypeSet_ = true;
-                    // 官方消息顺序：类型齐 → BEGIN_STREAMING → START_OF_STREAM
-                    t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-                    t->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-                }
-                break;
-            }
+        outTypeSet_ = trySetOutputType(t);
+        if (outTypeSet_) {
+            // 官方消息顺序：类型齐 → BEGIN_STREAMING → START_OF_STREAM
+            t->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+            t->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
         }
     }
 
@@ -182,12 +186,11 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
     while (true) {
         MFT_OUTPUT_STREAM_INFO sinfo{};
         t->GetOutputStreamInfo(0, &sinfo);
+        // **不要用 GetOutputStatus 当门禁**（真机踩坑）：微软 H264 软解 MFT 是同步
+        // MFT，GetOutputStatus 返回 S_OK 但状态位恒为 0 —— 按它判断会一次都不调
+        // ProcessOutput，结果"输入收满、输出为零、HRESULT 还是 0"（正是黑屏现象）。
+        // 正确做法：直接调 ProcessOutput，NEED_MORE_INPUT 会自然返回。
         DWORD status = 0;
-        // 注意：不少同步 MFT 对 GetOutputStatus 返回 E_NOTIMPL——失败**不退出**，
-        // 直接尝试 ProcessOutput（NEED_MORE_INPUT 会自然返回）
-        HRESULT hr = t->GetOutputStatus(&status);
-        if (SUCCEEDED(hr) && !(status & MFT_OUTPUT_STATUS_SAMPLE_READY)) break;
-
         MFT_OUTPUT_DATA_BUFFER odb{};
         odb.dwStreamID = 0;
         ComPtr<IMFSample> out;
@@ -199,13 +202,16 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
             out->AddBuffer(ob.Get());
             odb.pSample = out.Get();
         }
-        hr = t->ProcessOutput(0, 1, &odb, &status);
-        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) break;      // 正常：等下一帧输入
+        const HRESULT hr = t->ProcessOutput(0, 1, &odb, &status);
+        ++poCalls_;
+        if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) { ++poNeedMore_; break; }   // 正常：等下一帧输入
         if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
             lastHr_ = static_cast<uint32_t>(hr);
-            // 分辨率变化：NV12 输出类型保持（MFT 自动适配），尺寸重新探测
+            // 分辨率变化：MFT 已把输出类型作废，必须重新枚举设置 NV12，
+            // 否则下一次 ProcessOutput 继续报 STREAM_CHANGE → 死循环永无帧。
             width_ = 0; height_ = 0;
             bgra_.clear();
+            outTypeSet_ = trySetOutputType(t);
             continue;
         }
         if (FAILED(hr)) {

@@ -1145,11 +1145,26 @@ void paint(HWND hwnd, Panel* p) {
                     st = L"已关闭（开关打开后恢复显示）";
                 } else if (s.phase != LinkPhase::Connected) {
                     st = L"未连接";
-                    st = L"未连接";
                 } else if (cam == 0) {
                     st = L"等待画面（确认手机摄像头权限已授予）";
                 } else {
                     st = L"摄像头运行中"; col = tok::stateOk;
+                }
+                // 诊断（排查黑屏用）：解码路径 in/out 帧数与最近 HRESULT
+                if (p->camEnabled && s.phase == LinkPhase::Connected && cam > 0) {
+                    wchar_t d[160];
+                    if (p->camDec) {
+                        std::swprintf(d, 160, L" in=%llu out=%llu po=%llu wait=%llu avcc=%llu hr=0x%08X",
+                                      static_cast<unsigned long long>(p->camDec->inFrames()),
+                                      static_cast<unsigned long long>(p->camDec->outFrames()),
+                                      static_cast<unsigned long long>(p->camDec->poCalls()),
+                                      static_cast<unsigned long long>(p->camDec->poNeedMore()),
+                                      static_cast<unsigned long long>(p->camDec->avccFrames()),
+                                      p->camDec->lastHr());
+                    } else {
+                        std::swprintf(d, 160, L" in=0 out=0 走JPEG路径(非H264)");
+                    }
+                    st += d;
                 }
                 text(g, st, L.camStatus, *p->fBody, col);
 
