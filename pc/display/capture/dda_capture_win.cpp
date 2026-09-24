@@ -72,8 +72,9 @@ public:
         info_.deviceName = outputDesc_.DeviceName;
         info_.zeroCopyD3D11 = true;
 
-        // CPU 影子缓冲（自顶向下 BGRA）
+        // CPU 影子缓冲（自顶向下 BGRA）+ 无光标的干净副本（光标恢复用）
         shadow_.assign(static_cast<size_t>(info_.stride) * info_.height, 0);
+        cleanShadow_.assign(shadow_.size(), 0);
         opened_ = true;
         APX_LOG_I("DDA 打开成功: %u x %u", info_.width, info_.height);
         return true;
@@ -167,8 +168,30 @@ public:
 
         dup_->ReleaseFrame();
 
+        // ---- 光标合成（DDA 帧不含指针层：扩展屏上"没有鼠标"的根因）----
+        // 影子缓冲必须保持"干净桌面"，光标每次画上去前先恢复旧区域，画完把
+        // 新旧两块区域并入脏矩形 —— 手机端才能看到会动的指针。
+        if (cpuOk) {
+            RECT oldRc{};
+            const bool hadOld = takeLastCursorRect(oldRc);
+            restoreCursorArea();
+            RECT newRc{};
+            const bool drewNow = drawCursor(newRc);
+            auto pushRect = [&](const RECT& rc) {
+                if (rc.right <= rc.left || rc.bottom <= rc.top) return;
+                Rect r{};
+                r.x = static_cast<uint16_t>(std::max<LONG>(0, rc.left));
+                r.y = static_cast<uint16_t>(std::max<LONG>(0, rc.top));
+                r.w = static_cast<uint16_t>(std::min<LONG>(rc.right, info_.width) - r.x);
+                r.h = static_cast<uint16_t>(std::min<LONG>(rc.bottom, info_.height) - r.y);
+                if (r.w > 0 && r.h > 0) dirty.push_back(r);
+            };
+            if (hadOld) pushRect(oldRc);
+            if (drewNow) pushRect(newRc);
+        }
+
         if (dirty.empty()) {
-            // DDA 偶发返回空脏矩形集（仅鼠标层变化），按整帧处理一次，避免画面撕裂
+            // DDA 偶发返回空脏矩形集，按整帧处理一次，避免画面撕裂
             dirty.push_back(Rect{0, 0, static_cast<uint16_t>(info_.width),
                                  static_cast<uint16_t>(info_.height)});
         }
@@ -318,6 +341,73 @@ private:
                         mapped.pBits + static_cast<size_t>(y) * mapped.Pitch, rowBytes);
         }
         surface->Unmap();
+        // 干净影子同步（无光标版本），供光标区域恢复用
+        std::memcpy(cleanShadow_.data(), shadow_.data(), shadow_.size());
+        return true;
+    }
+
+    // ——————————————————— 光标合成（扩展屏"看得见的指针"） ———————————————————
+
+    /// 用干净影子恢复上一次光标画过的区域（防叠画污染）
+    void restoreCursorArea() {
+        if (!lastCursorValid_) return;
+        const int32_t l = std::max<int32_t>(0, lastCursorRect_.left);
+        const int32_t t = std::max<int32_t>(0, lastCursorRect_.top);
+        const int32_t r = std::min<int32_t>(static_cast<int32_t>(info_.width), lastCursorRect_.right);
+        const int32_t b = std::min<int32_t>(static_cast<int32_t>(info_.height), lastCursorRect_.bottom);
+        for (int32_t y = t; y < b; ++y) {
+            std::memcpy(shadow_.data() + static_cast<size_t>(y) * info_.stride + static_cast<size_t>(l) * 4,
+                        cleanShadow_.data() + static_cast<size_t>(y) * info_.stride + static_cast<size_t>(l) * 4,
+                        static_cast<size_t>(r - l) * 4);
+        }
+        lastCursorValid_ = false;
+    }
+
+    bool takeLastCursorRect(RECT& rc) {
+        rc = lastCursorRect_;
+        const bool v = lastCursorValid_;
+        return v;
+    }
+
+    /// 把系统光标（简绘白色箭头）画到影子缓冲。光标不在本输出区域内则不动。
+    /// @param rcOut 实际写过的像素区域（帧内坐标）
+    bool drawCursor(RECT& rcOut) {
+        CURSORINFO ci{};
+        ci.cbSize = sizeof(ci);
+        if (!::GetCursorInfo(&ci) || !(ci.flags & CURSOR_SHOWING)) return false;
+        const LONG px = ci.ptScreenPos.x - outputDesc_.DesktopCoordinates.left;
+        const LONG py = ci.ptScreenPos.y - outputDesc_.DesktopCoordinates.top;
+        if (px + kCurW <= 0 || py + kCurH <= 0 ||
+            px >= static_cast<LONG>(info_.width) || py >= static_cast<LONG>(info_.height)) {
+            return false;
+        }
+        for (int cy = 0; cy < kCurH; ++cy) {
+            const LONG y = py + cy;
+            if (y < 0 || y >= static_cast<LONG>(info_.height)) continue;
+            auto* row = reinterpret_cast<uint32_t*>(shadow_.data() + static_cast<size_t>(y) * info_.stride);
+            for (int cx = 0; cx < kCurW; ++cx) {
+                const LONG x = px + cx;
+                if (x < 0 || x >= static_cast<LONG>(info_.width)) continue;
+                const char c = kArrow[cy][cx];
+                if (c == '.') continue;
+                const uint32_t a = (c == 'X') ? 220u : 235u;
+                const uint32_t src = (c == 'X') ? 0u : 0xFFFFFFFFu;   // BGRA：黑边/白身
+                const uint32_t dst = row[x];
+                const uint32_t ia = 255u - a;
+                const uint32_t dr = dst & 0xFF, dg = (dst >> 8) & 0xFF, db = (dst >> 16) & 0xFF;
+                const uint32_t sr = src & 0xFF, sg = (src >> 8) & 0xFF, sb = (src >> 16) & 0xFF;
+                const uint32_t b = (sb * a + db * ia) / 255;
+                const uint32_t gg = (sg * a + dg * ia) / 255;
+                const uint32_t rr = (sr * a + dr * ia) / 255;
+                row[x] = b | (gg << 8) | (rr << 16) | 0xFF000000u;
+            }
+        }
+        rcOut.left = px;
+        rcOut.top = py;
+        rcOut.right = std::min<LONG>(px + kCurW, static_cast<LONG>(info_.width));
+        rcOut.bottom = std::min<LONG>(py + kCurH, static_cast<LONG>(info_.height));
+        lastCursorRect_ = rcOut;
+        lastCursorValid_ = true;
         return true;
     }
 
@@ -352,7 +442,34 @@ private:
     ComPtr<IDXGIOutputDuplication> dup_;
     ComPtr<ID3D11Texture2D>     staging_;
     DXGI_OUTPUT_DESC            outputDesc_{};
-    std::vector<uint8_t>        shadow_;  // CPU 侧上一帧（BGRA，自顶向下）
+    std::vector<uint8_t>        shadow_;        // CPU 侧上一帧（BGRA，自顶向下；含已画光标）
+    std::vector<uint8_t>        cleanShadow_;   // 同尺寸"无光标"影子（光标区域恢复用）
+
+    RECT lastCursorRect_{};      // 上一次画光标的区域（帧内坐标）
+    bool lastCursorValid_ = false;
+
+    // 简绘箭头指针（'X'=黑描边 'o'=白填充 '.'=透明）
+    static constexpr int kCurW = 12, kCurH = 18;
+    static constexpr const char* kArrow[kCurH] = {
+        "X...........",
+        "XX..........",
+        "XoX.........",
+        "XooX........",
+        "XoooX.......",
+        "XooooX......",
+        "XoooooX.....",
+        "XooooooX....",
+        "XoooooooX...",
+        "XooooooooX..",
+        "XoooooooooX.",
+        "XooooXooooX.",
+        "XooX.XooooX.",
+        "XoX..XooooX.",
+        "XX....XoooX.",
+        "X......XooX.",
+        ".......XooX.",
+        "........XX..",
+    };
 };
 
 std::unique_ptr<ICapture> createDdaCapture() { return std::make_unique<DdaCapture>(); }
