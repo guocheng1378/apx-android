@@ -1,4 +1,4 @@
-package com.allperiph.ui
+﻿package com.allperiph.ui
 
 import android.Manifest
 import android.animation.ValueAnimator
@@ -1062,6 +1062,68 @@ class MainActivity : Activity() {
                 views += row
             }
             moduleRows[m.id] = views.first()
+
+            // 摄像头行下挂参数子行（镜头 / 帧率 / 清晰度），点击循环切换并热重启
+            if (m.id == com.allperiph.core.ModuleId.CAMERA) {
+                val camMod = AgentController.module(com.allperiph.core.ModuleId.CAMERA)
+                    as? com.allperiph.camera.CameraModule
+                fun paramRow(label: () -> String, onClick: () -> Unit): android.view.View {
+                    val sub = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
+                    val tv = sub.findViewById<TextView>(R.id.tvName)
+                    tv.text = label()
+                    sub.findViewById<TextView>(R.id.tvDetail).visibility = android.view.View.GONE
+                    sub.findViewById<ImageView>(R.id.dot).visibility = android.view.View.GONE
+                    sub.findViewById<Switch>(R.id.sw).visibility = android.view.View.GONE
+                    tv.setTextColor(resources.getColor(R.color.md_primary))
+                    sub.setOnClickListener {
+                        onClick()
+                        tv.text = label()
+                    }
+                    rowsWifi.addView(sub)
+                    return sub
+                }
+                paramRow(
+                    label = {
+                        val c = com.allperiph.camera.CameraPrefs.load(this)
+                        "　· 镜头：" + if (c.facing == 1) "前置（点击换后置）" else "后置（点击换前置）"
+                    },
+                ) {
+                    val c = com.allperiph.camera.CameraPrefs.load(this)
+                    com.allperiph.camera.CameraPrefs.save(this, c.copy(facing = if (c.facing == 1) 0 else 1))
+                    camMod?.hotRestart()
+                }
+                paramRow(
+                    label = {
+                        val f = com.allperiph.camera.CameraPrefs.load(this).fps
+                        "　· 帧率：${f}fps（点击切换 12/15/20）"
+                    },
+                ) {
+                    val c = com.allperiph.camera.CameraPrefs.load(this)
+                    val next = when (c.fps) { 12 -> 15; 15 -> 20; else -> 12 }
+                    com.allperiph.camera.CameraPrefs.save(this, c.copy(fps = next))
+                    camMod?.hotRestart()
+                }
+                paramRow(
+                    label = {
+                        val c = com.allperiph.camera.CameraPrefs.load(this)
+                        val q = when (c.width) {
+                            640 -> "流畅 640×480"
+                            1920 -> "高清 1920×1440"
+                            else -> "标准 1280×720"
+                        }
+                        "　· 清晰度：$q（点击切换）"
+                    },
+                ) {
+                    val c = com.allperiph.camera.CameraPrefs.load(this)
+                    val (w, h) = when (c.width) {
+                        640 -> 1280 to 720
+                        1280 -> 1920 to 1440
+                        else -> 640 to 480
+                    }
+                    com.allperiph.camera.CameraPrefs.save(this, c.copy(width = w, height = h))
+                    camMod?.hotRestart()
+                }
+            }
 
             // Wi‑Fi 音频行下挂两个方向子开关（音箱 / 麦克风分开控制）
             if (m.id == com.allperiph.core.ModuleId.WIFI_AUDIO) {

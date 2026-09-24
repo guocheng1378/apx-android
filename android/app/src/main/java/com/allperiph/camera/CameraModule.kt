@@ -44,11 +44,26 @@ class CameraModule(private val app: Context) : Module {
     private var handler: Handler? = null
     private val frames = java.util.concurrent.atomic.AtomicLong(0)
     private val sentFrames = java.util.concurrent.atomic.AtomicLong(0)
+    private var ctxRef: ModuleContext? = null
+
+    /**
+     * 参数（镜头/分辨率/帧率）变更后的热重启：运行中先停再按新配置拉起。
+     * 在后台线程执行，UI 可直接调用。
+     */
+    fun hotRestart() {
+        val ctx = ctxRef ?: return
+        if (!state.isActive) return
+        kotlin.concurrent.thread(start = true, name = "apx-cam-restart") {
+            runCatching { stop() }
+            runCatching { start(ctx) }
+        }
+    }
 
     @SuppressLint("MissingPermission")
     override fun start(ctx: ModuleContext) {
         if (state.isActive) return
         state = ModuleState.STARTING
+        ctxRef = ctx
 
         // CAMERA 是运行时权限，必须由 Activity 发起请求（主页已随启动批量申请）。
         if (app.checkSelfPermission(android.Manifest.permission.CAMERA) !=
