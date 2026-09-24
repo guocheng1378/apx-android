@@ -124,6 +124,12 @@ private:
     uint64_t pendingSeq_ = 0;
     uint64_t consumedSeq_ = 0;
 
+    // 上一帧副本（虚拟屏静态时 DWM 不持续 present，按节拍重发保持流连续）
+    RawFrame   lastFrame_{};
+    std::vector<uint8_t> lastPixels_;
+    bool haveLastFrame_ = false;
+    int64_t lastFrameNs_ = 0;
+
     PipelineStats stats_{};
     std::string lastError_;
 

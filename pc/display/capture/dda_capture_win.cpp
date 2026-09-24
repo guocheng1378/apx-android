@@ -25,7 +25,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <vector>
 
@@ -75,6 +77,7 @@ public:
         // CPU 影子缓冲（自顶向下 BGRA）+ 无光标的干净副本（光标恢复用）
         shadow_.assign(static_cast<size_t>(info_.stride) * info_.height, 0);
         cleanShadow_.assign(shadow_.size(), 0);
+        dumpEnabled_ = ::GetEnvironmentVariableA("APX_DUMP_SHADOW", nullptr, 0) > 0;
         opened_ = true;
         APX_LOG_I("DDA 打开成功: %u x %u", info_.width, info_.height);
         return true;
@@ -207,6 +210,11 @@ public:
         out.d3d11Texture = frameTex.Get();  // 注意：ReleaseFrame 后仅在同一帧内有效
         out.dirty.rects = merged;
         out.dirty.full = false;
+
+        // 诊断转储（APX_DUMP_SHADOW=1 启用）：每帧存 BMP（上限 60 张），排查推流闪烁
+        if (dumpEnabled_ && dumpCount_ < 60) {
+            dumpShadowBmp(dumpCount_++);
+        }
         return true;
     }
 
@@ -348,6 +356,41 @@ private:
 
     // ——————————————————— 光标合成（扩展屏"看得见的指针"） ———————————————————
 
+    /// 影子缓冲转储为 24bpp BMP（诊断用）
+    void dumpShadowBmp(uint32_t idx) {
+        char path[MAX_PATH]{};
+        if (!::GetTempPathA(MAX_PATH, path)) return;
+        char file[MAX_PATH]{};
+        ::snprintf(file, sizeof(file), "apx_shadow_%03u.bmp", idx);
+        const std::string full = std::string(path) + file;
+        const int32_t w = static_cast<int32_t>(info_.width);
+        const int32_t h = static_cast<int32_t>(info_.height);
+        const int32_t rowSize = ((w * 3 + 3) / 4) * 4;
+        const uint32_t dataSize = static_cast<uint32_t>(rowSize) * h;
+        std::ofstream f(full.c_str(), std::ios::binary);
+        if (!f) return;
+        uint8_t hdr[54]{};
+        const uint32_t off = 54;
+        hdr[0]='B'; hdr[1]='M';
+        auto put32 = [&hdr](uint32_t o, uint32_t v) {
+            hdr[o] = v & 0xFF; hdr[o+1] = (v>>8)&0xFF; hdr[o+2] = (v>>16)&0xFF; hdr[o+3] = (v>>24)&0xFF;
+        };
+        put32(2, off + dataSize);
+        put32(10, off); put32(14, 40);
+        put32(18, w); put32(22, h);
+        hdr[26]=1; hdr[28]=24;
+        put32(34, dataSize);
+        f.write(reinterpret_cast<char*>(hdr), 54);
+        std::vector<uint8_t> row(rowSize, 0);
+        for (int32_t y = h - 1; y >= 0; --y) {   // BMP 自底向上
+            const auto* src = shadow_.data() + static_cast<size_t>(y) * info_.stride;
+            for (int32_t x = 0; x < w; ++x) {
+                row[x*3+0] = src[x*4+0]; row[x*3+1] = src[x*4+1]; row[x*3+2] = src[x*4+2];
+            }
+            f.write(reinterpret_cast<char*>(row.data()), rowSize);
+        }
+    }
+
     /// 用干净影子恢复上一次光标画过的区域（防叠画污染）
     void restoreCursorArea() {
         if (!lastCursorValid_) return;
@@ -447,6 +490,11 @@ private:
 
     RECT lastCursorRect_{};      // 上一次画光标的区域（帧内坐标）
     bool lastCursorValid_ = false;
+
+    // 诊断转储（APX_DUMP_SHADOW=1 启用）
+    bool dumpEnabled_ = false;
+    uint32_t dumpCounter_ = 0;
+    uint32_t dumpCount_ = 0;
 
     // 简绘箭头指针（'X'=黑描边 'o'=白填充 '.'=透明）
     static constexpr int kCurW = 12, kCurH = 18;

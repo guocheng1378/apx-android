@@ -172,6 +172,21 @@ void Pipeline::captureThread() {
                     continue;
                 }
             }
+            // 虚拟屏（IddCx）静态时 DWM 不持续 present（实测 0.0fps）——手机端
+            // 只能靠偶发帧活着，视觉"一闪一闪"。按帧预算节拍重发上一帧补齐流。
+            const auto now = nowNs();
+            if (frameBudgetUs && haveLastFrame_ &&
+                now - lastFrameNs_ >= static_cast<int64_t>(frameBudgetUs) * 1000) {
+                std::lock_guard<std::mutex> lk(frameMutex_);
+                if (!pendingValid_) {
+                    pendingFrame_ = lastFrame_;
+                    pendingFrame_.ptsNs = static_cast<uint64_t>(clock_.toRemoteNs(now));
+                    pendingValid_ = true;
+                    pendingSeq_++;
+                    ++stats_.framesCaptured;
+                    lastFrameNs_ = now;
+                }
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
@@ -186,6 +201,12 @@ void Pipeline::captureThread() {
                 pendingPixels_.assign(frame.cpuData,
                                       frame.cpuData + static_cast<size_t>(frame.stride) * frame.height);
                 frame.cpuData = pendingPixels_.data();
+                // 同步留一份上一帧副本（虚拟屏静默时的补帧源）
+                lastPixels_ = pendingPixels_;
+                lastFrame_ = frame;
+                lastFrame_.cpuData = lastPixels_.data();
+                haveLastFrame_ = true;
+                lastFrameNs_ = nowNs();
             }
             pendingFrame_ = frame;
             pendingValid_ = true;
