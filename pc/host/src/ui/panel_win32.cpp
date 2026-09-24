@@ -1231,10 +1231,11 @@ void paint(HWND hwnd, Panel* p) {
                 std::wstring cd = cb;
                 if (p->camDec) {
                     wchar_t db[128];
-                    std::swprintf(db, 128, L" · dec[入%llu 出%llu hr=0x%08X out类型=%d res=%ux%u]",
+                    std::swprintf(db, 128, L" · dec[入%llu 出%llu out类型=%d res=%ux%u hr=0x%X]",
                                   p->camDec->inFrames(), p->camDec->outFrames(),
-                                  p->camDec->lastHr(), p->camDec->outTypeSet() ? 1 : 0,
-                                  p->camDec->width(), p->camDec->height());
+                                  p->camDec->outTypeSet() ? 1 : 0,
+                                  p->camDec->width(), p->camDec->height(),
+                                  p->camDec->lastHr());
                     cd += db;
                 }
                 cd += L" · ";
