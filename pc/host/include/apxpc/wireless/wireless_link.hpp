@@ -80,6 +80,17 @@ public:
     /// 只置标志，实际发送由保活线程在下个循环完成（≤500ms），线程安全。
     void requestOpenScreen() { pendingCmd_.fetch_or(1); }
 
+    /// 模块开关命令（0x10，PC → 手机）：让手机端启/停对应模块。
+    /// idx 两端约定：0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN 7=CAMERA
+    void requestModule(int idx, bool on) {
+        pendingModCmd_.fetch_or(1 << (idx * 2 + (on ? 0 : 1)));
+    }
+
+    /// 手机端上报的模块状态（'M' 状态帧；0=IDLE 2=RUNNING 6=STOPPED，见 ModuleState.ordinal）
+    uint8_t phoneModuleState(int idx) const { return phoneStates_[idx].load(); }
+    /// 状态帧版本号（每次收到 'M' 帧自增；面板据此判断是否刷新）
+    uint64_t phoneModuleVersion() const { return modStateVersion_.load(); }
+
     /// 手机端请求关键帧（0x06，副屏页 onResume 时下发）。由 UI 轮询取走。
     /// @return 自上次取走以来是否有新的请求
     bool takeKeyFrameRequest() { return keyFrameReq_.exchange(false) != 0; }
@@ -98,6 +109,9 @@ private:
 
     /// 组一条 control 命令帧（body=[cmd]）。buildPing 的通用版
     bool buildCmd(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd, uint32_t seq);
+    /// 组一条带两字节参数的命令帧（body=[cmd,a,b]）
+    bool buildCmd2(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd,
+                   uint8_t a, uint8_t b, uint32_t seq);
 
     // ---- 注入（仅在保活线程调用，状态无需加锁）----
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel);
@@ -130,6 +144,11 @@ private:
     std::atomic<uint64_t> cPong_{0};
     /// 待发命令位图（bit1 = 0x05 打开副屏）；由任意线程置位，保活线程取走发送
     std::atomic<int> pendingCmd_{0};
+    /// 待发模块命令位图（bit(idx*2)=开，bit(idx*2+1)=关）
+    std::atomic<int> pendingModCmd_{0};
+    /// 手机端上报的模块状态（'M' 状态帧）与版本号
+    std::atomic<uint8_t> phoneStates_[8]{};
+    std::atomic<uint64_t> modStateVersion_{0};
     /// 手机端请求关键帧（0x06）
     std::atomic<bool> keyFrameReq_{false};
 

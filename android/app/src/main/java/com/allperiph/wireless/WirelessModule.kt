@@ -61,6 +61,15 @@ class WirelessModule : Module {
         }
         channel = ch
 
+        // PC → 手机 模块开关命令（0x10）：面板摄像头等开关直接控制手机端模块
+        ch.moduleCommandListener = { idx, on ->
+            val id = moduleIdxToId(idx)
+            if (id != null) {
+                Log.i(TAG, "PC 命令：模块 $id → ${if (on) "开" else "关"}")
+                com.allperiph.ui.AgentController.setModuleEnabled(ctx.appContext, id, on)
+            }
+        }
+
         val md = TcpMediaChannel(port = TcpMediaChannel.MEDIA_PORT, token = token)
         if (md.start()) {
             media = md
@@ -82,12 +91,14 @@ class WirelessModule : Module {
         Log.i(TAG, "Wi‑Fi 模块已启动：${ch.statusText()}")
 
         // 音频状态信标：周期把 Wi‑Fi 音频模块状态发回 PC，让 PC 面板能「看到手机播放端」
+        // 同时上报**全模块**状态帧（tag 'M'）：PC 面板据此显示手机端各功能的真实开关状态
         val rt = ctx
         audioBeacon = thread(start = true, name = "apx-audio-beacon") {
             while (state.isActive) {
                 if (TcpCtrlBridge.ready()) {
                     val mod = rt.module(ModuleId.WIFI_AUDIO) as? WirelessAudioModule
                     mod?.let { TcpCtrlBridge.sendControl(it.statusReport()) }
+                    TcpCtrlBridge.sendControl(moduleStatesReport(rt))
                 }
                 try {
                     Thread.sleep(1000)
@@ -96,6 +107,27 @@ class WirelessModule : Module {
                 }
             }
         }
+    }
+
+    /**
+     * 全模块状态帧（tag 'M'）：`[0]='M' [1]=count [2..]{模块索引, 状态码}×count`。
+     * 模块索引两端硬编码一致（与 AgentController.ORDER 对齐）：
+     * 0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN 7=CAMERA
+     * 状态码 = ModuleState.ordinal（0=IDLE 1=STARTING 2=RUNNING 3=DEGRADED 4=ERROR 5=STOPPING 6=STOPPED）
+     */
+    private fun moduleStatesReport(rt: ModuleContext): ByteArray {
+        val ids = arrayOf(
+            ModuleId.GADGET, ModuleId.AUDIO, ModuleId.TOUCHPAD, ModuleId.BTHID,
+            ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA,
+        )
+        val body = ByteArray(2 + ids.size * 2)
+        body[0] = 'M'.code.toByte()
+        body[1] = ids.size.toByte()
+        ids.forEachIndexed { i, id ->
+            body[2 + i * 2] = i.toByte()
+            body[3 + i * 2] = (rt.module(id)?.state?.ordinal ?: 0).toByte()
+        }
+        return body
     }
 
     override fun stop() {
@@ -135,5 +167,18 @@ class WirelessModule : Module {
 
     companion object {
         private const val TAG = "WirelessModule"
+
+        /** PC 命令里的模块索引 → ModuleId（两端硬编码一致，与状态帧的索引同表） */
+        fun moduleIdxToId(idx: Int): String? = when (idx) {
+            0 -> ModuleId.GADGET
+            1 -> ModuleId.AUDIO
+            2 -> ModuleId.TOUCHPAD
+            3 -> ModuleId.BTHID
+            4 -> ModuleId.WIRELESS
+            5 -> ModuleId.WIFI_AUDIO
+            6 -> ModuleId.SCREEN
+            7 -> ModuleId.CAMERA
+            else -> null
+        }
     }
 }

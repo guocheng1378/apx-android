@@ -50,6 +50,7 @@
 
 #include <objidl.h>
 #include <gdiplus.h>
+#include <shlobj.h>   // SHGetKnownFolderPath（panel.ini 路径）
 
 #include <atomic>
 #include <cstdio>
@@ -90,15 +91,18 @@ constexpr Gdiplus::ARGB fieldBg        = 0xFFF2F3F5;   // 输入框底（同背�
 
 constexpr int kAppIconId = 101;   // 对应 pc/host/res/apx.rc 的 IDI_APPICON
 
-constexpr int kClientW = 560;
-// 512 → 628（加「副屏」卡片）→ 768（加「音箱」卡片）→ 784（音箱卡片要一行设备下拉）：
-// 每加一张卡片 / 一行控件就把底部一排下推
+constexpr int kClientW = 960;
+// 面板改双栏（与手机端分组风格统一）：连接卡整宽，功能卡 2×2 双栏，高度大幅缩短
 constexpr int kClientH = 808;
 constexpr int kMargin = 16;
 constexpr int kCardX = kMargin;
-constexpr int kCardW = kClientW - 2 * kMargin;   // 528
+constexpr int kCardW = kClientW - 2 * kMargin;   // 928（整宽卡）
 constexpr int kCardPad = 18;                     // APCcard 内边距
 constexpr int kContentX = kCardX + kCardPad;     // 34
+// 双栏：列间距 14，两列等宽
+constexpr int kColGap = 14;
+constexpr int kColW = (kCardW - kColGap) / 2;    // 半宽卡
+constexpr int kCol2X = kCardX + kColW + kColGap;
 
 enum : int {
     IDC_EDIT_HOST = 1008,
@@ -135,11 +139,12 @@ struct Layout {
     Rect fieldHost, fieldPort, editHost, editPort;   // 无线手动地址
 
     Rect hdrWireless;              // 「无线」分类标题（无线开关开时出现）
-    Rect cardScreen, labelScreen, switchScreen, screenStatus, screenDetail;
+    Rect cardScreen, labelScreen, switchScreen, segMirror, segExtend, screenStatus, screenDetail;
     Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
     Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
-    Rect cardCam, labelCam, camStatus, camPreview, camDetail;
+    Rect cardCam, labelCam, switchCam, camStatus, camPreview, camDetail;
+    Rect phoneStateLine;           // 「手机端：……」状态行（连接卡下方，两端状态同步展示）
 
     Rect hdrWired;                 // 「有线」分类标题（蓝牙或 USB 开时出现）
     Rect cardBt, labelBtCard, btStatus, btDetail;
@@ -179,41 +184,52 @@ Layout layout(const VisToggles& v) {
     if (v.wifi) {
         l.hdrWireless = {kCardX, y, kCardW, 28};
         y += 34;
-        // 副屏
-        l.cardScreen = {kCardX, y, kCardW, 104};
-        l.labelScreen = {kContentX, y + 14, 300, 24};
-        l.switchScreen = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
-        l.screenStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
-        l.screenDetail = {kContentX, y + 70, kCardW - 2 * kCardPad, 18};
-        y += 104 + 14;
-        // 音箱（含采集设备下拉 + 试听）
-        l.cardSpeaker = {kCardX, y, kCardW, 172};
-        l.labelSpeaker = {kContentX, y + 14, 300, 24};
-        l.switchSpeaker = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
-        l.speakerStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
-        l.labelSpeakerDev = {kContentX, y + 70, 64, 26};
-        l.speakerCombo = {kContentX + 68, y + 70, kCardW - 2 * kCardPad - 68, 26};
-        l.speakerDevice = {kContentX, y + 104, kCardW - 2 * kCardPad, 18};
-        l.speakerDetail = {kContentX, y + 124, kCardW - 2 * kCardPad, 18};
-        l.btnTestSpeaker = {kContentX, y + 144, 92, 28};
-        y += 172 + 14;
-        // 麦克风（手机麦克风上行 → PC 收流；可转发到 PC 播放设备）
-        l.cardMic = {kCardX, y, kCardW, 152};
-        l.labelMic = {kContentX, y + 14, 300, 24};
-        l.switchMicFwd = {kCardX + kCardW - kCardPad - 46, y + 14, 46, 24};
-        l.micStatus = {kContentX, y + 46, kCardW - 2 * kCardPad, 20};
-        l.labelMicDev = {kContentX, y + 74, 64, 26};
-        l.micCombo = {kContentX + 68, y + 74, kCardW - 2 * kCardPad - 68, 26};
-        l.micDetail = {kContentX, y + 108, kCardW - 2 * kCardPad, 18};
-        y += 152 + 14;
-        // 摄像头（Wi‑Fi）：手机相机 JPEG 上行，卡内实时预览
-        const int camPreviewH = 220;
-        l.cardCam = {kCardX, y, kCardW, 14 + 24 + 20 + 8 + camPreviewH + 8 + 18 + 12};
-        l.labelCam = {kContentX, y + 14, 300, 24};
-        l.camStatus = {kContentX, y + 44, kCardW - 2 * kCardPad, 20};
-        l.camPreview = {kContentX, y + 70, kCardW - 2 * kCardPad, camPreviewH};
-        l.camDetail = {kContentX, y + 70 + camPreviewH + 8, kCardW - 2 * kCardPad, 18};
-        y += l.cardCam.h + 14;
+        // —— 双栏 2×2（与手机端分组风格统一）：左列 副屏/麦克风，右列 音箱/摄像头 ——
+        const int xL = kCardX, xR = kCol2X;
+        const int cw = kColW;
+        const int cwIn = cw - 2 * kCardPad;   // 卡内内容宽
+
+        // 左上：副屏（含投屏目标分段：桌面镜像 | 扩展屏）
+        l.cardScreen = {xL, y, cw, 128};
+        l.labelScreen = {xL + kCardPad, y + 14, cwIn - 60, 24};
+        l.switchScreen = {xL + cw - kCardPad - 46, y + 14, 46, 24};
+        l.segMirror = {xL + kCardPad, y + 44, (cwIn - 8) / 2, 26};
+        l.segExtend = {l.segMirror.x + l.segMirror.w + 8, y + 44, (cwIn - 8) / 2, 26};
+        l.screenStatus = {xL + kCardPad, y + 78, cwIn, 20};
+        l.screenDetail = {xL + kCardPad, y + 102, cwIn, 18};
+
+        // 右上：音箱（含采集设备下拉 + 试听）
+        l.cardSpeaker = {xR, y, cw, 128 + 56};
+        l.labelSpeaker = {xR + kCardPad, y + 14, cwIn - 60, 24};
+        l.switchSpeaker = {xR + cw - kCardPad - 46, y + 14, 46, 24};
+        l.speakerStatus = {xR + kCardPad, y + 46, cwIn, 20};
+        l.labelSpeakerDev = {xR + kCardPad, y + 74, 64, 26};
+        l.speakerCombo = {xR + kCardPad + 62, y + 72, cwIn - 62, 26};
+        l.speakerDevice = {xR + kCardPad, y + 106, cwIn, 18};
+        l.speakerDetail = {xR + kCardPad, y + 126, cwIn, 18};
+        l.btnTestSpeaker = {xR + kCardPad, y + 148, 92, 28};
+        // 行高取两列最大值（音箱卡比副屏卡高）
+        y += std::max(l.cardScreen.h, l.cardSpeaker.h) + 14;
+
+        // 左下：麦克风（手机麦克风上行 → PC 收流；可转发到 PC 播放设备）
+        l.cardMic = {xL, y, cw, 152};
+        l.labelMic = {xL + kCardPad, y + 14, cwIn - 60, 24};
+        l.switchMicFwd = {xL + cw - kCardPad - 46, y + 14, 46, 24};
+        l.micStatus = {xL + kCardPad, y + 46, cwIn, 20};
+        l.labelMicDev = {xL + kCardPad, y + 74, 64, 26};
+        l.micCombo = {xL + kCardPad + 62, y + 72, cwIn - 62, 26};
+        l.micDetail = {xL + kCardPad, y + 108, cwIn, 18};
+
+        // 右下：摄像头（手机相机 JPEG 上行，卡内实时预览；PC 端开关 = 接收显示 + 控制手机端）
+        const int camPreviewH = 160;
+        l.cardCam = {xR, y, cw, 14 + 24 + 20 + 8 + camPreviewH + 8 + 18 + 12};
+        l.labelCam = {xR + kCardPad, y + 14, cwIn - 60, 24};
+        l.switchCam = {xR + cw - kCardPad - 46, y + 14, 46, 24};
+        l.camStatus = {xR + kCardPad, y + 44, cwIn, 20};
+        l.camPreview = {xR + kCardPad, y + 70, cwIn, camPreviewH};
+        l.camDetail = {xR + kCardPad, y + 70 + camPreviewH + 8, cwIn, 18};
+        // 行高取两列的最大值（右列摄像头卡比左列麦克风卡高得多）
+        y += std::max(152, l.cardCam.h) + 14;
     }
     if (v.bt || v.usb) {
         l.hdrWired = {kCardX, y, kCardW, 28};
@@ -304,7 +320,7 @@ std::string toUtf8(const std::wstring& w) {
 // ——————————————————— 面板 ———————————————————
 enum class Hit {
     None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
-    Autostart, Hide, Quit, TestSpeaker
+    SwitchCam, SegMirror, SegExtend, Autostart, Hide, Quit, TestSpeaker
 };
 
 struct Panel {
@@ -351,6 +367,17 @@ struct Panel {
 
     /// 音箱要采哪块播放设备。**空 = 跟随系统默认**（默认一变就重开采集）。
     std::string speakerDeviceId;
+
+    // —— 摄像头卡开关（PC 端是否接收显示手机相机画面；上行由手机端控制）——
+    bool camEnabled = true;
+
+    // —— 副屏投屏目标：0=桌面镜像（主屏） 1=扩展屏（IddCx 虚拟屏优先）——
+    int screenMode = 1;
+
+    // —— 面板状态持久化（panel.ini）：记住功能卡开关，下次启动自动恢复 ——
+    // autoRestore* 是「启动时从 ini 读到的期望状态」；媒体连接建立后由 tick 执行。
+    bool autoScreen = false, autoSpeaker = false, autoMic = false;
+    bool autoRestoreDone = false;
     /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
     std::vector<std::string> speakerDevIds;
     /// 摄像头预览：媒体收流线程存最新 JPEG，paint 时解码绘制（400ms 一拍天然限频）
@@ -454,6 +481,20 @@ long long nowMsLocal() { return static_cast<long long>(GetTickCount64()); }
 
 bool screenMediaUp(Panel* p) { return p->media && p->media->status().connected; }
 
+/// 手机端某模块的状态文案（'M' 状态帧；idx 两端约定见 WirelessModule）
+std::wstring phoneModuleText(const SessionSnapshot& s, int idx, const wchar_t* what) {
+    if (s.phase != LinkPhase::Connected) return L"";
+    const int st = s.phoneModules[idx];
+    if (st < 0) return std::wstring(what) + L"：状态未知";
+    switch (st) {
+        case 2:  return std::wstring(what) + L"：开";     // RUNNING
+        case 3:  return std::wstring(what) + L"：降级";   // DEGRADED
+        case 4:  return std::wstring(what) + L"：错误";   // ERROR
+        case 1:  return std::wstring(what) + L"：启动中"; // STARTING
+        default: return std::wstring(what) + L"：关";
+    }
+}
+
 std::wstring screenBig(Panel* p) {
     const bool up = screenMediaUp(p);
     if (!p->screenPush) return up ? L"未开始" : L"等待媒体连接";
@@ -478,8 +519,17 @@ std::wstring screenDetail(Panel* p) {
         const auto s = p->screenPush->status();
         if (s.running) {
             wchar_t b[256];
-            std::swprintf(b, 256, L"%.1f fps · 已送 %llu 帧 · %ux%u · 编码 %.1f ms · 丢帧 %llu",
-                          s.fps, static_cast<unsigned long long>(s.framesSent),
+            // 抓屏目标一目了然：\\.\DISPLAY1 通常是主屏；\\.\DISPLAYN(N>1) 为扩展屏
+            std::wstring tgt = L"主屏";
+            {
+                const std::string dn = s.deviceName;
+                if (!dn.empty()) {
+                    const int num = ::atoi(dn.c_str() + dn.find_last_of('H') + 1);
+                    if (num > 1) tgt = L"扩展屏 " + toWide(dn);
+                }
+            }
+            std::swprintf(b, 256, L"%s · %.1f fps · 已送 %llu 帧 · %ux%u · 编码 %.1f ms · 丢帧 %llu",
+                          tgt.c_str(), s.fps, static_cast<unsigned long long>(s.framesSent),
                           s.width, s.height, s.encodeMs,
                           static_cast<unsigned long long>(s.framesDropped));
             return b;
@@ -508,7 +558,9 @@ void toggleScreen(Panel* p) {
         return;
     }
     std::string err;
-    if (!p->screenPush->start(p->media.get(), apxpc::media::ScreenPushOptions{}, &err)) {
+    apxpc::media::ScreenPushOptions opt;
+    opt.mirrorMode = (p->screenMode == 0);   // 0=桌面镜像 1=扩展屏（无虚拟屏时报错不静默回落）
+    if (!p->screenPush->start(p->media.get(), opt, &err)) {
         const std::wstring msg = L"副屏启动失败：\n\n" + toWide(err);
         MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
         return;
@@ -783,6 +835,9 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.switchScreen.has(x, y) || L.labelScreen.has(x, y)) h = Hit::SwitchScreen;
     else if (L.switchSpeaker.has(x, y) || L.labelSpeaker.has(x, y)) h = Hit::SwitchSpeaker;
     else if (L.switchMicFwd.has(x, y) || L.labelMic.has(x, y)) h = Hit::SwitchMic;
+    else if (L.switchCam.has(x, y)) h = Hit::SwitchCam;
+    else if (L.segMirror.has(x, y)) h = Hit::SegMirror;
+    else if (L.segExtend.has(x, y)) h = Hit::SegExtend;
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
@@ -910,12 +965,20 @@ void paint(HWND hwnd, Panel* p) {
             text(g, L"无线", L.hdrWireless, *p->fSection, tok::primary);
             // 副屏
             fillRound(g, L.cardScreen, 18.0f, tok::surface);
-            text(g, L"副屏（把本机桌面投到手机）", L.labelScreen, *p->fSection, tok::primary);
+            text(g, L"副屏（本机画面 → 手机）", L.labelScreen, *p->fSection, tok::primary);
             {
                 const bool pushing = p->screenPush && p->screenPush->status().running;
                 paintSwitch(g, L.switchScreen, pushing, p->hot == Hit::SwitchScreen);
+                // 投屏目标分段：桌面镜像 | 扩展屏（推流中切换会自动按新模式重启）
+                paintButton(g, L.segMirror, L"桌面镜像", p->screenMode == 0, false,
+                            p->hot == Hit::SegMirror, p->pressed == Hit::SegMirror, *p->fBtn);
+                paintButton(g, L.segExtend, L"扩展屏", p->screenMode == 1, false,
+                            p->hot == Hit::SegExtend, p->pressed == Hit::SegExtend, *p->fBtn);
                 text(g, screenBig(p), L.screenStatus, *p->fBody, screenColor(p));
-                text(g, screenDetail(p), L.screenDetail, *p->fCaption, tok::onVariant);
+                std::wstring sd = screenDetail(p);
+                if (!sd.empty()) sd += L" · ";
+                sd += phoneModuleText(s, 6, L"手机端副屏");
+                text(g, sd, L.screenDetail, *p->fCaption, tok::onVariant);
             }
             // 音箱
             fillRound(g, L.cardSpeaker, 18.0f, tok::surface);
@@ -1000,11 +1063,15 @@ void paint(HWND hwnd, Panel* p) {
             // 摄像头（手机相机 JPEG → 卡内实时预览）
             fillRound(g, L.cardCam, 18.0f, tok::surface);
             text(g, L"摄像头（手机相机 → PC）", L.labelCam, *p->fSection, tok::primary);
+            paintSwitch(g, L.switchCam, p->camEnabled, p->hot == Hit::SwitchCam);
             {
                 const uint64_t cam = p->media ? p->media->counters().cameraFrames : 0;
                 Gdiplus::ARGB col = tok::stateIdle;
                 std::wstring st;
-                if (s.phase != LinkPhase::Connected) {
+                if (!p->camEnabled) {
+                    st = L"已关闭（开关打开后恢复显示）";
+                } else if (s.phase != LinkPhase::Connected) {
+                    st = L"未连接";
                     st = L"未连接";
                 } else if (cam == 0) {
                     st = L"等待画面（确认手机摄像头权限已授予）";
@@ -1055,10 +1122,12 @@ void paint(HWND hwnd, Panel* p) {
                     g.FillRectangle(&bg, dst);
                 }
 
-                wchar_t cb[160];
-                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · JPEG · 无需虚拟摄像头即可预览",
-                              static_cast<unsigned long long>(cam));
-                text(g, cb, L.camDetail, *p->fCaption, tok::onVariant);
+                wchar_t cb[192];
+                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · JPEG", static_cast<unsigned long long>(cam));
+                std::wstring cd = cb;
+                cd += L" · ";
+                cd += phoneModuleText(s, 7, L"手机端摄像头");
+                text(g, cd, L.camDetail, *p->fCaption, tok::onVariant);
             }
         }
 
@@ -1100,6 +1169,47 @@ void paint(HWND hwnd, Panel* p) {
 }
 
 // ——————————————————— 行为 ———————————————————
+
+// —— 面板状态持久化：%LOCALAPPDATA%\AllPeriph\panel.ini ——
+// 记住功能卡开关，下次启动**媒体连接一建立就自动恢复**（不用每次手动逐个开）。
+static std::wstring panelIniPath() {
+    wchar_t* la = nullptr;
+    ::SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &la);
+    std::wstring dir = (la ? la : L"");
+    ::CoTaskMemFree(la);
+    dir += L"\\AllPeriph";
+    ::CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\panel.ini";
+}
+
+static void savePanelState(Panel* p) {
+    const std::wstring ini = panelIniPath();
+    wchar_t b[8];
+    auto put = [&](const wchar_t* k, bool v) {
+        _itow_s(v ? 1 : 0, b, 10);
+        ::WritePrivateProfileStringW(L"media", k, b, ini.c_str());
+    };
+    put(L"screen", p->screenPush && p->screenPush->running());
+    put(L"speaker", p->audio && p->audio->running());
+    put(L"mic", p->micBridge && p->micBridge->running());
+    put(L"cam", p->camEnabled);
+    _itow_s(p->screenMode, b, 10);
+    ::WritePrivateProfileStringW(L"media", L"screenMode", b, ini.c_str());
+}
+
+static void loadPanelState(Panel* p) {
+    const std::wstring ini = panelIniPath();
+    auto get = [&](const wchar_t* k) {
+        return ::GetPrivateProfileIntW(L"media", k, 0, ini.c_str()) != 0;
+    };
+    p->autoScreen = get(L"screen");
+    p->autoSpeaker = get(L"speaker");
+    p->autoMic = get(L"mic");
+    p->camEnabled = get(L"cam") || ::GetPrivateProfileIntW(L"media", L"cam", -1, ini.c_str()) == -1;
+    p->screenMode = ::GetPrivateProfileIntW(L"media", L"screenMode", 1, ini.c_str()) == 0 ? 0 : 1;
+    p->autoRestoreDone = false;
+}
+
 /// 功能卡随传输开关显隐，整窗高度也要跟着变（AdjustWindowRect 算标题栏）
 void resizeToLayout(Panel* p) {
     if (!p->hwnd) return;
@@ -1109,6 +1219,14 @@ void resizeToLayout(Panel* p) {
     AdjustWindowRectEx(&rc, style, FALSE, 0);
     SetWindowPos(p->hwnd, nullptr, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    // HWND 控件（下拉/输入框）跟随布局重排：显隐切换会改变它们的 y/宽度
+    auto mv = [](HWND h, const Rect& r) {
+        if (h) MoveWindow(h, r.x, r.y, r.w, r.h, TRUE);
+    };
+    mv(GetDlgItem(p->hwnd, IDC_EDIT_HOST), L.editHost);
+    mv(GetDlgItem(p->hwnd, IDC_EDIT_PORT), L.editPort);
+    mv(GetDlgItem(p->hwnd, IDC_COMBO_DEV), L.speakerCombo);
+    mv(GetDlgItem(p->hwnd, IDC_COMBO_MIC), L.micCombo);
 }
 
 void applyConnect(Panel* p) {
@@ -1149,12 +1267,43 @@ void performHit(Panel* p, Hit h) {
             break;
         case Hit::SwitchScreen:
             toggleScreen(p);
+            p->autoScreen = p->screenPush && p->screenPush->running();
+            savePanelState(p);
             break;
+        case Hit::SegMirror:
+        case Hit::SegExtend: {
+            const int want = (h == Hit::SegMirror) ? 0 : 1;
+            if (p->screenMode != want) {
+                p->screenMode = want;
+                // 推流中切目标：停掉按新模式重启（用户不用先关再开）
+                if (p->screenPush && p->screenPush->running()) {
+                    p->screenPush->stop();
+                    toggleScreen(p);
+                }
+                savePanelState(p);
+            }
+            break;
+        }
         case Hit::SwitchSpeaker:
             toggleSpeaker(p);
+            p->autoSpeaker = p->audio && p->audio->running();
+            savePanelState(p);
             break;
         case Hit::SwitchMic:
             toggleMicForward(p);
+            p->autoMic = !p->autoMic;   // mic 启动走后台线程，按操作意图记录
+            savePanelState(p);
+            break;
+        case Hit::SwitchCam:
+            // PC 端开关 → **同步控制手机端摄像头模块**（0x10 命令），两端状态一致
+            p->camEnabled = !p->camEnabled;
+            if (p->session) p->session->requestModule(7, p->camEnabled);
+            if (!p->camEnabled) {
+                std::lock_guard<std::mutex> lk(p->camMu);
+                p->camJpegValid = false;
+                p->camJpeg.clear();
+            }
+            savePanelState(p);
             break;
         case Hit::TestSpeaker:
             testSpeakerClick(p);
@@ -1335,12 +1484,28 @@ void tick(Panel* p) {
             if (p->session->takeKeyFrameRequest()) {
                 if (p->screenPush) p->screenPush->requestKeyFrame();
             }
+            // —— 自动恢复：媒体连接就绪后，把上次退出时开着的功能卡拉起来 ——
+            // （panel.ini 里的期望状态；断线重连后也会重新恢复一次）
+            if (mediaUp && !p->autoRestoreDone) {
+                p->autoRestoreDone = true;
+                if (p->autoScreen && !(p->screenPush && p->screenPush->running())) {
+                    toggleScreen(p);
+                    p->autoScreen = p->screenPush && p->screenPush->running();
+                }
+                if (p->autoSpeaker && !(p->audio && p->audio->running())) {
+                    toggleSpeaker(p);
+                }
+                if (p->autoMic && p->micBridge && !p->micBridge->running()) {
+                    toggleMicForward(p);
+                }
+            }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
             // 音箱同理：连接没了就停采集，别让它在后台空转
             if (p->audio && p->audio->running()) p->audio->stop();
             if (p->mediaThread.joinable()) p->mediaThread.join();
             p->media->disconnect();
+            p->autoRestoreDone = false;   // 断连：下次连上重新走一遍恢复
         }
     }
 
@@ -1645,12 +1810,16 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         if (streamId == apxpc::media::kStreamMic && panel.micBridge &&
             panel.micBridge->running()) {
             panel.micBridge->feed(body, len);
-        } else if (streamId == apxpc::media::kStreamCamera) {
+        } else if (streamId == apxpc::media::kStreamCamera && panel.camEnabled) {
+            // 开关关闭时直接丢弃：不解码不刷新（手机端上行照常，几 KB/s 可忽略）
             std::lock_guard<std::mutex> lk(panel.camMu);
             panel.camJpeg.assign(body, body + len);
             panel.camJpegValid = true;
         }
     });
+
+    // 读取持久化状态（功能卡开关期望值，媒体连接建立后自动恢复）
+    loadPanelState(&panel);
 
     // 初始：自动发现并立刻进入等待
     panel.session->startAuto();

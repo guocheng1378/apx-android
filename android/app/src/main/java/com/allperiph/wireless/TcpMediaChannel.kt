@@ -13,6 +13,7 @@ import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Wi‑Fi **媒体通道**：与 [TcpControlChannel] 并列的第二条连接，承载大流量流。
@@ -83,6 +84,9 @@ class TcpMediaChannel(
 
     /** 待发送帧（已含帧头与 CRC）。约 2 秒的音频 + 数帧摄像头 */
     private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+
+    /** 摄像头最新帧（覆盖模型）：writer 每轮只取最新一帧，旧帧自动被顶掉 */
+    private val cameraLatest = AtomicReference<ByteArray?>(null)
 
     private val rxLock = Any()
     private var rxBuf = ByteArray(256 * 1024)
@@ -366,12 +370,13 @@ class TcpMediaChannel(
 
     override fun send(streamId: Int, body: ByteArray, flags: Int): Boolean {
         if (!ready) return false
-        // 摄像头是大块且"可丢"的载荷：**小积压就开始丢**（阈值远小于音频的兜底线）——
-        // 丢一帧 JPEG 只顿 50ms，积压几秒才是"卡"的真凶（实测踩过）。
-        // 不能让几帧 JPEG 把麦克风音频顶到队尾去（音频有时效性，晚了就没意义）。
-        if (streamId == ApxFrame.STREAM_CAMERA && outQueue.size > CAMERA_DROP_THRESHOLD) {
-            droppedCamera.incrementAndGet()
-            return false
+        // 摄像头帧走**最新帧覆盖**（cameraLatest）：
+        // 大 JPEG 在队列里排队是"摄像头卡"的根因——覆盖模型从机制上杜绝积压，
+        // 旧帧被新帧直接顶掉，writer 每轮只发最新一帧。
+        if (streamId == ApxFrame.STREAM_CAMERA) {
+            droppedCamera.incrementAndGet()   // 记录被覆盖的帧数（语义：未及时发出的帧）
+            cameraLatest.set(body)
+            return true
         }
         val frame = synchronized(writeLock) {
             seq = (seq + 1) and 0x7FFFFFFF

@@ -497,6 +497,25 @@ bool WirelessLink::buildCmd(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd, 
     return true;
 }
 
+/// 带两字节参数的命令帧：body=[cmd, a, b] + CRC（如 0x10 模块开关）
+bool WirelessLink::buildCmd2(uint8_t* buf, size_t cap, size_t& len, uint8_t cmd,
+                             uint8_t a, uint8_t b, uint32_t seq) {
+    apx::ApxFrameHeader h{};
+    std::memcpy(h.magic, "APX1", 4);
+    h.streamId = apx::kStreamControl;
+    h.flags = 0;
+    h.headerExtWords = 0;
+    h.payloadLen = 3 + apx::kFrameCrcSize;
+    h.seq = seq;
+    if (cap < apx::kFrameHeaderSize + h.payloadLen) return false;
+    if (!apx::writeHeader(buf, cap, h)) return false;
+    uint8_t body[3] = {cmd, a, b};
+    std::memcpy(buf + apx::kFrameHeaderSize, body, 3);
+    apx::putU32(buf + apx::kFrameHeaderSize + 3, apx::crc32(body, 3));
+    len = apx::kFrameHeaderSize + h.payloadLen;
+    return true;
+}
+
 void WirelessLink::keepaliveLoop() {
     uint32_t seq = 1;
     int64_t lastPingAt = 0;
@@ -548,6 +567,27 @@ void WirelessLink::keepaliveLoop() {
             }
         }
 
+        // 1.6) 模块开关命令（0x10，PC → 手机）：位图 bit(idx*2+on)，一次发一条
+        if (const int mc = pendingModCmd_.exchange(0)) {
+            for (int idx = 0; idx < 8; ++idx) {
+                const int mask = 1 << (idx * 2);
+                const int maskOff = mask << 1;
+                uint8_t on;
+                if (mc & mask) on = 1;
+                else if (mc & maskOff) on = 0;
+                else continue;
+                uint8_t buf[64];
+                size_t len = 0;
+                if (buildCmd2(buf, sizeof(buf), len, 0x10,
+                              static_cast<uint8_t>(idx), on, seq++)) {
+                    if (!sendAll(buf, len)) {
+                        APX_LOGW("模块命令发送失败，视为链路断开");
+                        break;
+                    }
+                }
+            }
+        }
+
         // 2) 读（500ms 超时）
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO,
                    reinterpret_cast<const char*>(&rcvtmo), sizeof(rcvtmo));
@@ -594,6 +634,15 @@ void WirelessLink::keepaliveLoop() {
                         (static_cast<uint32_t>(payload[5]) << 8) |
                         (static_cast<uint32_t>(payload[6]) << 16) |
                         (static_cast<uint32_t>(payload[7]) << 24);
+                } else if (cmd == 'M' && bodyLen >= 2) {
+                    // 手机端全模块状态帧（tag 'M'）：[0]='M' [1]=count {idx,state}×n
+                    // 面板据此显示手机端各功能的真实开关状态（两端状态同步的数据源）
+                    const int count = payload[1];
+                    for (int i = 0; i < count && 2 + i * 2 + 1 < bodyLen; ++i) {
+                        const uint8_t idx = payload[2 + i * 2];
+                        if (idx < 8) phoneStates_[idx].store(payload[3 + i * 2]);
+                    }
+                    modStateVersion_.fetch_add(1);
                 } else if (cmd == kCmdMouse && bodyLen >= 5) {
                     injectMouse(payload[1],
                                 static_cast<int8_t>(payload[2]),

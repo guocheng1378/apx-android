@@ -43,6 +43,10 @@ struct SessionSnapshot {
     bool phoneAudioMic = false;     // 麦克风上行是否可用
     uint32_t phoneAudioDropped = 0; // 手机侧丢弃的音频帧
     bool phoneAudioKnown = false;   // 是否收到过状态帧
+
+    // 手机端**全模块**状态（'M' 状态帧；索引 0..7 与无线模块状态帧约定一致）
+    // <0 = 未收到过；否则 ModuleState.ordinal（2=RUNNING 6=STOPPED）
+    int phoneModules[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
 };
 
 class WirelessSession {
@@ -67,6 +71,9 @@ public:
 
     /// 请求手机打开副屏页（仅置位，由 WirelessLink 保活线程发送，线程安全）
     void requestOpenScreen();
+
+    /// 模块开关命令（0x10）：让手机端启/停对应模块（0..7，见 WirelessLink 注释）
+    void requestModule(int idx, bool on);
 
     /// 手机端是否请求了关键帧（副屏页 onResume）。取走即清零。
     bool takeKeyFrameRequest();

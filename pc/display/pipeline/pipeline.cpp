@@ -1,5 +1,9 @@
 #include "pipeline/pipeline.hpp"
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <chrono>
 #include <cstring>
 #include <thread>
@@ -19,6 +23,19 @@ Pipeline::Pipeline() = default;
 Pipeline::~Pipeline() { stop(); }
 
 std::string Pipeline::lastError() const { return lastError_; }
+
+std::string Pipeline::captureDeviceName() const {
+    if (!capture_) return {};
+    // CaptureInfo.deviceName 是宽字符（DXGI DeviceName），转 UTF-8
+    const auto& n = capture_->info().deviceName;
+    if (n.empty()) return {};
+    wchar_t buf[64]{};
+    size_t i = 0;
+    for (const auto& w : n) { if (i + 1 >= sizeof(buf) / sizeof(buf[0])) break; buf[i++] = w; }
+    char out[64]{};
+    ::WideCharToMultiByte(CP_UTF8, 0, buf, -1, out, sizeof(out), nullptr, nullptr);
+    return out;
+}
 
 bool Pipeline::handshake(std::string* err) {
     // PROTOCOL §4：HELLO → HELLO_ACK → CONFIG → CONFIG_ACK → RUNNING

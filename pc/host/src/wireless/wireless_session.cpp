@@ -69,6 +69,10 @@ void WirelessSession::requestOpenScreen() {
     link_.requestOpenScreen();   // 只置原子标志，未连接时标志会被下次建链前的循环带过（无害）
 }
 
+void WirelessSession::requestModule(int idx, bool on) {
+    link_.requestModule(idx, on);
+}
+
 bool WirelessSession::takeKeyFrameRequest() {
     return link_.takeKeyFrameRequest();
 }
@@ -181,6 +185,8 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
     snap_.phoneAudioSpk = ls.phoneAudioSpk;
     snap_.phoneAudioMic = ls.phoneAudioMic;
     snap_.phoneAudioDropped = ls.phoneAudioDropped;
+    // 手机端全模块状态（'M' 状态帧）
+    for (int i = 0; i < 8; ++i) snap_.phoneModules[i] = link_.phoneModuleState(i);
     if (changed) APX_LOGI("无线会话状态：{}", linkPhaseName(ph));
 }
 

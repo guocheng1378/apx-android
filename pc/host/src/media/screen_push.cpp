@@ -116,9 +116,8 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
 
     apxdisp::PipelineConfig cfg;
     cfg.captureKind = apxdisp::CaptureKind::Auto;
-    // **扩展屏模式**：优先抓 IddCx 虚拟屏（VirtualDisplayDriver 已装）——手机显示的是
-    // 独立的第二块屏内容，不是主屏镜像。虚拟屏不存在时 DDA 自动回落主屏（兼容镜像）。
-    cfg.captureTarget.preferVirtual = true;
+    // 抓屏目标由面板选择：镜像 = 主屏；扩展屏 = 优先 IddCx 虚拟屏（无虚拟屏时报错不回落）
+    cfg.captureTarget.preferVirtual = !opt.mirrorMode;
     cfg.video.codec = apxdisp::CodecId::H264;   // H.264 兼容性最好；手机侧 MediaCodec 已验 H264
     cfg.video.bitrateKbps = opt.bitrateKbps;
     cfg.video.frameRateX100 = opt.maxFps * 100;
@@ -184,6 +183,7 @@ ScreenPush::Status ScreenPush::status() const {
     const auto vp = impl_->pipe->usedVideo();
     s.width = vp.width;
     s.height = vp.height;
+    s.deviceName = impl_->pipe->captureDeviceName();
     if (s.error.empty()) s.error = impl_->pipe->lastError();
     return s;
 }

@@ -35,6 +35,8 @@ struct ScreenPushOptions {
     /// 0 = 跟随抓屏尺寸（推荐：少一次缩放，也避免与抓屏尺寸打架）
     uint32_t width = 0;
     uint32_t height = 0;
+    /// true = 桌面镜像（抓主屏）；false = 扩展屏优先（有虚拟屏抓虚拟屏，无则报错不静默回落）
+    bool mirrorMode = false;
 };
 
 class ScreenPush {
@@ -49,6 +51,7 @@ public:
         double encodeMs = 0.0;      // 编码耗时均值
         uint32_t width = 0;
         uint32_t height = 0;
+        std::string deviceName;     // 实际抓屏目标（如 \\.\DISPLAY3 = 扩展屏；主屏为 \\.\DISPLAY1）
     };
 
     ScreenPush();

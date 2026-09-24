@@ -283,6 +283,12 @@ private:
         }
 
         if (!found && fallback) {
+            if (target_.preferVirtual && target_.deviceName.empty()) {
+                // 扩展屏模式：用户明确要投扩展屏，虚拟屏不存在时**如实报错**，
+                // 静默回落主屏会让用户误以为扩展屏在用（触摸映射也会错位）。
+                lastError_ = "未找到扩展屏（虚拟显示器驱动未安装或未在显示设置中启用）";
+                return false;
+            }
             adapter_ = fallback;
             fallback->EnumOutputs(0, &output_);
             if (output_) {

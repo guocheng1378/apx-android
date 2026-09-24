@@ -68,6 +68,14 @@ class TcpControlChannel(
     var droppedFrames: Long = 0
         private set
 
+    /**
+     * PC → 手机 的模块开关命令回调（0x10）：参数 (模块索引, 开)。
+     * 在 reader 线程回调；实现方自行切线程（AgentController 内部已有 io 线程）。
+     * 模块索引两端约定，与 AgentController.ORDER 一致（0..7）。
+     */
+    @Volatile
+    var moduleCommandListener: ((Int, Boolean) -> Unit)? = null
+
     private val running = AtomicBoolean(false)
     private var acceptThread: Thread? = null
     private var readerThread: Thread? = null
@@ -305,6 +313,12 @@ class TcpControlChannel(
                         'p'.code.toByte() -> flags = flags or 1
                         // 0x05 = PC 请求打开副屏（面板开副屏推流时下发）
                         0x05.toByte() -> flags = flags or 2
+                        // 0x10 = PC 模块开关命令：body=[0x10, 模块索引, on]
+                        0x10.toByte() -> if (payloadLen >= 3) {
+                            val idx = rxBuf[off + ApxFrame.HEADER_SIZE + 1].toInt() and 0xFF
+                            val on = rxBuf[off + ApxFrame.HEADER_SIZE + 2].toInt() != 0
+                            moduleCommandListener?.invoke(idx, on)
+                        }
                     }
                 }
                 off += total

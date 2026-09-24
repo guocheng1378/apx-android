@@ -69,6 +69,8 @@ public:
     /// 实际生效的编码参数。**抓屏尺寸优先于配置**，所以它常与传入的 cfg 不同 ——
     /// 面板要显示"真实推的是多少分辨率"就得读这里，不能拿自己填的值当结论。
     VideoParams usedVideo() const { return usedVp_; }
+    /// 实际抓屏目标设备名（如 \\.\DISPLAY3）。空 = 抓屏源未提供。
+    std::string captureDeviceName() const;
     std::string lastError() const;
 
     // 单步执行（供自测/离线：抓一帧 → 编码 → 组帧 → 写通道）
