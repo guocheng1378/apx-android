@@ -130,10 +130,13 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
     sample->AddBuffer(buf.Get());
     sample->SetSampleTime(0);
     sample->SetSampleDuration(0);
-    if (FAILED(t->ProcessInput(0, sample.Get(), 0))) {
+    const HRESULT inHr = t->ProcessInput(0, sample.Get(), 0);
+    if (FAILED(inHr)) {
         // 输入未接受（MFT 内部缓冲满等）：不打紧，下一帧再试
+        lastHr_ = static_cast<uint32_t>(inHr);
         return false;
     }
+    inFrames_++;
 
     // 循环取输出（可能先 NEED_MORE_INPUT，SPS/PPS+IDR 一起喂完后出帧）
     bool produced = false;
@@ -173,6 +176,7 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
         hr = t->ProcessOutput(0, 1, &odb, &status);
         if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) break;      // 正常：等下一帧输入
         if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
+            lastHr_ = static_cast<uint32_t>(hr);
             // 分辨率/格式变化：输出类型作废，下轮循环重设
             outTypeSet_ = false;
             width_ = 0; height_ = 0;
@@ -202,6 +206,7 @@ bool H264Decoder::decode(const uint8_t* au, size_t len) {
         if (width_ > 0 && height_ > 0 && cbMax >= need) {
             std::memcpy(bgra_.data(), pp, need);
             produced = true;
+            outFrames_++;
         }
         obuf->Unlock();
     }

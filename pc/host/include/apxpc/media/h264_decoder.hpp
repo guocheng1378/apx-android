@@ -27,7 +27,12 @@ public:
     uint32_t width() const { return width_; }
     uint32_t height() const { return height_; }
     bool ok() const { return inited_; }
+    bool outTypeSet() const { return outTypeSet_; }
     std::string lastError() const { return lastError_; }
+    // 诊断探针：输入帧数 / 解出帧数 / 最近一次失败的 HRESULT
+    uint64_t inFrames() const { return inFrames_; }
+    uint64_t outFrames() const { return outFrames_; }
+    uint32_t lastHr() const { return lastHr_; }
 
 private:
     bool init();
@@ -40,6 +45,8 @@ private:
     bool gotInputType_ = false;
     bool outTypeSet_ = false;          // RGB32 输出类型是否已设（需首帧探测出分辨率后再设）
     std::string lastError_;
+    uint64_t inFrames_ = 0, outFrames_ = 0;
+    uint32_t lastHr_ = 0;
 };
 
 }  // namespace apxpc::media

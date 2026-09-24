@@ -1229,6 +1229,14 @@ void paint(HWND hwnd, Panel* p) {
                 wchar_t cb[192];
                 std::swprintf(cb, 160, L"PC 已收 %llu 帧 · H264硬编流", static_cast<unsigned long long>(cam));
                 std::wstring cd = cb;
+                if (p->camDec) {
+                    wchar_t db[128];
+                    std::swprintf(db, 128, L" · dec[入%llu 出%llu hr=0x%08X out类型=%d res=%ux%u]",
+                                  p->camDec->inFrames(), p->camDec->outFrames(),
+                                  p->camDec->lastHr(), p->camDec->outTypeSet() ? 1 : 0,
+                                  p->camDec->width(), p->camDec->height());
+                    cd += db;
+                }
                 cd += L" · ";
                 cd += phoneModuleText(s, 7, L"手机端摄像头");
                 text(g, cd, L.camDetail, *p->fCaption, tok::onVariant);
@@ -1658,6 +1666,8 @@ void tick(Panel* p) {
                 if (p->autoMic && p->micBridge && !p->micBridge->running()) {
                     toggleMicForward(p);
                 }
+                // 摄像头：PC 开关开着 → 发 0x10 命令让手机端模块也开（两端联动）
+                if (p->camEnabled && p->session) p->session->requestModule(7, true);
             }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
