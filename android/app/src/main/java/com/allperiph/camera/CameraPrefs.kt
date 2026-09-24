@@ -11,13 +11,13 @@ object CameraPrefs {
     private const val K_FACING = "facing"   // 0=后置, 1=前置
     private const val K_W = "width"
     private const val K_H = "height"
-    private const val K_FPS = "fps"
+    private const val K_FPS = "fps_v2"   // v2：默认降到 12fps（与副屏共带宽），旧值作废
 
     data class Config(
         val facing: Int = 0,
         val width: Int = 1280,
         val height: Int = 720,
-        val fps: Int = 20,
+        val fps: Int = 12,   // 与副屏视频共享 Wi‑Fi：低帧率保流畅（预览用途足够）
     )
 
     fun load(c: Context): Config {

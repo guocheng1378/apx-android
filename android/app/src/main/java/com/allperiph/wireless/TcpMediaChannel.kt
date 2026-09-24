@@ -340,9 +340,10 @@ class TcpMediaChannel(
 
     override fun send(streamId: Int, body: ByteArray, flags: Int): Boolean {
         if (!ready) return false
-        // 摄像头是大块且"可丢"的载荷：队列一旦积压就先丢掉它，
+        // 摄像头是大块且"可丢"的载荷：**小积压就开始丢**（阈值远小于音频的兜底线）——
+        // 丢一帧 JPEG 只顿 50ms，积压几秒才是"卡"的真凶（实测踩过）。
         // 不能让几帧 JPEG 把麦克风音频顶到队尾去（音频有时效性，晚了就没意义）。
-        if (streamId == ApxFrame.STREAM_CAMERA && outQueue.size > QUEUE_CAP / 2) {
+        if (streamId == ApxFrame.STREAM_CAMERA && outQueue.size > CAMERA_DROP_THRESHOLD) {
             droppedCamera.incrementAndGet()
             return false
         }
@@ -389,6 +390,9 @@ class TcpMediaChannel(
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val QUEUE_CAP = 256
+
+        /** 摄像头帧可丢阈值：队列积压超过它就丢相机帧保实时（约 24 帧 ≈ 200ms 滞后） */
+        private const val CAMERA_DROP_THRESHOLD = 24
         private const val WRITER_IDLE_MS = 200L
     }
 }
