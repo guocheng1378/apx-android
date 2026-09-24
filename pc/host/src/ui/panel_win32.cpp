@@ -141,6 +141,7 @@ struct Layout {
     Rect hdrWireless;              // 「无线」分类标题（无线开关开时出现）
     Rect cardScreen, labelScreen, switchScreen, segMirror, segExtend, screenStatus, screenDetail;
     Rect labelBitrate, segBr1, segBr2, segBr3;   // 副屏码率分段（8M/12M/16M）
+    Rect labelRes, segRes1, segRes2, segRes3, segRes4;  // 扩展屏分辨率分段
     Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
     Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
@@ -190,8 +191,8 @@ Layout layout(const VisToggles& v) {
         const int cw = kColW;
         const int cwIn = cw - 2 * kCardPad;   // 卡内内容宽
 
-        // 左上：副屏（含投屏目标分段：桌面镜像 | 扩展屏 + 码率分段）
-        l.cardScreen = {xL, y, cw, 162};
+        // 左上：副屏（投屏目标 + 码率 + 扩展屏分辨率分段）
+        l.cardScreen = {xL, y, cw, 192};
         l.labelScreen = {xL + kCardPad, y + 14, cwIn - 60, 24};
         l.switchScreen = {xL + cw - kCardPad - 46, y + 14, 46, 24};
         l.segMirror = {xL + kCardPad, y + 44, (cwIn - 8) / 2, 26};
@@ -200,8 +201,13 @@ Layout layout(const VisToggles& v) {
         l.segBr1 = {xL + kCardPad + 60, y + 80, (cwIn - 60 - 16) / 3, 26};
         l.segBr2 = {l.segBr1.x + l.segBr1.w + 8, y + 80, l.segBr1.w, 26};
         l.segBr3 = {l.segBr2.x + l.segBr2.w + 8, y + 80, l.segBr1.w, 26};
-        l.screenStatus = {xL + kCardPad, y + 114, cwIn, 20};
-        l.screenDetail = {xL + kCardPad, y + 138, cwIn, 18};
+        l.labelRes = {xL + kCardPad, y + 116, 56, 26};
+        l.segRes1 = {xL + kCardPad + 60, y + 114, (cwIn - 60 - 24) / 4, 26};
+        l.segRes2 = {l.segRes1.x + l.segRes1.w + 8, y + 114, l.segRes1.w, 26};
+        l.segRes3 = {l.segRes2.x + l.segRes2.w + 8, y + 114, l.segRes1.w, 26};
+        l.segRes4 = {l.segRes3.x + l.segRes3.w + 8, y + 114, l.segRes1.w, 26};
+        l.screenStatus = {xL + kCardPad, y + 148, cwIn, 20};
+        l.screenDetail = {xL + kCardPad, y + 172, cwIn, 18};
 
         // 右上：音箱（含采集设备下拉 + 试听）
         l.cardSpeaker = {xR, y, cw, 128 + 56};
@@ -325,8 +331,34 @@ std::string toUtf8(const std::wstring& w) {
 // ——————————————————— 面板 ———————————————————
 enum class Hit {
     None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
-    SwitchCam, SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, Autostart, Hide, Quit, TestSpeaker
+    SwitchCam, SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, SegRes1, SegRes2, SegRes3,
+    SegRes4, Autostart, Hide, Quit, TestSpeaker
 };
+
+/// 按设备名改显示器分辨率（标准 API，对 IddCx 虚拟屏同样有效）。
+/// 只改像素尺寸，位置/刷新率保持不变。驱动不支持该档位时返回 false。
+static bool setDisplayResolution(const std::string& devUtf8, int w, int h, std::wstring* err) {
+    wchar_t wdev[64]{};
+    ::MultiByteToWideChar(CP_UTF8, 0, devUtf8.c_str(), -1, wdev, 64);
+    DEVMODEW dm{};
+    dm.dmSize = sizeof(dm);
+    if (!::EnumDisplaySettingsW(wdev, ENUM_CURRENT_SETTINGS, &dm)) {
+        if (err) *err = L"无法读取显示器当前设置";
+        return false;
+    }
+    if (dm.dmPelsWidth == static_cast<DWORD>(w) && dm.dmPelsHeight == static_cast<DWORD>(h)) {
+        return true;   // 已是目标分辨率
+    }
+    dm.dmPelsWidth = static_cast<DWORD>(w);
+    dm.dmPelsHeight = static_cast<DWORD>(h);
+    dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_POSITION;
+    const LONG rc = ::ChangeDisplaySettingsExW(wdev, &dm, nullptr, 0, nullptr);
+    if (rc != DISP_CHANGE_SUCCESSFUL) {
+        if (err) *err = L"该分辨率驱动不支持（错误码 " + std::to_wstring(rc) + L"），试试其他档位";
+        return false;
+    }
+    return true;
+}
 
 struct Panel {
     HWND hwnd = nullptr;
@@ -380,6 +412,8 @@ struct Panel {
     int screenMode = 1;
     // —— 副屏码率（Kbps）：8M 默认 / 12M / 16M，推流中切换自动按新码率重启 ——
     int bitrateKbps = 8000;
+    // —— 扩展屏分辨率档位索引：0=800x600 1=1280x720 2=1600x900 3=1920x1080 ——
+    int vddRes = 2;
 
     // —— 面板状态持久化（panel.ini）：记住功能卡开关，下次启动自动恢复 ——
     // autoRestore* 是「启动时从 ini 读到的期望状态」；媒体连接建立后由 tick 执行。
@@ -849,6 +883,10 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.segBr1.has(x, y)) h = Hit::SegBr1;
     else if (L.segBr2.has(x, y)) h = Hit::SegBr2;
     else if (L.segBr3.has(x, y)) h = Hit::SegBr3;
+    else if (L.segRes1.has(x, y)) h = Hit::SegRes1;
+    else if (L.segRes2.has(x, y)) h = Hit::SegRes2;
+    else if (L.segRes3.has(x, y)) h = Hit::SegRes3;
+    else if (L.segRes4.has(x, y)) h = Hit::SegRes4;
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
@@ -993,6 +1031,16 @@ void paint(HWND hwnd, Panel* p) {
                             p->hot == Hit::SegBr2, p->pressed == Hit::SegBr2, *p->fBtn);
                 paintButton(g, L.segBr3, L"16M", p->bitrateKbps == 16000, false,
                             p->hot == Hit::SegBr3, p->pressed == Hit::SegBr3, *p->fBtn);
+                // 扩展屏分辨率分段
+                text(g, L"分辨率", L.labelRes, *p->fCaption, tok::onVariant);
+                paintButton(g, L.segRes1, L"800×600", p->vddRes == 0, false,
+                            p->hot == Hit::SegRes1, p->pressed == Hit::SegRes1, *p->fBtn);
+                paintButton(g, L.segRes2, L"1280×720", p->vddRes == 1, false,
+                            p->hot == Hit::SegRes2, p->pressed == Hit::SegRes2, *p->fBtn);
+                paintButton(g, L.segRes3, L"1600×900", p->vddRes == 2, false,
+                            p->hot == Hit::SegRes3, p->pressed == Hit::SegRes3, *p->fBtn);
+                paintButton(g, L.segRes4, L"1920×1080", p->vddRes == 3, false,
+                            p->hot == Hit::SegRes4, p->pressed == Hit::SegRes4, *p->fBtn);
                 text(g, screenBig(p), L.screenStatus, *p->fBody, screenColor(p));
                 std::wstring sd = screenDetail(p);
                 if (!sd.empty()) sd += L" · ";
@@ -1216,6 +1264,8 @@ static void savePanelState(Panel* p) {
     ::WritePrivateProfileStringW(L"media", L"screenMode", b, ini.c_str());
     _itow_s(p->bitrateKbps, b, 10);
     ::WritePrivateProfileStringW(L"media", L"bitrateKbps", b, ini.c_str());
+    _itow_s(p->vddRes, b, 10);
+    ::WritePrivateProfileStringW(L"media", L"vddRes", b, ini.c_str());
 }
 
 static void loadPanelState(Panel* p) {
@@ -1231,6 +1281,8 @@ static void loadPanelState(Panel* p) {
     {
         const int br = ::GetPrivateProfileIntW(L"media", L"bitrateKbps", 8000, ini.c_str());
         p->bitrateKbps = (br == 12000 || br == 16000) ? br : 8000;
+        const int res = ::GetPrivateProfileIntW(L"media", L"vddRes", 2, ini.c_str());
+        p->vddRes = (res >= 0 && res <= 3) ? res : 2;
     }
     p->autoRestoreDone = false;
 }
@@ -1321,6 +1373,37 @@ void performHit(Panel* p, Hit h) {
                     toggleScreen(p);
                 }
                 savePanelState(p);
+            }
+            break;
+        }
+        case Hit::SegRes1:
+        case Hit::SegRes2:
+        case Hit::SegRes3:
+        case Hit::SegRes4: {
+            static constexpr int kW[4] = {800, 1280, 1600, 1920};
+            static constexpr int kH[4] = {600, 720, 900, 1080};
+            const int want = static_cast<int>(h) - static_cast<int>(Hit::SegRes1);
+            if (p->vddRes == want) break;
+            // 只在扩展屏推流时有意义（镜像抓主屏，改虚拟屏不影响画面）
+            if (p->screenMode != 1) {
+                MessageBoxW(p->hwnd, L"当前是「桌面镜像」模式，改分辨率请先切到「扩展屏」。",
+                            L"全能外设", MB_OK | MB_ICONINFORMATION);
+                break;
+            }
+            const std::string dev = p->screenPush ? p->screenPush->status().deviceName : std::string();
+            if (!p->screenPush || !p->screenPush->running() || dev.empty()) {
+                MessageBoxW(p->hwnd, L"请先打开副屏推流（扩展屏模式），再调整分辨率。",
+                            L"全能外设", MB_OK | MB_ICONINFORMATION);
+                break;
+            }
+            std::wstring err;
+            if (setDisplayResolution(dev, kW[want], kH[want], &err)) {
+                p->vddRes = want;
+                savePanelState(p);
+                // DDA 会话失效 → 自动重建 + 编码器按新尺寸重配（约 1~2 秒）
+            } else {
+                MessageBoxW(p->hwnd, (L"分辨率切换失败：\n\n" + err).c_str(),
+                            L"全能外设", MB_OK | MB_ICONWARNING);
             }
             break;
         }
