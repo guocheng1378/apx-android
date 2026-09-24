@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.RectF
@@ -20,6 +21,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.OrientationEventListener
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -204,10 +206,14 @@ class MainActivity : Activity() {
         super.onResume()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
+        // 物理朝向检测启动：竖持=触控板 横持=键盘（无视系统方向锁）
+        setupOrientListener()
+        orientListener?.enable()
     }
 
     override fun onPause() {
         handler.removeCallbacks(ticker)
+        orientListener?.disable()
         super.onPause()
     }
 
@@ -469,6 +475,54 @@ class MainActivity : Activity() {
                 applyOrientationLayout()
             }
             handler.postDelayed(this, 1000)
+        }
+    }
+
+    // ——————————————————— 物理朝向检测（不依赖系统方向锁） ———————————————————
+
+    /**
+     * 拿机方向 = 操控面：**竖持=触控板、横持=键盘**，与系统的方向锁定完全无关。
+     *
+     * 原理：加速度计判断物理倾角 → 横持时 [Activity#setRequestedOrientation]
+     * **由 App 主动请求横屏**（视频 App 的横屏按钮同原理，系统方向锁拦不住 App 自己的请求），
+     * configuration 随之变化 → [applyOrientationLayout] 自动切键盘；竖持同理切回触控板。
+     *
+     * 细节：
+     *  - 只在触控板/键盘两页之间自动切换，用户停在状态/设置页时不抢方向控制权；
+     *  - 带滞回与 600ms 节流：斜角 45° 附近抖动不会来回跳；
+     *  - [orientListener] 在 onResume/onPause 启停，后台不耗电。
+     */
+    private var orientListener: OrientationEventListener? = null
+    private var forcedOrient = 0          // 0=尚未强制 1=已强制横屏 2=已强制竖屏
+    private var lastOrientSwitchMs = 0L
+
+    private fun setupOrientListener() {
+        if (orientListener != null) return
+        orientListener = object : OrientationEventListener(this, android.hardware.SensorManager.SENSOR_DELAY_GAME) {
+            override fun onOrientationChanged(deg: Int) {
+                if (deg == ORIENTATION_UNKNOWN) return
+                if (!::pager.isInitialized) return
+                // 只自动切换两个操控面；状态/设置页保持用户当前的方向
+                val cur = pager.displayedChild
+                if (cur != PAGE_TOUCHPAD && cur != PAGE_KEYBOARD) return
+                // 滞回：明确横（55°..125° 或 235°..305°）才判横，明确竖（<20° 或 >340°）才判竖，
+                // 中间斜角保持现状，避免边界抖动
+                val want = when (deg) {
+                    in 55..125, in 235..305 -> 1
+                    in 0..20, in 340..359 -> 2
+                    else -> return
+                }
+                if (want == forcedOrient) return
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastOrientSwitchMs < 600) return   // 节流
+                lastOrientSwitchMs = now
+                forcedOrient = want
+                requestedOrientation = if (want == 1)
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                Log.i(TAG, "物理朝向切换：force=$want deg=$deg")
+            }
         }
     }
 
