@@ -247,16 +247,42 @@ class TcpMediaChannel(
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
         while (running.get() && !sock.isClosed) {
-            val frame = try {
-                outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS)
-            } catch (_: InterruptedException) {
-                break
-            } ?: continue
+            // 1) 音频帧优先：全部排空（时效性最高）
+            var frame = outQueue.poll()
+            while (frame != null) {
+                try {
+                    o.write(frame)
+                    o.flush()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "媒体帧写出失败，视为链路断开：${t.message}")
+                    runCatching { sock.close() }
+                    teardown(sock)
+                    return
+                }
+                frame = outQueue.poll()
+            }
+            // 2) 相机帧：**永远发最新一帧**（覆盖模型）——旧帧直接被新帧覆盖丢弃，
+            //    从机制上杜绝积压滞后（"摄像头卡"的根因就是大 JPEG 在队列里排队）。
+            val cam = cameraLatest.getAndSet(null)
+            if (cam != null) {
+                val pkt = synchronized(writeLock) {
+                    seq = (seq + 1) and 0x7FFFFFFF
+                    ApxFrame.build(ApxFrame.STREAM_CAMERA, cam, seq, 0)
+                }
+                try {
+                    o.write(pkt)
+                    o.flush()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "相机帧写出失败，视为链路断开：${t.message}")
+                    runCatching { sock.close() }
+                    teardown(sock)
+                    return
+                }
+            }
+            // 3) 双队列皆空：短暂等待，避免忙轮询
             try {
-                o.write(frame)
-                o.flush()
-            } catch (t: Throwable) {
-                Log.w(TAG, "媒体帧写出失败，视为链路断开：${t.message}")
+                Thread.sleep(5)
+            } catch (_: InterruptedException) {
                 break
             }
         }

@@ -73,6 +73,10 @@ bool WirelessSession::takeKeyFrameRequest() {
     return link_.takeKeyFrameRequest();
 }
 
+void WirelessSession::setTouchRect(int x, int y, int w, int h) {
+    link_.setTouchRect(x, y, w, h);
+}
+
 // ————————————————————————————— 发现回调（信标线程） —————————————————————————————
 
 void WirelessSession::onBeacon(const PhoneBeacon& pb) {

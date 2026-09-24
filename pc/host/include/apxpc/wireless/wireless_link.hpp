@@ -84,6 +84,13 @@ public:
     /// @return 自上次取走以来是否有新的请求
     bool takeKeyFrameRequest() { return keyFrameReq_.exchange(false) != 0; }
 
+    /// 设置触摸映射的目标屏幕矩形（虚拟屏在虚拟桌面中的像素位置）。
+    /// w/h ≤ 0 = 清除（回主显示器模式）。线程安全。
+    void setTouchRect(int x, int y, int w, int h) {
+        std::lock_guard<std::mutex> lk(touchRectMu_);
+        trX_ = x; trY_ = y; trW_ = w; trH_ = h; trValid_ = (w > 0 && h > 0);
+    }
+
 private:
     void keepaliveLoop();
     bool sendAll(const uint8_t* p, size_t n);
@@ -125,6 +132,11 @@ private:
     std::atomic<int> pendingCmd_{0};
     /// 手机端请求关键帧（0x06）
     std::atomic<bool> keyFrameReq_{false};
+
+    /// 触摸目标屏矩形（扩展屏模式：虚拟屏在虚拟桌面中的位置）
+    std::mutex touchRectMu_;
+    int trX_ = 0, trY_ = 0, trW_ = 0, trH_ = 0;
+    bool trValid_ = false;
     std::atomic<uint64_t> cDropped_{0};
 };
 

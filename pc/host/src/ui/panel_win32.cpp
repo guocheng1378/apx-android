@@ -1285,6 +1285,41 @@ void tick(Panel* p) {
         p->session->disconnect();
     }
 
+    // —— 扩展屏触摸映射：找非主显示器（虚拟屏）矩形喂给触摸注入 ——
+    // 每 tick 都找（虚拟屏分辨率/位置可被用户随时改）。推流停了就回主屏模式。
+    {
+        RECT vr{0, 0, 0, 0};
+        bool found = false;
+        if (p->screenPush && p->screenPush->status().running) {
+            // EnumDisplayMonitors 的回调环境苛刻，改用 MonitorFromWindow 系：
+            // 主屏 = 包含 (0,0) 的那个；第一个 rect 不含 (0,0) 的活动监视器即虚拟屏
+            const POINT origin{0, 0};
+            const HMONITOR hPri = ::MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
+            ::EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR hmon, HDC, LPRECT, LPARAM lp) -> BOOL {
+                MONITORINFO mi{};
+                mi.cbSize = sizeof(mi);
+                if (::GetMonitorInfoW(hmon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY) == 0) {
+                    auto* out = reinterpret_cast<LPRECT>(lp);
+                    *out = mi.rcMonitor;
+                    return FALSE;   // 找到第一个非主屏即停
+                }
+                return TRUE;
+            }, reinterpret_cast<LPARAM>(&vr));
+            MONITORINFO pri{};
+            pri.cbSize = sizeof(pri);
+            if (::GetMonitorInfoW(hPri, &pri)) {
+                found = !(vr.left == pri.rcMonitor.left && vr.top == pri.rcMonitor.top &&
+                          vr.right == pri.rcMonitor.right && vr.bottom == pri.rcMonitor.bottom);
+            }
+        }
+        if (found && p->session) {
+            p->session->setTouchRect(vr.left, vr.top,
+                                     vr.right - vr.left, vr.bottom - vr.top);
+        } else if (p->session) {
+            p->session->setTouchRect(0, 0, 0, 0);
+        }
+    }
+
     // —— 媒体通道生命周期：跟着控制链路走 ——
     // 控制面连上才连媒体；控制面断开就把媒体一起收掉并停掉副屏，
     // 否则会留下一条没人管的连接，一直占着手机侧的单对端名额。

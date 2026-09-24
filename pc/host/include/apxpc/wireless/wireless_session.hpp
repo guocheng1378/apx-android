@@ -71,6 +71,9 @@ public:
     /// 手机端是否请求了关键帧（副屏页 onResume）。取走即清零。
     bool takeKeyFrameRequest();
 
+    /// 设置触摸映射目标矩形（虚拟屏位置；w/h≤0 回主屏模式）。线程安全。
+    void setTouchRect(int x, int y, int w, int h);
+
     /// 线程安全的状态快照
     SessionSnapshot snapshot() const;
 

@@ -116,8 +116,9 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
 
     apxdisp::PipelineConfig cfg;
     cfg.captureKind = apxdisp::CaptureKind::Auto;
-    // 镜像**真实桌面**：preferVirtual=false，否则会去找 IddCx 虚拟屏（当前并不存在）
-    cfg.captureTarget.preferVirtual = false;
+    // **扩展屏模式**：优先抓 IddCx 虚拟屏（VirtualDisplayDriver 已装）——手机显示的是
+    // 独立的第二块屏内容，不是主屏镜像。虚拟屏不存在时 DDA 自动回落主屏（兼容镜像）。
+    cfg.captureTarget.preferVirtual = true;
     cfg.video.codec = apxdisp::CodecId::H264;   // H.264 兼容性最好；手机侧 MediaCodec 已验 H264
     cfg.video.bitrateKbps = opt.bitrateKbps;
     cfg.video.frameRateX100 = opt.maxFps * 100;
@@ -129,7 +130,7 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
 
     // 这三个必须关：
     //   握手 —— 手机端未实现 CtrlSession 的 HELLO 应答（PC 会一直等）
-    //   注入 —— 触控上行（streamId=2）尚未接入
+    //   注入 —— 触控上行走 9500 控制通道（0x04），不经管线
     //   心跳 —— LinkMonitor 会在这条媒体连接上发控制帧，而控制面归 9500
     cfg.enableHandshake = false;
     cfg.enableInject = false;

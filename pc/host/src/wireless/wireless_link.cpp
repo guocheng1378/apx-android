@@ -337,7 +337,9 @@ void WirelessLink::injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t whe
 #endif
 }
 
-/// 副屏触摸：绝对坐标（归一化 0..65535）→ MOUSEEVENTF_ABSOLUTE 映射主显示器。
+/// 副屏触摸：绝对坐标（归一化 0..65535）注入。
+/// 扩展屏模式（setTouchRect 设置过目标矩形）：映射到**虚拟屏在虚拟桌面中的位置**
+/// （MOUSEEVENTF_VIRTUALDESK）；未设置 = 旧行为，映射主显示器。
 /// action：0=down 1=up 2=move 3=cancel；down/up 的按键由 buttons 决定（双指=右键）。
 void WirelessLink::injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) {
 #if defined(_WIN32)
@@ -353,11 +355,35 @@ void WirelessLink::injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint
               : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEUP
                                  : MOUSEEVENTF_LEFTUP;
     }
+
+    LONG dx, dy;
+    DWORD extra = 0;
+    {
+        std::lock_guard<std::mutex> lk(touchRectMu_);
+        if (trValid_) {
+            // 虚拟桌面绝对坐标：目标像素 = 矩形原点 + 归一化 × 尺寸，
+            // 再转成虚拟桌面 0..65535 归一化（VIRTUALDESK 语义）。
+            const LONG vx = ::GetSystemMetrics(SM_XVIRTUALSCREEN);
+            const LONG vy = ::GetSystemMetrics(SM_YVIRTUALSCREEN);
+            const LONG vw = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
+            const LONG vh = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
+            if (vw <= 0 || vh <= 0) return;
+            const LONG px = trX_ + (static_cast<LONG>(x) * trW_) / 65535;
+            const LONG py = trY_ + (static_cast<LONG>(y) * trH_) / 65535;
+            dx = ((px - vx) * 65535L) / vw;
+            dy = ((py - vy) * 65535L) / vh;
+            extra = MOUSEEVENTF_VIRTUALDESK;
+        } else {
+            dx = static_cast<LONG>(x);
+            dy = static_cast<LONG>(y);
+        }
+    }
+
     INPUT m{};
     m.type = INPUT_MOUSE;
-    m.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | click;
-    m.mi.dx = static_cast<LONG>(x);
-    m.mi.dy = static_cast<LONG>(y);
+    m.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | extra | click;
+    m.mi.dx = dx;
+    m.mi.dy = dy;
     ::SendInput(1, &m, sizeof(INPUT));
 #else
     (void)action; (void)buttons; (void)x; (void)y;
