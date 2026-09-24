@@ -110,7 +110,10 @@ public:
         DXGI_OUTDUPL_FRAME_INFO frameInfo{};
         HRESULT hr = dup_->AcquireNextFrame(timeoutMs, &frameInfo, &resource);
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-            return false;  // 桌面无变化，上层直接跳过（不占编码资源）
+            // 桌面无变化，但**光标可能动了**（Windows 光标不属于桌面内容，移动不产生
+            // 桌面 dirty）——合成光标若不强制出帧，画面里的指针就"不跟手"（触摸注入
+            // 后要等下一次桌面变化才看到光标动）。光标位移了就出合成帧。
+            return tryCursorFrame(out);
         }
         if (hr == DXGI_ERROR_ACCESS_LOST || hr == DXGI_ERROR_DEVICE_REMOVED ||
             hr == DXGI_ERROR_DEVICE_RESET || FAILED(hr)) {
@@ -426,6 +429,10 @@ private:
         if (!::GetCursorInfo(&ci) || !(ci.flags & CURSOR_SHOWING)) return false;
         const LONG px = ci.ptScreenPos.x - outputDesc_.DesktopCoordinates.left;
         const LONG py = ci.ptScreenPos.y - outputDesc_.DesktopCoordinates.top;
+        return drawCursorAt(px, py, rcOut);
+    }
+
+    bool drawCursorAt(LONG px, LONG py, RECT& rcOut) {
         if (px + kCurW <= 0 || py + kCurH <= 0 ||
             px >= static_cast<LONG>(info_.width) || py >= static_cast<LONG>(info_.height)) {
             return false;
@@ -457,7 +464,72 @@ private:
         rcOut.bottom = std::min<LONG>(py + kCurH, static_cast<LONG>(info_.height));
         lastCursorRect_ = rcOut;
         lastCursorValid_ = true;
+        lastCursorOutX_ = px;
+        lastCursorOutY_ = py;
         return true;
+    }
+
+    /// 桌面无变化但光标位移时出合成帧（触摸跟手的关键路径）。
+    /// dirty = 旧光标区域（擦除）+ 新光标区域（绘制）。
+    bool tryCursorFrame(RawFrame& out) {
+        if (!opened_ || shadow_.empty()) return false;
+        CURSORINFO ci{};
+        ci.cbSize = sizeof(ci);
+        if (!::GetCursorInfo(&ci) || !(ci.flags & CURSOR_SHOWING)) return false;
+        const LONG px = ci.ptScreenPos.x - outputDesc_.DesktopCoordinates.left;
+        const LONG py = ci.ptScreenPos.y - outputDesc_.DesktopCoordinates.top;
+        if (px == lastCursorOutX_ && py == lastCursorOutY_) return false;   // 光标没动
+        const bool offscreen = (px + kCurW <= 0 || py + kCurH <= 0 ||
+                                px >= static_cast<LONG>(info_.width) ||
+                                py >= static_cast<LONG>(info_.height));
+        RECT oldRc = lastCursorRect_;
+        const bool had = lastCursorValid_;
+        restoreCursorArea();
+        if (offscreen) {
+            // 光标移出本输出：只需擦除旧光标（把擦除区作为一帧发下去）
+            lastCursorOutX_ = px;
+            lastCursorOutY_ = py;
+            if (!had) return false;
+            RECT rc{}; bool ok = false;
+            auto push = [&](const RECT& r) {
+                if (r.right <= r.left || r.bottom <= r.top) return;
+                Rect q{};
+                q.x = static_cast<uint16_t>(std::max<LONG>(0, r.left));
+                q.y = static_cast<uint16_t>(std::max<LONG>(0, r.top));
+                q.w = static_cast<uint16_t>(std::min<LONG>(r.right, info_.width) - q.x);
+                q.h = static_cast<uint16_t>(std::min<LONG>(r.bottom, info_.height) - q.y);
+                if (q.w > 0 && q.h > 0) { out.dirty.rects.push_back(q); ok = true; }
+            };
+            push(oldRc);
+            fillOut(out);
+            return ok;
+        }
+        RECT newRc{};
+        if (!drawCursorAt(px, py, newRc)) return false;
+        fillOut(out);
+        auto push = [&](const RECT& r) {
+            if (r.right <= r.left || r.bottom <= r.top) return;
+            Rect q{};
+            q.x = static_cast<uint16_t>(std::max<LONG>(0, r.left));
+            q.y = static_cast<uint16_t>(std::max<LONG>(0, r.top));
+            q.w = static_cast<uint16_t>(std::min<LONG>(r.right, info_.width) - q.x);
+            q.h = static_cast<uint16_t>(std::min<LONG>(r.bottom, info_.height) - q.y);
+            if (q.w > 0 && q.h > 0) out.dirty.rects.push_back(q);
+        };
+        if (had) push(oldRc);
+        push(newRc);
+        return !out.dirty.rects.empty();
+    }
+
+    void fillOut(RawFrame& out) {
+        out.width = info_.width;
+        out.height = info_.height;
+        out.stride = info_.stride;
+        out.ptsNs = 0;
+        out.frameNumber = ++cursorFrameNo_;
+        out.cpuData = shadow_.data();
+        out.d3d11Texture = nullptr;
+        out.dirty.full = false;
     }
 
     void moveInShadow(POINT src, RECT dst) {
@@ -496,6 +568,8 @@ private:
 
     RECT lastCursorRect_{};      // 上一次画光标的区域（帧内坐标）
     bool lastCursorValid_ = false;
+    LONG lastCursorOutX_ = -1, lastCursorOutY_ = -1;  // 上次出帧的光标位置（位移检测）
+    uint64_t cursorFrameNo_ = 0;                      // 光标合成帧的帧号
 
     // 诊断转储（APX_DUMP_SHADOW=1 启用）
     bool dumpEnabled_ = false;
