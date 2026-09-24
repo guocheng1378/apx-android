@@ -25,6 +25,12 @@
     <!-- 音频 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- 摄像头（Camera2 → JPEG → Wi‑Fi 上行） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- GPS 上行（NmeaSource） -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
     <!-- 悬浮窗 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
