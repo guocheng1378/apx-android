@@ -1608,7 +1608,9 @@ void tick(Panel* p) {
     {
         RECT vr{0, 0, 0, 0};
         bool found = false;
-        if (p->screenPush && p->screenPush->status().running) {
+        if (p->screenPush && p->screenPush->status().running && p->screenMode == 1) {
+            // **仅扩展屏模式**映射到虚拟屏；桌面镜像模式必须回主屏映射——
+            // 否则切回镜像后触摸仍打到扩展屏的空白桌面上（"不能触摸"的真凶）
             // EnumDisplayMonitors 的回调环境苛刻，改用 MonitorFromWindow 系：
             // 主屏 = 包含 (0,0) 的那个；第一个 rect 不含 (0,0) 的活动监视器即虚拟屏
             const POINT origin{0, 0};
