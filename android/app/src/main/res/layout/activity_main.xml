@@ -99,6 +99,18 @@
                         android:textAppearance="@style/APTextCaption" />
 
                     <TextView
+                        android:id="@+id/btnKeyboardPage"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
+                        android:text="键盘"
+                        android:textColor="@color/md_primary"
+                        android:textAppearance="@style/APTextCaption" />
+
+                    <TextView
                         android:id="@+id/btnEditChips"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"

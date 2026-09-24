@@ -517,10 +517,14 @@ class MainActivity : Activity() {
                 if (now - lastOrientSwitchMs < 1500) return   // 节流：旋转动画 ~300ms，切太快系统来不及执行
                 lastOrientSwitchMs = now
                 forcedOrient = want
+                // 横持：App 请求横屏（视频 App 同原理，系统方向锁拦不住）；
+                // 竖持：**交还系统**（UNSPECIFIED）而不是请求竖屏 ——
+                // 实测 MIUI 在收到 PORTRAIT 请求时会关掉自动旋转并写死 user_rotation=0，
+                // 导致之后横持请求被忽略（「键盘没了」的元凶）。交还则不会。
                 requestedOrientation = if (want == 1)
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 else
-                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                    ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 Log.i(TAG, "物理朝向切换：force=$want deg=$deg")
             }
         }
