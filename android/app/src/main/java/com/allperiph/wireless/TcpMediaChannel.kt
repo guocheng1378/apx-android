@@ -36,13 +36,13 @@ import java.util.concurrent.atomic.AtomicReference
  * 下行 0 video   副屏画面        → ApxStreams 分发给 screen 模块
  * 下行 1 audio   音箱 PCM        → 分发给 wireless 音频播放
  * 上行 5 mic     手机录音 PCM    → MediaOut.mic()
- * 上行 6 camera  摄像头 JPEG     → MediaOut.camera()
+
  * ```
  *
  * ## 背压策略（重要）
  * 上行只有**一个** writer 线程（socket 写必须单写者才保序）。麦克风（~190KB/s、
- * 时延敏感）与摄像头（可到数 MB/s、是"可丢"的）共用队列，因此对摄像头单独设闸：
- * 队列积压过半就丢新到的摄像头帧，**优先保住音频的时效**。丢帧计数分开统计，
+ * 时延敏感）独占队列，无需为其它大块载荷设闸：
+ * 丢帧计数分开统计，
  * UI 如实展示，不静默。
  */
 class TcpMediaChannel(
@@ -71,9 +71,6 @@ class TcpMediaChannel(
     /** 队列满导致的丢帧（保新弃旧） */
     val droppedFrames = AtomicLong(0)
 
-    /** 摄像头因队列积压被主动丢弃的帧数（保护音频时效） */
-    val droppedCamera = AtomicLong(0)
-
     private val running = AtomicBoolean(false)
     private var acceptThread: Thread? = null
     private var readerThread: Thread? = null
@@ -82,11 +79,8 @@ class TcpMediaChannel(
     private val writeLock = Any()
     private var seq = 0
 
-    /** 待发送帧（已含帧头与 CRC）。约 2 秒的音频 + 数帧摄像头 */
+    /** 待发送帧（已含帧头与 CRC）。约 2 秒的音频缓冲 */
     private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
-
-    /** 摄像头最新帧（覆盖模型）：writer 每轮只取最新一帧，旧帧自动被顶掉 */
-    private val cameraLatest = AtomicReference<ByteArray?>(null)
 
     private val rxLock = Any()
     private var rxBuf = ByteArray(256 * 1024)
@@ -137,10 +131,8 @@ class TcpMediaChannel(
     fun statusText(): String = when {
         ready -> {
             val d = droppedFrames.get()
-            val c = droppedCamera.get()
             val tail = buildString {
                 if (d > 0) append(" · 丢帧 $d")
-                if (c > 0) append(" · 摄像头丢 $c")
             }
             "已连接 $peerText$tail"
         }
@@ -212,7 +204,6 @@ class TcpMediaChannel(
         synchronized(rxLock) { rxLen = 0 }
         outQueue.clear()
         droppedFrames.set(0)
-        droppedCamera.set(0)
         ready = true
         MediaOut.attach(this)
         Log.i(TAG, "PC 已连入媒体通道：$peerText")
@@ -265,25 +256,7 @@ class TcpMediaChannel(
                 }
                 frame = outQueue.poll()
             }
-            // 2) 相机帧：**永远发最新一帧**（覆盖模型）——旧帧直接被新帧覆盖丢弃，
-            //    从机制上杜绝积压滞后（"摄像头卡"的根因就是大 JPEG 在队列里排队）。
-            val cam = cameraLatest.getAndSet(null)
-            if (cam != null) {
-                val pkt = synchronized(writeLock) {
-                    seq = (seq + 1) and 0x7FFFFFFF
-                    ApxFrame.build(ApxFrame.STREAM_CAMERA, cam, seq, 0)
-                }
-                try {
-                    o.write(pkt)
-                    o.flush()
-                } catch (t: Throwable) {
-                    Log.w(TAG, "相机帧写出失败，视为链路断开：${t.message}")
-                    runCatching { sock.close() }
-                    teardown(sock)
-                    return
-                }
-            }
-            // 3) 双队列皆空：短暂等待，避免忙轮询
+            // 2) 队列皆空：短暂等待，避免忙轮询
             try {
                 Thread.sleep(5)
             } catch (_: InterruptedException) {
@@ -370,14 +343,7 @@ class TcpMediaChannel(
 
     override fun send(streamId: Int, body: ByteArray, flags: Int): Boolean {
         if (!ready) return false
-        // 摄像头帧走**最新帧覆盖**（cameraLatest）：
-        // 大 JPEG 在队列里排队是"摄像头卡"的根因——覆盖模型从机制上杜绝积压，
-        // 旧帧被新帧直接顶掉，writer 每轮只发最新一帧。
-        if (streamId == ApxFrame.STREAM_CAMERA) {
-            droppedCamera.incrementAndGet()   // 记录被覆盖的帧数（语义：未及时发出的帧）
-            cameraLatest.set(body)
-            return true
-        }
+
         val frame = synchronized(writeLock) {
             seq = (seq + 1) and 0x7FFFFFFF
             ApxFrame.build(streamId, body, seq, flags)
@@ -422,8 +388,6 @@ class TcpMediaChannel(
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val QUEUE_CAP = 256
 
-        /** 摄像头帧可丢阈值：队列积压超过它就丢相机帧保实时（约 24 帧 ≈ 200ms 滞后） */
-        private const val CAMERA_DROP_THRESHOLD = 24
         private const val WRITER_IDLE_MS = 200L
     }
 }

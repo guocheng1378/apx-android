@@ -15,7 +15,7 @@ import kotlin.concurrent.thread
  *
  * ```
  * 9500 控制面  触控板 / 键盘 / 多媒体 → PC 端 SendInput 注入      [TcpControlChannel]
- * 9502 媒体    副屏画面(下行) / 音箱(下行) / 麦克风(上行) / 摄像头(上行) [TcpMediaChannel]
+ * 9502 媒体    副屏画面(下行) / 音箱(下行) / 麦克风(上行) [TcpMediaChannel]
  * 9501 信标    零配置发现                                       [WirelessBeacon]
  * ```
  *
@@ -40,7 +40,7 @@ class WirelessModule : Module {
     /** 音频状态信标线程：周期把手机侧 Wi‑Fi 音频模块状态发回 PC */
     private var audioBeacon: Thread? = null
 
-    /** 媒体通道是否已连入（副屏 / 音频 / 摄像头依赖它；UI 可据此提示） */
+    /** 媒体通道是否已连入（副屏 / 音频依赖它；UI 可据此提示） */
     @Volatile
     var mediaReady: Boolean = false
         private set
@@ -61,7 +61,7 @@ class WirelessModule : Module {
         }
         channel = ch
 
-        // PC → 手机 模块开关命令（0x10）：面板摄像头等开关直接控制手机端模块
+        // PC → 手机 模块开关命令（0x10）：面板等开关直接控制手机端模块
         ch.moduleCommandListener = { idx, on ->
             val id = moduleIdxToId(idx)
             if (id != null) {
@@ -112,13 +112,13 @@ class WirelessModule : Module {
     /**
      * 全模块状态帧（tag 'M'）：`[0]='M' [1]=count [2..]{模块索引, 状态码}×count`。
      * 模块索引两端硬编码一致（与 AgentController.ORDER 对齐）：
-     * 0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN 7=CAMERA
+     * 0=GADGET 1=AUDIO 2=TOUCHPAD 3=BTHID 4=WIRELESS 5=WIFI_AUDIO 6=SCREEN
      * 状态码 = ModuleState.ordinal（0=IDLE 1=STARTING 2=RUNNING 3=DEGRADED 4=ERROR 5=STOPPING 6=STOPPED）
      */
     private fun moduleStatesReport(rt: ModuleContext): ByteArray {
         val ids = arrayOf(
             ModuleId.GADGET, ModuleId.AUDIO, ModuleId.TOUCHPAD, ModuleId.BTHID,
-            ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN, ModuleId.CAMERA,
+            ModuleId.WIRELESS, ModuleId.WIFI_AUDIO, ModuleId.SCREEN,
         )
         val body = ByteArray(2 + ids.size * 2)
         body[0] = 'M'.code.toByte()
@@ -177,7 +177,6 @@ class WirelessModule : Module {
             4 -> ModuleId.WIRELESS
             5 -> ModuleId.WIFI_AUDIO
             6 -> ModuleId.SCREEN
-            7 -> ModuleId.CAMERA
             else -> null
         }
     }

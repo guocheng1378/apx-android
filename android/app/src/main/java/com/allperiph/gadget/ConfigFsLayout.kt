@@ -14,7 +14,6 @@ enum class GadgetFeature(
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
     UAC2("uac2.usb0", true, true, "f_uac2 声卡"),
-    UVC("uvc.usb0", false, true, "f_uvc 摄像头"),
     NCM("ncm.usb0", false, true, "f_ncm 网卡"),
     FFS("ffs.apx", false, true, "f_fs FunctionFS（副屏 bulk）"),
     ;
@@ -104,7 +103,7 @@ object ConfigFsLayout {
         steps += Step("chmod 666 '${SysPath.FFS_MOUNT_DIR}'/ep* 2>/dev/null", optional = true)
         steps += Step("chmod 666 /dev/snd/pcmC*D* 2>/dev/null", optional = true)
         steps += Step("dmesg > /data/local/tmp/apx_dmesg.txt 2>&1", optional = true)
-        steps += Step("dmesg | grep -i -E 'uvc|udc|gadget|ffs|configfs|video' > /data/local/tmp/apx_dmesg_uvc.txt 2>&1", optional = true)
+        steps += Step("dmesg | grep -i -E 'udc|gadget|ffs|configfs|video' > /data/local/tmp/apx_dmesg.txt 2>&1", optional = true)
         return steps
     }
 
@@ -148,20 +147,6 @@ object ConfigFsLayout {
                 steps += Step("printf '%s' '${AudioConst.SAMPLE_SIZE_BYTES}' > '$fd/p_ssize'", optional)
                 steps += Step("printf '%s' '${AudioConst.C_TERMINAL}' > '$fd/c_terminal'", optional)
                 steps += Step("printf '%s' '${AudioConst.P_TERMINAL}' > '$fd/p_terminal'", optional)
-            }
-            GadgetFeature.UVC -> {
-                val fdU = "'$fd"
-                steps += Step("mkdir -p $fdU/control/header/h'")
-                steps += Step("mkdir -p $fdU/streaming/mjpeg/m'", optional = true)
-                steps += Step("mkdir -p $fdU/streaming/mjpeg/m/720p'", optional = true)
-                steps += Step("printf '%s' '1280' > $fdU/streaming/mjpeg/m/720p/wWidth'")
-                steps += Step("printf '%s' '720' > $fdU/streaming/mjpeg/m/720p/wHeight'")
-                steps += Step("printf '%s' '333333' > $fdU/streaming/mjpeg/m/720p/dwFrameInterval'")
-                steps += Step("mkdir -p $fdU/streaming/header/h'")
-                steps += Step("ln -sf '$fd/streaming/mjpeg/m' '$fd/streaming/header/h/m'")
-                steps += Step("ln -sf '$fd/streaming/header/h' '$fd/streaming/class/fs/h'", optional = true)
-                steps += Step("ln -sf '$fd/streaming/header/h' '$fd/streaming/class/hs/h'", optional = true)
-                steps += Step("ln -sf '$fd/streaming/header/h' '$fd/streaming/class/ss/h'", optional = true)
             }
             else -> Unit
         }

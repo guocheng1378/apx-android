@@ -13,7 +13,7 @@
 //   0 video    本端**发出** —— 副屏画面（H264/HEVC/AV1/RAW_LZ4，分片）
 //   1 audio    本端**发出** —— 音箱：PC 系统声（PCM s16le / 48k / 立体声）
 //   5 mic      本端**接收** —— 麦克风：手机录音（同上格式）
-//   6 camera   本端**接收** —— 摄像头：JPEG 帧
+//   6 camera   本端**接收** —— JPEG 帧
 //
 // 握手与 Android 侧逐字节一致：PC → 手机 `u32 LE 长度 + UTF-8 令牌`，**无回执字节**。
 //
@@ -46,7 +46,6 @@ enum : uint8_t {
     kStreamTouch   = 2,
     kStreamControl = 3,
     kStreamMic     = 5,
-    kStreamCamera  = 6,
 };
 
 /// 手机侧媒体端口（Android `TcpMediaChannel.MEDIA_PORT`）
@@ -71,7 +70,6 @@ public:
         uint64_t videoFrames = 0, videoBytes = 0;    // 副屏：本端发出
         uint64_t audioFrames = 0, audioBytes = 0;    // 音箱：本端发出
         uint64_t micFrames = 0, micBytes = 0;        // 麦克风：本端收到
-        uint64_t cameraFrames = 0, cameraBytes = 0;  // 摄像头：本端收到
         uint64_t touchFrames = 0, touchBytes = 0;    // 副屏触摸：本端收到（已注入）
         uint64_t dropped = 0;                        // 队列满被丢弃的帧（保新弃旧）
         uint64_t resync = 0;                         // 收流里对不齐帧头而重新同步的次数
@@ -153,7 +151,6 @@ private:
     std::atomic<uint64_t> cVideoFrames_{0}, cVideoBytes_{0};
     std::atomic<uint64_t> cAudioFrames_{0}, cAudioBytes_{0};
     std::atomic<uint64_t> cMicFrames_{0}, cMicBytes_{0};
-    std::atomic<uint64_t> cCameraFrames_{0}, cCameraBytes_{0};
     std::atomic<uint64_t> cTouchFrames_{0}, cTouchBytes_{0};
     std::atomic<uint64_t> cDropped_{0}, cResync_{0};
 };

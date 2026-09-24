@@ -35,7 +35,6 @@ object ApxFrame {
     const val STREAM_CONTROL = 3    // 双向：控制面（鼠标/键盘/多媒体/心跳）
     const val STREAM_TELEMETRY = 4  // 预留
     const val STREAM_MIC = 5        // 上行：麦克风（手机录音，PCM s16le/48k/立体声）
-    const val STREAM_CAMERA = 6     // 上行：摄像头（JPEG 帧）
 
     /** flags 位（与 frame.h 的 kFlag* 对应） */
     const val FLAG_KEY_FRAME = 1 shl 0

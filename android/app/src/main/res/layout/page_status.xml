@@ -219,13 +219,6 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="摄像头 —— UVC 免驱 webcam（Camera2 → MJPEG → V4L2）；代码已完成但当前未编译进包（见 src/disabled/camera，GadgetFeature.UVC 默认关闭），且需 ROM 内核支持 UVC Gadget"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
                 android:text="传感器 —— IMU / 光感 / 气压等数据上行给 PC"
                 android:textAppearance="@style/APTextCaption" />
 

@@ -57,7 +57,7 @@ void printUsage() {
         "                     监听手机 UDP 信标并自动连入（手机 IP 变了也不用改配置）\n"
         "  apxhost media <手机IP>[:端口] [秒数]\n"
         "                     连入手机媒体通道（默认端口 9502）并打印各路计数。\n"
-        "                     副屏/音箱为下行（本端发出），麦克风/摄像头为上行\n"
+        "                     副屏/音箱为下行（本端发出），麦克风为上行\n"
         "  apxhost speaker <手机IP>[:端口] [秒数] [设备序号]\n"
         "                     把本机系统声音（WASAPI loopback）送到手机扬声器，\n"
         "                     并实时显示音量条 —— 用于确认采集到的就是正在放的声音。\n"
@@ -192,7 +192,7 @@ int runWirelessCli(bool autoDiscover, const std::string& host, uint16_t port, in
 }
 
 // ---------------------------------------------------------------- 媒体通道 ----
-// 与控制面并列的第二条连接（手机 9502）：副屏/音箱下行，麦克风/摄像头上行。
+// 与控制面并列的第二条连接（手机 9502）：副屏/音箱下行，麦克风上行。
 // 这条 CLI 是调试用 —— 桌面端面板里是同一套 apxpc::media::MediaSession。
 
 /// 跑一段媒体会话并周期打印各路计数（「哪条流真的在走」的客观证据）。
@@ -233,13 +233,12 @@ int runMediaCli(const std::string& host, uint16_t port, int seconds, bool tone) 
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() - t0)
                             .count();
-        std::printf("\r[%4llds] %-4s | 副屏 %6llu帧 音箱 %6llu帧 | 麦克风 %6llu帧 摄像头 %6llu帧 | 丢 %llu 重同步 %llu   ",
+        std::printf("\r[%4llds] %-4s | 副屏 %6llu帧 音箱 %6llu帧 | 麦克风 %6llu帧 | 丢 %llu 重同步 %llu   ",
                     static_cast<long long>(ms / 1000),
                     st.connected ? "在线" : "断开",
                     static_cast<unsigned long long>(c.videoFrames),
                     static_cast<unsigned long long>(c.audioFrames),
                     static_cast<unsigned long long>(c.micFrames),
-                    static_cast<unsigned long long>(c.cameraFrames),
                     static_cast<unsigned long long>(c.dropped),
                     static_cast<unsigned long long>(c.resync));
         std::fflush(stdout);
@@ -377,7 +376,7 @@ int main(int argc, char** argv) {
             return runWirelessCli(true, {}, 0, secs);
         }
 
-        // ---- 媒体通道（副屏 / 音箱 / 麦克风 / 摄像头）----
+        // ---- 媒体通道（副屏 / 音箱 / 麦克风）----
         if (cmd == "media") {
             if (argc < 3) {
                 std::fputs("用法：apxhost media <手机IP>[:端口] [秒数] [tone]\n", stderr);

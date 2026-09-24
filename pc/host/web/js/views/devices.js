@@ -1,5 +1,5 @@
 /**
- * 外设视图：传感器、摄像头、音频、设备。
+ * 外设视图：传感器、音频、设备。
  *
  * 传感器部分刻意保留**「不可用」的行**而不是隐藏掉：
  * 当前机型 IMU 三个 TLC 在 Windows 侧是 Code 10，把它藏起来会让人以为功能正常。
@@ -66,55 +66,7 @@ function sensorsCard(s) {
   });
 }
 
-function cameraCard(s) {
-  const cam = s?.camera ?? {};
-  const isUvc = cam.route === 'uvc';
-  const sw = switchEl(!!cam.enabled, {
-    disabled: !cam.available,
-    onChange: () => act('camera.toggle'),
-  });
 
-  return card('摄像头', {
-    sub: isUvc ? '作为复合设备的一部分（与其它外设共存）' : '系统摄像头方案（独占 USB）',
-    actions: [tag(cam.enabled ? '已开启' : '已关闭', cam.enabled ? 'ok' : '')],
-    children: [
-      h('div', { style: { marginBottom: '14px' } }, [
-        h('div.metric-label', { text: '接入路线' }),
-        h('div', { style: { marginTop: '6px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-          segmented([
-            { id: 'uvc', label: '复合设备 UVC', title: '与 HID / 音频共存于同一次 USB 连接', disabled: !cam.uvcSupported },
-            { id: 'system', label: '系统方案', title: '系统级独占：切换期间其它外设不可用' },
-          ], cam.route, (id) => act('camera.setRoute', { route: id })),
-          sw,
-        ]),
-      ]),
-
-      h('div.rows', {}, [
-        row('分辨率与帧率', cam.enabled ? `${cam.width || '--'}×${cam.height || '--'} @ ${cam.fps || '--'}fps` : '未开启',
-          cam.enabled ? [tag(`${fmt.num(cam.bitrateMbps)} Mbps`, 'info')] : []),
-        row('带宽占用', 'USB 2.0 下与副屏、音频互相挤占',
-          [h('span.mono', { text: cam.enabled ? `${fmt.int(cam.bandwidthMbps)} Mbps` : '--' })]),
-      ]),
-
-      !isUvc
-        ? h('div', { style: { marginTop: '14px' } }, [
-            h('div.metric-label', { text: '切换系统方案将导致' }),
-            steps([
-              '其它外设（传感器 / 音频 / 副屏）在本期间**不可用** —— 系统方案会接管整条 USB 配置',
-              '手机需在系统设置里启用「作为摄像头使用」',
-              '使用完毕后点「切回复合设备」恢复其它外设',
-            ]),
-            h('div.banner-actions', {}, [
-              h('button.btn.sm.primary', {
-                type: 'button', text: '切回复合设备',
-                on: { click: (e) => withFeedback(e.target, () => act('camera.setRoute', { route: 'uvc' })) },
-              }),
-            ]),
-          ])
-        : null,
-    ],
-  });
-}
 
 function audioCard(s) {
   const a = s?.audio ?? {};
@@ -184,7 +136,7 @@ export function render(s) {
     h('div.view-head', {}, [
       h('div', {}, [
         h('h1.view-title', { text: '外设' }),
-        h('div.view-desc', { text: '传感器、摄像头、音频与设备连接' }),
+        h('div.view-desc', { text: '传感器、音频与设备连接' }),
       ]),
     ]),
     h('div.grid', {}, [
@@ -192,7 +144,7 @@ export function render(s) {
       h('div.col-4', {}, [
         card('其它外设', { children: [matrix(periph.length ? periph : [{ name: '暂无', ok: false, note: '' }])] }),
       ]),
-      h('div.col-6', {}, [cameraCard(s)]),
+
       h('div.col-6', {}, [audioCard(s)]),
       h('div.col-12', {}, [deviceCard(s)]),
     ]),

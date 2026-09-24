@@ -63,9 +63,6 @@ object ModuleId {
 
     /** 副屏（局域网 TCP）：接收 PC 推来的桌面画面并硬解显示（镜像，非扩展屏） */
     const val SCREEN = "screen"
-
-    /** 摄像头（Wi‑Fi）：Camera2 → JPEG 上行给 PC（streamId=6） */
-    const val CAMERA = "camera"
 }
 
 /**

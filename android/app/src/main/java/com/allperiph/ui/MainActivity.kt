@@ -1046,9 +1046,6 @@ class MainActivity : Activity() {
                 val enabled = AgentController.isEnabled(this, m.id)
                 row.sw.isChecked = enabled
                 row.sw.setOnCheckedChangeListener { _, checked ->
-                    if (checked && m.id == com.allperiph.core.ModuleId.CAMERA) {
-                        ensureCameraPermission()   // 摄像头开关打开时立即请求（首次必弹）
-                    }
                     AgentController.setModuleEnabled(this, m.id, checked)
                     // 同组多份视图的状态联动
                     views.forEach { it.sw.isChecked = checked }
@@ -1062,68 +1059,6 @@ class MainActivity : Activity() {
                 views += row
             }
             moduleRows[m.id] = views.first()
-
-            // 摄像头行下挂参数子行（镜头 / 帧率 / 清晰度），点击循环切换并热重启
-            if (m.id == com.allperiph.core.ModuleId.CAMERA) {
-                val camMod = AgentController.module(com.allperiph.core.ModuleId.CAMERA)
-                    as? com.allperiph.camera.CameraModule
-                fun paramRow(label: () -> String, onClick: () -> Unit): android.view.View {
-                    val sub = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
-                    val tv = sub.findViewById<TextView>(R.id.tvName)
-                    tv.text = label()
-                    sub.findViewById<TextView>(R.id.tvDetail).visibility = android.view.View.GONE
-                    sub.findViewById<ImageView>(R.id.dot).visibility = android.view.View.GONE
-                    sub.findViewById<Switch>(R.id.sw).visibility = android.view.View.GONE
-                    tv.setTextColor(resources.getColor(R.color.md_primary))
-                    sub.setOnClickListener {
-                        onClick()
-                        tv.text = label()
-                    }
-                    rowsWifi.addView(sub)
-                    return sub
-                }
-                paramRow(
-                    label = {
-                        val c = com.allperiph.camera.CameraPrefs.load(this)
-                        "　· 镜头：" + if (c.facing == 1) "前置（点击换后置）" else "后置（点击换前置）"
-                    },
-                ) {
-                    val c = com.allperiph.camera.CameraPrefs.load(this)
-                    com.allperiph.camera.CameraPrefs.save(this, c.copy(facing = if (c.facing == 1) 0 else 1))
-                    camMod?.hotRestart()
-                }
-                paramRow(
-                    label = {
-                        val f = com.allperiph.camera.CameraPrefs.load(this).fps
-                        "　· 帧率：${f}fps（点击切换 12/15/20）"
-                    },
-                ) {
-                    val c = com.allperiph.camera.CameraPrefs.load(this)
-                    val next = when (c.fps) { 12 -> 15; 15 -> 20; else -> 12 }
-                    com.allperiph.camera.CameraPrefs.save(this, c.copy(fps = next))
-                    camMod?.hotRestart()
-                }
-                paramRow(
-                    label = {
-                        val c = com.allperiph.camera.CameraPrefs.load(this)
-                        val q = when (c.width) {
-                            1920 -> "高清 1920×1440"
-                            1280 -> "标准 1280×720"
-                            else -> "流畅 640×480"
-                        }
-                        "　· 清晰度：$q（点击切换）"
-                    },
-                ) {
-                    val c = com.allperiph.camera.CameraPrefs.load(this)
-                    val (w, h) = when (c.width) {
-                        640 -> 1280 to 720
-                        1280 -> 1920 to 1440
-                        else -> 640 to 480
-                    }
-                    com.allperiph.camera.CameraPrefs.save(this, c.copy(width = w, height = h))
-                    camMod?.hotRestart()
-                }
-            }
 
             // Wi‑Fi 音频行下挂两个方向子开关（音箱 / 麦克风分开控制）
             if (m.id == com.allperiph.core.ModuleId.WIFI_AUDIO) {
@@ -1193,7 +1128,6 @@ class MainActivity : Activity() {
     private val REQ_EXPORT_THEME = 4101
     private val REQ_IMPORT_THEME = 4102
     private val REQ_PICK_BG = 4103
-    private val REQ_CAMERA = 200
 
     /** 一行设置项：左标题 + 右取值胶囊（模块配色与背景手感共用） */
     private fun settingRow(title: String, value: String, tint: Int, onClick: () -> Unit): View {
@@ -1437,14 +1371,6 @@ class MainActivity : Activity() {
         android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_SHORT).show()
     }
 
-    /** 请求 CAMERA 运行时权限（系统弹窗授权，一次永久）。是否需要由调用方判断。 */
-    private fun ensureCameraPermission() {
-        if (checkSelfPermission(android.Manifest.permission.CAMERA) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
-        requestPermissions(arrayOf(android.Manifest.permission.CAMERA), REQ_CAMERA)
-    }
-
     /** Root 说明（点设置页「环境摘要」弹出） */
     private fun showRootHelp() {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
@@ -1633,10 +1559,6 @@ class MainActivity : Activity() {
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) !=
                 PackageManager.PERMISSION_GRANTED
             ) add(Manifest.permission.RECORD_AUDIO)
-            // 摄像头（CameraModule JPEG 上行）需要 CAMERA；不弹则模块启动时报错引导
-            if (checkSelfPermission(Manifest.permission.CAMERA) !=
-                PackageManager.PERMISSION_GRANTED
-            ) add(Manifest.permission.CAMERA)
             // GPS（NmeaSource addNmeaListener）需要 FINE_LOCATION，缺失时 GPS 模块 ERROR
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) !=
                 PackageManager.PERMISSION_GRANTED

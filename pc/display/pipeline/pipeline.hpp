@@ -80,7 +80,7 @@ public:
     bool pollTouchOnce(uint32_t timeoutMs = 5);
 
     // 复用**外部已建立**的传输实例。设置后 start() 不再自行 createTransport。
-    // 为什么需要：手机侧的媒体通道是单对端语义（一份连接同时跑副屏/音频/摄像头），
+    // 为什么需要：手机侧的媒体通道是单对端语义（一份连接同时跑副屏/音频），
     // 副屏不能再自开第二条 TCP —— 必须借用上层已经连好的那条。
     void setTransport(std::unique_ptr<ITransport> t) { injectedTransport_ = std::move(t); }
 

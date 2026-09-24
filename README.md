@@ -1,11 +1,11 @@
 # 全能外设（AllPeriph）
 
-把手机变成电脑的外设：**触控板、键盘、多媒体键、麦克风与音响**。电脑端一个桌面控制面板
-（托盘常驻）统一管理，命令行宿主 `apxhost` 供调试与脚本用。
+把手机变成电脑的外设：**触控板、键盘、多媒体键、麦克风与音响，以及副屏（屏幕投射）**。
+电脑端一个桌面控制面板（托盘常驻）统一管理，命令行宿主 `apxhost` 供调试与脚本用。
 支持**有线（USB，性能最高且手机同时充电）**与**无线（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）**两条主线。
 
 - 电脑端：C++20（Windows），**零第三方依赖**，自写 winsock HTTP/1.1 + SSE。
-- 控制面板：原生 HTML/CJS/JS 单页应用，**零构建、零 CDN、离线可用**，浏览器打开即用。
+- 控制面板：原生 HTML/CSS/JS 单页应用，**零构建、零 CDN、离线可用**，浏览器打开即用。
 - 手机端：Kotlin（Android），蓝牙 HID + 局域网 TCP + USB Gadget（有线模式）。
 
 > 项目首页文档：[`README.md`](./README.md) ·
@@ -16,9 +16,8 @@
 > 路线图与接口预留：[`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
 > **当前阶段**：有线（USB）能力已收尾；**Wi‑Fi 控制**已真机验证；
-> **Wi‑Fi 媒体**（副屏镜像/扩展屏 + 触摸、音箱、麦克风、摄像头）已落地，
-> 电脑面板四张媒体卡可用；蓝牙键盘/手柄仍在补全（见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)）。
-> 摄像头当前为面板内实时预览（虚拟摄像头设备待后续版本）。
+> **Wi‑Fi 媒体**（副屏镜像/扩展屏 + 触摸、音箱、麦克风）已落地，
+> 电脑面板三张媒体卡可用；蓝牙键盘/手柄仍在补全（见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)）。
 
 ---
 
@@ -83,6 +82,7 @@ build_host\Release\apxhost.exe serve
 │   ├─ PROTOCOL.md                   帧格式、Mouse TLC、触控板载荷、控制面命令
 │   ├─ REALDEVICE-NOTES.md           蓝牙 HID / Wi‑Fi 传输的真机实测结论
 │   ├─ ROADMAP.md                    能力现状、蓝牙/Wi‑Fi 两条线的扩展点与实施顺序
+│   ├─ RELEASE-NOTES-0.3.2.md        本版本发布说明（摄像头模块清理）
 │   └─ REQ-五路回报.md               需求记录（历史）
 │
 ├─ shared/                           两端共享契约（core-proto 协议库）
@@ -164,7 +164,6 @@ build_host\Release\apxhost.exe serve
 │   ├─ app/src/main/cpp/             JNI 桥（apx_jni.cpp，仅参数搬运 + 调 shared/）
 │   ├─ app/src/main/java/com/allperiph/
 │       ├─ screen/                   副屏收流渲染 + 触摸回传（控制通道 0x04）
-│       ├─ camera/                   摄像头（Wi‑Fi JPEG 上行 streamId=6）
 │       ├─ core/                     模块契约与传输接口（Module / Transport / ApxNative /
 │       │                            ApxFrame 组帧 / TcpCtrlBridge 出口）
 │       ├─ gadget/                   ConfigFS 布局与 Gadget 管理（USB 有线）
@@ -212,8 +211,7 @@ build_host\Release\apxhost.exe serve
 ```
 
 包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、触控板参数、热键绑定与
-场景绑定；另保留副屏（`display*`）与摄像头（`camera*`）的参数位 —— 二者当前不可用，
-字段仅为兼容与后续复用保留。
+场景绑定；另保留副屏（`display*`）的参数位。
 字段缺失会自动回落默认值，不会因旧配置崩溃。
 
 ---
@@ -248,6 +246,8 @@ cmake --build shared/build --config Release
 cd android
 gradlew.bat assembleDebug
 ```
+
+> 一键构建 PC 三件套（含桌面面板与安装包）：仓库根目录 `build.bat`。
 
 ---
 
@@ -299,8 +299,8 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
   设置页照原样展示 —— 抢不到 UDC、蓝牙权限不足、内核不支持 UVC，都直接标出来而非静默。
 - Wi‑Fi 控制链路的**表盘口径与真实择路完全一致**：USB HID 就绪显示 USB 档位，否则蓝牙
   已连接显示蓝牙，否则 Wi‑Fi 控制，否则「未连接」—— 不含糊，也不把没连上的链路报成当前通道。
-- 带宽不足时按优先级降级（触控上行 > 视频 > 音频 > 摄像头）并记录「为谁降了什么」。
-  其中视频 / 摄像头两项对应模块当前不可用，相关降级逻辑保留在 `pc/display/` 内。
+- 带宽不足时按优先级降级（触控上行 > 视频 > 音频）并记录「为谁降了什么」，
+  相关降级逻辑保留在 `pc/display/` 内。
 
 ---
 
@@ -320,9 +320,6 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
    ```
    注意 `pc/display/` **不在 `build.bat` 的构建范围内**（它属副屏模块）。
 3. **无线虚拟设备**：
-   - **摄像头**：Windows 11（22000+）的 `MFCreateVirtualCamera` 走**用户态 Media Source
-     DLL**，**不需要内核驱动、不需要驱动签名**；代价是需要 Win11 与写 `HKLM` 的 COM 注册
-     （即需要管理员，与 `apxsetup.exe` 免 UAC 的安装方式不兼容）。
    - **麦克风 / 声卡**：Windows **没有**原生虚拟麦克风 API，必须用第三方已签名虚拟声卡
      （如 VB-Cable）或自研驱动（需 EV 签名 + 微软认证）。
    - 无法满足时面板会如实标注，不做静默失败。

@@ -5,7 +5,7 @@
 // `pc/display/` 里抓屏（Desktop Duplication）、编码（Media Foundation）、组帧
 // （FrameWriter，含视频扩展头 / 脏矩形 / 分片 / CRC）与三线程编排（Pipeline）
 // 都已是完整实现。本类只在**传输层做替换**：给 Pipeline 注入一个把写操作转发到
-// `MediaSession` 的适配器 —— 于是副屏与音箱/麦克风/摄像头共用同一条 TCP 连接。
+// `MediaSession` 的适配器 —— 于是副屏与音箱/麦克风共用同一条 TCP 连接。
 //
 // ## 为什么必须共用（不能自开第二条）
 // 手机侧 `wireless/TcpMediaChannel.kt` 是**单对端语义**（防多个上位机抢同一出口），

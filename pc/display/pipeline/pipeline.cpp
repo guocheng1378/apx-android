@@ -106,7 +106,7 @@ bool Pipeline::start(const PipelineConfig& cfg, std::string* err) {
 
     // v1.10：TCP 传输接入——transportSpec 非默认（kind != Auto）时优先使用，
     // 支持副屏无线 / NCM 网络 / adb reverse 等全部 TCP 承载；USB 主线走旧路径。
-    // 注入优先：上层（桌面端面板）已用同一条连接跑音频/摄像头时，
+    // 注入优先：上层（桌面端面板）已用同一条连接跑音频时，
     // 副屏必须借用它 —— 手机侧媒体通道是单对端语义，自开第二条会被拒。
     if (injectedTransport_) {
         spec_ = cfg_.transportSpec;

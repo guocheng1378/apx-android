@@ -13,6 +13,7 @@
 // 线程纪律（关键）：所有 socket I/O 都在 WirelessSession 的 worker 线程里；
 // UI 只表达意图、按定时器读快照，**不做跨线程回调** —— 避免"回调里刷 UI"竞态。
 #include "apxpc/ui/panel.hpp"
+#include <cstdio>
 
 #if defined(_WIN32)
 
@@ -36,7 +37,7 @@
 
 #include "apxpc/log.hpp"
 #include "apxpc/media/audio_capture.hpp"
-#include "apxpc/media/h264_decoder.hpp"
+
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
@@ -146,7 +147,7 @@ struct Layout {
     Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
     Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
-    Rect cardCam, labelCam, switchCam, camStatus, camPreview, camDetail;
+
     Rect phoneStateLine;           // 「手机端：……」状态行（连接卡下方，两端状态同步展示）
 
     Rect hdrWired;                 // 「有线」分类标题（蓝牙或 USB 开时出现）
@@ -187,7 +188,7 @@ Layout layout(const VisToggles& v) {
     if (v.wifi) {
         l.hdrWireless = {kCardX, y, kCardW, 28};
         y += 34;
-        // —— 双栏 2×2（与手机端分组风格统一）：左列 副屏/麦克风，右列 音箱/摄像头 ——
+        // —— 双栏 2×2（与手机端分组风格统一）：左列 副屏/麦克风，右列 音箱 ——
         const int xL = kCardX, xR = kCol2X;
         const int cw = kColW;
         const int cwIn = cw - 2 * kCardPad;   // 卡内内容宽
@@ -232,16 +233,8 @@ Layout layout(const VisToggles& v) {
         l.micCombo = {xL + kCardPad + 62, y + 72, cwIn - 62, 26};
         l.micDetail = {xL + kCardPad, y + 108, cwIn, 18};
 
-        // 右下：摄像头（手机相机 JPEG 上行，卡内实时预览；PC 端开关 = 接收显示 + 控制手机端）
-        const int camPreviewH = 160;
-        l.cardCam = {xR, y, cw, 14 + 24 + 20 + 8 + camPreviewH + 8 + 18 + 12};
-        l.labelCam = {xR + kCardPad, y + 14, cwIn - 60, 24};
-        l.switchCam = {xR + cw - kCardPad - 46, y + 14, 46, 24};
-        l.camStatus = {xR + kCardPad, y + 44, cwIn, 20};
-        l.camPreview = {xR + kCardPad, y + 70, cwIn, camPreviewH};
-        l.camDetail = {xR + kCardPad, y + 70 + camPreviewH + 8, cwIn, 18};
-        // 行高取两列的最大值（右列摄像头卡比左列麦克风卡高得多）
-        y += std::max(152, l.cardCam.h) + 14;
+        // 行高取两列最大值（按左列麦克风卡高度推进）
+        y += 152 + 14;
     }
     if (v.bt || v.usb) {
         l.hdrWired = {kCardX, y, kCardW, 28};
@@ -332,7 +325,7 @@ std::string toUtf8(const std::wstring& w) {
 // ——————————————————— 面板 ———————————————————
 enum class Hit {
     None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
-    SwitchCam, SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, SegRes1, SegRes2, SegRes3,
+    SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, SegRes1, SegRes2, SegRes3,
     SegRes4, Autostart, Hide, Quit, TestSpeaker
 };
 
@@ -379,7 +372,7 @@ struct Panel {
     std::unique_ptr<WirelessSession> session;
     std::unique_ptr<TrayIcon> tray;
 
-    // 媒体通道（第二条连接，手机 9502）：副屏与音箱/麦克风/摄像头共用同一条
+    // 媒体通道（第二条连接，手机 9502）：副屏与音箱/麦克风共用同一条
     // —— 手机侧媒体通道是单对端语义，不能为副屏另开一条。
     std::unique_ptr<apxpc::media::MediaSession> media;
     std::unique_ptr<apxpc::media::ScreenPush> screenPush;
@@ -406,8 +399,7 @@ struct Panel {
     /// 音箱要采哪块播放设备。**空 = 跟随系统默认**（默认一变就重开采集）。
     std::string speakerDeviceId;
 
-    // —— 摄像头卡开关（PC 端是否接收显示手机相机画面；上行由手机端控制）——
-    bool camEnabled = true;
+
 
     // —— 副屏投屏目标：0=桌面镜像（主屏） 1=扩展屏（IddCx 虚拟屏优先）——
     int screenMode = 1;
@@ -422,15 +414,7 @@ struct Panel {
     bool autoRestoreDone = false;
     /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
     std::vector<std::string> speakerDevIds;
-    /// 摄像头预览：媒体收流线程存最新帧（JPEG 或 H264 解码出的 BGRA），paint 绘制
-    std::mutex camMu;
-    std::vector<uint8_t> camJpeg;
-    bool camJpegValid = false;
-    // H264 路径（手机端硬编）：解码出的 BGRA + 尺寸
-    std::unique_ptr<apxpc::media::H264Decoder> camDec;
-    std::vector<uint8_t> camRgb;
-    int camRgbW = 0, camRgbH = 0;
-    bool camRgbValid = false;
+
 
     /// 上一轮"默认设备 ID + 全部端点 ID"的指纹。设备增删或默认易主时靠它发现，
     /// 用来刷新下拉标题 —— 否则会一直写着"跟随系统默认（旧的某块）"。
@@ -883,7 +867,7 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.switchScreen.has(x, y) || L.labelScreen.has(x, y)) h = Hit::SwitchScreen;
     else if (L.switchSpeaker.has(x, y) || L.labelSpeaker.has(x, y)) h = Hit::SwitchSpeaker;
     else if (L.switchMicFwd.has(x, y) || L.labelMic.has(x, y)) h = Hit::SwitchMic;
-    else if (L.switchCam.has(x, y)) h = Hit::SwitchCam;
+
     else if (L.segMirror.has(x, y)) h = Hit::SegMirror;
     else if (L.segExtend.has(x, y)) h = Hit::SegExtend;
     else if (L.segBr1.has(x, y)) h = Hit::SegBr1;
@@ -980,7 +964,7 @@ void paint(HWND hwnd, Panel* p) {
 
         // —— 顶栏：应用名 + 副标题 + 状态徽章 ——
         text(g, L"全能外设", Rect{kMargin + 4, 18, 260, 32}, *p->fTitle, tok::onSurface);
-        text(g, L"手机当鼠标 / 键盘 / 声卡 / 摄像头用", Rect{kMargin + 5, 50, 360, 18},
+        text(g, L"手机当鼠标 / 键盘 / 声卡用", Rect{kMargin + 5, 50, 360, 18},
              *p->fCaption, tok::onVariant);
 
         fillRound(g, L.badge, static_cast<float>(L.badge.h) / 2.0f, tok::primarySoft);
@@ -1133,130 +1117,7 @@ void paint(HWND hwnd, Panel* p) {
                 text(g, detail, L.micDetail, *p->fCaption, fwd ? col : tok::onVariant);
             }
 
-            // 摄像头（手机相机 JPEG → 卡内实时预览）
-            fillRound(g, L.cardCam, 18.0f, tok::surface);
-            text(g, L"摄像头（手机相机 → PC）", L.labelCam, *p->fSection, tok::primary);
-            paintSwitch(g, L.switchCam, p->camEnabled, p->hot == Hit::SwitchCam);
-            {
-                const uint64_t cam = p->media ? p->media->counters().cameraFrames : 0;
-                Gdiplus::ARGB col = tok::stateIdle;
-                std::wstring st;
-                if (!p->camEnabled) {
-                    st = L"已关闭（开关打开后恢复显示）";
-                } else if (s.phase != LinkPhase::Connected) {
-                    st = L"未连接";
-                } else if (cam == 0) {
-                    st = L"等待画面（确认手机摄像头权限已授予）";
-                } else {
-                    st = L"摄像头运行中"; col = tok::stateOk;
-                }
-                // 诊断（排查黑屏用）：解码路径 in/out 帧数与最近 HRESULT
-                if (p->camEnabled && s.phase == LinkPhase::Connected && cam > 0) {
-                    wchar_t d[160];
-                    if (p->camDec) {
-                        std::swprintf(d, 160, L" in=%llu out=%llu po=%llu wait=%llu avcc=%llu hr=0x%08X",
-                                      static_cast<unsigned long long>(p->camDec->inFrames()),
-                                      static_cast<unsigned long long>(p->camDec->outFrames()),
-                                      static_cast<unsigned long long>(p->camDec->poCalls()),
-                                      static_cast<unsigned long long>(p->camDec->poNeedMore()),
-                                      static_cast<unsigned long long>(p->camDec->avccFrames()),
-                                      p->camDec->lastHr());
-                    } else {
-                        std::swprintf(d, 160, L" in=0 out=0 走JPEG路径(非H264)");
-                    }
-                    st += d;
-                }
-                text(g, st, L.camStatus, *p->fBody, col);
 
-                std::vector<uint8_t> jpeg;
-                bool valid = false;
-                std::vector<uint8_t> rgb;
-                int rgbW = 0, rgbH = 0;
-                bool rgbValid = false;
-                {
-                    std::lock_guard<std::mutex> lk(p->camMu);
-                    jpeg = p->camJpeg;
-                    valid = p->camJpegValid;
-                    rgb = p->camRgb;
-                    rgbW = p->camRgbW;
-                    rgbH = p->camRgbH;
-                    rgbValid = p->camRgbValid;
-                }
-                bool drawn = false;
-                // H264 路径：解码出的 BGRA 直接 StretchDIBits
-                if (rgbValid && rgbW > 0 && rgbH > 0 && rgb.size() >= static_cast<size_t>(rgbW) * rgbH * 4) {
-                    Gdiplus::RectF dst(
-                        static_cast<Gdiplus::REAL>(L.camPreview.x),
-                        static_cast<Gdiplus::REAL>(L.camPreview.y),
-                        static_cast<Gdiplus::REAL>(L.camPreview.w),
-                        static_cast<Gdiplus::REAL>(L.camPreview.h));
-                    Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
-                    g.FillRectangle(&bg, dst);
-                    BITMAPINFO bi{};
-                    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-                    bi.bmiHeader.biWidth = rgbW;
-                    bi.bmiHeader.biHeight = -rgbH;   // 自顶向下
-                    bi.bmiHeader.biPlanes = 1;
-                    bi.bmiHeader.biBitCount = 32;
-                    bi.bmiHeader.biCompression = BI_RGB;
-                    ::SetStretchBltMode(g.GetHDC(), COLORONCOLOR);
-                    ::StretchDIBits(g.GetHDC(),
-                                    L.camPreview.x, L.camPreview.y, L.camPreview.w, L.camPreview.h,
-                                    0, 0, rgbW, rgbH,
-                                    rgb.data(), &bi, DIB_RGB_COLORS, SRCCOPY);
-                    g.ReleaseHDC(g.GetHDC());
-                    drawn = true;
-                }
-                if (!drawn && valid && !jpeg.empty()) {
-                    IStream* stm = nullptr;
-                    if (::CreateStreamOnHGlobal(nullptr, TRUE, &stm) == S_OK) {
-                        ULONG written = 0;
-                        stm->Write(jpeg.data(), static_cast<ULONG>(jpeg.size()), &written);
-                        Gdiplus::Image img(stm, FALSE);
-                        if (img.GetLastStatus() == Gdiplus::Ok && img.GetWidth() > 0) {
-                            Gdiplus::RectF dst(
-                                static_cast<Gdiplus::REAL>(L.camPreview.x),
-                                static_cast<Gdiplus::REAL>(L.camPreview.y),
-                                static_cast<Gdiplus::REAL>(L.camPreview.w),
-                                static_cast<Gdiplus::REAL>(L.camPreview.h));
-                            Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
-                            g.FillRectangle(&bg, dst);
-                            g.SetInterpolationMode(Gdiplus::InterpolationModeBilinear);
-                            g.DrawImage(&img, dst, 0, 0,
-                                        static_cast<Gdiplus::REAL>(img.GetWidth()),
-                                        static_cast<Gdiplus::REAL>(img.GetHeight()),
-                                        Gdiplus::UnitPixel);
-                            drawn = true;
-                        }
-                        stm->Release();
-                    }
-                }
-                if (!drawn) {
-                    Gdiplus::SolidBrush bg(Gdiplus::Color(0xFF101214));
-                    Gdiplus::RectF dst(
-                        static_cast<Gdiplus::REAL>(L.camPreview.x),
-                        static_cast<Gdiplus::REAL>(L.camPreview.y),
-                        static_cast<Gdiplus::REAL>(L.camPreview.w),
-                        static_cast<Gdiplus::REAL>(L.camPreview.h));
-                    g.FillRectangle(&bg, dst);
-                }
-
-                wchar_t cb[192];
-                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · H264硬编流", static_cast<unsigned long long>(cam));
-                std::wstring cd = cb;
-                if (p->camDec) {
-                    wchar_t db[128];
-                    std::swprintf(db, 128, L" · dec[入%llu 出%llu out类型=%d res=%ux%u hr=0x%X]",
-                                  p->camDec->inFrames(), p->camDec->outFrames(),
-                                  p->camDec->outTypeSet() ? 1 : 0,
-                                  p->camDec->width(), p->camDec->height(),
-                                  p->camDec->lastHr());
-                    cd += db;
-                }
-                cd += L" · ";
-                cd += phoneModuleText(s, 7, L"手机端摄像头");
-                text(g, cd, L.camDetail, *p->fCaption, tok::onVariant);
-            }
         }
 
         // —— 有线分类：打开「蓝牙」或「USB」才出现 ——
@@ -1320,7 +1181,7 @@ static void savePanelState(Panel* p) {
     put(L"screen", p->screenPush && p->screenPush->running());
     put(L"speaker", p->audio && p->audio->running());
     put(L"mic", p->micBridge && p->micBridge->running());
-    put(L"cam", p->camEnabled);
+
     _itow_s(p->screenMode, b, 10);
     ::WritePrivateProfileStringW(L"media", L"screenMode", b, ini.c_str());
     _itow_s(p->bitrateKbps, b, 10);
@@ -1337,7 +1198,7 @@ static void loadPanelState(Panel* p) {
     p->autoScreen = get(L"screen");
     p->autoSpeaker = get(L"speaker");
     p->autoMic = get(L"mic");
-    p->camEnabled = get(L"cam") || ::GetPrivateProfileIntW(L"media", L"cam", -1, ini.c_str()) == -1;
+
     p->screenMode = ::GetPrivateProfileIntW(L"media", L"screenMode", 1, ini.c_str()) == 0 ? 0 : 1;
     {
         const int br = ::GetPrivateProfileIntW(L"media", L"bitrateKbps", 8000, ini.c_str());
@@ -1478,17 +1339,7 @@ void performHit(Panel* p, Hit h) {
             p->autoMic = !p->autoMic;   // mic 启动走后台线程，按操作意图记录
             savePanelState(p);
             break;
-        case Hit::SwitchCam:
-            // PC 端开关 → **同步控制手机端摄像头模块**（0x10 命令），两端状态一致
-            p->camEnabled = !p->camEnabled;
-            if (p->session) p->session->requestModule(7, p->camEnabled);
-            if (!p->camEnabled) {
-                std::lock_guard<std::mutex> lk(p->camMu);
-                p->camJpegValid = false;
-                p->camJpeg.clear();
-            }
-            savePanelState(p);
-            break;
+
         case Hit::TestSpeaker:
             testSpeakerClick(p);
             break;
@@ -1684,8 +1535,7 @@ void tick(Panel* p) {
                 if (p->autoMic && p->micBridge && !p->micBridge->running()) {
                     toggleMicForward(p);
                 }
-                // 摄像头：PC 开关开着 → 发 0x10 命令让手机端模块也开（两端联动）
-                if (p->camEnabled && p->session) p->session->requestModule(7, true);
+
             }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
@@ -1992,32 +1842,11 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     panel.audio = std::make_unique<apxpc::media::AudioCapture>();
     panel.micBridge = std::make_unique<apxpc::media::MicBridge>();
     // 手机麦克风上行（streamId=5）→ 桥（转发开关打开时才真正送渲染）
-    // 摄像头 JPEG（streamId=6）→ 卡内预览（paint 时解码，天然限频）
     panel.media->setHandler([&panel](uint8_t streamId, uint8_t, uint32_t,
                                      const uint8_t* body, size_t len) {
         if (streamId == apxpc::media::kStreamMic && panel.micBridge &&
             panel.micBridge->running()) {
             panel.micBridge->feed(body, len);
-        } else if (streamId == apxpc::media::kStreamCamera && panel.camEnabled) {
-            // 开关关闭时直接丢弃。载荷判别：FFD8 = 旧版 JPEG；否则 H264 AnnexB（新版硬编）
-            if (len >= 2 && body[0] == 0xFF && body[1] == 0xD8) {
-                std::lock_guard<std::mutex> lk(panel.camMu);
-                panel.camRgbValid = false;
-                panel.camJpeg.assign(body, body + len);
-                panel.camJpegValid = true;
-            } else {
-                // H264：收流线程解码（单线程使用 MFT，安全）
-                if (!panel.camDec) panel.camDec = std::make_unique<apxpc::media::H264Decoder>();
-                auto& dec = *panel.camDec;
-                if (dec.decode(body, len) && dec.width() > 0) {
-                    std::lock_guard<std::mutex> lk(panel.camMu);
-                    panel.camRgb = dec.bgra();
-                    panel.camRgbW = static_cast<int>(dec.width());
-                    panel.camRgbH = static_cast<int>(dec.height());
-                    panel.camRgbValid = true;
-                    panel.camJpegValid = false;
-                }
-            }
         }
     });
 

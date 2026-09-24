@@ -204,14 +204,14 @@ endif()
 
 # ---------------------------------------------------------------- 目标：媒体通道
 # 与控制面**并列的第二条连接**（手机 9502）：副屏画面 / 音箱 下行，
-# 麦克风 / 摄像头 上行。分开的理由见 media_session.hpp 头部注释
+# 麦克风 上行。分开的理由见 media_session.hpp 头部注释
 # （控制面已真机验证是单对端语义，不能拿大流量去挤它）。
 set(APXPC_MEDIA_SRC
   "${APXPC_ROOT}/src/media/media_session.cpp"
   "${APXPC_ROOT}/src/media/audio_capture.cpp"
   "${APXPC_ROOT}/src/media/mic_bridge.cpp"
   "${APXPC_ROOT}/src/media/touch_inject.cpp"
-  "${APXPC_ROOT}/src/media/h264_decoder.cpp"
+
 )
 add_library(apxpc_media STATIC ${APXPC_MEDIA_SRC})
 target_include_directories(apxpc_media PUBLIC "${APXPC_ROOT}/include")
