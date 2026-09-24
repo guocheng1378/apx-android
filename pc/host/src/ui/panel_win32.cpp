@@ -140,6 +140,7 @@ struct Layout {
 
     Rect hdrWireless;              // 「无线」分类标题（无线开关开时出现）
     Rect cardScreen, labelScreen, switchScreen, segMirror, segExtend, screenStatus, screenDetail;
+    Rect labelBitrate, segBr1, segBr2, segBr3;   // 副屏码率分段（8M/12M/16M）
     Rect cardSpeaker, labelSpeaker, switchSpeaker, speakerStatus, labelSpeakerDev,
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
     Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
@@ -189,14 +190,18 @@ Layout layout(const VisToggles& v) {
         const int cw = kColW;
         const int cwIn = cw - 2 * kCardPad;   // 卡内内容宽
 
-        // 左上：副屏（含投屏目标分段：桌面镜像 | 扩展屏）
-        l.cardScreen = {xL, y, cw, 128};
+        // 左上：副屏（含投屏目标分段：桌面镜像 | 扩展屏 + 码率分段）
+        l.cardScreen = {xL, y, cw, 162};
         l.labelScreen = {xL + kCardPad, y + 14, cwIn - 60, 24};
         l.switchScreen = {xL + cw - kCardPad - 46, y + 14, 46, 24};
         l.segMirror = {xL + kCardPad, y + 44, (cwIn - 8) / 2, 26};
         l.segExtend = {l.segMirror.x + l.segMirror.w + 8, y + 44, (cwIn - 8) / 2, 26};
-        l.screenStatus = {xL + kCardPad, y + 78, cwIn, 20};
-        l.screenDetail = {xL + kCardPad, y + 102, cwIn, 18};
+        l.labelBitrate = {xL + kCardPad, y + 82, 56, 26};
+        l.segBr1 = {xL + kCardPad + 60, y + 80, (cwIn - 60 - 16) / 3, 26};
+        l.segBr2 = {l.segBr1.x + l.segBr1.w + 8, y + 80, l.segBr1.w, 26};
+        l.segBr3 = {l.segBr2.x + l.segBr2.w + 8, y + 80, l.segBr1.w, 26};
+        l.screenStatus = {xL + kCardPad, y + 114, cwIn, 20};
+        l.screenDetail = {xL + kCardPad, y + 138, cwIn, 18};
 
         // 右上：音箱（含采集设备下拉 + 试听）
         l.cardSpeaker = {xR, y, cw, 128 + 56};
@@ -320,7 +325,7 @@ std::string toUtf8(const std::wstring& w) {
 // ——————————————————— 面板 ———————————————————
 enum class Hit {
     None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
-    SwitchCam, SegMirror, SegExtend, Autostart, Hide, Quit, TestSpeaker
+    SwitchCam, SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, Autostart, Hide, Quit, TestSpeaker
 };
 
 struct Panel {
@@ -373,6 +378,8 @@ struct Panel {
 
     // —— 副屏投屏目标：0=桌面镜像（主屏） 1=扩展屏（IddCx 虚拟屏优先）——
     int screenMode = 1;
+    // —— 副屏码率（Kbps）：8M 默认 / 12M / 16M，推流中切换自动按新码率重启 ——
+    int bitrateKbps = 8000;
 
     // —— 面板状态持久化（panel.ini）：记住功能卡开关，下次启动自动恢复 ——
     // autoRestore* 是「启动时从 ini 读到的期望状态」；媒体连接建立后由 tick 执行。
@@ -560,6 +567,7 @@ void toggleScreen(Panel* p) {
     std::string err;
     apxpc::media::ScreenPushOptions opt;
     opt.mirrorMode = (p->screenMode == 0);   // 0=桌面镜像 1=扩展屏（无虚拟屏时报错不静默回落）
+    opt.bitrateKbps = p->bitrateKbps;
     if (!p->screenPush->start(p->media.get(), opt, &err)) {
         const std::wstring msg = L"副屏启动失败：\n\n" + toWide(err);
         MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
@@ -838,6 +846,9 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.switchCam.has(x, y)) h = Hit::SwitchCam;
     else if (L.segMirror.has(x, y)) h = Hit::SegMirror;
     else if (L.segExtend.has(x, y)) h = Hit::SegExtend;
+    else if (L.segBr1.has(x, y)) h = Hit::SegBr1;
+    else if (L.segBr2.has(x, y)) h = Hit::SegBr2;
+    else if (L.segBr3.has(x, y)) h = Hit::SegBr3;
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
@@ -974,6 +985,14 @@ void paint(HWND hwnd, Panel* p) {
                             p->hot == Hit::SegMirror, p->pressed == Hit::SegMirror, *p->fBtn);
                 paintButton(g, L.segExtend, L"扩展屏", p->screenMode == 1, false,
                             p->hot == Hit::SegExtend, p->pressed == Hit::SegExtend, *p->fBtn);
+                // 码率分段
+                text(g, L"码率", L.labelBitrate, *p->fCaption, tok::onVariant);
+                paintButton(g, L.segBr1, L"8M", p->bitrateKbps == 8000, false,
+                            p->hot == Hit::SegBr1, p->pressed == Hit::SegBr1, *p->fBtn);
+                paintButton(g, L.segBr2, L"12M", p->bitrateKbps == 12000, false,
+                            p->hot == Hit::SegBr2, p->pressed == Hit::SegBr2, *p->fBtn);
+                paintButton(g, L.segBr3, L"16M", p->bitrateKbps == 16000, false,
+                            p->hot == Hit::SegBr3, p->pressed == Hit::SegBr3, *p->fBtn);
                 text(g, screenBig(p), L.screenStatus, *p->fBody, screenColor(p));
                 std::wstring sd = screenDetail(p);
                 if (!sd.empty()) sd += L" · ";
@@ -1195,6 +1214,8 @@ static void savePanelState(Panel* p) {
     put(L"cam", p->camEnabled);
     _itow_s(p->screenMode, b, 10);
     ::WritePrivateProfileStringW(L"media", L"screenMode", b, ini.c_str());
+    _itow_s(p->bitrateKbps, b, 10);
+    ::WritePrivateProfileStringW(L"media", L"bitrateKbps", b, ini.c_str());
 }
 
 static void loadPanelState(Panel* p) {
@@ -1207,6 +1228,10 @@ static void loadPanelState(Panel* p) {
     p->autoMic = get(L"mic");
     p->camEnabled = get(L"cam") || ::GetPrivateProfileIntW(L"media", L"cam", -1, ini.c_str()) == -1;
     p->screenMode = ::GetPrivateProfileIntW(L"media", L"screenMode", 1, ini.c_str()) == 0 ? 0 : 1;
+    {
+        const int br = ::GetPrivateProfileIntW(L"media", L"bitrateKbps", 8000, ini.c_str());
+        p->bitrateKbps = (br == 12000 || br == 16000) ? br : 8000;
+    }
     p->autoRestoreDone = false;
 }
 
@@ -1276,6 +1301,21 @@ void performHit(Panel* p, Hit h) {
             if (p->screenMode != want) {
                 p->screenMode = want;
                 // 推流中切目标：停掉按新模式重启（用户不用先关再开）
+                if (p->screenPush && p->screenPush->running()) {
+                    p->screenPush->stop();
+                    toggleScreen(p);
+                }
+                savePanelState(p);
+            }
+            break;
+        }
+        case Hit::SegBr1:
+        case Hit::SegBr2:
+        case Hit::SegBr3: {
+            const int want = (h == Hit::SegBr1) ? 8000 : (h == Hit::SegBr2) ? 12000 : 16000;
+            if (p->bitrateKbps != want) {
+                p->bitrateKbps = want;
+                // 推流中改码率：按新码率重启（编码器重建 + 关键帧，2 秒内恢复）
                 if (p->screenPush && p->screenPush->running()) {
                     p->screenPush->stop();
                     toggleScreen(p);
