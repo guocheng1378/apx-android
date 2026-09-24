@@ -1227,7 +1227,7 @@ void paint(HWND hwnd, Panel* p) {
                 }
 
                 wchar_t cb[192];
-                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · JPEG", static_cast<unsigned long long>(cam));
+                std::swprintf(cb, 160, L"PC 已收 %llu 帧 · H264硬编流", static_cast<unsigned long long>(cam));
                 std::wstring cd = cb;
                 cd += L" · ";
                 cd += phoneModuleText(s, 7, L"手机端摄像头");

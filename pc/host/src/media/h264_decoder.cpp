@@ -46,6 +46,10 @@ H264Decoder::~H264Decoder() {
 
 bool H264Decoder::init() {
     if (inited_) return true;
+    // **调用线程必须初始化 COM**：解码跑在媒体收流线程（无 COM 环境），
+    // 不初始化则 MFTEnumEx/MFCreateX 全部静默失败（真机踩过：帧在收、画面全黑）。
+    // 引用计数式初始化，线程长存即可，不做配对释放。
+    ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET);
     if (FAILED(hr) && hr != MF_E_ALREADY_INITIALIZED) {
         lastError_ = "MFStartup 失败";
