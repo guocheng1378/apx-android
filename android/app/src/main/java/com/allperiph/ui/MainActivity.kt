@@ -505,16 +505,16 @@ class MainActivity : Activity() {
                 // 只自动切换两个操控面；状态/设置页保持用户当前的方向
                 val cur = pager.displayedChild
                 if (cur != PAGE_TOUCHPAD && cur != PAGE_KEYBOARD) return
-                // 滞回：明确横（55°..125° 或 235°..305°）才判横，明确竖（<20° 或 >340°）才判竖，
+                // 滞回：明确横（60°..120° 或 240°..300°）才判横，明确竖（<15° 或 >345°）才判竖，
                 // 中间斜角保持现状，避免边界抖动
                 val want = when (deg) {
-                    in 55..125, in 235..305 -> 1
-                    in 0..20, in 340..359 -> 2
+                    in 60..120, in 240..300 -> 1
+                    in 0..15, in 345..359 -> 2
                     else -> return
                 }
                 if (want == forcedOrient) return
                 val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastOrientSwitchMs < 600) return   // 节流
+                if (now - lastOrientSwitchMs < 1500) return   // 节流：旋转动画 ~300ms，切太快系统来不及执行
                 lastOrientSwitchMs = now
                 forcedOrient = want
                 requestedOrientation = if (want == 1)
