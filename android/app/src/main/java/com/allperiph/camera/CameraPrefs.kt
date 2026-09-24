@@ -26,7 +26,7 @@ object CameraPrefs {
             facing = p.getInt(K_FACING, 0),
             width = p.getInt(K_W, 1280),
             height = p.getInt(K_H, 720),
-            fps = p.getInt(K_FPS, 20),
+            fps = p.getInt(K_FPS, 12),   // v2 默认 12fps（与副屏共带宽；旧值 20 太激进）
         )
     }
 

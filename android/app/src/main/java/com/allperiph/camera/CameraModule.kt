@@ -173,18 +173,31 @@ class CameraModule(private val app: Context) : Module {
         }
     }
 
-    /** 按偏好选最接近的输出尺寸：精确命中 > 不超过目标的最大尺寸 > 任意最大尺寸 */
+    /**
+     * 按偏好选最接近的输出尺寸：精确命中 > 同比例不超过目标的最大 > **面积最接近目标**。
+     * 旧兜底是「任意最大尺寸」—— 部分机型 JPEG 档位稀疏（只有 4:3 大尺寸）时
+     * 会选中 4096x3072，4K JPEG@20fps 直接把手机 CPU 和带宽打满（副屏跟着卡）。
+     */
     private fun chooseSize(
         map: android.hardware.camera2.params.StreamConfigurationMap?,
         cfg: CameraPrefs.Config,
     ): android.util.Size {
-        val sizes = map?.getOutputSizes(ImageFormat.JPEG)
+        val sizes = map?.getOutputSizes(ImageFormat.JPEG)?.toList()
         val target = android.util.Size(cfg.width, cfg.height)
-        return sizes?.firstOrNull { it == target }
-            ?: sizes?.filter { it.width <= target.width && it.height <= target.height }
-                ?.maxByOrNull { it.width * it.height }
-            ?: sizes?.maxByOrNull { it.width * it.height }
-            ?: target
+        if (sizes.isNullOrEmpty()) return target
+        val tr = target.width.toDouble() / target.height
+        val sameRatio = sizes.filter {
+            kotlin.math.abs(it.width.toDouble() / it.height - tr) < 0.12
+        }
+        sameRatio.filter { it.width <= target.width && it.height <= target.height }
+            .maxByOrNull { it.width * it.height }
+            ?.let { return it }
+        sameRatio.minByOrNull { it.width * it.height }?.let { return it }
+        // 比例都对不上（机型怪异）：选**总像素最接近目标**的 —— 负载可控才是硬道理
+        val targetPx = target.width.toLong() * target.height
+        return sizes.minByOrNull {
+            kotlin.math.abs(it.width.toLong() * it.height - targetPx)
+        } ?: target
     }
 
     override fun stop() {
