@@ -3,7 +3,7 @@
 
 // 人类可读版本串（--version / 面板关于页使用）
 #ifndef APXPC_VERSION_STRING
-#define APXPC_VERSION_STRING "0.3.0"
+#define APXPC_VERSION_STRING "0.3.1"
 #endif
 
 namespace apxpc {
