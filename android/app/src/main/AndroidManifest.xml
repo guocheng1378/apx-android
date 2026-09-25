@@ -86,6 +86,13 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
+        <!-- 文件面板：看「收到的文件」并转发给对端（与 TV 端同源交互） -->
+        <activity
+            android:name=".ui.FilePanelActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait" />
+
         <!-- 副屏全屏（Wi‑Fi 收流 + 硬解 + TextureView 渲染） -->
         <activity
             android:name=".screen.ScreenActivity"

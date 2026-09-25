@@ -963,8 +963,11 @@ class MainActivity : Activity() {
         fileBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
         fileBox.addView(settingRow("发送文件到对端", "选文件", accent) { pickFileToSend() })
+        fileBox.addView(settingRow("收到的文件 / 文件面板", "查看并转发", accent) {
+            startActivity(Intent(this, FilePanelActivity::class.java))
+        })
         fileBox.addView(TextView(this).apply {
-            text = "经 9512 发送到当前受控设备；需先在「连接」里选 TV / PC"
+            text = "经 9512 收发；发文件需先在「连接」里选 TV / PC，收到的文件在「收到的文件」里看"
             textSize = 12f
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
             setPadding(dp(4), dp(8), dp(4), dp(2))
