@@ -42,6 +42,7 @@ class TvServerService : Service() {
         if (server == null) {
             val s = TcpControlServer()
             s.onPeerChanged = { connected, ip ->
+                Log.i("对端变化：connected=$connected ip=$ip（记下后可供文件发送选目标）")
                 if (connected && ip.isNotEmpty()) rememberPeer(ip)
                 refreshNotification()
             }
@@ -97,6 +98,22 @@ class TvServerService : Service() {
 
     /** 供界面读取实时状态（Activity 重建后也能立刻显示「已连接 xxx」） */
     fun status(): String = server?.statusText() ?: "未启动"
+
+    /**
+     * 文件发送目标候选：**当前连入方优先**，其次曾经连过的对端。
+     * 电视上用遥控器输 IP 太痛苦，所以发送目标只从「连过的设备」里挑。
+     */
+    fun sendTargets(): List<String> {
+        val out = ArrayList<String>(4)
+        server?.currentPeerHost()?.let { out.add(it) }
+        out.addAll(knownPeers())
+        val distinct = out.distinct()
+        Log.i("发送目标候选：当前=${server?.currentPeerHost() ?: "-"} 记住的=${knownPeers()} → ${distinct}")
+        return distinct
+    }
+
+    /** 当前连入方 IP（没有则 null） */
+    fun currentPeer(): String? = server?.currentPeerHost()
 
     private fun refreshNotification() {
         runCatching {

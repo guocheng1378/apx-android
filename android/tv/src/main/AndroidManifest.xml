@@ -64,6 +64,14 @@
             </intent-filter>
         </activity>
 
+        <!-- 文件传输面板：看「收到的文件」并发送给对端（遥控器友好、尺寸自适应） -->
+        <activity
+            android:name=".ui.TvFileActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
+            android:theme="@style/Theme.ApxTv" />
+
         <service
             android:name=".TvServerService"
             android:exported="false"
