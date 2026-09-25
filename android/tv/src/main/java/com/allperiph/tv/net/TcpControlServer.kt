@@ -340,12 +340,14 @@ class TcpControlServer(
         val buttons = body[1].toInt() and 0xFF
         val dx = body[2].toInt().toByte().toInt()   // i8 还原
         val dy = body[3].toInt().toByte().toInt()
+        val wheel = if (body.size >= 5) body[4].toInt().toByte().toInt() else 0
         TvInputDispatcher.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         TvInjector.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
-        if ((buttons and 1) != 0 && (lastButtons and 1) == 0) {
-            TvInputDispatcher.cursorClick()
-            TvInjector.click()
-        }
+        // 左键按下/松开 → 一笔：不动=轻点或长按(≥500ms)，按住移动=拖拽（时长取实际值）
+        if ((buttons and 1) != 0 && (lastButtons and 1) == 0) TvInjector.pressDown()
+        if ((buttons and 1) == 0 && (lastButtons and 1) == 1) TvInjector.pressUp()
+        // 滚轮：一格 = 滚一屏的 1/10（以前滚轮帧被整段忽略）
+        if (wheel != 0) TvInjector.scroll(wheel)
         lastButtons = buttons
     }
 
@@ -390,6 +392,13 @@ class TcpControlServer(
         for (i in 3 until end) {
             val usage = body[i].toInt() and 0xFF
             if (usage != 0) now.add(usage)
+        }
+        // 「锁屏」芯片发的是 Win+L —— TV 上没有桌面语义，当电源键处理（锁屏/亮屏）
+        if (mod and 8 != 0 && now == HashSet(listOf(0x0F))) {
+            pressedKeys.clear()
+            if (RootInput.available) RootInput.run("input keyevent 26")
+            else com.allperiph.tv.core.ApxAccessibilityService.instance?.lockScreen()
+            return
         }
         // 修饰键：把 mod 的 8 个位折成 0xE0..0xE7 并入按下集合，复用下面的边沿逻辑。
         // 原先这里**整段没读 mod** —— 「Ctrl+C / Alt+Tab / Win+D」到 TV 只剩一个裸字母或
@@ -540,6 +549,7 @@ class TcpControlServer(
             put(0x2C, 62 to ' ')              // Space
             put(0x4A, 3 to '\u0000')           // Home（遥控器「主页」；受系统注入限制可能不生效）
             put(0x4C, 112 to '\u0000')         // Delete
+            put(0x66, 26 to '\u0000')          // Keyboard Power → KEYCODE_POWER（电源键/锁屏）
             put(0x4F, 22 to '\u0000')          // Right
             put(0x50, 21 to '\u0000')          // Left
             put(0x51, 20 to '\u0000')          // Down

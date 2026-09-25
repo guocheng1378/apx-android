@@ -130,6 +130,20 @@ class ApxAccessibilityService : AccessibilityService() {
         }
     }
 
+    /** 长按：同一位置按住 600ms（以前被控端没有这个能力，长按菜单/拖拽全废） */
+    fun longPress(x: Float, y: Float): Boolean {
+        if (Build.VERSION.SDK_INT < 24) return false
+        val p = Path()
+        p.moveTo(x, y)
+        p.lineTo(x + 1f, y + 1f)
+        val stroke = GestureDescription.StrokeDescription(p, 0, 600)
+        return dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+    }
+
+    /** 锁屏（无 root 时的电源键替代；API 28+） */
+    fun lockScreen(): Boolean =
+        if (Build.VERSION.SDK_INT >= 28) performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) else false
+
     fun back() = performGlobalAction(GLOBAL_ACTION_BACK)
     fun home() = performGlobalAction(GLOBAL_ACTION_HOME)
     fun recents() = performGlobalAction(GLOBAL_ACTION_RECENTS)

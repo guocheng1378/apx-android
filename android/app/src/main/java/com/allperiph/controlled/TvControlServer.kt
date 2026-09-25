@@ -386,6 +386,13 @@ class TvControlServer(
             val usage = body[i].toInt() and 0xFF
             if (usage != 0) now.add(usage)
         }
+        // 「锁屏」芯片发的是 Win+L —— 手机上没有桌面语义，当电源键处理（锁屏/亮屏）
+        if (mod and 8 != 0 && now == HashSet(listOf(0x0F))) {
+            pressedKeys.clear()
+            if (RootInput.available) RootInput.run("input keyevent 26")
+            else ApxAccessibilityService.instance?.lockScreen()
+            return
+        }
         // 修饰键：把 mod 的 8 个位折成 0xE0..0xE7 并入按下集合，复用下面的边沿逻辑。
         // 原先这里**整段没读 mod** —— 「Ctrl+C / Alt+Tab / Win+D」到本机只剩一个裸字母或
         // 完全没反应（真机症状：快捷键不能用）。对端松手时发 mod=0、keys=0，
