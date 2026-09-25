@@ -37,6 +37,11 @@ public:
     void setOpenCallback(std::function<void()> cb);
     void setPort(unsigned port) { port_ = port; }
 
+    /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
+    /// 用于「收到手机传来的文件」这类不该打断用户、但必须让用户知道的提示。
+    /// 非 Windows 平台为空实现；窗口/托盘未创建时静默忽略。
+    void notify(const std::string& title, const std::string& text);
+
     void quit();
 
 // 以下成员供本翻译单元内的线程/窗口过程自由函数访问（内部工具类，直接公开）

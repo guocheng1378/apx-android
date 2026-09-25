@@ -126,11 +126,28 @@ void TrayIcon::quit() {
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }
 
+// 气泡通知：NIF_INFO + NIM_MODIFY。可以在任意线程调用（Shell_NotifyIcon 线程安全），
+// 所以文件接收线程收到整份文件后直接喊一声即可，不必绕回 UI 线程。
+void TrayIcon::notify(const std::string& title, const std::string& text) {
+    if (!window_ || !running_) return;
+    NOTIFYICONDATA nid{};
+    nid.cbSize = sizeof nid;
+    nid.hWnd = static_cast<HWND>(window_);
+    nid.uID = 1;
+    nid.uFlags = NIF_INFO;
+    nid.dwInfoFlags = NIIF_INFO;
+    // 同 tip：UTF-8 → 宽字符必须显式转换，否则中文变乱码
+    lstrcpyn(nid.szInfoTitle, utf8ToWide(title).c_str(), ARRAYSIZE(nid.szInfoTitle));
+    lstrcpyn(nid.szInfo, utf8ToWide(text).c_str(), ARRAYSIZE(nid.szInfo));
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
+}
+
 #else
 bool TrayIcon::create(const std::string&, HICON) { return true; }
 void TrayIcon::quit() { if (onQuit_) onQuit_(); }
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }
+void TrayIcon::notify(const std::string&, const std::string&) {}
 #endif
 
 // ---------------------------------------------------------------- 开机自启

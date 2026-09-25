@@ -42,6 +42,7 @@
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/tray/tray_win32.hpp"
+#include "apxpc/wireless/file_receiver.hpp"   // 9512 文件接收（手机 → 电脑）
 #include "apxpc/wireless/wireless_session.hpp"
 
 #include <windows.h>
@@ -445,6 +446,11 @@ struct Panel {
 
     std::unique_ptr<WirelessSession> session;
     std::unique_ptr<TrayIcon> tray;
+
+    /// 9512 文件接收（手机 → 电脑）。
+    /// 刻意声明在 tray **之后**：成员析构顺序与声明相反，于是本对象先被停掉，
+    /// 回调里用到的托盘一定还活着（收到文件时用托盘气泡提示用户）。
+    std::unique_ptr<apxpc::wireless::FileReceiver> fileRecv;
 
     // 媒体通道（第二条连接，手机 9502）：副屏与音箱/麦克风共用同一条
     // —— 手机侧媒体通道是单对端语义，不能为副屏另开一条。
@@ -2024,6 +2030,29 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     });
     panel.tray->setQuitCallback([hwnd] { PostMessageW(hwnd, kMsgTrayQuit, 0, 0); });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
+
+    // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，
+    // 电脑端此前完全没有这个监听 —— 所以从手机往电脑传文件是「连上就断」，这条补上才真正能用。
+    // 落盘到「下载\AllPeriph」，收完用托盘气泡告知（文件是用户在场时才会传的东西，必须看得见）。
+    {
+        // 回调在接收线程；托盘对象的存活由 Panel 成员析构顺序保证（见 fileRecv 声明处注释）
+        TrayIcon* tray = panel.tray.get();
+        const std::string recvDir = apxpc::wireless::FileReceiver::defaultDir();
+        panel.fileRecv = std::make_unique<apxpc::wireless::FileReceiver>();
+        apxpc::wireless::FileReceiver::FileCallback onFile =
+            [tray, recvDir](const std::string& path, uint64_t size) {
+                APX_LOGI("收到文件：{}（{} 字节）", path.c_str(),
+                         static_cast<unsigned long long>(size));
+                const size_t k = path.find_last_of("/\\");
+                const std::string name = (k == std::string::npos) ? path : path.substr(k + 1);
+                // Shell_NotifyIcon 线程安全，直接喊一声即可，不必绕回 UI 线程
+                tray->notify("收到手机传来的文件",
+                             name + "（" + std::to_string(size) + " 字节）已存到：" + recvDir);
+            };
+        if (!panel.fileRecv->start(9512, recvDir, std::move(onFile)))
+            APX_LOGW("9512 文件接收未启动（端口被占用？）：{}",
+                     panel.fileRecv->lastError().c_str());
+    }
 
     // 媒体通道与副屏推流：媒体连接随控制链路自动建立/收掉（见 tick），
     // 副屏则由卡片上的开关启停 —— 不再需要单独跑 apxdisp.exe。
