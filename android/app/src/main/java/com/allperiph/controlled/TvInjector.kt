@@ -48,6 +48,7 @@ object TvInjector {
     private const val NUDGE = 48f
     private var touchDownX = -1f
     private var touchDownY = -1f
+    private var touchDownAt = 0L
 
     /** 手柄按钮上一帧状态（用于边沿检测） */
     private var lastGamepadButtons = 0
@@ -119,6 +120,7 @@ object TvInjector {
     fun touchDown(fx: Float, fy: Float) {
         touchDownX = fx * screenW
         touchDownY = fy * screenH
+        touchDownAt = SystemClock.uptimeMillis()
     }
 
     fun touchUp(fx: Float, fy: Float) {
@@ -128,10 +130,57 @@ object TvInjector {
             tapAt(ux, uy)
             return
         }
-        val dist = kotlin.math.hypot((ux - touchDownX).toDouble(), (uy - touchDownY).toDouble())
-        if (dist < 12) tapAt(ux, uy) else swipe(touchDownX, touchDownY, ux, uy, 180)
+        val dur = SystemClock.uptimeMillis() - touchDownAt
+        finishStroke(touchDownX, touchDownY, ux, uy, dur)
         touchDownX = -1f
         touchDownY = -1f
+    }
+
+    /** 在当前光标处"按下"（配 [pressUp] 构成 点击/长按/拖拽） */
+    fun pressDown() {
+        touchDownX = cursorX
+        touchDownY = cursorY
+        touchDownAt = SystemClock.uptimeMillis()
+    }
+
+    /** 在当前光标处"抬起"：不动=轻点或长按（≥500ms），移动=拖拽（时长取实际值） */
+    fun pressUp() {
+        if (touchDownX < 0f) return
+        val dur = SystemClock.uptimeMillis() - touchDownAt
+        finishStroke(touchDownX, touchDownY, cursorX, cursorY, dur)
+        touchDownX = -1f
+        touchDownY = -1f
+    }
+
+    /**
+     * 一笔的落点：
+     *  - 位移 < 12px 且 ≥500ms → **长按**（以前不管按多久都是单击，长按菜单/拖拽全废）；
+     *  - 位移 < 12px → 轻点；
+     *  - 有位移 → 滑动/拖拽，**时长用真实的按压时长**（以前固定 180ms，拖动总是太急）。
+     */
+    private fun finishStroke(x1: Float, y1: Float, x2: Float, y2: Float, durMs: Long) {
+        val dist = kotlin.math.hypot((x2 - x1).toDouble(), (y2 - y1).toDouble())
+        if (dist < 12) {
+            if (durMs >= 500) longPress(x2, y2) else tapAt(x2, y2)
+        } else {
+            swipe(x1, y1, x2, y2, durMs.coerceIn(120, 2000))
+        }
+    }
+
+    private fun longPress(x: Float, y: Float) {
+        if (RootInput.available && RootInput.run("input swipe ${x.toInt()} ${y.toInt()} ${x.toInt()} ${y.toInt()} 600")) return
+        if (systemReady()) ApxAccessibilityService.instance?.longPress(x, y)
+    }
+
+    /** 滚轮 → 被控端滚动（一格 ≈ 屏高 1/10；正 = 内容上滚 = 手指上滑）。以前滚轮帧被直接忽略。 */
+    fun scroll(notches: Int) {
+        if (notches == 0) return
+        val step = screenH / 10f * notches
+        if (RootInput.available && RootInput.run(
+                "input swipe ${cursorX.toInt()} ${cursorY.toInt()} ${cursorX.toInt()} ${(cursorY - step).toInt()} 220"
+            )
+        ) return
+        if (systemReady()) ApxAccessibilityService.instance?.swipe(cursorX, cursorY, cursorX, cursorY - step, 220)
     }
 
     fun key(kc: Int, down: Boolean) {
@@ -169,6 +218,12 @@ object TvInjector {
             //   映射成 KEYCODE_BACK、0x4A(Home) 映射成 KEYCODE_HOME，原先这里没有分支 →
             //   被**静默丢弃**（被控手机点「返回/主页」毫无反应）。无障碍服务注入不了任意按键，
             //   但这三个全局动作是它明确支持的。
+            // 电源键：root 下 `input keyevent 26` 真能锁屏/亮屏；无 root 用全局锁屏动作（API 28+）。
+            // 以前白名单里没有它 → 用户按了没反应（真机反馈"还缺电源键"）。
+            KeyEvent.KEYCODE_POWER -> {
+                if (RootInput.available) RootInput.run("input keyevent 26")
+                else ApxAccessibilityService.instance?.lockScreen()
+            }
             KeyEvent.KEYCODE_BACK -> ApxAccessibilityService.instance?.back()
             KeyEvent.KEYCODE_HOME -> ApxAccessibilityService.instance?.home()
             KeyEvent.KEYCODE_APP_SWITCH -> ApxAccessibilityService.instance?.recents()

@@ -332,12 +332,15 @@ class TvControlServer(
         val buttons = body[1].toInt() and 0xFF
         val dx = body[2].toInt().toByte().toInt()   // i8 还原
         val dy = body[3].toInt().toByte().toInt()
+        val wheel = if (body.size >= 5) body[4].toInt().toByte().toInt() else 0
         TvInputDispatcher.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         TvInjector.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
-        if ((buttons and 1) != 0 && (lastButtons and 1) == 0) {
-            TvInputDispatcher.cursorClick()
-            TvInjector.click()
-        }
+        // 左键按下/松开 → 被控端"一笔"：不动=轻点或长按(≥500ms)，按住移动=拖拽（时长取实际值）。
+        // 以前这里只合成单击 —— 长按菜单与拖拽全都出不来（真机反馈"长按不对、没有滑动"）。
+        if ((buttons and 1) != 0 && (lastButtons and 1) == 0) TvInjector.pressDown()
+        if ((buttons and 1) == 0 && (lastButtons and 1) == 1) TvInjector.pressUp()
+        // 滚轮：一格 = 被控端滚一屏的 1/10（以前滚轮帧被整段忽略 → "没有滚动"）
+        if (wheel != 0) TvInjector.scroll(wheel)
         lastButtons = buttons
     }
 
@@ -545,6 +548,7 @@ class TvControlServer(
             put(0x2A, 67 to '\u0000')          // Backspace
             put(0x2C, 62 to ' ')              // Space
             put(0x4C, 112 to '\u0000')         // Delete
+            put(0x66, 26 to '\u0000')          // Keyboard Power → KEYCODE_POWER（电源键/锁屏）
             put(0x4F, 22 to '\u0000')          // Right
             put(0x50, 21 to '\u0000')          // Left
             put(0x51, 20 to '\u0000')          // Down
