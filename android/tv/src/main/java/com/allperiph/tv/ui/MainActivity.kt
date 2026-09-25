@@ -135,6 +135,9 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         actions.addView(actionButton("文件传输") {
             startActivity(Intent(this@MainActivity, TvFileActivity::class.java))
         })
+        actions.addView(actionButton("副屏（看电脑画面）") {
+            startActivity(Intent(this@MainActivity, TvScreenActivity::class.java))
+        })
         actions.addView(actionButton("启用系统控制") { openSystemControlSettings() })
         col.addView(actions)
 

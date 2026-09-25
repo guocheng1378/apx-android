@@ -25,6 +25,7 @@ namespace {
 const UINT WM_TRAY = WM_APP + 1;
 const UINT IDM_OPEN = 1001;
 const UINT IDM_QUIT = 1002;
+const UINT IDM_SEND_FILE = 1003;
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -43,6 +44,8 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             POINT p; GetCursorPos(&p);
             HMENU m = CreatePopupMenu();
             AppendMenu(m, MF_STRING, IDM_OPEN, L"打开控制面板");
+            AppendMenu(m, MF_STRING, IDM_SEND_FILE, L"发送文件到手机…");
+            AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);
             TrackPopupMenu(m, TPM_RIGHTBUTTON, p.x, p.y, 0, hwnd, nullptr);
@@ -59,6 +62,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int id = LOWORD(wp);
         if (id == IDM_QUIT && self) { self->quit(); }
         else if (id == IDM_OPEN && self && self->onOpen_) { self->onOpen_(); }
+        else if (id == IDM_SEND_FILE && self && self->onSendFile_) { self->onSendFile_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
@@ -125,6 +129,7 @@ void TrayIcon::quit() {
 
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }
+void TrayIcon::setSendFileCallback(std::function<void()> cb) { onSendFile_ = std::move(cb); }
 
 // 气泡通知：NIF_INFO + NIM_MODIFY。可以在任意线程调用（Shell_NotifyIcon 线程安全），
 // 所以文件接收线程收到整份文件后直接喊一声即可，不必绕回 UI 线程。
@@ -147,6 +152,7 @@ bool TrayIcon::create(const std::string&, HICON) { return true; }
 void TrayIcon::quit() { if (onQuit_) onQuit_(); }
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }
+void TrayIcon::setSendFileCallback(std::function<void()> cb) { onSendFile_ = std::move(cb); }
 void TrayIcon::notify(const std::string&, const std::string&) {}
 #endif
 

@@ -43,6 +43,7 @@
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/wireless/file_receiver.hpp"   // 9512 文件接收（手机 → 电脑）
+#include "apxpc/wireless/file_sender.hpp"     // 9512 文件发送（电脑 → 手机）
 #include "apxpc/wireless/wireless_session.hpp"
 
 #include <windows.h>
@@ -50,6 +51,7 @@
 // WIN32_LEAN_AND_MEAN 把 commctrl.h 从 windows.h 里剔掉了，需显式包含：
 // 地址框的提示气泡用 EM_SETCUEBANNER / CBCM_SETCUEBANNER，都在这个头里。
 #include <commctrl.h>
+#include <commdlg.h>   // OPENFILENAMEW / GetOpenFileNameW（「发送文件到手机」的文件选择框）
 
 #include <objidl.h>
 #include <gdiplus.h>
@@ -2053,6 +2055,53 @@ int runPanel(const std::string& /*preferInstanceId*/) {
             APX_LOGW("9512 文件接收未启动（端口被占用？）：{}",
                      panel.fileRecv->lastError().c_str());
     }
+
+    // 托盘右键 →「发送文件到手机…」：把本机文件推到**当前会话的对端**（9512，与手机/TV 端同协议）。
+    // 目标只认「已经连上」的对端 —— 没连上就如实提示，不假装发出去。
+    panel.tray->setSendFileCallback([hwnd]() {
+        auto* p = reinterpret_cast<Panel*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (!p || !p->session || !p->tray) return;
+        const auto s = p->session->snapshot();
+        if (s.phase != LinkPhase::Connected) {
+            p->tray->notify("还没连上手机", "先在面板打开「无线」并等显示已连接，再发送文件");
+            return;
+        }
+        std::string host = s.peer;                 // "host:port"
+        const size_t colon = host.find(':');
+        if (colon != std::string::npos) host = host.substr(0, colon);
+        if (host.empty()) {
+            p->tray->notify("对端地址未知", "等面板显示已连接后再试");
+            return;
+        }
+
+        wchar_t path[MAX_PATH * 4] = {0};
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = hwnd;
+        ofn.lpstrFilter = L"所有文件\0*.*\0\0";
+        ofn.lpstrFile = path;
+        ofn.nMaxFile = ARRAYSIZE(path);
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+        if (!::GetOpenFileNameW(&ofn)) return;      // 用户取消
+
+        // 宽字符路径 → UTF-8（file_sender 全程按 UTF-8 处理路径与文件名）
+        const int need = ::WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+        if (need <= 0) return;
+        std::string file(static_cast<size_t>(need), '\0');
+        ::WideCharToMultiByte(CP_UTF8, 0, path, -1, file.data(), need, nullptr, nullptr);
+        file.resize(static_cast<size_t>(need - 1));
+
+        const size_t slash = file.find_last_of("/\\");
+        const std::string name = (slash == std::string::npos) ? file : file.substr(slash + 1);
+        p->tray->notify("正在发送文件", name + " → " + host);
+        // 传输放后台线程：托盘菜单线程不能被大文件卡住（那会让「退出」也一起卡）
+        std::thread([host, file] {
+            if (!apxpc::wireless::sendFile(host, 9512, file))
+                APX_LOGW("发送文件失败：{}", apxpc::wireless::lastSendError().c_str());
+            else
+                APX_LOGI("文件已发送到手机 {}：{}", host.c_str(), file.c_str());
+        }).detach();
+    });
 
     // 媒体通道与副屏推流：媒体连接随控制链路自动建立/收掉（见 tick），
     // 副屏则由卡片上的开关启停 —— 不再需要单独跑 apxdisp.exe。

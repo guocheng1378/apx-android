@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import com.allperiph.tv.core.Log
+import com.allperiph.tv.media.TvMediaChannel
 import com.allperiph.tv.net.TcpControlServer
 import com.allperiph.tv.net.WirelessBeacon
 
@@ -24,6 +25,7 @@ import com.allperiph.tv.net.WirelessBeacon
 class TvServerService : Service() {
 
     private var server: TcpControlServer? = null
+    private var media: TvMediaChannel? = null
     private var beacon: WirelessBeacon? = null
 
     override fun onCreate() {
@@ -71,6 +73,10 @@ class TvServerService : Service() {
             Log.e("TV 控制面启动失败")
         }
 
+        // 副屏 / 音箱（9502 媒体通道）：与控制面并列，独立启停 —— 关副屏不影响键鼠。
+        // 端口被占（例如同机上另一个接收端在跑）时优雅降级、仅告警。
+        ensureMedia()
+
         val notif = buildNotification(server?.statusText() ?: "服务启动中")
         try {
             if (Build.VERSION.SDK_INT >= 34) {
@@ -88,6 +94,8 @@ class TvServerService : Service() {
     override fun onDestroy() {
         beacon?.stop()
         beacon = null
+        media?.stop()
+        media = null
         server?.stop()
         server = null
         current = null
@@ -98,6 +106,20 @@ class TvServerService : Service() {
 
     /** 供界面读取实时状态（Activity 重建后也能立刻显示「已连接 xxx」） */
     fun status(): String = server?.statusText() ?: "未启动"
+
+    /**
+     * 副屏 / 音箱的媒体通道（9502）。与控制面分开：媒体是大流量，不能挤占输入链路。
+     * 幂等 —— 界面每次进副屏页都可以调一次；端口被占时只告警，不阻断控制面。
+     */
+    fun ensureMedia() {
+        if (media != null) return
+        media = TvMediaChannel().also {
+            if (!it.start()) Log.w("9502 媒体通道未启动（端口被占用？）：副屏与音箱不可用")
+        }
+    }
+
+    /** 媒体通道状态（供副屏页显示「等 PC 连入 / 已连接」） */
+    fun mediaStatus(): String = media?.statusText() ?: "媒体：未启动"
 
     /**
      * 文件发送目标候选：**当前连入方优先**，其次曾经连过的对端。

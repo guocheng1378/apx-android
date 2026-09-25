@@ -64,6 +64,14 @@
             </intent-filter>
         </activity>
 
+        <!-- 副屏页：电脑画面投到电视（9502 媒体通道，等比自适应 + 过扫描安全边距） -->
+        <activity
+            android:name=".ui.TvScreenActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
+            android:theme="@style/Theme.ApxTv" />
+
         <!-- 文件传输面板：看「收到的文件」并发送给对端（遥控器友好、尺寸自适应） -->
         <activity
             android:name=".ui.TvFileActivity"

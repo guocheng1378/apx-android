@@ -193,8 +193,9 @@ endif()
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
   "${APXPC_ROOT}/src/wireless/ctrl9511.cpp"
-  # 9512 文件接收：手机端「文件传输」连的就是对端 9512（手机/TV 端早有接收端，PC 端此前没有）
+  # 9512 文件接收/发送：手机端「文件传输」连的就是对端 9512（手机/TV 端早有接收端，PC 端此前没有）
   "${APXPC_ROOT}/src/wireless/file_receiver.cpp"
+  "${APXPC_ROOT}/src/wireless/file_sender.cpp"
 )
 # 跨平台注入器/剪贴板：按编译目标选其一（createPlatformInjector 在对应 TU 定义）
 if(WIN32)

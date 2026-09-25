@@ -35,6 +35,8 @@ public:
     void setQuitCallback(std::function<void()> cb);
     // 打开面板回调（默认浏览 http://127.0.0.1:port）
     void setOpenCallback(std::function<void()> cb);
+    // 「发送文件到手机…」回调（右键托盘菜单里那一项）；未设置则菜单不出该项
+    void setSendFileCallback(std::function<void()> cb);
     void setPort(unsigned port) { port_ = port; }
 
     /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
@@ -48,6 +50,7 @@ public:
 public:
     std::function<void()> onQuit_;
     std::function<void()> onOpen_;
+    std::function<void()> onSendFile_;
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;
