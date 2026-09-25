@@ -22,6 +22,7 @@
 
 #if defined(_WIN32)
 #include <ws2tcpip.h>
+#include <iphlpapi.h>
 using Sock = SOCKET;
 const Sock kBadSock = INVALID_SOCKET;
 static void closeSock(Sock s) { if (s != INVALID_SOCKET) closesocket(s); }
@@ -188,9 +189,16 @@ struct Ctrl9511Server::Impl {
             }
             {
                 std::lock_guard<std::mutex> lk(clientMu);
-                if (clientFd != kBadSock) {  // 已有连接：拒绝新连接
-                    closeSock(c);
-                    continue;
+                if (clientFd != kBadSock) {
+                    // 已有连接：**让后来者接管**，不要拒绝。旧客户端可能已是僵尸（对端被强杀 /
+                    // 网段切换时收不到 FIN，收流线程一直阻塞在 recv，clientFd 被永久占住）；
+                    // 此时若拒绝新连接，手机端就是「TCP 连上、却一行都进不来」。
+                    // 注意：**不要在这里关旧 socket** —— 旧收流线程还阻塞在 recv 上，让它自己
+                    // 醒来后关（它有 500ms 超时，看到 clientFd 已换就 break 并关闭）。在这里关
+                    // 会关同一个句柄两次；而新 accept 拿到的 socket 很可能复用同一个数值，
+                    // 于是旧线程的 closeSock 会把**刚接管的新连接**一起关掉。
+                    st.connected = false;
+                    st.peer.clear();
                 }
                 clientFd = c;
             }
@@ -199,6 +207,18 @@ struct Ctrl9511Server::Impl {
     }
 
     void handshake(Sock s) {
+        // ★★ 「第二次连接必崩」的真因在这里：readerThread / writerThread 是**成员**。
+        //   上一条连接的线程退出后没人 join，对象仍是 joinable；此时再赋值一个新的
+        //   std::thread 会调用 **std::terminate → __fastfail(0xC0000409)**。
+        //   而 fail-fast 绕过 SEH/VEH、不生成 crash.dmp/crash.txt、WER 也无记录，
+        //   只留一个 -1073740791 的退出码 —— 现场干干净净，极难定位。
+        //   （原先第二个连接被 acceptLoop 直接拒绝，所以这坑一直没被踩到。）
+        //   此刻 clientFd 已指向新连接：旧收流线程看到就 break、旧发出线程最迟 200ms
+        //   醒来 break，因此 join 不会久等。用 join 而非 detach，保证 stop() 时
+        //   Impl 不会被仍在运行的线程悬空访问。
+        if (readerThread.joinable()) readerThread.join();
+        if (writerThread.joinable()) writerThread.join();
+
         // 握手超时：避免半开连接卡死接收线程
 #if defined(_WIN32)
         DWORD t = 5000;
@@ -207,16 +227,16 @@ struct Ctrl9511Server::Impl {
 #endif
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&t), sizeof(t));
         uint8_t hdr[4];
-        if (!readFull(s, hdr, 4)) { closeSock(s); resetClient(); return; }
+        if (!readFull(s, hdr, 4)) { closeSock(s); resetClientFor(s); return; }
         const uint32_t tokLen = readU32Le(hdr);
-        if (tokLen > 256) { closeSock(s); resetClient(); return; }
+        if (tokLen > 256) { closeSock(s); resetClientFor(s); return; }
         bool ok = true;
         if (tokLen > 0) {
             std::vector<uint8_t> buf(tokLen);
             if (!readFull(s, buf.data(), tokLen)) { ok = false; }
             else if (!token.empty() && std::string(buf.begin(), buf.end()) != token) ok = false;
         }
-        if (!ok) { closeSock(s); resetClient(); return; }
+        if (!ok) { closeSock(s); resetClientFor(s); return; }
         // 关掉读超时（后续一直接收控制帧），启动收发线程
 #if defined(_WIN32)
         DWORD z = 0;
@@ -234,8 +254,12 @@ struct Ctrl9511Server::Impl {
         writerThread = std::thread([this, s] { writerLoop(s); });
     }
 
-    void resetClient() {
+    /// 清掉「自己这条」连接的状态。**必须带上 socket 校验**：新连接接管后，旧连接的
+    /// 收流/发出线程退出时也会走到这里；若无条件清，会把刚接管进来的新客户端一起清掉
+    /// （新连接随即被判为「已不是当前 client」而断开）—— 等价于永远用不了新连接。
+    void resetClientFor(Sock s) {
         std::lock_guard<std::mutex> lk(clientMu);
+        if (clientFd != s) return;
         clientFd = kBadSock;
         st.connected = false;
         st.peer.clear();
@@ -294,7 +318,7 @@ struct Ctrl9511Server::Impl {
             if (off > 0) acc.erase(acc.begin(), acc.begin() + static_cast<long>(off));
         }
         closeSock(s);
-        resetClient();
+        resetClientFor(s);
     }
 
     void dispatch(const uint8_t* p, uint32_t bodyLen) {
@@ -311,7 +335,9 @@ struct Ctrl9511Server::Impl {
             const uint8_t buttons = p[1];
             const int8_t dx = static_cast<int8_t>(p[2]);
             const int8_t dy = static_cast<int8_t>(p[3]);
-            const int8_t wheel = (bodyLen >= 6) ? static_cast<int8_t>(p[4]) : 0;
+            // 手机端 body 是 5 字节 [0x01, buttons, dx, dy, wheel]：滚轮在第 5 字节。
+            // 原来写成 bodyLen >= 6，5 字节时恒取 0 —— 滚轮一直失效。
+            const int8_t wheel = (bodyLen >= 5) ? static_cast<int8_t>(p[4]) : 0;
             if (injector) injector->injectMouse(buttons, dx, dy, wheel);
             aMouse_.fetch_add(1);
         } else if (cmd == 0x02 && bodyLen >= 3) {
@@ -341,6 +367,14 @@ struct Ctrl9511Server::Impl {
                 if (injector) injector->setClipboard(text);
                 aClipboard_.fetch_add(1);
             }
+        } else if (cmd == 0x07 && bodyLen >= 7) {
+            const uint16_t buttons = static_cast<uint16_t>(p[1]) |
+                                      (static_cast<uint16_t>(p[2]) << 8);
+            const int8_t x = static_cast<int8_t>(p[3]);
+            const int8_t y = static_cast<int8_t>(p[4]);
+            const int8_t rx = static_cast<int8_t>(p[5]);
+            const int8_t ry = static_cast<int8_t>(p[6]);
+            if (injector) injector->injectGamepad(buttons, x, y, rx, ry);
         }
         // 0x21 / 0x05 / 0x10 等：受控端忽略
     }
@@ -351,43 +385,82 @@ struct Ctrl9511Server::Impl {
             writeCv.wait_for(lk, std::chrono::milliseconds(200),
                              [this] { return !outQueue.empty() || !running.load(); });
             if (!running.load()) break;
+            // 已被新连接接管：这条 writer 退休，别再往旧 socket 写（否则会误清接管者的状态）
+            {
+                std::lock_guard<std::mutex> lkC(clientMu);
+                if (clientFd != s) break;
+            }
             if (outQueue.empty()) continue;
             auto frame = std::move(outQueue.front());
             outQueue.pop_front();
             lk.unlock();
-            if (!sendAll(s, frame.data(), frame.size())) { closeSock(s); resetClient(); break; }
+            if (!sendAll(s, frame.data(), frame.size())) { closeSock(s); resetClientFor(s); break; }
             lk.lock();
         }
     }
 
     void beaconLoop() {
-        // 受控端广播 "APX1TV <name> <port> <token>" 到 255.255.255.255:9501，
-        // 手机端 TvDiscovery 据此把本机列为「可控制的 PC」。
+        // 受控端广播 "APX1PC <name> <port> <token>" 到 9501，
+        // 手机端 TvDiscovery 据此把本机列为「可控制的 PC」（与 TV 的 APX1TV 区分类型，
+        // 避免手机把 PC 误判成 TV 而切到 TV 专属快捷键布局）。
+        // 重要：Xiaomi MIUI / Android 15 会丢弃 255.255.255.255 受限广播，
+        // 故除受限广播外，还要向各 IPv4 网卡的「子网定向广播」发送，手机才能收到。
         std::string safe = name;
         for (auto& c : safe) if (c == ' ') c = '_';
-        const std::string payload = "APX1TV " + safe + " " + std::to_string(port) + " " + token;
+        const std::string payload = "APX1PC " + safe + " " + std::to_string(port) + " " + token;
+        auto sendTo = [](Sock b, const std::string& pl, uint32_t netAddr) {
+            sockaddr_in dst{};
+            dst.sin_family = AF_INET;
+            dst.sin_port = htons(9501);
+            dst.sin_addr.s_addr = netAddr;
+            ::sendto(b, pl.data(), static_cast<int>(pl.size()), 0,
+                     reinterpret_cast<sockaddr*>(&dst), sizeof(dst));
+        };
 #if defined(_WIN32)
         Sock b = socket(AF_INET, SOCK_DGRAM, 0);
         if (b == INVALID_SOCKET) return;
         BOOL br = TRUE; setsockopt(b, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&br), sizeof(br));
-        sockaddr_in dst{}; dst.sin_family = AF_INET; dst.sin_port = htons(9501);
-        dst.sin_addr.s_addr = INADDR_BROADCAST;
+        std::vector<uint32_t> bcasts;
+        bcasts.push_back(INADDR_BROADCAST);  // 受限广播兜底
+        {
+            ULONG size = 0;
+            GetAdaptersAddresses(AF_INET, 0, nullptr, nullptr, &size);
+            if (size == 0) size = 16384;
+            std::vector<uint8_t> buf(size);
+            PIP_ADAPTER_ADDRESSES addrs = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buf.data());
+            if (GetAdaptersAddresses(AF_INET, 0, nullptr, addrs, &size) == NO_ERROR) {
+                for (auto* a = addrs; a; a = a->Next) {
+                    if (a->OperStatus != IfOperStatusUp) continue;
+                    for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
+                        if (ua->Address.lpSockaddr->sa_family != AF_INET) continue;
+                        auto* sin = reinterpret_cast<sockaddr_in*>(ua->Address.lpSockaddr);
+                        uint32_t ip = ntohl(sin->sin_addr.s_addr);
+                        ULONG prefix = ua->OnLinkPrefixLength;
+                        if (prefix == 0 || prefix > 32) continue;
+                        uint32_t mask = (prefix == 32) ? 0xFFFFFFFFu
+                                                       : ~( (1u << (32u - prefix)) - 1u );
+                        bcasts.push_back(htonl(ip | (~mask)));
+                    }
+                }
+            }
+        }
+        while (running.load()) {
+            for (uint32_t bc : bcasts) sendTo(b, payload, bc);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+        }
+        closeSock(b);
 #else
         Sock b = socket(AF_INET, SOCK_DGRAM, 0);
         if (b < 0) return;
         int br = 1; setsockopt(b, SOL_SOCKET, SO_BROADCAST, &br, sizeof(br));
         sockaddr_in dst{}; dst.sin_family = AF_INET; dst.sin_port = htons(9501);
         dst.sin_addr.s_addr = INADDR_BROADCAST;
-#endif
-        const auto t0 = nowMs();
         while (running.load()) {
-            if (nowMs() - t0 >= 0) {
-                ::sendto(b, payload.data(), static_cast<int>(payload.size()), 0,
-                         reinterpret_cast<sockaddr*>(&dst), sizeof(dst));
-            }
+            sendTo(b, payload, dst.sin_addr.s_addr);
             std::this_thread::sleep_for(std::chrono::milliseconds(1500));
         }
         closeSock(b);
+#endif
     }
 };
 
@@ -448,7 +521,14 @@ void Ctrl9511Server::stop() {
 
 Ctrl9511ServerStatus Ctrl9511Server::status() const {
     if (!impl_) return Ctrl9511ServerStatus{};
-    Ctrl9511ServerStatus s = impl_->st;
+    Ctrl9511ServerStatus s;
+    {
+        // st.peer 是 std::string，握手线程与「新连接接管」都会写它；这里必须持同一把锁再拷。
+        // 否则就是跨线程读写同一个 std::string 的数据竞争（可能踩坏堆 → fail-fast 崩溃，
+        // 且崩溃点与触发点相隔很远，极难定位）。
+        std::lock_guard<std::mutex> lk(impl_->clientMu);
+        s = impl_->st;
+    }
     s.mouse = impl_->aMouse_.load();
     s.touch = impl_->aTouch_.load();
     s.keyboard = impl_->aKeyboard_.load();
@@ -506,7 +586,11 @@ Ctrl9511Client::Ctrl9511Client() = default;
 Ctrl9511Client::~Ctrl9511Client() { disconnect(); }
 
 bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::string& token) {
-    if (impl_) return false;
+    // 旧连接若已死（收流线程只关了 socket，impl_ 仍留着），这里必须先收掉再连：
+    // 否则 impl_ 会一直挡着，connect() **永远立即返回 false** —— 一次瞬断之后就再也连不上，
+    // 表现为面板每 3s 重试却毫无动静、对端日志里连一个连接请求都看不到（真机踩过）。
+    // 调用方只在 client_.ready() 为 false 时才进来，所以这里不会掐掉健康连接。
+    if (impl_) disconnect();
     ensureWsa();
     auto* im = new Impl();
     addrinfo hints{}, *res = nullptr;
@@ -608,13 +692,21 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
 }
 
 void Ctrl9511Client::disconnect() {
-    if (!impl_) return;
-    impl_->running.store(false);
-    { std::lock_guard<std::mutex> lk(impl_->mu);
-      if (impl_->sock != kBadSock) { shutdown(impl_->sock, 0); closeSock(impl_->sock); impl_->sock = kBadSock; } }
-    if (impl_->readerThread.joinable()) impl_->readerThread.join();
-    if (impl_->pingThread.joinable()) impl_->pingThread.join();
-    impl_.reset();
+    std::unique_ptr<Impl> im(impl_.release());
+    if (!im) return;
+    im->running.store(false);
+    { std::lock_guard<std::mutex> lk(im->mu);
+      if (im->sock != kBadSock) { shutdown(im->sock, 0); closeSock(im->sock); im->sock = kBadSock; } }
+    // **绝不在调用者线程里 join**：connect() 会先调本函数（清掉死掉的旧连接），而 connect()
+    // 可能被 UI 线程与工作线程交叉调到；一旦 join 到自己所在线程就抛 std::system_error →
+    // std::terminate → 0xC0000409(fail-fast)，而 fail-fast **绕过**崩溃过滤器，现场不留任何
+    // 痕迹（真机症状：连第二次就连不上、面板直接消失、日志里只有一个 -1073740791）。
+    // 改成交给独立线程 join + delete：两个收发线程都带 200~500ms 超时循环，最多一秒收工。
+    std::thread([raw = im.release()] {
+        if (raw->readerThread.joinable()) raw->readerThread.join();
+        if (raw->pingThread.joinable()) raw->pingThread.join();
+        delete raw;
+    }).detach();
 }
 
 bool Ctrl9511Client::ready() const { return impl_ && impl_->running.load(); }

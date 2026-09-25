@@ -7,7 +7,12 @@ import android.content.Intent
 import android.media.AudioManager
 import android.os.Build
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
+import android.hardware.input.InputManager
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.InputEvent
 import com.allperiph.tv.ui.TvOverlay
 
 /**
@@ -29,6 +34,9 @@ object TvInjector {
     private const val NUDGE = 48f
     private var touchDownX = -1f
     private var touchDownY = -1f
+
+    /** 手柄按钮上一帧状态（用于边沿检测） */
+    private var lastGamepadButtons = 0
 
     fun init(c: Context) {
         ctx = c.applicationContext
@@ -107,7 +115,20 @@ object TvInjector {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> click()
             KeyEvent.KEYCODE_DEL -> ApxAccessibilityService.instance?.deleteChar()
             KeyEvent.KEYCODE_SPACE -> ApxAccessibilityService.instance?.typeText(" ")
-            else -> { /* 其他键（媒体等）由 consumer 处理 */ }
+            // ★ 遥控器套里最常用的两个键：返回 / 主页。服务端的 HID_MAP 已把
+            //   0x29(Esc) 映射成 KEYCODE_BACK、0x4A(Home) 映射成 KEYCODE_HOME，
+            //   但原先这里没有对应分支 → 落进 else 被**静默丢弃**（点「返回/主页」毫无反应）。
+            //   无障碍服务不能注入任意按键，但 performGlobalAction 明确支持这三个全局动作，
+            //   正是电视上真正有用的语义。
+            KeyEvent.KEYCODE_BACK -> ApxAccessibilityService.instance?.back()
+            KeyEvent.KEYCODE_HOME -> ApxAccessibilityService.instance?.home()
+            KeyEvent.KEYCODE_APP_SWITCH -> ApxAccessibilityService.instance?.recents()
+            KeyEvent.KEYCODE_ESCAPE -> ApxAccessibilityService.instance?.back()
+            else -> {
+                // 其余（含 Ctrl/Alt/Shift/Win 修饰键 113/59/57/117/114/60/58/118）：
+                // 电视没有组合键语义，明确忽略 —— 与旧行为的区别是「修饰键不再被当成未知键
+                // 干扰后续按键边沿」，按下/松开由服务端成对处理。
+            }
         }
     }
 
@@ -155,4 +176,73 @@ object TvInjector {
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
         if (systemReady()) ApxAccessibilityService.instance?.typeText(text)
     }
+
+    /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
+     *  走 InputManager.injectInputEvent（需 INJECT_EVENTS 权限）；AccessibilityService 无法注入手柄。 */
+    fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+        val c = ctx ?: return
+        if (c.checkSelfPermission("android.permission.INJECT_EVENTS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w("手柄注入需 INJECT_EVENTS 权限（adb shell appops set ${c.packageName} android:inject_events allow）")
+            return
+        }
+        val im = c.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return
+        for (bit in 0..15) {
+            val now = (buttons ushr bit) and 1 == 1
+            val was = (lastGamepadButtons ushr bit) and 1 == 1
+            if (now == was) continue
+            val kc = GAMEPAD_KEYCODES[bit] ?: continue
+            injectGamepadKey(im, now, kc)
+        }
+        lastGamepadButtons = buttons
+        val t = SystemClock.uptimeMillis()
+        val evt = MotionEvent.obtain(
+            t, t, MotionEvent.ACTION_MOVE, 1,
+            arrayOf(MotionEvent.PointerProperties().apply { id = 0 }),
+            arrayOf(MotionEvent.PointerCoords().apply {
+                setAxisValue(MotionEvent.AXIS_X, x / 127f)
+                setAxisValue(MotionEvent.AXIS_Y, y / 127f)
+                setAxisValue(MotionEvent.AXIS_Z, rx / 127f)
+                setAxisValue(MotionEvent.AXIS_RZ, ry / 127f)
+            }),
+            0, 0, 0f, 0f, 0, 0, InputDevice.SOURCE_GAMEPAD, 0
+        )
+        injectGamepadEvent(im, evt)
+        evt.recycle()
+    }
+
+    private fun injectGamepadKey(im: InputManager, down: Boolean, keyCode: Int) {
+        val t = SystemClock.uptimeMillis()
+        val ev = KeyEvent(t, t, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, keyCode, 0)
+        ev.source = InputDevice.SOURCE_GAMEPAD
+        injectGamepadEvent(im, ev)
+    }
+
+    private val injectInputEventMethod by lazy {
+        try {
+            InputManager::class.java.getMethod("injectInputEvent", InputEvent::class.java, Int::class.javaPrimitiveType)
+        } catch (_: Throwable) { null }
+    }
+    private fun injectGamepadEvent(im: InputManager, ev: InputEvent) {
+        // INJECT_INPUT_EVENT_MODE_ASYNC == 0；反射规避部分 SDK stub 未暴露该隐藏 API
+        injectInputEventMethod?.invoke(im, ev, 0)
+    }
+
+    private val GAMEPAD_KEYCODES = arrayOf<Int?>(
+        KeyEvent.KEYCODE_BUTTON_A,      // 0
+        KeyEvent.KEYCODE_BUTTON_B,      // 1
+        KeyEvent.KEYCODE_BUTTON_X,      // 2
+        KeyEvent.KEYCODE_BUTTON_Y,      // 3
+        KeyEvent.KEYCODE_BUTTON_L1,     // 4
+        KeyEvent.KEYCODE_BUTTON_R1,     // 5
+        KeyEvent.KEYCODE_BUTTON_L2,     // 6
+        KeyEvent.KEYCODE_BUTTON_R2,     // 7
+        KeyEvent.KEYCODE_BUTTON_SELECT, // 8
+        KeyEvent.KEYCODE_BUTTON_START,  // 9
+        KeyEvent.KEYCODE_BUTTON_C,      // 10
+        KeyEvent.KEYCODE_BUTTON_Z,      // 11
+        KeyEvent.KEYCODE_BUTTON_MODE,   // 12
+        KeyEvent.KEYCODE_BUTTON_THUMBL, // 13
+        KeyEvent.KEYCODE_BUTTON_THUMBR, // 14
+        null                            // 15
+    )
 }

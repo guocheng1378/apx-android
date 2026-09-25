@@ -188,7 +188,7 @@ endif()
 
 # ---------------------------------------------------------- 目标：统一控制面（9511）
 # 三端互通的单一控制协议（替代原 9500 旧路径）：PC 既可控手机/TV（Ctrl9511Client），
-# 也可被控（Ctrl9511Server，广播 APX1TV 信标供手机自动发现）。WirelessSession 是
+# 也可被控（Ctrl9511Server，广播 APX1PC 信标供手机自动发现并识别为 PC）。WirelessSession 是
 # 桌面面板所用的「发现 + 建链 + 断线重连」状态机，底层走 Ctrl9511Client。
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
@@ -209,7 +209,7 @@ add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
 target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
 target_link_libraries(apxpc_wireless PUBLIC apxpc_core)
 if(WIN32)
-  target_link_libraries(apxpc_wireless PUBLIC ws2_32)
+  target_link_libraries(apxpc_wireless PUBLIC ws2_32 Iphlpapi)
 elseif(APPLE)
   # .mm 用 Objective-C++（OBJCXX）编译；注入需要 CoreGraphics，剪贴板需要 AppKit
   enable_language(OBJCXX)

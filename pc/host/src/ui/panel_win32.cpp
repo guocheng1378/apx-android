@@ -462,6 +462,7 @@ struct Panel {
     std::thread mediaThread;
     std::atomic<bool> mediaBusy{false};
     long long lastMediaTryMs = 0;   // 上次尝试连媒体的时间（失败后节流重试）
+    long long lastManualTryMs = 0;  // 手动直连的重试节流（见 tick 的手动自愈）
 
     // 三个传输开关（连接区，无总开关）。默认只开无线 = 原"自动发现并立刻连入"行为。
     bool wifiEnabled = true;     // 无线（Wi‑Fi 控制 + 音频 + 副屏）：PC 实际发起连接
@@ -549,13 +550,13 @@ std::wstring detailText(const SessionSnapshot& s) {
     if (!s.error.empty()) return toWide(s.error);
     switch (s.phase) {
         case LinkPhase::Discovering:
-            return L"手机端打开「Wi‑Fi 控制」模块即可自动连入（同一局域网）";
+            return L"手机端打开「Wi‑Fi 控制」模块即可自动连入；或在「地址」填手机 IP 后回车";
         case LinkPhase::Connecting:
             return L"正在建立 TCP 连接（最多 3 秒）…";
         case LinkPhase::Failed:
-            return L"请检查手机 IP / 是否在同一局域网，然后重新点「连接」";
+            return L"请检查手机 IP / 是否在同一局域网；或在「地址」填手机 IP 后回车直连";
         default:
-            return L"选「自动发现」后点「连接」；或改用「手动指定地址」填手机 IP";
+            return L"开「无线」自动发现；或在「地址」填手机 IP 后回车直连（走单播，广播被挡时用）";
     }
 }
 
@@ -1436,9 +1437,10 @@ void performHit(Panel* p, Hit h) {
         default:
             break;
     }
-    // 地址框只在手动模式可编辑
-    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_HOST), !p->autoMode);
-    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), !p->autoMode);
+    // 地址框**始终可编辑**：它是自动发现失败时的唯一兜底（填 IP + 回车即手动直连，
+    // 见 hostEditProc）。以前这里按 autoMode 禁用，而 autoMode 又无入口可关 —— 等于封死兜底。
+    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_HOST), TRUE);
+    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), TRUE);
 }
 
 // ——————————————————— 窗口 ———————————————————
@@ -1485,6 +1487,47 @@ void positionChildren(Panel* p) {
                    L.micCombo.h + drop, TRUE);
 }
 
+// ————————————————— 地址框：回车 = 手动连接 —————————————————
+// 背景：autoMode 初始就是 true，而界面上**没有**任何入口能切到手动模式，地址框在 autoMode
+// 下还是禁用的 —— 于是注释里承诺的「自动发现失败时填手机 IP 兜底」根本走不到。真机踩过：
+// 手机 Wi‑Fi 关联半残时两端广播互不可达，面板一直「正在发现」，用户无路可走。
+// 现在：地址框始终可编辑，在里面按回车 = 立刻按填的地址手动连一次（单播，绕开广播）。
+// 原窗口过程必须先存下来，链式调用不能丢，否则 EDIT 的基本行为（选中/光标/粘贴）全废。
+WNDPROC g_hostEditOldProc = nullptr;
+
+// ⚠️ 千万别把 Panel* 塞进标准 EDIT 的 GWLP_USERDATA：user32 的 EditWndProc **自己用它
+// 保存内部状态（EDITSTATE）**，被覆盖后它会把 Panel 结构体当成 EDITSTATE 去读写 ——
+// 内存被踩，几十秒后以一个毫无线索的 0xC0000409(fail-fast) 崩掉（真机踩过：面板启动后
+// 45~50s 必崩，且不接手机也崩）。窗口属性（SetProp/GetProp）与控件内部状态互不干扰。
+const wchar_t* const kPanelProp = L"apxPanelPtr";
+
+LRESULT CALLBACK hostEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* p = reinterpret_cast<Panel*>(GetPropW(hwnd, kPanelProp));
+    if (p && msg == WM_KEYDOWN && wp == VK_RETURN) {
+        // 地址为空则**什么都不做**：绝不能先把手动模式打开 —— 否则会弹「请填写有效的
+        // 地址与端口」，而且手动模式一旦打开，之后每次开关/重试都会继续弹（用户明明
+        // 只想用自动发现，却被要求填地址）。
+        wchar_t host[128] = {0};
+        GetWindowTextW(hwnd, host, 128);
+        if (host[0] == L'\0') return 0;
+        p->autoMode = false;   // 真有地址才声明「我要手动连」
+        EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_HOST), TRUE);
+        EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), TRUE);
+        applyConnect(p);       // autoMode=false → connectManual(host, port)
+        InvalidateRect(p->hwnd, nullptr, FALSE);
+        return 0;
+    }
+    // 吃掉回车产生的字符：否则 EDIT 会插入换行/发系统提示音
+    if (msg == WM_CHAR && (wp == L'\r' || wp == L'\n')) return 0;
+    if (msg == WM_NCDESTROY) {   // 控制销毁：还原过程 + 摘掉属性，避免悬空指针
+        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_hostEditOldProc));
+        RemovePropW(hwnd, kPanelProp);
+        return CallWindowProcW(g_hostEditOldProc, hwnd, msg, wp, lp);
+    }
+    return g_hostEditOldProc ? CallWindowProcW(g_hostEditOldProc, hwnd, msg, wp, lp)
+                             : DefWindowProcW(hwnd, msg, wp, lp);
+}
+
 void createChildren(Panel* p) {
     const Layout L = layout({p->wifiEnabled, p->btEnabled, p->usbEnabled});
     auto mkEdit = [&](int id, const Rect& r, const wchar_t* text) {
@@ -1499,8 +1542,16 @@ void createChildren(Panel* p) {
     // 地址框默认留空：预填某个具体 IP 只对开发机成立，出厂包里等于误导用户。
     // 用系统「提示气泡」（cue banner）说明该填什么，一聚焦就消失。
     HWND hostEdit = mkEdit(IDC_EDIT_HOST, L.editHost, L"");
+    // 提示语必须写明「可选」：自动发现模式下根本不用填，写成要求会让人以为必须填
     SendMessageW(hostEdit, EM_SETCUEBANNER, TRUE,
-                 reinterpret_cast<LPARAM>(L"手机 IP，例：192.168.1.20"));
+                 reinterpret_cast<LPARAM>(L"（可选）自动发现不到时填手机 IP，回车直连"));
+    // 挂回车处理：见 hostEditProc 上方注释（自动发现被挡住时的唯一出路）。
+    // 指针走窗口属性，**绝不用 GWLP_USERDATA**（会被 EDIT 自身状态覆盖并踩坏内存）。
+    if (hostEdit) {
+        SetPropW(hostEdit, kPanelProp, p);
+        g_hostEditOldProc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+            hostEdit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(hostEditProc)));
+    }
     mkEdit(IDC_EDIT_PORT, L.editPort, L"9511");
 
     // 音箱的「采集设备」下拉：原生 COMBOBOX（与上面的 EDIT 同一套做法，
@@ -1530,9 +1581,9 @@ void createChildren(Panel* p) {
 }
 
 void refreshNow(Panel* p) {
-    // 输入框可用性跟随模式（首帧也要正确）
-    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_HOST), !p->autoMode);
-    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), !p->autoMode);
+    // 地址/端口始终可编辑（首帧也要正确）：手动兜底入口，不能按模式禁用
+    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_HOST), TRUE);
+    EnableWindow(GetDlgItem(p->hwnd, IDC_EDIT_PORT), TRUE);
 }
 
 /// 从控制链路的 "host:port" 里取出 host —— 媒体通道连的是同一台手机
@@ -1601,6 +1652,19 @@ void tick(Panel* p) {
                                      vr.right - vr.left, vr.bottom - vr.top);
         } else if (p->session) {
             p->session->setTouchRect(0, 0, 0, 0);
+        }
+    }
+
+    // —— 手动直连的自愈：断线按同一地址重连 ——
+    // 手动模式（地址框回车）原本「连不上就不管了」，一次瞬断就得让用户再敲一次回车。
+    // 只在 Failed / Idle 时重试：Connecting 期间重复触发会叠出多条连接。
+    if (!p->autoMode && p->wifiEnabled &&
+        (s.phase == LinkPhase::Failed || s.phase == LinkPhase::Idle)) {
+        wchar_t hbuf[128] = {0};
+        if (HWND he = GetDlgItem(p->hwnd, IDC_EDIT_HOST)) GetWindowTextW(he, hbuf, 128);
+        if (hbuf[0] != L'\0' && nowMsLocal() - p->lastManualTryMs >= kMediaRetryMs) {
+            p->lastManualTryMs = nowMsLocal();
+            applyConnect(p);   // autoMode=false → connectManual(地址框里的地址)
         }
     }
 

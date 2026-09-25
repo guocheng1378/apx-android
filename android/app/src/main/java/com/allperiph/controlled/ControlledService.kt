@@ -42,8 +42,24 @@ class ControlledService : Service() {
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         TvFileReceiver.start(applicationContext)
-        // 广播 APX1TV 信标（9511 统一控制面），使 PC / 另一台手机经自动发现连入本机被控。
-        beacon = WirelessBeacon("APX1TV", TvControlServer.PORT, "").also { it.start() }
+        // 信标前缀保持 APX1TV —— 换前缀就得两端同时升级（旧 PC 端只认 APX1TV，换了它会
+        // 发现不到本机，副屏/音箱/麦克风一起废）。改成在**名字**里带「手机被控」标记，
+        // 对面手机据此显示「(手机)」且不切 TV 专属快捷键布局；PC/TV 端不看名字，无需改动。
+        val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
+        beacon = WirelessBeacon(
+            "APX1TV",
+            com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
+            TvControlServer.PORT,
+            "",
+            // 单播兜底：对「正在控的对端」+「已发现的对端」各再发一份，
+            // 广播被 AP 丢掉时仍有救（不依赖用户是否手动连过）
+            unicastHosts = {
+                val hosts = ArrayList<String>(8)
+                com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
+                com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
+                hosts.distinct()
+            },
+        ).also { it.start() }
 
         // 注册剪贴板监听（反向剪贴板）
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager

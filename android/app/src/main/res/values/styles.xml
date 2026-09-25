@@ -40,20 +40,6 @@
         <item name="android:textColor">@color/md_on_surface_variant</item>
     </style>
 
-    <!-- 主按钮：MIUIX 胶囊实底（蓝底白字），无阴影抖动 -->
-    <style name="APButtonPrimary">
-        <item name="android:background">@drawable/bg_btn_primary</item>
-        <item name="android:textColor">@color/md_on_primary</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:textSize">15sp</item>
-        <item name="android:paddingStart">24dp</item>
-        <item name="android:paddingEnd">24dp</item>
-        <item name="android:paddingTop">14dp</item>
-        <item name="android:paddingBottom">14dp</item>
-        <item name="android:letterSpacing">0.02</item>
-        <item name="android:stateListAnimator">@null</item>
-    </style>
-
     <!-- 次按钮：MIUIX 胶囊描边（蓝字细描边） -->
     <style name="APButtonGhost">
         <item name="android:background">@drawable/bg_btn_ghost</item>

@@ -17,6 +17,7 @@ object TvInputDispatcher {
         fun onCursorClick()
         fun onKey(keyCode: Int, down: Boolean)
         fun onText(ch: Char)
+        fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {}
         fun onPeer(connected: Boolean, peer: String)
     }
 
@@ -28,6 +29,9 @@ object TvInputDispatcher {
     fun key(keyCode: Int, down: Boolean) = listener?.onKey(keyCode, down)
 
     fun text(ch: Char) = listener?.onText(ch)
+
+    fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) =
+        listener?.onGamepad(buttons, x, y, rx, ry)
 
     fun peer(connected: Boolean, peer: String) = listener?.onPeer(connected, peer)
 }

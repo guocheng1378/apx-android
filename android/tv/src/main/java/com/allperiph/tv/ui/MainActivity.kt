@@ -72,12 +72,56 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         TvFileReceiver.start(applicationContext)
         findViewById<TextView>(R.id.tvEnableSystem).setOnClickListener { openSystemControlSettings() }
 
-        // 启动前台服务（保活服务端）；API 26+ 用 startForegroundService，老版本用 startService
+        // 启动前台服务（保活服务端 + 发现信标）；API 26+ 用 startForegroundService，老版本用 startService
         val svc = Intent(this, TvServerService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
 
-        // 启动发现信标（独立线程，失败不影响 TCP）
-        WirelessBeacon("APX-TV", TcpControlServer.PORT, "").start()
+        // 记住「用户开过一次」：开机后由 BootReceiver 自动拉起，不必每次翻出遥控器点 App
+        getSharedPreferences(TvServerService.PREF, MODE_PRIVATE)
+            .edit().putBoolean(TvServerService.KEY_ENABLED, true).apply()
+
+        // 注意：发现信标**不在这里起** —— 它挂在 TvServerService 上。
+        // 以前放 Activity 里，用户一按返回/切走信标就停发，手机与 PC 立刻发现不到本机（只能手填 IP）。
+
+        askNotificationPermission()
+        offerBatteryWhitelist()
+    }
+
+    /** 通知权限（API 33+）：前台服务的常驻通知没它就看不见，进程也更容易被系统回收 */
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        runCatching { requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1) }
+    }
+
+    /**
+     * 电池优化白名单：被控端必须「一直在线」，否则国产 ROM（MIUI/HyperOS 等）会在后台几十秒内
+     * 把服务杀掉 —— 现象就是「手机明明连过，过一会儿就发现不到 / 连不上本机」。
+     * 用系统弹窗引导用户加白，比让他自己去设置里翻好找得多。
+     */
+    private fun offerBatteryWhitelist() {
+        val pm = getSystemService(android.os.PowerManager::class.java) ?: return
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        runCatching {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("让被控服务长期在线")
+                .setMessage(
+                    "系统会在后台限制长时间不用的服务。加入电池优化白名单后，手机才能随时发现并控制" +
+                        "本机；不需要常驻时可在系统设置里移除。"
+                )
+                .setPositiveButton("加入白名单") { _, _ ->
+                    runCatching {
+                        startActivity(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                .setData(Uri.parse("package:$packageName"))
+                        )
+                    }
+                }
+                .setNegativeButton("以后再说", null)
+                .show()
+        }
     }
 
     /** 引导用户开启「无障碍」与「显示在其他应用上层」——系统级注入的前置权限 */
@@ -99,6 +143,22 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         TvInputDispatcher.listener = this
         // 等布局完成再居中光标
         root.post { centerCursor() }
+        refreshStatus()
+    }
+
+    /**
+     * 刷新状态行：链路状态 + 「系统注入是否真的可用」。
+     *
+     * 后者没开时，手机只能看到光标、点不动 —— 这是被控端最常见的困惑点，所以必须直接写在
+     * 界面上；而且 Activity 重建后也要立刻显示（不能只依赖"连上的那一刻"那次回调）。
+     */
+    private fun refreshStatus() {
+        status.text = TvServerService.current?.status() ?: getString(R.string.tv_status_waiting)
+        hint.text = if (TvInjector.systemReady()) {
+            "系统注入已就绪：手机可点击 / 输入 / 返回 / 主页"
+        } else {
+            "未开启「无障碍 + 悬浮窗」：手机只能看到光标、点不动 —— 先点「启用系统控制」授权"
+        }
     }
 
     override fun onPause() {

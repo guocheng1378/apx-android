@@ -89,6 +89,17 @@ public:
         ioctl(fd_, UI_SET_KEYBIT, KEY_VOLUMEDOWN); ioctl(fd_, UI_SET_KEYBIT, KEY_MUTE);
         ioctl(fd_, UI_SET_KEYBIT, KEY_PLAYPAUSE); ioctl(fd_, UI_SET_KEYBIT, KEY_PREVIOUSSONG);
         ioctl(fd_, UI_SET_KEYBIT, KEY_NEXTSONG);
+        ioctl(fd_, UI_SET_EVBIT, EV_ABS);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_A); ioctl(fd_, UI_SET_KEYBIT, BTN_B);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_X); ioctl(fd_, UI_SET_KEYBIT, BTN_Y);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_TL); ioctl(fd_, UI_SET_KEYBIT, BTN_TR);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_TL2); ioctl(fd_, UI_SET_KEYBIT, BTN_TR2);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_SELECT); ioctl(fd_, UI_SET_KEYBIT, BTN_START);
+        ioctl(fd_, UI_SET_KEYBIT, BTN_MODE);
+        ioctl(fd_, UI_SET_ABSBIT, ABS_RX);
+        ioctl(fd_, UI_SET_ABSBIT, ABS_RY);
+        ioctl(fd_, UI_SET_ABSBIT, ABS_Z);
+        ioctl(fd_, UI_SET_ABSBIT, ABS_RZ);
         ioctl(fd_, UI_SET_ABSBIT, ABS_X);
         ioctl(fd_, UI_SET_ABSBIT, ABS_Y);
 
@@ -97,6 +108,10 @@ public:
         us.id.bustype = BUS_VIRTUAL; us.id.vendor = 0x4150; us.id.product = 0x3931;
         us.absmin[ABS_X] = 0; us.absmax[ABS_X] = 65535;
         us.absmin[ABS_Y] = 0; us.absmax[ABS_Y] = 65535;
+        us.absmin[ABS_RX] = -127; us.absmax[ABS_RX] = 127;
+        us.absmin[ABS_RY] = -127; us.absmax[ABS_RY] = 127;
+        us.absmin[ABS_Z] = -127; us.absmax[ABS_Z] = 127;
+        us.absmin[ABS_RZ] = -127; us.absmax[ABS_RZ] = 127;
         if (ioctl(fd_, UI_DEV_SETUP, &us) < 0) { ::close(fd_); fd_ = -1; return; }
         if (ioctl(fd_, UI_DEV_CREATE, 0) < 0) { ::close(fd_); fd_ = -1; return; }
     }
@@ -177,6 +192,26 @@ public:
         syn();
     }
 
+    void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
+        if (fd_ < 0) return;
+        const int btnMap[16] = { BTN_A, BTN_B, BTN_X, BTN_Y, BTN_TL, BTN_TR,
+                                 BTN_TL2, BTN_TR2, BTN_SELECT, BTN_START,
+                                 BTN_C, BTN_Z, BTN_MODE, BTN_THUMBL, BTN_THUMBR, 0 };
+        for (int bit = 0; bit < 16; ++bit) {
+            const int code = btnMap[bit];
+            if (code == 0) continue;
+            const uint16_t m = static_cast<uint16_t>(1u << bit);
+            const bool was = (gamepadButtons_ & m) != 0, now = (buttons & m) != 0;
+            if (was != now) emit(EV_KEY, code, now ? 1 : 0);
+        }
+        gamepadButtons_ = buttons;
+        emit(EV_ABS, ABS_RX, x);
+        emit(EV_ABS, ABS_RY, y);
+        emit(EV_ABS, ABS_Z, rx);
+        emit(EV_ABS, ABS_RZ, ry);
+        syn();
+    }
+
     void setClipboard(const std::string& text) override {
         FILE* p = popen("xclip -selection clipboard -in 2>/dev/null || wl-copy 2>/dev/null", "w");
         if (!p) return;
@@ -189,6 +224,7 @@ public:
     uint16_t consumerBm_ = 0;
     uint8_t kbMod_ = 0;
     uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};
+    uint16_t gamepadButtons_ = 0;
 };
 
 class LinClipboardWatcher : public ClipboardWatcher {

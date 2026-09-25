@@ -30,19 +30,6 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
-    <!--
-      副屏渲染 Activity：全屏纯黑无装饰（画面就是渲染面，不参与亮色化）；
-      系统栏由 WindowInsetsController 运行时隐藏。
-    -->
-    <style name="Theme.AllPeriph.Fullscreen" parent="Theme.AllPeriph">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowBackground">@color/surface_render</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:windowTranslucentNavigation">false</item>
-    </style>
-
     <!-- 快捷键编辑弹窗：亮色 + 蓝强调（供 AlertDialog.Builder(ctx, R.style...)） -->
     <style name="Theme.AllPeriph.Miuix.Dialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
         <item name="android:colorAccent">@color/md_primary</item>

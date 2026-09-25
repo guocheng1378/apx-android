@@ -51,12 +51,40 @@ class HotkeyBoard(
         val textSecondary: Int,
     )
 
-    var shortcuts: MutableList<HidKeys.Combo> = HotkeyStore.load(act)
+    /** true 时快捷键条显示/编辑 TV 目标专属的一套（落盘到 items_tv） */
+    private var tvMode = false
+
+    var shortcuts: MutableList<HidKeys.Combo> = loadStore()
         private set
+
+    private fun loadStore(): MutableList<HidKeys.Combo> =
+        if (tvMode) HotkeyStore.loadTv(act) else HotkeyStore.load(act)
+
+    private fun saveStore() {
+        if (tvMode) HotkeyStore.saveTv(act, shortcuts) else HotkeyStore.save(act, shortcuts)
+    }
+
+    private fun markCustomStore() {
+        if (!tvMode) HotkeyStore.markCustom(act)
+    }
+
+    /** 进入 TV 目标：快捷键条切到 TV 专属套（自动渲染） */
+    fun enterTvMode() {
+        if (tvMode) return
+        tvMode = true
+        reload()
+    }
+
+    /** 退出 TV 目标：回到本机快捷键套（自动渲染） */
+    fun exitTvMode() {
+        if (!tvMode) return
+        tvMode = false
+        reload()
+    }
 
     /** 从盘上重新读取并重画（套用模板 / 外部改动后调用） */
     fun reload() {
-        shortcuts = HotkeyStore.load(act)
+        shortcuts = loadStore()
         render()
     }
 
@@ -154,7 +182,7 @@ class HotkeyBoard(
         rest.add(insertAt.coerceIn(0, rest.size), from)
         shortcuts = rest.map { shortcuts[it] }.toMutableList()
         preferManualOrder()
-        HotkeyStore.save(act, shortcuts)
+        saveStore()
         render()
         onChanged?.invoke()
     }
@@ -215,8 +243,8 @@ class HotkeyBoard(
                 row.addView(action("改", "编辑 ${c.label}") { editDialog(i) { rebuild() } })
                 row.addView(action("删", "删除 ${c.label}") {
                     shortcuts.removeAt(i)
-                    HotkeyStore.save(act, shortcuts)
-                    HotkeyStore.markCustom(act)
+                    saveStore()
+                    markCustomStore()
                     render()
                     rebuild()
                     onChanged?.invoke()
@@ -272,8 +300,8 @@ class HotkeyBoard(
         val item = shortcuts.removeAt(index)
         shortcuts.add(to, item)
         preferManualOrder()
-        HotkeyStore.save(act, shortcuts)
-        HotkeyStore.markCustom(act)
+        saveStore()
+        markCustomStore()
         render()
         onChanged?.invoke()
     }
@@ -284,8 +312,8 @@ class HotkeyBoard(
             .setMessage("把快捷方式恢复为出厂预置？自建项会丢失。")
             .setPositiveButton("恢复") { _, _ ->
                 shortcuts = HidKeys.DEFAULTS.toMutableList()
-                HotkeyStore.save(act, shortcuts)
-                HotkeyStore.markCustom(act)
+                saveStore()
+                markCustomStore()
                 render()
                 onChanged?.invoke()
             }
@@ -371,8 +399,8 @@ class HotkeyBoard(
                 boxes.forEach { (bit, cb) -> if (cb.isChecked) mod = mod or bit }
                 val item = HidKeys.Combo(name, mod, picked.second)
                 if (index != null) shortcuts[index] = item else shortcuts.add(item)
-                HotkeyStore.save(act, shortcuts)
-                HotkeyStore.markCustom(act) // 逐条改过 → 不再是模板
+                saveStore()
+                markCustomStore() // 逐条改过 → 不再是模板
                 render()
                 onChanged?.invoke()
                 onDone?.invoke()
@@ -381,8 +409,8 @@ class HotkeyBoard(
             if (index != null) {
                 dlg.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                     shortcuts.removeAt(index)
-                    HotkeyStore.save(act, shortcuts)
-                    HotkeyStore.markCustom(act)
+                    saveStore()
+                    markCustomStore()
                     render()
                     onChanged?.invoke()
                     onDone?.invoke()

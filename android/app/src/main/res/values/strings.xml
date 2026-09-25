@@ -2,9 +2,6 @@
 <resources>
     <string name="app_name">全能外设</string>
 
-    <string name="section_connection">连接</string>
-    <string name="section_devices">外设</string>
-    <string name="section_status">状态</string>
     <string name="section_settings">设置</string>
 
     <string name="common_unknown">未知</string>
@@ -13,13 +10,6 @@
     <string name="common_error">异常</string>
     <string name="common_off">未启用</string>
     <string name="common_on">运行中</string>
-
-    <string name="card_usb_mode">USB 模式</string>
-    <string name="usb_mode_normal_hint">当前是普通模式（ADB / 文件传输）。切到外设模式后，本机将作为复合设备接入电脑（HID 传感器 / 串口 / 触控），ADB 会让位并自动断开。</string>
-    <string name="usb_mode_gadget_hint">当前是外设模式（复合设备已挂载），ADB 已让位。切回普通模式即可恢复 ADB 与文件传输。</string>
-    <string name="usb_mode_switching">正在切换 USB 模式…</string>
-    <string name="action_switch_to_gadget">切换到外设模式</string>
-    <string name="action_switch_to_normal">切回普通模式</string>
 
     <string name="notify_channel_status_name">全能外设运行状态</string>
     <string name="notify_channel_status_desc">显示 USB 链路与各模块的运行状态</string>
@@ -33,8 +23,6 @@
     <string name="notify_action_screen">副屏</string>
 
     <string name="card_link">链路状态</string>
-    <string name="card_modules">功能开关</string>
-    <string name="card_diag">环境与诊断</string>
 
     <string name="label_root">Root 授权</string>
     <string name="label_usb_speed">USB 速度</string>
@@ -42,7 +30,6 @@
     <string name="label_service">前台服务</string>
     <string name="label_battery">电池优化白名单</string>
     <string name="label_link_rt">链路延迟 / 丢包</string>
-    <string name="label_link_rt_value">丢包估计 %1$.1f%% · CRC 错误 %2$d 帧 · %3$s</string>
 
     <string name="value_root_ok">已授权</string>
     <string name="value_root_missing">未授权（不可用）</string>
@@ -52,7 +39,6 @@
     <string name="hint_root_missing">未检测到 root：ConfigFS Gadget 无法挂载，触控板与音频均不可用。请刷入 Magisk/KernelSU 后重启。</string>
     <string name="hint_usb2">当前非 SuperSpeed（USB 2.0 480Mbps 或更低）。建议更换支持 USB 3.0 的线缆与接口。</string>
     <string name="hint_usb_ok">SuperSpeed 链路就绪。</string>
-    <string name="hint_battery">未加入电池优化白名单：后台会被系统冻结，USB 数据会间歇中断。建议点击「加入白名单」。</string>
     <string name="hint_idle">未启动 · 打开上方开关后显示链路与运行状态</string>
     <string name="hint_root_dialog_title">为什么需要 Root？</string>
     <string name="hint_root_dialog_body">本应用要把手机变成 PC 的外设（鼠标 / 键盘 / 多媒体），必须往内核的 USB Gadget 配置目录（/sys/kernel/config/usb_gadget）写入描述符并绑定 UDC —— 这个目录只有 root 可写，Android 没有对第三方应用开放任何替代接口。
@@ -60,16 +46,8 @@
 没有 root 时：界面、快捷键与模板编辑、状态诊断都照常可用，但所有「当外设」的能力（含触控板、UAC2 音频）无法启动，蓝牙 HID 也因系统权限限制无法注册。
 
 获取方式：解锁 Bootloader 后刷入 Magisk 或 KernelSU（部分内核自带，无需额外刷），重启后授予本应用 root 权限即可。</string>
-    <string name="hint_root_short">需要 Root：ConfigFS 不可写，无法挂载 USB 设备</string>
-    <string name="hint_notification">通知权限未授予：前台服务通知不可见，不影响功能但不便于观察状态。</string>
-    <string name="hint_all_ok">环境检查通过：root 已授权、链路为 SuperSpeed、后台不受限。</string>
     <string name="action_battery_whitelist">加入白名单</string>
     <string name="action_refresh">重新检测</string>
-    <string name="action_open_hotkey">打开快捷键面板</string>
-    <string name="action_open_touchpad">打开触控板</string>
-    <string name="action_open_pairing">无线配对（连接电脑）</string>
-    <string name="action_start">启动服务</string>
-    <string name="action_stop">停止服务</string>
 
     <string name="latency_budget_title">延迟预算</string>
     <string name="latency_budget_body">触控上行 ≤2ms</string>

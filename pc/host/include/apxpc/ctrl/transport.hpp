@@ -28,10 +28,7 @@ public:
     virtual std::string  name() const = 0;
 };
 
-// kind: "" / "auto" / "hid" / "bulk"
 std::unique_ptr<ICtrlTransport> createHidTransport(const std::string& devicePath);
 std::unique_ptr<ICtrlTransport> createBulkTransport(const std::string& devicePath);
-std::unique_ptr<ICtrlTransport> createTransport(const std::string& kind,
-                                                const std::string& devicePath);
 
 }  // namespace apxpc::ctrl

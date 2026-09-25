@@ -22,6 +22,15 @@ object ControlTarget {
     @Volatile
     var label: String = "本机 / PC"
 
+    /**
+     * 受控设备类型："tv" 或 "pc"。
+     * 决定快捷键/键盘是否进入 TV 专属布局（遥控/媒体那套）：TV 进，PC 不进（保持鼠标 + 完整键鼠）。
+     * 由信标前缀区分：APX1TV→tv（电视）、APX1PC→pc、APX1PH→phone（手机被控）；
+     * 只有 tv 会切 TV 专属快捷键布局。PC 走自动发现，手动输入 IP 只用于 TV（默认 tv）。
+     */
+    @Volatile
+    var type: String = "tv"
+
     /** 是否已选定且连上受控设备 */
     fun isControlling(): Boolean = controlClient?.ready == true
 
@@ -31,5 +40,6 @@ object ControlTarget {
         controlClient = null
         host = ""
         label = "本机 / PC"
+        type = "tv"
     }
 }

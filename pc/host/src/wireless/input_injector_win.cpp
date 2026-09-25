@@ -12,6 +12,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <cstdio>
 
 namespace apxpc::wireless {
 namespace {
@@ -185,6 +186,18 @@ public:
             }
         }
         ::CloseClipboard();
+    }
+
+    void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
+        // Windows 的 SendInput 不支持游戏手柄（无 gamepad / 轴概念）。免驱架构下无法注入，
+        // 需 ViGEmBus 这类虚拟 HID 驱动（第三方，不在本仓库零依赖范围内）。帧已接收，
+        // 但按钮/轴不会送达游戏——如实降级，仅告警一次。
+        (void)buttons; (void)x; (void)y; (void)rx; (void)ry;
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            std::fprintf(stderr, "[AllPeriph] gamepad-over-network 在 Windows 需虚拟 HID 驱动（如 ViGEm），当前构建未包含，按钮/轴不会注入游戏\n");
+        }
     }
 
     uint8_t mouseButtons_ = 0;

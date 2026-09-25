@@ -11,22 +11,8 @@
     <color name="md_primary">#FF3482FF</color>
     <color name="md_on_primary">#FFFFFFFF</color>
     <color name="md_primary_container">#FFE8F0FF</color>
-    <color name="md_on_primary_container">#FF1B4DA0</color>
 
-    <!-- 辅助色：小米橙（点缀 / 警示性强调，不用于大面积） -->
-    <color name="md_secondary">#FFFF6900</color>
-    <color name="md_on_secondary">#FFFFFFFF</color>
-    <color name="md_secondary_container">#FFFFF0E5</color>
-    <color name="md_on_secondary_container">#FF8A3700</color>
-
-    <!-- 第三色：成功绿 -->
-    <color name="md_tertiary">#FF12B76A</color>
-    <color name="md_on_tertiary">#FFFFFFFF</color>
-
-    <color name="md_error">#FFF04438</color>
-    <color name="md_on_error">#FFFFFFFF</color>
     <color name="md_error_container">#FFFDECEA</color>
-    <color name="md_on_error_container">#FF7A1C14</color>
 
     <!-- 表面层级：#F2F3F5 底 + 纯白卡片 + 灰阶文字 -->
     <color name="md_background">#FFF2F3F5</color>
@@ -36,7 +22,6 @@
     <color name="md_surface_variant">#FFEDEFF2</color>
     <color name="md_on_surface_variant">#FF8C8C8C</color>
     <color name="md_outline">#FFE8E8E8</color>
-    <color name="md_surface_container_low">#FFFFFFFF</color>
 
     <!-- 状态语义色（亮底可读版） -->
     <color name="state_ok">#FF12B76A</color>
@@ -51,8 +36,6 @@
       MIUIX 液态玻璃底栏（v1.23）：**底栏不铺底板**，玻璃只做在选中的那个胶囊上 ——
       半透明白主体 + 顶部高光 + 极细亮边；颜色由 values-night 镜像覆盖。
     -->
-    <color name="nav_bg">#F2FFFFFF</color>
-    <color name="nav_stroke">#2E000000</color>
     <!-- 选中胶囊：玻璃主体 / 高光 / 边缘亮线 / 外圈柔光 / 底部内阴影 -->
     <color name="nav_pill">#D9FFFFFF</color>
     <color name="nav_pill_shine">#59FFFFFF</color>
@@ -60,11 +43,6 @@
     <color name="nav_pill_halo">#24FFFFFF</color>
     <color name="nav_pill_shade">#12000000</color>
     <color name="badge_bg">#FFE8F0FF</color>
-    <color name="accent_glow">#1A3482FF</color>
-
-    <!-- 副屏渲染面：画面本身必须纯黑，不参与亮色化 -->
-    <color name="surface_render">#FF000000</color>
-    <color name="scrim">#B3000000</color>
 
     <!--
       MIUIX 显式别名（v1.14 引入，v1.16 起与上面 md_* 同值）：

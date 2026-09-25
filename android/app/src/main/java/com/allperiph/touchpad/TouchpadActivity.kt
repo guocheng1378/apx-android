@@ -24,6 +24,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Button
 import android.widget.Toast
 import android.widget.ViewFlipper
 import com.allperiph.R
@@ -33,10 +34,12 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.HotkeyController
+
 import com.allperiph.controlled.ControlledService
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
+import com.allperiph.wireless.WirelessModule
 import kotlin.math.abs
 
 /**
@@ -92,6 +95,7 @@ class TouchpadActivity : Activity() {
     private val pages = listOf(
         Page("触控板", "手势操控 · 常用快捷键长按可编辑", R.drawable.ic_apx_touchpad),
         Page("键盘", "7 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区", R.drawable.ic_apx_keyboard),
+        Page("副屏", "手机作副屏 / 链接 TV · PC", R.drawable.ic_apx_power),
     )
 
     /** 键盘页的 7 套布局（对应 kbPager 的 7 个 child，数据见 ui/KeyLayouts） */
@@ -106,6 +110,7 @@ class TouchpadActivity : Activity() {
     private var fileBtn: TextView? = null
     private var clipBtn: TextView? = null
     private var controlledChip: TextView? = null
+    private var displayStatusView: TextView? = null
     private lateinit var flipper: ViewFlipper
 
     /** 文件选择请求码（用传统 startActivityForResult，因本 Activity 非 AndroidX ComponentActivity） */
@@ -160,6 +165,7 @@ class TouchpadActivity : Activity() {
         flipper = ViewFlipper(this).apply {
             addView(touchpadPage())
             addView(keyboardPage())
+            addView(displayPage())
         }
         root.addView(flipper, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildTabBar())
@@ -254,7 +260,7 @@ class TouchpadActivity : Activity() {
         deviceChip = dev
         row.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
-        // 仅当选中 TV 时展示：发文件 / 发剪贴板
+        // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
         val file = TextView(this).apply {
             text = "文件"
             setTextColor(cText2)
@@ -766,7 +772,77 @@ class TouchpadActivity : Activity() {
         titleView?.text = pages[i].title
         subView?.text = pages[i].sub
         if (i == PAGE_TOUCHPAD) hotkeyBoard.render()
+        if (i == PAGE_DISPLAY) updateDisplayStatus()
         refreshTabs()
+    }
+
+    // —————————————————————————— 第 2 页：副屏（显示）+ 链接 TV/PC ——————————————————————————
+    private fun displayPage(): View {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(10))
+        }
+        // 副屏（显示）状态卡
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_card)
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
+        card.addView(TextView(this).apply {
+            text = "副屏（显示）"
+            setTextColor(cText); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
+        })
+        val status = TextView(this).apply {
+            text = WirelessModule.statusText()
+            setTextColor(cText2); textSize = 13f
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        displayStatusView = status
+        card.addView(status)
+        card.addView(TextView(this).apply {
+            text = "手机作为 PC 副屏：PC 端推流到 9502，本机在「副屏」全屏接收显示。"
+            setTextColor(cText2); textSize = 12f
+        })
+        col.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+
+        // 链接设备
+        col.addView(TextView(this).apply {
+            text = "链接设备"
+            setTextColor(cAccent); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.06f
+            setPadding(dp(4), 0, 0, dp(8))
+        })
+        val linkCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_card)
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
+        val tvBtn = Button(this).apply {
+            text = "链接 TV / PC…"
+            setBackgroundResource(R.drawable.bg_btn_primary)
+            setTextColor(getColor(R.color.md_on_primary))
+            textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dp(14), 0, dp(14))
+            setOnClickListener { showDevicePicker() }
+        }
+        linkCard.addView(tvBtn)
+        val pcBtn = Button(this).apply {
+            text = "加入副屏"
+            setBackgroundResource(R.drawable.bg_btn_ghost)
+            setTextColor(cAccent)
+            textSize = 15f
+            setPadding(0, dp(13), 0, dp(13))
+            setOnClickListener {
+                startActivity(Intent(this@TouchpadActivity, com.allperiph.screen.ScreenActivity::class.java))
+            }
+        }
+        linkCard.addView(pcBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        col.addView(linkCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        return col
+    }
+
+    private fun updateDisplayStatus() {
+        displayStatusView?.text = WirelessModule.statusText()
     }
 
     private fun refreshTabs() {
@@ -919,7 +995,7 @@ class TouchpadActivity : Activity() {
         val items = ArrayList<CharSequence>()
         items.add("本机 / PC（默认）")
         val tvs = TvDiscovery.list()
-        tvs.forEach { items.add("${it.name}  ${it.ip}") }
+        tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
         items.add("手动输入 TV IP…")
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle("选择控制设备")
@@ -932,7 +1008,7 @@ class TouchpadActivity : Activity() {
                     which == items.size - 1 -> promptTvIp()
                     else -> {
                         val tv = tvs.getOrNull(which - 1) ?: return@setItems
-                        connectTv(tv.ip, tv.port, tv.name)
+                        connectTv(tv.ip, tv.port, tv.name, tv.type)
                     }
                 }
             }
@@ -951,14 +1027,15 @@ class TouchpadActivity : Activity() {
             .setView(edit)
             .setPositiveButton("连接") { _, _ ->
                 val ip = edit.text.toString().trim()
-                if (ip.isNotEmpty()) connectTv(ip, TvControllerClient.PORT, ip)
+                if (ip.isNotEmpty()) connectTv(ip, TvControllerClient.PORT, ip, "tv")
             }
             .setNegativeButton("取消", null)
             .show()
     }
 
-    /** 后台连入 TV 并设为当前控制目标（不阻塞 UI） */
-    private fun connectTv(ip: String, port: Int, name: String) {
+    /** 后台连入 TV/PC 并设为当前控制目标（不阻塞 UI）
+     * @param type 设备类型 "tv" 或 "pc"：仅 TV 切到 TV 专属快捷键套，PC 保持鼠标 + 完整键鼠 */
+    private fun connectTv(ip: String, port: Int, name: String, type: String = "tv") {
         Thread({
             val c = TvControllerClient(ip, port)
             val ok = c.connect()
@@ -967,11 +1044,15 @@ class TouchpadActivity : Activity() {
                     ControlTarget.controlClient = c
                     ControlTarget.host = ip
                     ControlTarget.label = name
+                    ControlTarget.type = type
                     c.onReverseClipboard = { text -> runOnUiThread { recvClipboard(text) } }
+                    // 仅 TV 目标进 TV 专属快捷键布局；PC 退出 TV 模式（保持鼠标 + 完整键鼠）
+                    if (type == "tv") hotkeyBoard.enterTvMode() else hotkeyBoard.exitTvMode()
                     updateDeviceChip()
                     Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
                 } else {
                     ControlTarget.clear()
+                    hotkeyBoard.exitTvMode()
                     updateDeviceChip()
                     Toast.makeText(this, "连不上 $ip", Toast.LENGTH_SHORT).show()
                 }
@@ -979,7 +1060,7 @@ class TouchpadActivity : Activity() {
         }, "tv-connect").start()
     }
 
-    /** 发文件到 TV 端文件接收通道（独立端口 9512） */
+    /** 发文件到对端设备文件接收通道（独立端口 9512） */
     private fun sendFile(uri: Uri) {
         val host = ControlTarget.host
         if (host.isEmpty() || !ControlTarget.isControlling()) {
@@ -998,7 +1079,7 @@ class TouchpadActivity : Activity() {
         }, "tv-file").start()
     }
 
-    /** 读本机剪贴板并发送到 TV 端（写入对方系统剪贴板 + 当前聚焦输入框） */
+    /** 读本机剪贴板并发送到对端设备（写入对方系统剪贴板 + 当前聚焦输入框） */
     private fun sendClipboard() {
         val c = ControlTarget.controlClient
         if (c == null || !ControlTarget.isControlling()) {
@@ -1023,5 +1104,6 @@ class TouchpadActivity : Activity() {
 
         private const val PAGE_TOUCHPAD = 0
         private const val PAGE_KEYBOARD = 1
+        private const val PAGE_DISPLAY = 2
     }
 }

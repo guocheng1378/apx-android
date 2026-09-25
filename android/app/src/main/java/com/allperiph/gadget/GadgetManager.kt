@@ -8,7 +8,6 @@ import com.allperiph.core.EventBus
 import com.allperiph.core.FfsChannel
 import com.allperiph.core.GadgetConst
 import com.allperiph.core.GadgetStateEvent
-import com.allperiph.core.HidFeature
 import com.allperiph.core.HEARTBEAT_INTERVAL_MS
 import com.allperiph.core.HEARTBEAT_TIMEOUT_MS
 import com.allperiph.core.HidTransport

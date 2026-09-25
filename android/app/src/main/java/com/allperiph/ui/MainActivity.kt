@@ -50,6 +50,12 @@ import com.allperiph.core.ModuleState
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.hid.HotkeyTemplates
+import android.widget.Toast
+import com.allperiph.screen.ScreenActivity
+import com.allperiph.wireless.ControlTarget
+import com.allperiph.wireless.TvControllerClient
+import com.allperiph.wireless.TvDiscovery
+import com.allperiph.wireless.TvFileSender
 
 /**
  * 【M6】主控制面（v1.16 三页签底栏 + 横屏键盘，MIUIX / HyperOS 亮色）。
@@ -110,6 +116,13 @@ class MainActivity : Activity() {
     private lateinit var themeBox: LinearLayout
     private lateinit var skinBox: LinearLayout
     private lateinit var fxBox: LinearLayout
+
+    // TV / PC 控制区块（设置页）
+    private lateinit var tvBox: LinearLayout
+    private lateinit var fileBox: LinearLayout
+    private lateinit var keymapBox: LinearLayout
+    private var tvStatusView: TextView? = null
+    private val REQ_PICK_FILE = 9002
 
     // 页签
     private lateinit var pager: ViewFlipper
@@ -181,6 +194,12 @@ class MainActivity : Activity() {
         // （用户主动按截图键时系统自己会提示"无法截图"，那是截图服务的行为，应用侧关不掉。）
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         setContentView(R.layout.activity_main)
+        // 启动即开始发现：信标周期广播，早开早能看到设备（不再等到打开选择框才开）
+        TvDiscovery.start()
+        // 已开启的传输类要跟着 App 起来：否则冷启动后开关看着是 ON、实际却是「未启动」
+        // （前台服务/模块/被控信标都没跑），用户只能反复关了再开 —— 副屏/音箱/麦克风、
+        // 以及 PC 端发现本机都依赖这些服务真的在跑。
+        if (anyTransportOn()) AgentForegroundService.start(this)
         bindViews()
         buildLinkRows()
         buildModuleRows()
@@ -287,6 +306,10 @@ class MainActivity : Activity() {
         btnToggleTemplates = findViewById(R.id.btnToggleTemplates)
         themeBox = findViewById(R.id.themeBox)
         skinBox = findViewById(R.id.skinBox)
+        tvBox = findViewById(R.id.tvBox)
+        fileBox = findViewById(R.id.fileBox)
+        keymapBox = findViewById(R.id.keymapBox)
+        setupSettingsTabs()
         fxBox = findViewById(R.id.fxBox)
         // 模板列表默认折叠（展开 11 行会占满整屏）；点整行或右侧按钮都能展开
         findViewById<View>(R.id.rowTemplateCurrent).setOnClickListener { toggleTemplates() }
@@ -566,6 +589,13 @@ class MainActivity : Activity() {
             tabIcons += findViewById<ImageView>(ids[1])
             tabLabels += findViewById<TextView>(ids[2])
             tabPills += findViewById<LinearLayout>(ids[3])
+            if (tabIndex == 0) {
+                tab.isLongClickable = true
+                tab.setOnLongClickListener {
+                    showTargetMenu()
+                    true
+                }
+            }
         }
         // 初始页跟随朝向：竖屏=触控板，横屏=键盘（与 applyOrientationLayout 保持一致）
         showPage(if (landscape) PAGE_KEYBOARD else PAGE_TOUCHPAD)
@@ -758,6 +788,231 @@ class MainActivity : Activity() {
         (color and 0x00FFFFFF) or (0x1F shl 24)
 
 
+    // ————————————————————————— TV / PC 控制（长按底栏「触控板」进入） —————————————————————————
+
+    /** 连入 TV/PC（9511）并设为当前控制目标：主页触摸板与快捷键会自动改发到对端
+     * @param type 设备类型 "tv" 或 "pc"，决定快捷键条是否进 TV 专属布局 */
+    private fun connectTarget(ip: String, port: Int, name: String, type: String = "tv") {
+        Thread({
+            val c = TvControllerClient(ip, port)
+            val ok = c.connect()
+            runOnUiThread {
+                if (ok) {
+                    ControlTarget.controlClient = c
+                    ControlTarget.host = ip
+                    ControlTarget.label = name
+                    ControlTarget.type = type
+                    c.onReverseClipboard = { text ->
+                        runOnUiThread { Toast.makeText(this, "对端复制：$text", Toast.LENGTH_SHORT).show() }
+                    }
+                    onTargetChanged()
+                    Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
+                } else {
+                    ControlTarget.clear()
+                    onTargetChanged()
+                    Toast.makeText(this, "连不上 $ip", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }, "apx-target").start()
+    }
+
+    /** 设备选择：本机/PC + 已发现设备 + 手动输入 IP（TV 与 PC 都跑 9511）
+     *  信标是周期广播的，弹窗打开瞬间往往还没收到 —— 打开期间每秒刷新列表。 */
+    private fun showDevicePicker() {
+        TvDiscovery.start()
+        val items = ArrayList<CharSequence>()
+        val adapter = android.widget.ArrayAdapter<CharSequence>(
+            this, android.R.layout.simple_list_item_1, items
+        )
+        fun rebuild() {
+            items.clear()
+            items.add("本机 / PC（默认）")
+            TvDiscovery.list().forEach {
+                items.add("${it.name}  ${it.ip}  ${it.typeLabel}")
+            }
+            if (items.size == 1) items.add("（正在搜索设备…）")
+            items.add("手动输入 TV IP…")
+            adapter.notifyDataSetChanged()
+        }
+        rebuild()
+        val dlg = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("选择控制设备")
+            .setAdapter(adapter) { _, which ->
+                val tvs = TvDiscovery.list()
+                when {
+                    which == 0 -> { ControlTarget.clear(); onTargetChanged() }
+                    which == items.size - 1 -> promptTargetIp()
+                    tvs.isEmpty() -> { /* 占位「搜索中」，忽略 */ }
+                    else -> {
+                        val tv = tvs.getOrNull(which - 1) ?: return@setAdapter
+                        connectTarget(tv.ip, tv.port, tv.name, tv.type)
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .create()
+        val tick = object : Runnable {
+            override fun run() {
+                if (!dlg.isShowing) return
+                rebuild()
+                handler.postDelayed(this, 1000)
+            }
+        }
+        dlg.setOnShowListener { handler.postDelayed(tick, 1000) }
+        dlg.setOnDismissListener { handler.removeCallbacks(tick) }
+        dlg.show()
+    }
+
+    private fun promptTargetIp() {
+        val edit = EditText(this).apply {
+            hint = "TV / PC IP，如 192.168.1.20"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("输入 TV / PC IP")
+            .setView(edit)
+            .setPositiveButton("连接") { _, _ ->
+                val ip = edit.text.toString().trim()
+                if (ip.isNotEmpty()) connectTarget(ip, TvControllerClient.PORT, ip, "tv")
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 长按底栏「触控板」：选控制目标 / 副屏 / 断开 */
+    private fun showTargetMenu() {
+        val items = ArrayList<CharSequence>()
+        items.add("链接 TV / PC…")
+        items.add("加入副屏")
+        if (ControlTarget.isControlling()) items.add("断开，回本机")
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("触控板控制目标")
+            .setItems(items.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> showDevicePicker()
+                    1 -> startActivity(Intent(this, ScreenActivity::class.java))
+                    2 -> { ControlTarget.clear(); onTargetChanged(); Toast.makeText(this, "已回本机", Toast.LENGTH_SHORT).show() }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 目标变化：更新触摸板提示 + 快捷键条（TV 目标时显示 TV 套） */
+    private fun onTargetChanged() {
+        val controlling = ControlTarget.isControlling()
+        touchHint.text = if (controlling) "正在控制：${ControlTarget.label}" else "手势操控本机"
+        // 仅 TV 类目标进 TV 专属快捷键布局；控 PC 保持鼠标 + 完整键鼠（不切遥控/媒体套）
+        if (controlling && ControlTarget.type == "tv") hotkeyBoard.enterTvMode() else hotkeyBoard.exitTvMode()
+        // 连上目标后确保触摸板模块已启动：模块 IDLE 时 feed() 会把手势直接丢掉（连上也控不了）
+        if (controlling) AgentController.setModuleEnabled(this, ModuleId.TOUCHPAD, true)
+        renderTv()
+    }
+
+    /** 设置页分段切换：通用 / 外观 / 遥控 / 关于，避免一屏滚太长 */
+    private fun setupSettingsTabs() {
+        val tabs = listOf(
+            findViewById<TextView>(R.id.tabSegGeneral),
+            findViewById<TextView>(R.id.tabSegLook),
+            findViewById<TextView>(R.id.tabSegRemote),
+            findViewById<TextView>(R.id.tabSegAbout),
+        )
+        val groups = listOf(
+            findViewById<LinearLayout>(R.id.groupGeneral),
+            findViewById<LinearLayout>(R.id.groupLook),
+            findViewById<LinearLayout>(R.id.groupRemote),
+            findViewById<LinearLayout>(R.id.groupAbout),
+        )
+        fun select(i: Int) {
+            tabs.forEachIndexed { j, t ->
+                val on = i == j
+                t.setBackgroundResource(if (on) R.drawable.bg_btn_primary else 0)
+                t.setTextColor(
+                    if (on) resources.getColor(R.color.md_on_primary)
+                    else resources.getColor(R.color.md_on_surface_variant)
+                )
+            }
+            groups.forEachIndexed { j, g -> g.visibility = if (i == j) View.VISIBLE else View.GONE }
+        }
+        tabs.forEachIndexed { j, t -> t.setOnClickListener { select(j) } }
+        select(0)
+    }
+
+    // ————————————————————————— 设置页：TV / PC 控制 —————————————————————————
+
+    /** TV 连接状态 + 连接 / 断开入口 */
+    private fun renderTv() {
+        tvBox.removeAllViews()
+        val accent = resources.getColor(R.color.md_primary)
+        tvBox.addView(settingRow("连接 / 切换设备", "去选择", accent) { showDevicePicker() })
+        if (ControlTarget.isControlling()) {
+            tvBox.addView(settingRow("断开连接", "回本机", accent) { ControlTarget.clear(); onTargetChanged() })
+        }
+        tvStatusView = TextView(this).apply {
+            text = if (ControlTarget.isControlling()) "当前控制：${ControlTarget.label}" else "未连接（触摸板控本机）"
+            textSize = 13f
+            setTextColor(resources.getColor(R.color.md_on_surface_variant))
+            setPadding(dp(4), dp(8), dp(4), dp(2))
+        }
+        tvBox.addView(tvStatusView)
+    }
+
+    /** 文件传输：经 9512 发送到对端 */
+    private fun renderFile() {
+        fileBox.removeAllViews()
+        val accent = resources.getColor(R.color.md_primary)
+        fileBox.addView(settingRow("发送文件到对端", "选文件", accent) { pickFileToSend() })
+        fileBox.addView(TextView(this).apply {
+            text = "经 9512 发送到当前受控设备；需先在「连接」里选 TV / PC"
+            textSize = 12f
+            setTextColor(resources.getColor(R.color.md_on_surface_variant))
+            setPadding(dp(4), dp(8), dp(4), dp(2))
+        })
+    }
+
+    private fun pickFileToSend() {
+        if (ControlTarget.host.isEmpty() || !ControlTarget.isControlling()) {
+            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(intent, REQ_PICK_FILE)
+    }
+
+    private fun sendFile(uri: Uri) {
+        val host = ControlTarget.host
+        Toast.makeText(this, "正在发送文件…", Toast.LENGTH_SHORT).show()
+        Thread({
+            val ok = TvFileSender.send(this, host, uri)
+            runOnUiThread {
+                Toast.makeText(this, if (ok) "文件已发送" else "发送失败", Toast.LENGTH_SHORT).show()
+            }
+        }, "apx-file").start()
+    }
+
+    /** 遥控键映射说明（如实标注 Home / 媒体键限制） */
+    private fun renderKeymap() {
+        keymapBox.removeAllViews()
+        val lines = listOf(
+            "方向 / OK / 返回 / 主页：走 USB HID 键盘 usage，连 TV 或 PC 后主页触摸板与快捷键条自动发到对端",
+            "OK=Enter，返回=Esc，主页=Home（Home 受系统注入限制，部分设备可能不生效）",
+            "媒体键（音量 / 播放）：快捷键条走键盘通道，未含 Consumer 码；需要媒体键请在「TV 遥控」里用键盘等价键，或在 TV 端用实体遥控",
+            "切到 TV 目标时，触摸板下方的快捷键条自动切换为「TV 遥控」预设，可长按编辑、改动单独保存",
+        )
+        lines.forEach { t ->
+            keymapBox.addView(TextView(this).apply {
+                text = "· $t"
+                textSize = 13f
+                setTextColor(resources.getColor(R.color.md_on_surface_variant))
+                setPadding(dp(4), dp(6), dp(4), dp(6))
+            })
+        }
+    }
+
     // ————————————————————————— 设置页 —————————————————————————
 
     /** 快捷键模板 + 主题方案（数量/内容由数据决定，故运行时构建） */
@@ -767,6 +1022,9 @@ class MainActivity : Activity() {
         renderTheme()
         renderSkins()
         renderFx()
+        renderFile()
+        renderKeymap()
+        onTargetChanged()  // 含 renderTv + 触摸板提示 / 快捷键切换
         // 快捷键自动排序开关：改完立刻按新规则重排快捷键条
         findViewById<Switch>(R.id.swHotkeySort).apply {
             isChecked = HotkeyStore.isAutoSort(this@MainActivity)
@@ -1364,6 +1622,7 @@ class MainActivity : Activity() {
                 renderFx()
                 toast("背景已设置")
             }
+            REQ_PICK_FILE -> sendFile(uri)
         }
     }
 

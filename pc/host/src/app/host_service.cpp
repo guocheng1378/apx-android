@@ -5,16 +5,21 @@
 #include "apxpc/log.hpp"
 #include "apxpc/net/http_server.hpp"
 #include "apxpc/tray/tray_win32.hpp"
+#include "apxpc/wireless/ctrl9511.hpp"
 
 #if defined(_WIN32)
 #include <shellapi.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <thread>
 
 namespace apxpc::app {
@@ -26,6 +31,54 @@ std::atomic<bool> g_running{true};
 BOOL WINAPI consoleCtrl(DWORD) { g_running = false; return TRUE; }
 #else
 void sigInt(int) { g_running = false; }
+#endif
+
+// 本机名，用作 9511 信标名称（手机端设备列表据此识别本机）
+std::string localHostName() {
+    char buf[256]{};
+#if defined(_WIN32)
+    DWORD n = sizeof(buf);
+    if (GetComputerNameA(buf, &n) && n > 0) return std::string(buf, n);
+#else
+    if (::gethostname(buf, sizeof(buf)) == 0 && buf[0] != '\0') return buf;
+#endif
+    return "PC";
+}
+
+// —— 入站防火墙放行（仅 Windows）——
+// 手机连入本机 9511 是「入站」流量；本机网卡若为 Public(公用)网络，Windows 默认拦截入站，
+// 导致手机列表能看到本机却「连不上」。这里在首次启动、且尚未有规则时，提权(netsh runas)
+// 加一条放行 apxhost.exe 的入站规则（TCP 9511 + UDP 9501），免去手动配置。
+// 规则已存在则跳过；提权被拒仅告警、不阻断面板。
+#if defined(_WIN32)
+bool firewallRuleExists(const char* name) {
+    std::string cmd = std::string("netsh advfirewall firewall show rule name=\"") + name + "\"";
+    FILE* f = _popen(cmd.c_str(), "r");
+    if (!f) return false;
+    char buf[512];
+    bool found = false;
+    while (std::fgets(buf, sizeof(buf), f)) {
+        if (std::string(buf).find(name) != std::string::npos) { found = true; break; }
+    }
+    _pclose(f);
+    return found;
+}
+void ensureCtrlFirewallRule() {
+    const char* ruleName = "AllPeriph apxhost ctrl";
+    if (firewallRuleExists(ruleName)) return;
+    char exePath[MAX_PATH] = {0};
+    if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0) return;
+    std::string params = "advfirewall firewall add rule name=\"";
+    params += ruleName;
+    params += "\" dir=in action=allow program=\"";
+    params += exePath;
+    params += "\" profile=private,public";
+    HINSTANCE r = ShellExecuteA(nullptr, "runas", "netsh", params.c_str(), nullptr, SW_HIDE);
+    if ((INT_PTR)r <= 32)
+        APX_LOGW("防火墙入站规则添加失败（需管理员授权）；若手机连不上本机 9511，请手动放行 apxhost.exe（TCP 9511 / UDP 9501）");
+    else
+        APX_LOGI("已为 apxhost.exe 添加防火墙入站放行规则（手机可控本机）");
+}
 #endif
 
 // 静态资源提供器：从磁盘读取 web 目录（开发期 APXPC_WEB_DEV_DIR）
@@ -131,6 +184,19 @@ int runService(const ServiceOptions& opt) {
         return 2;
     }
     uint16_t port = server.actualPort();
+
+    // 9511 受控端：让本机可被手机/TV 经 Wi‑Fi 控制（同时广播 APX1PC 信标供发现）。
+    // 与独立 `apxhost ctrl9511-serve` 同源；端口被占用（如另开 serve）时优雅降级，不阻断面板。
+#if defined(_WIN32)
+    ensureCtrlFirewallRule();
+#endif
+    const std::string ctrlName = localHostName();
+    apxpc::wireless::Ctrl9511Server ctrlSrv;
+    if (!ctrlSrv.start(9511, "", ctrlName))
+        APX_LOGW("9511 受控端启动失败（端口 9511 可能被其他 apxhost 占用）：{}",
+                 ctrlSrv.status().error.c_str());
+    else
+        APX_LOGI("9511 受控端已启动（名称 {}）：手机/TV 选本机即可控 PC", ctrlName.c_str());
 
     // 全局热键
     std::shared_ptr<hotkey::HotkeyManager> hk;

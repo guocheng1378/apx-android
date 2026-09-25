@@ -25,15 +25,6 @@
         <item name="android:windowFullscreen">true</item>
     </style>
 
-    <style name="Theme.AllPeriph.Fullscreen" parent="Theme.AllPeriph">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowBackground">@color/surface_render</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowTranslucentStatus">false</item>
-        <item name="android:windowTranslucentNavigation">false</item>
-    </style>
-
     <style name="Theme.AllPeriph.Miuix.Dialog" parent="@android:style/Theme.Material.Dialog.Alert">
         <item name="android:colorAccent">@color/md_primary</item>
         <item name="android:windowBackground">@color/md_surface</item>

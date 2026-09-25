@@ -14,6 +14,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
 
 namespace apxpc::wireless {
 namespace {
@@ -125,6 +126,14 @@ public:
 
     void injectConsumer(uint16_t) override {
         // macOS 多媒体键需 NXSystemDefined，跨版本不稳定，暂忽略（不影响鼠标/键盘/触摸）。
+    }
+
+    void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
+        // macOS 的 CGEvent 不提供游戏手柄注入；需虚拟 HID 驱动（不在本仓库零依赖范围内）。
+        // 帧已接收，但按钮/轴不会送达游戏——如实降级，仅告警一次。
+        (void)buttons; (void)x; (void)y; (void)rx; (void)ry;
+        static bool warned = false;
+        if (!warned) { warned = true; std::fprintf(stderr, "[AllPeriph] gamepad-over-network 在 macOS 需虚拟 HID 驱动，当前构建未包含，按钮/轴不会注入游戏\n"); }
     }
 
     void setClipboard(const std::string& text) override {

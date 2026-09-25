@@ -18,9 +18,12 @@
 //                     [3..4]=x u16 LE  [5..6]=y u16 LE（归一化 0..65535）[7..8]=0
 //       0x20 剪贴板 [1..2]=u16 len LE [3..]=UTF-8（控制端 → 受控端）
 //       0x21 反向剪贴板（受控端 → 控制端，受控端系统剪贴板变化时回传）
+//       0x07 手柄   [1..2]=u16 按钮位图(LE) [3]=左摇杆X(i8) [4]=Y [5]=右摇杆RX [6]=RY
 //       'p'  ping（控制端 1s 心跳）；受控端回 'pong'
-//   * 发现信标：受控端每 1.5s 向 255.255.255.255:9501 广播
-//       "APX1TV <name> <port> <token>"（UTF-8），手机端 TvDiscovery 据此列出可控设备。
+//   * 发现信标：受控端每 1.5s 向 9501 广播
+//       "APX1TV|APX1PC|APX1PH <name> <port> <token>"（UTF-8；前缀 = 电视 / PC / 手机被控），
+//       手机端 TvDiscovery 与 PC 端 WirelessSession 据此列出可控设备。
+//     除 255.255.255.255 受限广播外，还向各网卡子网定向广播 —— MIUI / Android 15 会丢前者。
 //
 // 注入与剪贴板是**平台相关**部分，由 createPlatformInjector()/createPlatformClipboardWatcher()
 // 按编译目标返回对应实现（Windows=SendInput、Linux=uinput、macOS=CGEvent）。
@@ -60,6 +63,11 @@ public:
 
     /// Consumer 多媒体位图（位序见 android TvControlServer CONSUMER_MAP）。
     virtual void injectConsumer(uint16_t bitmap) = 0;
+
+    /// 手柄：16 位按钮位图 + 左/右摇杆 4 轴（i8，约 -127..127）。
+    /// 受控端按边沿注入按键、按值注入轴；具体能力见各平台实现
+    ///（Windows/macOS 的 SendInput/CGEvent 不支持手柄，需虚拟 HID 驱动）。
+    virtual void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) = 0;
 
     /// 把文本写入本机剪贴板（受控端收到 0x20 帧时调用）。
     virtual void setClipboard(const std::string& text) = 0;

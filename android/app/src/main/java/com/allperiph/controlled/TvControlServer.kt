@@ -124,9 +124,20 @@ class TvControlServer(
                 continue
             }
             if (ready) {
-                Log.w("被控控制面", "已有连接 $peerText，拒绝新连接")
-                runCatching { sock.close() }
-                continue
+                // 新连接来了：**让后来者接管**，而不是拒绝。
+                // 旧客户端可能已是半死的僵尸（对端被强杀、Wi‑Fi 切换/网段变化，服务端收不到
+                // FIN 就永远以为它还活着）。此时若拒绝新连接，PC 端表现为「TCP 连上但立刻被关」：
+                // 面板显示「已连接」却瞬间掉线，点副屏报「媒体连接未建立」。
+                Log.w("被控控制面", "新连接接管，顶掉旧连接 $peerText")
+                val old = client
+                runCatching { old?.close() }
+                if (client === old) {   // 旧连接的收流线程可能刚好已清过，别重复清
+                    ready = false
+                    client = null
+                    out = null
+                    peerText = ""
+                    outQueue.clear()
+                }
             }
             Thread({ handshake(sock) }, "apxctl-handshake").apply {
                 isDaemon = true
@@ -179,6 +190,10 @@ class TvControlServer(
         mainHandler.post { TvInputDispatcher.peer(true, peerText) }
         TvInjector.setConnected(true)
 
+        // 读超时：对端被强杀 / 网络黑洞时 read 既不返回也不抛错，收流线程会永远卡住，
+        // ready 就永远是 true（后面每个新连接都会被当成「已有连接」）。给超时才能发现死连接。
+        runCatching { sock.soTimeout = READ_TIMEOUT_MS }
+
         readerThread = Thread({ readerLoop(sock) }, "apxctl-reader").apply {
             isDaemon = true
             start()
@@ -196,7 +211,11 @@ class TvControlServer(
             val n = try {
                 ins.read(buf)
             } catch (t: Throwable) {
-                -1
+                // 读超时（soTimeout>0）只表示「这一小段时间没数据」，**不是**断线，继续等。
+                // 注意：曾在这里按「超过 N 秒无帧」判死，结果把一条对端心跳有间断的**活连接**
+                // 掐掉了（PC 处于自动发现、广播又被 AP 挡着，掐掉后它无法重连 —— 直接变
+                // 「连不上」）。僵尸连接已由 acceptLoop 的「新连接接管」解决，这里不再判死。
+                continue
             }
             if (n <= 0) break
             feed(buf, n)
@@ -281,6 +300,7 @@ class TvControlServer(
                         0x02 -> if (payloadLen >= 3) actions.add { onConsumer(rxBuf, off) }
                         0x03 -> if (payloadLen >= 3) actions.add { onKeyboard(rxBuf, off, payloadLen) }
                         0x04 -> if (payloadLen >= 9) actions.add { onTouch(rxBuf, off) }
+                        0x07 -> if (payloadLen >= 7) actions.add { onGamepad(rxBuf, off) }
                         0x20 -> if (payloadLen >= 4) actions.add { onClipboard(rxBuf, off, payloadLen) }
                         0x21 -> Log.i("被控控制面", "收到反向剪贴板帧（本端忽略，由对方处理）")
                         0x05 -> Log.i("被控控制面", "收到开副屏请求（忽略）")
@@ -343,14 +363,25 @@ class TvControlServer(
         }
     }
 
+    /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */
+    private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
+
     private fun onKeyboard(buf: ByteArray, off: Int, payloadLen: Int) {
         // body=[0x03, mod, 0, k1..k6]；HID usage page 0x07
         val base = off + ApxFrame.HEADER_SIZE
+        val mod = buf[base + 1].toInt() and 0xFF
         val now = HashSet<Int>()
         val end = if (payloadLen < 9) payloadLen else 9
         for (i in 3 until end) {
             val usage = buf[base + i].toInt() and 0xFF
             if (usage != 0) now.add(usage)
+        }
+        // 修饰键：把 mod 的 8 个位折成 0xE0..0xE7 并入按下集合，复用下面的边沿逻辑。
+        // 原先这里**整段没读 mod** —— 「Ctrl+C / Alt+Tab / Win+D」到本机只剩一个裸字母或
+        // 完全没反应（真机症状：快捷键不能用）。对端松手时发 mod=0、keys=0，
+        // 因此修饰键也会在这里被正确松开。
+        for (bit in 0 until 8) {
+            if (mod and (1 shl bit) != 0) now.add(0xE0 + bit)
         }
         for (u in pressedKeys) {
             if (u !in now) hidUp(u)
@@ -363,6 +394,12 @@ class TvControlServer(
     }
 
     private fun hidDown(usage: Int) {
+        if (usage in 0xE0..0xE7) {            // 修饰键：走原生按键，不能按字符注入
+            val kc = MOD_KEYCODE[usage - 0xE0]
+            TvInputDispatcher.key(kc, true)
+            TvInjector.key(kc, true)
+            return
+        }
         val (kc, ch) = HID_MAP[usage] ?: (0 to '\u0000')
         if (kc != 0) {
             TvInputDispatcher.key(kc, true)
@@ -375,6 +412,12 @@ class TvControlServer(
     }
 
     private fun hidUp(usage: Int) {
+        if (usage in 0xE0..0xE7) {
+            val kc = MOD_KEYCODE[usage - 0xE0]
+            TvInputDispatcher.key(kc, false)
+            TvInjector.key(kc, false)
+            return
+        }
         val (kc, _) = HID_MAP[usage] ?: (0 to '\u0000')
         if (kc != 0) {
             TvInputDispatcher.key(kc, false)
@@ -389,6 +432,18 @@ class TvControlServer(
         if (payloadLen - 2 < len || len <= 0) return
         val text = String(buf.copyOfRange(base + 2, base + 2 + len), Charsets.UTF_8)
         TvInjector.clipboard(text)
+    }
+
+    /** 手柄帧：body=[0x07, buttons u16 LE, x, y, rx, ry]；按钮位图 + 双摇杆 4 轴 */
+    private fun onGamepad(buf: ByteArray, off: Int) {
+        val base = off + com.allperiph.core.ApxFrame.HEADER_SIZE
+        val buttons = (buf[base + 1].toInt() and 0xFF) or ((buf[base + 2].toInt() and 0xFF) shl 8)
+        val x = buf[base + 3].toInt().toByte().toInt()
+        val y = buf[base + 4].toInt().toByte().toInt()
+        val rx = buf[base + 5].toInt().toByte().toInt()
+        val ry = buf[base + 6].toInt().toByte().toInt()
+        TvInputDispatcher.onGamepad(buttons, x, y, rx, ry)
+        TvInjector.gamepad(buttons, x, y, rx, ry)
     }
 
     // ————————————————————————————— 发送 —————————————————————————————
@@ -449,6 +504,10 @@ class TvControlServer(
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val QUEUE_CAP = 256
         private const val WRITER_IDLE_MS = 200L
+
+        /** 读超时（activate 后生效）：让收流线程定期醒来复核 running/接管状态，
+         *  **不**据此判死 —— 判死会误杀心跳有间断的活连接（见 readerLoop 注释）。 */
+        private const val READ_TIMEOUT_MS = 3_000
         private val PONG = "pong".toByteArray(Charsets.UTF_8)
 
         private fun peerTextOf(sock: Socket): String =
@@ -468,6 +527,14 @@ class TvControlServer(
          * HID usage(page 0x07) → Android。value: keyCode（0 表示仅文本）/ 字符（'\u0000' 表示无）。
          */
         private val HID_MAP: Map<Int, Pair<Int, Char>> = buildMap {
+            // ★ 遥控器套（HotkeyTemplates "tv"）里的「返回 / 主页」：0x29(Esc)→Back、0x4A(Home)→Home。
+            //   原先这张表里**没有**这两条 → 点「返回/主页」到本机被静默丢弃，
+            //   而它们恰好是 TV 遥控套里最常用的两个键（TV 端那张表早就有了，手机端漏了）。
+            put(0x29, 4 to '\u0000')           // Esc → Back（遥控器「返回」）
+            put(0x4A, 3 to '\u0000')           // Home（遥控器「主页」）
+            put(0x2B, 61 to '\u0000')          // Tab（终端/补全类模板常用）
+            // F1..F12（0x3A..0x45 → KEYCODE_F1..F12）：多套模板把 F 区当快捷键
+            for (i in 0 until 12) put(0x3A + i, 131 + i to '\u0000')
             put(0x28, 66 to '\u0000')          // Enter
             put(0x2A, 67 to '\u0000')          // Backspace
             put(0x2C, 62 to ' ')              // Space

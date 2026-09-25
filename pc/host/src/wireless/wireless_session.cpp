@@ -23,6 +23,15 @@ constexpr uint16_t kBeaconPort = 9501;
 
 #if defined(_WIN32)
 using Sock = SOCKET;   // Windows 套接字句柄（原 wireless_link.hpp 里的别名，迁移后此处自带）
+
+// 进程级 WSA 初始化（只做一次）。apxdesktop 单独运行（不跑 HttpServer / ctrl9511）时，
+// 若此处不初始化，beaconLoop 里的 socket() 会返回 INVALID_SOCKET，发现线程直接退出，
+// 而 beaconRun_ 仍为 true 不会重试 —— 表现为状态永远「正在发现」、连不上。
+// 与 ctrl9511.cpp / media_session.cpp 各自持有一份 static，无副作用。
+static void ensureWsa() {
+    static bool once = [] { WSADATA d{}; WSAStartup(MAKEWORD(2, 2), &d); return true; }();
+    (void)once;
+}
 #else
 using Sock = int;      // POSIX 文件描述符
 #endif
@@ -33,12 +42,15 @@ int64_t nowMs() {
         .count();
 }
 
-/// 解析 "APX1TV <name> <port> <token>"，返回 (host-ip, port)。name/token 忽略。
+/// 解析 "APX1TV|APX1PC|APX1PH <name> <port> <token>"，返回 (host-ip, port)。name/token 忽略。
 bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port) {
     // 简单按空格切分，取第 2、3 段（name、port）。host 由调用方从来源地址填入。
     std::string_view s(buf, n);
-    // 必须以 "APX1TV" 开头
-    if (s.size() < 6 || s.substr(0, 6) != "APX1TV") return false;
+    // 必须以 "APX1TV"(TV) / "APX1PC"(PC) / "APX1PH"(手机被控) 开头 —— 三种前缀同为 6 字符。
+    // 少认一种，那一类设备就会永远「正在发现」（手机改发 APX1PH 后就踩过这个坑）。
+    if (s.size() < 6) return false;
+    const std::string_view head = s.substr(0, 6);
+    if (head != "APX1TV" && head != "APX1PC" && head != "APX1PH") return false;
     // 找 name 与 port 两个 token
     size_t i = 6;
     while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
@@ -245,8 +257,39 @@ SessionSnapshot WirelessSession::snapshot() const {
     return snap_;
 }
 
+#if defined(_WIN32)
+/// 来源地址是否就是本机（网络字节序）。
+/// 为什么必须有：本机的定向广播会被自己收到，不过滤就会把**自己的信标**当成对端，
+/// 于是面板「已连接」到自己 —— 看着连上了，实际一开始就没连到手机。
+bool isSelfAddress(uint32_t saddrNetOrder) {
+    static uint32_t addrs[32] = {0};
+    static int n = -1;
+    static long long ms = 0;
+    const long long now = nowMs();
+    if (n < 0 || now - ms > 5000) {   // 5s 刷新：插拔网卡 / 换网随时可能变
+        ms = now;
+        n = 0;
+        SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
+        if (s != INVALID_SOCKET) {
+            INTERFACE_INFO infos[32]{};
+            DWORD bytes = 0;
+            if (WSAIoctl(s, SIO_GET_INTERFACE_LIST, nullptr, 0, infos, sizeof(infos),
+                         &bytes, nullptr, nullptr) == 0) {
+                const size_t cnt = bytes / sizeof(INTERFACE_INFO);
+                for (size_t i = 0; i < cnt && n < 32; ++i)
+                    addrs[n++] = infos[i].iiAddress.AddressIn.sin_addr.s_addr;
+            }
+            closesocket(s);
+        }
+    }
+    for (int i = 0; i < n; ++i) if (addrs[i] == saddrNetOrder) return true;
+    return false;
+}
+#endif
+
 void WirelessSession::beaconLoop() {
 #if defined(_WIN32)
+    ensureWsa();   // 必须先初始化 Winsock，否则 socket() 失败导致发现永久失效
     Sock b = socket(AF_INET, SOCK_DGRAM, 0);
     if (b == INVALID_SOCKET) return;
     BOOL br = TRUE;
@@ -295,7 +338,13 @@ void WirelessSession::beaconLoop() {
 #endif
         uint16_t bport = 0;
         std::string dummy;
-        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport)) {
+        // 过滤自身信标：本机广播会回环回来，不过滤就会「连自己」（面板假装已连接，
+        // 而手机永远连不上）。见 isSelfAddress 注释。
+        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport)
+#if defined(_WIN32)
+            && !isSelfAddress(from.sin_addr.s_addr)
+#endif
+        ) {
             onBeacon(hostIp, bport);
         }
     }

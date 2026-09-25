@@ -102,21 +102,6 @@
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <!-- 独立「TV 控制」入口：手机连入 TV 服务端遥控大屏。不改动现有主控界面 -->
-        <activity
-            android:name=".ui.TvControllerActivity"
-            android:exported="true"
-            android:label="TV 控制"
-            android:launchMode="singleTop"
-            android:screenOrientation="sensorPortrait"
-            android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.AllPeriph">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
         <!-- 被控模式前台服务：使本机可被另一台手机控制（无需单独装 TV APK） -->
         <service
             android:name=".controlled.ControlledService"

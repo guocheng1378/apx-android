@@ -8,7 +8,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * 文件发送通道（TCP 端口 [PORT]）：连入 TV 端 [com.allperiph.tv.net.TvFileReceiver]，
+ * 文件发送通道（TCP 端口 [PORT]）：连入对端设备（手机 / PC / TV）的 [com.allperiph.tv.net.TvFileReceiver] 同协议实现，
  * 先发 head(u32 名称长度 + 名称 + u64 文件大小)，随后流式写文件数据。
  * 落盘到 TV 应用私有下载目录，无需被控端存储权限。
  */

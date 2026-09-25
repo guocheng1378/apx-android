@@ -88,7 +88,7 @@ void usage() {
         "  --capture auto|dda|null\n"
         "  --transport auto|tcp|winusb|loopback\n"
         "  --host IP                TCP 模式连接的手机地址（副屏无线/NCM/adb reverse）\n"
-        "  --port N                 TCP 端口（默认 9500）\n"
+        "  --port N                 TCP 端口（默认 9502，手机媒体通道）\n"
         "  --no-handshake           跳过 §4 控制面握手直接推流（手机端应答未实现时用）\n"
         "  --bitrate KBPS            目标码率（默认 12000）\n"
         "  --fps N                   最大帧率（默认 60）\n"

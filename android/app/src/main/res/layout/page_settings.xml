@@ -22,6 +22,68 @@
         android:orientation="vertical"
         android:paddingTop="4dp">
 
+        <!-- 设置页分段：点顶部切换，避免一屏滚太长 -->
+        <LinearLayout
+            android:id="@+id/tabSettingsBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@drawable/bg_card"
+            android:padding="4dp"
+            android:layout_marginBottom="10dp">
+
+            <TextView
+                android:id="@+id/tabSegGeneral"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="通用"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tabSegLook"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="外观"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tabSegRemote"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="遥控"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/tabSegAbout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp"
+                android:text="关于"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/groupGeneral"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
         <!-- 快捷键模板：默认折叠，只显示当前这一套 -->
         <TextView
             style="@style/APSectionTitle"
@@ -216,6 +278,14 @@
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 
+        </LinearLayout><!-- /groupGeneral -->
+
+        <LinearLayout
+            android:id="@+id/groupLook"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
         <!-- 主题方案 -->
         <TextView
             style="@style/APSectionTitle"
@@ -332,6 +402,83 @@
                 android:paddingTop="8dp" />
         </LinearLayout>
 
+        </LinearLayout><!-- /groupLook -->
+
+        <LinearLayout
+            android:id="@+id/groupRemote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <!-- TV / PC 控制：连接状态 + 文件传输 + 遥控键映射（长按底栏「触控板」也可进入连接菜单） -->
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="TV / PC 控制" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/tvBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="文件传输" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/fileBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        <TextView
+            style="@style/APSectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="10dp"
+            android:text="遥控键映射" />
+
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/keymapBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+
+        </LinearLayout><!-- /groupRemote -->
+
+        <LinearLayout
+            android:id="@+id/groupAbout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
         <!-- 维护：两个按钮各占整行（并排时窄屏上文字会顶到边） -->
         <TextView
             style="@style/APSectionTitle"
@@ -361,5 +508,6 @@
                 android:layout_marginTop="8dp"
                 android:text="@string/action_refresh" />
         </LinearLayout>
+        </LinearLayout><!-- /groupAbout -->
     </LinearLayout>
 </ScrollView>

@@ -53,7 +53,7 @@ void printUsage() {
         "  apxhost scene      启动服务并应用场景编排\n"
         "  apxhost ctrl9511-serve [端口] [名称] [秒数]\n"
         "                     启动 9511 受控服务端（默认端口 9511），手机/TV 用「TV 控制」\n"
-        "                     即可控 PC；同时广播 APX1TV 信标供手机自动发现\n"
+        "                     即可控 PC；同时广播 APX1PC 信标供手机自动发现（标为 (PC)）\n"
         "  apxhost ctrl9511-connect <host>[:端口] [秒数]\n"
         "                     作为控制端连入手机/TV 的 9511 服务端（验证链路 + 反向剪贴板）\n"
         "  apxhost ctrl9511-remote <host>[:端口] [秒数]\n"
@@ -131,7 +131,7 @@ std::pair<std::string, uint16_t> parseSpec(const std::string& spec, uint16_t def
 
 // ---------------------------------------------------------- 统一控制面 9511 ----
 // PC 作为「受控端」：监听 9511，手机/TV 用现有 TvControllerClient 连入即可控 PC。
-// 同时广播 APX1TV 信标，手机端设备列表自动出现本机。反向剪贴板默认开启。
+// 同时广播 APX1PC 信标，手机端设备列表自动出现本机（标为 (PC)）。反向剪贴板默认开启。
 int runCtrlServe(const std::string& name, uint16_t port, int seconds) {
     apxpc::wireless::Ctrl9511Server srv;
     if (!srv.start(port, "", name)) {

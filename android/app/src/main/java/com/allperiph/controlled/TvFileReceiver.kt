@@ -1,6 +1,9 @@
 package com.allperiph.controlled
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import com.allperiph.core.Log
 import java.io.BufferedInputStream
 import java.io.File
@@ -16,7 +19,7 @@ import kotlin.math.min
  * 文件接收通道（TCP 端口 [PORT]=9512）：对方手机 [com.allperiph.wireless.TvFileSender] 连入，
  * 先发 head(u32 名称长度 + 名称 + u64 文件大小)，随后流式写入文件。
  * 落盘到应用私有外部文件目录 <外部文件>/APX/<name>（无需任何存储权限）。
- * 与 TV 模块 [com.allperiph.tv.net.TvFileReceiver] 逐字节同实现。
+ * 与 TV / PC 模块的 [com.allperiph.tv.net.TvFileReceiver] 逐字节同实现（对端设备通用）。
  */
 object TvFileReceiver {
     const val PORT = 9512
@@ -88,6 +91,11 @@ object TvFileReceiver {
                     }
                 }
                 Log.i("被控文件", "文件已存：$out")
+                ctx?.let { c ->
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(c, "已接收文件：$name", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         } catch (t: Throwable) {
             Log.e("被控文件", "文件接收异常：${t.message}")

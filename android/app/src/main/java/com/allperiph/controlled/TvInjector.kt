@@ -5,8 +5,15 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.media.AudioManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
+import android.hardware.input.InputManager
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.InputEvent
 import com.allperiph.core.Log
 
 /**
@@ -20,6 +27,18 @@ object TvInjector {
     private var screenW = 0
     private var screenH = 0
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * View 操作只能在主线程做（叠层浮窗 [TvOverlay] 走 WindowManager）。
+     * 被控服务端 [TvControlServer] 是在**握手线程 / 收流线程**里回调进来的：直接动 View 会抛
+     * CalledFromWrongThreadException，而它又在握手 try 里 —— 会被当成「握手失败」把刚建立的
+     * 连接当场关掉（真机症状：面板显示已连接却立刻掉线、点副屏报「媒体连接未建立」）。
+     */
+    private fun onMain(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) action() else mainHandler.post(action)
+    }
+
     @Volatile
     var cursorX = 0f
 
@@ -29,6 +48,9 @@ object TvInjector {
     private const val NUDGE = 48f
     private var touchDownX = -1f
     private var touchDownY = -1f
+
+    /** 手柄按钮上一帧状态（用于边沿检测） */
+    private var lastGamepadButtons = 0
 
     fun init(c: Context) {
         ctx = c.applicationContext
@@ -58,8 +80,11 @@ object TvInjector {
     }
 
     fun setConnected(on: Boolean) {
-        refreshScreen()
-        if (on) TvOverlay.move(cursorX, cursorY) else TvOverlay.hide()
+        // 关键：本函数被握手/收流线程调用，浮窗操作必须切回主线程（见 onMain 注释）
+        onMain {
+            refreshScreen()
+            if (on) TvOverlay.move(cursorX, cursorY) else TvOverlay.hide()
+        }
     }
 
     fun cursorMove(x: Float, y: Float, absolute: Boolean) {
@@ -112,7 +137,18 @@ object TvInjector {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> click()
             KeyEvent.KEYCODE_DEL -> ApxAccessibilityService.instance?.deleteChar()
             KeyEvent.KEYCODE_SPACE -> ApxAccessibilityService.instance?.typeText(" ")
-            else -> { /* 其他键（媒体等）由 consumer 处理 */ }
+            // ★ 遥控器套（HotkeyTemplates "tv"）的「返回 / 主页」：服务端已把 0x29(Esc)
+            //   映射成 KEYCODE_BACK、0x4A(Home) 映射成 KEYCODE_HOME，原先这里没有分支 →
+            //   被**静默丢弃**（被控手机点「返回/主页」毫无反应）。无障碍服务注入不了任意按键，
+            //   但这三个全局动作是它明确支持的。
+            KeyEvent.KEYCODE_BACK -> ApxAccessibilityService.instance?.back()
+            KeyEvent.KEYCODE_HOME -> ApxAccessibilityService.instance?.home()
+            KeyEvent.KEYCODE_APP_SWITCH -> ApxAccessibilityService.instance?.recents()
+            KeyEvent.KEYCODE_ESCAPE -> ApxAccessibilityService.instance?.back()
+            else -> {
+                // 其余（含 Ctrl/Alt/Shift/Win 修饰键 113/59/57/117/114/60/58/118，由键盘帧的
+                // mod 位图折出）：本机没有组合键注入语义，明确忽略；媒体键走 consumer 帧。
+            }
         }
     }
 
@@ -160,4 +196,73 @@ object TvInjector {
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
         if (systemReady()) ApxAccessibilityService.instance?.typeText(text)
     }
+
+    /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
+     *  走 InputManager.injectInputEvent（需 INJECT_EVENTS 权限）；AccessibilityService 无法注入手柄。 */
+    fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+        val svc = ApxAccessibilityService.instance ?: return
+        if (svc.checkSelfPermission("android.permission.INJECT_EVENTS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.w("TvInjector", "手柄注入需 INJECT_EVENTS 权限（adb shell appops set ${svc.packageName} android:inject_events allow）")
+            return
+        }
+        val im = svc.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return
+        for (bit in 0..15) {
+            val now = (buttons ushr bit) and 1 == 1
+            val was = (lastGamepadButtons ushr bit) and 1 == 1
+            if (now == was) continue
+            val kc = GAMEPAD_KEYCODES[bit] ?: continue
+            injectGamepadKey(im, now, kc)
+        }
+        lastGamepadButtons = buttons
+        val t = SystemClock.uptimeMillis()
+        val evt = MotionEvent.obtain(
+            t, t, MotionEvent.ACTION_MOVE, 1,
+            arrayOf(MotionEvent.PointerProperties().apply { id = 0 }),
+            arrayOf(MotionEvent.PointerCoords().apply {
+                setAxisValue(MotionEvent.AXIS_X, x / 127f)
+                setAxisValue(MotionEvent.AXIS_Y, y / 127f)
+                setAxisValue(MotionEvent.AXIS_Z, rx / 127f)
+                setAxisValue(MotionEvent.AXIS_RZ, ry / 127f)
+            }),
+            0, 0, 0f, 0f, 0, 0, InputDevice.SOURCE_GAMEPAD, 0
+        )
+        injectGamepadEvent(im, evt)
+        evt.recycle()
+    }
+
+    private fun injectGamepadKey(im: InputManager, down: Boolean, keyCode: Int) {
+        val t = SystemClock.uptimeMillis()
+        val ev = KeyEvent(t, t, if (down) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP, keyCode, 0)
+        ev.source = InputDevice.SOURCE_GAMEPAD
+        injectGamepadEvent(im, ev)
+    }
+
+    private val injectInputEventMethod by lazy {
+        try {
+            InputManager::class.java.getMethod("injectInputEvent", InputEvent::class.java, Int::class.javaPrimitiveType)
+        } catch (_: Throwable) { null }
+    }
+    private fun injectGamepadEvent(im: InputManager, ev: InputEvent) {
+        // INJECT_INPUT_EVENT_MODE_ASYNC == 0；反射规避部分 SDK stub 未暴露该隐藏 API
+        injectInputEventMethod?.invoke(im, ev, 0)
+    }
+
+    private val GAMEPAD_KEYCODES = arrayOf<Int?>(
+        KeyEvent.KEYCODE_BUTTON_A,      // 0
+        KeyEvent.KEYCODE_BUTTON_B,      // 1
+        KeyEvent.KEYCODE_BUTTON_X,      // 2
+        KeyEvent.KEYCODE_BUTTON_Y,      // 3
+        KeyEvent.KEYCODE_BUTTON_L1,     // 4
+        KeyEvent.KEYCODE_BUTTON_R1,     // 5
+        KeyEvent.KEYCODE_BUTTON_L2,     // 6
+        KeyEvent.KEYCODE_BUTTON_R2,     // 7
+        KeyEvent.KEYCODE_BUTTON_SELECT, // 8
+        KeyEvent.KEYCODE_BUTTON_START,  // 9
+        KeyEvent.KEYCODE_BUTTON_C,      // 10
+        KeyEvent.KEYCODE_BUTTON_Z,      // 11
+        KeyEvent.KEYCODE_BUTTON_MODE,   // 12
+        KeyEvent.KEYCODE_BUTTON_THUMBL, // 13
+        KeyEvent.KEYCODE_BUTTON_THUMBR, // 14
+        null                            // 15
+    )
 }

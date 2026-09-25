@@ -121,11 +121,11 @@ function demoState(tick) {
     wireless: {
       connected: false,
       token: 'APX-DEMO-TOKEN',
-      qrPayload: 'apx://192.168.1.10:9500?t=APX-DEMO-TOKEN',
+      qrPayload: 'apx://192.168.1.10:9511?t=APX-DEMO-TOKEN',
       host: '192.168.1.10',
-      port: 9500,
+      port: 9511,
       discovered: [
-        { name: 'Pixel 演示机', host: '192.168.1.10', port: 9500, token: 'APX-DEMO-TOKEN' },
+        { name: 'Pixel 演示机', host: '192.168.1.10', port: 9511, token: 'APX-DEMO-TOKEN' },
       ],
     },
     alerts: [

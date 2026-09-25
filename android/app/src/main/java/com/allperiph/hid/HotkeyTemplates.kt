@@ -187,6 +187,21 @@ object HotkeyTemplates {
                 c("保存", HidKeys.MOD_CTRL, 0x16),
             ),
         ),
+        Template(
+            key = "tv",
+            name = "TV 遥控",
+            desc = "方向 / OK / 返回 / 主页（TV 与 PC 通用）",
+            color = 0xFFE0457B.toInt(),
+            combos = listOf(
+                c("上", 0, KEY_UP),
+                c("下", 0, KEY_DOWN),
+                c("左", 0, KEY_LEFT),
+                c("右", 0, KEY_RIGHT),
+                c("OK", 0, KEY_ENTER),
+                c("返回", 0, KEY_ESC),
+                c("主页", 0, 0x4A),
+            ),
+        ),
     )
 
     fun byKey(key: String?): Template? = ALL.firstOrNull { it.key == key }

@@ -106,6 +106,31 @@ object HotkeyStore {
             .edit().putString(KEY_ITEMS, encode(list).toString()).apply()
     }
 
+    // —————————————————————————— TV 目标专属快捷键（v1.32） ——————————————————————————
+    // 主页触摸板切到 TV/PC 目标时，快捷键条自动显示这套，编辑单独落盘，不污染本机那套。
+
+    private const val KEY_ITEMS_TV = "items_tv"
+
+    private fun tvDefault(): List<HidKeys.Combo> =
+        HotkeyTemplates.byKey("tv")?.combos ?: HidKeys.DEFAULTS
+
+    fun loadTv(ctx: Context): MutableList<HidKeys.Combo> {
+        val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val raw = sp.getString(KEY_ITEMS_TV, null) ?: return tvDefault().toMutableList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            MutableList(arr.length()) { i ->
+                val o = arr.getJSONObject(i)
+                HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
+            }
+        }.getOrElse { tvDefault().toMutableList() }
+    }
+
+    fun saveTv(ctx: Context, list: List<HidKeys.Combo>) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ITEMS_TV, encode(list).toString()).apply()
+    }
+
     // —————————————————————————— 用户自建模板（v1.28） ——————————————————————————
 
     private const val KEY_CUSTOM = "custom_templates"

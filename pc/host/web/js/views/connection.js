@@ -20,15 +20,15 @@ export function render(s) {
   ]);
 }
 
-// 解析 "192.168.1.42:9500" → { host, port }；无端口用默认 9500
+// 解析 "192.168.1.42:9511" → { host, port }；无端口用默认 9511（统一控制面端口）
 function parseHostPort(text) {
   const t = (text || '').trim();
-  if (!t) return { host: '', port: 9500 };
+  if (!t) return { host: '', port: 9511 };
   const i = t.lastIndexOf(':');
   if (i > 0 && /^\d+$/.test(t.slice(i + 1))) {
-    return { host: t.slice(0, i), port: Number(t.slice(i + 1)) || 9500 };
+    return { host: t.slice(0, i), port: Number(t.slice(i + 1)) || 9511 };
   }
-  return { host: t, port: 9500 };
+  return { host: t, port: 9511 };
 }
 
 function pairCard(s) {
@@ -57,7 +57,7 @@ function pairCard(s) {
   const regenBtn = h('button.btn.sm', { type: 'button', text: '重新生成配对码' });
   regenBtn.addEventListener('click', () => withFeedback(regenBtn, () => act('wireless.regenToken')));
 
-  const host = h('input.input', { type: 'text', placeholder: '手机地址，如 192.168.1.42:9500', value: wifi.host || '', style: { flex: '1', minWidth: '160px' } });
+  const host = h('input.input', { type: 'text', placeholder: '手机地址，如 192.168.1.42:9511', value: wifi.host || '', style: { flex: '1', minWidth: '160px' } });
   const token = h('input.input', { type: 'text', placeholder: '手机配对令牌（来自手机端）', value: '', style: { flex: '1', minWidth: '160px' } });
   const connectBtn = h('button.btn.primary', { type: 'button', text: '手动连接' });
   connectBtn.addEventListener('click', () => {

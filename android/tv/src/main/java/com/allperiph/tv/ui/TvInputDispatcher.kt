@@ -29,6 +29,9 @@ object TvInputDispatcher {
         /** 可见字符输入（键盘字母/数字） */
         fun onText(ch: Char)
 
+        /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。可选：UI 可视化 */
+        fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {}
+
         /** 链路状态变化 */
         fun onPeer(connected: Boolean, peer: String)
     }
@@ -41,6 +44,9 @@ object TvInputDispatcher {
     fun key(keyCode: Int, down: Boolean) = listener?.onKey(keyCode, down)
 
     fun text(ch: Char) = listener?.onText(ch)
+
+    fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) =
+        listener?.onGamepad(buttons, x, y, rx, ry)
 
     fun peer(connected: Boolean, peer: String) = listener?.onPeer(connected, peer)
 }

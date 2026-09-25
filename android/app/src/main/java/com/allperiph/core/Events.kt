@@ -20,32 +20,8 @@ data class LinkSpeedDegradedEvent(
     val message: String,
 )
 
-/** M1 传感器引擎状态 */
-data class SensorStatusEvent(
-    val state: ModuleState,
-    val enabledMask: Long,
-    val activeChannels: List<String>,
-    val droppedSamples: Long,
-    val notice: String?,
-)
-
-/** M3 GPS 状态 */
-data class GpsStatusEvent(
-    val state: ModuleState,
-    val sentences: Long,
-    val lastSentenceType: String?,
-    val notice: String?,
-)
-
 /** §2.7 PC 下发的 Vendor 命令（由 M2 读取 /dev/hidg0 后广播） */
 data class VendorCommandEvent(val command: VendorCommand)
-
-/** M5 执行结果 */
-data class VibeStatusEvent(
-    val cmd: Int,
-    val ok: Boolean,
-    val detail: String,
-)
 
 /** 整代理状态汇总，供 UI 与 Report 5 状态上报共用（v1.1：位图 64 位 + lastSeq 回显） */
 data class AgentStateEvent(

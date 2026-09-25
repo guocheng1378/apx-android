@@ -16,8 +16,9 @@
 | `TouchCursorView.kt` | 触控板光标视图（手势事件入口） |
 | `GamepadActivity.kt` / `GamepadController.kt` / `JoystickView.kt` | 手柄页（**仅 USB 出口**） |
 
-> 原 `ScreenActivity.kt`（副屏全屏）随副屏一并废止，代码在 `app/src/disabled/screen/`，
-> **不参与编译**（`app/build.gradle.kts` 未定制 sourceSets，默认只编译 `src/main`）。
+> 副屏能力现由 `screen/` 包承担：`screen/ScreenActivity.kt` 在 `AndroidManifest.xml` 中声明，
+> 由 `MainActivity` / `TouchpadActivity` / `AgentForegroundService` 拉起。
+> 早先放在 `app/src/disabled/screen/` 的废止副本（从不参与编译）已删除。
 
 ## 唯一前台服务
 

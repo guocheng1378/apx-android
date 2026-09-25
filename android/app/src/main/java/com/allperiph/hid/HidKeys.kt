@@ -216,13 +216,19 @@ object HidKeys {
      * rid 21：[id, mod, 0, k1..k6]；keys 为空 = 全释放
      */
     private fun send(mod: Int, keys: IntArray) {
-        // 选了受控设备（TV / PC）：键盘字符/方向键短路到 9511 客户端（逐键 down→up；mod 在受控端忽略）
+        // 选了受控设备（TV / PC）：键盘短路到 9511 客户端。
+        // **mod 必须一起发**：原先这里只逐键发 usage、把 mod 丢掉，于是「复制/粘贴/撤销/
+        // 保存/全选/查找（Ctrl+X）」「切窗(Alt+Tab)」「桌面(Win+D)」「资源(Win+E)」「锁屏」
+        // 到对端全退化成裸字母或没反应 —— 正是用户报的「快捷键不能用了」。
+        // 释放沿用本机路径的时序：轻点/字符键由 releaseTask（60ms 后）发全释放帧，
+        // 长按由 releaseHold() 发 —— 所以这里只负责「按下」，不要自己补 up。
         if (com.allperiph.wireless.ControlTarget.isControlling()) {
             val c = com.allperiph.wireless.ControlTarget.controlClient
             if (c != null) {
-                for (k in keys) if (k != 0) {
-                    c.keyboard(k, true)
-                    c.keyboard(k, false)
+                if (keys.isEmpty()) {
+                    c.keyboard(0, false)                        // 全释放（含修饰键）
+                } else {
+                    for (k in keys) if (k != 0) c.keyboard(k, true, mod)
                 }
             }
             return

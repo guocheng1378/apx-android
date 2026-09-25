@@ -2,6 +2,7 @@ package com.allperiph.ui
 
 import com.allperiph.core.ApxNative
 import com.allperiph.core.Log
+import com.allperiph.wireless.ControlTarget
 
 /**
  * USB 游戏手柄发送中枢（§2.13 Report ID 22）。
@@ -64,6 +65,13 @@ object GamepadController {
             Log.w(TAG, "手柄报告打包失败（libapx 不可用）")
             return
         }
+        // 正在控制 TV/PC：改走网络 GAME 帧（远端注入），不再发本地 USB HID
+        val cc = ControlTarget.controlClient
+        if (cc != null && cc.ready) {
+            cc.gamepad(buttons, axisX, axisY, axisRx, axisRy)
+            return
+        }
+        // 否则走本地 USB HID（本机 / USB 被控）
         val rt = AgentController.runtime
         if (rt == null || !rt.hid.isReady()) return
         if (!rt.hid.sendInputReport(rep)) Log.w(TAG, "手柄报告发送失败")

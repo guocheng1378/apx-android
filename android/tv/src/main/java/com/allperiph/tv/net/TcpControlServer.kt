@@ -51,6 +51,14 @@ class TcpControlServer(
     var ready: Boolean = false
         private set
 
+    /**
+     * 链路状态变化回调（**主线程**调用）：`connected` + 对端 IP。
+     * 前台服务用它刷新通知，并把对端 IP 记下来供信标做单播兜底
+     * （不少 AP / Mesh 会丢「Wi‑Fi → 有线」的广播，只发广播时 PC 端永远「正在发现」）。
+     */
+    @Volatile
+    var onPeerChanged: ((Boolean, String) -> Unit)? = null
+
     private val running = AtomicBoolean(false)
     private var acceptThread: Thread? = null
     private var readerThread: Thread? = null
@@ -112,6 +120,9 @@ class TcpControlServer(
 
     fun statusText(): String = if (ready) "已连接 $peerText" else "监听 $port · 等待手机连入"
 
+    /** 当前连入的对端 IP（无连接为 null）。信标用它做单播兜底，见 [WirelessBeacon]。 */
+    fun currentPeerHost(): String? = client?.inetAddress?.hostAddress
+
     // ————————————————————————————— 接受 —————————————————————————————
 
     private fun acceptLoop(ss: ServerSocket) {
@@ -127,10 +138,16 @@ class TcpControlServer(
                 }
                 continue
             }
-            if (ready) {
-                Log.w("已有连接 $peerText，拒绝新连接")
-                runCatching { sock.close() }
-                continue
+            // ★ 「后来者接管」，**不要拒绝新连接**：旧连接可能是僵尸 —— 对端被强杀 / 换网时收不到
+            //   FIN，收流线程会一直阻塞在 read 上（TCP 黑洞），ready 永远是 true。
+            //   此时若把新连接 close 掉，手机端就是「TCP 连上、却一行都进不来」，只能重启 TV 应用。
+            //   这里关掉旧 socket 让它的读写线程立刻醒来退出；收尾由旧收流线程自己完成
+            //   （见 readerLoop / teardown 的 `client === sock` 判定），不会互相踩。
+            val old = client
+            if (old != null && old !== sock) {
+                Log.w("新连接接管，断开旧连接 $peerText")
+                ready = false
+                runCatching { old.close() }
             }
             Thread({ handshake(sock) }, "apxtv-handshake").apply {
                 isDaemon = true
@@ -162,7 +179,7 @@ class TcpControlServer(
                     return
                 }
             }
-            sock.soTimeout = 0
+            sock.soTimeout = READ_TIMEOUT_MS
             activate(sock)
         } catch (t: Throwable) {
             Log.w("握手失败：${t.message}")
@@ -180,7 +197,10 @@ class TcpControlServer(
         lastButtons = 0
         ready = true
         Log.i("手机已连入：$peerText")
-        mainHandler.post { TvInputDispatcher.peer(true, peerText) }
+        mainHandler.post {
+            TvInputDispatcher.peer(true, peerText)
+            onPeerChanged?.invoke(true, sock.inetAddress?.hostAddress ?: "")
+        }
 
         readerThread = Thread({ readerLoop(sock) }, "apxtv-reader").apply {
             isDaemon = true
@@ -195,10 +215,15 @@ class TcpControlServer(
     private fun readerLoop(sock: Socket) {
         val ins = sock.getInputStream()
         val buf = ByteArray(4096)
-        while (running.get() && !sock.isClosed) {
+        // `client === sock`：被新连接接管后本线程立即退出（不再继续解析旧连接的数据）
+        while (running.get() && !sock.isClosed && client === sock) {
             val n = try {
                 ins.read(buf)
             } catch (t: Throwable) {
+                // **读超时 ≠ 断线**：对方可能只是暂时没说话（心跳有间断也是正常的）。
+                // 早期版本据此判死，会把活连接误杀；现在只把超时当成「再来一轮」，
+                // 真正的收尾交给 IO 异常、对端关闭、或新连接接管。
+                if (t is java.net.SocketTimeoutException) continue
                 -1
             }
             if (n <= 0) break
@@ -214,7 +239,7 @@ class TcpControlServer(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
-        while (running.get() && !sock.isClosed) {
+        while (running.get() && !sock.isClosed && client === sock) {
             val frame = try {
                 outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS)
             } catch (_: InterruptedException) {
@@ -239,7 +264,10 @@ class TcpControlServer(
             out = null
             peerText = ""
             outQueue.clear()
-            mainHandler.post { TvInputDispatcher.peer(false, "") }
+            mainHandler.post {
+                TvInputDispatcher.peer(false, "")
+                onPeerChanged?.invoke(false, "")
+            }
         }
         runCatching { sock.close() }
     }
@@ -283,6 +311,7 @@ class TcpControlServer(
                         0x02 -> if (payloadLen >= 3) actions.add { onConsumer(rxBuf, off) }
                         0x03 -> if (payloadLen >= 3) actions.add { onKeyboard(rxBuf, off, payloadLen) }
                         0x04 -> if (payloadLen >= 9) actions.add { onTouch(rxBuf, off) }
+                        0x07 -> if (payloadLen >= 7) actions.add { onGamepad(rxBuf, off) }
                         0x20 -> if (payloadLen >= 4) actions.add { onClipboard(rxBuf, off, payloadLen) }
                         0x05 -> Log.i("收到开副屏请求（TV 端忽略）")
                         0x10 -> Log.i("收到模块开关（TV 端忽略）")
@@ -344,14 +373,25 @@ class TcpControlServer(
         }
     }
 
+    /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */
+    private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
+
     private fun onKeyboard(buf: ByteArray, off: Int, payloadLen: Int) {
         // body=[0x03, mod, 0, k1..k6]；HID usage page 0x07
         val base = off + ApxFrame.HEADER_SIZE
+        val mod = buf[base + 1].toInt() and 0xFF
         val now = HashSet<Int>()
         val end = if (payloadLen < 9) payloadLen else 9
         for (i in 3 until end) {
             val usage = buf[base + i].toInt() and 0xFF
             if (usage != 0) now.add(usage)
+        }
+        // 修饰键：把 mod 的 8 个位折成 0xE0..0xE7 并入按下集合，复用下面的边沿逻辑。
+        // 原先这里**整段没读 mod** —— 「Ctrl+C / Alt+Tab / Win+D」到 TV 只剩一个裸字母或
+        // 完全没反应（真机症状：快捷键不能用）。对端松手时发 mod=0、keys=0，
+        // 因此修饰键也会在这里被正确松开。
+        for (bit in 0 until 8) {
+            if (mod and (1 shl bit) != 0) now.add(0xE0 + bit)
         }
         // key-up：之前按下、本次没了
         for (u in pressedKeys) {
@@ -366,6 +406,12 @@ class TcpControlServer(
     }
 
     private fun hidDown(usage: Int) {
+        if (usage in 0xE0..0xE7) {            // 修饰键：走原生按键，不能按字符注入
+            val kc = MOD_KEYCODE[usage - 0xE0]
+            TvInputDispatcher.key(kc, true)
+            TvInjector.key(kc, true)
+            return
+        }
         val (kc, ch) = HID_MAP[usage] ?: (0 to '\u0000')
         if (kc != 0) {
             TvInputDispatcher.key(kc, true)
@@ -378,6 +424,12 @@ class TcpControlServer(
     }
 
     private fun hidUp(usage: Int) {
+        if (usage in 0xE0..0xE7) {
+            val kc = MOD_KEYCODE[usage - 0xE0]
+            TvInputDispatcher.key(kc, false)
+            TvInjector.key(kc, false)
+            return
+        }
         val (kc, _) = HID_MAP[usage] ?: (0 to '\u0000')
         if (kc != 0) {
             TvInputDispatcher.key(kc, false)
@@ -392,6 +444,18 @@ class TcpControlServer(
         if (payloadLen - 2 < len || len <= 0) return
         val text = String(buf.copyOfRange(base + 2, base + 2 + len), Charsets.UTF_8)
         TvInjector.clipboard(text)
+    }
+
+    /** 手柄帧：body=[0x07, buttons u16 LE, x, y, rx, ry]；按钮位图 + 双摇杆 4 轴 */
+    private fun onGamepad(buf: ByteArray, off: Int) {
+        val base = off + ApxFrame.HEADER_SIZE
+        val buttons = (buf[base + 1].toInt() and 0xFF) or ((buf[base + 2].toInt() and 0xFF) shl 8)
+        val x = buf[base + 3].toInt().toByte().toInt()
+        val y = buf[base + 4].toInt().toByte().toInt()
+        val rx = buf[base + 5].toInt().toByte().toInt()
+        val ry = buf[base + 6].toInt().toByte().toInt()
+        TvInputDispatcher.onGamepad(buttons, x, y, rx, ry)
+        TvInjector.gamepad(buttons, x, y, rx, ry)
     }
 
     // ————————————————————————————— 发送 —————————————————————————————
@@ -437,6 +501,13 @@ class TcpControlServer(
 
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
+
+        /**
+         * 收流读超时：让收流线程定期醒来复核 running / 接管状态。
+         * **不据此判死** —— 判死会误杀心跳有间断的活连接（见 readerLoop 注释）；
+         * 真正的收尾交给 IO 异常、对端关闭或新连接接管。
+         */
+        private const val READ_TIMEOUT_MS = 3_000
         private const val QUEUE_CAP = 256
         private const val WRITER_IDLE_MS = 200L
         private val PONG = "pong".toByteArray(Charsets.UTF_8)
@@ -460,8 +531,10 @@ class TcpControlServer(
          */
         private val HID_MAP: Map<Int, Pair<Int, Char>> = buildMap {
             put(0x28, 66 to '\u0000')          // Enter
+            put(0x29, 4 to '\u0000')           // Esc → Back（遥控器「返回」）
             put(0x2A, 67 to '\u0000')          // Backspace
             put(0x2C, 62 to ' ')              // Space
+            put(0x4A, 3 to '\u0000')           // Home（遥控器「主页」；受系统注入限制可能不生效）
             put(0x4C, 112 to '\u0000')         // Delete
             put(0x4F, 22 to '\u0000')          // Right
             put(0x50, 21 to '\u0000')          // Left

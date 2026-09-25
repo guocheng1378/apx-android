@@ -35,6 +35,16 @@ class TvControllerClient(
     private var seq = 0
     private val writeLock = Any()
 
+    /**
+     * 发送队列 + 发送线程。
+     * 为什么必须有：控制帧很多是**主线程**产生的（触控板手势走 `onTouchEvent` → 分发 → write），
+     * 而 Android 禁止主线程做网络 I/O，会抛 `NetworkOnMainThreadException`（message 为 null）
+     * ——异常被吞后 `ready` 被翻成 false，表现为「连上却完全控不了」。
+     * 统一入队、由后台线程写出，顺带把 UI 从 socket 写阻塞里解放出来。
+     */
+    private val txQueue = java.util.concurrent.LinkedBlockingQueue<ByteArray>()
+    private var txThread: Thread? = null
+
     /** 反向剪贴板回调：被控手机剪贴板变化时回传文本（由 UI 注册，写入本机剪贴板） */
     @Volatile
     var onReverseClipboard: ((String) -> Unit)? = null
@@ -67,6 +77,7 @@ class TvControllerClient(
             synchronized(rxLock) { rxLen = 0 }
             thread(name = "tvctrl-reader") { readerLoop(s) }
             thread(name = "tvctrl-ping") { pingLoop() }
+            startTx()
             Log.i("TvCtrl", "已连 TV $host:$port")
             true
         } catch (t: Throwable) {
@@ -79,6 +90,9 @@ class TvControllerClient(
     fun disconnect() {
         running.set(false)
         ready = false
+        runCatching { txQueue.clear() }
+        runCatching { txThread?.interrupt() }
+        txThread = null
         s_close()
     }
 
@@ -171,22 +185,36 @@ class TvControllerClient(
         }
     }
 
-    /** 发送任意控制面本体（含 cmd 字节）；供副屏关键帧请求等扩展帧使用 */
+    /** 发送线程：串行写出队列里的帧（**绝不在主线程做 socket I/O**） */
+    private fun startTx() {
+        if (txThread?.isAlive == true) return
+        txThread = thread(name = "tvctrl-tx") {
+            while (running.get()) {
+                val frame = try {
+                    txQueue.take()
+                } catch (_: InterruptedException) {
+                    break
+                }
+                try {
+                    out?.write(frame)
+                    out?.flush()
+                } catch (t: Throwable) {
+                    Log.w("TvCtrl", "TV 控制帧写出失败：${t.message}")
+                    ready = false
+                }
+            }
+        }
+    }
+
+    /** 发送任意控制面本体（含 cmd 字节）；只入队，实际写出在发送线程 */
     fun sendControl(body: ByteArray): Boolean {
         if (!ready) return false
         val frame = synchronized(writeLock) {
             seq = (seq + 1) and 0x7FFFFFFF
             ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq)
         }
-        return try {
-            out?.write(frame)
-            out?.flush()
-            true
-        } catch (t: Throwable) {
-            Log.w("TvCtrl", "TV 控制帧写出失败：${t.message}")
-            ready = false
-            false
-        }
+        while (txQueue.size > 512) txQueue.poll()   // 防积压（相对位移帧可安全丢弃）
+        return txQueue.offer(frame)
     }
 
     // ————————————————————————————— 输入发送（供 UI 调用） —————————————————————————————
@@ -205,14 +233,30 @@ class TvControllerClient(
         )
     )
 
-    /** 键盘：HID usage(page 0x07)；down 发 usage，up 发空 */
-    fun keyboard(usage: Int, down: Boolean) =
-        if (down) sendControl(byteArrayOf(0x03.toByte(), 0, 0, usage.toByte()))
+    /**
+     * 键盘：HID usage(page 0x07)；down 发 usage，up 发空。
+     *
+     * [mod] 是 HID 修饰键位图（Ctrl=1 / Shift=2 / Alt=4 / Win=8；右修饰为高位）—— **必须与
+     * usage 同帧发出**：受控端是按「上一帧 vs 这一帧的位差」按下/松开修饰键的（PC 端
+     * `injectKeyboard` 就是这么实现的）。以前这里把 mod 写死成 0，于是「复制 / 粘贴 / 撤销 /
+     * 切窗(Alt+Tab) / 桌面(Win+D)」到了对端只剩一个裸字母或干脆没反应 —— 真机症状即
+     * 「快捷键不能用」。释放帧统一为 mod=0、keys=0，一次把修饰键与按键全松开。
+     */
+    fun keyboard(usage: Int, down: Boolean, mod: Int = 0) =
+        if (down) sendControl(byteArrayOf(0x03.toByte(), mod.toByte(), 0, usage.toByte()))
         else sendControl(byteArrayOf(0x03.toByte(), 0, 0, 0))
 
     /** 多媒体：16 位位图，bit 序见 TV 端 CONSUMER_MAP */
     fun consumer(bitmap: Int) =
         sendControl(byteArrayOf(0x02.toByte(), (bitmap and 0xFF).toByte(), ((bitmap ushr 8) and 0xFF).toByte()))
+
+    /** 手柄：复用 USB HID 的 7 字节布局（buttons u16 LE + 左/右摇杆 4×i8 轴）；cmd=0x07 与 TV/PC 服务端一致 */
+    fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) =
+        sendControl(byteArrayOf(
+            0x07.toByte(),
+            (buttons and 0xFF).toByte(), ((buttons ushr 8) and 0xFF).toByte(),
+            x.toByte(), y.toByte(), rx.toByte(), ry.toByte()
+        ))
 
     /** 剪贴板文本：body=[0x20, len u16 LE, utf8…]，TV 端写入系统剪贴板并填入聚焦输入框 */
     fun sendClipboard(text: String): Boolean {
