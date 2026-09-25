@@ -396,7 +396,7 @@ class TcpControlServer(
         // 「锁屏」芯片发的是 Win+L —— TV 上没有桌面语义，当电源键处理（锁屏/亮屏）
         if (mod and 8 != 0 && now == HashSet(listOf(0x0F))) {
             pressedKeys.clear()
-            if (RootInput.available) RootInput.run("input keyevent 26")
+            if (com.allperiph.tv.core.RootInput.available) com.allperiph.tv.core.RootInput.run("input keyevent 26")
             else com.allperiph.tv.core.ApxAccessibilityService.instance?.lockScreen()
             return
         }
