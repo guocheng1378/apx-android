@@ -45,7 +45,7 @@ struct Options {
     std::string dump;
     std::string capture = "auto";
     std::string tcpHost;        // --host：TCP 客户端连接目标（副屏无线/NCM/adb reverse）
-    uint16_t tcpPort = 9500;    // --port
+    uint16_t tcpPort = 9502;    // --port（手机媒体服务端 TcpMediaChannel 端口）
     bool noHandshake = false;   // --no-handshake
     uint32_t bitrateKbps = 12000;
     uint32_t maxFps = 60;
@@ -377,12 +377,12 @@ int autoRun() {
     const std::string iniPath = dir + "apxdisp.ini";
 
     std::string host;
-    uint16_t port = 9500;
+    uint16_t port = 9502;
     {
         std::ifstream in(iniPath);
         if (!in) {
             std::ofstream out(iniPath);
-            out << "# 全能外设副屏配置\n# 手机 IP（手机和电脑需同一 WiFi；IP 变了改这里）\nhost=192.168.2.182\nport=9500\n";
+            out << "# 全能外设副屏配置\n# 手机 IP（手机和电脑需同一 WiFi；IP 变了改这里）\nhost=192.168.2.182\nport=9502\n";
             out.close();
             std::ifstream in2(iniPath);
             std::string line;
@@ -401,17 +401,17 @@ int autoRun() {
     }
     if (host.empty()) { gprintf("apxdisp.ini 缺少 host 配置\n"); return 2; }
 
-    // v1.10：**USB 直连优先**——adb forward 把 PC 的 127.0.0.1:9500 转发到
-    // 手机 9500：延迟最低（~30ms）、不依赖 WiFi、手机 IP 变化免疫（用户
+    // v1.10：**USB 直连优先**——adb forward 把 PC 的 127.0.0.1:9502 转发到
+    // 手机 9502：延迟最低（~30ms）、不依赖 WiFi、手机 IP 变化免疫（用户
     // 「推不上去」的根因就是手机 WiFi 断开后 ini IP 失效）。forward 注册
     // 失败（没插线/无设备）才回退 WiFi 直连（detectPhoneIp / ini）。
     {
-        const std::string fwdCmd = "\"" + dir + "adb.exe\" forward tcp:9500 tcp:9500 >nul 2>&1";
+        const std::string fwdCmd = "\"" + dir + "adb.exe\" forward tcp:9502 tcp:9502 >nul 2>&1";
         if (system(fwdCmd.c_str()) == 0) {
             // v1.10：forward 注册成功即无条件走 USB 直连（此前 --list 探测在
             // 部分 adb 版本下误判，回退 WiFi 后 connect 超时——真机实测）。
             host = "127.0.0.1";
-            gprintf("承载：USB 直连（127.0.0.1:9500 -> 手机 9500）\n");
+            gprintf("承载：USB 直连（127.0.0.1:9502 -> 手机 9502 媒体通道）\n");
         } else {
             const std::string live = detectPhoneIp(dir);
             if (!live.empty() && live != host) {

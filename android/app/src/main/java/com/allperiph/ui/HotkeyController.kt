@@ -4,7 +4,6 @@ import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.ApxNative
 import com.allperiph.core.Log
 import com.allperiph.core.ModuleId
-import com.allperiph.core.TcpCtrlBridge
 
 /**
  * 快捷键（多媒体键）发送中枢（M6 UI 侧按键采集，架构 §4 Report ID 4）。
@@ -43,6 +42,11 @@ object HotkeyController {
     fun current(): Int = bitmap
 
     private fun send() {
+        // 选了受控设备（TV / PC）：多媒体键短路到 9511 客户端（bitmap 语义与受控端一致）
+        if (com.allperiph.wireless.ControlTarget.isControlling()) {
+            com.allperiph.wireless.ControlTarget.controlClient?.consumer(bitmap)
+            return
+        }
         // 1) 有线：HID TLC（Report ID 4，sendInputReport 首字节须为 Report ID）
         val rt = AgentController.runtime
         if (rt != null && rt.hid.isReady()) {
@@ -56,8 +60,6 @@ object HotkeyController {
             bt.reportConsumer(bitmap)
             return
         }
-        // 3) Wi‑Fi 控制面：无蓝牙适配器的 PC（局域网 TCP → PC 端 SendInput）
-        if (TcpCtrlBridge.consumer(bitmap)) return
-        Log.w(TAG, "多媒体键无可用出口（USB 未挂载 / 蓝牙未连接 / Wi‑Fi 未连入）")
+        Log.w(TAG, "多媒体键无可用出口（USB 未挂载 / 蓝牙未连接）")
     }
 }

@@ -14,7 +14,7 @@ enum class GadgetFeature(
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
     UAC2("uac2.usb0", true, true, "f_uac2 声卡"),
-    NCM("ncm.usb0", false, true, "f_ncm 网卡"),
+    NCM("ncm.usb0", true, true, "f_ncm 网卡（USB 有线控制：NCM→TCP 9511，插线即被 PC 发现）"),
     FFS("ffs.apx", false, true, "f_fs FunctionFS（副屏 bulk）"),
     ;
 

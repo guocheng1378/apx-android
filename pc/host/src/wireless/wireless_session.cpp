@@ -3,19 +3,69 @@
 #include "apxpc/log.hpp"
 
 #include <chrono>
+#include <string_view>
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 namespace apxpc::wireless {
 namespace {
 
-/// worker 轮询周期：够快让按钮手感"跟手"，又不至于空转烧 CPU
 constexpr auto kTick = std::chrono::milliseconds(250);
+constexpr uint16_t kBeaconPort = 9501;
+
+#if defined(_WIN32)
+using Sock = SOCKET;   // Windows 套接字句柄（原 wireless_link.hpp 里的别名，迁移后此处自带）
+#else
+using Sock = int;      // POSIX 文件描述符
+#endif
+
+int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+/// 解析 "APX1TV <name> <port> <token>"，返回 (host-ip, port)。name/token 忽略。
+bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port) {
+    // 简单按空格切分，取第 2、3 段（name、port）。host 由调用方从来源地址填入。
+    std::string_view s(buf, n);
+    // 必须以 "APX1TV" 开头
+    if (s.size() < 6 || s.substr(0, 6) != "APX1TV") return false;
+    // 找 name 与 port 两个 token
+    size_t i = 6;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    size_t name0 = i;
+    while (i < s.size() && s[i] != ' ' && s[i] != '\t') ++i;
+    size_t name1 = i;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    size_t port0 = i;
+    while (i < s.size() && s[i] != ' ' && s[i] != '\t') ++i;
+    size_t port1 = i;
+    if (name1 == name0 || port1 == port0) return false;
+    std::string portStr(s.substr(port0, port1 - port0));
+    try {
+        port = static_cast<uint16_t>(std::stoi(portStr));
+    } catch (...) {
+        return false;
+    }
+    (void)name0;
+    return port != 0;
+}
 
 }  // namespace
 
 const char* linkPhaseName(LinkPhase p) noexcept {
     switch (p) {
         case LinkPhase::Idle:        return "未启用";
-        case LinkPhase::Discovering: return "正在发现手机";
+        case LinkPhase::Discovering: return "正在发现设备";
         case LinkPhase::Connecting:  return "正在连接";
         case LinkPhase::Connected:   return "已连接";
         case LinkPhase::Failed:      return "连接失败";
@@ -32,66 +82,61 @@ WirelessSession::~WirelessSession() { stop(); }
 
 void WirelessSession::stop() {
     if (!running_.exchange(false)) return;
+    beaconRun_.store(false);
+    client_.disconnect();
+    if (beaconThread_.joinable()) beaconThread_.join();
     if (worker_.joinable()) worker_.join();
-    beacon_.stop();
-    link_.disconnect();   // 幂等
 }
-
-// ————————————————————————————— 意图（UI 线程调用） —————————————————————————————
 
 void WirelessSession::startAuto() {
     std::lock_guard<std::mutex> lk(mu_);
     desire_ = Desire{Mode::Auto, {}, 0, true};
     snap_.error.clear();
-    APX_LOGI("无线会话：切到自动发现模式");
+    manualFailed_ = false;
+    haveBeacon_ = false;
+    APX_LOGI("9511 会话：切到自动发现模式");
 }
 
 void WirelessSession::connectManual(const std::string& host, uint16_t port) {
     std::lock_guard<std::mutex> lk(mu_);
     desire_ = Desire{Mode::Manual, host, port, true};
     snap_.error.clear();
-    APX_LOGI("无线会话：手动连接 {}:{}", host.c_str(), static_cast<unsigned>(port));
+    manualFailed_ = false;
+    APX_LOGI("9511 会话：手动连接 {}:{}", host.c_str(), static_cast<unsigned>(port));
 }
 
 void WirelessSession::disconnect() {
     std::lock_guard<std::mutex> lk(mu_);
     desire_ = Desire{Mode::Idle, {}, 0, true};
     snap_.error.clear();
-    APX_LOGI("无线会话：断开");
+    manualFailed_ = false;
 }
 
-SessionSnapshot WirelessSession::snapshot() const {
+void WirelessSession::onBeacon(const std::string& host, uint16_t port) {
     std::lock_guard<std::mutex> lk(mu_);
-    return snap_;
-}
-
-void WirelessSession::requestOpenScreen() {
-    link_.requestOpenScreen();   // 只置原子标志，未连接时标志会被下次建链前的循环带过（无害）
-}
-
-void WirelessSession::requestModule(int idx, bool on) {
-    link_.requestModule(idx, on);
-}
-
-bool WirelessSession::takeKeyFrameRequest() {
-    return link_.takeKeyFrameRequest();
-}
-
-void WirelessSession::setTouchRect(int x, int y, int w, int h) {
-    link_.setTouchRect(x, y, w, h);
-}
-
-// ————————————————————————————— 发现回调（信标线程） —————————————————————————————
-
-void WirelessSession::onBeacon(const PhoneBeacon& pb) {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (haveBeacon_) return;   // 已有一个待连目标就不再刷新，避免抖动
-    beaconHost_ = pb.host;
-    beaconPort_ = pb.port;
+    if (haveBeacon_) return;
+    beaconHost_ = host;
+    beaconPort_ = port;
     haveBeacon_ = true;
 }
 
-// ————————————————————————————— worker（唯一做 I/O 的线程） —————————————————————————————
+void WirelessSession::requestOpenScreen() {
+    // 9511 受控端忽略 0x05；保留接口以兼容面板。
+    client_.sendControl({0x05});
+}
+
+void WirelessSession::requestModule(int /*idx*/, bool /*on*/) {
+    // 9511 控制面无模块开关子命令；保留接口以兼容面板。
+}
+
+bool WirelessSession::takeKeyFrameRequest() {
+    // 9511 副屏走媒体通道，无需控制面关键帧请求。
+    return false;
+}
+
+void WirelessSession::setTouchRect(int /*x*/, int /*y*/, int /*w*/, int /*h*/) {
+    // 9511 控制面无触摸矩形概念；保留接口以兼容面板。
+}
 
 void WirelessSession::worker() {
     Mode mode = Mode::Idle;
@@ -100,7 +145,6 @@ void WirelessSession::worker() {
     bool attempt = false;
 
     while (running_.load()) {
-        // 1) 取用户意图（有 fresh 才改本地状态）
         {
             std::lock_guard<std::mutex> lk(mu_);
             if (desire_.fresh) {
@@ -109,57 +153,67 @@ void WirelessSession::worker() {
                 host = desire_.host;
                 port = desire_.port;
                 attempt = (mode != Mode::Idle);
-                haveBeacon_ = false;   // 换模式就丢弃旧信标
+                haveBeacon_ = false;
+                manualFailed_ = false;
+                connectStartMs_ = 0;
             }
         }
 
         if (mode == Mode::Idle) {
-            if (beacon_.running()) beacon_.stop();
-            if (link_.status().connected) link_.disconnect();
+            if (client_.ready()) client_.disconnect();
+            if (beaconRun_.load()) {
+                beaconRun_.store(false);
+                if (beaconThread_.joinable()) beaconThread_.join();
+            }
             publish(LinkPhase::Idle, mode);
         } else if (mode == Mode::Auto) {
-            if (link_.status().connected) {
+            if (client_.ready()) {
                 publish(LinkPhase::Connected, mode);
             } else {
-                // 断线后自动回到等待：不需要用户做任何事
-                if (!beacon_.running()) {
-                    beacon_.start([this](const PhoneBeacon& pb) { onBeacon(pb); });
+                if (!beaconRun_.load()) {
+                    if (beaconThread_.joinable()) beaconThread_.join();
+                    beaconRun_.store(true);
+                    beaconThread_ = std::thread(&WirelessSession::beaconLoop, this);
                 }
-                PhoneBeacon pb;
-                bool go = false;
+                std::string bhost;
+                uint16_t bport = 0;
                 {
                     std::lock_guard<std::mutex> lk(mu_);
-                    if (haveBeacon_) {
-                        pb.host = beaconHost_;
-                        pb.port = beaconPort_;
-                        haveBeacon_ = false;
-                        go = true;
-                    }
+                    if (haveBeacon_) { bhost = beaconHost_; bport = beaconPort_; haveBeacon_ = false; }
                 }
-                if (!go) {
-                    publish(LinkPhase::Discovering, mode);
-                } else {
+                if (!bhost.empty()) {
                     publish(LinkPhase::Connecting, mode);
-                    if (link_.connect(pb.host, pb.port, "")) {
+                    if (client_.connect(bhost, bport, "")) {
+                        connectedPeer_ = bhost + ":" + std::to_string(bport);
+                        connectStartMs_ = nowMs();
                         publish(LinkPhase::Connected, mode);
                     } else {
-                        // 连不上就丢回等待信标，下一个信标再试
                         publish(LinkPhase::Discovering, mode);
                     }
+                } else {
+                    publish(LinkPhase::Discovering, mode);
                 }
             }
         } else {  // Manual
-            if (beacon_.running()) beacon_.stop();
-            if (link_.status().connected) {
+            if (beaconRun_.load()) {
+                beaconRun_.store(false);
+                if (beaconThread_.joinable()) beaconThread_.join();
+            }
+            if (client_.ready()) {
                 publish(LinkPhase::Connected, mode);
             } else if (attempt) {
                 attempt = false;
                 publish(LinkPhase::Connecting, mode);
-                if (link_.connect(host, port, "")) publish(LinkPhase::Connected, mode);
-                else publish(LinkPhase::Failed, mode);
+                if (client_.connect(host, port, "")) {
+                    connectedPeer_ = host + ":" + std::to_string(port);
+                    connectStartMs_ = nowMs();
+                    publish(LinkPhase::Connected, mode);
+                } else {
+                    manualFailed_ = true;
+                    publish(LinkPhase::Failed, mode);
+                }
             } else {
-                // 手动模式失败后**不自动重试**：反复重连只会让用户以为卡住
-                publish(LinkPhase::Failed, mode);
+                publish(manualFailed_ ? LinkPhase::Failed : LinkPhase::Idle, mode);
             }
         }
 
@@ -168,26 +222,88 @@ void WirelessSession::worker() {
 }
 
 void WirelessSession::publish(LinkPhase ph, Mode m) {
-    const auto ls = link_.status();          // 先取，避免持 mu_ 时再进 link_ 的锁
-    const auto cs = link_.counters();
+    const auto st = client_.status();
     std::lock_guard<std::mutex> lk(mu_);
     const bool changed = snap_.phase != ph;
     snap_.phase = ph;
     snap_.autoMode = (m == Mode::Auto);
-    snap_.peer = ls.peer;
-    snap_.rttMs = ls.rttMs;
-    snap_.upMs = ls.upMs;
-    snap_.error = ls.error;
-    snap_.counters = cs;
-    // 手机侧 Wi‑Fi 音频模块状态（随控制面 'a' 状态帧上报，透传到面板）
-    snap_.phoneAudioKnown = ls.phoneAudioKnown;
-    snap_.phoneAudioState = ls.phoneAudioState;
-    snap_.phoneAudioSpk = ls.phoneAudioSpk;
-    snap_.phoneAudioMic = ls.phoneAudioMic;
-    snap_.phoneAudioDropped = ls.phoneAudioDropped;
-    // 手机端全模块状态（'M' 状态帧）
-    for (int i = 0; i < 8; ++i) snap_.phoneModules[i] = link_.phoneModuleState(i);
-    if (changed) APX_LOGI("无线会话状态：{}", linkPhaseName(ph));
+    snap_.peer = st.connected ? connectedPeer_ : (m == Mode::Manual ? desire_.host : "");
+    snap_.rttMs = st.rttMs;
+    snap_.upMs = (connectStartMs_ > 0 && st.connected) ? (nowMs() - connectStartMs_) : 0;
+    if (ph == LinkPhase::Failed) snap_.error = "连不上 " + desire_.host;
+    else if (ph == LinkPhase::Connected) snap_.error.clear();
+    snap_.counters.mouse = st.mouse;
+    snap_.counters.touch = st.touch;
+    snap_.counters.keyboard = st.keyboard;
+    snap_.counters.consumer = st.consumer;
+    snap_.counters.dropped = st.dropped;
+    if (changed) APX_LOGI("9511 会话状态：{}", linkPhaseName(ph));
+}
+
+SessionSnapshot WirelessSession::snapshot() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return snap_;
+}
+
+void WirelessSession::beaconLoop() {
+#if defined(_WIN32)
+    Sock b = socket(AF_INET, SOCK_DGRAM, 0);
+    if (b == INVALID_SOCKET) return;
+    BOOL br = TRUE;
+    setsockopt(b, SOL_SOCKET, SO_BROADCAST, reinterpret_cast<const char*>(&br), sizeof(br));
+#else
+    int b = socket(AF_INET, SOCK_DGRAM, 0);
+    if (b < 0) return;
+    int br = 1;
+    setsockopt(b, SOL_SOCKET, SO_BROADCAST, &br, sizeof(br));
+    int reuse = 1;
+    setsockopt(b, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+#endif
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(kBeaconPort);
+    if (bind(b, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+#if defined(_WIN32)
+        closesocket(b);
+#else
+        close(b);
+#endif
+        return;
+    }
+    char buf[1024];
+    while (beaconRun_.load()) {
+        sockaddr_in from{};
+#if defined(_WIN32)
+        int fromLen = sizeof(from);
+#else
+        socklen_t fromLen = sizeof(from);
+#endif
+        const int n = recvfrom(b, buf, sizeof(buf) - 1, 0,
+                                reinterpret_cast<sockaddr*>(&from), &fromLen);
+        if (n <= 0) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue; }
+        buf[n] = '\0';
+        std::string hostIp;
+#if defined(_WIN32)
+        char ipStr[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr)))
+            hostIp = ipStr;
+#else
+        char ipStr[INET_ADDRSTRLEN];
+        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr)))
+            hostIp = ipStr;
+#endif
+        uint16_t bport = 0;
+        std::string dummy;
+        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport)) {
+            onBeacon(hostIp, bport);
+        }
+    }
+#if defined(_WIN32)
+    closesocket(b);
+#else
+    close(b);
+#endif
 }
 
 }  // namespace apxpc::wireless

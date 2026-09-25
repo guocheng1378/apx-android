@@ -266,7 +266,7 @@ bool TcpTransport::listenAndAccept(uint16_t port) {
 bool TcpTransport::exchangeToken(bool asClient, const std::string& token) {
     // ⚠️ 令牌为空也必须走完握手，**不能提前 return**。
     // 协议约定是「u32 LE 长度 + UTF-8 令牌」，长度为 0 时那 4 字节照样要发/收。
-    // 此前"空令牌直接返回"，与手机端不对称：`TcpMediaChannel` / `TcpControlChannel`
+    // 此前"空令牌直接返回"，与手机端不对称：手机媒体服务端 `TcpMediaChannel`
     // 永远先读 4 字节长度，于是把紧随其后的**视频帧头当成令牌长度**，
     // 判定「握手长度非法」后直接关连接 —— 现象是 PC 侧编码正常（29fps）但
     // 发几帧就「TCP 对端关闭」。真机 2026-09-24 定位。

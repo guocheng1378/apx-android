@@ -39,13 +39,13 @@ private:
 };
 
 /// 控制面通道：**故意丢弃写入**。
-/// 控制面（鼠标/键盘/心跳）走 9500 那条连接，这条媒体连接上不该出现 streamId=3。
+/// 控制面（鼠标/键盘/心跳）走 9511 那条连接，这条媒体连接上不该出现 streamId=3。
 /// 若这里真的被写了，说明有代码走错了链路 —— 返回 len 让 Pipeline 的统计不为 0，
 /// 便于在日志里显形，而不是静默吞掉。
 class DiscardChannel : public apxdisp::IChannel {
 public:
     size_t write(const uint8_t*, size_t len, uint32_t) override {
-        APX_LOGW("媒体连接上收到了控制面写入（{} 字节）——控制面应走 9500", len);
+        APX_LOGW("媒体连接上收到了控制面写入（{} 字节）——控制面应走 9511", len);
         return len;
     }
     size_t read(uint8_t*, size_t, uint32_t) override { return 0; }
@@ -129,8 +129,8 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
 
     // 这三个必须关：
     //   握手 —— 手机端未实现 CtrlSession 的 HELLO 应答（PC 会一直等）
-    //   注入 —— 触控上行走 9500 控制通道（0x04），不经管线
-    //   心跳 —— LinkMonitor 会在这条媒体连接上发控制帧，而控制面归 9500
+    //   注入 —— 触控上行走 9511 控制面（0x04），不经管线
+    //   心跳 —— LinkMonitor 会在这条媒体连接上发控制帧，而控制面归 9511
     cfg.enableHandshake = false;
     cfg.enableInject = false;
     cfg.enableHeartbeat = false;

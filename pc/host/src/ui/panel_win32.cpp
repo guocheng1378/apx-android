@@ -1501,7 +1501,7 @@ void createChildren(Panel* p) {
     HWND hostEdit = mkEdit(IDC_EDIT_HOST, L.editHost, L"");
     SendMessageW(hostEdit, EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(L"手机 IP，例：192.168.1.20"));
-    mkEdit(IDC_EDIT_PORT, L.editPort, L"9500");
+    mkEdit(IDC_EDIT_PORT, L.editPort, L"9511");
 
     // 音箱的「采集设备」下拉：原生 COMBOBOX（与上面的 EDIT 同一套做法，
     // 自绘一个带滚动列表的下拉不值得）

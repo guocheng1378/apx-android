@@ -171,7 +171,7 @@ build_host\Release\apxhost.exe serve
 │       ├─ touchpad/                 触控板（相对鼠标手势）
 │       ├─ audio/                    UAC2 双向音频
 │       ├─ bt/                       蓝牙 HID 设备（鼠标 / 多媒体）
-│       ├─ wireless/                 Wi‑Fi 控制服务端（TCP 9500）+ UDP 信标广播
+│       ├─ wireless/                 统一控制面（TCP 9511）+ UDP 信标广播（APX1TV）
 │       └─ ui/                       主界面、游戏手柄、服务编排（AgentController）
 │
 ├─ scripts/                          辅助脚本（apx_gadget.sh / aggregate.py / verify_ms1.ps1）
@@ -191,8 +191,9 @@ build_host\Release\apxhost.exe serve
 | `apxhost pair` | 启动服务并进入无线配对引导 |
 | `apxhost scene` | 启动服务并应用场景编排 |
 | `apxhost list` | 枚举设备后退出 |
-| `apxhost wireless <手机IP>[:端口] [秒数]` | 连入手机 Wi‑Fi 控制通道并注入输入（默认端口 9500） |
-| `apxhost wireless-listen [秒数]` | 监听手机 UDP 信标并自动连入（**手机 IP 变了也不用改配置**） |
+| `apxhost ctrl9511-connect <手机IP>[:端口] [秒数]` | 连入手机/电视 9511 统一控制面并注入输入（默认端口 9511） |
+| `apxhost ctrl9511-remote <手机IP>[:端口] [秒数]` | 远程桌面接管（连入后回传本机屏幕） |
+| `apxhost ctrl9511-serve [端口] [名称] [秒数]` | 本机作为 9511 服务端并被控（广播 APX1TV 供手机自动发现） |
 | （无参数）`apxhost` | 进入交互式命令循环 |
 
 日常使用建议直接跑桌面端 `apxdesktop.exe`（装包后是开始菜单里的「全能外设」），
@@ -276,13 +277,13 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
 
 ### 无线模式（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）
 
-- **Wi‑Fi 控制（已落地，真机验证通过）**：手机做服务端（TCP `9500`）+ UDP `9501` 广播信标
-  `APX1PHONE <name> <port> <token>`，电脑**主动连入**（出站连接，Windows 防火墙默认放行），
+- **Wi‑Fi 控制（已落地，真机验证通过）**：统一控制面（TCP `9511`）+ UDP `9501` 广播信标
+  `APX1TV <name> <port=9511> <token>`，电脑**主动连入**（出站连接，Windows 防火墙默认放行），
   收到 `streamId=3` 控制帧后用 `SendInput` 注入。**无蓝牙适配器的 PC 也完整可用。**
   触控板 / 键盘 / 多媒体键在手机侧统一按「蓝牙 → USB HID → Wi‑Fi → 如实降级」择优。
 - **蓝牙 HID（部分）**：已承载触控板与多媒体键，免驱；**键盘与手柄待补**。
   注意：描述符一变，PC 端**旧配对记录必须删除重连**，否则 Windows 会拿缓存描述符解析导致错位。
-- **面板**：桌面端可用「自动发现」（监听信标）或填 IP；`adb forward` 回环（`tcp://127.0.0.1:9500`）
+- **面板**：桌面端可用「自动发现」（监听 APX1TV 信标）或填 IP:9511；`adb forward` 回环（`tcp://127.0.0.1:9511`）
   仅开发期联调，不是产品形态。
 
 > **后续路线**：主线是**蓝牙补全**（键盘 → 手柄）。现状是鼠标/多媒体/键盘各自在模块内择路，

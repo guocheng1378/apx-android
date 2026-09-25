@@ -19,7 +19,6 @@ import com.allperiph.core.Log
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.core.ScreenOpenRequestEvent
-import com.allperiph.core.TcpCtrlBridge
 import com.allperiph.R
 
 /**
@@ -142,7 +141,7 @@ class AgentForegroundService : Service() {
             rt != null && rt.hid.isReady() ->
                 if (lastLink == LinkSpeed.UNKNOWN) "USB 链路" else "USB ${lastLink.label}"
             btConnected -> "蓝牙 HID"
-            TcpCtrlBridge.ready() -> "Wi‑Fi 控制"
+            com.allperiph.wireless.ControlTarget.isControlling() -> "Wi‑Fi 控制"
             else -> "未连接"
         }
         val text = getString(R.string.notify_text_running, linkText)

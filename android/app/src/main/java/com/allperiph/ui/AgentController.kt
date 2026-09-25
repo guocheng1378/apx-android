@@ -60,7 +60,7 @@ object AgentController {
             rt.register(AudioModule(app))
             rt.register(TouchpadModule())
             rt.register(BtHidDevice(app))
-            rt.register(WirelessModule())
+            rt.register(WirelessModule)
             rt.register(WirelessAudioModule())
             rt.register(ScreenModule())
             Log.i(TAG, "模块注册完成：${rt.registry.all().joinToString { it.id }}")

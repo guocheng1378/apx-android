@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  APX TV 主界面：竖向信息流 + 横向卡片舞台 + 绝对定位光标。
+  卡片为 focusable，原生 DPAD 左右导航即可；网络鼠标/触摸由 TvInputDispatcher 驱动光标。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0B0F14"
+    android:padding="32dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#58A6FF"
+            android:textSize="22sp"
+            android:text="@string/tv_status_waiting" />
+
+        <TextView
+            android:id="@+id/tvIp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#8B949E"
+            android:textSize="16sp"
+            android:layout_marginTop="6dp" />
+
+        <TextView
+            android:id="@+id/tvEnableSystem"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/tv_enable_system"
+            android:textColor="#0B0F14"
+            android:textSize="14sp"
+            android:background="#58A6FF"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp"
+            android:layout_marginTop="14dp" />
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="40dp"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/tvStage"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView style="@style/TvCard" android:id="@+id/tvCard0" android:text="@string/tv_card_launcher" />
+                <TextView style="@style/TvCard" android:id="@+id/tvCard1" android:text="@string/tv_card_player" />
+                <TextView style="@style/TvCard" android:id="@+id/tvCard2" android:text="@string/tv_card_settings" />
+                <TextView style="@style/TvCard" android:id="@+id/tvCard3" android:text="@string/tv_card_console" />
+                <TextView style="@style/TvCard" android:id="@+id/tvCard4" android:text="@string/tv_card_about" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <TextView
+            android:id="@+id/tvConsole"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#3FB950"
+            android:textSize="18sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:layout_marginTop="16dp"
+            android:text="" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tvHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#6E7681"
+            android:textSize="14sp"
+            android:text="@string/tv_hint" />
+    </LinearLayout>
+
+    <!-- 网络光标：默认隐藏，收到鼠标/触摸时显示并跟随 -->
+    <View
+        android:id="@+id/tvCursor"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
+        android:layout_marginLeft="0dp"
+        android:layout_marginTop="0dp"
+        android:background="@drawable/cursor_dot"
+        android:visibility="invisible" />
+
+</FrameLayout>

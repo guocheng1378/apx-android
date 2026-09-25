@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">APX TV</string>
+    <string name="tv_status_waiting">等待手机连入…</string>
+    <string name="tv_status_connected">已连接：%1$s</string>
+    <string name="tv_status_offline">服务未启动</string>
+    <string name="tv_hint">用手机「TV 控制」连本机 IP 与端口；方向键/触摸移动光标，确认键触发</string>
+    <string name="tv_card_launcher">启动器</string>
+    <string name="tv_card_player">媒体播放</string>
+    <string name="tv_card_settings">设置</string>
+    <string name="tv_card_console">终端</string>
+    <string name="tv_card_about">关于</string>
+    <string name="tv_notification_title">APX TV 服务端</string>
+    <string name="tv_notification_text">监听 %1$s · 等待手机连接</string>
+    <string name="tv_enable_system">启用系统控制</string>
+    <string name="tv_enable_system_hint">开启后才能用手机真正操控本机（点击/文本/返回）。需授予「无障碍」与「显示在其他应用上层」。</string>
+    <string name="accessibility_desc">APX TV 控制服务：将手机发来的光标点击、文本输入与返回/主页操作注入本机系统，实现手机遥控手机/电视。</string>
+    <string name="tv_file_saved">文件已保存到下载/APX</string>
+</resources>

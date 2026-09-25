@@ -16,19 +16,20 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Wi‑Fi **媒体通道**：与 [TcpControlChannel] 并列的第二条连接，承载大流量流。
+ * Wi‑Fi **媒体通道**：与控制面（9511，[com.allperiph.wireless.TvControllerClient] /
+ * [com.allperiph.controlled.ControlledService]）并列的第二条连接，承载大流量流。
  *
  * ## 为什么媒体与控制面分两条连接（而不是一条多路复用）
- * 控制面（9500）是**单对端语义**且已真机验证通过。把媒体（10Mbps 级视频 + 音频）
+ * 控制面（9511）是**单对端语义**。把媒体（10Mbps 级视频 + 音频）
  * 混进同一条连接，会：① 让视频的拥塞/积压直接卡住输入延迟（输入是 60 次/秒的小帧）；
- * ② 迫使重构那条已验证的链路。因此媒体单独占一条连接与一个端口，
+ * ② 迫使重构那条链路。因此媒体单独占一条连接与一个端口，
  * 两者可独立启停 —— 关副屏不影响键盘鼠标。
  *
  * ## 端口约定（PC 侧常量需与此一致）
  * ```
- * 9500  TCP  控制面（手机做服务端，PC 连入）  —— TcpControlChannel
- * 9501  UDP  信标广播                        —— WirelessBeacon
- * 9502  TCP  媒体（手机做服务端，PC 连入）    —— 本类
+ * 9511  TCP  控制面（统一协议；手机可被控 / 控设备）  —— TvControlServer / TvControllerClient
+ * 9501  UDP  信标广播（APX1TV）                    —— WirelessBeacon
+ * 9502  TCP  媒体（手机做服务端，PC 连入）          —— 本类
  * ```
  *
  * ## 承载的流（方向见 [ApxFrame.STREAM_*] 注释）
@@ -172,7 +173,7 @@ class TcpMediaChannel(
             sock.tcpNoDelay = true
             sock.soTimeout = HANDSHAKE_TIMEOUT_MS
             val ins = sock.getInputStream()
-            // 与 TcpControlChannel 逐字节相同的握手：u32 LE 长度 + UTF-8 令牌
+            // 与 9511 控制面/旧 9500 控制通道逐字节相同的握手：u32 LE 长度 + UTF-8 令牌
             val len = readU32Le(ins)
             if (len < 0 || len > MAX_TOKEN) {
                 Log.w(TAG, "媒体握手长度非法：$len")

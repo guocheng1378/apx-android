@@ -357,9 +357,9 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 
 ### 3.3 streamId 3 — Control
 
-**v1 实际实现（真机在跑）**：`streamId=3` 即 **Wi‑Fi 控制通道**，载荷为「**单字节子命令 +
-定长参数**」。两端必须同步修改：PC 端 `pc/host/src/wireless/wireless_link.cpp`，手机端
-`android/.../wireless/TcpControlChannel.kt`。
+**v1 实际实现（真机在跑）**：`streamId=3` 即 **统一控制面（9511）**，载荷为「**单字节子命令 +
+定长参数**」。两端必须同步修改：PC 端 `pc/host/src/wireless/ctrl9511.cpp`，手机端
+`android/.../wireless/TvControllerClient.kt`（控设备）/ `android/.../controlled/TvControlServer.kt`（被控）。
 
 ```
 0x01 鼠标   [1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)
@@ -367,8 +367,8 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 0x03 键盘   [1]=mod [2]=0 [3..8]=k1..k6（HID usage 页 0x07，PC 侧查表转 VK）
 ```
 
-承载约定：**手机做服务端**（TCP `9500`），PC 主动连入；UDP `9501` 广播
-`APX1PHONE <name> <port> <token>` 供 PC 自动发现。令牌（token）字段保留但 v1 默认留空
+承载约定：**统一控制面 TCP `9511`**（手机可服务端可客户端：被控模式手机做服务端、控设备模式手机做客户端），PC 主动连入；UDP `9501` 广播
+`APX1TV <name> <port> <token>`（port=9511）供 PC / 另一台手机自动发现。令牌（token）字段保留但 v1 默认留空
 （局域网工具，不做鉴权）；**不匹配时服务端直接关连接、不回执** —— 回执字节会与紧随其后的
 帧混淆。
 
@@ -379,18 +379,18 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 
 ### 3.4 媒体通道（TCP 9502，v1.11 新增）
 
-**为什么与控制面分成两条连接**：控制面（9500）是单对端语义，且承担 60 次/秒的输入小帧；
+**为什么与控制面分成两条连接**：控制面（9511）是单对端语义，且承担 60 次/秒的输入小帧；
 把 10Mbps 级视频混进同一条连接，视频的拥塞会直接卡住输入延迟。分开后两条链路可独立启停
 （关副屏不影响键盘鼠标）。落点：手机 `wireless/TcpMediaChannel.kt`、
 PC `pc/host/src/media/media_session.cpp`。
 
 | 端口 | 传输 | 角色 | 用途 |
 |---|---|---|---|
-| 9500 | TCP | 手机做服务端 | 控制面（§3.3） |
-| 9501 | UDP | 手机广播 | 信标 `APX1PHONE <name> <port> <token>` |
+| 9511 | TCP | 手机可服务端/客户端 | 统一控制面（§3.3）：鼠标/键盘/触摸/多媒体/剪贴板 |
+| 9501 | UDP | 手机广播 | 信标 `APX1TV <name> <port> <token>`（port=9511） |
 | 9502 | TCP | 手机做服务端 | **媒体**：副屏 / 音箱 / 麦克风 / 摄像头 |
 
-握手与 9500 **逐字节相同**：`u32 LE 长度 + UTF-8 令牌`。
+握手与 9511 **逐字节相同**：`u32 LE 长度 + UTF-8 令牌`。
 ⚠️ **令牌为空也必须发/收那 4 字节长度** —— 接收侧永远先读 4 字节；省掉它会让对端把
 随后的帧头当成长度而直接关连接（真机踩过两次，见 `pc/display/transport/tcp_transport_win.cpp`
 的 `exchangeToken` / `sendBytes` 注释）。

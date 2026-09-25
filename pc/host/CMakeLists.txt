@@ -186,20 +186,34 @@ if(WIN32)
   target_link_libraries(apxpc_service PUBLIC ws2_32 shell32 user32 ole32)
 endif()
 
-# ---------------------------------------------------------- 目标：Wi‑Fi 控制通道
-# 无蓝牙适配器的 PC（本机实测无任何蓝牙设备）上承载触控板 / 键盘 / 多媒体：
-# 手机做服务端（TCP 9500），本端做客户端主动连入，收到 streamId=3 控制帧后
-# 用 SendInput 注入系统 —— 免驱，符合架构 §2.2「无线模式零新驱动」。
+# ---------------------------------------------------------- 目标：统一控制面（9511）
+# 三端互通的单一控制协议（替代原 9500 旧路径）：PC 既可控手机/TV（Ctrl9511Client），
+# 也可被控（Ctrl9511Server，广播 APX1TV 信标供手机自动发现）。WirelessSession 是
+# 桌面面板所用的「发现 + 建链 + 断线重连」状态机，底层走 Ctrl9511Client。
 set(APXPC_WIRELESS_SRC
-  "${APXPC_ROOT}/src/wireless/wireless_link.cpp"
-  "${APXPC_ROOT}/src/wireless/beacon_listener.cpp"
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
+  "${APXPC_ROOT}/src/wireless/ctrl9511.cpp"
 )
+# 跨平台注入器/剪贴板：按编译目标选其一（createPlatformInjector 在对应 TU 定义）
+if(WIN32)
+  list(APPEND APXPC_WIRELESS_SRC "${APXPC_ROOT}/src/wireless/input_injector_win.cpp"
+                                  "${APXPC_ROOT}/src/wireless/input_capture_win.cpp")
+elseif(APPLE)
+  list(APPEND APXPC_WIRELESS_SRC "${APXPC_ROOT}/src/wireless/input_injector_mac.mm"
+                                  "${APXPC_ROOT}/src/wireless/input_capture_mac.mm")
+elseif(UNIX)
+  list(APPEND APXPC_WIRELESS_SRC "${APXPC_ROOT}/src/wireless/input_injector_lin.cpp"
+                                  "${APXPC_ROOT}/src/wireless/input_capture_lin.cpp")
+endif()
 add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
 target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
 target_link_libraries(apxpc_wireless PUBLIC apxpc_core)
 if(WIN32)
   target_link_libraries(apxpc_wireless PUBLIC ws2_32)
+elseif(APPLE)
+  # .mm 用 Objective-C++（OBJCXX）编译；注入需要 CoreGraphics，剪贴板需要 AppKit
+  enable_language(OBJCXX)
+  target_link_libraries(apxpc_wireless PUBLIC "-framework CoreGraphics" "-framework AppKit")
 endif()
 
 # ---------------------------------------------------------------- 目标：媒体通道

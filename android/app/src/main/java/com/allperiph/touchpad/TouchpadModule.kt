@@ -5,7 +5,6 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
-import com.allperiph.core.TcpCtrlBridge
 
 /**
  * 触控板模块：USB 有线 Precision Touchpad + 无线（蓝牙 HID TLC）触控板。
@@ -233,11 +232,18 @@ class TouchpadModule : Module {
      * 触控板相对位移经 APX1 控制帧（streamId=3）上行，PC 端 `apxhost` 用 SendInput 注入。
      */
     private fun dispatch(ctx: ModuleContext, f: TouchpadFrame) {
+        // 选了受控设备（TV / PC）：所有触控板输入短路到 9511 客户端（覆盖蓝牙/USB/本机链路）
+        if (com.allperiph.wireless.ControlTarget.isControlling()) {
+            val c = com.allperiph.wireless.ControlTarget.controlClient
+            if (c != null) {
+                if (f.consumer != 0) c.consumer(f.consumer) else c.mouse(f.buttons, f.dx, f.dy, f.wheel)
+                return
+            }
+        }
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
         val path = when {
             bt != null && bt.isConnected -> "bluetooth-hid"
             ctx.hid.isReady() -> "hid-tlc"
-            TcpCtrlBridge.ready() -> "tcp-ctrl"
             else -> "bulk"
         }
         if (path != lastPath) {
@@ -247,8 +253,6 @@ class TouchpadModule : Module {
         when (path) {
             "bluetooth-hid" ->
                 bt?.reportMouse(f.buttons, f.dx, f.dy, f.wheel, f.pan)
-            "tcp-ctrl" ->
-                TcpCtrlBridge.mouse(f.buttons, f.dx, f.dy, f.wheel)
             "hid-tlc" -> if (f.consumer != 0) {
                 ctx.hid.sendInputReport(
                     byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)

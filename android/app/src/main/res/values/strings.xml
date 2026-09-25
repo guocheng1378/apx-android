@@ -73,4 +73,7 @@
 
     <string name="latency_budget_title">延迟预算</string>
     <string name="latency_budget_body">触控上行 ≤2ms</string>
+
+    <string name="accessibility_desc">全能外设「被控模式」：把本机作为被控设备，接收另一台手机发来的光标 / 点击 / 键盘 / 文件 / 剪贴板，并注入到本机系统（无需 root）。需在「无障碍」中启用本服务，并在「显示在其他应用上层」中授权浮层光标。</string>
+    <string name="controlled_enable_hint">被控模式已开启：请在系统「无障碍」中启用「全能外设」，并在「显示在其他应用上层」中允许本应用，系统级注入才会生效（未授权时仅显示网络光标）。</string>
 </resources>

@@ -16,8 +16,8 @@ package com.allperiph.core
  *      4    CRC32(body)，IEEE 802.3 反射多项式 0xEDB88320
  * ```
  *
- * 本文件只负责**发送方向**的组帧；接收解析在 [TcpControlChannel]，
- * 对端解码在 `pc/host/src/wireless/wireless_link.cpp`。两侧 CRC 必须逐字节一致。
+ * 本文件只负责**发送方向**的组帧；接收解析在 9511 控制面（[com.allperiph.wireless.TvControllerClient] /
+ * `pc/host/src/wireless/ctrl9511.cpp`），两侧 CRC 必须逐字节一致。
  */
 object ApxFrame {
     const val HEADER_SIZE = 16

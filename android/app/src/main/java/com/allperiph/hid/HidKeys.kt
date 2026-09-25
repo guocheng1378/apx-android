@@ -3,7 +3,6 @@ package com.allperiph.hid
 import android.os.Handler
 import android.os.Looper
 import com.allperiph.core.Log
-import com.allperiph.core.TcpCtrlBridge
 import com.allperiph.ui.AgentController
 
 /**
@@ -11,7 +10,7 @@ import com.allperiph.ui.AgentController
  *
  * 协议与 ui/KeyboardPanels 一致：[0x15, mod, 0, k1..k6] 共 9 字节，
  * 修饰键位图 / usage code 均为 USB HID Keyboard Page (0x07) 标准值。
- * 出口：有线走 USB HID（rid 21）；无蓝牙 PC 走 Wi‑Fi 控制面（[TcpCtrlBridge]）。
+ * 出口：有线走 USB HID（rid 21）；选定受控设备（TV / PC）时走 9511 控制面（[com.allperiph.wireless.ControlTarget]）。
  *
  * sticky 修饰键：点 Ctrl/Alt/Shift/Win 点亮 → 下一次 tap 带上该修饰 → 发完自动清。
  */
@@ -217,6 +216,17 @@ object HidKeys {
      * rid 21：[id, mod, 0, k1..k6]；keys 为空 = 全释放
      */
     private fun send(mod: Int, keys: IntArray) {
+        // 选了受控设备（TV / PC）：键盘字符/方向键短路到 9511 客户端（逐键 down→up；mod 在受控端忽略）
+        if (com.allperiph.wireless.ControlTarget.isControlling()) {
+            val c = com.allperiph.wireless.ControlTarget.controlClient
+            if (c != null) {
+                for (k in keys) if (k != 0) {
+                    c.keyboard(k, true)
+                    c.keyboard(k, false)
+                }
+            }
+            return
+        }
         val rt = AgentController.runtime
         if (rt != null && rt.hid.isReady()) {
             val rep = ByteArray(9)
@@ -225,7 +235,6 @@ object HidKeys {
             for (i in 0 until minOf(keys.size, 6)) rep[3 + i] = keys[i].toByte()
             if (rt.hid.sendInputReport(rep)) return
         }
-        if (TcpCtrlBridge.keyboard(mod, keys)) return
-        Log.w(TAG, "键盘无可用出口：USB 未挂载且 Wi‑Fi 控制通道未连入")
+        Log.w(TAG, "键盘无可用出口：USB 未挂载且未选受控设备")
     }
 }

@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "AllPeriph"
 include(":app")
+include(":tv")

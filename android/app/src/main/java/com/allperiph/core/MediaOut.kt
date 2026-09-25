@@ -3,7 +3,7 @@ package com.allperiph.core
 /**
  * 媒体流**发侧出口**：手机 → PC 的上行流（麦克风 5）。
  *
- * 与 [TcpCtrlBridge] 同一套路：业务模块只调这里，不感知承载是 TCP 还是别的。
+ * 与 9511 控制面同一套路：业务模块只调这里，不感知承载是 TCP 还是别的。
  * 未连入时 [ready] 为 false，各方法返回 false —— **调用方必须如实降级，不得假装已送达**。
  *
  * 线程安全：`send` 只做「组帧 + 入队」，不碰 socket（AudioRecord 的回调

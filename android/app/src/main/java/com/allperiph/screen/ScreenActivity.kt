@@ -10,7 +10,7 @@ import android.widget.TextView
 import com.allperiph.R
 import com.allperiph.core.Log
 import com.allperiph.core.MediaOut
-import com.allperiph.core.TcpCtrlBridge
+import com.allperiph.wireless.ControlTarget
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -55,8 +55,8 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
         ticker.removeCallbacks(tick)
         ticker.post(tick)
         // 切回副屏页：请 PC 立即出一帧 IDR（控制通道 0x06），否则要等编码端下一个
-        // 关键帧，断连久了能黑好几秒。通道未连入时发送失败，靠编码端周期 IDR 兜底。
-        TcpCtrlBridge.sendControl(byteArrayOf(0x06))
+        // 关键帧，断连久了能黑好几秒。未选受控设备时发送失败，靠编码端周期 IDR 兜底。
+        ControlTarget.controlClient?.sendControl(byteArrayOf(0x06))
     }
 
     override fun onPause() {
@@ -104,10 +104,10 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     }
 
     /**
-     * 触摸桥：把本页手势按归一化坐标经 [TcpCtrlBridge.touch]（控制通道 0x04）上行给 PC，
+     * 触摸桥：把本页手势按归一化坐标经 9511 控制面（[com.allperiph.wireless.ControlTarget]）上行给受控端（控制帧 0x04），
      * PC 端 SendInput 注入成鼠标 —— 副屏从此不止能看，还能点。
      *
-     * 走 9500 控制通道而不是 9502 媒体通道：后者只在推流/音箱时建立，
+     * 走 9511 控制面而不是 9502 媒体通道：后者只在推流/音箱时建立，
      * 而控制通道在「无线」开着时始终在线（实测踩过：媒体通道未连入时触摸全丢）。
      *
      * 手势表：
@@ -119,11 +119,12 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     private fun installTouchBridge() {
         view.setOnTouchListener { v, e ->
             val (x, y) = normalized(v, e)
+            val cli = ControlTarget.controlClient
             when (e.actionMasked) {
                 android.view.MotionEvent.ACTION_DOWN -> {
                     twoFinger = false
                     scrolled = false
-                    TcpCtrlBridge.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, x, y)
+                    cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, x, y)
                 }
                 android.view.MotionEvent.ACTION_POINTER_DOWN ->
                     if (e.pointerCount >= 2 && !twoFinger) {
@@ -132,7 +133,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         scrollAccum = 0f
                         prevTwoY = e.getY(e.pointerCount - 1)
                         // 先松掉单指落下的左键：双指不是拖选
-                        TcpCtrlBridge.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                        cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
                     } else true
                 android.view.MotionEvent.ACTION_MOVE ->
                     if (twoFinger && e.pointerCount >= 2) {
@@ -143,30 +144,30 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         // 自然方向：手指上滑（acc 为负）= 内容上移 = 滚轮向前（+）
                         while (sent) {
                             if (scrollAccum <= -scrollStepPx) {
-                                sent = TcpCtrlBridge.mouse(0, 0, 0, 1)
+                                sent = cli?.mouse(0, 0, 0, 1) ?: false
                                 scrollAccum += scrollStepPx
                             } else if (scrollAccum >= scrollStepPx) {
-                                sent = TcpCtrlBridge.mouse(0, 0, 0, -1)
+                                sent = cli?.mouse(0, 0, 0, -1) ?: false
                                 scrollAccum -= scrollStepPx
                             } else break
                             scrolled = true
                         }
                         sent
                     } else {
-                        TcpCtrlBridge.touch(MediaOut.TOUCH_MOVE, MediaOut.BTN_LEFT, x, y)
+                        cli?.touch(MediaOut.TOUCH_MOVE, MediaOut.BTN_LEFT, x, y)
                     }
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     val cancelled = e.actionMasked == android.view.MotionEvent.ACTION_CANCEL
                     if (twoFinger) {
                         if (!scrolled && !cancelled) {
                             // 双指点按（几乎没位移）= 右键点击
-                            TcpCtrlBridge.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_RIGHT, x, y)
-                            TcpCtrlBridge.touch(MediaOut.TOUCH_UP, MediaOut.BTN_RIGHT, x, y)
+                            cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_RIGHT, x, y)
+                            cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_RIGHT, x, y)
                         }
                         twoFinger = false
                         true
                     } else {
-                        TcpCtrlBridge.touch(
+                        cli?.touch(
                             if (cancelled) MediaOut.TOUCH_CANCEL else MediaOut.TOUCH_UP,
                             MediaOut.BTN_LEFT, x, y
                         )

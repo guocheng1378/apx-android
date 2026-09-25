@@ -2,29 +2,41 @@ package com.allperiph.touchpad
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipboardManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import android.widget.ViewFlipper
 import com.allperiph.R
 import com.allperiph.core.ModuleId
+import com.allperiph.wireless.TvFileSender
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.HotkeyController
+import com.allperiph.controlled.ControlledService
+import com.allperiph.wireless.ControlTarget
+import com.allperiph.wireless.TvControllerClient
+import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
 
 /**
@@ -90,7 +102,14 @@ class TouchpadActivity : Activity() {
     private var titleView: TextView? = null
     private var subView: TextView? = null
     private var statusView: TextView? = null
+    private var deviceChip: TextView? = null
+    private var fileBtn: TextView? = null
+    private var clipBtn: TextView? = null
+    private var controlledChip: TextView? = null
     private lateinit var flipper: ViewFlipper
+
+    /** 文件选择请求码（用传统 startActivityForResult，因本 Activity 非 AndroidX ComponentActivity） */
+    private val REQ_PICK_FILE = 9001
     private var tabs: List<Tab> = emptyList()
     private var chipRow: LinearLayout? = null
     private lateinit var kbPager: ViewFlipper
@@ -147,14 +166,25 @@ class TouchpadActivity : Activity() {
         // v1.7 修复：显式 MATCH_PARENT（root 高度塌缩曾致触摸区只剩一小条）
         setContentView(root, ViewGroup.LayoutParams(-1, -1))
         refreshTabs()
+        updateControlledChip()
         // 主页「设置 → 管理快捷键」用 EXTRA_PAGE 直达键盘页；launchMode=singleTask，
         // 已在栈中时走 onNewIntent
         showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
+        // 预启动 TV 发现（监听 APX1TV 信标），让设备列表在打开选择器时已就绪
+        TvDiscovery.start()
     }
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_PICK_FILE && resultCode == RESULT_OK) {
+            data?.data?.let { sendFile(it) }
+        }
     }
 
     /** 大标题头：左对齐标题栈（非居中），右侧状态胶囊与退出 */
@@ -194,6 +224,70 @@ class TouchpadActivity : Activity() {
         }
         row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
         row.addView(st)
+        // 被控模式开关：让本机也能被另一台手机控制（无需单独装 TV APK）
+        val ctl = TextView(this).apply {
+            text = "被控"
+            setTextColor(cText2)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = pill(cCard)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { toggleControlled() }
+        }
+        controlledChip = ctl
+        row.addView(ctl, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+
+        // 右上角设备选择器：切换要控制的设备（本机/PC 或局域网内的 TV）
+        val dev = TextView(this).apply {
+            text = ControlTarget.label
+            setTextColor(cText2)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = pill(cCard)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showDevicePicker() }
+        }
+        deviceChip = dev
+        row.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+
+        // 仅当选中 TV 时展示：发文件 / 发剪贴板
+        val file = TextView(this).apply {
+            text = "文件"
+            setTextColor(cText2)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = pill(cCard)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                startActivityForResult(intent, REQ_PICK_FILE)
+            }
+        }
+        val clip = TextView(this).apply {
+            text = "剪贴板"
+            setTextColor(cText2)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = pill(cCard)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { sendClipboard() }
+        }
+        fileBtn = file
+        clipBtn = clip
+        row.addView(file, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        row.addView(clip, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+
         row.addView(exit, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
         wrap.addView(row)
 
@@ -759,6 +853,166 @@ class TouchpadActivity : Activity() {
             .setNegativeButton("取消", null)
             .create()
             .also { it.show() }
+    }
+
+    // —————————————————————————— 设备选择（控制目标） ——————————————————————————
+
+    private fun updateDeviceChip() {
+        val c = deviceChip ?: return
+        val ready = ControlTarget.isControlling()
+        c.text = if (ready) "受控设备 · ${ControlTarget.label}" else ControlTarget.label
+        c.setTextColor(if (ready) cAccent else cText2)
+        fileBtn?.visibility = if (ready) View.VISIBLE else View.GONE
+        clipBtn?.visibility = if (ready) View.VISIBLE else View.GONE
+    }
+
+    // —————————————————————————— 被控模式（本机可被另一台手机控制） ——————————————————————————
+
+    private fun updateControlledChip() {
+        val c = controlledChip ?: return
+        val on = ControlledService.isRunning()
+        c.text = if (on) "被控 ✓" else "被控"
+        c.setTextColor(if (on) cAccent else cText2)
+    }
+
+    /** 切换被控模式：开启→请求权限并启动前台服务；关闭→停止服务 */
+    private fun toggleControlled() {
+        if (ControlledService.isRunning()) {
+            ControlledService.stop(this)
+            updateControlledChip()
+            Toast.makeText(this, "已关闭被控模式", Toast.LENGTH_SHORT).show()
+            return
+        }
+        ControlledService.start(this)
+        updateControlledChip()
+        openControlledPerms()
+    }
+
+    /** 引导用户开启「无障碍」与「显示在其他应用上层」——系统级注入的前置权限 */
+    private fun openControlledPerms() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            try {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName"),
+                    ),
+                )
+            } catch (_: Throwable) {
+            }
+        }
+        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        Toast.makeText(this, R.string.controlled_enable_hint, Toast.LENGTH_LONG).show()
+    }
+
+    /** 收到被控手机回传的剪贴板：写入本机系统剪贴板（反向剪贴板，实现「互用」） */
+    private fun recvClipboard(text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
+        val preview = if (text.length > 24) text.take(24) + "…" else text
+        Toast.makeText(this, "收到对方剪贴板：$preview", Toast.LENGTH_LONG).show()
+    }
+
+    /** 设备选择弹窗：本机/PC（默认）+ 已发现 TV + 手动输入 IP */
+    private fun showDevicePicker() {
+        TvDiscovery.start()
+        val items = ArrayList<CharSequence>()
+        items.add("本机 / PC（默认）")
+        val tvs = TvDiscovery.list()
+        tvs.forEach { items.add("${it.name}  ${it.ip}") }
+        items.add("手动输入 TV IP…")
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("选择控制设备")
+            .setItems(items.toTypedArray()) { _, which ->
+                when {
+                    which == 0 -> {
+                        ControlTarget.clear()
+                        updateDeviceChip()
+                    }
+                    which == items.size - 1 -> promptTvIp()
+                    else -> {
+                        val tv = tvs.getOrNull(which - 1) ?: return@setItems
+                        connectTv(tv.ip, tv.port, tv.name)
+                    }
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun promptTvIp() {
+        val edit = EditText(this).apply {
+            hint = "TV IP，如 192.168.1.20"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("输入 TV IP")
+            .setView(edit)
+            .setPositiveButton("连接") { _, _ ->
+                val ip = edit.text.toString().trim()
+                if (ip.isNotEmpty()) connectTv(ip, TvControllerClient.PORT, ip)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 后台连入 TV 并设为当前控制目标（不阻塞 UI） */
+    private fun connectTv(ip: String, port: Int, name: String) {
+        Thread({
+            val c = TvControllerClient(ip, port)
+            val ok = c.connect()
+            runOnUiThread {
+                if (ok) {
+                    ControlTarget.controlClient = c
+                    ControlTarget.host = ip
+                    ControlTarget.label = name
+                    c.onReverseClipboard = { text -> runOnUiThread { recvClipboard(text) } }
+                    updateDeviceChip()
+                    Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
+                } else {
+                    ControlTarget.clear()
+                    updateDeviceChip()
+                    Toast.makeText(this, "连不上 $ip", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }, "tv-connect").start()
+    }
+
+    /** 发文件到 TV 端文件接收通道（独立端口 9512） */
+    private fun sendFile(uri: Uri) {
+        val host = ControlTarget.host
+        if (host.isEmpty() || !ControlTarget.isControlling()) {
+            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "正在发送文件…", Toast.LENGTH_SHORT).show()
+        Thread({
+            val ok = TvFileSender.send(this, host, uri) { p ->
+                runOnUiThread { statusView?.text = "发送 $p%" }
+            }
+            runOnUiThread {
+                Toast.makeText(this, if (ok) "文件已发送" else "发送失败", Toast.LENGTH_SHORT).show()
+                statusView?.text = if (hidReady) "0 帧" else "HID 未就绪"
+            }
+        }, "tv-file").start()
+    }
+
+    /** 读本机剪贴板并发送到 TV 端（写入对方系统剪贴板 + 当前聚焦输入框） */
+    private fun sendClipboard() {
+        val c = ControlTarget.controlClient
+        if (c == null || !ControlTarget.isControlling()) {
+            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val text = cm?.primaryClip?.getItemAt(0)?.text?.toString()
+        if (text.isNullOrEmpty()) {
+            Toast.makeText(this, "剪贴板为空", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ok = c.sendClipboard(text)
+        Toast.makeText(this, if (ok) "已发送剪贴板" else "发送失败", Toast.LENGTH_SHORT).show()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

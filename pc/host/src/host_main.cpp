@@ -18,7 +18,8 @@
 #include <apxpc/sensors/sensor_reader.hpp>
 #include <apxpc/version.hpp>
 #include <apxpc/app/service.hpp>
-#include <apxpc/wireless/wireless_session.hpp>
+#include <apxpc/wireless/ctrl9511.hpp>
+#include <apxpc/wireless/input_capture.hpp>
 #include <apxpc/media/media_session.hpp>
 #include <apxpc/media/audio_capture.hpp>
 
@@ -50,11 +51,13 @@ void printUsage() {
         "  apxhost ui         启动常驻服务并打开控制面板\n"
         "  apxhost pair       启动服务并进入无线配对引导\n"
         "  apxhost scene      启动服务并应用场景编排\n"
-        "  apxhost wireless <手机IP>[:端口] [秒数]\n"
-        "                     连入手机 Wi‑Fi 控制通道并注入输入（默认端口 9500，\n"
-        "                     秒数省略则一直运行到断开）\n"
-        "  apxhost wireless-listen [秒数]\n"
-        "                     监听手机 UDP 信标并自动连入（手机 IP 变了也不用改配置）\n"
+        "  apxhost ctrl9511-serve [端口] [名称] [秒数]\n"
+        "                     启动 9511 受控服务端（默认端口 9511），手机/TV 用「TV 控制」\n"
+        "                     即可控 PC；同时广播 APX1TV 信标供手机自动发现\n"
+        "  apxhost ctrl9511-connect <host>[:端口] [秒数]\n"
+        "                     作为控制端连入手机/TV 的 9511 服务端（验证链路 + 反向剪贴板）\n"
+        "  apxhost ctrl9511-remote <host>[:端口] [秒数]\n"
+        "                     PC 真正当遥控器：连入后把本机鼠标/键盘实时镜像到对端（控手机/TV/PC）\n"
         "  apxhost media <手机IP>[:端口] [秒数]\n"
         "                     连入手机媒体通道（默认端口 9502）并打印各路计数。\n"
         "                     副屏/音箱为下行（本端发出），麦克风为上行\n"
@@ -118,77 +121,110 @@ int doSensors() {
     return 0;
 }
 
-// -------------------------------------------------------- Wi-Fi 控制通道 ----
-// 手机做服务端（TCP 9500），本端连入后把收到的 streamId=3 控制帧用 SendInput
-// 注入本机。状态机在 apxpc::wireless::WirelessSession 里 —— 桌面端面板共用同一套，
-// 这里只是把它套上命令行输出。
-
-/// 解析 "ip:port"；省略端口时用该子命令的默认端口
-/// （控制面 9500 / 媒体 9502 —— 见 Android `TcpControlChannel.PORT` 与
-/// `TcpMediaChannel.MEDIA_PORT`）
-std::pair<std::string, uint16_t> parseSpec(const std::string& spec, uint16_t defPort = 9500) {
+// ----------------------------------------------------- 地址解析辅助 ----
+/// 解析 "ip:port"；省略端口时用该子命令的默认端口。
+std::pair<std::string, uint16_t> parseSpec(const std::string& spec, uint16_t defPort = 9511) {
     const size_t c = spec.rfind(':');
     if (c == std::string::npos) return {spec, defPort};
     return {spec.substr(0, c), static_cast<uint16_t>(std::atoi(spec.c_str() + c + 1))};
 }
 
-/// 跑一段会话并周期打印注入计数（这是「链路真的在送数据」的客观证据）。
-/// seconds <= 0 表示一直运行到用户 Ctrl+C。
-int runWirelessCli(bool autoDiscover, const std::string& host, uint16_t port, int seconds) {
-    apxpc::wireless::WirelessSession session;
-    if (autoDiscover) {
-        std::puts("正在监听手机信标（手机端打开「Wi‑Fi 控制」模块）…");
-        session.startAuto();
-    } else {
-        session.connectManual(host, port);
+// ---------------------------------------------------------- 统一控制面 9511 ----
+// PC 作为「受控端」：监听 9511，手机/TV 用现有 TvControllerClient 连入即可控 PC。
+// 同时广播 APX1TV 信标，手机端设备列表自动出现本机。反向剪贴板默认开启。
+int runCtrlServe(const std::string& name, uint16_t port, int seconds) {
+    apxpc::wireless::Ctrl9511Server srv;
+    if (!srv.start(port, "", name)) {
+        std::printf("启动 9511 受控服务端失败：%s\n", srv.status().error.c_str());
+        return 1;
     }
-
+    std::printf("9511 受控服务端已启动（端口 %u，名称 %s）。手机/TV 用「TV 控制」连本机即可操控 PC。\n",
+                static_cast<unsigned>(port), name.c_str());
     const auto t0 = std::chrono::steady_clock::now();
-    bool announced = false;
-    int rc = 0;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        const auto s = session.snapshot();
+        const auto s = srv.status();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - t0)
-                            .count();
-
-        if (!announced && s.phase == apxpc::wireless::LinkPhase::Connected) {
-            announced = true;
-            std::printf("\n已连接 %s —— 手机端滑动触摸板 / 按键盘即注入本机。\n",
-                        s.peer.c_str());
-        }
-        if (s.phase == apxpc::wireless::LinkPhase::Failed) {
-            std::printf("\n连接失败：%s\n", s.error.c_str());
-            return 1;
-        }
-        // 自动发现：等 20 秒还没信标就如实报错，而不是无限干等
-        if (autoDiscover && !announced && ms > 20'000) {
-            std::puts("\n超时：未收到手机信标。请确认手机与 PC 在同一局域网，"
-                      "或改用 apxhost wireless <手机IP>:9500");
-            return 1;
-        }
-
-        std::printf("\r[%4llds] %-14s RTT %5.0fms | 鼠标 %6llu  键盘 %6llu  多媒体 %5llu  丢帧 %llu   ",
+                            std::chrono::steady_clock::now() - t0).count();
+        std::printf("\r[%4llds] %s | 鼠标 %6llu 键盘 %6llu 触摸 %6llu 媒体 %5llu 剪贴板 %4llu 反向 %4llu 丢 %llu   ",
                     static_cast<long long>(ms / 1000),
-                    apxpc::wireless::linkPhaseName(s.phase),
-                    s.rttMs,
-                    static_cast<unsigned long long>(s.counters.mouse),
-                    static_cast<unsigned long long>(s.counters.keyboard),
-                    static_cast<unsigned long long>(s.counters.consumer),
-                    static_cast<unsigned long long>(s.counters.dropped));
+                    s.connected ? "已连接" : "等待连接",
+                    static_cast<unsigned long long>(s.mouse),
+                    static_cast<unsigned long long>(s.keyboard),
+                    static_cast<unsigned long long>(s.touch),
+                    static_cast<unsigned long long>(s.consumer),
+                    static_cast<unsigned long long>(s.clipboard),
+                    static_cast<unsigned long long>(s.reverseClipboard),
+                    static_cast<unsigned long long>(s.dropped));
         std::fflush(stdout);
-
         if (seconds > 0 && ms >= static_cast<long long>(seconds) * 1000) break;
     }
+    srv.stop();
+    std::puts("\n已停止");
+    return 0;
+}
 
-    const auto c = session.snapshot().counters;
-    std::printf("\n最终统计：鼠标 %llu  键盘 %llu  多媒体 %llu  丢帧 %llu\n",
-                static_cast<unsigned long long>(c.mouse),
-                static_cast<unsigned long long>(c.keyboard),
-                static_cast<unsigned long long>(c.consumer),
-                static_cast<unsigned long long>(c.dropped));
-    return rc;
+// PC 作为「控制端」：连入手机/TV 的 9511 服务端。此处仅验证链路 + 打印反向剪贴板；
+// 真正的「PC 转发本机输入」由捕获模块驱动本客户端的 send* 接口（见 input_injector_*）。
+int runCtrlConnect(const std::string& host, uint16_t port, int seconds) {
+    apxpc::wireless::Ctrl9511Client cli;
+    cli.onReverseClipboard = [](const std::string& t) {
+        std::printf("\n[反向剪贴板] %s\n", t.c_str());
+        std::fflush(stdout);
+    };
+    if (!cli.connect(host, port, "")) {
+        std::puts("连接 9511 受控端失败（确认对端已运行 ctrl9511-serve 且在同局域网）");
+        return 1;
+    }
+    std::printf("已连入 %s:%u（反向剪贴板监听中）。Ctrl+C 退出。\n", host.c_str(),
+                static_cast<unsigned>(port));
+    const auto t0 = std::chrono::steady_clock::now();
+    while (cli.ready()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - t0).count();
+        if (seconds > 0 && ms >= static_cast<long long>(seconds) * 1000) break;
+    }
+    cli.disconnect();
+    return 0;
+}
+
+// PC 作为遥控器：连入对端 9511 服务端后，把本机鼠标/键盘实时镜像过去（反向链路真正可用）。
+// 对端可以是手机/TV/PC 的 ctrl9511-serve。按 Enter 停止（捕获线程在后台跑消息泵/事件环）。
+int runCtrlRemote(const std::string& host, uint16_t port, int seconds) {
+    apxpc::wireless::Ctrl9511Client cli;
+    cli.onReverseClipboard = [](const std::string& t) {
+        std::printf("\n[反向剪贴板] %s\n", t.c_str());
+        std::fflush(stdout);
+    };
+    if (!cli.connect(host, port, "")) {
+        std::puts("连接 9511 受控端失败（确认对端已运行 ctrl9511-serve 且同局域网）");
+        return 1;
+    }
+    auto cap = apxpc::wireless::createPlatformCapturer(cli);
+    if (!cap || !cap->start()) {
+        std::puts("本地输入捕获启动失败：Windows 需消息泵/权限；macOS 需辅助功能权限；Linux 需 root");
+        cli.disconnect();
+        return 1;
+    }
+    std::printf("已连入 %s:%u，PC 本机鼠标/键盘正镜像到对端。", host.c_str(),
+                static_cast<unsigned>(port));
+    if (seconds > 0) {
+        const auto t0 = std::chrono::steady_clock::now();
+        while (cli.ready()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0).count();
+            if (ms >= static_cast<long long>(seconds) * 1000) break;
+        }
+    } else {
+        std::puts("按 Enter 停止……");
+        std::cin.get();
+    }
+    cap->stop();
+    cli.disconnect();
+    std::puts("\n已停止");
+    return 0;
 }
 
 // ---------------------------------------------------------------- 媒体通道 ----
@@ -361,21 +397,6 @@ int main(int argc, char** argv) {
         if (cmd == "list") return doList() > 0 ? 0 : 2;
         if (cmd == "sensors") return doSensors();
 
-        // ---- Wi-Fi 控制通道（无蓝牙适配器的 PC 的输入承载）----
-        if (cmd == "wireless") {
-            if (argc < 3) {
-                std::fputs("用法：apxhost wireless <手机IP>[:端口] [秒数]\n", stderr);
-                return 1;
-            }
-            const auto hp = parseSpec(argv[2]);
-            const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
-            return runWirelessCli(false, hp.first, hp.second, secs);
-        }
-        if (cmd == "wireless-listen") {
-            const int secs = argc > 2 ? std::atoi(argv[2]) : 0;
-            return runWirelessCli(true, {}, 0, secs);
-        }
-
         // ---- 媒体通道（副屏 / 音箱 / 麦克风）----
         if (cmd == "media") {
             if (argc < 3) {
@@ -396,6 +417,32 @@ int main(int argc, char** argv) {
             const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
             const int devIdx = argc > 4 ? std::atoi(argv[4]) : -1;
             return runSpeakerCli(hp.first, hp.second, secs, devIdx);
+        }
+
+        // ---- 统一控制面 9511（三端互通）----
+        if (cmd == "ctrl9511-serve") {
+            const int port = argc > 2 ? std::atoi(argv[2]) : 9511;
+            const std::string name = argc > 3 ? argv[3] : "APX-PC";
+            const int secs = argc > 4 ? std::atoi(argv[4]) : 0;
+            return runCtrlServe(name, static_cast<uint16_t>(port), secs);
+        }
+        if (cmd == "ctrl9511-connect") {
+            if (argc < 3) {
+                std::fputs("用法：apxhost ctrl9511-connect <host>[:端口] [秒数]\n", stderr);
+                return 1;
+            }
+            const auto hp = parseSpec(argv[2], 9511);
+            const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
+            return runCtrlConnect(hp.first, hp.second, secs);
+        }
+        if (cmd == "ctrl9511-remote") {
+            if (argc < 3) {
+                std::fputs("用法：apxhost ctrl9511-remote <host>[:端口] [秒数]\n", stderr);
+                return 1;
+            }
+            const auto hp = parseSpec(argv[2], 9511);
+            const int secs = argc > 3 ? std::atoi(argv[3]) : 0;
+            return runCtrlRemote(hp.first, hp.second, secs);
         }
 
         // ---- 常驻服务 / Web 控制面板 ----
