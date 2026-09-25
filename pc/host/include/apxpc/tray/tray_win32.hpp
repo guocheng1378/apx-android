@@ -37,6 +37,8 @@ public:
     void setOpenCallback(std::function<void()> cb);
     // 「发送文件到手机…」回调（右键托盘菜单里那一项）；未设置则菜单不出该项
     void setSendFileCallback(std::function<void()> cb);
+    // 「文件传输…」回调：打开收/发面板（能看收到的文件并发回对端）；未设置则菜单不出该项
+    void setFilePanelCallback(std::function<void()> cb) { onFilePanel_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
@@ -51,6 +53,7 @@ public:
     std::function<void()> onQuit_;
     std::function<void()> onOpen_;
     std::function<void()> onSendFile_;
+    std::function<void()> onFilePanel_;
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;

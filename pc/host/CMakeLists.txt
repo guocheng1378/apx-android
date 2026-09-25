@@ -272,6 +272,7 @@ endif()
 # 纯 Win32 + common controls（不引 Qt/wx），兑现 apxpc/ui/panel.hpp 的 runPanel。
 set(APXPC_UI_SRC
   "${APXPC_ROOT}/src/ui/panel_win32.cpp"
+  "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
 )
 add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
 target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")

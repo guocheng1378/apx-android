@@ -26,6 +26,7 @@ const UINT WM_TRAY = WM_APP + 1;
 const UINT IDM_OPEN = 1001;
 const UINT IDM_QUIT = 1002;
 const UINT IDM_SEND_FILE = 1003;
+const UINT IDM_FILE_PANEL = 1004;
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -42,9 +43,12 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_TRAY) {
         if (lp == WM_RBUTTONUP) {
             POINT p; GetCursorPos(&p);
+            auto* self2 = reinterpret_cast<TrayIcon*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
             HMENU m = CreatePopupMenu();
             AppendMenu(m, MF_STRING, IDM_OPEN, L"打开控制面板");
             AppendMenu(m, MF_STRING, IDM_SEND_FILE, L"发送文件到手机…");
+            if (self2 && self2->onFilePanel_)
+                AppendMenu(m, MF_STRING, IDM_FILE_PANEL, L"文件传输…（收到的 / 发出去的）");
             AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);
@@ -63,6 +67,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (id == IDM_QUIT && self) { self->quit(); }
         else if (id == IDM_OPEN && self && self->onOpen_) { self->onOpen_(); }
         else if (id == IDM_SEND_FILE && self && self->onSendFile_) { self->onSendFile_(); }
+        else if (id == IDM_FILE_PANEL && self && self->onFilePanel_) { self->onFilePanel_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }

@@ -42,6 +42,7 @@
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/tray/tray_win32.hpp"
+#include "apxpc/ui/file_panel_win32.hpp"      // 文件传输窗口（收到的 / 发出去的）
 #include "apxpc/wireless/file_receiver.hpp"   // 9512 文件接收（手机 → 电脑）
 #include "apxpc/wireless/file_sender.hpp"     // 9512 文件发送（电脑 → 手机）
 #include "apxpc/wireless/wireless_session.hpp"
@@ -128,6 +129,8 @@ constexpr UINT_PTR kRefreshTimer = 1;
 /// 媒体建链失败后的重试间隔（面板每 400ms 一跳，不加节流会疯狂重连）
 constexpr long long kMediaRetryMs = 3000;
 constexpr UINT kMsgTrayQuit = WM_APP + 1;
+/// 托盘「文件传输…」：窗口必须在**面板线程**创建，所以只发消息过来，不在托盘线程建 UI
+constexpr UINT kMsgTrayFilePanel = WM_APP + 2;
 
 struct Rect {
     int x = 0, y = 0, w = 0, h = 0;
@@ -1887,6 +1890,27 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (p) performHit(p, Hit::Quit);
             return 0;
 
+        case kMsgTrayFilePanel:
+            if (p) {
+                // 对端 IP 现用现取（会话可能刚连上/刚断开），不缓存
+                Panel* pp = p;
+                apxpc::ui::FilePanel::show(
+                    hwnd,
+                    [pp]() -> std::string {
+                        if (!pp->session) return {};
+                        const auto s = pp->session->snapshot();
+                        if (s.phase != LinkPhase::Connected) return {};
+                        std::string host = s.peer;                 // "host:port"
+                        const size_t colon = host.find(':');
+                        if (colon != std::string::npos) host = host.substr(0, colon);
+                        return host;
+                    },
+                    [pp](const std::string& t, const std::string& x) {
+                        if (pp->tray) pp->tray->notify(t, x);
+                    });
+            }
+            return 0;
+
         case WM_DESTROY:
             KillTimer(hwnd, kRefreshTimer);
             if (p) {
@@ -2031,6 +2055,9 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         SetForegroundWindow(hwnd);
     });
     panel.tray->setQuitCallback([hwnd] { PostMessageW(hwnd, kMsgTrayQuit, 0, 0); });
+    // 托盘右键 →「文件传输…」：打开收/发面板。回调跑在**托盘线程**，这里只发消息，
+    // 真正的窗口在面板线程创建（见 kMsgTrayFilePanel）—— 跨线程建窗口会消息泵错乱。
+    panel.tray->setFilePanelCallback([hwnd] { PostMessageW(hwnd, kMsgTrayFilePanel, 0, 0); });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
 
     // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，
@@ -2050,6 +2077,8 @@ int runPanel(const std::string& /*preferInstanceId*/) {
                 // Shell_NotifyIcon 线程安全，直接喊一声即可，不必绕回 UI 线程
                 tray->notify("收到手机传来的文件",
                              name + "（" + std::to_string(size) + " 字节）已存到：" + recvDir);
+                // 文件传输窗口开着就顺手刷新列表（内部 PostMessage，接收线程可直接调）
+                apxpc::ui::FilePanel::refresh();
             };
         if (!panel.fileRecv->start(9512, recvDir, std::move(onFile)))
             APX_LOGW("9512 文件接收未启动（端口被占用？）：{}",
