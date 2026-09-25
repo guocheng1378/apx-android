@@ -304,17 +304,23 @@ class TcpControlServer(
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL && payloadLen >= 1) {
-                    val b0 = rxBuf[off + ApxFrame.HEADER_SIZE].toInt() and 0xFF
-                    when (b0) {
-                        'p'.code -> actions.add { sendControl(PONG) }
-                        0x01 -> if (payloadLen >= 5) actions.add { onMouse(rxBuf, off) }
-                        0x02 -> if (payloadLen >= 3) actions.add { onConsumer(rxBuf, off) }
-                        0x03 -> if (payloadLen >= 3) actions.add { onKeyboard(rxBuf, off, payloadLen) }
-                        0x04 -> if (payloadLen >= 9) actions.add { onTouch(rxBuf, off) }
-                        0x07 -> if (payloadLen >= 7) actions.add { onGamepad(rxBuf, off) }
-                        0x20 -> if (payloadLen >= 4) actions.add { onClipboard(rxBuf, off, payloadLen) }
-                        0x05 -> Log.i("收到开副屏请求（TV 端忽略）")
-                        0x10 -> Log.i("收到模块开关（TV 端忽略）")
+                    // ★★ 必须**现在**把 body 拷出来：下面紧接着 arraycopy 把缓冲区前移，而动作是
+                    // **延后**在主线程执行的 —— 以前把 (rxBuf, off) 塞进 lambda，执行时 off 已失效、
+                    // 内容也已移位：鼠标读到垃圾坐标、键盘读到垃圾 usage（HID_MAP 查不到 → 无反应）。
+                    // 真机症状正是「TV 端所有按键都不能用」，而手机→电脑一直正常（PC 端即时解析）。
+                    val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
+                    if (body != null && body.isNotEmpty()) {
+                        when (body[0].toInt() and 0xFF) {
+                            'p'.code -> actions.add { sendControl(PONG) }
+                            0x01 -> if (body.size >= 5) actions.add { onMouse(body) }
+                            0x02 -> if (body.size >= 3) actions.add { onConsumer(body) }
+                            0x03 -> if (body.size >= 3) actions.add { onKeyboard(body) }
+                            0x04 -> if (body.size >= 9) actions.add { onTouch(body) }
+                            0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
+                            0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
+                            0x05 -> Log.i("收到开副屏请求（TV 端忽略）")
+                            0x10 -> Log.i("收到模块开关（TV 端忽略）")
+                        }
                     }
                 }
                 off += total
@@ -329,11 +335,11 @@ class TcpControlServer(
 
     // ————————————————————————————— 控制帧语义 —————————————————————————————
 
-    private fun onMouse(buf: ByteArray, off: Int) {
-        val base = off + ApxFrame.HEADER_SIZE
-        val buttons = buf[base + 1].toInt() and 0xFF
-        val dx = buf[base + 2].toInt().toByte().toInt()   // i8 还原
-        val dy = buf[base + 3].toInt().toByte().toInt()
+    private fun onMouse(body: ByteArray) {
+        // body=[0x01, buttons, dx(i8), dy(i8), wheel]
+        val buttons = body[1].toInt() and 0xFF
+        val dx = body[2].toInt().toByte().toInt()   // i8 还原
+        val dy = body[3].toInt().toByte().toInt()
         TvInputDispatcher.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         TvInjector.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         if ((buttons and 1) != 0 && (lastButtons and 1) == 0) {
@@ -343,11 +349,11 @@ class TcpControlServer(
         lastButtons = buttons
     }
 
-    private fun onTouch(buf: ByteArray, off: Int) {
-        val base = off + ApxFrame.HEADER_SIZE
-        val action = buf[base + 1].toInt() and 0xFF
-        val x = (buf[base + 3].toInt() and 0xFF) or ((buf[base + 4].toInt() and 0xFF) shl 8)
-        val y = (buf[base + 5].toInt() and 0xFF) or ((buf[base + 6].toInt() and 0xFF) shl 8)
+    private fun onTouch(body: ByteArray) {
+        // body=[0x04, action, rsv, x u16 LE, y u16 LE]
+        val action = body[1].toInt() and 0xFF
+        val x = (body[3].toInt() and 0xFF) or ((body[4].toInt() and 0xFF) shl 8)
+        val y = (body[5].toInt() and 0xFF) or ((body[6].toInt() and 0xFF) shl 8)
         val fx = x / 65535f
         val fy = y / 65535f
         TvInputDispatcher.cursorMove(fx, fy, absolute = true)
@@ -361,9 +367,9 @@ class TcpControlServer(
         }
     }
 
-    private fun onConsumer(buf: ByteArray, off: Int) {
-        val base = off + ApxFrame.HEADER_SIZE
-        val bitmap = (buf[base + 1].toInt() and 0xFF) or ((buf[base + 2].toInt() and 0xFF) shl 8)
+    private fun onConsumer(body: ByteArray) {
+        // body=[0x02, bitmap u16 LE]
+        val bitmap = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
         TvInjector.consumer(bitmap)   // 音量/静音/媒体
         for (bit in 0 until 16) {
             if ((bitmap ushr bit) and 1 == 0) continue
@@ -376,14 +382,13 @@ class TcpControlServer(
     /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */
     private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
 
-    private fun onKeyboard(buf: ByteArray, off: Int, payloadLen: Int) {
+    private fun onKeyboard(body: ByteArray) {
         // body=[0x03, mod, 0, k1..k6]；HID usage page 0x07
-        val base = off + ApxFrame.HEADER_SIZE
-        val mod = buf[base + 1].toInt() and 0xFF
+        val mod = body[1].toInt() and 0xFF
         val now = HashSet<Int>()
-        val end = if (payloadLen < 9) payloadLen else 9
+        val end = if (body.size < 9) body.size else 9
         for (i in 3 until end) {
-            val usage = buf[base + i].toInt() and 0xFF
+            val usage = body[i].toInt() and 0xFF
             if (usage != 0) now.add(usage)
         }
         // 修饰键：把 mod 的 8 个位折成 0xE0..0xE7 并入按下集合，复用下面的边沿逻辑。
@@ -438,22 +443,21 @@ class TcpControlServer(
     }
 
     /** 剪贴板文本帧：body=[0x20, len u16 LE, utf8…] */
-    private fun onClipboard(buf: ByteArray, off: Int, payloadLen: Int) {
-        val base = off + ApxFrame.HEADER_SIZE + 1   // 跳过 opcode
-        val len = (buf[base].toInt() and 0xFF) or ((buf[base + 1].toInt() and 0xFF) shl 8)
-        if (payloadLen - 2 < len || len <= 0) return
-        val text = String(buf.copyOfRange(base + 2, base + 2 + len), Charsets.UTF_8)
+    private fun onClipboard(body: ByteArray) {
+        // body=[0x20, len u16 LE, utf8…]
+        val len = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
+        if (len <= 0 || len > body.size - 3) return
+        val text = String(body.copyOfRange(3, 3 + len), Charsets.UTF_8)
         TvInjector.clipboard(text)
     }
 
     /** 手柄帧：body=[0x07, buttons u16 LE, x, y, rx, ry]；按钮位图 + 双摇杆 4 轴 */
-    private fun onGamepad(buf: ByteArray, off: Int) {
-        val base = off + ApxFrame.HEADER_SIZE
-        val buttons = (buf[base + 1].toInt() and 0xFF) or ((buf[base + 2].toInt() and 0xFF) shl 8)
-        val x = buf[base + 3].toInt().toByte().toInt()
-        val y = buf[base + 4].toInt().toByte().toInt()
-        val rx = buf[base + 5].toInt().toByte().toInt()
-        val ry = buf[base + 6].toInt().toByte().toInt()
+    private fun onGamepad(body: ByteArray) {
+        val buttons = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
+        val x = body[3].toInt().toByte().toInt()
+        val y = body[4].toInt().toByte().toInt()
+        val rx = body[5].toInt().toByte().toInt()
+        val ry = body[6].toInt().toByte().toInt()
         TvInputDispatcher.onGamepad(buttons, x, y, rx, ry)
         TvInjector.gamepad(buttons, x, y, rx, ry)
     }

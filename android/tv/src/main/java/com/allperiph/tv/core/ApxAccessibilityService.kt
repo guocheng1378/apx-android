@@ -2,6 +2,9 @@ package com.allperiph.tv.core
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
@@ -102,6 +105,26 @@ class ApxAccessibilityService : AccessibilityService() {
             }
             return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
                 .also { node.recycle() }
+        } finally {
+            root.recycle()
+        }
+    }
+
+    /**
+     * 兜底输入：写剪贴板 + 对当前聚焦输入框执行 ACTION_PASTE。
+     * 部分盒子 / 电视 ROM 会拒绝 ACTION_SET_TEXT，却允许粘贴 —— 所以 SET_TEXT 失败后必须退到这里，
+     * 否则用户看到的就是"打字没反应"。
+     */
+    fun paste(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        cm.setPrimaryClip(ClipData.newPlainText("APX", text))
+        val root = rootInActiveWindow ?: return false
+        return try {
+            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+            val ok = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            node.recycle()
+            ok
         } finally {
             root.recycle()
         }

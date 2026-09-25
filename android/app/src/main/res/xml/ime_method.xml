@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 输入法元数据：声明这是一个 IME。刻意不提供设置页，也没有子类型，
+     因为它是"隐形输入法"—— 只借用输入通道，不显示任何键盘。 -->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:supportsSwitchingToNextInputMethod="false" />

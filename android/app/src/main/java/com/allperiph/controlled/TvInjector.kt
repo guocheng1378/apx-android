@@ -56,6 +56,8 @@ object TvInjector {
         ctx = c.applicationContext
         TvOverlay.init(c.applicationContext)
         refreshScreen()
+        // 有 root 就开真正的系统注入通道（全键鼠）；没有/未授权则继续走无障碍，不报错
+        RootInput.tryStart()
     }
 
     fun onDestroy() {
@@ -102,10 +104,15 @@ object TvInjector {
     fun click() = tapAt(cursorX, cursorY)
 
     fun tapAt(x: Float, y: Float) {
+        if (RootInput.available && RootInput.run("input tap ${x.toInt()} ${y.toInt()}")) return
         if (systemReady()) ApxAccessibilityService.instance?.tap(x, y)
     }
 
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
+        if (RootInput.available && RootInput.run(
+                "input swipe ${x1.toInt()} ${y1.toInt()} ${x2.toInt()} ${y2.toInt()} $ms"
+            )
+        ) return
         if (systemReady()) ApxAccessibilityService.instance?.swipe(x1, y1, x2, y2, ms)
     }
 
@@ -128,15 +135,36 @@ object TvInjector {
     }
 
     fun key(kc: Int, down: Boolean) {
-        if (!down || !systemReady()) return
+        if (!down) return
+        // ① root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
+        //   无障碍做不到这一点，所以只有 root 通道可用时按键才真正可用。
+        //   `input keyevent` 自带 down+up，因此只在 down 时发一次。
+        if (RootInput.available && RootInput.run("input keyevent $kc")) return
+        if (!systemReady()) return
         when (kc) {
             KeyEvent.KEYCODE_DPAD_LEFT -> nudge(-NUDGE, 0f)
             KeyEvent.KEYCODE_DPAD_RIGHT -> nudge(NUDGE, 0f)
             KeyEvent.KEYCODE_DPAD_UP -> nudge(0f, -NUDGE)
             KeyEvent.KEYCODE_DPAD_DOWN -> nudge(0f, NUDGE)
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> click()
-            KeyEvent.KEYCODE_DEL -> ApxAccessibilityService.instance?.deleteChar()
+            KeyEvent.KEYCODE_DPAD_CENTER -> click()
+            // 回车：先试输入法（输入框内提交/换行），不行再退回"点一下光标处"
+            KeyEvent.KEYCODE_ENTER ->
+                if (!ApxImeService.key(KeyEvent.KEYCODE_ENTER, true)) click()
+            // 退格：输入法通道成功率最高
+            KeyEvent.KEYCODE_DEL ->
+                if (!ApxImeService.delete()) ApxAccessibilityService.instance?.deleteChar()
             KeyEvent.KEYCODE_SPACE -> ApxAccessibilityService.instance?.typeText(" ")
+            // 手机上很常用的几个键：Tab 走文本（多数输入框会跳焦点/缩进）；PageUp/Down 与
+            // Home/End 没有通用系统语义，退化为"浮层光标大幅移动" —— 至少让用户看到反馈，
+            // 而不是像以前那样什么都不发生。
+            KeyEvent.KEYCODE_TAB -> ApxAccessibilityService.instance?.typeText("\t")
+            KeyEvent.KEYCODE_PAGE_UP -> nudge(0f, -NUDGE * 8)
+            KeyEvent.KEYCODE_PAGE_DOWN -> nudge(0f, NUDGE * 8)
+            KeyEvent.KEYCODE_MOVE_HOME -> nudge(-screenW.toFloat(), 0f)
+            KeyEvent.KEYCODE_MOVE_END -> nudge(screenW.toFloat(), 0f)
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+            KeyEvent.KEYCODE_MEDIA_NEXT -> sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
             // ★ 遥控器套（HotkeyTemplates "tv"）的「返回 / 主页」：服务端已把 0x29(Esc)
             //   映射成 KEYCODE_BACK、0x4A(Home) 映射成 KEYCODE_HOME，原先这里没有分支 →
             //   被**静默丢弃**（被控手机点「返回/主页」毫无反应）。无障碍服务注入不了任意按键，
@@ -147,7 +175,10 @@ object TvInjector {
             KeyEvent.KEYCODE_ESCAPE -> ApxAccessibilityService.instance?.back()
             else -> {
                 // 其余（含 Ctrl/Alt/Shift/Win 修饰键 113/59/57/117/114/60/58/118，由键盘帧的
-                // mod 位图折出）：本机没有组合键注入语义，明确忽略；媒体键走 consumer 帧。
+                // mod 位图折出）：本机没有组合键注入语义，只能忽略。
+                // ★ 但**必须打日志**：以前静默丢弃，用户只看到"键位不对/按了没反应"，
+                //   谁都查不到到底丢了哪个键。
+                android.util.Log.w("TvInjector", "被控按键未支持（无障碍通道无法注入该键）：kc=$kc")
             }
         }
     }
@@ -159,7 +190,17 @@ object TvInjector {
     }
 
     fun text(ch: Char) {
-        if (systemReady() && ch != '\u0000') ApxAccessibilityService.instance?.typeText(ch.toString())
+        if (ch == '\u0000') return
+        val s = ch.toString()
+        // ① 输入法通道（最稳，中英文都行）：系统输入法是我们时走 InputConnection
+        if (ApxImeService.commit(s)) return
+        // ② 无障碍 ACTION_SET_TEXT
+        if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) return
+        // 兜底：ACTION_SET_TEXT 被拒（MIUI / HyperOS 上常见：密码框、自绘输入框、
+        // rootInActiveWindow 取不到节点）→ 改走"剪贴板 + ACTION_PASTE"。
+        // 以前没有这层兜底，于是用户看到的就是"打字没反应"。
+        if (ApxAccessibilityService.instance?.paste(s) == true) return
+        android.util.Log.w("TvInjector", "文本注入失败（当前没有聚焦的输入框？）：'$s'")
     }
 
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
@@ -200,6 +241,19 @@ object TvInjector {
     /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
      *  走 InputManager.injectInputEvent（需 INJECT_EVENTS 权限）；AccessibilityService 无法注入手柄。 */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+        // ① root 通道：手柄按钮 → 系统按键（KEYCODE_BUTTON_*），不需要 INJECT_EVENTS；
+        //   摇杆暂时不注入（input 命令没有摇杆语义，后续可走 uinput 虚拟手柄）。
+        if (RootInput.available) {
+            for (bit in 0..15) {
+                val now = (buttons ushr bit) and 1 == 1
+                val was = (lastGamepadButtons ushr bit) and 1 == 1
+                if (now == was) continue
+                val kc = GAMEPAD_KEYCODES[bit] ?: continue
+                RootInput.run("input keyevent $kc")
+            }
+            lastGamepadButtons = buttons
+            return
+        }
         val svc = ApxAccessibilityService.instance ?: return
         if (svc.checkSelfPermission("android.permission.INJECT_EVENTS") != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             Log.w("TvInjector", "手柄注入需 INJECT_EVENTS 权限（adb shell appops set ${svc.packageName} android:inject_events allow）")

@@ -85,6 +85,21 @@ class ControlledService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * 用户从「最近任务」划掉 App：MIUI / HyperOS 会**连同进程一起杀**，被控端随即消失
+     * （真机症状："一退出软件，对端就断开了"）。系统在杀进程前会回调这里，
+     * 于是立刻把自己重新拉起来 —— 配合 START_STICKY，绝大多数情况能续上。
+     * Android 12+ 可能以 BackgroundServiceStartNotAllowedException 拒绝，那也照记日志不崩。
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.w(TAG, "任务被移除 → 立即重启被控服务")
+        runCatching {
+            val i = Intent(applicationContext, ControlledService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+        }.onFailure { Log.w(TAG, "重启被控服务失败：${it.message}") }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun currentClipboardText(): String? {
@@ -117,9 +132,15 @@ class ControlledService : Service() {
         )
         val ready = server?.ready == true
         val sysReady = TvInjector.systemReady()
-        val text = if (!ready) "等待手机连入 :${TvControlServer.PORT}"
+        // 缺通知权限 → startForeground 会失败 → 服务其实不是前台服务 → 退后台很快被系统回收。
+        // 以前只在日志里写一行，用户完全看不到；现在直接写进通知正文。
+        val noNotif = Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        val text = (if (!ready) "等待手机连入 :${TvControlServer.PORT}"
         else if (sysReady) "已连接 · 系统注入已启用"
-        else "已连接 · 未启用无障碍（仅可视化）"
+        else "已连接 · 未启用无障碍（只能看见光标，点不动）") +
+                (if (noNotif) " · 未授予通知权限，后台易被回收" else "")
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("全能外设 · 被控模式")
             .setContentText(text)

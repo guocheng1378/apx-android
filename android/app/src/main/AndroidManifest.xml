@@ -116,6 +116,20 @@
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- 隐形输入法：借用系统输入通道稳定打字（中英文都稳，root 的 input text 只支持 ASCII） -->
+        <service
+            android:name=".controlled.ApxImeService"
+            android:exported="true"
+            android:label="全能外设输入"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/ime_method" />
+        </service>
+
         <!-- 系统级输入注入（被控模式）：本机作为被控设备驱动系统 -->
         <service
             android:name=".controlled.ApxAccessibilityService"
