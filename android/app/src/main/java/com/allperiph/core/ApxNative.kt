@@ -17,6 +17,7 @@ package com.allperiph.core
  *   Java_com_allperiph_core_ApxNative_nativeInit(JNIEnv*, jobject) -> jboolean
  *   Java_com_allperiph_core_ApxNative_protocolVersion(JNIEnv*, jobject) -> jint
  *   Java_com_allperiph_core_ApxNative_hidReportDescriptor(JNIEnv*, jobject) -> jbyteArray
+ *   Java_com_allperiph_core_ApxNative_btReportDescriptor(JNIEnv*, jobject) -> jbyteArray
  *   Java_com_allperiph_core_ApxNative_hidMaxReportLength(JNIEnv*, jobject) -> jint
  *   Java_com_allperiph_core_ApxNative_hidReportSize(JNIEnv*, jobject, jint reportId) -> jint
  *   Java_com_allperiph_core_ApxNative_packImuBatch(JNIEnv*, jobject, jint sensorId, jint flags,
@@ -70,6 +71,9 @@ object ApxNative {
 
     /** 完整 HID 报告描述符字节流（6 个 TLC），写入 ConfigFS report_desc */
     external fun hidReportDescriptor(): ByteArray
+
+    /** 蓝牙 HID 描述符（Mouse/Keyboard/Consumer 三个 TLC，不含传感器） */
+    external fun btReportDescriptor(): ByteArray
 
     /** ConfigFS f_hid 的 report_length 取值（= 描述符中最大报告长度） */
     external fun hidMaxReportLength(): Int
