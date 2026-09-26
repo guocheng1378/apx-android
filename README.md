@@ -42,11 +42,11 @@ apxsetup.exe --silent-install :: 静默安装（另有 --silent-uninstall）
 
 > 前提：Windows 10/11 + Visual Studio 2022（含「使用 C++ 的桌面开发」）+ CMake ≥ 3.20。
 
-在仓库根目录执行：
+在仓库 `scripts/` 目录下执行：
 
 ```bat
 :: 一键构建三个产物（apxhost / apxdesktop / apxsetup）；加 nobuild 参数则只构建不启动
-build.bat
+scripts\build.bat
 
 :: 或只要命令行宿主（产物：build_host\Release\apxhost.exe）
 cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
@@ -78,8 +78,6 @@ build_host\Release\apxhost.exe serve
 ├─ LICENSE                           MIT 许可证
 ├─ .gitignore                        构建产物与临时文件忽略规则
 ├─ .gitattributes                    换行统一（.bat=CRLF / .sh=LF）
-├─ build.bat                         一键构建 apxhost / apxdesktop / apxsetup，随后启动桌面面板
-├─ run.bat                           仅启动面板（需先构建）
 │
 ├─ docs/                             设计与协议文档
 │   ├─ ARCHITECTURE.md               双主线架构、通道表、Report ID 复用、降级代价
@@ -87,6 +85,7 @@ build_host\Release\apxhost.exe serve
 │   ├─ REALDEVICE-NOTES.md           蓝牙 HID / Wi‑Fi 传输的真机实测结论
 │   ├─ ROADMAP.md                    能力现状、蓝牙/Wi‑Fi 两条线的扩展点与实施顺序
 │   ├─ RELEASE-NOTES-0.3.2.md        本版本发布说明（摄像头模块清理）
+│   ├─ 安卓手机USB外设共享技术深度调研报告.pdf  USB 方案调研文档
 │   └─ REQ-五路回报.md               需求记录（历史）
 │
 ├─ shared/                           两端共享契约（core-proto 协议库）
@@ -166,8 +165,28 @@ build_host\Release\apxhost.exe serve
 │       ├─ wireless/                 统一控制面（TCP 9511）+ UDP 信标广播（APX1TV）
 │       └─ ui/                       主界面、游戏手柄、服务编排（AgentController）
 │
-├─ scripts/                          辅助脚本（apx_gadget.sh / aggregate.py / verify_ms1.ps1）
-└─ reports/                          生成的报告（.md / .json）
+├─ scripts/                          构建与辅助脚本
+│   ├─ build.bat                     一键构建 apxhost / apxdesktop / apxsetup，随后启动桌面面板
+│   ├─ build_apx.bat                 快速构建 apxdesktop
+│   ├─ run.bat                       仅启动面板（需先构建）
+│   ├─ adb_install_release.bat       ADB 安装 Release APK
+│   ├─ build_android.bat             Android 端构建
+│   ├─ apx_gadget.sh                 Linux 端 Gadget 配置脚本
+│   ├─ aggregate.py                  数据汇总工具
+│   └─ verify_ms1.ps1                电源验证脚本
+│
+├─ release/                          发布产物与说明
+│   └─ README.md                     版本发布说明
+│
+├─ reports/                          生成的报告（.md / .json）
+│
+└─ .github/                          CI/CD 配置
+    └─ workflows/
+        ├─ apx-android.yml           Android APK 构建
+        ├─ apx-ci.yml                主 CI 流程
+        ├─ apx-gate.yml              门禁检查
+        ├─ apx-nightly.yml           每日构建
+        └─ apx-report.yml            报告生成
 ```
 
 ---
@@ -232,7 +251,7 @@ cd android
 gradlew.bat assembleDebug
 ```
 
-> 一键构建 PC 三件套（含桌面面板与安装包）：仓库根目录 `build.bat`。
+> 一键构建 PC 三件套（含桌面面板与安装包）：执行 `scripts/build.bat`。
 
 ---
 
@@ -299,11 +318,11 @@ Windows 设备管理器可见的子设备：**HID 鼠标 / 键盘 / 多媒体键
    `reports/MAIN-INTERVENTIONS.md`）。本机实测：
    ```bat
    cmake -S pc/display -B build_display
-   cmake --build build_display --config Release              :: apxdisp.exe 构建成功
-   build_display\Release\apxdisp.exe --self-test             :: 67 项全部通过
-   build_display\Release\tcp_transport_test.exe              :: ALL PASS
+cmake --build build_display --config Release              :: apxdisp.exe 构建成功
+build_display\Release\apxdisp.exe --self-test             :: 67 项全部通过
+build_display\Release\tcp_transport_test.exe              :: ALL PASS
    ```
-   注意 `pc/display/` **不在 `build.bat` 的构建范围内**（它属副屏模块）。
+   注意 `pc/display/` **不在 `scripts/build.bat` 的构建范围内**（它属副屏模块）。
 3. **无线虚拟设备**：
    - **麦克风 / 声卡**：Windows **没有**原生虚拟麦克风 API，必须用第三方已签名虚拟声卡
      （如 VB-Cable）或自研驱动（需 EV 签名 + 微软认证）。
