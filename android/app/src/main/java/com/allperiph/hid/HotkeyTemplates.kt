@@ -190,7 +190,7 @@ object HotkeyTemplates {
         Template(
             key = "tv",
             name = "TV 遥控",
-            desc = "方向 / OK / 返回 / 主页（TV 与 PC 通用）",
+            desc = "方向 / OK / 返回 / 主页 / 电源（TV 与 PC 通用）",
             color = 0xFFE0457B.toInt(),
             combos = listOf(
                 c("上", 0, KEY_UP),
@@ -200,6 +200,10 @@ object HotkeyTemplates {
                 c("OK", 0, KEY_ENTER),
                 c("返回", 0, KEY_ESC),
                 c("主页", 0, 0x4A),
+                // ★ 电源/关机：原先这一套里只有 7 个键，**没有电源**（真机反馈"关机键你没加"）。
+                //   usage 0x66 = 键盘 Power，被控端 HID_MAP 映射成 KEYCODE_POWER，
+                //   evdev / root 通道下就是一颗真电源键（待机 / 唤醒），与实体遥控一致。
+                c("电源", 0, 0x66),
             ),
         ),
     )

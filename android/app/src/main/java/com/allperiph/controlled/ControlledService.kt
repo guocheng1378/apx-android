@@ -71,6 +71,9 @@ class ControlledService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.addPrimaryClipChangedListener(clipListener)
 
+        // 进程级自检：看门狗只能救"同进程内 9511 挂了"，进程被杀只能靠闹钟拉回来
+        KeepAlive.schedule(this)
+
         // 主动上报一次当前剪贴板（被控 App 在前台时本机可读到自己的剪贴板）
         val init = currentClipboardText()
         if (!init.isNullOrEmpty()) server?.sendReverseClipboard(init)
@@ -99,10 +102,18 @@ class ControlledService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.w(TAG, "任务被移除 → 立即重启被控服务")
-        runCatching {
+        // Android 12+ 在后台直接 startForegroundService 会被拒
+        // （ForegroundServiceStartNotAllowedException）—— 原先只吞掉打日志，于是划掉任务就再也回不来。
+        // 被拒时改交给闹钟：闹钟触发时应用会拿到一小段"允许启动前台服务"的窗口。
+        val ok = runCatching {
             val i = Intent(applicationContext, ControlledService::class.java)
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
-        }.onFailure { Log.w(TAG, "重启被控服务失败：${it.message}") }
+            true
+        }.getOrElse {
+            Log.w(TAG, "直接从后台重启被拒：${it.message}")
+            false
+        }
+        if (!ok) KeepAlive.schedule(applicationContext, 1_000L)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -160,12 +171,22 @@ class ControlledService : Service() {
         private const val CHANNEL_ID = "controlled_status"
         private const val NOTIFY_ID = 0x9A3
 
+        /** 用户是否**主动开过**被控。持久化：闹钟自检可能在新进程里跑，读不到内存变量 */
+        private const val PREF = "apx_controlled"
+        private const val KEY_ENABLED = "enabled"
+
         @Volatile
         var running: Boolean = false
             private set
 
+        /** 是否处于"用户已启用"状态（只有 [start]/[stop] 会改它） */
+        fun enabled(c: Context): Boolean =
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
         fun start(c: Context) {
             running = true
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, true).apply()
             val i = Intent(c, ControlledService::class.java)
             runCatching {
                 if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
@@ -177,6 +198,9 @@ class ControlledService : Service() {
 
         fun stop(c: Context) {
             running = false
+            // 用户主动关掉 → 清标记，闹钟自检不再把它拉回来（不替用户做决定）
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, false).apply()
             runCatching { c.stopService(Intent(c, ControlledService::class.java)) }
         }
 

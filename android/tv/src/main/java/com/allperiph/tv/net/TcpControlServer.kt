@@ -148,17 +148,12 @@ class TcpControlServer(
                 }
                 continue
             }
-            // ★ 「后来者接管」，**不要拒绝新连接**：旧连接可能是僵尸 —— 对端被强杀 / 换网时收不到
-            //   FIN，收流线程会一直阻塞在 read 上（TCP 黑洞），ready 永远是 true。
-            //   此时若把新连接 close 掉，手机端就是「TCP 连上、却一行都进不来」，只能重启 TV 应用。
-            //   这里关掉旧 socket 让它的读写线程立刻醒来退出；收尾由旧收流线程自己完成
-            //   （见 readerLoop / teardown 的 `client === sock` 判定），不会互相踩。
-            val old = client
-            if (old != null && old !== sock) {
-                Log.w("新连接接管，断开旧连接 $peerText")
-                ready = false
-                runCatching { old.close() }
-            }
+            // ★★ 这里**不能**踢旧连接：任何裸 TCP 连接（看门狗探活、端口扫描、系统健康检查、
+            //   半开连接）都会在握手之前就把真正的控制端踢下线 —— 真机症状就是
+            //   "TV 端会断连 / 用着用着就控制不了"。
+            //   真机上抓到过：旧版看门狗每 15 秒自连一次 127.0.0.1:9511，于是**每 15 秒**
+            //   把控制端断开一次（日志：`新连接接管，断开旧连接 …` 紧跟 `握手长度非法：-1`）。
+            //   接管推迟到握手**验证通过之后**（见 activate），仍然保留「后来者接管」语义。
             Thread({ handshake(sock) }, "apxtv-handshake").apply {
                 isDaemon = true
                 start()
@@ -198,6 +193,15 @@ class TcpControlServer(
     }
 
     private fun activate(sock: Socket) {
+        // ★ 接管：走到这里说明新连接**已完成握手**（必要时还通过了令牌校验），才有资格踢旧连接。
+        //   旧连接可能是僵尸 —— 对端被强杀 / 换网时收不到 FIN，收流线程会一直阻塞在 read 上
+        //   （TCP 黑洞），ready 永远是 true；这里关掉它，让它的读写线程立刻醒来退出。
+        //   收尾由旧收流线程自己完成（见 readerLoop / teardown 的 `client === sock` 判定），不会互相踩。
+        val old = client
+        if (old != null && old !== sock) {
+            Log.w("新连接接管（握手已通过），断开旧连接 $peerText")
+            runCatching { old.close() }
+        }
         client = sock
         out = sock.getOutputStream()
         peerText = peerTextOf(sock)
@@ -382,7 +386,8 @@ class TcpControlServer(
     private fun onConsumer(body: ByteArray) {
         // body=[0x02, bitmap u16 LE]
         val bitmap = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
-        TvInjector.consumer(bitmap)   // 音量/静音/媒体
+        Log.i("被控控制面 Consumer 帧 bitmap=0x" + Integer.toHexString(bitmap))
+        TvInjector.consumer(bitmap)   // 音量/静音/媒体/电源
         for (bit in 0 until 16) {
             if ((bitmap ushr bit) and 1 == 0) continue
             val kc = CONSUMER_MAP[bit] ?: continue
@@ -573,12 +578,16 @@ class TcpControlServer(
 
         /** Consumer 帧 16 位位图 → Android 媒体键。
          * 位序与手机端 HotkeyController / TvControllerActivity 的 consumer 位图严格一致：
-         *  bit0 音量+ bit1 音量- bit2 静音 bit3 电源(本端无对应键，忽略)
+         *  bit0 音量+ bit1 音量- bit2 静音 bit3 电源
          *  bit4 播放/暂停 bit5 上一首 bit6 下一首 */
         private val CONSUMER_MAP: Map<Int, Int> = mapOf(
             0 to 24,    // Volume Up
             1 to 25,    // Volume Down
             2 to 164,   // Mute
+            // ★ bit3 = 电源：**原先没有这一条**，遥控键盘上的「电源」图块发出来后被静默丢弃
+            //   （注释里写着"本端无对应键，忽略"）。现在映射成 KEYCODE_POWER，
+            //   evdev / root 通道会把它当成真电源键发给系统（待机/唤醒），与实体遥控一致。
+            3 to 26,    // Power
             4 to 85,    // Play/Pause
             5 to 88,    // Previous
             6 to 87,    // Next

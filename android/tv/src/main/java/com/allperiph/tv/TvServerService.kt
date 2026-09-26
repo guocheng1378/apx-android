@@ -282,11 +282,7 @@ class TvServerService : Service() {
      * 因为无障碍没开、root 也没授权时，服务端只剩「光标可视化」这一层。
      * 直接写在通知里，用户不用翻日志就知道该去开什么。
      */
-    private fun injectStateText(): String = when {
-        com.allperiph.tv.core.RootInput.available -> "root 注入（全键鼠）"
-        TvInjector.systemReady() -> "无障碍注入"
-        else -> "仅可视化：请开「无障碍」或授予 root"
-    }
+    private fun injectStateText(): String = TvInjector.channelText()
 
     private fun refreshNotification() {
         runCatching {

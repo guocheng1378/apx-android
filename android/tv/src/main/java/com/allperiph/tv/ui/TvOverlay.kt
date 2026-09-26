@@ -58,6 +58,10 @@ object TvOverlay {
         }
     }
 
+    /** 浮层是否真的建起来了（没拿到「显示在其他应用上层」时会失败） */
+    val isReady: Boolean
+        get() = wm != null && view != null
+
     fun move(x: Float, y: Float) {
         val v = view ?: return
         val p = params ?: return

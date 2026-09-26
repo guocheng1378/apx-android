@@ -260,6 +260,13 @@ object TvInjector {
 
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
     fun consumer(bitmap: Int) {
+        // ★ bit3 = 电源：**必须在这里注入**。TcpControlServer.onConsumer 里那圈 CONSUMER_MAP
+        //   只调了 TvInputDispatcher（驱动界面），**没有调 TvInjector** ——
+        //   所以只往 CONSUMER_MAP 里加 "3 to 26" 是不会真的发出电源键的。
+        if (bitmap and (1 shl 3) != 0) {
+            key(KeyEvent.KEYCODE_POWER, true)
+            key(KeyEvent.KEYCODE_POWER, false)
+        }
         val am = ctx?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (bitmap and (1 shl 0) != 0) {
             am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)

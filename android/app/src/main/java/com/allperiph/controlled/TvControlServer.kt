@@ -570,6 +570,7 @@ class TvControlServer(
             0 to 24,    // Volume Up
             1 to 25,    // Volume Down
             2 to 164,   // Mute
+            3 to 26,    // Power（电源/锁屏；遥控键盘的「电源」图块发的就是这个位）
             4 to 85,    // Play/Pause
             5 to 88,    // Previous
             6 to 87,    // Next

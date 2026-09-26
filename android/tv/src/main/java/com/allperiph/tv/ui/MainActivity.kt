@@ -41,6 +41,7 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
 
     private lateinit var root: FrameLayout
     private lateinit var status: TextView
+    private lateinit var inject: TextView
     private lateinit var ipText: TextView
     private lateinit var hint: TextView
     private lateinit var console: TextView
@@ -91,6 +92,10 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
             // 进页面就给个焦点：遥控器一按方向键就有反应（不依赖触摸）
             clickables.firstOrNull()?.requestFocus()
             refreshStatus()
+            // 注入通道是**异步**初始化的（evdev 要读 /dev/input 与键位表、root 要起 su 并探测），
+            // 进页面那一刻往往还没就绪 —— 稍后再刷两次，避免一直显示"未开启"误导用户。
+            mainHandler.postDelayed({ refreshStatus() }, 1_500)
+            mainHandler.postDelayed({ refreshStatus() }, 4_000)
         }
     }
 
@@ -130,6 +135,16 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         }
         col.addView(ipText)
 
+        // 「注入通道」：本机现在到底有多少控制能力。
+        // 电视上没有状态栏、用户也看不到日志，这一行就是唯一的答案 ——
+        // "连上了点不动 / 方向键只动光标"十有八九是它显示的那一档造成的。
+        inject = TextView(this).apply {
+            TvUi.applyTextSize(this, 15f)
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, gap / 2, 0, 0)
+        }
+        col.addView(inject)
+
         // 功能按钮排（遥控器可达、焦点可见；手机光标也能直接点）
         val actions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -141,7 +156,7 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         actions.addView(actionButton("副屏（看电脑画面）") {
             startActivity(Intent(this@MainActivity, TvScreenActivity::class.java))
         })
-        actions.addView(actionButton("启用系统控制") { openSystemControlSettings() })
+        actions.addView(actionButton("控制能力（自检）") { showCapabilities() })
         col.addView(actions)
 
         col.addView(TextView(this).apply {
@@ -229,17 +244,6 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
     }
 
     // ————————————————————————————— 系统控制授权 —————————————————————————————
-
-    private fun openSystemControlSettings() {
-        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-            } catch (_: Throwable) {
-            }
-        }
-        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        Toast.makeText(this, R.string.tv_enable_system_hint, Toast.LENGTH_LONG).show()
-    }
 
     /** 通知权限（API 33+）：前台服务的常驻通知没它就看不见，进程也更容易被系统回收 */
     private fun askNotificationPermission() {
@@ -343,11 +347,52 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
      */
     private fun refreshStatus() {
         status.text = TvServerService.current?.status() ?: getString(R.string.tv_status_waiting)
-        hint.text = if (TvInjector.systemReady()) {
-            "系统注入已就绪：手机可点击 / 输入 / 返回 / 主页"
-        } else {
-            "未开启「无障碍 + 悬浮窗」：手机只能看到光标、点不动 —— 先点「启用系统控制」授权"
+
+        val full = TvInjector.fullKeyReady()       // evdev / root：任意按键
+        val sys = TvInjector.systemReady()          // 仅无障碍：能点能打字，但按键是空的
+        inject.text = "注入通道：" + TvInjector.channelText()
+        inject.setTextColor(
+            when {
+                full -> TvUi.OK                      // 全键可用
+                sys -> TvUi.ACCENT                   // 半吊子：能力有限，别让用户以为是全的
+                else -> 0xFFE5A50A.toInt()           // 仅可视化：明显的告警黄
+            }
+        )
+        hint.text = when {
+            full -> "完整键鼠已就绪：手机的方向键 = 电视焦点移动，按键 / 手柄 / 打字都能用"
+            sys -> "只有无障碍：手机能点击 / 滑动 / 打字，但按键（方向键等）不会生效"
+            else -> "未开启任何注入通道：手机只能看到光标、点不动 —— 点「控制能力（自检）」逐项开启"
         }
+    }
+
+    /** 悬浮窗授权页（部分电视没有这一页，失败就提示） */
+    private fun openOverlaySettings() {
+        runCatching {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            )
+        }.onFailure {
+            Toast.makeText(this, "本机没有「显示在其他应用上层」设置页", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * 控制能力自检：逐项 ✓ / ✗，并给出"没就绪该怎么办"。
+     * 电视上用户看不见日志、通知也常被挡，"缺哪一项"只能靠这一屏讲清楚。
+     */
+    private fun showCapabilities() {
+        val lines = TvInjector.capabilities().joinToString("\n") { (name, ok, how) ->
+            if (ok) "✓  $name" else "✗  $name\n      → $how"
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("控制能力自检")
+            .setMessage(lines)
+            .setPositiveButton("无障碍设置") { _, _ ->
+                runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }
+            .setNeutralButton("悬浮窗") { _, _ -> openOverlaySettings() }
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     private fun appendConsole(ch: Char) {

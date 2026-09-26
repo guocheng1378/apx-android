@@ -261,6 +261,9 @@ class KeyboardPanels(private val act: Activity) {
                 Triple("音量 −", R.drawable.ic_apx_vol_down, HotkeyController.BIT_VOLUME_DOWN),
                 Triple("静音", R.drawable.ic_apx_mute, HotkeyController.BIT_MUTE),
                 Triple("音量 +", R.drawable.ic_apx_vol_up, HotkeyController.BIT_VOLUME_UP),
+                // ★ 电源：原先遥控键盘上**没有这颗键**（真机反馈"关机键你没加"）。
+                //   走 Consumer bit3；对端 CONSUMER_MAP 已映射成 KEYCODE_POWER。
+                Triple("电源", R.drawable.ic_apx_power, HotkeyController.BIT_POWER),
             ),
         )
         rows.forEach { defs ->

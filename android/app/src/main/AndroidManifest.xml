@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 被控端保活自检：定时闹钟把被杀掉的被控服务拉回来。
+         Android 12+ 需「闹钟与提醒」权限，未授予时代码自动降级为不精确闹钟（见 controlled/KeepAlive）。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Wi‑Fi 控制通道（局域网 TCP + UDP 信标，见 wireless/TcpControlChannel.kt） -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -142,6 +145,14 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- 被控端保活自检：闹钟 → 服务不在就拉回来（进程被杀也能唤醒）。
+             闹钟触发时应用会拿到一小段「允许启动前台服务」的窗口，这是 Android 12+
+             后台能重新进前台的少数合法路径之一。 -->
+        <receiver
+            android:name=".controlled.KeepAliveReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <meta-data
             android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"

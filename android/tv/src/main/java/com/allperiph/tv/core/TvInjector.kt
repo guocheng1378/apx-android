@@ -43,11 +43,57 @@ object TvInjector {
         ctx = c.applicationContext
         TvOverlay.init(c.applicationContext)
         refreshScreen()
-        // 有 root 就开真正的系统注入通道（全键鼠）；没有则走无障碍，不报错
+        // 通道按"能拿到多少能力"排序，全部 fire-and-forget：
+        //  ① evdev 内核注入：**免 root**，任意按键（方向键/组合键/手柄），和真遥控器同级
+        //  ② root `input`：evdev 不可用时用
+        //  ③ 无障碍：上面都没有时才用（只能点/滑/输入框打字）
+        Thread({ runCatching { EvdevInjector.tryStart() } }, "apx-tv-evdev").start()
         RootInput.tryStart()
     }
 
     fun systemReady(): Boolean = ApxAccessibilityService.isReady()
+
+    /**
+     * 当前可用的注入通道（人话）。**界面与通知共用同一份文案**，避免两边说法不一致。
+     *
+     * 三档能力差别极大，必须让用户一眼看到 —— "连上了但点不动 / 方向键只动光标"
+     * 是被控端最常见的困惑，根因就是"走的是哪条通道"：
+     *  · evdev / root：**任意按键**（方向键 = 真方向键会移动焦点、组合键、手柄按钮）+ 点击滑动
+     *  · 仅无障碍：只能点击 / 滑动 / 输入框内打字，**按键全是空的**
+     *  · 都没有：只剩光标可视化
+     */
+    fun channelText(): String = when {
+        EvdevInjector.available -> "evdev 内核注入 · 免 root，全键可用"
+        RootInput.available -> "root 注入 · 全键可用"
+        systemReady() -> "无障碍注入 · 仅点击/滑动/输入框打字，按键不可用"
+        else -> "未开启 · 手机只能看到光标，点不动"
+    }
+
+    /** 是否具备「任意按键」级别的能力（evdev / root） */
+    fun fullKeyReady(): Boolean = EvdevInjector.available || RootInput.available
+
+    /**
+     * 控制能力自检清单：`(名称, 是否就绪, 没就绪时该怎么办)`。
+     * 电视上没有状态栏提示、用户又看不见日志，"缺哪一项"必须直接列在界面上。
+     */
+    fun capabilities(): List<Triple<String, Boolean, String>> = listOf(
+        Triple(
+            "evdev 内核注入（免 root，全键）",
+            EvdevInjector.available,
+            "本机 /dev/input 不可写（换 root 或无障碍）",
+        ),
+        Triple("root 注入（全键）", RootInput.available, "未授予 root（可忽略，evdev 已够用）"),
+        Triple(
+            "无障碍注入（点击 / 滑动 / 打字）",
+            systemReady(),
+            "到「无障碍 / 辅助功能」里启用本应用",
+        ),
+        Triple(
+            "悬浮窗（把手机光标画在电视上）",
+            TvOverlay.isReady,
+            "到「显示在其他应用上层」里允许本应用",
+        ),
+    )
 
     private fun refreshScreen() {
         val wm = ctx?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
@@ -157,8 +203,11 @@ object TvInjector {
     }
 
     fun key(kc: Int, down: Boolean) {
+        // ① evdev 内核注入（**免 root**）：按下与松开都真的发出去 —— 这才像真遥控器，
+        //   长按 / 连发 / 组合键 / 焦点移动全都对。方向键在这里第一次变成"真方向键"。
+        if (EvdevInjector.available && EvdevInjector.sendKey(kc, down)) return
         if (!down) return
-        // ① root 通道：任意按键（含字母 / Tab / F 区）都能真正注入；`input keyevent` 自带 down+up
+        // ② root 通道：任意按键（含字母 / Tab / F 区）都能真正注入；`input keyevent` 自带 down+up
         if (RootInput.available && RootInput.run("input keyevent $kc")) return
         if (!systemReady()) return
         when (kc) {
@@ -207,7 +256,9 @@ object TvInjector {
     fun text(ch: Char) {
         if (ch == '\u0000') return
         val s = ch.toString()
-        // ① 输入法通道（最稳）：系统输入法是我们时，走 InputConnection —— 系统认定的正规输入
+        // ① evdev：字母/数字/空格直接发**真按键**，不再依赖"当前有没有输入框"或输入法是否切过来
+        if (EvdevInjector.available && EvdevInjector.sendChar(ch)) return
+        // ② 输入法通道（最稳）：系统输入法是我们时，走 InputConnection —— 系统认定的正规输入
         if (ApxImeService.commit(s)) return
         // ② 无障碍 ACTION_SET_TEXT
         if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) return
@@ -218,6 +269,15 @@ object TvInjector {
 
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
     fun consumer(bitmap: Int) {
+        // ★ bit3 = 电源：**必须在这里注入**。
+        //   TcpControlServer.onConsumer 里那圈 CONSUMER_MAP 只调了 TvInputDispatcher
+        //   （驱动界面 Toast / 高亮），**没有调 TvInjector** —— 所以只往 CONSUMER_MAP 里加
+        //   "3 to 26" 是不会真的发出电源键的（真机症状：点「电源」毫无反应）。
+        //   电原本该由系统电源键处理：evdev / root 下就是一颗真电源键（待机/唤醒）。
+        if (bitmap and (1 shl 3) != 0) {
+            key(KeyEvent.KEYCODE_POWER, true)
+            key(KeyEvent.KEYCODE_POWER, false)
+        }
         val am = ctx?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (bitmap and (1 shl 0) != 0) {
             am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
@@ -257,10 +317,24 @@ object TvInjector {
     }
 
     /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
-     *  走 InputManager.injectInputEvent（需 INJECT_EVENTS 权限）；AccessibilityService 无法注入手柄。 */
+     *  优先 evdev（免 root），其次 root，最后 InputManager.injectInputEvent（需 INJECT_EVENTS）。 */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
         val c = ctx ?: return
-        // ① root 通道：手柄按钮 → 系统按键（KEYCODE_BUTTON_*），不需要 INJECT_EVENTS；
+        // ① evdev：手柄按钮 → 真按键，**不需要 root / INJECT_EVENTS**。
+        //   按下与松开分别发（手柄帧本来就是边沿），所以长按、连发都是对的。
+        //   摇杆暂不注入（目标设备是键盘，没有 ABS 轴；要做得上 uinput 造虚拟手柄）。
+        if (EvdevInjector.available) {
+            for (bit in 0..15) {
+                val now = (buttons ushr bit) and 1 == 1
+                val was = (lastGamepadButtons ushr bit) and 1 == 1
+                if (now == was) continue
+                val kc = GAMEPAD_KEYCODES[bit] ?: continue
+                EvdevInjector.sendKey(kc, now)
+            }
+            lastGamepadButtons = buttons
+            return
+        }
+        // ② root 通道：手柄按钮 → 系统按键（KEYCODE_BUTTON_*），不需要 INJECT_EVENTS；
         //   摇杆暂时不注入（input 命令没有摇杆语义，后续可走 uinput）。
         if (RootInput.available) {
             for (bit in 0..15) {

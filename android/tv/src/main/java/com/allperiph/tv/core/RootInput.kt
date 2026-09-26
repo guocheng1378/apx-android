@@ -22,7 +22,21 @@ object RootInput {
     private val starting = AtomicBoolean(false)
 
     val available: Boolean
-        get() = process?.isAlive == true && writer != null
+        get() = process?.let { alive(it) } == true && writer != null
+
+    /**
+     * `Process.isAlive()` 是 **API 26** 才有的方法，而本模块 minSdk=23。
+     * 原先到处直接用 `isAlive`，在 Android 7（API 25）的盒子上会抛
+     * `NoSuchMethodError: No virtual method isAlive()Z`，导致 root 通道永远起不来
+     * （真机日志：`启动 root shell 失败：No virtual method isAlive()Z`）。
+     * 这里改用 `exitValue()` 探测：还活着会抛 IllegalThreadStateException。
+     */
+    private fun alive(p: Process): Boolean = try {
+        p.exitValue()
+        false
+    } catch (_: IllegalThreadStateException) {
+        true
+    }
 
     fun tryStart() {
         if (available || !starting.compareAndSet(false, true)) return
@@ -67,7 +81,7 @@ object RootInput {
                 continue
             }
             SystemClock.sleep(200)
-            if (p.isAlive) return p
+            if (alive(p)) return p
             runCatching { p.destroy() }
         }
         return null
@@ -97,7 +111,7 @@ object RootInput {
     fun run(cmd: String): Boolean {
         val w = writer ?: return false
         val p = process ?: return false
-        if (!p.isAlive) return false
+        if (!alive(p)) return false
         return try {
             w.write(cmd)
             w.write("\n")
