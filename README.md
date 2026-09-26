@@ -151,11 +151,7 @@ build_host\Release\apxhost.exe serve
 │   └─ history/                      历史报告
 │
 └─ .github/workflows/               CI/CD
-    ├─ apx-ci.yml                    主流程
-    ├─ apx-gate.yml                  门禁
-    ├─ apx-nightly.yml               每日构建
-    ├─ apx-android.yml               Android 构建
-    └─ apx-report.yml                报告生成
+    └─ build.yml                     Android APK 构建
 ```
 
 ---
