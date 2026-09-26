@@ -82,4 +82,6 @@
 
 - 「链路延迟/丢包」的丢包率用「重同步次数 / 已收帧数」粗估，精确 RTT 需控制面心跳支持。
 - 通知动作图标使用单色矢量（Android 5.0+ 要求），`ic_stat_peripheral.xml` 固定为白色剪影。
-- `GamepadController` 只有 USB 出口：`SendInput` 无法模拟游戏手柄，Wi‑Fi 侧需第三方虚拟手柄驱动。
+- `GamepadController` 有**两个出口**：USB HID（连 PC）与**网络帧**（连 TV/PC 目标时经 9511 发 0x07 手柄帧，
+  见 `GamepadController.send()` 里的 `ControlTarget.isControlling()` 分支）。被控端再用 uinput 造虚拟手柄，
+  因此摇杆也是内核级真实输入 —— 本条旧描述已不准确。

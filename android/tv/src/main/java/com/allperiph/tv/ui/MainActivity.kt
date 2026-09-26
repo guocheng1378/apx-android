@@ -21,6 +21,7 @@ import android.widget.Toast
 import com.allperiph.tv.R
 import com.allperiph.tv.TvServerService
 import com.allperiph.tv.core.TvInjector
+import com.allperiph.tv.core.UinputGamepad
 import com.allperiph.tv.net.TcpControlServer
 import com.allperiph.tv.net.TvFileReceiver
 
@@ -46,6 +47,8 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
     private lateinit var hint: TextView
     private lateinit var console: TextView
     private lateinit var cursor: View
+    /** 「开启 / 停止被控」按钮：文字随状态变（原先 TV 端**没有任何关闭入口**） */
+    private lateinit var toggleService: TextView
 
     /** 可点项（卡片 + 功能按钮）：光标命中测试与焦点同步都用它 */
     private val clickables = ArrayList<View>()
@@ -56,6 +59,25 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
     private var cursorY = 0f
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * 注入通道状态**轮询**。
+     *
+     * 三条通道全是异步就绪的：evdev 要读 `/dev/input` 与键位表（还要跨 4 个候选节点试），
+     * root 要起 `su` 并探测（最坏 3 秒），uinput 要建虚拟手柄 —— 慢盒子上 5 秒以上很正常。
+     * 原先只在 0 / 1.5s / 4s 刷三次，于是状态行会长期停在「未开启」，把用户误导成"没开成功"。
+     * 这里一直轮询到**全键与手柄都就绪**为止（上限约 18 秒）。
+     */
+    private val channelPoll = object : Runnable {
+        private var n = 0
+        override fun run() {
+            refreshStatus()
+            n++
+            if (n < 15 && !(TvInjector.fullKeyReady() && UinputGamepad.ready)) {
+                mainHandler.postDelayed(this, 1_200)
+            }
+        }
+    }
 
     private val pad get() = TvUi.safeInset(this)
     private val gap get() = TvUi.dp(this, 10f)
@@ -73,12 +95,10 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         TvInjector.init(this)
         TvFileReceiver.start(applicationContext)
 
-        // 前台服务（保活服务端 + 发现信标）；API 26+ 用 startForegroundService
-        val svc = Intent(this, TvServerService::class.java)
-        if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
-        // 记住「用户开过一次」：开机后由 BootReceiver 自动拉起
-        getSharedPreferences(TvServerService.PREF, MODE_PRIVATE)
-            .edit().putBoolean(TvServerService.KEY_ENABLED, true).apply()
+        // 前台服务（保活服务端 + 发现信标）；API 26+ 用 startForegroundService。
+        // ★ 走 startIfNeeded：**用户手动停过就不再自动开**，否则"停止被控"按钮等于摆设
+        //   （下次打开 App 又被打开）。
+        TvServerService.startIfNeeded(this)
 
         askNotificationPermission()
         offerBatteryWhitelist()
@@ -91,16 +111,16 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
             centerCursor()
             // 进页面就给个焦点：遥控器一按方向键就有反应（不依赖触摸）
             clickables.firstOrNull()?.requestFocus()
-            refreshStatus()
-            // 注入通道是**异步**初始化的（evdev 要读 /dev/input 与键位表、root 要起 su 并探测），
-            // 进页面那一刻往往还没就绪 —— 稍后再刷两次，避免一直显示"未开启"误导用户。
-            mainHandler.postDelayed({ refreshStatus() }, 1_500)
-            mainHandler.postDelayed({ refreshStatus() }, 4_000)
+            // 注入通道是**异步**就绪的 → 轮询刷新到就绪为止（见 channelPoll）。
+            // 原先只刷 0/1.5s/4s 三次，慢盒子上会长期停在"未开启"误导用户。
+            mainHandler.removeCallbacks(channelPoll)
+            channelPoll.run()
         }
     }
 
     override fun onPause() {
         if (TvInputDispatcher.listener === this) TvInputDispatcher.listener = null
+        mainHandler.removeCallbacks(channelPoll)
         super.onPause()
     }
 
@@ -157,16 +177,29 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
             startActivity(Intent(this@MainActivity, TvScreenActivity::class.java))
         })
         actions.addView(actionButton("控制能力（自检）") { showCapabilities() })
+        // ★ 「开启 / 停止被控」：TV 端原先**只能开不能关**（手机端有「无线」总开关），
+        //   服务 / 信标 / 开机自启 / 保活闹钟会永久常开，用户只能去系统设置强行停止。
+        toggleService = actionButton("停止被控") { confirmToggleService() }
+        actions.addView(toggleService)
         col.addView(actions)
 
         col.addView(TextView(this).apply {
-            text = "方向键移动焦点，确认键触发；被手机控制时可直接用光标点"
+            text = "方向键移动焦点，确认键触发；被手机控制时可直接用光标点。" +
+                    "本端只接受控制（被控），不主动控制别人。"
             setTextColor(TvUi.TEXT_DIM)
             TvUi.applyTextSize(this, 12f)
             setPadding(0, gap, 0, gap / 2)
         })
 
-        // 卡片舞台：保留（焦点/光标演示 + 选中高亮）
+        // 卡片舞台：保留（焦点/光标演示 + 选中高亮）。
+        // ★ 明说这是演示区：原先 5 张卡片里 4 张点下去只弹「已打开：xxx」，纯属假入口，
+        //   用户会以为能进"启动器/媒体播放/终端"。
+        col.addView(TextView(this).apply {
+            text = "以下为演示区：验证方向键焦点与手机光标命中，不是功能入口"
+            setTextColor(TvUi.TEXT_DIM)
+            TvUi.applyTextSize(this, 11f)
+            setPadding(0, 0, 0, gap / 3)
+        })
         val stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf(
             getString(R.string.tv_card_launcher),
@@ -332,6 +365,18 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
 
     override fun onText(ch: Char) = appendConsole(ch)
 
+    /**
+     * 手柄事件回显。
+     *
+     * 手柄原先**没有任何可见反馈**（[TvInputDispatcher.Listener.onGamepad] 是空默认实现，
+     * 而这个 Activity 也没覆写它）—— 用户按了按钮完全不知道有没有送到电视。
+     * 这里把按钮位图与摇杆值落到回显行上，一眼就能确认链路通不通。
+     */
+    override fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+        val pressed = (0..15).filter { (buttons ushr it) and 1 == 1 }
+        console.text = "手柄：按钮=$pressed · 左摇杆=($x,$y) · 右摇杆=($rx,$ry)"
+    }
+
     override fun onPeer(connected: Boolean, peer: String) {
         status.text = if (connected) getString(R.string.tv_status_connected, peer)
         else getString(R.string.tv_status_waiting)
@@ -384,15 +429,30 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         val lines = TvInjector.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
+        // 三个动作按钮正好用完 AlertDialog 的 正 / 中 / 负 位；关闭用遥控器返回键。
         android.app.AlertDialog.Builder(this)
-            .setTitle("控制能力自检")
+            .setTitle("控制能力自检（按返回键关闭）")
             .setMessage(lines)
             .setPositiveButton("无障碍设置") { _, _ ->
                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             }
-            .setNeutralButton("悬浮窗") { _, _ -> openOverlaySettings() }
-            .setNegativeButton("关闭", null)
+            // ★ 输入法原先**一点引导都没有** —— 而中文打字最稳的通道就是它，
+            //   用户只能自己翻系统设置，极难发现。
+            .setNeutralButton("输入法设置") { _, _ -> openImeSettings() }
+            .setNegativeButton("悬浮窗") { _, _ -> openOverlaySettings() }
             .show()
+    }
+
+    /** 输入法设置页（各 ROM 的 action 不完全一致，逐个兜底） */
+    private fun openImeSettings() {
+        val actions = listOf(
+            Settings.ACTION_INPUT_METHOD_SETTINGS,
+            "android.settings.INPUT_METHOD_SUBTYPE_SETTINGS",
+        )
+        for (a in actions) {
+            if (runCatching { startActivity(Intent(a)) }.isSuccess) return
+        }
+        Toast.makeText(this, "本机没有输入法设置页，请到系统设置里找「输入法 / 键盘」", Toast.LENGTH_LONG).show()
     }
 
     private fun appendConsole(ch: Char) {
@@ -408,12 +468,39 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
     private fun activateSelected() {
         val name = (cards.getOrNull(selected) as? TextView)?.text?.toString() ?: return
         when (selected) {
-            2 -> try {
-                startActivity(Intent(Settings.ACTION_SETTINGS))
-            } catch (_: Throwable) {
-                Toast.makeText(this, "已打开：$name", Toast.LENGTH_SHORT).show()
-            }
-            else -> Toast.makeText(this, "已打开：$name", Toast.LENGTH_SHORT).show()
+            // 「设置」是唯一真有功能的卡片
+            2 -> runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                .onFailure { Toast.makeText(this, "打不开系统设置", Toast.LENGTH_SHORT).show() }
+            // ★ 其余四张是**演示卡片**：原先弹「已打开：xxx」是假承诺（其实什么都不会发生），
+            //   用户会以为能进"启动器 / 媒体播放 / 终端"。
+            else -> Toast.makeText(
+                this,
+                "「$name」是演示卡片：只用于验证方向键焦点与手机光标命中，没有实际功能",
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    /** 开启 / 停止被控（TV 端原先**完全没有关闭入口**） */
+    private fun confirmToggleService() {
+        val enabled = TvServerService.isEnabled(this) && !TvServerService.isUserStopped(this)
+        if (enabled) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("停止被控？")
+                .setMessage("将关闭 9511 控制面 / 发现信标 / 9512 文件接收与保活，手机将无法再控制本机；" +
+                        "开机也不会自动拉起。下次打开本 App 可重新开启。")
+                .setPositiveButton("停止") { _, _ ->
+                    TvServerService.stopAll(this)
+                    Toast.makeText(this, "已停止被控", Toast.LENGTH_SHORT).show()
+                    mainHandler.postDelayed({ refreshStatus() }, 500)
+                }
+                .setNegativeButton("取消", null)
+                .show()
+        } else {
+            TvServerService.start(this)
+            Toast.makeText(this, "已开启被控", Toast.LENGTH_SHORT).show()
+            mainHandler.postDelayed({ refreshStatus() }, 800)
+            mainHandler.postDelayed({ channelPoll.run() }, 1_200)
         }
     }
 

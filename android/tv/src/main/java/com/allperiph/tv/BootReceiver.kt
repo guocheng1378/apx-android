@@ -18,8 +18,9 @@ class BootReceiver : BroadcastReceiver() {
         val act = intent?.action ?: return
         if (act != Intent.ACTION_BOOT_COMPLETED && act != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
-        val sp = context.getSharedPreferences(TvServerService.PREF, Context.MODE_PRIVATE)
-        if (!sp.getBoolean(TvServerService.KEY_ENABLED, false)) return
+        // 只有「已启用 **且** 用户没主动停过」才自启 —— 否则主界面的「停止被控」
+        // 会在下次开机时被悄悄推翻（见 TvServerService.stopAll / startIfNeeded）。
+        if (!TvServerService.isEnabled(context) || TvServerService.isUserStopped(context)) return
 
         val svc = Intent(context, TvServerService::class.java)
         runCatching {

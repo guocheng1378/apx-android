@@ -885,6 +885,9 @@ class MainActivity : Activity() {
         val items = ArrayList<CharSequence>()
         items.add("链接 TV / PC…")
         items.add("加入副屏")
+        // 全屏操控面（触控板 / 键盘 / 副屏三页）的**第二个入口**：
+        // 主页面本身够用，但全屏操控面原先只能从"被控通知"进，这里补上随手可达的一处。
+        items.add("全屏操控面")
         if (ControlTarget.isControlling()) items.add("断开，回本机")
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle("触控板控制目标")
@@ -892,7 +895,8 @@ class MainActivity : Activity() {
                 when (which) {
                     0 -> showDevicePicker()
                     1 -> startActivity(Intent(this, ScreenActivity::class.java))
-                    2 -> { ControlTarget.clear(); onTargetChanged(); Toast.makeText(this, "已回本机", Toast.LENGTH_SHORT).show() }
+                    2 -> startActivity(Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java))
+                    3 -> { ControlTarget.clear(); onTargetChanged(); Toast.makeText(this, "已回本机", Toast.LENGTH_SHORT).show() }
                 }
             }
             .setNegativeButton("取消", null)
@@ -949,6 +953,16 @@ class MainActivity : Activity() {
         if (ControlTarget.isControlling()) {
             tvBox.addView(settingRow("断开连接", "回本机", accent) { ControlTarget.clear(); onTargetChanged() })
         }
+        // ★ 全屏操控面（触控板 / 键盘 / 副屏三页）原先**只能靠"被控通知"打开**，
+        //   而通知要先开被控才出现 —— 鸡生蛋：用户进不去，也就无法在里面关掉被控。
+        tvBox.addView(settingRow("全屏操控面（触控板 / 键盘 / 副屏）", "打开", accent) {
+            startActivity(Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java))
+        })
+        // ★ 被控状态 / 注入通道自检：手机端原先**只有通知栏一行字**，页面上看不到缺哪一项
+        //   （TV 端首页早有"注入通道"状态行 + 自检对话框，两端不对等）。
+        tvBox.addView(settingRow("被控状态与注入通道", "自检", accent) { showControlledCaps() })
+        // ★ 运行日志：Log 的 512 条环形缓冲一直写着"供 UI 展示"，却**没有任何消费者**
+        tvBox.addView(settingRow("查看运行日志", "打开", accent) { showLogs() })
         tvStatusView = TextView(this).apply {
             text = if (ControlTarget.isControlling()) "当前控制：${ControlTarget.label}" else "未连接（触摸板控本机）"
             textSize = 13f
@@ -956,6 +970,42 @@ class MainActivity : Activity() {
             setPadding(dp(4), dp(8), dp(4), dp(2))
         }
         tvBox.addView(tvStatusView)
+    }
+
+    /** 被控端注入通道自检（与 TV 端首页自检对话框同一份数据源） */
+    private fun showControlledCaps() {
+        val inj = com.allperiph.controlled.TvInjector
+        val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
+            if (ok) "✓  $name" else "✗  $name\n      → $how"
+        }
+        val running = com.allperiph.controlled.ControlledService.isRunning()
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("被控状态与注入通道")
+            .setMessage(
+                "当前通道：${inj.channelText()}\n" +
+                        "被控服务：${if (running) "运行中" else "未运行（在「全屏操控面」里点「被控」开启）"}\n\n" +
+                        lines
+            )
+            .setPositiveButton("无障碍设置") { _, _ ->
+                runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    /** 运行日志（[com.allperiph.core.Log] 的环形缓冲，此前没有 UI 消费者） */
+    private fun showLogs() {
+        val snap = com.allperiph.core.Log.snapshot()
+        val text = if (snap.isEmpty()) {
+            "暂无日志（只有 minLevel 之上的条目才会进缓冲）"
+        } else {
+            snap.takeLast(120).joinToString("\n") { e -> "${e.level} ${e.tag}: ${e.msg}" }
+        }
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("运行日志（最近 ${minOf(snap.size, 120)} 条）")
+            .setMessage(text)
+            .setPositiveButton("关闭", null)
+            .show()
     }
 
     /** 文件传输：经 9512 发送到对端 */
@@ -1002,8 +1052,11 @@ class MainActivity : Activity() {
         keymapBox.removeAllViews()
         val lines = listOf(
             "方向 / OK / 返回 / 主页：走 USB HID 键盘 usage，连 TV 或 PC 后主页触摸板与快捷键条自动发到对端",
-            "OK=Enter，返回=Esc，主页=Home（Home 受系统注入限制，部分设备可能不生效）",
-            "媒体键（音量 / 播放）：快捷键条走键盘通道，未含 Consumer 码；需要媒体键请在「TV 遥控」里用键盘等价键，或在 TV 端用实体遥控",
+            "方向键是「真方向键」：被控端走 evdev / root 通道时，它会像实体遥控一样移动电视焦点；" +
+                    "只有被控端退化成「无障碍」通道时，才会变成移动屏幕光标 —— 被控端的「注入通道」会写明是哪一档",
+            "OK=Enter，返回=Esc，主页=Home；被控端若显示「未开启 / 仅可视化」，这几个键就是不会生效（不是没接上）",
+            "媒体 / 音量 / 电源：键盘页「遥控」布局第三行有「电源 / 关机 / 重启」三键" +
+                    "（关机与重启需要被控端有 root，点了会弹确认框；没有 root 只会退回待机）",
             "切到 TV 目标时，触摸板下方的快捷键条自动切换为「TV 遥控」预设，可长按编辑、改动单独保存",
         )
         lines.forEach { t ->
@@ -1910,7 +1963,7 @@ class MainActivity : Activity() {
         private val PAGE_TITLES = arrayOf("触控板", "键盘", "状态", "设置")
         private val PAGE_SUBS = arrayOf(
             "滑动控制光标 · 快捷键轻点发送 / 长按按住",
-            "7 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区",
+            "8 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义",
             "启动开关 · 启动后显示链路与运行状态",
             "模板与排序 · 功能开关 · 主题 · 维护",
         )

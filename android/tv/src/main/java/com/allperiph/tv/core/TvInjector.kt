@@ -95,7 +95,48 @@ object TvInjector {
             TvOverlay.isReady,
             "到「显示在其他应用上层」里允许本应用",
         ),
+        // ★ 下面三项原先**完全没出现在界面上**，用户无从得知缺什么：
+        //   - 输入法：中文打字最稳的一条通道，但要去系统设置里启用一次；
+        //   - 虚拟手柄：手柄摇杆唯一的通道；
+        //   - 通知权限：没有它，前台服务退化成普通后台服务、更容易被回收。
+        Triple(
+            "输入法（中文打字最稳的通道）",
+            ApxImeService.isActive(),
+            "到「输入法 / 键盘」设置里启用「全能外设输入」并切过去",
+        ),
+        Triple(
+            "虚拟手柄（手柄摇杆唯一通道）",
+            UinputGamepad.ready,
+            "本机 /dev/uinput 不可写（有 root 会自动尝试 chmod）",
+        ),
+        Triple(
+            "通知权限（前台服务常驻所需）",
+            notificationsEnabled(),
+            "到「应用 → 全能外设 → 通知」里允许",
+        ),
     )
+
+    /** 通知权限是否已允许（API 24+ 可查；更早的版本一律视为允许） */
+    private fun notificationsEnabled(): Boolean {
+        val c = ctx ?: return false
+        if (android.os.Build.VERSION.SDK_INT < 24) return true
+        return runCatching {
+            c.getSystemService(android.app.NotificationManager::class.java)?.areNotificationsEnabled()
+        }.getOrNull() ?: true
+    }
+
+    /**
+     * 在被控端屏幕上弹一句提示（电源动作 / 手柄这类"按了但看不见效果"的操作需要它）。
+     * 用服务持有的 applicationContext，**不依赖 Activity** —— 界面不在前台时也能提示。
+     */
+    fun toast(msg: String) {
+        val c = ctx ?: return
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            runCatching {
+                android.widget.Toast.makeText(c, msg, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     private fun refreshScreen() {
         val wm = ctx?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager

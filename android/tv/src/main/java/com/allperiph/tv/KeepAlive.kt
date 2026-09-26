@@ -55,6 +55,16 @@ object KeepAlive {
         return PendingIntent.getBroadcast(ctx, RC, i, flags)
     }
 
+    /**
+     * 取消自检闹钟 —— 用户**主动关掉被控**时必须调，否则闹钟下一秒又把服务拉回来，
+     * 变成"关不掉"。见 [TvServerService.stopAll]。
+     */
+    fun cancel(ctx: Context) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        runCatching { am.cancel(pending(ctx)) }
+            .onFailure { Log.w("取消保活闹钟失败：${it.message}") }
+    }
+
     /** 闹钟到点：服务不在就拉起来，然后无条件重排下一次（形成自愈闭环） */
     fun onAlarm(ctx: Context) {
         val enabled = ctx.getSharedPreferences(TvServerService.PREF, Context.MODE_PRIVATE)

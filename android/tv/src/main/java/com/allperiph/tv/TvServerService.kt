@@ -131,6 +131,17 @@ class TvServerService : Service() {
             TvInjector.setConnected(connected)
             refreshNotification()
         }
+        // 对端请求开副屏（0x05）→ 真的把副屏页拉起来（原先这帧被忽略，手机点了电视没反应）
+        s.onOpenScreenRequest = { openScreenPage() }
+    }
+
+    /** 从服务侧拉起副屏页（服务没有 Activity 栈，必须带 NEW_TASK） */
+    private fun openScreenPage() {
+        runCatching {
+            val i = Intent(applicationContext, com.allperiph.tv.ui.TvScreenActivity::class.java)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
+        }.onFailure { Log.w("拉起副屏页失败：${it.message}") }
     }
 
     /** 幂等：保证 9511 控制面与发现信标都在跑（首次启动与看门狗自愈共用） */
@@ -342,5 +353,58 @@ class TvServerService : Service() {
         @Volatile
         var current: TvServerService? = null
             private set
+
+        /** 「用户主动停止过」的标记：有此标记时**不再**自动拉起（见 [startIfNeeded]） */
+        const val KEY_USER_STOPPED = "user_stopped"
+
+        /** 是否处于"用户已启用被控"状态（[BootReceiver] 与保活自检据它决定要不要拉起） */
+        fun isEnabled(c: Context): Boolean =
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+        /** 用户是否主动停止过被控 */
+        fun isUserStopped(c: Context): Boolean =
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_USER_STOPPED, false)
+
+        /** 开启被控（含首次打开 App）：清掉"已停止"标记、记住已启用、拉起服务 */
+        fun start(c: Context) {
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, true)
+                .putBoolean(KEY_USER_STOPPED, false)
+                .apply()
+            val i = Intent(c, TvServerService::class.java)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
+            }.onFailure { Log.w("拉起被控服务失败：${it.message}") }
+        }
+
+        /**
+         * App 启动时按需拉起：**用户手动停过就不再自动开**。
+         * 否则"停止被控"会变成摆设 —— 下次打开 App 又被打开。
+         */
+        fun startIfNeeded(c: Context) {
+            if (isUserStopped(c)) return
+            start(c)
+        }
+
+        /**
+         * 用户主动**停止被控**。
+         *
+         * 原先 TV 端只有"进 App 就自动开"，**没有任何关闭入口**（手机端有「无线」总开关），
+         * 于是服务 / 发现信标 / 开机自启 / 保活闹钟会永久常开 —— 用户只能去系统设置里
+         * "强行停止"，还得每次开机再来一遍。
+         *
+         * 这里把每个出口都收干净：标记已停止（[startIfNeeded] 不再自动开、[BootReceiver] 也不开）
+         * → 清 enabled → 取消保活闹钟（否则它下一秒就把服务拉回来）→ 停止服务本体
+         * （onDestroy 会停控制面 / 信标 / 媒体 / 9512）。
+         */
+        fun stopAll(c: Context) {
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, false)
+                .putBoolean(KEY_USER_STOPPED, true)
+                .apply()
+            KeepAlive.cancel(c)
+            runCatching { c.stopService(Intent(c, TvServerService::class.java)) }
+                .onFailure { Log.w("停止被控服务失败：${it.message}") }
+        }
     }
 }

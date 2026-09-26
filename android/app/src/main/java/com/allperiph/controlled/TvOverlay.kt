@@ -15,6 +15,10 @@ import com.allperiph.core.Log
  * 与 TV 模块 [com.allperiph.tv.ui.TvOverlay] 同实现。
  */
 object TvOverlay {
+    /** 浮层是否真的建起来了（没拿到「显示在其他应用上层」时会失败） */
+    val isReady: Boolean
+        get() = wm != null && view != null
+
     private var wm: WindowManager? = null
     private var view: View? = null
     private var params: WindowManager.LayoutParams? = null

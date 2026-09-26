@@ -32,6 +32,8 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var root: FrameLayout
     private lateinit var surfaceView: SurfaceView
     private lateinit var statusView: TextView
+    /** 屏上返回按钮（用手机控制时屏幕上必须看得见出口） */
+    private lateinit var backButton: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
     /** 每秒刷新一次状态行。**显式声明类型**：写成 `val tick = Runnable { postDelayed(tick) }`
@@ -90,6 +92,24 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
             text = "等待电脑画面…"
         }
         overlay.addView(statusView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
+
+        // ★ 屏上返回按钮：原先只能靠遥控器的返回键退出副屏页 ——
+        //   用手机控制时屏幕上**看不到出口**（文件页有「← 返回」，这里没有，不一致）。
+        backButton = TextView(this).apply {
+            text = "← 返回"
+            setTextColor(android.graphics.Color.WHITE)
+            TvUi.applyTextSize(this, 14f)
+            isFocusable = true
+            isClickable = true
+            background = TvUi.focusBg(
+                TvUi.CARD, TvUi.CARD_FOCUS,
+                TvUi.dp(this@TvScreenActivity, 10f), TvUi.dp(this@TvScreenActivity, 3f),
+            )
+            val p = TvUi.dp(this@TvScreenActivity, 12f)
+            setPadding(p * 2, p, p * 2, p)
+            setOnClickListener { finish() }
+        }
+        overlay.addView(backButton, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END))
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
         return root
     }

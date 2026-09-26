@@ -68,10 +68,11 @@
         <option value="wireless">无线优先</option>
         <option value="auto">自动</option>
       </select></div>
-    <div class="row"><div class="lbl"><b>无线连接</b><span>输入手机 IP 连入</span></div>
-      <input id="ipAddr" placeholder="192.168.x.x" style="width:130px">
-      <button onclick="wirelessConnect()">连入</button>
-      <button class="danger" onclick="act('wireless.disconnect')">断开</button></div>
+    <!-- v1.11 起 wireless.* 动作随无线功能整体移除，Web 控制台**不再持有连接**。
+         原先这里留着「连入 / 断开」两个按钮，点了只会得到"未知动作" —— 纯误导，已改成如实说明。 -->
+    <div class="row"><div class="lbl"><b>无线连接</b>
+      <span>连接由<b>桌面面板（apxdesktop）</b>负责；Web 控制台不持有无线连接</span></div>
+      <span class="val">请到桌面面板操作</span></div>
   </div>
 
   <!-- ═══ 外设 ═══ -->
@@ -126,9 +127,9 @@
         <button onclick="act('sensor.allOn')">全开</button>
         <button onclick="act('sensor.allOff')">全关</button></div>
       <div class="muted" id="sensorList">—</div>
-      <div class="row"><div class="lbl"><b>蓝牙配对</b><span>HID 设备模式</span></div>
+      <div class="row"><div class="lbl"><b>蓝牙配对</b><span>HID 设备模式 · <b>当前不可用</b>（Host 配对未接入）</span></div>
         <button onclick="act('bluetooth.pair')">配对</button></div>
-      <div class="row"><div class="lbl"><b>剪贴板</b><span>PC → 手机推送</span></div>
+      <div class="row"><div class="lbl"><b>剪贴板</b><span>PC → 手机推送 · <b>当前不可用</b>（需无线数据通道）</span></div>
         <button onclick="clip()">推送</button></div>
     </div>
   </div>
@@ -169,16 +170,17 @@ async function act(name, params){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(params||{})});
     const j = await r.json();
-    if(j && j.ok===false) { toast(j.error||'操作失败', false); }
+    // 后端会带 note 说明"这一步到底做到哪"（例如副屏只切后端、不推流）——
+    // 原先前端把 note 完全丢掉，只弹「已执行」，等于把"半成品"显示成"成功"。
+    if(j && j.ok===false) { toast(j.error||j.note||'操作失败', false); }
+    else if(j && j.note) { toast(j.note); refresh(); }
     else { toast('已执行：'+name); refresh(); }
   }catch(e){ toast('请求失败：'+e.message, false); }
 }
 function setMode(m){ act('link.setMode',{mode:m}); }
 function setRes(v){ const [w,h]=v.split('x'); act('display.setResolution',{w:+w,h:+h}); }
-async function wirelessConnect(){
-  const ip=$('ipAddr').value.trim(); if(!ip) return toast('请输入 IP',false);
-  await act('wireless.connect',{host:ip});
-}
+// wirelessConnect() 已移除：v1.11 起 wireless.* 动作随无线功能整体移除，
+// Web 控制台不再持有连接（连入/断开改到桌面面板，页面里已改成如实说明）。
 async function clip(){
   try{ const txt = await navigator.clipboard.readText();
     await act('clipboard.push',{text:txt}); toast('已推送剪贴板');

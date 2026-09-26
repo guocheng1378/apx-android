@@ -74,6 +74,49 @@ object TvInjector {
 
     fun systemReady(): Boolean = ApxAccessibilityService.isReady()
 
+    /**
+     * 当前可用的注入通道（人话）。
+     *
+     * 手机被控端原先**只有通知里一行字** —— 页面上完全看不到"到底缺哪一项"，
+     * 而这恰恰是"连上了点不动"的唯一诊断入口。这里给界面提供与 TV 端同一份文案。
+     */
+    fun channelText(): String = when {
+        UinputGamepad.ready -> "root 注入 + 虚拟手柄（全键 + 摇杆）"
+        RootInput.available -> "root 注入 · 全键可用"
+        EvdevInjector.available -> "evdev 内核注入 · 免 root，全键可用"
+        systemReady() -> "无障碍注入 · 仅点击/滑动/输入框打字，按键不可用"
+        else -> "未开启 · 只能看到光标，点不动"
+    }
+
+    /** 是否具备「任意按键」级别的能力 */
+    fun fullKeyReady(): Boolean = RootInput.available || EvdevInjector.available
+
+    /** 控制能力自检清单：`(名称, 是否就绪, 没就绪时该怎么办)` */
+    fun capabilities(): List<Triple<String, Boolean, String>> = listOf(
+        Triple(
+            "root 注入（全键）",
+            RootInput.available,
+            "未授予 root —— 没有它就无法发任意按键（方向键 / 组合键 / 手柄按钮）",
+        ),
+        Triple(
+            "evdev 内核注入（免 root）",
+            EvdevInjector.available,
+            "手机的 /dev/input/event* 通常是 0660 root:input，普通应用打不开（预期会跳过，不影响使用）",
+        ),
+        Triple(
+            "无障碍注入（点击 / 滑动 / 打字）",
+            systemReady(),
+            "到「无障碍 / 辅助功能」里启用本应用",
+        ),
+        Triple("悬浮窗（把光标画在屏幕上）", TvOverlay.isReady, "到「显示在其他应用上层」里允许本应用"),
+        Triple(
+            "输入法（中文打字最稳）",
+            ApxImeService.isActive(),
+            "到「输入法 / 键盘」设置里启用「全能外设输入」并切过去",
+        ),
+        Triple("虚拟手柄（摇杆）", UinputGamepad.ready, "需要 root（会自动尝试 chmod /dev/uinput）"),
+    )
+
     private fun refreshScreen() {
         val wm = ctx?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         wm?.defaultDisplay?.let { d ->

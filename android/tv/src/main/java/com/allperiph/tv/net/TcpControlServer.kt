@@ -59,6 +59,15 @@ class TcpControlServer(
     @Volatile
     var onPeerChanged: ((Boolean, String) -> Unit)? = null
 
+    /**
+     * 对端请求"开副屏"（控制帧 `0x05`，**主线程**调用）。
+     *
+     * 原先 TV 端把这帧直接丢掉了（只打一行日志），于是手机侧点"副屏"电视毫无反应。
+     * 现在由服务把它变成一次真实的页面跳转。
+     */
+    @Volatile
+    var onOpenScreenRequest: (() -> Unit)? = null
+
     private val running = AtomicBoolean(false)
     private var acceptThread: Thread? = null
     private var readerThread: Thread? = null
@@ -333,8 +342,8 @@ class TcpControlServer(
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
                             0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
-                            0x05 -> Log.i("收到开副屏请求（TV 端忽略）")
-                            0x10 -> Log.i("收到模块开关（TV 端忽略）")
+                            0x05 -> actions.add { onOpenScreen() }
+                            0x10 -> Log.i("收到模块开关（TV 端只做被控，此项忽略）")
                         }
                     }
                 }
@@ -405,7 +414,25 @@ class TcpControlServer(
     private fun onPowerAction(body: ByteArray) {
         val action = body[1].toInt() and 0xFF
         Log.i("电源动作请求：action=$action（0=关机 1=重启 2=待机）")
-        TvInjector.powerAction(action)
+        val ok = TvInjector.powerAction(action)
+        // ★ 必须给反馈：关机/重启有没有真的执行（有没有 root）用户按下去就得看得见，
+        //   否则"按了没反应"和"按了但没权限"这两件事在电视上完全分不出来。
+        val name = when (action) {
+            0 -> "关机"
+            1 -> "重启"
+            else -> "待机"
+        }
+        TvInjector.toast(
+            if (action == 2) "电源：已发送待机/唤醒"
+            else if (ok) "电源：已通过 root 执行「$name」"
+            else "电源：无 root，已退回待机（无法真$name）"
+        )
+    }
+
+    /** 手机端请求"开副屏"：把电视上的副屏页拉起来（原先被直接忽略） */
+    private fun onOpenScreen() {
+        Log.i("收到开副屏请求 → 拉起副屏页")
+        onOpenScreenRequest?.invoke()
     }
 
     /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */

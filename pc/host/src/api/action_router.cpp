@@ -73,22 +73,51 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
             static_cast<uint8_t>(cfg_.displayOrientation == "landscape" ? 1 : 0)}, &err, &note);
         else display_->unplug(&err, &note);
         out["enabled"] = cfg_.displayEnabled;
-        if (!note.empty()) out["note"] = note;
+        // 如实说明：这一步只切副屏**后端状态**，真正的推流在桌面面板（apxdesktop）里。
+        // 原先前端把 note 丢掉、后端也不说，用户会以为 Web 一开屏幕就有画面。
+        out["note"] = !note.empty() ? note
+            : (cfg_.displayEnabled ? "已切换副屏后端状态；实际推流由桌面面板负责" : "已切回直连（副屏关闭）");
+        out["streaming"] = false;
         persist(); return;
     }
     if (name == "display.plug") {
         std::string err, note;
         display_->plug({cfg_.displayW, cfg_.displayH, cfg_.displayHz,
             static_cast<uint8_t>(cfg_.displayOrientation == "landscape" ? 1 : 0)}, &err, &note);
-        out["ok2"] = true; if (!note.empty()) out["note"] = note;
-        cfg_.displayEnabled = true; persist(); return;
+        // 原先写的是 ok2（前端按 ok 判定）→ 等于**没回结果**，点完看不出成功还是失败
+        out["ok"] = true;
+        cfg_.displayEnabled = true;
+        out["note"] = !note.empty() ? note : "已插入虚拟显示器；实际推流由桌面面板负责";
+        out["streaming"] = false;
+        persist(); return;
     }
     if (name == "display.setResolution") {
+        // Web 面板发的是 {w,h}（web/index.html 的 setRes），桌面面板发的是 preset。
+        // 原先**只认 preset** → Web 上改分辨率永远"成功但没生效"（静默无效），
+        // 现在两种都收；两者都给不出合法尺寸时如实报错，不假装改了。
         auto pres = p.find("preset");
         static const std::map<std::string, std::pair<uint32_t, uint32_t>> P = {
             {"720x1600", {720, 1600}}, {"1080x2400", {1080, 2400}},
-            {"1440x3200", {1440, 3200}}, {"1080x1920", {1080, 1920}}};
-        if (pres) { auto it = P.find(pres->asString()); if (it != P.end()) { cfg_.displayW = it->second.first; cfg_.displayH = it->second.second; } }
+            {"1440x3200", {1440, 3200}}, {"1080x1920", {1080, 1920}},
+            {"1920x1080", {1920, 1080}}, {"2560x1440", {2560, 1440}}, {"1280x800", {1280, 800}}};
+        bool applied = false;
+        if (pres) {
+            auto it = P.find(pres->asString());
+            if (it != P.end()) {
+                cfg_.displayW = it->second.first; cfg_.displayH = it->second.second; applied = true;
+            }
+        }
+        if (!applied) {
+            auto* w = p.find("w"); auto* h = p.find("h");
+            if (w && h) {
+                const auto wi = static_cast<uint32_t>(w->asInt(0));
+                const auto hi = static_cast<uint32_t>(h->asInt(0));
+                if (wi >= 320 && hi >= 240 && wi <= 7680 && hi <= 4320) {
+                    cfg_.displayW = wi; cfg_.displayH = hi; applied = true;
+                }
+            }
+        }
+        if (!applied) { out = fail("显示参数不合法（需要 preset，或 320×240 ~ 7680×4320 内的 w/h）"); return; }
         persist(); out["w"] = (double)cfg_.displayW; out["h"] = (double)cfg_.displayH; return;
     }
     if (name == "display.setOrientation") {
@@ -132,7 +161,51 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
     }
 
     // ---- 连接 / 配对 ----
-    // v1.11：wireless.* 系列动作随无线功能整体移除（配对服务/数据通道已删）
+    // v1.11：wireless.* 系列动作随无线功能整体移除（配对服务/数据通道已删）。
+    // 但 Web 面板上仍留着「连入 / 断开」两个按钮 → 点了只拿到"未知动作"，纯属误导。
+    // 这里给出明确答复（前端那两处也已改成"请在桌面面板操作"）。
+    if (name == "wireless.connect" || name == "wireless.disconnect") {
+        out = fail("无线连接已移到桌面面板（apxdesktop）：Web 控制台不持有连接，请到面板「连接」卡片里操作");
+        return;
+    }
+
+    // ---- 全局热键动作 ----
+    // HotkeyManager 是按动作名直接调进来的（见 hotkey_manager.cpp 的 actionName / 默认绑定），
+    // 而下面这三个动作在 router 里**原先都没有实现** → 按下默认热键只会得到「未知动作」，
+    // 也就是热键其实是坏的（Ctrl+Alt+F2/F6/F7）。这里补齐成真实行为。
+    if (name == "screen.cycle") {
+        static const std::pair<uint32_t, uint32_t> SEQ[] = {
+            {1920, 1080}, {2560, 1440}, {1280, 800}, {1080, 1920}};
+        constexpr uint32_t N = sizeof(SEQ) / sizeof(SEQ[0]);
+        uint32_t next = 0;
+        for (uint32_t i = 0; i < N; ++i) {
+            if (SEQ[i].first == cfg_.displayW && SEQ[i].second == cfg_.displayH) { next = (i + 1) % N; break; }
+        }
+        cfg_.displayW = SEQ[next].first; cfg_.displayH = SEQ[next].second;
+        persist();
+        out["w"] = (double)cfg_.displayW; out["h"] = (double)cfg_.displayH;
+        out["note"] = "副屏分辨率已循环到 " + std::to_string(cfg_.displayW) + "×" + std::to_string(cfg_.displayH);
+        APX_LOGI("热键 screen.cycle → {}x{}", cfg_.displayW, cfg_.displayH);
+        return;
+    }
+    if (name == "audio.route") {
+        cfg_.audioRoute = (cfg_.audioRoute == "usb") ? "wireless"
+                                                  : (cfg_.audioRoute == "wireless" ? "mute" : "usb");
+        persist(); out["route"] = cfg_.audioRoute;
+        out["note"] = "音频路由已切到 " + cfg_.audioRoute;
+        APX_LOGI("热键 audio.route → {}", cfg_.audioRoute);
+        return;
+    }
+    if (name == "device.toggle") {
+        // 真实握手由手机或桌面面板发起；这里做"重新发现 + 报告"，并如实说明，不假装连上了
+        auto devs = discovery::enumerate();
+        out["count"] = (double)devs.size();
+        out["connected"] = !devs.empty();
+        out["note"] = "已重新发现设备（连接由手机或桌面面板发起）";
+        APX_LOGI("热键 device.toggle → 发现 {} 台", devs.size());
+        return;
+    }
+
     if (name == "link.setMode") { if (auto* v = p.find("mode")) { cfg_.mode = v->asString(); arbiter_.setMode(cfg_.mode); persist(); } out["mode"] = cfg_.mode; return; }
 
     // ---- 优化项：副屏码率（自适应显式开关；手动上限见 display.setBitrate）----
@@ -160,21 +233,19 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
         return;
     }
 
-    // ---- 优化项：剪贴板同步（需无线数据通道接入，当前占位引导）----
-    if (name == "clipboard.push") {
-        out["ok"] = false;
-        out["note"] = "剪贴板同步需无线数据通道接入（后续阶段），当前为占位引导";
-        APX_LOGI("clipboard.push 占位（待无线通道）");
-        return;
-    }
-    if (name == "clipboard.pull") {
-        out["ok"] = false;
-        out["note"] = "剪贴板同步需无线数据通道接入（后续阶段），当前为占位引导";
+    // ---- 优化项：剪贴板同步 ----
+    // 原本回 ok:false + "占位引导"，但前端把 note 丢掉了 —— 用户点一下看到的是
+    // 「已推送剪贴板」，其实一个字都没同步。现在明确报"不可用"，不再假装。
+    if (name == "clipboard.push" || name == "clipboard.pull") {
+        const bool push = (name == "clipboard.push");
+        out = fail("剪贴板同步需要无线数据通道（v1.11 起随无线功能移除），当前不可用");
+        APX_LOGW("clipboard.{} 被拒：无无线数据通道", push ? "push" : "pull");
         return;
     }
     if (name == "bluetooth.pair") {
-        APX_LOGI("蓝牙配对请求（HID Host 引导在后续阶段接入）：addr={}", p.find("address") ? p.find("address")->asString().c_str() : "?");
-        out["paired"] = false; out["note"] = "蓝牙 HID Host 引导尚未接入"; return;
+        out = fail("蓝牙 HID Host 配对尚未接入，当前不可用");
+        APX_LOGW("bluetooth.pair 被拒：功能未接入");
+        return;
     }
 
     // ---- 热键 ----

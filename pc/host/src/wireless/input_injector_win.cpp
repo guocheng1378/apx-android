@@ -99,6 +99,27 @@ int consumerBitToVk(uint8_t bit) {
     }
 }
 
+/// 手柄位（与手机端 GAMEPAD_KEYCODES 位序一致：A B X Y L1 R1 L2 R2 SELECT START C Z MODE THUMBL THUMBR）
+/// → 键盘等价键。PC 无法注入真手柄（见 injectGamepad 注释），这是可用的降级映射。
+static const WORD kGamepadVk[16] = {
+    VK_RETURN,   // 0  A
+    VK_ESCAPE,   // 1  B
+    'E',         // 2  X
+    'Q',         // 3  Y
+    '1',         // 4  L1
+    '2',         // 5  R1
+    '3',         // 6  L2
+    '4',         // 7  R2
+    VK_TAB,      // 8  SELECT
+    VK_SPACE,    // 9  START
+    'R',         // 10 C
+    'F',         // 11 Z
+    VK_MENU,     // 12 MODE
+    VK_LSHIFT,   // 13 THUMBL
+    VK_LCONTROL, // 14 THUMBR
+    0,           // 15 未使用
+};
+
 class WinInjector : public InputInjector {
 public:
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) override {
@@ -188,19 +209,45 @@ public:
         ::CloseClipboard();
     }
 
+    /**
+     * 手柄（网络帧 0x07）。
+     *
+     * Windows 的 `SendInput` **没有**游戏手柄/摇杆概念，免驱架构下变不出真手柄
+     * （那需要 ViGEmBus 之类的虚拟 HID 驱动，属第三方，不在本仓库零依赖范围内）。
+     * 但"什么都不做"等于功能不存在 —— 这里做**键盘降级**，多数 PC 游戏与软件都能接受：
+     *   按钮 → 键盘等价键（A→Enter、B→Esc、L1/R1→1/2 …，见 kGamepadVk）
+     *   左摇杆 → 鼠标相对移动（复用 injectMouse，死区 12，位移按 1/4 缩放）
+     * 右摇杆仍不注入（PC 上没有可类比的"视角"通道），调用方在文档里已如实说明。
+     */
     void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
-        // Windows 的 SendInput 不支持游戏手柄（无 gamepad / 轴概念）。免驱架构下无法注入，
-        // 需 ViGEmBus 这类虚拟 HID 驱动（第三方，不在本仓库零依赖范围内）。帧已接收，
-        // 但按钮/轴不会送达游戏——如实降级，仅告警一次。
-        (void)buttons; (void)x; (void)y; (void)rx; (void)ry;
+        (void)rx; (void)ry;
+        const uint16_t pressed = static_cast<uint16_t>(buttons & ~gpButtons_);
+        const uint16_t released = static_cast<uint16_t>(gpButtons_ & ~buttons);
+        for (uint8_t bit = 0; bit < 16; ++bit) {
+            const WORD vk = kGamepadVk[bit];
+            if (vk == 0) continue;
+            const uint16_t m = static_cast<uint16_t>(1u << bit);
+            if (pressed & m) sendVk(vk, true);
+            if (released & m) sendVk(vk, false);
+        }
+        gpButtons_ = buttons;
+
+        constexpr int kDead = 12;
+        if (x > kDead || x < -kDead || y > kDead || y < -kDead) {
+            injectMouse(mouseButtons_, static_cast<int8_t>(x / 4), static_cast<int8_t>(y / 4), 0);
+        }
+
         static bool warned = false;
         if (!warned) {
             warned = true;
-            std::fprintf(stderr, "[AllPeriph] gamepad-over-network 在 Windows 需虚拟 HID 驱动（如 ViGEm），当前构建未包含，按钮/轴不会注入游戏\n");
+            // 本文件不引日志头（与其它注入路径一致，用 stderr 直接输出）
+            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：本平台无手柄注入能力，已降级为"
+                                 "「按钮→键盘 + 左摇杆→鼠标」；要真手柄需 ViGEmBus 之类的虚拟 HID 驱动\n");
         }
     }
 
     uint8_t mouseButtons_ = 0;
+    uint16_t gpButtons_ = 0;   ///< 手柄按钮上一帧位图（降级注入要算边沿）
     uint16_t consumerBm_ = 0;
     uint8_t kbMod_ = 0;
     uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};

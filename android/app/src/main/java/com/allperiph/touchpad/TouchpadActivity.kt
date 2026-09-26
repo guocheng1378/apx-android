@@ -94,7 +94,7 @@ class TouchpadActivity : Activity() {
 
     private val pages = listOf(
         Page("触控板", "手势操控 · 常用快捷键长按可编辑", R.drawable.ic_apx_touchpad),
-        Page("键盘", "7 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区", R.drawable.ic_apx_keyboard),
+        Page("键盘", "8 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义", R.drawable.ic_apx_keyboard),
         Page("副屏", "手机作副屏 / 链接 TV · PC", R.drawable.ic_apx_power),
     )
 
@@ -241,6 +241,8 @@ class TouchpadActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { toggleControlled() }
+            // 长按 = 看注入通道自检（哪一档能力、缺什么、怎么办）
+            setOnLongClickListener { showInjectCaps(); true }
         }
         controlledChip = ctl
         row.addView(ctl, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
@@ -505,7 +507,62 @@ class TouchpadActivity : Activity() {
             }
             col.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
+        // 第三行：电源（软，待机/唤醒）/ 关机 / 重启。
+        // ★ 原先这里的"遥控键盘"只有两行（媒体 + 音量），而主页横屏键盘的同一个布局**已经有**
+        //   电源三键 —— 两个入口能力不一致，用户在全屏操控面里根本找不到关机键。
+        //   关机 / 重启走控制帧 opcode 0x22，需要被控端有 root，所以弹确认框。
+        val pr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun tileLp() = LinearLayout.LayoutParams(0, dp(110), 1f)
+            .apply { setMargins(dp(6), dp(6), dp(6), dp(6)) }
+        pr.addView(mediaTile("电源", R.drawable.ic_apx_power, HotkeyController.BIT_POWER), tileLp())
+        pr.addView(actionTile("关机", 0xFFD23F31.toInt()) { confirmPower(0, "关机") }, tileLp())
+        pr.addView(actionTile("重启", 0xFFF0A020.toInt()) { confirmPower(1, "重启") }, tileLp())
+        col.addView(pr, LinearLayout.LayoutParams(-1, -2))
         return col
+    }
+
+    /** 动作图块：没有 Consumer 位，点了直接执行（关机 / 重启） */
+    private fun actionTile(text: String, accent: Int, onClick: () -> Unit): View = TextView(this).apply {
+        this.text = text
+        setTextColor(accent)
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textSize = 16f
+        gravity = Gravity.CENTER
+        isClickable = true
+        isFocusable = true
+        background = card(cCard, dp(18))
+        setOnClickListener { com.allperiph.ui.Feedback.tap(this); onClick() }
+    }
+
+    /** 关机 / 重启确认：会直接关掉被控设备，别让误触生效 */
+    private fun confirmPower(action: Int, label: String) {
+        val c = com.allperiph.wireless.ControlTarget.controlClient
+        if (c == null) {
+            Toast.makeText(this, "尚未连接受控设备", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("$label 被控设备？")
+            .setMessage("将直接$label 对端（需要被控端有 root；没有 root 只会退回待机）。")
+            .setPositiveButton(label) { _, _ ->
+                c.power(action)
+                Toast.makeText(this, "已发送$label 指令", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 注入通道自检：被控端"缺哪一项"在手机上原先只有通知栏一行字 */
+    private fun showInjectCaps() {
+        val inj = com.allperiph.controlled.TvInjector
+        val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
+            if (ok) "✓  $name" else "✗  $name\n      → $how"
+        }
+        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+            .setTitle("注入通道自检")
+            .setMessage("当前：${inj.channelText()}\n\n$lines")
+            .setPositiveButton("关闭", null)
+            .show()
     }
 
     private fun mediaTile(text: String, icon: Int, bit: Int): View {
