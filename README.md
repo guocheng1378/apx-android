@@ -116,10 +116,13 @@ build_host\Release\apxhost.exe serve
 │   └─ tools/
 │
 ├─ android/                          手机端（Kotlin）
-│   └─ app/src/main/java/com/allperiph/
-│       ├─ screen/ core/ gadget/ hid/ touchpad/
-│       ├─ audio/ bt/ wireless/
-│       └─ ui/
+│   ├─ app/                          Android App 模块
+│   ├─ tv/                           TV 端模块
+│   ├─ gradle/                       Gradle Wrapper
+│   ├─ apx-release.keystore          签名密钥
+│   ├─ build.gradle.kts              根构建脚本
+│   ├─ settings.gradle.kts           项目设置
+│   └─ gradle.properties             Gradle 配置
 │
 ├─ scripts/                          构建与辅助脚本
 │   ├─ build.bat                     一键构建 PC 三件套
@@ -132,7 +135,8 @@ build_host\Release\apxhost.exe serve
 │   ├─ aggregate.py                  数据汇总
 │   ├─ hid_sensor_probe.py           传感器探测
 │   ├─ make_icon.ps1                 图标生成
-│   └─ verify_ms1.ps1               电源验证
+│   ├─ verify_ms1.ps1               电源验证
+│   └─ verify_report.json            验证报告
 │
 ├─ release/                          发布产物与说明
 │   └─ README.md
@@ -143,6 +147,7 @@ build_host\Release\apxhost.exe serve
 │   ├─ STATUS.json                   项目状态
 │   ├─ MAIN-INTERVENTIONS.md         主要干预记录
 │   ├─ PROJECT-MINDMAP.md            项目脑图
+│   ├─ apx_panel.png                 面板截图
 │   └─ history/                      历史报告
 │
 └─ .github/workflows/               CI/CD
@@ -226,7 +231,7 @@ cmake --build build_host --config Release --target arbiter_test
 build_host\Release\arbiter_test.exe
 
 :: TCP 传输
- cmake --build build_display --config Release --target tcp_transport_test
+cmake --build build_display --config Release --target tcp_transport_test
 build_display\Release\tcp_transport_test.exe
 ```
 
