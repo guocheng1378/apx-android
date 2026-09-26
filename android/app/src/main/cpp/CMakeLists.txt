@@ -22,9 +22,14 @@ add_subdirectory("${APX_SHARED_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/apx_shared")
 
 add_library(apx SHARED
  apx_jni.cpp
+ apx_uinput.c
 )
 target_include_directories(apx PRIVATE "${APX_SHARED_DIR}/include")
 target_link_libraries(apx PRIVATE apx_shared)
+
+# 虚拟手柄（uinput）的 JNI 符号名里要带类名：Java_<APX_JNI_CLASS>_<method>。
+# 各模块 Kotlin 包名不同，所以用编译期宏传进来，避免为每个模块复制两份符号名。
+target_compile_definitions(apx PRIVATE APX_JNI_CLASS=com_allperiph_controlled_UinputGamepad)
 
 find_library(APX_LOG_LIB log)
 if(APX_LOG_LIB)

@@ -275,7 +275,55 @@ class KeyboardPanels(private val act: Activity) {
             }
             col.addView(row, LinearLayout.LayoutParams(-1, -2))
         }
+        // 第三行：电源（软，待机/唤醒） / 关机 / 重启。
+        // 后两个是**真电源动作**（控制帧 opcode 0x22），要**被控端有 root** 才能真正关/重启；
+        // 没有 root 时被控端会退回软电源键并如实说明，不会假装关掉 —— 所以这里也弹确认框。
+        val pr = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL }
+        pr.addView(
+            mediaTile("电源", R.drawable.ic_apx_power, HotkeyController.BIT_POWER),
+            LinearLayout.LayoutParams(0, dp(110), 1f).apply { setMargins(dp(6), dp(6), dp(6), dp(6)) },
+        )
+        pr.addView(
+            actionTile("关机", 0xFFD23F31.toInt()) { confirmPower(0, "关机") },
+            LinearLayout.LayoutParams(0, dp(110), 1f).apply { setMargins(dp(6), dp(6), dp(6), dp(6)) },
+        )
+        pr.addView(
+            actionTile("重启", 0xFFF0A020.toInt()) { confirmPower(1, "重启") },
+            LinearLayout.LayoutParams(0, dp(110), 1f).apply { setMargins(dp(6), dp(6), dp(6), dp(6)) },
+        )
+        col.addView(pr, LinearLayout.LayoutParams(-1, -2))
         return col
+    }
+
+    /** 动作图块：没有 Consumer 位，点了直接执行（关机 / 重启） */
+    private fun actionTile(text: String, accent: Int, onClick: () -> Unit): View = TextView(act).apply {
+        this.text = text
+        setTextColor(accent)
+        typeface = Typeface.DEFAULT_BOLD
+        textSize = 16f
+        gravity = Gravity.CENTER
+        isClickable = true
+        isFocusable = true
+        background = card(cCard, dp(18))
+        setOnClickListener { Feedback.tap(this); onClick() }
+    }
+
+    /** 关机 / 重启确认：会直接关掉被控设备，别让误触生效 */
+    private fun confirmPower(action: Int, label: String) {
+        val c = com.allperiph.wireless.ControlTarget.controlClient
+        if (c == null) {
+            android.widget.Toast.makeText(act, "尚未连接受控设备", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        android.app.AlertDialog.Builder(act)
+            .setTitle("$label 被控设备？")
+            .setMessage("将直接$label 对端（需要被控端有 root；没有 root 只会退回待机）。")
+            .setPositiveButton(label) { _, _ ->
+                c.power(action)
+                android.widget.Toast.makeText(act, "已发送$label 指令", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun mediaTile(text: String, icon: Int, bit: Int): View {

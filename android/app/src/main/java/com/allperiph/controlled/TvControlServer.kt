@@ -309,6 +309,7 @@ class TvControlServer(
                             0x04 -> if (body.size >= 9) actions.add { onTouch(body) }
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
                             0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
+                            0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
                             0x21 -> Log.i("被控控制面", "收到反向剪贴板帧（本端忽略，由对方处理）")
                             0x05 -> Log.i("被控控制面", "收到开副屏请求（忽略）")
                             0x10 -> Log.i("被控控制面", "收到模块开关（忽略）")
@@ -372,6 +373,16 @@ class TvControlServer(
             TvInputDispatcher.key(kc, true)
             TvInputDispatcher.key(kc, false)
         }
+    }
+
+    /**
+     * 电源动作：`body=[0x22, action]`，`0`=关机 `1`=重启 `2`=待机。
+     * 关机 / 重启需要 root（`reboot -p` / `reboot`）；没有 root 时退回软电源键，不假装成功。
+     */
+    private fun onPowerAction(body: ByteArray) {
+        val action = body[1].toInt() and 0xFF
+        Log.i("被控控制面", "电源动作请求：action=$action（0=关机 1=重启 2=待机）")
+        TvInjector.powerAction(action)
     }
 
     /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */

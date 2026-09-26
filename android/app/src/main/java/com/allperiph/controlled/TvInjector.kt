@@ -57,7 +57,13 @@ object TvInjector {
         ctx = c.applicationContext
         TvOverlay.init(c.applicationContext)
         refreshScreen()
-        // 有 root 就开真正的系统注入通道（全键鼠）；没有/未授权则继续走无障碍，不报错
+        // 通道按"能拿到多少能力"排序，全部 fire-and-forget：
+        //  ① evdev 内核注入（免 root，任意按键）—— 多数手机会因 /dev/input 权限不可用而自动跳过
+        //  ② root `input`（全键鼠）
+        //  ③ 无障碍（只能点/滑/输入框打字）
+        Thread({ runCatching { EvdevInjector.tryStart() } }, "apx-evdev").start()
+        //  ④ uinput 虚拟手柄：手柄**摇杆**只有它能注入（见 gamepad()）
+        Thread({ runCatching { UinputGamepad.tryStart() } }, "apx-uinput").start()
         RootInput.tryStart()
     }
 
@@ -184,8 +190,10 @@ object TvInjector {
     }
 
     fun key(kc: Int, down: Boolean) {
+        // ① evdev 内核注入（免 root）：按下与松开都真的发出去，长按/连发/组合键才对
+        if (EvdevInjector.available && EvdevInjector.sendKey(kc, down)) return
         if (!down) return
-        // ① root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
+        // ② root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
         //   无障碍做不到这一点，所以只有 root 通道可用时按键才真正可用。
         //   `input keyevent` 自带 down+up，因此只在 down 时发一次。
         if (RootInput.available && RootInput.run("input keyevent $kc")) return
@@ -238,6 +246,35 @@ object TvInjector {
         }
     }
 
+    /**
+     * 电源动作（控制帧 opcode `0x22`）：`0`=关机、`1`=重启、`2`=待机。
+     *
+     * **关机与重启必须有 root**（`reboot -p` / `reboot`）—— Android 的
+     * `ACTION_REQUEST_SHUTDOWN` 是系统签名权限，第三方应用拿不到。没有 root 时
+     * **如实退回「软电源键」**（待机 / 唤醒），而不是假装关掉了。
+     *
+     * @return 是否真的执行了"关机/重启"
+     */
+    fun powerAction(action: Int): Boolean {
+        if (action == 2) {
+            key(KeyEvent.KEYCODE_POWER, true)
+            key(KeyEvent.KEYCODE_POWER, false)
+            return true
+        }
+        val cmd = if (action == 0) "reboot -p" else "reboot"
+        if (RootInput.available && RootInput.run(cmd)) {
+            android.util.Log.i("TvInjector", "电源动作：已通过 root 执行 `$cmd`")
+            return true
+        }
+        android.util.Log.w(
+            "TvInjector",
+            "电源动作：没有 root，无法真" + (if (action == 0) "关机" else "重启") + " → 退回软电源键（待机）",
+        )
+        key(KeyEvent.KEYCODE_POWER, true)
+        key(KeyEvent.KEYCODE_POWER, false)
+        return false
+    }
+
     private fun nudge(dx: Float, dy: Float) {
         cursorX = (cursorX + dx).coerceIn(0f, screenW.toFloat())
         cursorY = (cursorY + dy).coerceIn(0f, screenH.toFloat())
@@ -247,7 +284,9 @@ object TvInjector {
     fun text(ch: Char) {
         if (ch == '\u0000') return
         val s = ch.toString()
-        // ① 输入法通道（最稳，中英文都行）：系统输入法是我们时走 InputConnection
+        // ① evdev：字母/数字/空格直接发真按键（不依赖"当前有没有输入框"、也不依赖输入法切没切过来）
+        if (EvdevInjector.available && EvdevInjector.sendChar(ch)) return
+        // ② 输入法通道（最稳，中英文都行）：系统输入法是我们时走 InputConnection
         if (ApxImeService.commit(s)) return
         // ② 无障碍 ACTION_SET_TEXT
         if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) return
@@ -308,7 +347,32 @@ object TvInjector {
     /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
      *  走 InputManager.injectInputEvent（需 INJECT_EVENTS 权限）；AccessibilityService 无法注入手柄。 */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
-        // ① root 通道：手柄按钮 → 系统按键（KEYCODE_BUTTON_*），不需要 INJECT_EVENTS；
+        // ① **uinput 虚拟手柄（首选）**：按钮与**摇杆**都是内核级真实输入。
+        if (UinputGamepad.ready) {
+            for (bit in 0..15) {
+                val now = (buttons ushr bit) and 1 == 1
+                val was = (lastGamepadButtons ushr bit) and 1 == 1
+                if (now == was) continue
+                UinputGamepad.button(bit, now)
+            }
+            lastGamepadButtons = buttons
+            UinputGamepad.sticks(x, y, rx, ry)
+            return
+        }
+        // ② evdev：手柄按钮 → 真按键（不需要 root / INJECT_EVENTS）。
+        //   摇杆仍不在这里注入 —— 目标设备是键盘，没有 ABS 轴；要真摇杆得上 uinput 造虚拟手柄。
+        if (EvdevInjector.available) {
+            for (bit in 0..15) {
+                val now = (buttons ushr bit) and 1 == 1
+                val was = (lastGamepadButtons ushr bit) and 1 == 1
+                if (now == was) continue
+                val kc = GAMEPAD_KEYCODES[bit] ?: continue
+                EvdevInjector.sendKey(kc, now)
+            }
+            lastGamepadButtons = buttons
+            return
+        }
+        // ② root 通道：手柄按钮 → 系统按键（KEYCODE_BUTTON_*），不需要 INJECT_EVENTS；
         //   摇杆暂时不注入（input 命令没有摇杆语义，后续可走 uinput 虚拟手柄）。
         if (RootInput.available) {
             for (bit in 0..15) {

@@ -250,6 +250,14 @@ class TvControllerClient(
     fun consumer(bitmap: Int) =
         sendControl(byteArrayOf(0x02.toByte(), (bitmap and 0xFF).toByte(), ((bitmap ushr 8) and 0xFF).toByte()))
 
+    /**
+     * 电源动作：`0`=关机 `1`=重启 `2`=待机（opcode 0x22）。
+     *
+     * 「待机」走软电源键；**关机 / 重启需要被控端有 root**（`reboot -p` / `reboot`），
+     * 没有 root 时被控端会如实退回软电源键，不会假装关掉。
+     */
+    fun power(action: Int) = sendControl(byteArrayOf(0x22.toByte(), action.toByte()))
+
     /** 手柄：复用 USB HID 的 7 字节布局（buttons u16 LE + 左/右摇杆 4×i8 轴）；cmd=0x07 与 TV/PC 服务端一致 */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) =
         sendControl(byteArrayOf(

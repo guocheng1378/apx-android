@@ -1,0 +1,7 @@
+[
+{
+  "directory": "C:/Users/Administrator/Desktop/全能外设/android/tv/.cxx/RelWithDebInfo/5v4m6g6p/x86_64",
+  "command": "C:\\Users\\Administrator\\devtools\\android-sdk\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe --target=x86_64-none-linux-android23 --sysroot=C:/Users/Administrator/devtools/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/windows-x86_64/sysroot -DAPX_JNI_CLASS=com_allperiph_tv_core_UinputGamepad -Dapxtv_EXPORTS -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security  -O2 -g -DNDEBUG -fPIC -Wall -Wextra -o CMakeFiles\\apxtv.dir\\apx_uinput.c.o -c C:\\Users\\Administrator\\Desktop\\全能外设\\android\\tv\\src\\main\\cpp\\apx_uinput.c",
+  "file": "C:\\Users\\Administrator\\Desktop\\全能外设\\android\\tv\\src\\main\\cpp\\apx_uinput.c"
+}
+]

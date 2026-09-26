@@ -48,6 +48,8 @@ object TvInjector {
         //  ② root `input`：evdev 不可用时用
         //  ③ 无障碍：上面都没有时才用（只能点/滑/输入框打字）
         Thread({ runCatching { EvdevInjector.tryStart() } }, "apx-tv-evdev").start()
+        //  ④ uinput 虚拟手柄：只有它能给出手柄**摇杆**（按键/摇杆都走它，见 gamepad()）
+        Thread({ runCatching { UinputGamepad.tryStart() } }, "apx-tv-uinput").start()
         RootInput.tryStart()
     }
 
@@ -247,6 +249,35 @@ object TvInjector {
         }
     }
 
+    /**
+     * 电源动作（控制帧 opcode `0x22`）：`0`=关机、`1`=重启、`2`=待机。
+     *
+     * **关机与重启必须有 root**（`reboot -p` / `reboot`）—— Android 的
+     * `ACTION_REQUEST_SHUTDOWN` 是系统签名权限，第三方应用拿不到。没有 root 时
+     * **如实退回「软电源键」**（待机 / 唤醒）而不是假装关掉了。
+     *
+     * @return 是否真的执行了"关机/重启"
+     */
+    fun powerAction(action: Int): Boolean {
+        if (action == 2) {
+            key(KeyEvent.KEYCODE_POWER, true)
+            key(KeyEvent.KEYCODE_POWER, false)
+            return true
+        }
+        val cmd = if (action == 0) "reboot -p" else "reboot"
+        if (RootInput.available && RootInput.run(cmd)) {
+            android.util.Log.i("TvInjector", "电源动作：已通过 root 执行 `$cmd`")
+            return true
+        }
+        android.util.Log.w(
+            "TvInjector",
+            "电源动作：没有 root，无法真" + (if (action == 0) "关机" else "重启") + " → 退回软电源键（待机）",
+        )
+        key(KeyEvent.KEYCODE_POWER, true)
+        key(KeyEvent.KEYCODE_POWER, false)
+        return false
+    }
+
     private fun nudge(dx: Float, dy: Float) {
         cursorX = (cursorX + dx).coerceIn(0f, screenW.toFloat())
         cursorY = (cursorY + dy).coerceIn(0f, screenH.toFloat())
@@ -320,7 +351,21 @@ object TvInjector {
      *  优先 evdev（免 root），其次 root，最后 InputManager.injectInputEvent（需 INJECT_EVENTS）。 */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
         val c = ctx ?: return
-        // ① evdev：手柄按钮 → 真按键，**不需要 root / INJECT_EVENTS**。
+        // ① **uinput 虚拟手柄（首选）**：按钮与**摇杆**都是内核级真实输入 ——
+        //   系统看到的就是一个真手柄（SOURCE_GAMEPAD + 双摇杆 ABS 轴）。
+        //   上面那两条通道都给不出摇杆：evdev 冒充的键盘设备没有 ABS 轴，root 的 input 没有摇杆语义。
+        if (UinputGamepad.ready) {
+            for (bit in 0..15) {
+                val now = (buttons ushr bit) and 1 == 1
+                val was = (lastGamepadButtons ushr bit) and 1 == 1
+                if (now == was) continue
+                UinputGamepad.button(bit, now)
+            }
+            lastGamepadButtons = buttons
+            UinputGamepad.sticks(x, y, rx, ry)
+            return
+        }
+        // ② evdev：手柄按钮 → 真按键，**不需要 root / INJECT_EVENTS**。
         //   按下与松开分别发（手柄帧本来就是边沿），所以长按、连发都是对的。
         //   摇杆暂不注入（目标设备是键盘，没有 ABS 轴；要做得上 uinput 造虚拟手柄）。
         if (EvdevInjector.available) {

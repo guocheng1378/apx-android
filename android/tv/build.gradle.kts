@@ -5,7 +5,9 @@ plugins {
 
 android {
     namespace = "com.allperiph.tv"
-    // 不引 NDK：TV 服务端为纯 Kotlin（ServerSocket + 自绘 UI），无需 JNI。
+    // Kotlin 侧不需要 JNI 也能跑（ServerSocket + 自绘 UI），
+    // 只有**虚拟手柄**需要一小段 C：`/dev/uinput` 必须用 ioctl 建虚拟设备，
+    // 纯 Java 做不到。它只依赖系统头 + liblog，不引入任何第三方依赖。
     compileSdk = 34
 
     defaultConfig {
@@ -51,6 +53,16 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    // 虚拟手柄（uinput）：存在性判断 —— 文件缺失时本模块仍可独立编译，
+    // 只是摇杆不可用（按钮仍走 evdev / root）。
+    if (file("src/main/cpp/CMakeLists.txt").exists()) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+            }
+        }
     }
 
     // v1.7：lint 误报会阻塞发布质量把关，手工 review 替代
