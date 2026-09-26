@@ -26,6 +26,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 保活自检：定时闹钟把被杀掉的服务拉回来。Android 12+ 需「闹钟与提醒」权限，
+         未授予时代码会自动降级为不精确闹钟（见 KeepAlive），不会崩。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- 电视特性：声明 leanback 但非强制，使 APK 同时能在手机/盒子上安装 -->
     <uses-feature
@@ -124,6 +127,14 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 保活自检：定时闹钟 → 服务不在就拉回来（进程被杀也能唤醒）。
+             闹钟触发时应用会拿到一小段「允许启动前台服务」的窗口，这是 Android 12+
+             后台能重新进前台的少数合法路径之一。 -->
+        <receiver
+            android:name=".KeepAliveReceiver"
+            android:enabled="true"
+            android:exported="false" />
     </application>
 
 </manifest>

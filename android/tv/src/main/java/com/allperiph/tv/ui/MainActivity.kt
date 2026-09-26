@@ -66,6 +66,9 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
 
         ipText.text = "本机 ${TcpControlServer.localIpv4() ?: "无网络"} : ${TcpControlServer.PORT}"
 
+        // 这两项现在**由 TvServerService 负责**（见其 onCreate / ensureFileReceiver），
+        // 因为开机自启与"被杀后自启"都没有 Activity。这里再调一次只为「进 App 立刻生效」，
+        // 两者都是幂等的 —— 但绝不能再假设"Activity 跑过就等于注入通道已初始化"。
         TvInjector.init(this)
         TvFileReceiver.start(applicationContext)
 

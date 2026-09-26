@@ -81,6 +81,16 @@ class TcpControlServer(
     /** 鼠标左键上一帧状态，用于检测按下边沿 */
     private var lastButtons = 0
 
+    /**
+     * 本对象自己的 9511 是否真的在监听。
+     *
+     * 注意**不能**用「自连 127.0.0.1:9511 成功」代替：同一台机器上可能有另一个应用
+     * （例如手机端 APK 与 TV 端 APK 装在一起）占着同一个端口，自连会成功，
+     * 但我们自己的 bind 从未成功过 —— 看门狗因此永远发现不了问题。
+     */
+    val isListening: Boolean
+        get() = running.get() && server != null
+
     fun start(): Boolean {
         if (running.get()) return true
         return try {

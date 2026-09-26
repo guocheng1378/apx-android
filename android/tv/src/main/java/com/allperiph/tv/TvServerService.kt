@@ -9,8 +9,10 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import com.allperiph.tv.core.Log
+import com.allperiph.tv.core.TvInjector
 import com.allperiph.tv.media.TvMediaChannel
 import com.allperiph.tv.net.TcpControlServer
+import com.allperiph.tv.net.TvFileReceiver
 import com.allperiph.tv.net.WirelessBeacon
 
 /**
@@ -45,29 +47,76 @@ class TvServerService : Service() {
             )
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch)
         }
+        current = this
+
+        // ★★ 被控能力必须由**服务自己**初始化，绝不能依赖 Activity。
+        //   「开机自启（BootReceiver）」「被系统以 START_STICKY 重启」「任务被划掉后自启」
+        //   这三条路径都**不会**创建任何 Activity，而 TvInjector.init() 原先只在
+        //   MainActivity.onCreate 里调用 —— 于是那些情况下 ctx==null、浮层没建、root 通道没起，
+        //   表现就是 **连得上但控制不了**（光标不显示、点击/按键没反应、音量与剪贴板失效）。
+        //   这正是"一出界面就不好使"的关键一环。
+        TvInjector.init(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ★★ 一进来就进前台：startForegroundService() 之后系统**只给 5 秒**。
+        //   原先的顺序是「先建控制面 + 媒体通道，最后才 startForeground」，而这两步都要 bind
+        //   套接字，在电视 / 盒子上偶尔明显偏慢 → ForegroundServiceDidNotStartInTimeException
+        //   → 服务被系统**直接杀掉**，表现就是"一退到后台就断连"。顺序必须反过来。
+        startForegroundCompat()
+
         ensureControlPlane()
 
         // 副屏 / 音箱（9502 媒体通道）：与控制面并列，独立启停 —— 关副屏不影响键鼠。
         // 端口被占（例如同机上另一个接收端在跑）时优雅降级、仅告警。
         ensureMedia()
 
-        val notif = buildNotification(server?.statusText() ?: "服务启动中")
-        try {
-            if (Build.VERSION.SDK_INT >= 34) {
-                startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-            } else {
-                startForeground(NOTIFY_ID, notif)
-            }
-        } catch (t: Throwable) {
-            fgFailed = true
-            Log.w("startForeground 失败（权限？）：${t.message}")
-        }
-        current = this
+        // 9512 文件接收也交给服务：原先只在 MainActivity.onCreate 起，
+        // 服务单独重启（开机 / 划掉任务后）时手机发文件就收不到了。
+        ensureFileReceiver()
+
+        // 定时自检：看门狗只能救「同进程内 9511 挂了」，进程被杀只能靠闹钟拉回来。
+        // 没进前台时缩短到 30 秒重试一次（闹钟窗口是重新进前台的合法路径）。
+        KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L)
+
         startWatchdog()
         return START_STICKY
+    }
+
+    /**
+     * 进前台，带**逐级降级**：API 34 的 connectedDevice 类型有前置权限要求，
+     * 拿不到时退回"无类型"，再失败就只记日志（服务仍继续跑，只是后台更容易被回收）。
+     */
+    private fun startForegroundCompat() {
+        val notif = buildNotification(server?.statusText() ?: "服务启动中")
+        if (Build.VERSION.SDK_INT >= 34) {
+            try {
+                startForeground(
+                    NOTIFY_ID, notif,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
+                )
+                fgFailed = false
+                return
+            } catch (t: Throwable) {
+                Log.w("startForeground(connectedDevice) 失败：${t.message} → 退回无类型重试")
+            }
+        }
+        try {
+            startForeground(NOTIFY_ID, notif)
+            fgFailed = false
+        } catch (t: Throwable) {
+            // 从后台启动前台服务在 Android 12+ 会被拒（ForegroundServiceStartNotAllowedException）。
+            // 闹钟触发的应用会拿到一小段「允许启动前台服务」的窗口 —— 所以安排 30 秒后重来一次，
+            // 而不是就此退化成一个随时会被杀掉的普通后台服务。
+            fgFailed = true
+            Log.w("startForeground 失败（${t.message}）→ 稍后经闹钟窗口重试")
+        }
+    }
+
+    /** 9512 文件接收（幂等）：让它在服务活着的时候始终在监听，与界面无关 */
+    private fun ensureFileReceiver() {
+        runCatching { TvFileReceiver.start(applicationContext) }
+            .onFailure { Log.w("9512 文件接收未启动：${it.message}") }
     }
 
     // —————————————————————————— 可重建的控制面 / 信标（看门狗用） ——————————————————————————
@@ -76,6 +125,10 @@ class TvServerService : Service() {
         s.onPeerChanged = { connected, ip ->
             Log.i("对端变化：connected=$connected ip=$ip（记下后可供文件发送选目标）")
             if (connected && ip.isNotEmpty()) rememberPeer(ip)
+            // ★ 光标浮层的显隐由**服务**直接驱动，不经过 Activity 的 listener：
+            //   界面不在前台时也必须能显示 / 收起光标（原先只有 MainActivity.onPeer 会调它，
+            //   所以"服务在跑但界面退出过"的情况下连光标都看不到）。
+            TvInjector.setConnected(connected)
             refreshNotification()
         }
     }
@@ -126,16 +179,13 @@ class TvServerService : Service() {
                 }
                 if (!wdRunning.get()) break
                 try {
-                    val listening = try {
-                        java.net.Socket().use {
-                            it.connect(java.net.InetSocketAddress("127.0.0.1", TcpControlServer.PORT), 400)
-                            true
-                        }
-                    } catch (_: Throwable) {
-                        false
-                    }
+                    // ★ 用**自身状态**判断，而不是「自连 127.0.0.1:9511 成功与否」：
+                    //   同一台机器上可能有**另一个应用**也占着 9511（例如手机端 APK 与 TV 端 APK
+                    //   装在一起），自连会成功 → 看门狗一直以为一切正常，而我们的 bind 从未成功过，
+                    //   于是端口永远不会被抢回来。真机症状："服务在跑、端口也有人监听，但连不上我们"。
+                    val listening = server?.isListening == true
                     if (!listening) {
-                        Log.w("看门狗：9511 不在监听 → 就地重建控制面与信标")
+                        Log.w("看门狗：9511 控制面不在监听 → 就地重建（抢回端口）")
                         runCatching { server?.stop() }
                         server = newServer().also { it.start() }
                         ensureBeacon()
@@ -170,10 +220,26 @@ class TvServerService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.w("任务被移除 → 立即重启 TV 被控服务")
-        runCatching {
+        restartService()
+    }
+
+    /**
+     * 从后台把前台服务拉回来。
+     *
+     * Android 12+ 在后台直接 `startForegroundService()` 会被拒
+     * （`ForegroundServiceStartNotAllowedException`），而**闹钟触发时应用会拿到一小段
+     * 「允许启动前台服务」的窗口** —— 所以被拒时改交给闹钟，那条路才真正拉得回来。
+     */
+    private fun restartService() {
+        val ok = runCatching {
             val i = Intent(applicationContext, TvServerService::class.java)
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
-        }.onFailure { Log.w("重启 TV 服务失败：${it.message}") }
+            true
+        }.getOrElse {
+            Log.w("直接从后台重启被拒：${it.message}")
+            false
+        }
+        if (!ok) KeepAlive.schedule(applicationContext, 1_000L)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -211,6 +277,17 @@ class TvServerService : Service() {
     /** 当前连入方 IP（没有则 null） */
     fun currentPeer(): String? = server?.currentPeerHost()
 
+    /**
+     * 当前真正可用的注入通道。被控端最常见的困惑是"连上了但点不动"——
+     * 因为无障碍没开、root 也没授权时，服务端只剩「光标可视化」这一层。
+     * 直接写在通知里，用户不用翻日志就知道该去开什么。
+     */
+    private fun injectStateText(): String = when {
+        com.allperiph.tv.core.RootInput.available -> "root 注入（全键鼠）"
+        TvInjector.systemReady() -> "无障碍注入"
+        else -> "仅可视化：请开「无障碍」或授予 root"
+    }
+
     private fun refreshNotification() {
         runCatching {
             getSystemService(NotificationManager::class.java)
@@ -246,7 +323,8 @@ class TvServerService : Service() {
         }
         builder.setContentTitle(getString(R.string.tv_notification_title))
             .setContentText(
-                text + if (fgFailed) " · 未授予通知权限，后台易被系统回收（到系统设置开启通知）" else ""
+                text + " · " + injectStateText() +
+                        (if (fgFailed) " · 未进入前台服务，后台易被回收" else "")
             )
             .setSmallIcon(R.drawable.ic_launcher_tv)
             .setOngoing(true)

@@ -248,7 +248,12 @@ object TvInjector {
         val c = ctx ?: return
         val cm = c.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
-        if (systemReady()) ApxAccessibilityService.instance?.typeText(text)
+        // ① 输入法通道：**中文**只有这条最稳（root 的 input text 只支持 ASCII，
+        //    无障碍 ACTION_SET_TEXT 在不少盒子 / 电视 ROM 上会被拒）
+        if (ApxImeService.commit(text)) return
+        if (systemReady() && ApxAccessibilityService.instance?.typeText(text) == true) return
+        // 兜底：剪贴板已写好，退到 ACTION_PASTE
+        ApxAccessibilityService.instance?.paste(text)
     }
 
     /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。

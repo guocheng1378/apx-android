@@ -37,6 +37,12 @@ class ControlledService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ★★ 一进来就进前台：startForegroundService() 之后系统**只给 5 秒**。
+        //   原先是"先建控制面 + 文件接收 + 信标，最后才 startForeground"，而这几步都要 bind
+        //   套接字、建浮层，慢一点就 ForegroundServiceDidNotStartInTimeException
+        //   → 服务被系统**直接杀掉** = "一退到后台就断连"。顺序必须反过来。
+        startForegroundGuarded()
+
         TvInjector.init(this)
         if (server == null) server = TvControlServer()
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
@@ -65,7 +71,6 @@ class ControlledService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.addPrimaryClipChangedListener(clipListener)
 
-        startForegroundGuarded()
         // 主动上报一次当前剪贴板（被控 App 在前台时本机可读到自己的剪贴板）
         val init = currentClipboardText()
         if (!init.isNullOrEmpty()) server?.sendReverseClipboard(init)
