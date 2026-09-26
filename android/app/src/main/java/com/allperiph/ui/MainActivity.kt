@@ -96,6 +96,13 @@ class MainActivity : Activity() {
     private lateinit var btnBattery: Button
     private lateinit var btnRefresh: Button
 
+    /**
+     * 「只来选设备」模式：由 [EXTRA_PICK_DEVICE] 置位。
+     * 从「遥控器」页点「选择设备」进来时，选完（或取消）都**自动回到遥控页** ——
+     * 否则会停在默认的触控板页，用户以为"点错了、跳回触控页了"（真机反馈）。
+     */
+    private var pickDeviceThenReturn = false
+
     // 启动后才显示的区域（状态页）
     private lateinit var boxRunning: LinearLayout
     private lateinit var tvRunningSummary: TextView
@@ -214,6 +221,27 @@ class MainActivity : Activity() {
             lastEnv = env
             renderEnv(env)
         }
+        // 从「遥控器」页带 EXTRA_PICK_DEVICE 过来的：直接把设备选择器弹出来
+        maybePickDevice(intent)
+    }
+
+    /**
+     * `singleTop` 下若 MainActivity 已在栈顶，重复启动只会走 [onNewIntent]（不重建）——
+     * 参数必须两边都接，否则"点选择设备没反应"。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        maybePickDevice(intent)
+    }
+
+    /** 处理「带 [EXTRA_PICK_DEVICE] 启动」：立刻弹设备选择器，并记住"选完就回去" */
+    private fun maybePickDevice(from: Intent?) {
+        if (from?.getBooleanExtra(EXTRA_PICK_DEVICE, false) != true) return
+        // 用完即清：旋屏重建（本 Activity 会因 layout-land 重建）时不再重复弹
+        from.removeExtra(EXTRA_PICK_DEVICE)
+        pickDeviceThenReturn = true
+        handler.post { runCatching { showDevicePicker() } }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -859,7 +887,15 @@ class MainActivity : Activity() {
             }
         }
         dlg.setOnShowListener { handler.postDelayed(tick, 1000) }
-        dlg.setOnDismissListener { handler.removeCallbacks(tick) }
+        dlg.setOnDismissListener {
+            handler.removeCallbacks(tick)
+            // 从遥控页过来的：**选完或取消都自动回去**（点条目/取消/返回键都会 dismiss，
+            // 所以放这里能覆盖全部出口）。不移除的话用户会停在触控板页，就是反馈里的"跳回触控页"。
+            if (pickDeviceThenReturn) {
+                pickDeviceThenReturn = false
+                if (!isFinishing) finish()
+            }
+        }
         dlg.show()
     }
 
@@ -1969,6 +2005,10 @@ class MainActivity : Activity() {
         private const val FINGERS_TO_SWITCH = 4
 
         /** 页签标题与副说明（与 activity_main.xml 的四页顺序一致） */
+        /** 启动 MainActivity 时带上它 = **只来选控制设备**（选完/取消自动 finish）。
+         *  由「遥控器」页的「选择设备」使用 —— 见 [maybePickDevice]。 */
+        const val EXTRA_PICK_DEVICE = "apx_pick_device"
+
         private val PAGE_TITLES = arrayOf("触控板", "键盘", "状态", "设置")
         private val PAGE_SUBS = arrayOf(
             "滑动控制光标 · 快捷键轻点发送 / 长按按住",
