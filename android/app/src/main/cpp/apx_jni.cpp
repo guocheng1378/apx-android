@@ -121,6 +121,13 @@ Java_com_allperiph_core_ApxNative_hidReportDescriptor(JNIEnv* env, jobject) {
     return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
 }
 
+// 蓝牙 HID 描述符（Mouse/Keyboard/Consumer 三个 TLC，不含传感器）
+JNIEXPORT jbyteArray JNICALL
+Java_com_allperiph_core_ApxNative_btReportDescriptor(JNIEnv* env, jobject) {
+    const std::vector<uint8_t> desc = apx::buildBtReportDescriptor();
+    return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
+}
+
 JNIEXPORT jint JNICALL
 Java_com_allperiph_core_ApxNative_hidMaxReportLength(JNIEnv*, jobject) {
     return static_cast<jint>(apx::maxReportLength());
@@ -564,11 +571,9 @@ int alsaOpenStream(const char* path, bool playback, unsigned rate, unsigned chan
     alsaSetInterval(
         &hw.intervals[SNDRV_PCM_HW_PARAM_RATE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL], rate);
     alsaSetInterval(
-        &hw.intervals[SNDRV_PCM_HW_PARAM_PERIOD_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL],
-        kAlsaPeriodFrames);
+        &hw.intervals[SNDRV_PCM_HW_PARAM_PERIOD_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL], kAlsaPeriodFrames);
     alsaSetInterval(
-        &hw.intervals[SNDRV_PCM_HW_PARAM_BUFFER_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL],
-        kAlsaBufferFrames);
+        &hw.intervals[SNDRV_PCM_HW_PARAM_BUFFER_SIZE - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL], kAlsaBufferFrames);
 
     if (::ioctl(fd, SNDRV_PCM_IOCTL_HW_PARAMS, &hw) < 0) {
         const int e = errno;
@@ -835,5 +840,4 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM*, void*) {
 }
 
 }  // extern "C"
-
 
