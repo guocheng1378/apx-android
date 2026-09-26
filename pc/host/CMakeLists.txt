@@ -273,6 +273,9 @@ endif()
 set(APXPC_UI_SRC
   "${APXPC_ROOT}/src/ui/panel_win32.cpp"
   "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
+  # 「设置…」二级窗口：承载原 Web 面板里**真有实现**的那些设置（自适应码率 / 日志级别 /
+  # 诊断导出 / 重新扫描 / 编码器信息 / 热键重置）。放二级窗口是为了不动主面板的自绘布局。
+  "${APXPC_ROOT}/src/ui/settings_win32.cpp"
 )
 add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
 target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")

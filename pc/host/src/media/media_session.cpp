@@ -133,8 +133,16 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     BOOL nodelay = TRUE;
     setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay),
                sizeof(nodelay));
-    int sndBuf = 1 << 20;
+    // ★ 发送缓冲**不能开大**：512KB/1MB 这种"看起来更抗抖动"的缓冲，实际是
+    //   **延迟蓄水池** —— 发送成功 ≠ 对方收到，堆在核缓冲里的数据会变成几秒的滞后，
+    //   而且越积越多（表现就是"副屏越看越卡、越看越不同步"）。
+    //   同仓库 tcp_transport_win.cpp 早就踩过并写了这条结论，副屏这条链路当时漏了。
+    //   现在对齐那条策略：64KB 缓冲 + 50ms 发送超时（拥塞时立即失败丢帧，保住时效）。
+    int sndBuf = 64 * 1024;
     setsockopt(s, SOL_SOCKET, SO_SNDBUF, reinterpret_cast<const char*>(&sndBuf), sizeof(sndBuf));
+    DWORD sndTimeout = 50;   // ms
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sndTimeout),
+               sizeof(sndTimeout));
 
     // 令牌握手：u32 LE 长度 + UTF-8 令牌（**无回执字节**，与 Android 侧对称）
     const uint32_t len = static_cast<uint32_t>(token_.size());
@@ -231,6 +239,7 @@ MediaSession::Counters MediaSession::counters() const {
     c.touchBytes = cTouchBytes_.load(std::memory_order_relaxed);
     c.dropped = cDropped_.load(std::memory_order_relaxed);
     c.resync = cResync_.load(std::memory_order_relaxed);
+    c.sendTimeouts = cSendTimeouts_.load(std::memory_order_relaxed);
     return c;
 }
 
@@ -294,7 +303,11 @@ bool MediaSession::enqueue(std::vector<uint8_t>&& frame, uint8_t streamId) {
     std::lock_guard<std::mutex> lk(qmu_);
     // 视频是「可丢」的大块载荷（副屏丢一帧只是画面顿一下），音频丢了就是断音。
     // 队列一旦积压就先丢视频，保住音频的时效性。
-    if (streamId == kStreamVideo && outQ_.size() > kQueueCap / 2) {
+    //
+    // ★ 阈值从 kQueueCap/2(=128，30fps 下≈4 秒) 收到 16：原值等于允许积压 4 秒画面，
+    //   一旦网络抖动就进入"延迟滚雪球"，用户感知就是**越看越卡、操作越不同步**。
+    //   16 帧（≈0.5 秒）是"能吃掉一次瞬时抖动"与"不累积成秒级延迟"之间的折中。
+    if (streamId == kStreamVideo && outQ_.size() > kVideoBacklogCap) {
         cDropped_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
@@ -399,7 +412,16 @@ bool MediaSession::sendAllBlocking(const uint8_t* p, size_t n) {
     while (sent < n) {
         const int r = ::send(sock_, reinterpret_cast<const char*>(p) + sent,
                              static_cast<int>(n - sent), 0);
-        if (r <= 0) return false;
+        if (r <= 0) {
+            // ★ 拥塞信号：我们给 socket 设了 50ms 发送超时，所以这里返回 -1 且 errno 是
+            //   WSAEWOULDBLOCK/WSAETIMEDOUT，含义就是"内核发送缓冲已满、网络吃不下当前码率"。
+            //   自适应码率（ABR）唯一的反馈就来自这个计数 —— 以前这里只是 return false，
+            //   上层只能把它当成"链路失效"，无从区分"链路断了"和"只是码率给高了"。
+            const int e = WSAGetLastError();
+            if (e == WSAEWOULDBLOCK || e == WSAETIMEDOUT || e == WSAENOBUFS)
+                cSendTimeouts_.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
         sent += static_cast<size_t>(r);
     }
     return true;

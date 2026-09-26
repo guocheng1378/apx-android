@@ -35,6 +35,8 @@
 #define _UNICODE
 #endif
 
+#include "apxpc/config/app_config.hpp"   // 热键绑定 / 日志级别等设置的落盘位置（config.json）
+#include "apxpc/hotkey/hotkey.hpp"       // 面板自己注册全局热键（原来只有 apxhost 注册）
 #include "apxpc/log.hpp"
 #include "apxpc/media/audio_capture.hpp"
 
@@ -43,9 +45,15 @@
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/ui/file_panel_win32.hpp"      // 文件传输窗口（收到的 / 发出去的）
+#include "apxpc/ui/settings_win32.hpp"        // 「设置…」二级窗口（v118）
 #include "apxpc/wireless/file_receiver.hpp"   // 9512 文件接收（手机 → 电脑）
 #include "apxpc/wireless/file_sender.hpp"     // 9512 文件发送（电脑 → 手机）
 #include "apxpc/wireless/wireless_session.hpp"
+
+// ShellExecuteW（诊断包导出后打开目录）。**必须放在 apxpc 头之后** ——
+// 那些头会连锁拉进 <windows.h>，而 shellapi.h 依赖 windows.h 里的一堆类型；
+// 放在前面会报"HDROP 未声明的标识符"这类连环错误（本文件踩过）。
+#include <shellapi.h>
 
 #include <windows.h>
 #include <windowsx.h>   // GET_X_LPARAM / GET_Y_LPARAM
@@ -170,6 +178,7 @@ struct Layout {
 
     Rect switchAuto, labelAuto;
     Rect btnHide, btnQuit;
+    Rect btnSettings;              // 「设置…」（v118）
     int totalH = 0;                // 整窗高度（随开关变化）
 };
 
@@ -196,7 +205,7 @@ void scaleLayout(Layout& l) {
     sc(l.phoneStateLine);
     sc(l.hdrWired); sc(l.cardBt); sc(l.labelBtCard); sc(l.btStatus); sc(l.btDetail);
     sc(l.cardUsb); sc(l.labelUsbCard); sc(l.usbStatus); sc(l.usbDetail);
-    sc(l.switchAuto); sc(l.labelAuto); sc(l.btnHide); sc(l.btnQuit);
+    sc(l.switchAuto); sc(l.labelAuto); sc(l.btnHide); sc(l.btnQuit); sc(l.btnSettings);
     l.totalH = static_cast<int>(l.totalH * gScale);
 }
 
@@ -338,6 +347,7 @@ Layout layout(const VisToggles& v) {
     l.labelAuto = {l.switchAuto.x + l.switchAuto.w + 10, y + 4, 140, 24};
     l.btnQuit = {kClientW - kMargin - 4 - 92, y, 92, 32};
     l.btnHide = {l.btnQuit.x - 8 - 104, y, 104, 32};
+    l.btnSettings = {l.btnHide.x - 8 - 92, y, 92, 32};   // 底排最左：设置…
     y += 40;
     l.totalH = y + 16;
     scaleLayout(l);   // 按当前 DPI 系数把整张布局换成像素坐标
@@ -406,7 +416,8 @@ std::string toUtf8(const std::wstring& w) {
 enum class Hit {
     None, SwitchWifi, SwitchBt, SwitchUsb, SwitchScreen, SwitchSpeaker, SwitchMic,
     SegMirror, SegExtend, SegBr1, SegBr2, SegBr3, SegRes1, SegRes2, SegRes3,
-    SegRes4, Autostart, Hide, Quit, TestSpeaker
+    SegRes4, Autostart, Hide, Quit, TestSpeaker,
+    Settings   // 「设置…」：弹出二级窗口（v118：承载原 Web 面板里"真有实现"的那几项设置）
 };
 
 /// 按设备名改显示器分辨率（标准 API，对 IddCx 虚拟屏同样有效）。
@@ -515,7 +526,23 @@ struct Panel {
     // 试听：不依赖系统是否在放声音，一键把测试音推到手机，用于验证下行链路
     std::atomic<uint64_t> testToneSent{0};   // 本次试听实际送到手机的分片数
     std::atomic<bool> testToneBusy{false};    // 试听推流进行中
+
+    // —— 全局热键（**面板自己注册**）——
+    // 原来热键只有 `apxhost serve` 注册，而用户跑的是面板 → 文档里写的 Ctrl+Alt+F1…
+    // 按了没反应。这里让面板成为宿主；与 apxhost 同时开时后者注册会失败（会记日志，不崩）。
+    std::shared_ptr<apxpc::hotkey::HotkeyManager> hk;
+    /// 注册结果说明（成功/失败原因），供设置窗口显示 —— 不猜，如实告知
+    std::string hotkeyNote;
+
+    // —— 设置项（与 config.json 对齐，见「设置…」窗口）——
+    bool     adaptive = false;          // 自适应码率（真实现：ScreenPush 的 ABR）
+    std::string logLevel = "info";      // debug/info/warn/error
 };
+
+// 前向声明：这几个定义在文件后段，但更靠前的 performHit 要用（参数/返回都只依赖 Panel）
+void cycleBitrate(Panel* p);
+void startPanelHotkeys(Panel* p);
+void stopPanelHotkeys(Panel* p);
 
 Gdiplus::ARGB phaseColor(LinkPhase ph) {
     switch (ph) {
@@ -678,6 +705,8 @@ void toggleScreen(Panel* p) {
     apxpc::media::ScreenPushOptions opt;
     opt.mirrorMode = (p->screenMode == 0);   // 0=桌面镜像 1=扩展屏（无虚拟屏时报错不静默回落）
     opt.bitrateKbps = p->bitrateKbps;
+    // 自适应码率（**真实现**：ABR 按发送拥塞实时升降，见 ScreenPush::Impl::abrLoop）
+    opt.adaptive = p->adaptive;
     if (!p->screenPush->start(p->media.get(), opt, &err)) {
         const std::wstring msg = L"副屏启动失败：\n\n" + toWide(err);
         MessageBoxW(p->hwnd, msg.c_str(), L"全能外设", MB_OK | MB_ICONWARNING);
@@ -966,6 +995,7 @@ Hit hitTest(Panel* p, int x, int y) {
     else if (L.switchAuto.has(x, y) || L.labelAuto.has(x, y)) h = Hit::Autostart;
     else if (L.btnHide.has(x, y)) h = Hit::Hide;
     else if (L.btnQuit.has(x, y)) h = Hit::Quit;
+    else if (L.btnSettings.has(x, y)) h = Hit::Settings;
     else if (L.btnTestSpeaker.has(x, y)) h = Hit::TestSpeaker;
     return h == Hit::None ? Hit::None : h;
 }
@@ -1230,6 +1260,8 @@ void paint(HWND hwnd, Panel* p) {
         // —— 底部：开机自启 + 次要按钮 ——
         paintSwitch(g, L.switchAuto, p->autostart, p->hot == Hit::Autostart);
         text(g, L"开机自启", L.labelAuto, *p->fBody, tok::onSurface);
+        paintButton(g, L.btnSettings, L"设置…", false, true, p->hot == Hit::Settings,
+                    p->pressed == Hit::Settings, *p->fBtn);
         paintButton(g, L.btnHide, L"隐藏到托盘", false, true, p->hot == Hit::Hide,
                     p->pressed == Hit::Hide, *p->fBtn);
         paintButton(g, L.btnQuit, L"退出", false, true, p->hot == Hit::Quit,
@@ -1258,6 +1290,104 @@ static std::wstring panelIniPath() {
     return dir + L"\\panel.ini";
 }
 
+/// 配置目录（%LOCALAPPDATA%\AllPeriph）—— 诊断包也放这里
+static std::wstring panelDir() {
+    const std::wstring ini = panelIniPath();
+    const size_t pos = ini.find_last_of(L'\\');
+    return pos == std::wstring::npos ? ini : ini.substr(0, pos);
+}
+
+/**
+ * 导出诊断包（设置窗口里的「导出诊断包」）。
+ *
+ * 这份能力原先在 Web 面板的 `/api/q/diag.download`；v117 下线 Web 时**整条能力一起消失了** ——
+ * 所以补在面板里：点一下就拿到一份可以直接发给别人看的运行快照，并自动打开目录选中它。
+ */
+void exportDiagnostics(Panel* p) {
+    const std::wstring dir = panelDir();
+    SYSTEMTIME st{};
+    ::GetLocalTime(&st);
+    wchar_t name[64]{};
+    ::swprintf_s(name, L"diag-%04d%02d%02d-%02d%02d%02d.txt", st.wYear, st.wMonth, st.wDay,
+                 st.wHour, st.wMinute, st.wSecond);
+    const std::wstring path = dir + L"\\" + name;
+
+    std::string s;
+    char buf[768];
+    std::snprintf(buf, sizeof(buf),
+                  "全能外设 桌面端诊断包\r\n生成时间：%04d-%02d-%02d %02d:%02d:%02d\r\n\r\n",
+                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    s += buf;
+
+    // 链路（无线会话是"连接层"，媒体计数在 MediaSession 上，两者分开写）
+    if (p->session) {
+        const auto snap = p->session->snapshot();
+        std::snprintf(buf, sizeof(buf), "[链路]\r\n对端：%s\r\n阶段：%d（2=已连接）\r\n\r\n",
+                      snap.peer.c_str(), static_cast<int>(snap.phase));
+        s += buf;
+    }
+    // 媒体面（副屏/音箱/麦克风的真实流量与拥塞计数）
+    if (p->media) {
+        const auto ms = p->media->status();
+        const auto mc = p->media->counters();
+        std::snprintf(buf, sizeof(buf),
+                      "[媒体]\r\n媒体连接：%s（%lld 秒）· 对端 %s\r\n错误：%s\r\n"
+                      "上行：视频 %llu 帧 / 音频 %llu 帧\r\n"
+                      "下行：麦克风 %llu 帧 / 触摸 %llu 帧\r\n"
+                      "丢弃 %llu · 重新同步 %llu · 发送超时 %llu\r\n\r\n",
+                      ms.connected ? "是" : "否", static_cast<long long>(ms.upMs / 1000),
+                      ms.peer.c_str(), ms.error.c_str(),
+                      static_cast<unsigned long long>(mc.videoFrames),
+                      static_cast<unsigned long long>(mc.audioFrames),
+                      static_cast<unsigned long long>(mc.micFrames),
+                      static_cast<unsigned long long>(mc.touchFrames),
+                      static_cast<unsigned long long>(mc.dropped),
+                      static_cast<unsigned long long>(mc.resync),
+                      static_cast<unsigned long long>(mc.sendTimeouts));
+        s += buf;
+    }
+
+    if (p->screenPush) {
+        const auto st2 = p->screenPush->status();
+        const std::string abr = st2.abrNote.empty() ? std::string() : ("（" + st2.abrNote + "）");
+        std::snprintf(buf, sizeof(buf),
+                      "[副屏]\r\n运行：%s · 抓屏目标 %s\r\n"
+                      "编码器：%s · %ux%u · %.1f fps · 编码 %.1f ms\r\n"
+                      "码率 %u Kbps · 自适应 %s%s\r\n"
+                      "帧：捕获 %llu / 发出 %llu / 丢弃 %llu\r\n错误：%s\r\n\r\n",
+                      st2.running ? "是" : "否", st2.deviceName.c_str(),
+                      st2.encoderName.empty() ? "(未启动)" : st2.encoderName.c_str(),
+                      st2.width, st2.height, st2.fps, st2.encodeMs, st2.bitrateKbps,
+                      st2.adaptive ? "开" : "关", abr.c_str(),
+                      static_cast<unsigned long long>(st2.framesCaptured),
+                      static_cast<unsigned long long>(st2.framesSent),
+                      static_cast<unsigned long long>(st2.framesDropped), st2.error.c_str());
+        s += buf;
+    }
+
+    std::snprintf(buf, sizeof(buf),
+                  "[设置]\r\n日志级别：%s\r\n自适应码率：%s\r\n"
+                  "副屏：模式=%s 码率档=%u 分辨率档=%d\r\n热键：%s\r\n",
+                  p->logLevel.c_str(), p->adaptive ? "开" : "关",
+                  p->screenMode == 0 ? "镜像" : "扩展", p->bitrateKbps, p->vddRes,
+                  p->hotkeyNote.empty() ? "(未知)" : p->hotkeyNote.c_str());
+    s += buf;
+
+    FILE* f = nullptr;
+    if (::_wfopen_s(&f, path.c_str(), L"wb") == 0 && f) {
+        const unsigned char bom[3] = {0xEF, 0xBB, 0xBF};   // UTF-8 BOM：记事本直接能看
+        std::fwrite(bom, 1, 3, f);
+        std::fwrite(s.data(), 1, s.size(), f);
+        std::fclose(f);
+        APX_LOGI("诊断包已导出：{}", toUtf8(path).c_str());
+    } else {
+        APX_LOGW("诊断包写盘失败：{}", toUtf8(path).c_str());
+    }
+    // 打开目录并**选中**刚生成的文件 —— 用户点这个按钮就是想拿到文件
+    ::ShellExecuteW(nullptr, L"open", L"explorer.exe",
+                    (L"/select,\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+}
+
 static void savePanelState(Panel* p) {
     const std::wstring ini = panelIniPath();
     wchar_t b[8];
@@ -1275,6 +1405,10 @@ static void savePanelState(Panel* p) {
     ::WritePrivateProfileStringW(L"media", L"bitrateKbps", b, ini.c_str());
     _itow_s(p->vddRes, b, 10);
     ::WritePrivateProfileStringW(L"media", L"vddRes", b, ini.c_str());
+
+    // v118：新增的两项设置也要记住
+    put(L"adaptive", p->adaptive);
+    ::WritePrivateProfileStringW(L"media", L"logLevel", toWide(p->logLevel).c_str(), ini.c_str());
 }
 
 static void loadPanelState(Panel* p) {
@@ -1292,6 +1426,18 @@ static void loadPanelState(Panel* p) {
         p->bitrateKbps = (br == 12000 || br == 16000) ? br : 8000;
         const int res = ::GetPrivateProfileIntW(L"media", L"vddRes", 2, ini.c_str());
         p->vddRes = (res >= 0 && res <= 3) ? res : 2;
+    }
+    // v118：自适应码率与日志级别（设置窗口里的两项）
+    p->adaptive = ::GetPrivateProfileIntW(L"media", L"adaptive", 0, ini.c_str()) != 0;
+    {
+        wchar_t lv[16] = {0};
+        ::GetPrivateProfileStringW(L"media", L"logLevel", L"info", lv, 16, ini.c_str());
+        p->logLevel = toUtf8(lv);
+        // 钳制：panel.ini 被手改坏时不能让日志级别变成未定义值
+        if (p->logLevel != "debug" && p->logLevel != "info" && p->logLevel != "warn" &&
+            p->logLevel != "error") {
+            p->logLevel = "info";
+        }
     }
     p->autoRestoreDone = false;
 }
@@ -1430,6 +1576,82 @@ void performHit(Panel* p, Hit h) {
         case Hit::TestSpeaker:
             testSpeakerClick(p);
             break;
+        case Hit::Settings: {
+            // 把"读写面板状态"的能力以回调交出去 —— 设置窗口在另一个翻译单元里，
+            // 看不到（也不该看到）这里 file-local 的 Panel 结构。
+            apxpc::ui::SettingsCallbacks cb;
+            cb.adaptive = p->adaptive;
+            cb.onAdaptive = [p](bool on) {
+                p->adaptive = on;
+                savePanelState(p);
+                // 自适应是**推流启动时**读进 ABR 的 → 要让开关立刻生效得重启一次推流
+                if (p->screenPush && p->screenPush->running()) {
+                    p->screenPush->stop();
+                    toggleScreen(p);
+                }
+                APX_LOGI("自适应码率：{}", on ? "开（按发送拥塞实时升降）" : "关（固定档位）");
+            };
+            cb.logLevel = p->logLevel;
+            cb.onLogLevel = [p](const std::string& lv) {
+                p->logLevel = lv;
+                if (lv == "debug") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Debug);
+                else if (lv == "warn") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Warn);
+                else if (lv == "error") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Error);
+                else apxpc::Logger::instance().setLevel(apxpc::LogLevel::Info);
+                // 同时落盘：`apxhost serve` 启动时会读 config.json 的 logLevel
+                auto cfg = apxpc::config::loadConfig(apxpc::config::defaultConfigPath());
+                cfg.logLevel = lv;
+                apxpc::config::saveConfig(apxpc::config::defaultConfigPath(), cfg);
+                APX_LOGI("日志级别改为 {}（本进程立即生效，并已写入 config.json）", lv.c_str());
+            };
+            cb.encoderInfo = [p]() -> std::string {
+                if (!p->screenPush) return "副屏模块未初始化";
+                const auto st = p->screenPush->status();
+                std::string s = "编码器：";
+                if (st.encoderName.empty()) {
+                    s += "未启动";
+                } else {
+                    s += st.encoderName;
+                    // mf 这条在本实现里必然是 CPU 软编（异步硬件 MFT 被主动拒绝，见 mf_encoder.cpp）
+                    s += (st.encoderName == "mf") ? "（CPU 软编）" : "（硬件编码）";
+                    s += st.runtimeBitrateOk ? " · 支持运行期改码率" : " · 不支持运行期改码率";
+                }
+                s += "\r\n";
+                if (st.running) {
+                    char buf[256];
+                    std::snprintf(buf, sizeof(buf),
+                                  "分辨率 %ux%u · %.1f fps · 码率 %u Kbps · 编码 %.1f ms\r\n",
+                                  st.width, st.height, st.fps, st.bitrateKbps, st.encodeMs);
+                    s += buf;
+                    if (!st.adaptive) s += "自适应码率：关（固定档位）";
+                    else if (st.adaptiveActive) s += "自适应码率：运行中（按发送拥塞升降）";
+                    else s += "自适应码率：已开但**未生效** —— " + st.abrNote;
+                } else {
+                    s += st.error.empty() ? "副屏未推流" : ("上次失败：" + st.error);
+                }
+                return s;
+            };
+            cb.onExportDiag = [p] { exportDiagnostics(p); };
+            cb.onRescan = [p] {
+                if (p->session) {
+                    p->session->startAuto();
+                    APX_LOGI("设置：手动重新扫描设备");
+                }
+            };
+            cb.hotkeyNote = [p]() -> std::string {
+                return p->hotkeyNote.empty() ? "热键状态未知" : p->hotkeyNote;
+            };
+            cb.onResetHotkeys = [p] {
+                auto cfg = apxpc::config::loadConfig(apxpc::config::defaultConfigPath());
+                cfg.hotkeys = apxpc::config::defaultHotkeys();
+                apxpc::config::saveConfig(apxpc::config::defaultConfigPath(), cfg);
+                stopPanelHotkeys(p);
+                startPanelHotkeys(p);   // 重注册后 hotkeyNote 会更新成结果
+                APX_LOGI("设置：已重置为默认热键绑定");
+            };
+            apxpc::ui::showSettingsWindow(p->hwnd, cb);
+            break;
+        }
         case Hit::Autostart:
             p->autostart = !p->autostart;
             // 写的是**当前运行 exe** 的路径；桌面端自启不带 "serve"
@@ -1537,6 +1759,72 @@ LRESULT CALLBACK hostEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return g_hostEditOldProc ? CallWindowProcW(g_hostEditOldProc, hwnd, msg, wp, lp)
                              : DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+/// 副屏码率档循环（热键 Ctrl+Alt+F2）。走**运行期改码率**：不重开推流、不掉画面。
+void cycleBitrate(Panel* p) {
+    const uint32_t next =
+        (p->bitrateKbps == 8000) ? 12000 : (p->bitrateKbps == 12000) ? 16000 : 8000;
+    p->bitrateKbps = next;
+    if (p->screenPush && p->screenPush->running()) {
+        if (!p->screenPush->setBitrate(next))
+            APX_LOGW("运行期改码率被拒（编码器不支持？）—— 档位已记住，重开副屏后生效");
+        if (p->adaptive)
+            APX_LOGW("注意：自适应码率开着，ABR 会在数秒内按网络情况覆盖这个手动档位");
+    }
+    savePanelState(p);
+    APX_LOGI("热键：副屏码率档 → {} Kbps", next);
+}
+
+/**
+ * 全局热键：**由面板自己注册**。
+ *
+ * 背景（真机问题）：热键原先只有 `apxhost serve` 会 `RegisterHotKey`，而用户实际跑的是桌面面板 ——
+ * 于是"文档里写了 Ctrl+Alt+F1 切副屏，按下去没反应"。这里把热键接到**面板自己的动作**上。
+ *
+ * ⚠️ 刻意**不接** `ActionRouter`：它操作的是 `display_control` 后端，而面板推流走自己的
+ * `ScreenPush` —— 接错了就是"按下去有响应、画面却没变"，正是我们一直在清的那类假效果。
+ */
+void startPanelHotkeys(Panel* p) {
+    if (p->hk) return;
+    auto hk = std::make_shared<apxpc::hotkey::HotkeyManager>();
+    apxpc::hotkey::ActionMap amap;
+    amap[apxpc::hotkey::ActionId::ScreenToggle] = [p] {
+        toggleScreen(p);
+        p->autoScreen = p->screenPush && p->screenPush->running();
+    };
+    amap[apxpc::hotkey::ActionId::ScreenCycle]  = [p] { cycleBitrate(p); };
+    amap[apxpc::hotkey::ActionId::AudioRoute]   = [p] {
+        toggleSpeaker(p);
+        p->autoSpeaker = p->audio && p->audio->running();
+    };
+    amap[apxpc::hotkey::ActionId::DeviceToggle] = [p] { applyConnect(p); };
+    // 触控板 / 传感器：PC 侧**没有对应运行时**（真正的实现在手机端），
+    // 所以这里显式留空，而不是假装有动作 —— 见 docs 里"死配置"那一段。
+    amap[apxpc::hotkey::ActionId::TouchpadToggle] = [] {};
+    amap[apxpc::hotkey::ActionId::SensorToggle]   = [] {};
+
+    const auto cfg = apxpc::config::loadConfig(apxpc::config::defaultConfigPath());
+    std::map<apxpc::hotkey::ActionId, apxpc::hotkey::Binding> binds;
+    for (const auto& [id, b] : cfg.hotkeys) {
+        binds[apxpc::hotkey::actionFromName(id)] = {b.mods, b.key, b.enabled};
+    }
+    std::string err;
+    if (hk->start(amap, binds, &err)) {
+        p->hotkeyNote = "已注册：副屏开关 / 码率档 / 音箱 / 重新连接";
+        APX_LOGI("全局热键已由**面板**注册（原先只有 apxhost serve 会注册，跑面板时热键是失效的）");
+    } else {
+        p->hotkeyNote = "注册失败：" + (err.empty() ? std::string("可能热键被其它程序占用") : err);
+        APX_LOGW("全局热键注册失败：{}", p->hotkeyNote.c_str());
+    }
+    p->hk = hk;
+}
+
+void stopPanelHotkeys(Panel* p) {
+    if (p->hk) {
+        p->hk->stop();
+        p->hk.reset();
+    }
 }
 
 void createChildren(Panel* p) {
@@ -2149,6 +2437,17 @@ int runPanel(const std::string& /*preferInstanceId*/) {
 
     // 读取持久化状态（功能卡开关期望值，媒体连接建立后自动恢复）
     loadPanelState(&panel);
+
+    // 让上次设的日志级别**立即生效**（面板进程自己 apply，不必等重启）
+    if (panel.logLevel == "debug") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Debug);
+    else if (panel.logLevel == "warn") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Warn);
+    else if (panel.logLevel == "error") apxpc::Logger::instance().setLevel(apxpc::LogLevel::Error);
+    else apxpc::Logger::instance().setLevel(apxpc::LogLevel::Info);
+    APX_LOGI("桌面面板已就绪（日志级别 {}，自适应码率 {}）", panel.logLevel.c_str(),
+             panel.adaptive ? "开" : "关");
+
+    // 全局热键：**面板自己注册**（原来只有 apxhost serve 会注册 → 跑面板时热键形同不存在）
+    startPanelHotkeys(&panel);
 
     // 初始：自动发现并立刻进入等待
     panel.session->startAuto();

@@ -96,6 +96,7 @@ bool Pipeline::start(const PipelineConfig& cfg, std::string* err) {
         vp.height = cinfo.height;
     }
     usedVp_ = vp;   // v1.10：保存实际编码参数（供长跑衰减时的编码器重建）
+    bitrateKbps_.store(vp.bitrateKbps, std::memory_order_relaxed);  // ABR 的初值
     std::string encErr;
     encoder_ = EncoderFactory::create(cfg_.backend, vp, &encErr);
     if (!encoder_) {
@@ -269,6 +270,23 @@ void Pipeline::encodeThread() {
                 APX_LOG_E("编码器重建失败：{}", lastError());
             }
         }
+        // —— 运行期改码率（ABR）：在**本线程**应用 ——
+        // ICodecAPI::SetValue 要和 ProcessInput/ProcessOutput 同线程，否则会与 MFT
+        // 内部状态打架（这正是把它做成"只置请求、由编码线程消费"的原因）。
+        if (bitrateReq_.exchange(false)) {
+            const uint32_t kbps = bitrateReqKbps_.load(std::memory_order_relaxed);
+            cfg_.video.bitrateKbps = kbps;
+            usedVp_.bitrateKbps = kbps;
+            if (encoder_->setBitrate(kbps)) {
+                bitrateKbps_.store(kbps, std::memory_order_relaxed);
+                APX_LOG_I("副屏编码器运行期改码率：%u Kbps", kbps);
+            } else if (!bitrateUnsupported_.exchange(true)) {
+                // 只报一次：不支持的后端不该让 ABR 反复刷日志
+                APX_LOG_W("编码器 %s 不支持运行期改码率（需重建编码器才能生效）",
+                          backendName(encoder_->backend()));
+            }
+        }
+
         RawFrame frame{};
         bool have = false;
         {

@@ -70,7 +70,7 @@ struct DisplayMode {
 };
 
 // ---------------------------------------------------------------------------
-// 编码参数：ARCHITECTURE §5 要求关 B 帧、GOP=1、低延迟
+// 编码参数：关 B 帧 + 低延迟（GOP 见下，**不再是 1**）
 // ---------------------------------------------------------------------------
 struct VideoParams {
     uint32_t width          = 1080;
@@ -78,8 +78,19 @@ struct VideoParams {
     uint32_t frameRateX100  = 6000;
     uint32_t bitrateKbps    = 12000;
     CodecId  codec          = CodecId::HEVC;
-    uint32_t gop            = 1;      // 全 I 帧：只传帧内差异
-    bool     bFrames        = false;  // 关 B 帧
+    // ★ GOP 从 1 改回 30（≈1 秒一个关键帧 @30fps）。
+    //
+    // 原值「GOP=1 = 全 I 帧」是对"低延迟"的误用：它确实省掉了帧间依赖，
+    // 但代价是**每一帧都按帧内（intra）重编** —— 码率与编码耗时成倍上涨，
+    // 而同样的 8Mbps 花在全 I 帧上，画面质量会明显差于有 P 帧的常规 GOP。
+    // 真机症状就是"副屏看视频很卡、还糊"：软编 CPU 被全 I 帧吃满（作者注释里
+    // 也记了"软编长跑 11ms→32ms 持续恶化"）。
+    //
+    // 改成 30 之后：P 帧承担绝大部分画面，码率花在真正的变化上；
+    // 丢包时最多 1 秒花屏，接收端可用控制帧 0x06 主动要求 IDR
+    // （见 Pipeline::requestKeyFrame，那边本来就有这条通路）。
+    uint32_t gop            = 30;
+    bool     bFrames        = false;  // 关 B 帧（保持低延迟，不改）
     bool     lowLatency     = true;
     uint32_t maxFrameWidth  = 4096;
     uint32_t maxFrameHeight = 4096;

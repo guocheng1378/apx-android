@@ -219,6 +219,39 @@ public:
         return SUCCEEDED(codecApi_->SetValue(&CODECAPI_AVEncVideoForceKeyFrame, &v));
     }
 
+    /**
+     * 运行期改码率（自适应码率用）。
+     *
+     * 两条路依次试（不同 MFT 脾气不一样）：
+     *   ① `ICodecAPI::CODECAPI_AVEncCommonMeanBitRate` —— 流化后仍可改，GlobalLowDelayVBR 下立即生效；
+     *   ② 改输出类型的 `MF_MT_AVG_BITRATE` 再 SetOutputType —— 少数 MFT 只认这条。
+     * 这是"不重建编码器就能降码率"的关键：重建一次会掉 ~200ms 画面（见 encodeThread 的自愈注释）。
+     */
+    bool setBitrate(uint32_t kbps) override {
+        if (kbps == 0) return false;
+        params_.bitrateKbps = kbps;
+        if (!ready_ || !transform_) return false;
+        if (codecApi_) {
+            VARIANT v{};
+            v.vt = VT_UI4;
+            v.ulVal = kbps * 1000;
+            if (SUCCEEDED(codecApi_->SetValue(&CODECAPI_AVEncCommonMeanBitRate, &v))) return true;
+        }
+        ComPtr<IMFMediaType> t;
+        if (SUCCEEDED(transform_->GetOutputCurrentType(0, &t)) && t) {
+            if (SUCCEEDED(t->SetUINT32(MF_MT_AVG_BITRATE, kbps * 1000)) &&
+                SUCCEEDED(transform_->SetOutputType(0, t.Get(), 0))) {
+                return true;
+            }
+        }
+        lastError_ = "运行期改码率被编码器拒绝";
+        return false;
+    }
+
+    bool supportsRuntimeBitrate() const override { return true; }
+
+    uint32_t bitrateKbps() const override { return params_.bitrateKbps; }
+
     void shutdown() override {
         if (transform_) {
             transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);

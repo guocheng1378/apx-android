@@ -73,6 +73,9 @@ public:
         uint64_t touchFrames = 0, touchBytes = 0;    // 副屏触摸：本端收到（已注入）
         uint64_t dropped = 0;                        // 队列满被丢弃的帧（保新弃旧）
         uint64_t resync = 0;                         // 收流里对不齐帧头而重新同步的次数
+        /// **发送超时次数**（内核发送缓冲已满、50ms 内写不出去）——
+        /// 这是"网络吃不下当前码率"的唯一客观信号，自适应码率（ABR）靠它决策。
+        uint64_t sendTimeouts = 0;
     };
 
     /// 收到一帧（在**收流线程**上调用）。
@@ -93,6 +96,12 @@ public:
 
     Status status() const;
     Counters counters() const;
+
+    /// 待发队列深度（帧数）—— 自适应码率的另一个拥塞观测量（越深说明写得跟不上）
+    size_t queuedFrames() {
+        std::lock_guard<std::mutex> lk(qmu_);
+        return outQ_.size();
+    }
 
     void setHandler(FrameHandler h) { handler_ = std::move(h); }
 
@@ -146,6 +155,11 @@ private:
     std::deque<std::vector<uint8_t>> outQ_;
     /// 队列上限。约 2 秒音频（100 帧/s）——足够吸收突发，又不至于积压出可感延迟
     static constexpr size_t kQueueCap = 256;
+    /// 视频**积压上限**：超过就直接丢这一帧（音频不受影响）。
+    /// 16 帧 ≈ 0.5 秒 @30fps —— 既能吃掉一次瞬时抖动，又不会把延迟滚成几秒。
+    /// 原先用的是 kQueueCap/2(=128，≈4 秒)，那是"延迟雪球"的来源：
+    /// 网络一慢，堆在队列里的画面就越积越旧，用户看到的是"越看越卡、越看越不同步"。
+    static constexpr size_t kVideoBacklogCap = 16;
     uint32_t seq_ = 0;
 
     std::atomic<uint64_t> cVideoFrames_{0}, cVideoBytes_{0};
@@ -153,6 +167,8 @@ private:
     std::atomic<uint64_t> cMicFrames_{0}, cMicBytes_{0};
     std::atomic<uint64_t> cTouchFrames_{0}, cTouchBytes_{0};
     std::atomic<uint64_t> cDropped_{0}, cResync_{0};
+    /// 发送超时（拥塞）累计次数，见 Counters::sendTimeouts
+    std::atomic<uint64_t> cSendTimeouts_{0};
 };
 
 }  // namespace apxpc::media

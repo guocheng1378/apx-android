@@ -62,6 +62,18 @@ public:
     virtual bool configure(const VideoParams& params) = 0;
     virtual bool encode(const RawFrame& in, EncodedPacket& out) = 0;
     virtual bool forceKeyFrame() = 0;
+
+    /// 运行期改码率（Kbps）—— 自适应码率（ABR）靠它。
+    /// 默认**不支持**：不支持的实现返回 false，上层据此停止调码率并如实告知
+    /// （而不是假装调了）。MF 用 ICodecAPI 的 AVEncCommonMeanBitRate 实时改。
+    virtual bool setBitrate(uint32_t /*kbps*/) { return false; }
+
+    /// 运行期改码率是否被当前后端支持
+    virtual bool supportsRuntimeBitrate() const { return false; }
+
+    /// 当前码率（Kbps）；0 = 未知
+    virtual uint32_t bitrateKbps() const { return 0; }
+
     virtual void shutdown() = 0;
     virtual std::string lastError() const = 0;
 };

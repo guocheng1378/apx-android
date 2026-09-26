@@ -57,6 +57,27 @@ object ScreenRenderer {
 
     private val decodedFrames = AtomicLong(0)
 
+    /** 因超过输入缓冲被跳过的帧数（配合 KEY_MAX_INPUT_SIZE，正常应恒为 0） */
+    val oversizedFrames = AtomicLong(0)
+
+    /**
+     * 已判定"本机解不了"的 (mime,宽,高)。命中后**不再尝试重建解码器** ——
+     * 以前每帧都会 createDecoderByType + 打异常，全部发生在**收流线程**上，
+     * 一条解不了的流能把整条媒体链路拖死（TV 端同问题，已同改）。
+     */
+    private var failedKey: String? = null
+
+    /** 实际选中的解码器名（仅日志用） */
+    private var codecName: String = ""
+
+    /** 请求对端立刻出关键帧（控制帧 0x06）；未接时只记日志 */
+    @Volatile
+    var requestKeyFrame: (() -> Unit)? = null
+
+    // 周期统计：原来只有"已解码 N 帧"进 UI，没有周期日志，真机卡顿没法量
+    private var statAtMs = 0L
+    private var statFrames = 0L
+
     val attached: Boolean get() = surface != null
 
     /** 由 ScreenActivity 在 Surface 就绪时调用；宽高用首帧的真实值，未知时传 0 由帧内信息决定 */
@@ -93,6 +114,11 @@ object ScreenRenderer {
             skippedCodec.incrementAndGet()
             return
         }
+        // 已判定这个流在本机解不了：直接丢，**不再每帧试图重建解码器**
+        if (codec == null && failedKey == "${mimeFor(f.codecId)}/${f.width}x${f.height}") {
+            skippedCodec.incrementAndGet()
+            return
+        }
         // 编码/分辨率变化需要重建解码器 —— 用首帧或变化帧的参数驱动
         if (codec == null || f.width != width || f.height != height ||
             mimeFor(f.codecId) != mime
@@ -116,6 +142,8 @@ object ScreenRenderer {
             append("已解码 $d 帧")
             if (s > 0) append(" · 编码不支持 $s")
             if (n > 0) append(" · 无画面丢弃 $n")
+            val o = oversizedFrames.get()
+            if (o > 0) append(" · 过大跳过 $o")
         }
     }
 
@@ -135,13 +163,19 @@ object ScreenRenderer {
     private fun ensureCodec(w: Int, h: Int, newMime: String, firstFrame: ByteArray) {
         releaseCodec()
         val s = surface ?: return
+        val key = "$newMime/${w}x$h"
+        // 已经判定过这个流解不了 → 直接返回，别每帧重试（见 failedKey 注释）
+        if (failedKey == key) return
         try {
             val format = MediaFormat.createVideoFormat(newMime, w, h).apply {
                 setInteger(MediaFormat.KEY_FRAME_RATE, 60)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+                // ★ 不设它时输入缓冲默认偏小，一到关键帧就 BufferOverflow →
+                //   被当成"解码失败"整帧丢弃 → 观感是"周期性花屏/顿一下"。
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 2 * 1024 * 1024)
             }
-            val c = MediaCodec.createDecoderByType(newMime).apply {
+            val c = createPreferredDecoder(newMime).apply {
                 configure(format, s, null, 0)
                 start()
             }
@@ -152,12 +186,46 @@ object ScreenRenderer {
             videoWidth = w
             videoHeight = h
             decodedFrames.set(0)
-            Log.i(TAG, "解码器已启动：$newMime ${w}x$h")
+            failedKey = null
+            statAtMs = 0L
+            Log.i(TAG, "解码器已启动：$newMime ${w}x$h（$codecName）")
             // 重建时的这一帧不能丢，否则要等到下一个关键帧才有画面
             feed(c, firstFrame)
         } catch (t: Throwable) {
             Log.e(TAG, "解码器创建失败（$newMime ${w}x$h）：${t.message}")
+            failedKey = key
             releaseCodec()
+        }
+    }
+
+    /**
+     * 优先挑**硬件**解码器。
+     *
+     * `MediaCodec.createDecoderByType()` 只保证"第一个匹配"，有些 ROM 会把软解排在前面 ——
+     * 拿软解去解 1080p 就是 CPU 打满、画面跟着卡。API 29+ 用 `isHardwareAccelerated`，
+     * 更老的系统按名字启发式判断（`OMX.google.*` / `c2.android.*` 都是软解）。
+     */
+    private fun createPreferredDecoder(mimeType: String): MediaCodec {
+        val all = try {
+            android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                .filter { !it.isEncoder && it.supportedTypes.any { t -> t.equals(mimeType, true) } }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        fun isHw(ci: android.media.MediaCodecInfo): Boolean {
+            if (android.os.Build.VERSION.SDK_INT >= 29) return ci.isHardwareAccelerated
+            val n = ci.name.lowercase()
+            return !(n.startsWith("omx.google") || n.startsWith("c2.android") ||
+                    n.contains("software") || n.contains(".sw."))
+        }
+        val pick = all.firstOrNull { isHw(it) } ?: all.firstOrNull()
+        return if (pick != null) {
+            codecName = pick.name + if (isHw(pick)) "（硬解）" else "（软解回退）"
+            if (!isHw(pick)) Log.w(TAG, "没有可用的硬解解码器，只能软解：${pick.name}")
+            MediaCodec.createByCodecName(pick.name)
+        } else {
+            codecName = "系统默认"
+            MediaCodec.createDecoderByType(mimeType)
         }
     }
 
@@ -181,6 +249,17 @@ object ScreenRenderer {
                 val buf = c.getInputBuffer(inIndex)
                 if (buf != null) {
                     buf.clear()
+                    // ★ 容量先校验：`buf.put(data)` 一把塞时，大关键帧会抛 BufferOverflowException，
+                    //   被外层 catch 当成"解码失败"整帧丢 —— 观感是"周期性花屏/顿一下"。
+                    //   缓冲本身已在 ensureCodec 里放大（KEY_MAX_INPUT_SIZE）；真装不下就如实跳过，
+                    //   绝不像素级把一段码流拆到两个输入缓冲（那需要 PARTIAL_FRAME 语义）。
+                    if (data.size > buf.remaining()) {
+                        oversizedFrames.incrementAndGet()
+                        c.queueInputBuffer(inIndex, 0, 0, 0, 0)
+                        Log.w(TAG, "帧过大（${data.size}B > 输入缓冲 ${buf.remaining()}B），已跳过并请求关键帧")
+                        requestKeyFrame?.invoke()
+                        return
+                    }
                     buf.put(data)
                     c.queueInputBuffer(inIndex, 0, data.size,
                         decodedFrames.get() * 16_666L, 0)
@@ -195,10 +274,33 @@ object ScreenRenderer {
                 decodedFrames.incrementAndGet()
                 outIndex = c.dequeueOutputBuffer(info, 0)
             }
+            logStatsIfDue()
         } catch (t: Throwable) {
             // 解码失败按帧丢弃，不把整个渲染器拆掉（下一帧可能是新关键帧）
             Log.w(TAG, "解码失败：${t.message}")
         }
+    }
+
+    /**
+     * 每 5 秒一行 fps / 丢帧统计 —— `adb logcat -s ScreenActivity` 里能直接读。
+     * （原来只有"已解码 N 帧"进 UI，真机卡顿没有可量的日志。）
+     */
+    private fun logStatsIfDue() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (statAtMs == 0L) {
+            statAtMs = now; statFrames = decodedFrames.get(); return
+        }
+        if (now - statAtMs < 5_000) return
+        val secs = (now - statAtMs) / 1000.0
+        val fps = (decodedFrames.get() - statFrames) / secs
+        Log.i(
+            TAG,
+            "副屏统计：${"%.1f".format(fps)} fps · 队列积压 ${queue.size} · " +
+                    "已解码 ${decodedFrames.get()} · 过大跳过 ${oversizedFrames.get()} · " +
+                    "编码不支持 ${skippedCodec.get()} · 无画面丢弃 ${droppedNoSurface.get()}"
+        )
+        statAtMs = now
+        statFrames = decodedFrames.get()
     }
 
     private fun releaseCodec() {

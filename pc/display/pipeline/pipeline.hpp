@@ -64,6 +64,34 @@ public:
     /// 只是置标志，由编码线程在下一次 encode 前消费。
     void requestKeyFrame() { keyReq_.store(true); }
 
+    /**
+     * 运行期改码率（Kbps）—— **自适应码率（ABR）** 用。
+     *
+     * 只置请求，真正的应用发生在**编码线程**（见 encodeThread）：`ICodecAPI::SetValue`
+     * 要与 `ProcessInput/ProcessOutput` 在同一线程调用才不会与 MFT 内部状态打架。
+     * 返回 false 仅代表参数非法；某个后端是否真的支持，看 [supportsRuntimeBitrate]。
+     */
+    bool setBitrate(uint32_t kbps) {
+        if (kbps == 0) return false;
+        bitrateReqKbps_.store(kbps, std::memory_order_relaxed);
+        bitrateReq_.store(true, std::memory_order_relaxed);
+        return true;
+    }
+
+    /// 当前后端能否运行期改码率。false → ABR 应停止并**如实告知**（不要假装在调）。
+    bool supportsRuntimeBitrate() const {
+        return encoder_ && encoder_->supportsRuntimeBitrate();
+    }
+
+    /// 当前码率（Kbps）：初值 = 配置值；被 setBitrate 应用后更新
+    uint32_t bitrateKbps() const { return bitrateKbps_.load(std::memory_order_relaxed); }
+
+    /// 实际使用的编码器后端名（nvenc / qsv / amf / mf / raw_lz4）。
+    /// 面板要显示"到底在用哪个编码器、是不是软编"，所以必须能问出来。
+    std::string encoderName() const {
+        return encoder_ ? std::string(backendName(encoder_->backend())) : std::string();
+    }
+
     const PipelineStats& stats() const { return stats_; }
 
     /// 实际生效的编码参数。**抓屏尺寸优先于配置**，所以它常与传入的 cfg 不同 ——
@@ -100,6 +128,12 @@ private:
     TransportSpec  spec_{};   // start() 解析出的实际传输描述（供重连复用）
     std::atomic<bool> running_{false};
     std::atomic<bool> keyReq_{false};   // 手机端请求下一帧为 IDR
+
+    // 运行期改码率请求（ABR）：由编码线程消费，见 encodeThread
+    std::atomic<bool>     bitrateReq_{false};
+    std::atomic<uint32_t> bitrateReqKbps_{0};
+    std::atomic<uint32_t> bitrateKbps_{0};
+    std::atomic<bool>     bitrateUnsupported_{false};
 
     std::unique_ptr<ICapture>   capture_;
     std::unique_ptr<IEncoder>   encoder_;

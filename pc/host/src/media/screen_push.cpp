@@ -10,7 +10,11 @@
 #include "pipeline/pipeline.hpp"
 #include "transport/i_transport.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <mutex>
+#include <string>
+#include <thread>
 
 namespace apxpc::media {
 namespace {
@@ -90,6 +94,93 @@ struct ScreenPush::Impl {
     std::unique_ptr<apxdisp::Pipeline> pipe;
     ScreenPushOptions opt{};
     std::string error;
+
+    // —————————————————————— 自适应码率（ABR） ——————————————————————
+    // 为什么放在这一层：只有 ScreenPush 同时握有 Pipeline（能改码率）与 MediaSession（能看到拥塞）。
+    MediaSession* session = nullptr;      // 只借用，不持有所有权
+    std::thread abr;
+    std::atomic<bool> abrRun{false};
+    std::atomic<bool> abrActive{false};
+    std::atomic<bool> abrUnsupported{false};
+    std::atomic<uint32_t> curKbps{0};
+    std::string abrNote;                   // 未生效原因（读时持 mu）
+
+    void abrLoop() {
+        const uint32_t maxKbps = opt.bitrateKbps;
+        // 下限取初始值的 1/4：再低画面就没法看了，宁可卡也不糊成马赛克
+        const uint32_t minKbps = std::max<uint32_t>(1000, opt.bitrateKbps / 4);
+        uint32_t cur = opt.bitrateKbps;
+        uint64_t lastTimeouts = 0, lastDropped = 0;
+        int calm = 0;
+        APX_LOGI("副屏自适应码率已启用：{}–{} Kbps，每 2 秒按发送拥塞调整", minKbps, maxKbps);
+
+        while (abrRun.load()) {
+            // 分片睡眠：退出时不必等满 2 秒
+            for (int i = 0; i < 20 && abrRun.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (!abrRun.load()) break;
+
+            auto* p = pipe.get();
+            auto* s = session;
+            if (!p || !s) break;
+
+            if (!p->supportsRuntimeBitrate()) {
+                // 如实停用：不要每轮都刷日志，也不要假装在调码率
+                if (!abrUnsupported.exchange(true)) {
+                    std::lock_guard<std::mutex> lk(mu);
+                    abrNote = "当前编码器不支持运行期改码率，自适应已停用（码率固定 "
+                              + std::to_string(maxKbps) + " Kbps）";
+                    APX_LOGW("副屏自适应码率停用：{}", abrNote.c_str());
+                }
+                abrActive.store(false);
+                break;
+            }
+
+            const auto c = s->counters();
+            const size_t q = s->queuedFrames();
+            const bool congested =
+                (c.sendTimeouts > lastTimeouts) || (c.dropped > lastDropped) || q > 8;
+            lastTimeouts = c.sendTimeouts;
+            lastDropped = c.dropped;
+
+            if (congested) {
+                calm = 0;
+                if (cur > minKbps) {
+                    cur = std::max(minKbps, cur * 3 / 4);
+                    p->setBitrate(cur);
+                    curKbps.store(cur);
+                    APX_LOGW("副屏自适应：网络拥塞（发送超时 {} · 丢弃 {} · 队列 {}）→ 码率降到 {} Kbps",
+                             c.sendTimeouts, c.dropped, q, cur);
+                }
+            } else if (++calm >= 3 && cur < maxKbps) {
+                // 连续 3 轮（6 秒）无压力才回升，避免在临界点来回抖
+                cur = std::min(maxKbps, cur * 5 / 4);
+                p->setBitrate(cur);
+                curKbps.store(cur);
+                calm = 0;
+                APX_LOGI("副屏自适应：链路平稳 → 码率回升到 {} Kbps", cur);
+            }
+        }
+        APX_LOGI("副屏自适应码率已退出");
+    }
+
+    void startAbr(MediaSession* s) {
+        if (!opt.adaptive || !s) return;
+        session = s;
+        curKbps.store(opt.bitrateKbps);
+        abrUnsupported.store(false);
+        abrActive.store(true);
+        abrRun.store(true);
+        abr = std::thread([this] { abrLoop(); });
+    }
+
+    /// 必须在 `pipe.reset()` **之前**调用：ABR 线程要读 pipe.get()
+    void stopAbr() {
+        abrRun.store(false);
+        if (abr.joinable()) abr.join();
+        abrActive.store(false);
+        session = nullptr;
+    }
 };
 
 ScreenPush::ScreenPush() : impl_(std::make_unique<Impl>()) {}
@@ -118,7 +209,10 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
     cfg.captureKind = apxdisp::CaptureKind::Auto;
     // 抓屏目标由面板选择：镜像 = 主屏；扩展屏 = 优先 IddCx 虚拟屏（无虚拟屏时报错不回落）
     cfg.captureTarget.preferVirtual = !opt.mirrorMode;
-    cfg.video.codec = apxdisp::CodecId::H264;   // H.264 兼容性最好；手机侧 MediaCodec 已验 H264
+    // ★ 固定 H.264（**故意不用 HEVC**）：接收端可能是老电视盒子（例如斐讯 q201 / Android 7.1.2），
+    //   它的 MediaCodec 未必有 HEVC 硬解，而接收侧目前没有"上报我支持什么编码"的能力，
+    //   一旦发出它解不了的码流就是黑屏/极卡。H.264 是各家都有的最低公共分母。
+    cfg.video.codec = apxdisp::CodecId::H264;
     cfg.video.bitrateKbps = opt.bitrateKbps;
     cfg.video.frameRateX100 = opt.maxFps * 100;
     // 0 表示"跟随抓屏尺寸"。仍给个非零兜底：编码器不接受 0 尺寸，
@@ -143,16 +237,27 @@ bool ScreenPush::start(MediaSession* session, const ScreenPushOptions& opt, std:
     impl_->pipe = std::move(pipe);
     impl_->opt = opt;
     impl_->error.clear();
-    APX_LOGI("副屏推流已启动（{} fps 上限，{} Kbps，H.264）", opt.maxFps, opt.bitrateKbps);
+    APX_LOGI("副屏推流已启动（{} fps 上限，{} Kbps，H.264{}）", opt.maxFps, opt.bitrateKbps,
+             opt.adaptive ? "，自适应码率开" : "");
+    // ABR 必须在 pipe / session 都就位之后再起线程
+    impl_->startAbr(session);
     return true;
 }
 
 void ScreenPush::stop() {
     std::lock_guard<std::mutex> lk(impl_->mu);
     if (!impl_->pipe) return;
+    impl_->stopAbr();   // 必须在 pipe.reset() 之前：ABR 线程要读 pipe.get()
     impl_->pipe->stop();
     impl_->pipe.reset();
     APX_LOGI("副屏推流已停止");
+}
+
+bool ScreenPush::setBitrate(uint32_t kbps) {
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    if (!impl_->pipe || kbps == 0) return false;
+    impl_->curKbps.store(kbps);
+    return impl_->pipe->setBitrate(kbps);
 }
 
 bool ScreenPush::requestKeyFrame() {
@@ -184,7 +289,19 @@ ScreenPush::Status ScreenPush::status() const {
     s.width = vp.width;
     s.height = vp.height;
     s.deviceName = impl_->pipe->captureDeviceName();
+    s.encoderName = impl_->pipe->encoderName();
+    s.runtimeBitrateOk = impl_->pipe->supportsRuntimeBitrate();
     if (s.error.empty()) s.error = impl_->pipe->lastError();
+    // —— 自适应码率：把"开没开、真在跑没、现在多少、为什么没生效"如实报出来 ——
+    s.adaptive = impl_->opt.adaptive;
+    s.adaptiveActive = impl_->abrActive.load();
+    s.abrNote = impl_->abrNote;
+    const uint32_t abrCur = impl_->curKbps.load();
+    s.bitrateKbps = abrCur ? abrCur : impl_->opt.bitrateKbps;
+    // 支持与否还能从管线直接问（ABR 线程可能还没轮到第一次检查）
+    if (s.adaptive && s.abrNote.empty() && !impl_->pipe->supportsRuntimeBitrate()) {
+        s.abrNote = "当前编码器不支持运行期改码率，自适应无法生效（码率固定）";
+    }
     return s;
 }
 
