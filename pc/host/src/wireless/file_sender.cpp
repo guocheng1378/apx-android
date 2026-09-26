@@ -122,7 +122,8 @@ bool sendFile(const std::string& host, uint16_t port, const std::string& filePat
     if (::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) != 0) {
         closeSock(s);
         std::fclose(fp);
-        setError("连不上 " + host + ":9512（对端没在收？手机端要开着「无线」）");
+        // fix: 错误消息动态使用 port 参数，不再硬编码 :9512
+        setError("连不上 " + host + ":" + std::to_string(port) + "（对端没在收？手机端要开着「无线」）");
         return false;
     }
 
