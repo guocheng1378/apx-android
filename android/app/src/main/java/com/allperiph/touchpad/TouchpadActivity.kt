@@ -1011,7 +1011,10 @@ class TouchpadActivity : Activity() {
     private fun updateDeviceChip() {
         val c = deviceChip ?: return
         val ready = ControlTarget.isControlling()
-        c.text = if (ready) "受控设备 · ${ControlTarget.label}" else ControlTarget.label
+        // 出口一并显示：点不动时先看这里到底"发去哪了"。注意本页不订阅事件（无 disposables），
+        // 所以这里展示的是**刷新那一刻**的出口；实时显示在主界面顶栏徽章与触控板提示行。
+        c.text = (if (ready) "受控设备 · ${ControlTarget.label}" else ControlTarget.label) +
+            " · ${com.allperiph.core.Uplink.hint()}"
         c.setTextColor(if (ready) cAccent else cText2)
         fileBtn?.visibility = if (ready) View.VISIBLE else View.GONE
         clipBtn?.visibility = if (ready) View.VISIBLE else View.GONE

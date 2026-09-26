@@ -142,8 +142,15 @@ object AgentController {
         else -> listOf("wifi")
     }
 
-    /** 某传输类下的全部模块（开关 ON 整组启用、OFF 整组停用） */
-    fun groupModules(t: String): List<String> = ORDER.filter { groupOf(it) == t }
+    /**
+     * 某传输类下的全部模块（开关 ON 整组启用、OFF 整组停用）。
+     *
+     * ⚠️ 必须用 `t in groupsOf(it)`（**包含**语义）而不是 `groupOf(it) == t`：
+     * 触控板挂在「无线 + USB」两组（groupsOf = ["wifi","usb"]），而 groupOf 只取
+     * 第一个（"wifi"）—— 旧写法导致「有线（USB）」开关**永远带不起触控板**，
+     * 只开 USB 时模块 IDLE、手势全被丢弃，USB 控制形同虚设（真机踩过）。
+     */
+    fun groupModules(t: String): List<String> = ORDER.filter { t in groupsOf(it) }
 
     fun isTransportEnabled(context: Context, t: String): Boolean =
         prefs(context).getBoolean("transport.$t", false)

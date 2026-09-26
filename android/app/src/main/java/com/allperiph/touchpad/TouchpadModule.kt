@@ -5,6 +5,7 @@ import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
+import com.allperiph.core.Uplink
 
 /**
  * 触控板模块：USB 有线 Precision Touchpad + 无线（蓝牙 HID TLC）触控板。
@@ -197,8 +198,6 @@ class TouchpadModule : Module {
         }
     }
 
-    private var lastPath = ""
-
     /** Drag support */
     fun armDrag() {
         val eng = engineRef.get() ?: return
@@ -226,43 +225,65 @@ class TouchpadModule : Module {
     }
 
     /**
-     * 上行出口择优：蓝牙 HID → USB HID TLC → Wi‑Fi 控制面 → 仅日志。
+     * 上行出口择优：**判据只有一处** —— [Uplink.resolve]（无线目标 → USB HID → 蓝牙 HID → 无出口）。
      *
-     * 末档 Wi‑Fi 控制面是**无蓝牙适配器 PC**（本机实测无蓝牙）的唯一可用输入承载：
-     * 触控板相对位移经 APX1 控制帧（streamId=3）上行，PC 端 `apxhost` 用 SendInput 注入。
+     * 无线受控目标（TV / PC，9511）优先级最高，会**覆盖**蓝牙与 USB：触控板相对位移经 APX1
+     * 控制帧上行，对端用 SendInput / evdev 注入。没有任何出口时记为 [Uplink.NONE] 并在界面显示
+     * 「出口：无（输入会被丢弃：…）」—— 不再像旧实现那样只打一行 `Log.v` 把输入丢进黑洞。
      */
     private fun dispatch(ctx: ModuleContext, f: TouchpadFrame) {
-        // 选了受控设备（TV / PC）：所有触控板输入短路到 9511 客户端（覆盖蓝牙/USB/本机链路）
-        if (com.allperiph.wireless.ControlTarget.isControlling()) {
-            val c = com.allperiph.wireless.ControlTarget.controlClient
-            if (c != null) {
-                if (f.consumer != 0) c.consumer(f.consumer) else c.mouse(f.buttons, f.dx, f.dy, f.wheel)
-                return
-            }
-        }
+        // 择路判据只有一处：[Uplink.resolve]（无线目标 → USB HID → 蓝牙 HID → 无出口）。
+        // 原先这里单写一套「蓝牙 → USB」的顺序，与 HidKeys / HotkeyController / 通知栏的
+        // 「USB → 蓝牙」**相反** —— 同一个手势在不同界面被报成不同通道，用户没法判断"为什么点不动"。
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
-        val path = when {
-            bt != null && bt.isConnected -> "bluetooth-hid"
-            ctx.hid.isReady() -> "hid-tlc"
-            else -> "bulk"
-        }
-        if (path != lastPath) {
-            Log.i(TAG, "触控板上行出口：$path")
-            lastPath = path
-        }
+        val wirelessReady = com.allperiph.wireless.ControlTarget.isControlling() &&
+            com.allperiph.wireless.ControlTarget.controlClient != null
+        val path = Uplink.resolve(ctx.hid, bt?.isConnected == true, wirelessReady)
+
         when (path) {
-            "bluetooth-hid" ->
-                bt?.reportMouse(f.buttons, f.dx, f.dy, f.wheel, f.pan)
-            "hid-tlc" -> if (f.consumer != 0) {
-                ctx.hid.sendInputReport(
-                    byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
-                )
-            } else {
-                ctx.hid.sendInputReport(
-                    byteArrayOf(0x02, f.buttons.toByte(), f.dx.toByte(), f.dy.toByte(), f.wheel.toByte(), f.pan.toByte())
-                )
+            Uplink.WIRELESS -> {
+                val c = com.allperiph.wireless.ControlTarget.controlClient
+                Uplink.set(path, com.allperiph.wireless.ControlTarget.label)
+                if (c != null) {
+                    if (f.consumer != 0) c.consumer(f.consumer)
+                    else c.mouse(f.buttons, f.dx, f.dy, f.wheel)
+                }
             }
-            else -> Log.v(TAG, "bulk mouse dx=${f.dx} dy=${f.dy} btns=${f.buttons}")
+            Uplink.USB -> {
+                // 写失败要可见：hidg0 是非阻塞的，主机没取走上一份报告时 write 会 EAGAIN，
+                // 静默丢帧的话用户只看到"出口：USB HID"却光标不动（真机踩过）。
+                val ok = if (f.consumer != 0) {
+                    ctx.hid.sendInputReport(
+                        byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
+                    )
+                } else {
+                    ctx.hid.sendInputReport(
+                        byteArrayOf(0x02, f.buttons.toByte(), f.dx.toByte(), f.dy.toByte(), f.wheel.toByte(), f.pan.toByte())
+                    )
+                }
+                if (ok) Uplink.set(path)
+                else {
+                    val why = "USB HID 写入被拒（主机未取走上一报告或节点异常）"
+                    if (Uplink.reason != why) Log.w(TAG, why)
+                    Uplink.set(path, why)
+                }
+            }
+            Uplink.BLUETOOTH -> {
+                Uplink.set(path)
+                bt?.reportMouse(f.buttons, f.dx, f.dy, f.wheel, f.pan)
+            }
+            else -> {
+                // ★ 无出口：原先这里只 `Log.v`（等于输入直接进黑洞，用户只感觉"点不动"）。
+                //   现在记为 NONE 并把**原因**带上，界面直接显示「出口：无（输入会被丢弃：…）」。
+                //   日志只在**状态切换那一次**打（每帧都打会淹掉日志）。
+                val first = Uplink.current != Uplink.NONE
+                val why = buildString {
+                    if (com.allperiph.wireless.ControlTarget.isControlling()) append("受控目标已断开；")
+                    append("USB HID 未就绪（/dev/hidg0 未挂载或 USB 口被调试占用）、蓝牙未连接")
+                }
+                Uplink.set(Uplink.NONE, why)
+                if (first) Log.w(TAG, "无可用上行出口，输入被丢弃：$why")
+            }
         }
     }
 

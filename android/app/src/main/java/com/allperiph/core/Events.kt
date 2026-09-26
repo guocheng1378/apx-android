@@ -20,6 +20,14 @@ data class LinkSpeedDegradedEvent(
     val message: String,
 )
 
+/**
+ * 上行出口变化（[Uplink.current]）。
+ *
+ * 供界面显示"输入到底发去哪了" —— 出口可能因为目标断开、USB 未挂载、蓝牙掉线而**自己变**，
+ * 没有事件的话界面就只能靠轮询或用户手动刷新才更新。
+ */
+data class UplinkEvent(val path: String, val reason: String)
+
 /** §2.7 PC 下发的 Vendor 命令（由 M2 读取 /dev/hidg0 后广播） */
 data class VendorCommandEvent(val command: VendorCommand)
 

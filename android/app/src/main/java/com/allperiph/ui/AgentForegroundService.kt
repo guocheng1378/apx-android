@@ -19,6 +19,7 @@ import com.allperiph.core.Log
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.core.ScreenOpenRequestEvent
+import com.allperiph.core.Uplink
 import com.allperiph.R
 
 /**
@@ -128,20 +129,22 @@ class AgentForegroundService : Service() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        // 链路口径必须与真实的输入择路一致（优先级见 TouchpadModule.dispatch）：
-        // USB HID → 蓝牙 HID → Wi‑Fi 控制。原文案只有「USB / 蓝牙」两档，于是无蓝牙
-        // 适配器的 PC 走 Wi‑Fi 时会显示「蓝牙 HID」——那是一台压根没有蓝牙的机器。
+        // 链路口径**必须与真实择路同源** —— 直接用 [Uplink.resolve]。
+        // 原先这里自写一套「USB → 蓝牙 → Wi‑Fi」的顺序，与 TouchpadModule.dispatch 的
+        // 「无线目标优先」**相反**：用户手机上选着 PC 目标时，通知说「USB 链路」而实际
+        // 输入走的是无线 —— 分不清"为什么点不动"的一大来源就是这个。
         val rt = AgentController.runtime
-        // 判据必须和 TouchpadModule.dispatch 完全一致：蓝牙看 isConnected 而非 state。
+        // 判据必须和发送路径一致：蓝牙看 isConnected 而非 state。
         // 模块「已注册（待 PC 配对）」时 state 也是 RUNNING，只看 state 会把一条
         // 根本没人连的蓝牙链路报成当前通道。
         val btConnected =
             (AgentController.module(ModuleId.BTHID) as? BtHidDevice)?.isConnected == true
-        val linkText = when {
-            rt != null && rt.hid.isReady() ->
-                if (lastLink == LinkSpeed.UNKNOWN) "USB 链路" else "USB ${lastLink.label}"
-            btConnected -> "蓝牙 HID"
-            com.allperiph.wireless.ControlTarget.isControlling() -> "Wi‑Fi 控制"
+        val target = com.allperiph.wireless.ControlTarget
+        val wirelessReady = target.isControlling() && target.controlClient != null
+        val linkText = when (Uplink.resolve(rt?.hid, btConnected, wirelessReady)) {
+            Uplink.WIRELESS -> "无线 9511 · ${target.label}"
+            Uplink.USB -> if (lastLink == LinkSpeed.UNKNOWN) "USB 链路" else "USB ${lastLink.label}"
+            Uplink.BLUETOOTH -> "蓝牙 HID"
             else -> "未连接"
         }
         val text = getString(R.string.notify_text_running, linkText)

@@ -12,8 +12,14 @@ enum class GadgetFeature(
     val label: String,
 ) {
     HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
+    // ⚠️ 曾把 ACM/NCM 默认关掉（怀疑是它们导致 Windows「Code 10 拒绝配置整个 configuration」
+    // 而让 HID/音频一起失效）。后来用 PC 注册表取证推翻：App gadget（VID_1D6B&PID_0104）在
+    // 这台 PC 上**历史上完整枚举成功过**，子设备里就有 MEDIA Source/Sink ×2（音箱+麦克风，
+    // MI_01/MI_03）与 UsbNcm Host Device（MI_06）；那个 Code 10 属于**手机自己的系统复合设备**
+    // （VID_2717&PID_FF48，MTP+ADB）—— 是抢占 UDC 的瞬间它在主机侧的临时故障（也是
+    // "USB 调试老掉线"的真因），与 gadget 的功能集无关。故恢复原默认。
     ACM("acm.usb0", true, false, "f_acm CDC ACM（GPS NMEA → COM 口）"),
-    UAC2("uac2.usb0", true, true, "f_uac2 声卡"),
+    UAC2("uac2.usb0", true, true, "f_uac2 声卡（Windows 自带驱动）"),
     NCM("ncm.usb0", true, true, "f_ncm 网卡（USB 有线控制：NCM→TCP 9511，插线即被 PC 发现）"),
     FFS("ffs.apx", false, true, "f_fs FunctionFS（副屏 bulk）"),
     ;

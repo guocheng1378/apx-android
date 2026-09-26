@@ -47,6 +47,8 @@ import com.allperiph.core.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
+import com.allperiph.core.Uplink
+import com.allperiph.core.UplinkEvent
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.hid.HotkeyTemplates
@@ -939,10 +941,50 @@ class MainActivity : Activity() {
             .show()
     }
 
+    /**
+     * 出口提示：把"输入此刻到底发去哪了"写到触控板页提示行 + 顶栏徽章 + 设置页状态行。
+     *
+     * 真机教训：出口是**多级回落**的（无线目标 → USB HID → 蓝牙 → 无出口），任何一级失效
+     * 原先都只是日志里一行字，用户看到的现象统一是"点不动"—— 提示必须放在随手可见处。
+     */
+    private fun renderUplink() {
+        if (!::touchHint.isInitialized) return
+        // 提示行在滑动开始后会被收起（见 onTouchEvent），这里顺手恢复可见
+        touchHint.visibility = android.view.View.VISIBLE
+        val base = if (ControlTarget.isControlling()) "正在控制：${ControlTarget.label}" else "手势操控本机"
+        val desc = displayUplinkHint()
+        touchHint.text = if (displayUplinkPath() == Uplink.NONE) "⚠ $base · $desc" else "$base · $desc"
+        tvStatusView?.text = if (ControlTarget.isControlling()) {
+            "当前控制：${ControlTarget.label} · $desc"
+        } else {
+            "未连接（触摸板控本机）· $desc"
+        }
+    }
+
+    /**
+     * 当前**显示用**的出口。
+     *
+     * 没发送过输入时 [Uplink.current] 还是 `NONE`（它只记录"真实发出去的结果"），此时必须用
+     * [Uplink.resolve] 的**预计**出口 —— 否则一进 App 徽章就写"无出口"，又是一处误导。
+     */
+    private fun displayUplinkPath(): String {
+        if (Uplink.observed) return Uplink.current
+        val bt = (AgentController.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice)?.isConnected == true
+        return Uplink.resolve(
+            AgentController.runtime?.hid,
+            bt,
+            ControlTarget.isControlling() && ControlTarget.controlClient != null,
+        )
+    }
+
+    /** 出口的一行文案（未发送过输入时按预计出口描述） */
+    private fun displayUplinkHint(): String =
+        if (Uplink.observed) Uplink.hint() else Uplink.describe(displayUplinkPath())
+
     /** 目标变化：更新触摸板提示 + 快捷键条（TV 目标时显示 TV 套） */
     private fun onTargetChanged() {
         val controlling = ControlTarget.isControlling()
-        touchHint.text = if (controlling) "正在控制：${ControlTarget.label}" else "手势操控本机"
+        renderUplink()
         // 仅 TV 类目标进 TV 专属快捷键布局；控 PC 保持鼠标 + 完整键鼠（不切遥控/媒体套）
         if (controlling && ControlTarget.type == "tv") hotkeyBoard.enterTvMode() else hotkeyBoard.exitTvMode()
         // 连上目标后确保触摸板模块已启动：模块 IDLE 时 feed() 会把手势直接丢掉（连上也控不了）
@@ -1004,7 +1046,12 @@ class MainActivity : Activity() {
         // ★ 运行日志：Log 的 512 条环形缓冲一直写着"供 UI 展示"，却**没有任何消费者**
         tvBox.addView(settingRow("查看运行日志", "打开", accent) { showLogs() })
         tvStatusView = TextView(this).apply {
-            text = if (ControlTarget.isControlling()) "当前控制：${ControlTarget.label}" else "未连接（触摸板控本机）"
+            // 出口一并写在设置页：遥控不灵时先在两处看"输入到底发去哪了"（触控板页顶栏徽章 + 这里）
+            text = if (ControlTarget.isControlling()) {
+                "当前控制：${ControlTarget.label} · ${Uplink.hint()}"
+            } else {
+                "未连接（触摸板控本机）· ${Uplink.hint()}"
+            }
             textSize = 13f
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
             setPadding(dp(4), dp(8), dp(4), dp(2))
@@ -1743,11 +1790,29 @@ class MainActivity : Activity() {
     // ————————————————————————— 事件 —————————————————————————
 
     private fun subscribe() {
-        disposables += EventBus.on<GadgetStateEvent>(handler) { refresh() }
+        disposables += EventBus.on<GadgetStateEvent>(handler) { ev ->
+            // 挂载失败 / UDC 被占用正在退避重试的**原因**原先被整个丢掉，用户只看到
+            // "Gadget 错误"，无从知道是 USB 口被调试占用（真实踩过的坑）。这里如实显示。
+            if (ev.state == ModuleState.ERROR || ev.detail.startsWith("retry")) {
+                tvDiag.text = if (ev.state == ModuleState.ERROR) ev.detail else "Gadget：${ev.detail}"
+                tvDiag.setTextColor(
+                    resources.getColor(
+                        if (ev.state == ModuleState.ERROR) R.color.state_error else R.color.state_warn
+                    )
+                )
+            }
+            refresh()
+        }
         disposables += EventBus.on<AgentStateEvent>(handler) { refresh() }
         disposables += EventBus.on<LinkSpeedDegradedEvent>(handler) { ev ->
             tvDiag.text = ev.message
             tvDiag.setTextColor(resources.getColor(R.color.state_warn))
+        }
+        // 上行出口变化（目标断开 / USB 挂载成功 / 变成无出口…）：立刻刷新提示，
+        // 否则用户只能靠"点一下试试"才发现出口早就变了
+        disposables += EventBus.on<UplinkEvent>(handler) {
+            renderUplink()
+            refresh()
         }
     }
 
@@ -1757,6 +1822,16 @@ class MainActivity : Activity() {
     private fun onTransportToggle(t: String, on: Boolean) {
         AgentController.setTransportEnabled(this, t, on)
         for (id in AgentController.groupModules(t)) {
+            if (!on) {
+                // 关开关时，共享模块（触控板同时挂在无线与 USB 两组）若还被其它**已开启**
+                // 的传输用到，就不能停 —— 否则关 USB 会把无线正在用的触控板一起停掉。
+                val stillNeeded = AgentController.TRANSPORTS.any { other ->
+                    other != t &&
+                        AgentController.isTransportEnabled(this, other) &&
+                        AgentController.groupModules(other).contains(id)
+                }
+                if (stillNeeded) continue
+            }
             AgentController.setModuleEnabled(this, id, on)
         }
         if (on) {
@@ -1801,10 +1876,16 @@ class MainActivity : Activity() {
         val st = AgentController.overallState()
         tvOverall.text = stateLabel(st)
         tvOverall.setTextColor(resources.getColor(stateColor(st)))
-        // 顶部状态徽章与总状态同步（文本 + 语义色）
+        // 顶部状态徽章与总状态同步（文本 + 语义色），并**带上当前上行出口** ——
+        // 徽章是一直可见的那一处，"点不动"时用户第一眼就看这里。出口只剩"无出口"时用错误色。
         if (::badgeStatus.isInitialized) {
-            badgeStatus.text = stateLabel(st)
-            badgeStatus.setTextColor(resources.getColor(stateColor(st)))
+            val path = displayUplinkPath()
+            badgeStatus.text = "${stateLabel(st)} · ${Uplink.label(path)}"
+            badgeStatus.setTextColor(
+                resources.getColor(
+                    if (path == Uplink.NONE) R.color.state_error else stateColor(st)
+                )
+            )
         }
         val envSummary = lastEnv?.summary ?: getString(R.string.common_unknown)
         val mask = AgentController.runtime?.registry?.mask() ?: 0

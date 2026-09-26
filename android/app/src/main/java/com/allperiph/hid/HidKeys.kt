@@ -3,6 +3,7 @@ package com.allperiph.hid
 import android.os.Handler
 import android.os.Looper
 import com.allperiph.core.Log
+import com.allperiph.core.Uplink
 import com.allperiph.ui.AgentController
 
 /**
@@ -207,40 +208,62 @@ object HidKeys {
     }
 
     /**
-     * 出口择优：USB HID（rid 21）→ Wi‑Fi 控制面。
+     * 出口择优：**判据统一在 [Uplink.resolve]**（自写一套顺序 → 各界面口径不一致的教训见那里）。
      *
-     * 第二档是给**无蓝牙适配器的 PC** 用的：手机把同一套 (mod, keys) 语义经
-     * APX1 控制帧上行，PC 端 `apxhost` 翻译成 SendInput 键事件（HID usage → VK）。
-     * 两条链路都不可用时只记日志、如实降级，绝不假装已送达。
+     * 键盘只有两条真实链路：无线受控目标（9511，手机把同一套 (mod, keys) 语义经 APX1 控制帧上行，
+     * 对端翻成 SendInput / evdev）与 USB HID（rid 21）。**蓝牙 HID 只实现了鼠标与多媒体**，
+     * 所以这里蓝牙一律按"不可用"传入 —— 否则界面会显示"出口：蓝牙 HID"而按键其实发不出去。
      *
      * rid 21：[id, mod, 0, k1..k6]；keys 为空 = 全释放
      */
     private fun send(mod: Int, keys: IntArray) {
-        // 选了受控设备（TV / PC）：键盘短路到 9511 客户端。
-        // **mod 必须一起发**：原先这里只逐键发 usage、把 mod 丢掉，于是「复制/粘贴/撤销/
-        // 保存/全选/查找（Ctrl+X）」「切窗(Alt+Tab)」「桌面(Win+D)」「资源(Win+E)」「锁屏」
-        // 到对端全退化成裸字母或没反应 —— 正是用户报的「快捷键不能用了」。
-        // 释放沿用本机路径的时序：轻点/字符键由 releaseTask（60ms 后）发全释放帧，
-        // 长按由 releaseHold() 发 —— 所以这里只负责「按下」，不要自己补 up。
-        if (com.allperiph.wireless.ControlTarget.isControlling()) {
-            val c = com.allperiph.wireless.ControlTarget.controlClient
-            if (c != null) {
-                if (keys.isEmpty()) {
-                    c.keyboard(0, false)                        // 全释放（含修饰键）
-                } else {
-                    for (k in keys) if (k != 0) c.keyboard(k, true, mod)
+        val rt = AgentController.runtime
+        val target = com.allperiph.wireless.ControlTarget
+        val path = Uplink.resolve(
+            rt?.hid,
+            btConnected = false,
+            wireless = target.isControlling() && target.controlClient != null,
+        )
+        when (path) {
+            Uplink.WIRELESS -> {
+                // **mod 必须一起发**：原先这里只逐键发 usage、把 mod 丢掉，于是「复制/粘贴/撤销/
+                // 保存/全选/查找（Ctrl+X）」「切窗(Alt+Tab)」「桌面(Win+D)」「资源(Win+E)」「锁屏」
+                // 到对端全退化成裸字母或没反应 —— 正是用户报的「快捷键不能用了」。
+                // 释放沿用本机路径的时序：轻点/字符键由 releaseTask（60ms 后）发全释放帧，
+                // 长按由 releaseHold() 发 —— 所以这里只负责「按下」，不要自己补 up。
+                Uplink.set(path, target.label)
+                val c = target.controlClient
+                if (c != null) {
+                    if (keys.isEmpty()) {
+                        c.keyboard(0, false)                        // 全释放（含修饰键）
+                    } else {
+                        for (k in keys) if (k != 0) c.keyboard(k, true, mod)
+                    }
                 }
             }
-            return
+            Uplink.USB -> {
+                val rep = ByteArray(9)
+                rep[0] = REPORT_ID
+                rep[1] = mod.toByte()
+                for (i in 0 until minOf(keys.size, 6)) rep[3 + i] = keys[i].toByte()
+                if (rt?.hid?.sendInputReport(rep) == true) {
+                    Uplink.set(path)
+                } else {
+                    // 写入失败就**不能**还显示"USB"（界面会骗人）；如实记成无出口
+                    Uplink.set(Uplink.NONE, "USB HID 写入失败")
+                    Log.w(TAG, "键盘 HID 写入失败：USB 出口不可用")
+                }
+            }
+            else -> {
+                // 无出口：原先只 Log.w，界面完全看不出"为什么按键没反应"
+                val first = Uplink.current != Uplink.NONE
+                Uplink.set(
+                    Uplink.NONE,
+                    if (target.isControlling()) "受控目标已断开"
+                    else "USB HID 未就绪（/dev/hidg0 未挂载或 USB 口被调试占用）",
+                )
+                if (first) Log.w(TAG, "键盘无可用出口：USB 未挂载且未选受控设备")
+            }
         }
-        val rt = AgentController.runtime
-        if (rt != null && rt.hid.isReady()) {
-            val rep = ByteArray(9)
-            rep[0] = REPORT_ID
-            rep[1] = mod.toByte()
-            for (i in 0 until minOf(keys.size, 6)) rep[3 + i] = keys[i].toByte()
-            if (rt.hid.sendInputReport(rep)) return
-        }
-        Log.w(TAG, "键盘无可用出口：USB 未挂载且未选受控设备")
     }
 }

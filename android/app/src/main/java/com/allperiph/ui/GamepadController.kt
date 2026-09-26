@@ -2,6 +2,7 @@ package com.allperiph.ui
 
 import com.allperiph.core.ApxNative
 import com.allperiph.core.Log
+import com.allperiph.core.Uplink
 import com.allperiph.wireless.ControlTarget
 
 /**
@@ -65,15 +66,27 @@ object GamepadController {
             Log.w(TAG, "手柄报告打包失败（libapx 不可用）")
             return
         }
-        // 正在控制 TV/PC：改走网络 GAME 帧（远端注入），不再发本地 USB HID
+        // 判据与其它发送路径**同源**（见 Uplink.resolve）：无线目标 → USB HID → 无出口
         val cc = ControlTarget.controlClient
-        if (cc != null && cc.ready) {
-            cc.gamepad(buttons, axisX, axisY, axisRx, axisRy)
-            return
-        }
-        // 否则走本地 USB HID（本机 / USB 被控）
         val rt = AgentController.runtime
-        if (rt == null || !rt.hid.isReady()) return
-        if (!rt.hid.sendInputReport(rep)) Log.w(TAG, "手柄报告发送失败")
+        val path = Uplink.resolve(rt?.hid, btConnected = false, wireless = cc != null && cc.ready)
+        when (path) {
+            Uplink.WIRELESS -> {
+                // 正在控制 TV/PC：网络 GAME 帧（远端用 uinput / 虚拟手柄注入）
+                Uplink.set(path, ControlTarget.label)
+                val c = cc
+                if (c != null) c.gamepad(buttons, axisX, axisY, axisRx, axisRy)
+            }
+            Uplink.USB -> {
+                Uplink.set(path)
+                if (rt?.hid?.sendInputReport(rep) != true) Log.w(TAG, "手柄报告发送失败")
+            }
+            else -> {
+                // 无出口：原先直接 return（手柄一动不动，用户完全无从判断）
+                val first = Uplink.current != Uplink.NONE
+                Uplink.set(Uplink.NONE, "手柄无可用的上行出口")
+                if (first) Log.w(TAG, "手柄无可用出口：未选受控设备且 USB HID 未就绪")
+            }
+        }
     }
 }
