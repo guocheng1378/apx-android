@@ -243,12 +243,11 @@ class TcpMediaChannel(
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
         while (running.get() && !sock.isClosed) {
-            // 1) 音频帧优先：全部排空（时效性最高）
+            // fix: 批量 flush，避免队列积压时每帧一次系统调用
             var frame = outQueue.poll()
             while (frame != null) {
                 try {
                     o.write(frame)
-                    o.flush()
                 } catch (t: Throwable) {
                     Log.w(TAG, "媒体帧写出失败，视为链路断开：${t.message}")
                     runCatching { sock.close() }
@@ -256,6 +255,15 @@ class TcpMediaChannel(
                     return
                 }
                 frame = outQueue.poll()
+            }
+            // 队列排空后统一 flush
+            try {
+                o.flush()
+            } catch (t: Throwable) {
+                Log.w(TAG, "媒体帧 flush 失败，视为链路断开：${t.message}")
+                runCatching { sock.close() }
+                teardown(sock)
+                return
             }
             // 2) 队列皆空：短暂等待，避免忙轮询
             try {
