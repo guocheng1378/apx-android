@@ -41,7 +41,7 @@ class TouchpadModule : Module {
 
     private var ptpThread: Thread? = null
 
-    /** PTP contact ID allocator (cycles 0-3) */
+    /** PTP contact ID allocator (cycles 0-4) */
     @Volatile private var nextContactId: Int = 0
 
     /** MotionEvent → contact snapshot (synchronized with Motion 8ms delta) */
@@ -51,20 +51,22 @@ class TouchpadModule : Module {
             android.view.MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = ev.actionIndex.coerceIn(0, ev.pointerCount - 1)
                 val pid = ev.getPointerId(i)
-                val exists = workingContacts.any { it.cid == (pid % 4) }
+                // fix: pid % 5（支持 5 个 contact ID 0-4），原 pid % 4 导致第 5 根手指碰撞
+                val exists = workingContacts.any { it.cid == (pid % 5) }
                 if (!exists && workingContacts.size < 5) {
                     workingContacts.add(Contact(nextContactId, ev.getX(i), ev.getY(i)))
-                    nextContactId = (nextContactId + 1) and 0x03
+                    // fix: and 0x04（循环 0-4），原 and 0x03 只循环 0-3
+                    nextContactId = (nextContactId + 1) and 0x04
                 }
             }
             android.view.MotionEvent.ACTION_UP,
             android.view.MotionEvent.ACTION_POINTER_UP -> {
-                workingContacts.removeAll { it.cid == (ev.getPointerId(ev.actionIndex) % 4) }
+                workingContacts.removeAll { it.cid == (ev.getPointerId(ev.actionIndex) % 5) }
             }
         }
         for (i in 0 until ev.pointerCount) {
             val pid = ev.getPointerId(i)
-            val cid = pid % 4
+            val cid = pid % 5
             workingContacts.firstOrNull { it.cid == cid }?.let { c ->
                 c.x = ev.getX(i); c.y = ev.getY(i)
             }
@@ -232,9 +234,6 @@ class TouchpadModule : Module {
      * 「出口：无（输入会被丢弃：…）」—— 不再像旧实现那样只打一行 `Log.v` 把输入丢进黑洞。
      */
     private fun dispatch(ctx: ModuleContext, f: TouchpadFrame) {
-        // 择路判据只有一处：[Uplink.resolve]（无线目标 → USB HID → 蓝牙 HID → 无出口）。
-        // 原先这里单写一套「蓝牙 → USB」的顺序，与 HidKeys / HotkeyController / 通知栏的
-        // 「USB → 蓝牙」**相反** —— 同一个手势在不同界面被报成不同通道，用户没法判断"为什么点不动"。
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
         val wirelessReady = com.allperiph.wireless.ControlTarget.isControlling() &&
             com.allperiph.wireless.ControlTarget.controlClient != null
@@ -250,8 +249,6 @@ class TouchpadModule : Module {
                 }
             }
             Uplink.USB -> {
-                // 写失败要可见：hidg0 是非阻塞的，主机没取走上一份报告时 write 会 EAGAIN，
-                // 静默丢帧的话用户只看到"出口：USB HID"却光标不动（真机踩过）。
                 val ok = if (f.consumer != 0) {
                     ctx.hid.sendInputReport(
                         byteArrayOf(0x04, f.consumer.toByte(), (f.consumer shr 8).toByte(), 0)
@@ -273,9 +270,6 @@ class TouchpadModule : Module {
                 bt?.reportMouse(f.buttons, f.dx, f.dy, f.wheel, f.pan)
             }
             else -> {
-                // ★ 无出口：原先这里只 `Log.v`（等于输入直接进黑洞，用户只感觉"点不动"）。
-                //   现在记为 NONE 并把**原因**带上，界面直接显示「出口：无（输入会被丢弃：…）」。
-                //   日志只在**状态切换那一次**打（每帧都打会淹掉日志）。
                 val first = Uplink.current != Uplink.NONE
                 val why = buildString {
                     if (com.allperiph.wireless.ControlTarget.isControlling()) append("受控目标已断开；")
