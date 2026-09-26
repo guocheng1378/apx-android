@@ -567,6 +567,8 @@ class TvControlServer(
             put(0x2C, 62 to ' ')              // Space
             put(0x4C, 112 to '\u0000')         // Delete
             put(0x66, 26 to '\u0000')          // Keyboard Power → KEYCODE_POWER（电源键/锁屏）
+            // 遥控器「菜单键」：手机端遥控界面会发 0x65，原先表里没有 → 静默丢弃
+            put(0x65, 82 to '\u0000')          // Application / Menu → KEYCODE_MENU
             put(0x4F, 22 to '\u0000')          // Right
             put(0x50, 21 to '\u0000')          // Left
             put(0x51, 20 to '\u0000')          // Down

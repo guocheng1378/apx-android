@@ -1,6 +1,10 @@
 #pragma once
-// 动作路由：浏览器 / 全局热键 / 本机命令行共用的唯一动作入口。
-// 同时负责聚合一份与前端 demoState 同构的状态，经 SSE 推送。
+// 动作路由：**全局热键**（以及将来的 CLI）共用的动作入口。
+//
+// v117：Web 控制台整体下线 —— HTTP 入口 `handle()` 与 `apxpc/net/http_server.hpp`
+// 依赖已删除，SSE 状态广播（buildState + 前端 demoState）也一并去掉。
+// 现在唯一调用者是 `runService()` 里的热键回调（screen.toggle / screen.cycle /
+// touchpad.toggle / sensor.toggle / audio.route / device.toggle）。
 #include <map>
 #include <memory>
 #include <mutex>
@@ -11,7 +15,6 @@
 #include "apxpc/config/app_config.hpp"
 #include "apxpc/display/display_control.hpp"
 #include "apxpc/hotkey/hotkey.hpp"
-#include "apxpc/net/http_server.hpp"
 #include "apxpc/net/json.hpp"
 
 namespace apxpc::api {
@@ -19,9 +22,6 @@ namespace apxpc::api {
 class ActionRouter {
 public:
     ActionRouter();
-
-    // HTTP 处理：/api/act/<name> 与 /api/q/<name>
-    void handle(const net::HttpRequest& req, net::HttpResponse* res);
 
     // 聚合状态（与前端 demoState 同构）
     net::Json buildState();

@@ -33,7 +33,7 @@ if errorlevel 1 goto FAIL
 
 echo.
 echo [完成] 产物：
-echo         build_host\Release\apxhost.exe      命令行 / Web 控制面（调试用）
+echo         build_host\Release\apxhost.exe      命令行宿主（9511 受控端 + 全局热键，无界面）
 echo         build_host\Release\apxdesktop.exe   桌面端 · 手机当鼠标 / 键盘用（免安装直接跑）
 echo         build_host\Release\apxsetup.exe     安装包（单文件，含桌面端）
 echo.
@@ -41,8 +41,9 @@ echo.
 rem 传 nobuild 参数则只构建、不启动
 if /i "%~1"=="nobuild" goto END
 
-echo 启动控制面板（浏览器将自动打开 http://127.0.0.1:47990）...
-start "" "build_host\Release\apxhost.exe" ui
+rem v117：Web 控制台已下线，改为启动桌面端面板（apxdesktop）
+echo 启动桌面端面板（apxdesktop）...
+start "" "build_host\Release\apxdesktop.exe"
 goto END
 
 :NO_CL

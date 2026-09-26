@@ -262,6 +262,24 @@ class TouchpadActivity : Activity() {
         deviceChip = dev
         row.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
+        // 遥控器入口：真机反馈"找不到遥控器的界面" —— 在操控面顶部也放一个，随手可达
+        val remote = TextView(this).apply {
+            text = "遥控"
+            setTextColor(cAccent)
+            textSize = 12f
+            gravity = Gravity.CENTER
+            background = pill(cCard)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                startActivity(
+                    android.content.Intent(this@TouchpadActivity, com.allperiph.ui.RemoteActivity::class.java)
+                )
+            }
+        }
+        row.addView(remote, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+
         // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
         val file = TextView(this).apply {
             text = "文件"

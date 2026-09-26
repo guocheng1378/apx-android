@@ -5,7 +5,7 @@
 支持**有线（USB，性能最高且手机同时充电）**与**无线（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）**两条主线。
 
 - 电脑端：C++20（Windows），**零第三方依赖**，自写 winsock HTTP/1.1 + SSE。
-- 控制面板：原生 HTML/CSS/JS 单页应用，**零构建、零 CDN、离线可用**，浏览器打开即用。
+- 控制面板：**原生 Win32 桌面面板**（`apxdesktop`，托盘常驻）。v117 起**不再提供 Web 控制台**。
 - 手机端：Kotlin（Android），蓝牙 HID + 局域网 TCP + USB Gadget（有线模式）。
 
 > 项目首页文档：[`README.md`](./README.md) ·
@@ -56,15 +56,17 @@ cmake --build build_host --config Release --target apxhost
 build_host\Release\apxdesktop.exe
 ```
 
-`apxhost` 附带一个零构建的本地 Web 控制面板（前端在 `pc\host\web`），会自动定位目录并
-打开 **http://127.0.0.1:47990**（端口被占用时自动 +1，并在日志/托盘提示）。
-只想后台常驻、不自动开浏览器：
+PC 端的图形界面就是上面的**桌面端面板 `apxdesktop`**（原生 Win32 UI、托盘常驻）。
+
+命令行宿主 `apxhost serve` 只负责两件事：**9511 受控端**（让手机 / TV 能控本机）+ **全局热键**：
 
 ```bat
 build_host\Release\apxhost.exe serve
 ```
 
-如需显式指定前端目录：`set "APXPC_WEB_DEV_DIR=%CD%\pc\host\web"`。
+> **v117 起 Web 控制台已整体下线**（按需求移除）：不再起本地 HTTP 服务、不再有
+> `pc\host\web` 前端、也不会自动打开浏览器。原先 `apxhost ui / pair / scene`
+> 这三个"开浏览器"的子命令已删除（执行会明确提示改用 `apxdesktop` 或 `apxhost serve`）。
 
 ---
 
@@ -76,7 +78,7 @@ build_host\Release\apxhost.exe serve
 ├─ LICENSE                           MIT 许可证
 ├─ .gitignore                        构建产物与临时文件忽略规则
 ├─ .gitattributes                    换行统一（.bat=CRLF / .sh=LF）
-├─ build.bat                         一键构建 apxhost / apxdesktop / apxsetup，随后打开 Web 面板
+├─ build.bat                         一键构建 apxhost / apxdesktop / apxsetup，随后启动桌面面板
 ├─ run.bat                           仅启动面板（需先构建）
 │
 ├─ docs/                             设计与协议文档
@@ -99,23 +101,21 @@ build_host\Release\apxhost.exe serve
 │   └─ tests/
 │
 ├─ pc/                               电脑端（Windows）
-│   ├─ host/                         常驻宿主服务 + Web 控制面板
+│   ├─ host/                         常驻宿主服务（9511 受控端 + 热键）+ 桌面面板源码
 │   │   ├─ CMakeLists.txt
 │   │   ├─ include/apxpc/            公共头：app / api / bandwidth / config / ctrl /
 │   │   │                            discovery / display / hotkey / log / net /
 │   │   │                            platform / sensors / tray / ui / version / ...
 │   │   ├─ res/                      图标（apx.ico）+ 安装包载荷模板（setup_payload.rc.in）
 │   │   ├─ src/
-│   │   │   ├─ host_main.cpp         命令行入口（serve / ui / pair / scene / list /
-│   │   │   │                        wireless / wireless-listen）
+│   │   │   ├─ host_main.cpp         命令行入口（serve / list / ctrl9511-* / wireless*）
 │   │   │   ├─ desktop_main.cpp      桌面端面板入口（apxdesktop.exe，GUI 子系统）
 │   │   │   ├─ setup_main.cpp        安装/卸载（apxsetup.exe，把自己体内的载荷落盘）
 │   │   │   ├─ wireless/             Wi‑Fi 控制通道：WirelessLink（TCP 客户端 +
 │   │   │   │                        SendInput 注入）+ BeaconListener（UDP 信标发现）
 │   │   │   ├─ ui/panel_win32.cpp    桌面端面板（纯 Win32 + GDI+ 自绘，无第三方依赖）
-│   │   │   ├─ app/host_service.cpp  常驻服务编排：HTTP + 热键 + 托盘 + 配置 + 状态广播
-│   │   │   ├─ api/action_router.cpp 动作路由 + 状态聚合（面板唯一控制面）
-│   │   │   ├─ net/http_server.cpp   winsock HTTP/1.1 + SSE + Origin 校验 + 静态资源
+│   │   │   ├─ app/host_service.cpp  常驻服务编排：9511 受控端 + 热键 + 托盘 + 配置
+│   │   │   ├─ api/action_router.cpp 动作路由（v117 起只服务全局热键；HTTP 入口已删）
 │   │   │   ├─ net/json.cpp          极简 JSON（零依赖）
 │   │   │   ├─ config/app_config.cpp config.json 读写与 schemaVersion 迁移
 │   │   │   ├─ bandwidth/arbiter.cpp 统一带宽预算仲裁与降级
@@ -126,16 +126,6 @@ build_host\Release\apxhost.exe serve
 │   │   │   ├─ sensors/               系统传感器读取（工厂 + 平台后端）
 │   │   │   ├─ ctrl/                  控制面传输（HID / bulk）
 │   │   │   ├─ log/ platform/ util/   日志、平台、工具
-│   │   ├─ web/                       控制面板前端（零构建、零 CDN、离线可用）
-│   │   │   ├─ index.html             单页骨架：侧边导航 + 顶部状态条 + 视图容器
-│   │   │   ├─ styles.css             设计系统：令牌、玻璃卡片、动效、响应式
-│   │   │   └─ js/
-│   │   │       ├─ app.js             视图路由 + 全局状态分发 + 顶栏/横幅
-│   │   │       ├─ api.js             动作调用封装（pending/success/error 三态）
-│   │   │       ├─ sse.js             SSE 订阅 + 演示模式 + 连接健康
-│   │   │       ├─ ui.js              通用组件（卡片/指标/开关/分段/折线/横幅…）
-│   │   │       └─ views/             七个视图：overview / screen / devices /
-│   │   │                             touchpad / connection / hotkeys / settings
 │   │   └─ tests/
 │   │       └─ arbiter_test.cpp       带宽仲裁离线单测
 │   │
@@ -188,10 +178,8 @@ build_host\Release\apxhost.exe serve
 
 | 命令 | 说明 |
 | --- | --- |
-| `apxhost ui` | 启动常驻服务并**自动打开**控制面板 |
-| `apxhost serve` | 启动常驻服务，**不**自动打开浏览器 |
-| `apxhost pair` | 启动服务并进入无线配对引导 |
-| `apxhost scene` | 启动服务并应用场景编排 |
+| `apxhost serve` | 启动常驻服务：**9511 受控端 + 全局热键 + 托盘**（v117 起无 Web 界面） |
+| ~~`apxhost ui` / `pair` / `scene`~~ | 已随 Web 控制台下线；执行会提示改用 `apxdesktop` 或 `apxhost serve` |
 | `apxhost list` | 枚举设备后退出 |
 | `apxhost ctrl9511-connect <手机IP>[:端口] [秒数]` | 连入手机/电视 9511 统一控制面并注入输入（默认端口 9511） |
 | `apxhost ctrl9511-remote <手机IP>[:端口] [秒数]` | 远程桌面接管（连入后回传本机屏幕） |
@@ -200,12 +188,6 @@ build_host\Release\apxhost.exe serve
 
 日常使用建议直接跑桌面端 `apxdesktop.exe`（装包后是开始菜单里的「全能外设」），
 它把上面的发现 / 建链 / 注入 / 托盘常驻包成了一个窗口。
-
-### 环境变量
-
-| 变量 | 作用 |
-| --- | --- |
-| `APXPC_WEB_DEV_DIR` | 显式指定前端静态资源目录（例如 `pc\host\web`）。**通常无需设置**：宿主会自动定位 |
 
 ### 配置文件（完整路径）
 

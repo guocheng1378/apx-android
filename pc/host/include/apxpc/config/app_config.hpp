@@ -17,9 +17,8 @@ struct HotkeyBinding {
 struct AppConfig {
     int schemaVersion = kSchemaVersion;
 
-    // 服务
-    uint16_t httpPort = 47990;     // 0 = 随机
-    bool     autoOpenBrowser = true;
+    // 服务（v117：httpPort / autoOpenBrowser 随 Web 控制台下线删除；
+    //       旧 config.json 里的这两个键会被忽略，不影响加载）
     bool     enableTray = true;
     bool     autostart = false;    // 开机自启
     std::string logLevel = "info"; // trace debug info warn error

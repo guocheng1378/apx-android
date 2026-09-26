@@ -49,6 +49,8 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
     private lateinit var cursor: View
     /** 「开启 / 停止被控」按钮：文字随状态变（原先 TV 端**没有任何关闭入口**） */
     private lateinit var toggleService: TextView
+    /** 「谁能控制本机」按钮：文字会随"只允许名单内"开关变化 */
+    private lateinit var accessButton: TextView
 
     /** 可点项（卡片 + 功能按钮）：光标命中测试与焦点同步都用它 */
     private val clickables = ArrayList<View>()
@@ -182,6 +184,16 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
         toggleService = actionButton("停止被控") { confirmToggleService() }
         actions.addView(toggleService)
         col.addView(actions)
+
+        // 第二排：「谁能控制本机」—— TV 端原先**无法选择让哪台设备控制自己**：
+        // 只要知道 IP（或能被发现）的任何设备连上就能控。
+        val actions2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, gap / 2, 0, 0)
+        }
+        accessButton = actionButton("谁能控制本机") { showDeviceAccess() }
+        actions2.addView(accessButton)
+        col.addView(actions2)
 
         col.addView(TextView(this).apply {
             text = "方向键移动焦点，确认键触发；被手机控制时可直接用光标点。" +
@@ -391,6 +403,22 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
      * Activity 重建后也要立刻显示（不能只依赖"连上的那一刻"那次回调）。
      */
     private fun refreshStatus() {
+        // 被控是"已停止"还是"在跑"：按钮文字与整块状态都跟着变 ——
+        // 否则「停止被控」按钮在已停止状态下仍写"停止被控"，用户无从判断当前状态。
+        val running = TvServerService.isEnabled(this) && !TvServerService.isUserStopped(this)
+        toggleService.text = if (running) "停止被控" else "开启被控"
+        // 「谁能控制本机」的角标：一眼看出当前是否限制了名单
+        val onlyMe = TvServerService.onlyTrustedEnabled(this)
+        accessButton.text = if (onlyMe) "谁能控制本机 · 已限名单" else "谁能控制本机 · 谁都能连"
+
+        if (!running) {
+            status.text = "被控已停止（手机无法控制本机）"
+            inject.text = "注入通道：已停止"
+            inject.setTextColor(TvUi.TEXT_DIM)
+            hint.text = "点「开启被控」恢复；停止期间开机不会自动拉起。"
+            return
+        }
+
         status.text = TvServerService.current?.status() ?: getString(R.string.tv_status_waiting)
 
         val full = TvInjector.fullKeyReady()       // evdev / root：任意按键
@@ -404,7 +432,8 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
             }
         )
         hint.text = when {
-            full -> "完整键鼠已就绪：手机的方向键 = 电视焦点移动，按键 / 手柄 / 打字都能用"
+            full -> "完整键鼠已就绪：手机的方向键 = 电视焦点移动，按键 / 手柄 / 打字都能用" +
+                    if (UinputGamepad.ready) "（含手柄摇杆）" else ""
             sys -> "只有无障碍：手机能点击 / 滑动 / 打字，但按键（方向键等）不会生效"
             else -> "未开启任何注入通道：手机只能看到光标、点不动 —— 点「控制能力（自检）」逐项开启"
         }
@@ -440,6 +469,47 @@ class MainActivity : Activity(), TvInputDispatcher.Listener {
             //   用户只能自己翻系统设置，极难发现。
             .setNeutralButton("输入法设置") { _, _ -> openImeSettings() }
             .setNegativeButton("悬浮窗") { _, _ -> openOverlaySettings() }
+            .show()
+    }
+
+    /**
+     * 「谁能控制本机」：设备名单 + 是否只允许名单内。
+     *
+     * TV 端原先**没有任何选择权** —— 任何能连到 9511 的设备都能控本机。
+     * 这里把"曾连入过的设备"列出来（连过才有 IP），勾选 = 允许；
+     * 再把总开关打开，才是真正的"只允许名单内"。默认关闭 → 保持旧行为，不会升级后突然连不上。
+     */
+    private fun showDeviceAccess() {
+        val peers = TvServerService.knownPeerList(this)
+        val trusted = TvServerService.trustedPeers(this).toSet()
+        val onlyTrusted = TvServerService.onlyTrustedEnabled(this)
+
+        if (peers.isEmpty()) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("谁能控制本机")
+                .setMessage(
+                    "还没有设备连过本机。\n\n" +
+                            "让手机先连上一次，这里就会出现它的 IP，届时你可以勾选允许哪些设备控制本机。\n\n" +
+                            "当前：${if (onlyTrusted) "只允许名单内设备（名单为空 = 谁都连不上）" else "谁都能连（默认）"}"
+                )
+                .setPositiveButton("关闭", null)
+                .show()
+            return
+        }
+
+        val checked = BooleanArray(peers.size) { peers[it] in trusted }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("谁能控制本机（只允许名单内：${if (onlyTrusted) "开" else "关"}）")
+            .setMultiChoiceItems(peers.toTypedArray(), checked) { _, which, isChecked ->
+                TvServerService.setPeerTrusted(this, peers[which], isChecked)
+            }
+            .setNeutralButton(if (onlyTrusted) "改回：谁都能连" else "打开：只允许名单内") { _, _ ->
+                TvServerService.setOnlyTrusted(this, !onlyTrusted)
+                refreshStatus()
+                // 用新状态重开一次，用户能立刻接着勾选，不用再点一次按钮
+                mainHandler.postDelayed({ showDeviceAccess() }, 250)
+            }
+            .setPositiveButton("关闭", null)
             .show()
     }
 

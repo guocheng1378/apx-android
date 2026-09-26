@@ -47,10 +47,7 @@ void printUsage() {
         "用法：\n"
         "  apxhost            进入交互式命令循环\n"
         "  apxhost list       枚举设备与系统传感器后退出\n"
-        "  apxhost serve      启动常驻服务（Web 控制面，不自动开浏览器）\n"
-        "  apxhost ui         启动常驻服务并打开控制面板\n"
-        "  apxhost pair       启动服务并进入无线配对引导\n"
-        "  apxhost scene      启动服务并应用场景编排\n"
+        "  apxhost serve      启动常驻服务（9511 受控端 + 全局热键 + 托盘；无 Web 界面）\n"
         "  apxhost ctrl9511-serve [端口] [名称] [秒数]\n"
         "                     启动 9511 受控服务端（默认端口 9511），手机/TV 用「TV 控制」\n"
         "                     即可控 PC；同时广播 APX1PC 信标供手机自动发现（标为 (PC)）\n"
@@ -445,14 +442,16 @@ int main(int argc, char** argv) {
             return runCtrlRemote(hp.first, hp.second, secs);
         }
 
-        // ---- 常驻服务 / Web 控制面板 ----
+        // ---- 常驻服务（v117 起无 Web 控制台：不再有 ui/pair/scene 这些"开浏览器"的入口）----
         apxpc::app::ServiceOptions so;
-        // 开发期从磁盘读取前端（发布期由 CMake 内嵌）
-        if (const char* dev = std::getenv("APXPC_WEB_DEV_DIR")) so.webRoot = dev;
-        if (cmd == "serve")  { so.autoOpenBrowser = false; return apxpc::app::runService(so); }
-        if (cmd == "ui")     { so.autoOpenBrowser = true;  return apxpc::app::runService(so); }
-        if (cmd == "pair")   { so.autoOpenBrowser = true;  return apxpc::app::runService(so); }
-        if (cmd == "scene")  { so.autoOpenBrowser = true;  return apxpc::app::runService(so); }
+        if (cmd == "serve") return apxpc::app::runService(so);
+        if (cmd == "ui" || cmd == "pair" || cmd == "scene") {
+            // 兼容旧习惯：动作已随 Web 下线，明确提示而不是静默变成另一个东西
+            std::fprintf(stderr,
+                         "「%s」已随 Web 控制台下线（v117）。PC 端图形界面请用桌面端「全能外设」(apxdesktop)；\n"
+                         "命令行常驻服务请用：apxhost serve\n", cmd.c_str());
+            return 1;
+        }
 
         std::fprintf(stderr, "未知参数：%s\n", cmd.c_str());
         printUsage();

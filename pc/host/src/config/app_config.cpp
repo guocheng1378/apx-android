@@ -65,8 +65,7 @@ AppConfig loadConfig(const std::string& path) {
     };
 
     cfg.schemaVersion   = num("schemaVersion", kSchemaVersion);
-    cfg.httpPort        = static_cast<uint16_t>(num("httpPort", 47990));
-    cfg.autoOpenBrowser = bol("autoOpenBrowser", true);
+    // v117：不再读 httpPort / autoOpenBrowser（Web 控制台下线）
     cfg.enableTray      = bol("enableTray", true);
     cfg.autostart       = bol("autostart", false);
     cfg.logLevel        = str("logLevel", "info");
@@ -116,8 +115,6 @@ AppConfig loadConfig(const std::string& path) {
 void saveConfig(const std::string& path, const AppConfig& cfg) {
     net::Json j = net::Json::makeObject();
     j["schemaVersion"]   = cfg.schemaVersion;
-    j["httpPort"]        = cfg.httpPort;
-    j["autoOpenBrowser"] = cfg.autoOpenBrowser;
     j["enableTray"]      = cfg.enableTray;
     j["autostart"]       = cfg.autostart;
     j["logLevel"]        = cfg.logLevel;

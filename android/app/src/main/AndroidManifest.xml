@@ -89,6 +89,15 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
+        <!-- 遥控器：方向盘 + OK/返回/主页/菜单 + 音量/媒体 + 电源（控 TV / PC 用） -->
+        <activity
+            android:name=".ui.RemoteActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
+
         <!-- 文件面板：看「收到的文件」并转发给对端（与 TV 端同源交互） -->
         <activity
             android:name=".ui.FilePanelActivity"

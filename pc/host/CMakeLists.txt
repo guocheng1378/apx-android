@@ -165,10 +165,10 @@ else()
   set(APXPC_HOST_LIBS apxpc_core apxpc_discovery apxpc_ctrl apxpc_sensors)
 endif()
 
-# ---------------------------------------------------------------- 目标：常驻服务（Web 控制面 + 热键 + 托盘 + 仲裁）
+# ---------------------------------------------------------------- 目标：常驻服务（9511 受控端 + 热键 + 托盘 + 仲裁）
+# v117：Web 控制台下线 —— 已移除 src/net/http_server.cpp（HTTP 服务与静态资源）
 set(APXPC_SERVICE_SRC
   "${APXPC_ROOT}/src/net/json.cpp"
-  "${APXPC_ROOT}/src/net/http_server.cpp"
   "${APXPC_ROOT}/src/config/app_config.cpp"
   "${APXPC_ROOT}/src/bandwidth/arbiter.cpp"
   "${APXPC_ROOT}/src/display/display_control.cpp"

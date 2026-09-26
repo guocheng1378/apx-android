@@ -953,6 +953,10 @@ class MainActivity : Activity() {
         if (ControlTarget.isControlling()) {
             tvBox.addView(settingRow("断开连接", "回本机", accent) { ControlTarget.clear(); onTargetChanged() })
         }
+        // ★ 遥控器：设置页也有入口（除了触控板页的「遥控器」按钮）
+        tvBox.addView(settingRow("遥控器（方向 / OK / 音量 / 电源）", "打开", accent) {
+            startActivity(Intent(this, RemoteActivity::class.java))
+        })
         // ★ 全屏操控面（触控板 / 键盘 / 副屏三页）原先**只能靠"被控通知"打开**，
         //   而通知要先开被控才出现 —— 鸡生蛋：用户进不去，也就无法在里面关掉被控。
         tvBox.addView(settingRow("全屏操控面（触控板 / 键盘 / 副屏）", "打开", accent) {
@@ -1417,6 +1421,11 @@ class MainActivity : Activity() {
         // 游戏手柄入口：全屏虚拟摇杆 + 按键，经 USB HID 上报（§2.13 Report ID 22）
         findViewById<TextView>(R.id.btnGamepad).setOnClickListener {
             startActivity(Intent(this, GamepadActivity::class.java))
+        }
+        // 遥控器入口（真机反馈"找不到遥控器的界面"）：方向盘 + OK/返回/主页/菜单 + 音量/媒体 + 电源。
+        // 此前遥控能力只藏在键盘页的「遥控」布局与"选中 TV 才自动切换"的快捷键条里，不易发现。
+        findViewById<TextView>(R.id.btnRemote).setOnClickListener {
+            startActivity(Intent(this, RemoteActivity::class.java))
         }
         // 副屏入口：全屏显示 PC 推来的桌面画面（Wi‑Fi 媒体通道 streamId=0）
         findViewById<TextView>(R.id.btnScreen).setOnClickListener {

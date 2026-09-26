@@ -282,8 +282,8 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
     }
 
     // ---- 配置 ----
-    if (name == "config.setPort") { if (auto* v = p.find("port")) { cfg_.httpPort = static_cast<uint16_t>(v->asInt(47990)); persist(); } out["port"] = (double)cfg_.httpPort; return; }
-    if (name == "config.setAutoOpen") { if (auto* v = p.find("value")) { cfg_.autoOpenBrowser = v->asBool(cfg_.autoOpenBrowser); persist(); } out["autoOpen"] = cfg_.autoOpenBrowser; return; }
+    // v117：config.setPort / config.setAutoOpen 随 Web 控制台一并删除
+    //（这两个配置只服务于 HTTP 端口与"启动即开浏览器"，已无消费者）
     if (name == "config.toggleAutostart") { cfg_.autostart = !cfg_.autostart; persist(); out["autostart"] = cfg_.autostart; return; }
     if (name == "config.setLogLevel") { if (auto* v = p.find("level")) { cfg_.logLevel = v->asString(); persist(); } out["level"] = cfg_.logLevel; return; }
 
@@ -322,40 +322,6 @@ void ActionRouter::query(const std::string& name, net::Json& out) {
     }
     if (name == "state") { out = buildState(); return; }
     out = fail("未知查询: " + name);
-}
-
-// ---------------------------------------------------------------- HTTP 入口
-void ActionRouter::handle(const net::HttpRequest& req, net::HttpResponse* res) {
-    res->contentType = "application/json; charset=utf-8";
-    if (req.path.rfind("/api/act/", 0) == 0) {
-        std::string name = req.path.substr(std::strlen("/api/act/"));
-        net::Json payload = net::Json::makeObject();
-        if (!req.body.empty()) { std::string err; payload = net::Json::parse(req.body, &err); if (payload.isNull()) payload = net::Json::makeObject(); }
-        net::Json out;
-        act(name, payload, out);
-        if (out.isObject() && out.has("ok") == false) out["ok"] = true; // act 默认 ok
-        // 动作显式返回 code（如 403 令牌不匹配）时，如实映射为 HTTP 状态码
-        if (out.isObject() && out.has("code")) {
-            int c = out["code"].asInt(200);
-            if (c >= 400) res->status = c;
-        }
-        res->body = out.stringify();
-        return;
-    }
-    if (req.path.rfind("/api/q/", 0) == 0) {
-        std::string name = req.path.substr(std::strlen("/api/q/"));
-        net::Json out;
-        query(name, out);
-        if (name == "diag.download") {
-            res->contentType = "application/json";
-            res->headers["Content-Disposition"] = "attachment; filename=apx-diag.json";
-            res->body = out.isObject() ? out.stringify(2) : std::string("{}");
-        } else {
-            res->body = out.isObject() ? out.stringify() : std::string("{}");
-        }
-        return;
-    }
-    res->status = 404; res->body = fail("not found").stringify();
 }
 
 // ---------------------------------------------------------------- 状态聚合

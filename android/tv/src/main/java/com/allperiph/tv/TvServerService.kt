@@ -133,6 +133,22 @@ class TvServerService : Service() {
         }
         // 对端请求开副屏（0x05）→ 真的把副屏页拉起来（原先这帧被忽略，手机点了电视没反应）
         s.onOpenScreenRequest = { openScreenPage() }
+        // 谁能控制本机：由服务注入策略（名单 + "只允许名单内"开关）
+        s.onAuthorizePeer = { ip -> isPeerAllowed(ip) }
+    }
+
+    /**
+     * 是否允许某 IP 控制本机。
+     *
+     * 默认（"只允许名单内"关闭）**放行所有设备** —— 保持旧行为，升级后不会突然连不上；
+     * 用户把开关打开后，只有勾选过的设备能控制，其余在 [TcpControlServer.activate] 就被拒。
+     */
+    private fun isPeerAllowed(ip: String): Boolean {
+        if (ip.isBlank()) return true
+        if (!onlyTrustedEnabled(applicationContext)) return true
+        val ok = trustedPeers(applicationContext).contains(ip)
+        if (!ok) Log.w("授权拒绝：$ip 不在允许名单（共 ${trustedPeers(applicationContext).size} 个）")
+        return ok
     }
 
     /** 从服务侧拉起副屏页（服务没有 Activity 栈，必须带 NEW_TASK） */
@@ -356,6 +372,39 @@ class TvServerService : Service() {
 
         /** 「用户主动停止过」的标记：有此标记时**不再**自动拉起（见 [startIfNeeded]） */
         const val KEY_USER_STOPPED = "user_stopped"
+
+        /** 被允许控制本机的对端 IP 名单 */
+        private const val KEY_TRUSTED = "trusted_peers"
+
+        /** 「只允许名单内设备控制本机」开关 */
+        private const val KEY_ONLY_TRUSTED = "only_trusted"
+
+        private fun prefsOf(c: Context) = c.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+
+        private fun csv(c: Context, key: String): List<String> =
+            prefsOf(c).getString(key, "")?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
+
+        /** 已知对端（曾连入过的 IP，最近优先）—— 供"谁能控制本机"列表展示 */
+        fun knownPeerList(c: Context): List<String> = csv(c, KEY_PEERS).reversed()
+
+        /** 被允许控制本机的 IP 名单 */
+        fun trustedPeers(c: Context): List<String> = csv(c, KEY_TRUSTED)
+
+        /** 勾选 / 取消勾选某设备（立即落盘，下一次连接即生效） */
+        fun setPeerTrusted(c: Context, ip: String, trusted: Boolean) {
+            val set = trustedPeers(c).toMutableSet()
+            if (trusted) set.add(ip) else set.remove(ip)
+            prefsOf(c).edit().putString(KEY_TRUSTED, set.joinToString(",")).apply()
+            Log.i("允许名单${if (trusted) "加入" else "移除"}：$ip → 共 ${set.size} 个")
+        }
+
+        /** 是否"只允许名单内设备控制本机" */
+        fun onlyTrustedEnabled(c: Context): Boolean = prefsOf(c).getBoolean(KEY_ONLY_TRUSTED, false)
+
+        fun setOnlyTrusted(c: Context, on: Boolean) {
+            prefsOf(c).edit().putBoolean(KEY_ONLY_TRUSTED, on).apply()
+            Log.i("只允许名单内设备控制本机：${if (on) "开" else "关"}")
+        }
 
         /** 是否处于"用户已启用被控"状态（[BootReceiver] 与保活自检据它决定要不要拉起） */
         fun isEnabled(c: Context): Boolean =

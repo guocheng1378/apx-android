@@ -68,6 +68,18 @@ class TcpControlServer(
     @Volatile
     var onOpenScreenRequest: (() -> Unit)? = null
 
+    /**
+     * 是否允许该对端（IP）控制本机 —— **握手通过后、接管连接前**调用（非主线程）。
+     *
+     * 返回 `false` 即拒绝：这条连接会被直接关掉，**不做接管**。
+     * 注意必须在接管**之前**判定：否则未被允许的设备会把当前连接踢掉
+     * （见 [activate] 里的"新连接接管"逻辑），"只允许名单内设备"就成了摆设。
+     *
+     * 策略由 [com.allperiph.tv.TvServerService] 注入（名单 + "只允许名单内"开关）。
+     */
+    @Volatile
+    var onAuthorizePeer: ((String) -> Boolean)? = null
+
     private val running = AtomicBoolean(false)
     private var acceptThread: Thread? = null
     private var readerThread: Thread? = null
@@ -202,6 +214,17 @@ class TcpControlServer(
     }
 
     private fun activate(sock: Socket) {
+        // ★★ 先过授权：**握手通过 ≠ 有权控制**。没被允许的对端必须在接管之前挡掉，
+        //    否则它会先把当前连接踢掉（见下面的接管逻辑），"只允许名单内设备"形同虚设。
+        val ip = sock.inetAddress?.hostAddress ?: ""
+        if (onAuthorizePeer?.invoke(ip) == false) {
+            Log.w("拒绝未授权设备的控制请求：${peerTextOf(sock)}（不在允许名单）")
+            // 电视上必须看得见：否则用户只会觉得"手机连上又马上断了"，无从判断是被拒了
+            TvInjector.toast("已拒绝 ${peerTextOf(sock)} 的控制请求（不在允许名单）")
+            runCatching { sock.close() }
+            return
+        }
+
         // ★ 接管：走到这里说明新连接**已完成握手**（必要时还通过了令牌校验），才有资格踢旧连接。
         //   旧连接可能是僵尸 —— 对端被强杀 / 换网时收不到 FIN，收流线程会一直阻塞在 read 上
         //   （TCP 黑洞），ready 永远是 true；这里关掉它，让它的读写线程立刻醒来退出。
@@ -604,6 +627,9 @@ class TcpControlServer(
             put(0x4A, 3 to '\u0000')           // Home（遥控器「主页」；受系统注入限制可能不生效）
             put(0x4C, 112 to '\u0000')         // Delete
             put(0x66, 26 to '\u0000')          // Keyboard Power → KEYCODE_POWER（电源键/锁屏）
+            // 遥控器「菜单键」（Keyboard Application）。手机端遥控界面会发 0x65；
+            // 原先表里没有它 → 查表得到 (0,'\u0000')，两个分支都不动作，等于**静默丢弃**。
+            put(0x65, 82 to '\u0000')          // Application / Menu → KEYCODE_MENU
             put(0x4F, 22 to '\u0000')          // Right
             put(0x50, 21 to '\u0000')          // Left
             put(0x51, 20 to '\u0000')          // Down
