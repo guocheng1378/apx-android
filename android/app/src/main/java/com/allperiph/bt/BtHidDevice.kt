@@ -11,6 +11,7 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import com.allperiph.core.ApxNative
 import com.allperiph.core.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
@@ -96,9 +97,15 @@ class BtHidDevice(private val appContext: Context) : Module {
         runCatching {
             val qos = BluetoothHidDeviceAppQosSettings(
                 BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250, 11250)
+            // 优先使用 native 描述符（与 shared/ 协议库一致），fallback 到硬编码版本
+            val desc = if (ApxNative.isAvailable) {
+                runCatching { ApxNative.btReportDescriptor() }.getOrNull() ?: BtHidDescriptor.bytes
+            } else {
+                BtHidDescriptor.bytes
+            }
             val smi = BluetoothHidDeviceAppSdpSettings(
                 "AllPeriph", "AllPeriph HID", "AllPeriph",
-                BluetoothHidDevice.SUBCLASS1_COMBO, BtHidDescriptor.bytes)
+                BluetoothHidDevice.SUBCLASS1_COMBO, desc)
             hidDevice?.registerApp(smi, null, qos, { it.run() }, callback)
         }.onFailure {
             state = ModuleState.ERROR
@@ -114,6 +121,25 @@ class BtHidDevice(private val appContext: Context) : Module {
         if (!isConnected || !hasConnect()) return
         val r = byteArrayOf(0x01, buttons.toByte(), dx.toByte(), dy.toByte(), wheel.toByte(), pan.toByte())
         runCatching { hidDevice?.sendReport(null, 0x01, r) }
+    }
+
+    /**
+     * 蓝牙键盘报告（Report ID 2）。
+     * @param mod 修饰键位图（bit0=LCtrl .. bit7=RGUI）
+     * @param keys 最多 6 个 HID Usage Code（USB HID Boot Protocol 格式）
+     */
+    fun reportKeyboard(mod: Int, keys: ByteArray) {
+        if (!isConnected || !hasConnect()) return
+        // 格式：[ReportID=0x02, Modifier, 0x00(reserved), Key0..Key5] = 8 bytes
+        val r = ByteArray(8)
+        r[0] = 0x02  // Report ID
+        r[1] = mod.toByte()
+        // r[2] = 0 (reserved)
+        for (i in 0 until minOf(keys.size, 6)) {
+            r[3 + i] = keys[i]
+        }
+        runCatching { hidDevice?.sendReport(null, 0x02, r) }
+            .onFailure { Log.w(TAG, "reportKeyboard failed: ${it.message}") }
     }
 
     fun reportConsumer(keyBitmap: Int) {
@@ -139,6 +165,11 @@ class BtHidDevice(private val appContext: Context) : Module {
     companion object { private const val TAG = "BtHidDevice" }
 }
 
+/**
+ * 蓝牙 HID 描述符（fallback 版本）。
+ * 仅当 ApxNative 不可用（libapx.so 未加载）时使用；
+ * native 版描述符通过 [ApxNative.btReportDescriptor] 获取，保证与 shared/ 协议库一致。
+ */
 object BtHidDescriptor {
     val bytes: ByteArray = byteArrayOf(
         0x05, 0x01, 0x09, 0x02, 0xA1.toByte(), 0x01, 0x09, 0x01, 0xA1.toByte(), 0x00,
