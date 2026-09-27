@@ -10,117 +10,125 @@ import com.allperiph.tv.ui.MainActivity
 
 /**
  * TV 端系统级输入注入（AccessibilityService）。
- *
- * **必须**由用户在「设置 → 无障碍 → 全能外设输入」里手动开启。
- * 需要 `QUERY_ALL_PACKAGES`（Manifest 已声明）才能拿到其它 App 的窗口节点。
- *
- * 本服务同时承担两个职责：
- * 1. **输入注入**（已有）：接收对端发来的文本/点击指令，注入到当前聚焦的输入框
- * 2. **焦点检测**（新增）：检测本机 EditText 获焦 → 发送 REQUEST_INPUT 到对端设备
- *
- * 注意：本服务运行在主线程，所有耗时操作需异步。
+ * 与手机端 [com.allperiph.controlled.ApxAccessibilityService] 逐字节同实现，仅包名不同。
  */
 class ApxAccessibilityService : AccessibilityService() {
 
-    /**
-     * 文本注入回调（由 MainActivity 注册）。
-     * 接收对端发来的文本，注入到本机当前聚焦的输入框。
-     */
     var onTextInject: ((String) -> Unit)? = null
 
-    /**
-     * 焦点检测回调（新增）。
-     * 本机 EditText 获焦时触发，参数为 hint 文字。
-     * 调用方应发送 REQUEST_INPUT 帧到对端设备。
-     */
+    /** 焦点检测回调：本机 EditText 获焦时触发 */
     var onFocusDetected: ((String) -> Unit)? = null
 
-    /** 防环标记：当前处于远程输入模式，不回推焦点检测 */
+    /** 防环标记：远程输入模式下不触发焦点检测 */
     @Volatile
     var remoteInputMode = false
 
-    /** 远程输入来源 ID（防环用） */
-    @Volatile
-    var remoteSourceId: Int = 0
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        Log.i("APX 无障碍服务已连接")
+    }
 
-    override fun onInterrupt() {}
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
         when (event.eventType) {
-            // ———— 已有：点击注入 ————
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                val node = event.source ?: return
-                val text = node.text?.toString() ?: return
-                // 检查是否是输入框的"提交"按钮（如搜索图标、确认键）
-                if (isSubmitAction(node)) {
-                    Log.i(TAG, "检测到提交动作，注入回车键")
-                    onTextInject?.invoke("\n")
-                }
-            }
-
-            // ———— 新增：输入框焦点检测 ————
+            // 新增：输入框焦点检测
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
-                // 防环：远程输入模式下不触发焦点检测
                 if (remoteInputMode) return
-
                 val node = event.source ?: return
                 val className = node.className?.toString() ?: return
-
-                // 检测 EditText 获焦
                 if (className.contains("EditText") || className.contains("AutoCompleteTextView")) {
-                    val hint = node.hint?.toString()
+                    // AccessibilityNodeInfo 没有 hint 属性，用 contentDescription 或 text
+                    val hint = node.contentDescription?.toString()
                         ?: node.text?.toString()
                         ?: ""
-                    Log.i(TAG, "检测到输入框获焦: hint=$hint")
+                    Log.i("检测到输入框获焦: hint=$hint")
                     onFocusDetected?.invoke(hint)
-                }
-            }
-
-            // ———— 已有：文本变化（用于检测输入框内容变化）———
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                val node = event.source ?: return
-                val className = node.className?.toString() ?: return
-                if (className.contains("EditText")) {
-                    // 文本变化时，如果不在远程输入模式，可以触发焦点检测
-                    if (!remoteInputMode && event.fromIndex == 0 && event.toIndex == 0) {
-                        // 输入框被清空，可能是用户手动删除
-                    }
                 }
             }
         }
     }
 
-    /** 判断节点是否是"提交"类操作（搜索图标、确认键等） */
-    private fun isSubmitAction(node: AccessibilityNodeInfo): Boolean {
-        val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-        val text = node.text?.toString()?.lowercase() ?: ""
-        return desc.contains("搜索") || desc.contains("search") ||
-               desc.contains("确认") || desc.contains("ok") ||
-               text.contains("搜索") || text.contains("search")
+    override fun onInterrupt() {}
+
+    fun tap(x: Float, y: Float): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 24) return false
+        val p = android.graphics.Path()
+        p.moveTo(x, y); p.lineTo(x + 1f, y + 1f)
+        val gb = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 12)).build()
+        return dispatchGesture(gb, null, null)
     }
 
-    override fun onServiceConnected() {
-        super.onServiceConnected()
-        Log.i(TAG, "无障碍服务已连接")
+    fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, durMs: Long): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 24) return false
+        val p = android.graphics.Path()
+        p.moveTo(x1, y1); p.lineTo(x2, y2)
+        val gb = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, durMs.coerceAtLeast(10))).build()
+        return dispatchGesture(gb, null, null)
     }
+
+    fun typeText(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val root = rootInActiveWindow ?: return false
+        try {
+            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+            val cur = node.text?.toString() ?: ""
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, cur + text)
+            }
+            return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args).also { node.recycle() }
+        } finally { root.recycle() }
+    }
+
+    fun deleteChar(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        try {
+            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+            val cur = node.text?.toString() ?: ""
+            if (cur.isEmpty()) return false
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, cur.dropLast(1))
+            }
+            return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args).also { node.recycle() }
+        } finally { root.recycle() }
+    }
+
+    fun paste(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return false
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("APX", text))
+        val root = rootInActiveWindow ?: return false
+        return try {
+            val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+            val ok = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            node.recycle(); ok
+        } finally { root.recycle() }
+    }
+
+    fun longPress(x: Float, y: Float): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 24) return false
+        val p = android.graphics.Path()
+        p.moveTo(x, y); p.lineTo(x + 1f, y + 1f)
+        return dispatchGesture(GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(p, 0, 600)).build(), null, null)
+    }
+
+    fun lockScreen(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 28) performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) else false
+
+    fun back() = performGlobalAction(GLOBAL_ACTION_BACK)
+    fun home() = performGlobalAction(GLOBAL_ACTION_HOME)
+    fun recents() = performGlobalAction(GLOBAL_ACTION_RECENTS)
 
     companion object {
-        private const val TAG = "ApxAccessibility"
-
-        /** 获取当前运行的服务实例（静态引用，供外部调用） */
         @Volatile
         var instance: ApxAccessibilityService? = null
-            private set
-    }
 
-    init {
-        instance = this
-    }
-
-    override fun onDestroy() {
-        instance = null
-        super.onDestroy()
+        fun isReady(): Boolean = instance != null
     }
 }
