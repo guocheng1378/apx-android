@@ -35,6 +35,8 @@ class TvServerService : Service() {
         s.onOpenScreenRequest = { openScreenPage() }
         s.onAuthorizePeer = { ip -> isPeerAllowed(ip) }
         s.onRemoteInputRequest = { fromDevice, hint -> Log.i("远程输入请求: from=$fromDevice hint=$hint"); val i = Intent(ACTION_REMOTE_INPUT); i.putExtra(EXTRA_SOURCE, fromDevice); i.putExtra(EXTRA_HINT, hint); i.setPackage(packageName); sendBroadcast(i) }
+        s.onRemoteInputText = { text, flags -> Log.i("远程输入文本回传: text=$text flags=$flags") }
+        s.onRemoteInputDone = { Log.i("远程输入完成回传") }
     }
     private fun isPeerAllowed(ip: String): Boolean { if (ip.isBlank()) return true; if (!onlyTrustedEnabled(applicationContext)) return true; val ok = trustedPeers(applicationContext).contains(ip); if (!ok) Log.w("授权拒绝：$ip 不在允许名单"); return ok }
     private fun openScreenPage() { runCatching { val i = Intent(applicationContext, com.allperiph.tv.ui.TvScreenActivity::class.java); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i) }.onFailure { Log.w("拉起副屏页失败：${it.message}") } }
@@ -50,6 +52,10 @@ class TvServerService : Service() {
     fun mediaStatus(): String = media?.statusText() ?: "媒体：未启动"
     fun sendTargets(): List<String> { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); return out.distinct() }
     fun currentPeer(): String? = server?.currentPeerHost()
+    /** 远程输入：将 TV 端用户输入的文本发回手机端 */
+    fun sendInputText(text: String, flags: Int = 0x01) { server?.sendInputText(text, flags) }
+    /** 远程输入：通知手机端输入完成 */
+    fun sendInputDone() { server?.sendInputDone() }
     private fun injectStateText(): String = TvInjector.channelText()
     private fun refreshNotification() { runCatching { getSystemService(NotificationManager::class.java)?.notify(NOTIFY_ID, buildNotification(server?.statusText() ?: "服务启动中")) } }
     private fun rememberPeer(ip: String) { val set = knownPeers().toMutableSet(); if (set.add(ip)) { getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(KEY_PEERS, set.toList().takeLast(8).joinToString(",")).apply() } }
