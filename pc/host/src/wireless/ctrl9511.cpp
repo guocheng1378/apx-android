@@ -636,7 +636,8 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbReqInput = onRequestInput;
     const auto cbInputText = onRemoteInputText;
     const auto cbInputDone = onRemoteInputDone;
-    im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone] {
+    const auto cbSpecialKey = onSpecialKey;
+    im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -685,6 +686,9 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                     }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x27) {
                     if (cbInputDone) cbInputDone();
+                } else if (h.streamId == apx::kStreamControl && payload[0] == 0x28 && bodyLen >= 2) {
+                    // v184：特殊键/组合键（手机编辑快捷键排）：[0x28, mod, vk]
+                    if (cbSpecialKey) cbSpecialKey(payload[1], payload[2]);
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
                     im->pingPending_.store(false);

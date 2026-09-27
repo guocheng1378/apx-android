@@ -375,12 +375,18 @@ object TvInjector {
     }
 
     /** 剪贴板文本：写入被控端系统剪贴板，并尝试填入当前聚焦输入框 */
+    /** v184：最近一次程序性剪贴板写入时间（uptimeMs）—— ControlledService 回传抑制用 */
+    @Volatile var lastProgrammaticClipWriteMs: Long = 0L
+
     fun clipboard(text: String) {
         val c = ctx ?: return
         val cm = c.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         // Android 10+：无焦点的 App setPrimaryClip 会被静默丢弃，这里记下结果用于诊断
         runCatching { cm?.setPrimaryClip(ClipData.newPlainText("APX", text)) }
-            .onSuccess { com.allperiph.core.Log.i("TvInjector", "远程剪贴板：setPrimaryClip 已调用（后台 App 可能被系统丢弃，看 IME 通道）") }
+            .onSuccess {
+                lastProgrammaticClipWriteMs = android.os.SystemClock.uptimeMillis()
+                com.allperiph.core.Log.i("TvInjector", "远程剪贴板：setPrimaryClip 已调用（后台 App 可能被系统丢弃，看 IME 通道）")
+            }
             .onFailure { com.allperiph.core.Log.e("TvInjector", "远程剪贴板：setPrimaryClip 异常 ${it.message}") }
         // ① 输入法通道：**中文**只有这条最稳 —— root 的 `input text` 只支持 ASCII，
         //    无障碍 ACTION_SET_TEXT 在 MIUI / 自绘输入框上又常被拒。

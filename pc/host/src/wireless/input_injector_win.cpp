@@ -281,6 +281,13 @@ public:
     uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};
 };
 
+// v184：剪贴板回传抑制窗口。injectSystemText 的"写入→Ctrl+V→还原"会让
+// ClipboardWatcher 触发两次，每次都经 0x21 回传对端、对端再写剪贴板 ——
+// 用户剪贴板在多个值之间乱跳。注入期间设置抑制窗口，watcher 静默。
+std::atomic<ULONGLONG> g_clipSuppressUntilMs{0};
+void clipSuppressFor(DWORD ms) { g_clipSuppressUntilMs.store(GetTickCount64() + ms); }
+bool clipSuppressed() { return GetTickCount64() < g_clipSuppressUntilMs.load(); }
+
 // 剪贴板轮询监听：每 500ms 比对一次 Unicode 文本，变化则回调。
 class WinClipboardWatcher : public ClipboardWatcher {
 public:
@@ -292,7 +299,11 @@ public:
             while (running_) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 std::string cur = readClipboardUtf8();
-                if (!cur.empty() && cur != last) { last = cur; cb_(cur); }
+                if (!cur.empty() && cur != last) {
+                    last = cur;
+                    // v184：注入窗口内的变化静默吸收（last 已更新，抑制期后不会补发）
+                    if (!clipSuppressed()) cb_(cur);
+                }
             }
         });
         return true;
@@ -311,8 +322,13 @@ std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     std::function<void(const std::string&)> cb) {
     return std::make_unique<WinClipboardWatcher>(std::move(cb));
 }
-bool setSystemClipboard(const std::string& text) { return writeClipboardUtf8(text); }
+bool setSystemClipboard(const std::string& text) {
+    clipSuppressFor(600);   // v184：程序性写入不回传（防 0x21→写→watcher→0x21 回环）
+    return writeClipboardUtf8(text);
+}
 std::string readSystemClipboard() { return readClipboardUtf8(); }
+namespace { void sendSpecialKeyImpl(uint8_t mod, uint8_t vk); }
+bool injectSpecialKey(uint8_t mod, uint8_t vk) { sendSpecialKeyImpl(mod, vk); return true; }
 
 namespace {
 
@@ -338,6 +354,28 @@ void sendCtrlV() {
     fill(2, 'V', true);
     fill(3, VK_CONTROL, true);
     ::SendInput(4, in, sizeof(INPUT));
+}
+
+// v184：特殊键/组合键注入实现（0x28 帧）。mod 位图：1=Ctrl 2=Shift 4=Alt。
+// 公开导出版 injectSpecialKey 在匿名 namespace 外（供 wireless_session 调用）。
+void sendSpecialKeyImpl(uint8_t mod, uint8_t vk) {
+    INPUT in[5] = {};
+    size_t n = 0;
+    auto key = [&](WORD v, bool up) {
+        in[n].type = INPUT_KEYBOARD;
+        in[n].ki.wVk = v;
+        in[n].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0u;
+        ++n;
+    };
+    if (mod & 1) key(VK_CONTROL, false);
+    if (mod & 2) key(VK_SHIFT, false);
+    if (mod & 4) key(VK_MENU, false);
+    key(vk, false);
+    key(vk, true);
+    if (mod & 4) key(VK_MENU, true);
+    if (mod & 2) key(VK_SHIFT, true);
+    if (mod & 1) key(VK_CONTROL, true);
+    ::SendInput(static_cast<UINT>(n), in, sizeof(INPUT));
 }
 
 /// 文本是否需要走剪贴板：含非 ASCII、含换行、或较长时逐字符键入不可靠。

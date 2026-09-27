@@ -89,9 +89,18 @@ WirelessSession::WirelessSession() {
     // 远程输入回传（0x26）：对端用户在手机/TV 上敲的字，就地注入**本机当前光标处**。
     // 回调跑在 9511 的 reader 线程；injectSystemText 内部是 SendInput / 剪贴板 + Ctrl+V，
     // 都是线程安全的，不需要绕回 UI 线程。
-    client_.onRemoteInputText = [](const std::string& text, uint8_t /*flags*/) {
+    client_.onRemoteInputText = [](const std::string& text, uint8_t flags) {
+        // v184：BACKSPACE（0x02）此前被当作空文本直接吞掉 —— 手机端删除键失灵的根因
+        if (flags & 0x02) {   // INPUT_FLAG_BACKSPACE（ApxFrame.kt 定义，PC 侧无此常量）
+            apxpc::wireless::injectSpecialKey(0, VK_BACK);
+            return;
+        }
         if (!apxpc::wireless::injectSystemText(text))
             APX_LOGW("远程输入文本注入失败（{} 字节）", static_cast<unsigned>(text.size()));
+    };
+    // v184：0x28 特殊键/组合键（手机编辑快捷键排：方向键/Home/End/Del/Ctrl+A…）
+    client_.onSpecialKey = [](uint8_t mod, uint8_t vk) {
+        apxpc::wireless::injectSpecialKey(mod, vk);
     };
     client_.onRemoteInputDone = [] { APX_LOGI("远程输入完成"); };
 

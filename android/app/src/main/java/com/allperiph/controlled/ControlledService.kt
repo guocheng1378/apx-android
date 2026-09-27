@@ -19,6 +19,10 @@ class ControlledService : Service() {
     private var server: TvControlServer? = null
     private var beacon: WirelessBeacon? = null
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+        // v184：程序性写入抑制 —— 收到 PC 的 0x20 后 TvInjector.clipboard 会写剪贴板，
+        // 这里若照常回传 0x21，PC 端 watcher 又写又回传，剪贴板内容来回乱跳。
+        // 程序性写入后 600ms 内的变化静默吸收（真实用户复制不受影响）。
+        if (android.os.SystemClock.uptimeMillis() - TvInjector.lastProgrammaticClipWriteMs < 600) return@OnPrimaryClipChangedListener
         val text = currentClipboardText()
         if (!text.isNullOrEmpty()) server?.sendReverseClipboard(text)
     }

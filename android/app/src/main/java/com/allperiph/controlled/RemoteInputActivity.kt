@@ -67,6 +67,29 @@ class RemoteInputActivity : Activity() {
         }
         editText = input
         root.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+        // v184：文字编辑快捷键排 —— 退格/方向/跳转/组合键经 0x28 特殊键帧直达 PC
+        // （手机输入框只负责新增文本；对 PC 上已有内容的修改全走这里）
+        fun editKey(label: String, mod: Int, vk: Int) = TextView(this).apply {
+            text = label; setTextColor(Color.WHITE); textSize = 13f; gravity = Gravity.CENTER
+            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
+            setBackgroundColor(Color.parseColor("#FF2A2A3E"))
+            isFocusable = true; contentDescription = label
+            setOnClickListener { ControlledService.server?.sendSpecialKey(mod, vk) }
+        }
+        val editKeys = listOf(
+            "⌫" to (0 to 0x08), "Del" to (0 to 0x2E),
+            "←" to (0 to 0x25), "↑" to (0 to 0x26), "↓" to (0 to 0x28), "→" to (0 to 0x27),
+            "Home" to (0 to 0x24), "End" to (0 to 0x23),
+            "Tab" to (0 to 0x09), "Enter" to (0 to 0x0D),
+            "全选" to (1 to 0x41), "复制" to (1 to 0x43), "粘贴" to (1 to 0x56), "剪切" to (1 to 0x58),
+        )
+        val keyRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((label, mk) in editKeys) keyRow.addView(editKey(label, mk.first, mk.second))
+        val keyScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(keyRow)
+        }
+        root.addView(keyScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f); bottomMargin = dp(8f) })
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         btnRow.addView(TextView(this).apply {
             text = "取消"; setTextColor(Color.WHITE); textSize = 14f; typeface = Typeface.DEFAULT_BOLD

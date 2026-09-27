@@ -211,6 +211,9 @@ public:
     /// 反向剪贴板回调：受控端剪贴板变化时回传（写入本机剪贴板由调用方决定）。
     std::function<void(const std::string&)> onReverseClipboard;
 
+    /// v184：0x28 特殊键/组合键（手机编辑快捷键排）→ mod 位图 1=Ctrl 2=Shift 4=Alt
+    std::function<void(uint8_t, uint8_t)> onSpecialKey;
+
     /// 远程输入回调：对端请求我输入文本时触发（hint=提示语）
     std::function<void(const std::string&)> onRequestInput;
     /// 远程输入回调：对端发回的输入文本（text=文本, flags=标志位）
@@ -222,5 +225,9 @@ private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
+
+/// v184：特殊键/组合键注入（UTF 文本之外的方向键/删除/编辑快捷键）。
+/// mod 位图：1=Ctrl 2=Shift 4=Alt。实现见 input_injector_win.cpp。
+bool injectSpecialKey(uint8_t mod, uint8_t vk);
 
 }  // namespace apxpc::wireless

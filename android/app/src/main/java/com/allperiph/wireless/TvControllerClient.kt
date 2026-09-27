@@ -167,6 +167,8 @@ class TvControllerClient(
 
     fun mouse(buttons: Int, dx: Int, dy: Int, wheel: Int = 0) = sendControl(byteArrayOf(0x01.toByte(), buttons.toByte(), dx.toByte(), dy.toByte(), wheel.toByte()))
     fun touch(action: Int, buttons: Int, x: Int, y: Int) = sendControl(byteArrayOf(0x04.toByte(), action.toByte(), buttons.toByte(), (x and 0xFF).toByte(), ((x shr 8) and 0xFF).toByte(), (y and 0xFF).toByte(), ((y shr 8) and 0xFF).toByte(), 0, 0))
+    /** v184：特殊键/组合键（0x28）：mod 位图 1=Ctrl 2=Shift 4=Alt，vk 用 Windows VK 码 */
+    fun sendSpecialKey(mod: Int, vk: Int) = sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte()))
     fun keyboard(usage: Int, down: Boolean, mod: Int = 0) = if (down) sendControl(byteArrayOf(0x03.toByte(), mod.toByte(), 0, usage.toByte())) else sendControl(byteArrayOf(0x03.toByte(), 0, 0, 0))
     fun consumer(bitmap: Int) = sendControl(byteArrayOf(0x02.toByte(), (bitmap and 0xFF).toByte(), ((bitmap ushr 8) and 0xFF).toByte()))
     fun power(action: Int) = sendControl(byteArrayOf(0x22.toByte(), action.toByte()))

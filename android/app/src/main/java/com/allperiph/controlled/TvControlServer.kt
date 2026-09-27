@@ -352,6 +352,9 @@ class TvControlServer(
 
     fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
 
+    /** v184：特殊键/组合键（0x28）——手机编辑快捷键排 → PC/TV 注入。mod：1=Ctrl 2=Shift 4=Alt */
+    fun sendSpecialKey(mod: Int, vk: Int) { sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte())) }
+
     private fun readU32Le(ins: InputStream): Int {
         val b = ByteArray(4); if (!readFully(ins, b)) return -1
         var v = 0; for (i in 0 until 4) v = v or ((b[i].toInt() and 0xFF) shl (8 * i)); return v
