@@ -455,10 +455,6 @@ class TvControlServer(
 
     // ————————————————————————————— 远程输入帧处理 —————————————————————————————
 
-    /**
-     * REQUEST_INPUT（0x25）：对端请求本机输入。
-     * body=[0x25, sourceId:u32, hintLen:u8, hint:utf8]
-     */
     private fun onRequestInput(body: ByteArray) {
         if (body.size < 6) return
         val hintLen = body[5].toInt() and 0xFF
@@ -470,10 +466,6 @@ class TvControlServer(
         }
     }
 
-    /**
-     * INPUT_TEXT（0x26）：对端发来输入文本。
-     * body=[0x26, flags:u8, textLen:u16 LE, text:utf8]
-     */
     private fun onInputText(body: ByteArray) {
         if (body.size < 4) return
         val flags = body[1].toInt() and 0xFF
@@ -486,9 +478,6 @@ class TvControlServer(
         }
     }
 
-    /**
-     * INPUT_DONE（0x27）：对端输入完成。
-     */
     private fun onInputDone() {
         Log.i("被控控制面", "远程输入完成")
         mainHandler.post {
