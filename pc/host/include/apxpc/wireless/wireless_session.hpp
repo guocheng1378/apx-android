@@ -87,6 +87,14 @@ public:
     /// 线程安全的状态快照。
     SessionSnapshot snapshot() const;
 
+    /// 把文本作为剪贴板帧（0x20）发给**当前已连接**的受控端（手机 / TV）。
+    /// 未连接、文本为空或超长（>64KB）返回 false —— 由调用方决定如何告知用户，
+    /// 这里不弹窗也不静默假装成功。
+    bool sendClipboard(const std::string& text);
+
+    /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
+    bool connected() const;
+
 private:
     enum class Mode { Idle, Auto, Manual };
 

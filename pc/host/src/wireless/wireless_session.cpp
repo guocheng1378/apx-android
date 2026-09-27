@@ -257,6 +257,14 @@ SessionSnapshot WirelessSession::snapshot() const {
     return snap_;
 }
 
+bool WirelessSession::sendClipboard(const std::string& text) {
+    // client_ 自带线程安全（内部入队 + writer 线程），UI 线程可直接调，不必绕后台。
+    if (!client_.ready()) return false;
+    return client_.sendClipboard(text);
+}
+
+bool WirelessSession::connected() const { return client_.ready(); }
+
 #if defined(_WIN32)
 /// 来源地址是否就是本机（网络字节序）。
 /// 为什么必须有：本机的定向广播会被自己收到，不过滤就会把**自己的信标**当成对端，

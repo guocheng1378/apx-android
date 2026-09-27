@@ -99,6 +99,10 @@ std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
 /// 成功返回 true；平台未接入时返回 false（如实降级，不假装成功）。
 bool setSystemClipboard(const std::string& text);
 
+/// 读**本机**剪贴板文本（UTF-8）。失败或空剪贴板返回空串。
+/// 对应「把电脑上复制的内容主动发给手机」这条方向（与 0x21 自动回传不同：那是被动监听）。
+std::string readSystemClipboard();
+
 // ---------------------------------------------------------- 9511 受控服务端 ----
 struct Ctrl9511ServerStatus {
     bool listening = false;

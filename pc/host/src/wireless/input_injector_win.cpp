@@ -39,6 +39,25 @@ bool writeClipboardUtf8(const std::string& text) {
     return ok;
 }
 
+/// 读系统剪贴板（CF_UNICODETEXT → UTF-8）。失败 / 空剪贴板返回空串。
+/// 与 [writeClipboardUtf8] 配对：一个写、一个读，剪贴板监听与主动发送共用同一份实现。
+std::string readClipboardUtf8() {
+    std::wstring w;
+    if (!::OpenClipboard(nullptr)) return {};
+    HANDLE h = ::GetClipboardData(CF_UNICODETEXT);
+    if (h) {
+        const auto* p = static_cast<const wchar_t*>(::GlobalLock(h));
+        if (p) { w = p; ::GlobalUnlock(h); }
+    }
+    ::CloseClipboard();
+    if (w.empty()) return {};
+    const int n = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return {};
+    std::string s(static_cast<size_t>(n) - 1, '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), n, nullptr, nullptr);
+    return s;
+}
+
 int usageToVk(uint8_t u) {
     if (u >= 0x04 && u <= 0x1D) return 'A' + (u - 0x04);
     if (u >= 0x1E && u <= 0x26) return '1' + (u - 0x1E);
@@ -268,36 +287,17 @@ public:
     bool start() override {
         running_ = true;
         thread_ = std::thread([this] {
-            std::wstring last;
+            std::string last;
             while (running_) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                std::wstring cur = readClipboard();
-                if (!cur.empty() && cur != last) { last = cur; cb_(toUtf8(cur)); }
+                std::string cur = readClipboardUtf8();
+                if (!cur.empty() && cur != last) { last = cur; cb_(cur); }
             }
         });
         return true;
     }
     void stop() override { running_ = false; if (thread_.joinable()) thread_.join(); }
 private:
-    static std::wstring readClipboard() {
-        std::wstring out;
-        if (!::OpenClipboard(nullptr)) return out;
-        HANDLE h = ::GetClipboardData(CF_UNICODETEXT);
-        if (h) {
-            const auto* p = static_cast<const wchar_t*>(::GlobalLock(h));
-            if (p) { out = p; ::GlobalUnlock(h); }
-        }
-        ::CloseClipboard();
-        return out;
-    }
-    static std::string toUtf8(const std::wstring& w) {
-        int n = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
-        if (n <= 0) return {};
-        std::string s(static_cast<size_t>(n), '\0');
-        ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], n, nullptr, nullptr);
-        s.pop_back();
-        return s;
-    }
     std::function<void(const std::string&)> cb_;
     std::atomic<bool> running_{false};
     std::thread thread_;
@@ -311,6 +311,7 @@ std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     return std::make_unique<WinClipboardWatcher>(std::move(cb));
 }
 bool setSystemClipboard(const std::string& text) { return writeClipboardUtf8(text); }
+std::string readSystemClipboard() { return readClipboardUtf8(); }
 
 }  // namespace apxpc::wireless
 

@@ -2361,6 +2361,27 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     // 托盘右键 →「文件传输…」：打开收/发面板。回调跑在**托盘线程**，这里只发消息，
     // 真正的窗口在面板线程创建（见 kMsgTrayFilePanel）—— 跨线程建窗口会消息泵错乱。
     panel.tray->setFilePanelCallback([hwnd] { PostMessageW(hwnd, kMsgTrayFilePanel, 0, 0); });
+    // 托盘右键 →「把剪贴板发给手机」：读本机剪贴板，经 9511（帧 0x20）发给当前受控端。
+    // v1.34：此前面板/托盘都没有任何剪贴板入口（协议与实现都有，就是没人调用它），
+    // 现在从托盘补一个最省事的入口：复制 → 点它 → 手机上粘贴。
+    // 回调跑在托盘线程：WirelessSession::sendClipboard 内部入队 + writer 线程，可直接调；
+    // 托盘气泡 Shell_NotifyIcon 线程安全，也不必绕回 UI 线程。
+    panel.tray->setClipboardCallback([&panel] {
+        const std::string text = apxpc::wireless::readSystemClipboard();
+        if (text.empty()) {
+            panel.tray->notify("剪贴板是空的", "先复制一段文字，再点托盘里的「把剪贴板发给手机」");
+            return;
+        }
+        if (!panel.session || !panel.session->connected()) {
+            panel.tray->notify("还没连上受控设备",
+                               "发剪贴板要先有一条 9511 连接（手机开被控模式 / 面板里选中设备）");
+            return;
+        }
+        const bool ok = panel.session->sendClipboard(text);
+        const std::string preview = text.size() > 40 ? text.substr(0, 40) + "…" : text;
+        panel.tray->notify(ok ? "剪贴板已发送" : "剪贴板发送失败",
+                           ok ? preview : preview + "（控制面未就绪，稍后再试）");
+    });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
 
     // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，
