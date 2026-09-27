@@ -30,7 +30,7 @@
 | 帧类型 | ID | 方向 | Payload | 说明 |
 |--------|-----|------|---------|------|
 | `REQUEST_INPUT` | `0x25` | A→B | `[hint_len:u8, hint:utf8]` | 请求 B 设备输入 |
-| `INPUT_TEXT` | `0x26` | B→A | `[flags:u8, text_len:u16, text:utf8]` | 实时输入文本 |
+| `INPUT_TEXT` | `0x26` | B→A | `[flags:u8, text_len:u16LE, text:utf8]` | 实时输入文本 |
 | `INPUT_DONE` | `0x27` | B→A | 无 | 输入完成 |
 
 ### 2.2 INPUT_TEXT flags
@@ -46,22 +46,40 @@
 
 ## 三、已实现的改动
 
+### 手机端（App 模块）
+
 | 文件 | 改动 | commit |
 |------|------|--------|
 | `ApxFrame.kt` | 新增 0x25/0x26/0x27 帧类型 + pack 方法 | `faa3e7e` |
-| `TcpControlServer.kt`（TV） | 处理 0x25/0x26/0x27 帧 | `eff266a` |
-| `TvControlServer.kt`（手机被控） | 处理 0x25/0x26/0x27 帧 | `0fe8dd2` |
-| `TvControllerClient.kt`（手机控TV） | 新增 requestInput/sendInputText/sendInputDone + 接收回调 | `2436e25` |
-| `ApxAccessibilityService.kt`（TV） | 焦点检测 → 发 REQUEST_INPUT | `7ceb1db` |
-| `RemoteInputOverlay.kt`（TV） | 远程输入覆盖层 UI | `f986886` |
+| `TvControlServer.kt` | 处理 0x25/0x26/0x27 帧（被控模式） | 多个 |
+| `TvControllerClient.kt` | requestInput/sendInputText/sendInputDone（控 TV 模式） | `2436e25` |
+| `ApxAccessibilityService.kt` | 焦点检测 → 发 REQUEST_INPUT | `7ceb1db` |
+| `RemoteInputActivity.kt` | 手机端远程输入覆盖层 UI | 原有 |
+| `ControlledService.kt` | 接线 onRemoteInputRequest → 启动 RemoteInputActivity | 原有 |
+
+### TV 端（TV 模块）
+
+| 文件 | 改动 | commit |
+|------|------|--------|
+| `TcpControlServer.kt` | 处理 0x25/0x26/0x27 帧 | `eff266a` |
+| `ApxAccessibilityService.kt` | 焦点检测 → 发 REQUEST_INPUT | `7ceb1db` |
+| `RemoteInputOverlay.kt` | TV 端远程输入覆盖层 UI | `f986886` |
+| `TvServerService.kt` | 新增 sendInputText/sendInputDone 转发 + 接线回调 | `561987a` |
+| `MainActivity.kt`（TV） | RemoteInputOverlay 回调接线 + 首页 UI 补全 | `d4fdc46` / `be7dcfe` |
 
 ---
 
 ## 四、剩余工作
 
-| 线 | 剩什么 | 难度 |
-|----|--------|------|
-| 线 2 | 手机端 `MainActivity` 复用 `RemoteInputOverlay` | 低 |
-| 线 3 | 手机端 `ApxAccessibilityService` 同样加焦点检测 | 低 |
-| 线 4 | 手机端删除 `PAGE_KEYBOARD` 和 8 套键盘布局 | 中 |
-| PC 端 | `ctrl_channel.cpp` + `panel_win32.cpp` 加远程输入 | 高 |
+| 线 | 剩什么 | 难度 | 状态 |
+|----|--------|------|------|
+| 线 4 | 手机端删除 `PAGE_KEYBOARD` 和 8 套键盘布局 | 中 | 待做（85K 文件，需手动操作） |
+| PC 端 | `ctrl_channel.cpp` + `panel_win32.cpp` 加远程输入 | 高 | 未开始 |
+
+---
+
+## 五、BUG 修复记录
+
+| 问题 | 修复 | commit |
+|------|------|--------|
+| `TvControlServer.onRequestInput()` hintLen 偏移错误（body[5]→body[1]） | 与 `TvControllerClient.requestInput()` 格式对齐 | `6818074` |
