@@ -20,6 +20,9 @@ import com.allperiph.core.Log
 
 class RemoteInputActivity : Activity() {
     private var editText: EditText? = null
+    /** 程序性改写输入框时置 true：TextWatcher 会把“删字”当成退格发往电脑，
+     *  发送后清空输入框绝不能触发它（否则刚发出去的字会被逐个删掉）。 */
+    private var suppressInputWatcher = false
     private var sourceDevice: String = ""
     private var hintText: String = ""
 
@@ -55,6 +58,7 @@ class RemoteInputActivity : Activity() {
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    if (suppressInputWatcher) return
                     val text = s?.toString() ?: return
                     if (count > before && start + count <= text.length) {
                         ControlledService.server?.sendInputText(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
@@ -127,7 +131,8 @@ class RemoteInputActivity : Activity() {
                 else -> false
             }
         }
-        root.addView(touchpad, LinearLayout.LayoutParams(-1, dp(170f)).apply { bottomMargin = dp(10f) })
+        // 触控板不再插在输入框和编辑键排之间：挪到编辑键排之后、占满剩余高度（见下方 addView），
+        // 这样它落在屏幕中部、拇指最好按的位置，键盘弹出时也处在可视区中央。
         // v184：文字编辑快捷键排 —— 退格/方向/跳转/组合键经 0x28 特殊键帧直达 PC
         // （手机输入框只负责新增文本；对 PC 上已有内容的修改全走这里）
         fun editKey(label: String, mod: Int, vk: Int) = TextView(this).apply {
@@ -151,6 +156,11 @@ class RemoteInputActivity : Activity() {
             addView(keyRow)
         }
         root.addView(keyScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f); bottomMargin = dp(8f) })
+        // 触控板 = 本页中部的主区域：weight 占满输入区与按钮排之间的剩余空间
+        root.addView(touchpad, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            topMargin = dp(4f); bottomMargin = dp(10f)
+            touchpad.minimumHeight = dp(150f)
+        })
         val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         btnRow.addView(TextView(this).apply {
             text = "取消"; setTextColor(Color.WHITE); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
@@ -162,10 +172,20 @@ class RemoteInputActivity : Activity() {
             text = "发送"; setTextColor(Color.WHITE); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
             setBackgroundColor(Color.parseColor("#3482FF"))
+            // 发送后**留在面板**（清空输入框接着打下一句）；收起整个面板走「取消」或系统返回。
+            // 以前发完就 finish()，想连着打就得重新唤起 —— 手机端反馈“一点发送就跳出界面”。
             setOnClickListener {
                 val t = editText?.text?.toString() ?: ""
-                if (t.isNotEmpty()) ControlledService.server?.sendInputText(t, ApxFrame.INPUT_FLAG_COMMIT)
-                ControlledService.server?.sendInputDone(); finish()
+                if (t.isEmpty()) {
+                    Toast.makeText(this@RemoteInputActivity, "先输入要发送的内容", Toast.LENGTH_SHORT).show()
+                } else {
+                    ControlledService.server?.sendInputText(t, ApxFrame.INPUT_FLAG_COMMIT)
+                    suppressInputWatcher = true          // 清空动作绝不能被当成退格发给电脑
+                    editText?.setText("")
+                    suppressInputWatcher = false
+                    editText?.requestFocus()             // 焦点回到输入框，键盘保持弹出
+                    Toast.makeText(this@RemoteInputActivity, "已发送到电脑", Toast.LENGTH_SHORT).show()
+                }
             }
         }.also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } })
         root.addView(btnRow)
