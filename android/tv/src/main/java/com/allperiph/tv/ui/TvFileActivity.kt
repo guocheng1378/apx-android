@@ -1,13 +1,16 @@
 package com.allperiph.tv.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.StrictMode
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,8 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * TV 文件传输面板（遥控器友好、尺寸自适应）。
  *
- *  · 上半：**收到的文件**列表（手机推过来的都在 [TvFiles.recvDir]）—— 选中一个即可**发回对端**；
- *  · 下半：从本机再挑一个文件发出去（电视上通常没有 DocumentsUI，失败会如实提示，不假装成功）；
+ *  · 上半：**收到的文件**列表（手机推过来的都在 [TvFiles.recvDir]）——
+ *    点击文件弹出操作选择：**打开**（安装 APK / 查看其他文件）或**发送回对端**；
+ *  · 下半：从本机再挑一个文件发出去（电视上通常没有 DocumentsUI，失败会如实提示）；
  *  · 发送目标不要求手输 IP：用「当前连入方 → 曾连过的对端」，按一下就能切换。
  *
  * 界面全部走 [TvUi] 的自适应尺寸 + 过扫描安全边距，DPAD 焦点用两态背景显示（见 [TvUi.focusBg]）。
@@ -48,6 +52,10 @@ class TvFileActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // FileProvider 安装 APK 需要 strictMode 关闭 file:// 检查
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            StrictMode.VmPolicy.Builder().build().let { StrictMode.setVmPolicy(it) }
+        }
         window.setBackgroundDrawableResource(android.R.color.black)
         setContentView(buildUi())
         refreshTargets()
@@ -131,7 +139,7 @@ class TvFileActivity : Activity() {
         foot.addView(statusView, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(foot, LinearLayout.LayoutParams(-1, -2))
 
-        status("就绪：选中「收到的文件」即发回对端", TvUi.TEXT_DIM)
+        status("就绪：点击文件可打开或发送回对端", TvUi.TEXT_DIM)
         return root
     }
 
@@ -175,7 +183,7 @@ class TvFileActivity : Activity() {
         val dir = TvFiles.recvDir(this)
         dirView.text = "接收目录：${dir.absolutePath}"
         val files = TvFiles.listReceived(this)
-        countView.text = "收到的文件：${files.size} 个（选中即发回对端）"
+        countView.text = "收到的文件：${files.size} 个"
         listBox.removeAllViews()
         if (files.isEmpty()) {
             listBox.addView(TextView(this).apply {
@@ -201,7 +209,7 @@ class TvFileActivity : Activity() {
             isClickable = true
             setPadding(gap * 2, gap, gap * 2, gap)
             background = TvUi.focusBg(TvUi.CARD, TvUi.CARD_FOCUS, radius, stroke)
-            setOnClickListener { sendFile(f) }
+            setOnClickListener { showFileActions(f) }
         }
         val name = TextView(this).apply {
             text = f.name
@@ -217,12 +225,120 @@ class TvFileActivity : Activity() {
             TvUi.applyTextSize(this, 13f)
         })
         row.addView(TextView(this).apply {
-            text = "  发送"
+            text = "  打开"
             setTextColor(TvUi.ACCENT)
             TvUi.applyTextSize(this, 14f)
             typeface = Typeface.DEFAULT_BOLD
         })
         return row
+    }
+
+    // ——————————————————————————————— 打开/安装 ———————————————————————————————
+
+    /** 点击文件后弹出操作选择：打开 或 发送 */
+    private fun showFileActions(f: File) {
+        val isApk = f.name.endsWith(".apk", ignoreCase = true)
+        val options = if (currentTarget() != null) {
+            arrayOf("打开", "发送到对端")
+        } else {
+            arrayOf("打开")
+        }
+        AlertDialog.Builder(this)
+            .setTitle(f.name)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> openFile(f)
+                    1 -> sendFile(f)
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /** 打开文件：APK → 安装；其他 → ACTION_VIEW */
+    private fun openFile(f: File) {
+        if (f.name.endsWith(".apk", ignoreCase = true)) {
+            installApk(f)
+        } else {
+            openGeneric(f)
+        }
+    }
+
+    /** 安装 APK：Android 8+ 需要 REQUEST_INSTALL_PACKAGES 权限 */
+    private fun installApk(f: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!packageManager.canRequestPackageInstalls()) {
+                // 跳转到系统设置开启安装权限
+                status("需要授权安装未知来源应用，正在跳转设置…", TvUi.ACCENT)
+                val intent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(Uri.parse("package:$packageName"))
+                try {
+                    startActivity(intent)
+                } catch (e: ActivityNotFoundException) {
+                    status("本机不支持安装第三方应用", TvUi.WARN)
+                }
+                return
+            }
+        }
+        val uri = Uri.Builder()
+            .scheme("content")
+            .authority("${packageName}.fileprovider")
+            .appendPath("files")
+            .appendPath("APX")
+            .appendPath(f.name)
+            .build()
+        // Android 7+ StrictMode 禁止 file:// URI，用 FileProvider
+        val installUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            try {
+                androidx.core.content.FileProvider.getUriForFile(this, "${packageName}.fileprovider", f)
+            } catch (_: Throwable) {
+                // FileProvider 未配置时降级到 file:// + 临时关闭 StrictMode
+                Uri.fromFile(f)
+            }
+        } else {
+            Uri.fromFile(f)
+        }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(installUri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            status("正在安装 ${f.name}…", TvUi.ACCENT)
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            status("没有找到安装器，请检查「未知来源」权限", TvUi.WARN)
+        } catch (e: SecurityException) {
+            status("安装被拒绝：${e.message}", TvUi.WARN)
+        }
+    }
+
+    /** 打开非 APK 文件（图片/视频/文档等） */
+    private fun openGeneric(f: File) {
+        val uri = Uri.fromFile(f)
+        val mime = guessMime(f.name)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            status("本机没有能打开 ${mime ?: "此文件类型"} 的应用", TvUi.WARN)
+        }
+    }
+
+    private fun guessMime(name: String): String? = when {
+        name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"
+        name.endsWith(".png", true) -> "image/png"
+        name.endsWith(".gif", true) -> "image/gif"
+        name.endsWith(".mp4", true) -> "video/mp4"
+        name.endsWith(".mkv", true) -> "video/x-matroska"
+        name.endsWith(".mp3", true) -> "audio/mpeg"
+        name.endsWith(".txt", true) -> "text/plain"
+        name.endsWith(".pdf", true) -> "application/pdf"
+        name.endsWith(".zip", true) -> "application/zip"
+        else -> null
     }
 
     // ——————————————————————————————— 发送 ———————————————————————————————
