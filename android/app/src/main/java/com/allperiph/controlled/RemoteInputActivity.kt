@@ -14,11 +14,11 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.allperiph.core.ApxFrame
 import com.allperiph.core.Log
 
 class RemoteInputActivity : Activity() {
-
     private var editText: EditText? = null
     private var sourceDevice: String = ""
     private var hintText: String = ""
@@ -43,7 +43,7 @@ class RemoteInputActivity : Activity() {
             setPadding(dp(24f), dp(16f), dp(24f), dp(16f))
         }
         val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(TextView(this).apply { text = "🔵 输入中"; setTextColor(Color.parseColor("#3482FF")); textSize = 14f })
+        titleRow.addView(TextView(this).apply { text = "\uD83D\uDD35 输入中"; setTextColor(Color.parseColor("#3482FF")); textSize = 14f })
         titleRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
         titleRow.addView(TextView(this).apply { text = "来自「$sourceDevice」"; setTextColor(Color.parseColor("#99FFFFFF")); textSize = 13f })
         root.addView(titleRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
@@ -55,8 +55,8 @@ class RemoteInputActivity : Activity() {
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    val text = s?.toString() ?: ""
-                    if (count > before) {
+                    val text = s?.toString() ?: return
+                    if (count > before && start + count <= text.length) {
                         ControlledService.server?.sendInputText(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
                     } else if (count < before) {
                         ControlledService.server?.sendInputText("", ApxFrame.INPUT_FLAG_BACKSPACE)
