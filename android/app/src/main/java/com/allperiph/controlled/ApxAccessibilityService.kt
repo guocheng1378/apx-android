@@ -33,7 +33,7 @@ class ApxAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         mainHandler = Handler(Looper.getMainLooper())
-        Log.i("APX 被控无障碍服务已连接")
+        Log.i("APX", "被控无障碍服务已连接")
     }
 
     override fun onDestroy() {
@@ -49,11 +49,8 @@ class ApxAccessibilityService : AccessibilityService() {
                 val node = event.source ?: return
                 val className = node.className?.toString() ?: return
                 if (className.contains("EditText") || className.contains("AutoCompleteTextView")) {
-                    // AccessibilityNodeInfo 没有 hint 属性，用 contentDescription 或 text
-                    val hint = node.contentDescription?.toString()
-                        ?: node.text?.toString()
-                        ?: ""
-                    Log.i("APX 被控检测到输入框获焦: hint=$hint")
+                    val hint = event.text?.toString() ?: node.contentDescription?.toString() ?: ""
+                    Log.i("APX", "检测到输入框获焦: $hint")
                     onFocusDetected?.invoke(hint)
                 }
             }
