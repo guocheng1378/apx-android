@@ -23,6 +23,8 @@ class RemoteInputActivity : Activity() {
     /** 程序性改写输入框时置 true：TextWatcher 会把“删字”当成退格发往电脑，
      *  发送后清空输入框绝不能触发它（否则刚发出去的字会被逐个删掉）。 */
     private var suppressInputWatcher = false
+    /** 增量发送失败的节流提示（2.5s 一条，别刷屏） */
+    private var lastFailHintAt = 0L
     private var sourceDevice: String = ""
     private var hintText: String = ""
 
@@ -61,7 +63,26 @@ class RemoteInputActivity : Activity() {
                     if (suppressInputWatcher) return
                     val text = s?.toString() ?: return
                     if (count > before && start + count <= text.length) {
-                        ControlledService.server?.sendInputText(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
+                        // 逐字增量上屏：这是文字到电脑的**唯一**通道 ——
+                        // 发送按钮不再整段重发（COMMIT=整段再粘一遍，两种帧都注入就是
+                        // 用户报的“发送后文字重复两次”）。所以失败必须当场提示，不能悄悄丢字。
+                        // sendInputText 返回 Unit（不报发送结果），这里只能判断
+                        // “被控服务在不在”：不在 = 这一帧根本没发出去，必须提示用户。
+                        val ok = ControlledService.server?.let {
+                            it.sendInputText(
+                                text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL
+                            )
+                            true
+                        } ?: false
+                        if (!ok) {
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastFailHintAt > 2500) {
+                                lastFailHintAt = now
+                                Toast.makeText(this@RemoteInputActivity,
+                                    "没发出去 —— 连接断了？恢复后这段要重新打",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                        }
                     } else if (count < before) {
                         ControlledService.server?.sendInputText("", ApxFrame.INPUT_FLAG_BACKSPACE)
                     }
@@ -77,8 +98,18 @@ class RemoteInputActivity : Activity() {
         //   滑动 = 移动光标（相对位移，分帧限幅 ±127）
         //   轻点 = 左键点击（按下/抬起两帧）
         //   长按 400ms 后拖动 = 左键拖拽
+        var lastTouchLogAt = 0L
         fun mouseFrame(buttons: Int, dx: Int, dy: Int) {
-            ControlledService.server?.sendControl(byteArrayOf(0x01.toByte(), buttons.toByte(), dx.toByte(), dy.toByte(), 0))
+            val now = android.os.SystemClock.uptimeMillis()
+            val ok = ControlledService.server?.sendControl(
+                byteArrayOf(0x01.toByte(), buttons.toByte(), dx.toByte(), dy.toByte(), 0)
+            ) ?: false
+            // 节流 500ms：现场诊断"触控板到底发没发帧 / 被控链路通不通"
+            if (now - lastTouchLogAt > 500) {
+                lastTouchLogAt = now
+                if (ok) Log.i("RemoteInput", "触控板已发鼠标帧 buttons=$buttons dx=$dx dy=$dy")
+                else Log.w("RemoteInput", "触控板发送失败（被控链路未就绪？）")
+            }
         }
         var tpDown = false; var tpDrag = false
         var tpLastX = 0f; var tpLastY = 0f
@@ -174,12 +205,16 @@ class RemoteInputActivity : Activity() {
             setBackgroundColor(Color.parseColor("#3482FF"))
             // 发送后**留在面板**（清空输入框接着打下一句）；收起整个面板走「取消」或系统返回。
             // 以前发完就 finish()，想连着打就得重新唤起 —— 手机端反馈“一点发送就跳出界面”。
+            //
+            // 这里**绝不发 COMMIT 整段帧**：打字时 TextWatcher 已把每个字符以 INCREMENTAL
+            // 逐字送到电脑并即时上屏；COMMIT 的语义是“整段再粘一遍”，PC 端两种帧都注入，
+            // 结果就是用户报的“发送后文字重复两次”。发送只负责收尾：DONE 帧 + 清空继续。
             setOnClickListener {
                 val t = editText?.text?.toString() ?: ""
                 if (t.isEmpty()) {
                     Toast.makeText(this@RemoteInputActivity, "先输入要发送的内容", Toast.LENGTH_SHORT).show()
                 } else {
-                    ControlledService.server?.sendInputText(t, ApxFrame.INPUT_FLAG_COMMIT)
+                    ControlledService.server?.sendInputDone()
                     suppressInputWatcher = true          // 清空动作绝不能被当成退格发给电脑
                     editText?.setText("")
                     suppressInputWatcher = false

@@ -64,7 +64,11 @@ class RemoteInputOverlay(
         panel.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
         val btnRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         btnRow.addView(makeButton("取消", TvUi.Pal.neutral) { onTextChanged("", 0x08); onCancel(); hide() })
-        btnRow.addView(makeButton("发送", TvUi.Pal.accent) { val t = mEditText?.text?.toString() ?: ""; if (t.isNotEmpty()) onTextChanged(t, 0x04); onSend(); hide() })
+        // 发送**不再整段重发**（0x04 COMMIT）：打字时上面的 TextWatcher 已把每个字符
+        // 以 0x01 增量送到 PC 并即时上屏，再发 0x04 会被 PC 整段再粘一遍 ——
+        // 用户报的“发送后文字重复两次”（与手机端 RemoteInputActivity 同一根因）。
+        // 发送只负责收尾：DONE 帧 + 收起浮层（整个面板每次 show() 都重建，无残留文本）。
+        btnRow.addView(makeButton("发送", TvUi.Pal.accent) { onSend(); hide() })
         panel.addView(btnRow)
         val container = FrameLayout(activity)
         container.addView(mask, FrameLayout.LayoutParams(-1, -1))
