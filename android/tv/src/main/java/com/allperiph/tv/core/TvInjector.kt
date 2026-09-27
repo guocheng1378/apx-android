@@ -172,16 +172,26 @@ object TvInjector {
     fun click() = tapAt(cursorX, cursorY)
 
     fun tapAt(x: Float, y: Float) {
+        // 通道顺序：**无障碍手势优先，root 兜底**。
+        // 根因（真机实测）：这台 ROM 的 SELinux 是 Enforcing，root shell 的
+        // `u:r:toolbox:s0` 域没有 INJECT_EVENTS，`input tap/swipe/keyevent` 发出的
+        // 事件被内核静默丢弃；而 RootInput.run() 只把命令写进 su 的 stdin 就返回
+        // true —— 日志显示"成功"，实际一个点击都没落地。无障碍 dispatchGesture
+        // 是系统级真实触摸注入，实测可靠，所以放在最前。
+        if (systemReady() && ApxAccessibilityService.instance?.tap(x, y) == true) {
+            android.util.Log.i("TvInjector", "tapAt(${x.toInt()}, ${y.toInt()}) 走无障碍手势成功")
+            return
+        }
         if (RootInput.available && RootInput.run("input tap ${x.toInt()} ${y.toInt()}")) return
-        if (systemReady()) ApxAccessibilityService.instance?.tap(x, y)
+        android.util.Log.w("TvInjector", "tapAt(${x.toInt()}, ${y.toInt()}) 失败：无障碍与 root 通道均未生效")
     }
 
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
+        if (systemReady() && ApxAccessibilityService.instance?.swipe(x1, y1, x2, y2, ms) == true) return
         if (RootInput.available && RootInput.run(
                 "input swipe ${x1.toInt()} ${y1.toInt()} ${x2.toInt()} ${y2.toInt()} $ms"
             )
         ) return
-        if (systemReady()) ApxAccessibilityService.instance?.swipe(x1, y1, x2, y2, ms)
     }
 
     fun touchDown(fx: Float, fy: Float) {
@@ -230,19 +240,19 @@ object TvInjector {
     }
 
     private fun longPress(x: Float, y: Float) {
+        if (systemReady() && ApxAccessibilityService.instance?.longPress(x, y) == true) return
         if (RootInput.available && RootInput.run("input swipe ${x.toInt()} ${y.toInt()} ${x.toInt()} ${y.toInt()} 600")) return
-        if (systemReady()) ApxAccessibilityService.instance?.longPress(x, y)
     }
 
     /** 滚轮 → 被控端滚动（一格 ≈ 屏高 1/10；正 = 内容上滚）。以前滚轮帧被直接忽略。 */
     fun scroll(notches: Int) {
         if (notches == 0) return
         val step = screenH / 10f * notches
+        if (systemReady() && ApxAccessibilityService.instance?.swipe(cursorX, cursorY, cursorX, cursorY - step, 220) == true) return
         if (RootInput.available && RootInput.run(
                 "input swipe ${cursorX.toInt()} ${cursorY.toInt()} ${cursorX.toInt()} ${(cursorY - step).toInt()} 220"
             )
         ) return
-        if (systemReady()) ApxAccessibilityService.instance?.swipe(cursorX, cursorY, cursorX, cursorY - step, 220)
     }
 
     fun key(kc: Int, down: Boolean) {
