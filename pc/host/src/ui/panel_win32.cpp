@@ -12,6 +12,19 @@
 //
 // 线程纪律（关键）：所有 socket I/O 都在 WirelessSession 的 worker 线程里；
 // UI 只表达意图、按定时器读快照，**不做跨线程回调** —— 避免"回调里刷 UI"竞态。
+//
+// ---------------------------------------------------------------------------
+// 新增一个可点控件要改的地方（v1.33 整理：按清单逐项确认，不要凭记忆）
+//   1. struct Layout              —— 加 Rect 字段
+//   2. scaleLayout()              —— 在登记表里补一项（漏了 = 高分屏上它不放大）
+//   3. layout()                   —— 算坐标
+//   4. hitTest()                  —— 矩形命中判定
+//   5. paint()                    —— 绘制
+//   6. Hit 枚举 + performHit()     —— 仅交互控件需要，两者成对出现
+//   7. savePanelState()/loadPanelState() —— 仅「需要持久化的功能开关」需要
+//   8. createChildren()/positionChildren()—— 仅原生子控件（EDIT/COMBO）需要
+// 第 2 项原本是逐字段手写 sc(l.xxx)，曾经 + 将来最容易漏，现已改成登记表遍历。
+// ---------------------------------------------------------------------------
 #include "apxpc/ui/panel.hpp"
 #include <cstdio>
 
@@ -101,6 +114,14 @@ constexpr Gdiplus::ARGB stateWarn      = 0xFFF79009;   // state_warn
 constexpr Gdiplus::ARGB stateError     = 0xFFF04438;   // state_error
 constexpr Gdiplus::ARGB stateIdle      = 0xFF98A2B3;   // state_idle
 constexpr Gdiplus::ARGB fieldBg        = 0xFFF2F3F5;   // 输入框底（同背景色）
+// v1.33：下面几个色值原本内联在 paintButton / paintSwitch 里。
+// 它们是 out-of-token 的「孤立 hex」——想微调某个按钮手感时，得先在 2000 行里把它翻出来。
+// 取值保持原样，只是搬到这里，与 Android 的 colors.xml 令牌表一一对应。
+constexpr Gdiplus::ARGB btnPressed     = 0xFFE0E3E8;   // 次按钮按下
+constexpr Gdiplus::ARGB btnHover       = 0xFFE6E9EE;   // 次按钮悬停
+constexpr Gdiplus::ARGB btnStroke      = 0xFFC9CED6;   // 次按钮描边（常态）
+constexpr Gdiplus::ARGB trackOffHot    = 0xFFDCE0E6;   // 开关轨道（关 + 悬停）
+constexpr Gdiplus::ARGB trackOff       = 0xFFE4E7EC;   // 开关轨道（关 + 常态）
 }  // namespace tok
 
 // ——— DPI 适配（高分屏不再被系统位图拉伸发虚）———
@@ -170,8 +191,6 @@ struct Layout {
          speakerCombo, speakerDevice, speakerDetail, btnTestSpeaker;
     Rect cardMic, labelMic, switchMicFwd, micStatus, labelMicDev, micCombo, micDetail;
 
-    Rect phoneStateLine;           // 「手机端：……」状态行（连接卡下方，两端状态同步展示）
-
     Rect hdrWired;                 // 「有线」分类标题（蓝牙或 USB 开时出现）
     Rect cardBt, labelBtCard, btStatus, btDetail;
     Rect cardUsb, labelUsbCard, usbStatus, usbDetail;
@@ -191,21 +210,30 @@ void scaleLayout(Layout& l) {
         r.w = static_cast<int>(r.w * gScale);
         r.h = static_cast<int>(r.h * gScale);
     };
-    sc(l.badge); sc(l.cardConn); sc(l.titleConn);
-    sc(l.lblWifi); sc(l.swWifi); sc(l.lblBt); sc(l.swBt); sc(l.lblUsb); sc(l.swUsb);
-    sc(l.connStatus);
-    sc(l.fieldHost); sc(l.fieldPort); sc(l.editHost); sc(l.editPort);
-    sc(l.hdrWireless);
-    sc(l.cardScreen); sc(l.labelScreen); sc(l.switchScreen); sc(l.segMirror); sc(l.segExtend);
-    sc(l.screenStatus); sc(l.screenDetail); sc(l.labelBitrate); sc(l.segBr1); sc(l.segBr2); sc(l.segBr3);
-    sc(l.labelRes); sc(l.segRes1); sc(l.segRes2); sc(l.segRes3); sc(l.segRes4);
-    sc(l.cardSpeaker); sc(l.labelSpeaker); sc(l.switchSpeaker); sc(l.speakerStatus);
-    sc(l.labelSpeakerDev); sc(l.speakerCombo); sc(l.speakerDevice); sc(l.speakerDetail); sc(l.btnTestSpeaker);
-    sc(l.cardMic); sc(l.labelMic); sc(l.switchMicFwd); sc(l.micStatus); sc(l.labelMicDev); sc(l.micCombo); sc(l.micDetail);
-    sc(l.phoneStateLine);
-    sc(l.hdrWired); sc(l.cardBt); sc(l.labelBtCard); sc(l.btStatus); sc(l.btDetail);
-    sc(l.cardUsb); sc(l.labelUsbCard); sc(l.usbStatus); sc(l.usbDetail);
-    sc(l.switchAuto); sc(l.labelAuto); sc(l.btnHide); sc(l.btnQuit); sc(l.btnSettings);
+    // v1.33：改成「登记表」遍历。原先每个矩形手写一遍 sc(l.xxx)，Layout 里每加一个字段
+    // 就要记得到这里补一行 —— 漏补的后果很隐蔽：125%/150% 屏上唯独那个控件不跟着放大，
+    // 肉眼很难说清是布局算错还是忘了登记。现在只需在本表补一项。
+    for (Rect* r : {
+             &l.badge, &l.cardConn, &l.titleConn,
+             &l.lblWifi, &l.swWifi, &l.lblBt, &l.swBt, &l.lblUsb, &l.swUsb,
+             &l.connStatus,
+             &l.fieldHost, &l.fieldPort, &l.editHost, &l.editPort,
+             &l.hdrWireless,
+             &l.cardScreen, &l.labelScreen, &l.switchScreen, &l.segMirror, &l.segExtend,
+             &l.screenStatus, &l.screenDetail,
+             &l.labelBitrate, &l.segBr1, &l.segBr2, &l.segBr3,
+             &l.labelRes, &l.segRes1, &l.segRes2, &l.segRes3, &l.segRes4,
+             &l.cardSpeaker, &l.labelSpeaker, &l.switchSpeaker, &l.speakerStatus,
+             &l.labelSpeakerDev, &l.speakerCombo, &l.speakerDevice, &l.speakerDetail,
+             &l.btnTestSpeaker,
+             &l.cardMic, &l.labelMic, &l.switchMicFwd, &l.micStatus, &l.labelMicDev,
+             &l.micCombo, &l.micDetail,
+             &l.hdrWired, &l.cardBt, &l.labelBtCard, &l.btStatus, &l.btDetail,
+             &l.cardUsb, &l.labelUsbCard, &l.usbStatus, &l.usbDetail,
+             &l.switchAuto, &l.labelAuto, &l.btnHide, &l.btnQuit, &l.btnSettings,
+         }) {
+        sc(*r);
+    }
     l.totalH = static_cast<int>(l.totalH * gScale);
 }
 
@@ -1014,10 +1042,10 @@ void paintButton(Gdiplus::Graphics& g, const Rect& r, const std::wstring& label,
         fill = pressed ? tok::primaryPressed : (hot ? tok::primaryHover : tok::primary);
         fg = 0xFFFFFFFF;
     } else {
-        fill = pressed ? 0xFFE0E3E8 : (hot ? 0xFFE6E9EE : tok::variant);
+        fill = pressed ? tok::btnPressed : (hot ? tok::btnHover : tok::variant);
         fg = tok::onSurface;
         drawStroke = true;   // 白卡上的浅色按钮边界太弱，加描边才看得清
-        stroke = hot ? tok::primary : 0xFFC9CED6;
+        stroke = hot ? tok::primary : tok::btnStroke;
     }
     Gdiplus::GraphicsPath path;
     buildRoundRect(r, static_cast<float>(r.h) / 2.0f, path);
@@ -1030,25 +1058,12 @@ void paintButton(Gdiplus::Graphics& g, const Rect& r, const std::wstring& label,
     text(g, label, r, f, fg, 1);
 }
 
-void paintRadio(Gdiplus::Graphics& g, const Rect& row, const std::wstring& label, bool on,
-                bool hot, Gdiplus::Font& f) {
-    const float cx = static_cast<float>(row.x) + 9.0f * gScale;
-    const float cy = static_cast<float>(row.y + row.h / 2);
-    const Gdiplus::ARGB ring = on ? tok::primary : (hot ? tok::onVariant : 0xFFC4C9D0);
-    Gdiplus::Pen pen(ring, 2.0f * gScale);
-    g.DrawEllipse(&pen, cx - 8.0f * gScale, cy - 8.0f * gScale, 16.0f * gScale, 16.0f * gScale);
-    if (on) {
-        Gdiplus::SolidBrush dot(tok::primary);
-        g.FillEllipse(&dot, cx - 4.0f * gScale, cy - 4.0f * gScale, 8.0f * gScale, 8.0f * gScale);
-    }
-    text(g, label, Rect{row.x + 26, row.y, row.w - 26, row.h}, f,
-         on ? tok::onSurface : tok::onVariant);
-}
-
+// （单选控件已无适用场景，相关的 paintRadio 实现连同其孤立的 ring 色值一并删除；
+//  分段/开关/#AREA 用 paintSegmented / paintSwitch 表达。）
 void paintSwitch(Gdiplus::Graphics& g, const Rect& r, bool on, bool hot) {
     const float rad = static_cast<float>(r.h) / 2.0f;
     const Gdiplus::ARGB track =
-        on ? (hot ? tok::primaryHover : tok::primary) : (hot ? 0xFFDCE0E6 : 0xFFE4E7EC);
+        on ? (hot ? tok::primaryHover : tok::primary) : (hot ? tok::trackOffHot : tok::trackOff);
     fillRound(g, r, rad, track);
     const float knob = static_cast<float>(r.h) - 6.0f;
     const float kx = on ? static_cast<float>(r.x + r.w) - 3.0f - knob

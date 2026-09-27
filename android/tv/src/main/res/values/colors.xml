@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV 端唯一色板（v1.33 引入）。
+  此前 TV 侧没有 colors.xml：TvUi 里写死 8 个 hex，而 MainActivity / RemoteInputOverlay
+  又各用 `Color.parseColor` 自带一套（背景就有 #0B0F14 与 #1A1A2E 两种），改配色要在
+  代码里翻三处。现在统一到这里，Kotlin 侧一律经 TvUi.Pal 取色。
+  取值沿用 GitHub Dark 一族（原 TvUi 常量），灭 favors 远距离高对比，与 Theme.ApxTv 一致。
+-->
+<resources>
+    <!-- 表面层级：底 → 卡片 → 输入区 -->
+    <color name="tv_bg">#FF0B0F14</color>
+    <color name="tv_card">#FF161B22</color>
+    <color name="tv_card_focus">#FF1F6FEB</color>
+    <color name="tv_field">#FF21262D</color>
+
+    <!-- 文字：正文 / 弱化（原来的 #99/#BB/#88/#66 半透明白牌回归这两档） -->
+    <color name="tv_text">#FFE6EDF3</color>
+    <color name="tv_text_dim">#FF8B949E</color>
+
+    <!-- 强调与语义色 -->
+    <color name="tv_accent">#FF58A6FF</color>
+    <color name="tv_ok">#FF3FB950</color>
+    <color name="tv_warn">#FFD29922</color>
+    <color name="tv_error">#FFF85149</color>
+
+    <!-- 浮层遮罩 / 中性按钮 -->
+    <color name="tv_mask">#99000000</color>
+    <color name="tv_neutral">#FF666666</color>
+</resources>

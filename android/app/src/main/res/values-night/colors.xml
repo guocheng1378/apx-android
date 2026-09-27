@@ -35,14 +35,14 @@
     <color name="nav_pill_halo">#1FFFFFFF</color>
     <color name="nav_pill_shade">#33000000</color>
 
-    <color name="miuix_bg">#FF000000</color>
-    <color name="miuix_card">#FF1C1C1E</color>
-    <color name="miuix_text">#FFEDEDED</color>
-    <color name="miuix_text_secondary">#FF9BA1A6</color>
+    <color name="miuix_bg">@color/md_background</color>
+    <color name="miuix_card">@color/md_surface</color>
+    <color name="miuix_text">@color/md_on_background</color>
+    <color name="miuix_text_secondary">@color/md_on_surface_variant</color>
     <color name="miuix_text_tertiary">#FF6B7075</color>
-    <color name="miuix_divider">#FF2C2C2E</color>
-    <color name="miuix_stroke">#FF2C2C2E</color>
-    <color name="miuix_accent">#FF4C93FF</color>
-    <color name="miuix_accent_soft">#FF1B3A6B</color>
-    <color name="miuix_danger">#FFF97066</color>
+    <color name="miuix_divider">@color/md_outline</color>
+    <color name="miuix_stroke">@color/card_stroke</color>
+    <color name="miuix_accent">@color/md_primary</color>
+    <color name="miuix_accent_soft">@color/md_primary_container</color>
+    <color name="miuix_danger">@color/state_error</color>
 </resources>

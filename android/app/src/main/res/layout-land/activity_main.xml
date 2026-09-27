@@ -82,39 +82,27 @@
 
                     <TextView
                         android:id="@+id/btnScreen"
+                        style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingEnd="10dp"
-                        android:paddingBottom="4dp"
                         android:text="副屏"
-                        android:textColor="@color/md_primary"
-                        android:textAppearance="@style/APTextCaption" />
+                        android:contentDescription="打开副屏页" />
 
                     <TextView
                         android:id="@+id/btnGamepad"
+                        style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingEnd="10dp"
-                        android:paddingBottom="4dp"
                         android:text="手柄"
-                        android:textColor="@color/md_primary"
-                        android:textAppearance="@style/APTextCaption" />
+                        android:contentDescription="打开虚拟手柄页" />
 
                     <TextView
                         android:id="@+id/btnEditChips"
+                        style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:paddingStart="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingEnd="2dp"
-                        android:paddingBottom="4dp"
                         android:text="编辑"
-                        android:textColor="@color/md_primary"
-                        android:textAppearance="@style/APTextCaption" />
+                        android:contentDescription="管理常用快捷键" />
                 </LinearLayout>
 
                 <ScrollView

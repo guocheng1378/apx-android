@@ -30,21 +30,23 @@ class RemoteInputOverlay(
     fun show(fromDevice: String, hint: String) {
         if (isShowing) return
         isShowing = true
+        // 浮层可能由任意 Activity / Service 拉起，这里补一次色板绑定，确保所有入口都取到资源色
+        TvUi.bindColors(activity)
         val dp = { v: Float -> (v * activity.resources.displayMetrics.density + 0.5f).toInt() }
-        val mask = View(activity).apply { setBackgroundColor(Color.parseColor("#99000000")) }
+        val mask = View(activity).apply { setBackgroundColor(TvUi.Pal.mask) }
         val panel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#FF1A1A2E"))
+            setBackgroundColor(TvUi.Pal.card)
             setPadding(dp(24f), dp(16f), dp(24f), dp(16f))
         }
         val titleRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(TextView(activity).apply { text = "输入中"; setTextColor(Color.parseColor("#3482FF")); TvUi.applyTextSize(this, 14f) })
+        titleRow.addView(TextView(activity).apply { text = "输入中"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, 14f) })
         titleRow.addView(View(activity), LinearLayout.LayoutParams(0, 0, 1f))
-        titleRow.addView(TextView(activity).apply { text = "来自「$fromDevice」"; setTextColor(Color.parseColor("#99FFFFFF")); TvUi.applyTextSize(this, 13f) })
+        titleRow.addView(TextView(activity).apply { text = "来自「$fromDevice」"; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, 13f) })
         panel.addView(titleRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
         val input = EditText(activity).apply {
-            setTextColor(Color.WHITE); setHintTextColor(Color.parseColor("#66FFFFFF")); this.hint = hint.ifEmpty { "输入内容" }
-            setBackgroundColor(Color.parseColor("#FF2A2A3E")); setPadding(dp(16f), dp(12f), dp(16f), dp(12f)); textSize = 18f
+            setTextColor(Color.WHITE); setHintTextColor(TvUi.Pal.textDim); this.hint = hint.ifEmpty { "输入内容" }
+            setBackgroundColor(TvUi.Pal.field); setPadding(dp(16f), dp(12f), dp(16f), dp(12f)); textSize = 18f
             typeface = Typeface.DEFAULT; isFocusable = true; isFocusableInTouchMode = true; setSingleLine()
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -59,8 +61,8 @@ class RemoteInputOverlay(
         mEditText = input
         panel.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
         val btnRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-        btnRow.addView(makeButton("取消", Color.parseColor("#FF666666")) { onTextChanged("", 0x08); onCancel(); hide() })
-        btnRow.addView(makeButton("发送", Color.parseColor("#3482FF")) { val t = mEditText?.text?.toString() ?: ""; if (t.isNotEmpty()) onTextChanged(t, 0x04); onSend(); hide() })
+        btnRow.addView(makeButton("取消", TvUi.Pal.neutral) { onTextChanged("", 0x08); onCancel(); hide() })
+        btnRow.addView(makeButton("发送", TvUi.Pal.accent) { val t = mEditText?.text?.toString() ?: ""; if (t.isNotEmpty()) onTextChanged(t, 0x04); onSend(); hide() })
         panel.addView(btnRow)
         val container = FrameLayout(activity)
         container.addView(mask, FrameLayout.LayoutParams(-1, -1))
@@ -74,9 +76,26 @@ class RemoteInputOverlay(
     fun hide() { if (!isShowing) return; isShowing = false; overlay?.let { rootLayout.removeView(it) }; overlay = null; mEditText = null; val imm = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager; imm.hideSoftInputFromWindow(rootLayout.windowToken, 0) }
     fun isActive(): Boolean = isShowing
 
+    /**
+     * 取消 / 发送按钮（v1.33）：补齐最小触控尺寸、可聚焦与无障碍描述。
+     * 原实现只有 dp(10) 的纵向 padding 且未设 focusable，遥控器 DPAD 走不到这两个按钮。
+     */
     private fun makeButton(text: String, color: Int, onClick: () -> Unit): TextView {
         val dp = { v: Float -> (v * activity.resources.displayMetrics.density + 0.5f).toInt() }
-        return TextView(activity).apply { this.text = text; setTextColor(Color.WHITE); TvUi.applyTextSize(this, 14f); typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setPadding(dp(24f), dp(10f), dp(24f), dp(10f)); setBackgroundColor(color); setOnClickListener { onClick() } }
+        return TextView(activity).apply {
+            this.text = text
+            setTextColor(Color.WHITE)
+            TvUi.applyTextSize(this, 14f)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
+            minimumWidth = TvUi.dp(activity, 64f)
+            minimumHeight = TvUi.dp(activity, 48f)
+            isFocusable = true
+            contentDescription = text
+            background = TvUi.focusBg(color, TvUi.Pal.cardFocus, dp(6f), dp(2f))
+            setOnClickListener { onClick() }
+        }
             .also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } }
     }
 }

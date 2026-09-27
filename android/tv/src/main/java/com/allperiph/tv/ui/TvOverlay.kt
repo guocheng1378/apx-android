@@ -28,7 +28,7 @@ object TvOverlay {
         val dot = View(ctx).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(0xFF1F6FEB.toInt())
+                setColor(TvUi.Pal.cardFocus)
                 setStroke(
                     (2 * dm.density).toInt().coerceAtLeast(1),
                     0xFFFFFFFF.toInt(),

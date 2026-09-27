@@ -47,6 +47,7 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TvUi.bindColors(this)
         setContentView(buildUi())
         surfaceView.holder.addCallback(this)
         TvRenderer.onFormatChanged = { _, _ -> mainHandler.post { fitSurface() } }
@@ -102,7 +103,7 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
             isFocusable = true
             isClickable = true
             background = TvUi.focusBg(
-                TvUi.CARD, TvUi.CARD_FOCUS,
+                TvUi.Pal.card, TvUi.Pal.cardFocus,
                 TvUi.dp(this@TvScreenActivity, 10f), TvUi.dp(this@TvScreenActivity, 3f),
             )
             val p = TvUi.dp(this@TvScreenActivity, 12f)

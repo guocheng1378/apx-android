@@ -74,4 +74,23 @@
         <item name="android:paddingStart">4dp</item>
         <item name="android:paddingBottom">8dp</item>
     </style>
+
+    <!--
+      文本文本按钮（v1.33）：把「TextView 当按钮用」这件不规范的事补齐规范。
+      原先这类入口只有 4dp padding，既够不着 48dp 触控下限、也没有按压反馈、
+      不能聚焦（遥控器/键盘 Tab 到不了）、对 TalkBack 是个普通文字节点。
+      本样式一次性给出：系统按压涟漪 + 48dp 触控目标 + 可聚焦 + 居中。
+      用法：style="@style/APTextButton"，并务必带 android:contentDescription。
+    -->
+    <style name="APTextButton">
+        <item name="android:background">?android:attr/selectableItemBackground</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:focusable">true</item>
+        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+    </style>
 </resources>

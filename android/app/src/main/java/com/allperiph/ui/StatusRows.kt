@@ -49,7 +49,7 @@ class StatusRows(private val container: LinearLayout) {
         val label = TextView(ctx).apply {
             text = labelText
             setTextAppearanceSafely(this, R.style.APTextBody)
-            setTextColor(resources.getColor(R.color.md_on_surface))
+            setTextColor(ctx.getColor(R.color.md_on_surface))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
@@ -63,7 +63,7 @@ class StatusRows(private val container: LinearLayout) {
         val value = TextView(ctx).apply {
             text = initial
             setTextAppearanceSafely(this, R.style.APTextBody)
-            setTextColor(resources.getColor(R.color.state_idle))
+            setTextColor(ctx.getColor(R.color.state_idle))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -81,20 +81,24 @@ class StatusRows(private val container: LinearLayout) {
 
     /** 语义色：ok=绿 / warn=橙 / error=红 / idle=灰 */
     fun color(ok: Boolean, warn: Boolean = false, error: Boolean = false): Int {
-        val res = container.resources
+        val ctx = container.context
         return when {
-            error -> res.getColor(R.color.state_error)
-            warn -> res.getColor(R.color.state_warn)
-            ok -> res.getColor(R.color.state_ok)
-            else -> res.getColor(R.color.state_idle)
+            error -> ctx.getColor(R.color.state_error)
+            warn -> ctx.getColor(R.color.state_warn)
+            ok -> ctx.getColor(R.color.state_ok)
+            else -> ctx.getColor(R.color.state_idle)
         }
     }
 
+    /**
+     * `setTextAppearance(Context, Int)` 与 `Resources.getColor(Int)` 均已弃用
+     * （编译日志里刷屏的那两条），换成 API 23+ 的单参形式即可，行为完全一致。
+     */
     private fun setTextAppearanceSafely(tv: TextView, styleRes: Int) {
-        runCatching { tv.setTextAppearance(tv.context, styleRes) }
+        runCatching { tv.setTextAppearance(styleRes) }
             .onFailure {
                 tv.textSize = 14f
-                tv.setTextColor(tv.resources.getColor(R.color.md_on_surface))
+                tv.setTextColor(tv.context.getColor(R.color.md_on_surface))
             }
     }
 }

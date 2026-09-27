@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
+import com.allperiph.ui.kit.ApKit
 import com.allperiph.wireless.ControlTarget
 
 /**
@@ -140,11 +141,11 @@ class RemoteActivity : Activity() {
     private fun wrapDial(): FrameLayout {
         val box = FrameLayout(this)
         val dial = DialLayout(this).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(getColor(R.color.md_surface))
-                setStroke(dp(1), getColor(R.color.card_stroke))
-            }
+            background = ApKit.oval(
+                getColor(R.color.md_surface),
+                getColor(R.color.card_stroke),
+                dp(1),
+            )
             // 四向箭头：贴着环内缘，背景透明（圆环本身就是"按键"的形状）
             addView(arrow("▲", Gravity.TOP or Gravity.CENTER_HORIZONTAL) { HidKeys.tap(U_UP) })
             addView(arrow("▼", Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) { HidKeys.tap(U_DOWN) })
@@ -157,10 +158,7 @@ class RemoteActivity : Activity() {
                 gravity = Gravity.CENTER
                 setTextColor(0xFFFFFFFF.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(getColor(R.color.md_primary))
-                }
+                background = ApKit.oval(getColor(R.color.md_primary))
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -336,11 +334,11 @@ class RemoteActivity : Activity() {
                 else -> getColor(R.color.md_on_surface)
             }
             setTextColor(fg)
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(getColor(R.color.md_surface))
-                setStroke(dp(1), getColor(R.color.card_stroke))
-            }
+            background = ApKit.oval(
+                getColor(R.color.md_surface),
+                getColor(R.color.card_stroke),
+                dp(1),
+            )
             isClickable = true
             isFocusable = true
             // 尺寸由调用方通过 addView(child, params) 传入（父容器是 FrameLayout 格子）
@@ -404,12 +402,12 @@ class RemoteActivity : Activity() {
         setTextColor(getColor(R.color.md_primary))
         textSize = 12f
         gravity = Gravity.CENTER
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(999).toFloat()
-            setColor(getColor(R.color.md_surface))
-            setStroke(dp(1), getColor(R.color.card_stroke))
-        }
+        background = ApKit.shape(
+            getColor(R.color.md_surface),
+            radiusPx = dp(999).toFloat(),
+            strokeColor = getColor(R.color.card_stroke),
+            strokePx = dp(1),
+        )
         setPadding(dp(12), dp(6), dp(12), dp(6))
         isClickable = true
         isFocusable = true

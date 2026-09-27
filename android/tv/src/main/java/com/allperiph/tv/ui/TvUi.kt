@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.widget.TextView
+import com.allperiph.tv.R
 
 /**
  * TV 界面自适应（v1.2）。
@@ -84,13 +85,47 @@ object TvUi {
         cornerRadius = radiusPx.toFloat()
     }
 
-    /** 主题色（与手机端 MIUIX 亮色风格保持同一族，但电视用深底高对比） */
-    const val BG = 0xFF0B0F14.toInt()
-    const val CARD = 0xFF161B22.toInt()
-    const val CARD_FOCUS = 0xFF1F6FEB.toInt()
-    const val TEXT = 0xFFE6EDF3.toInt()
-    const val TEXT_DIM = 0xFF8B949E.toInt()
-    const val ACCENT = 0xFF58A6FF.toInt()
-    const val OK = 0xFF3FB950.toInt()
-    const val WARN = 0xFFD29922.toInt()
+    // ————————————————————————— 色板 —————————————————————————
+
+    /**
+     * 色板（v1.33）：**取值全部来自 `res/values/colors.xml`**，此处不再出现 hex。
+     *
+     * 之所以用「一次性绑定的可变 Pal」而不是每个色都传 Context：TV 的 UI 全是代码自绘，
+     * 调用点遍布 View 构造 lambda，逐个传 Context 会把接口污染得很碎。
+     * 各 Activity 在 `onCreate` 调一次 [bindColors] 即可；万一某个入口漏调，
+     * 下面的默认值（与原常量同值）仍是正确的深色，只是取不到用户改过的资源。
+     */
+    object Pal {
+        // 默认值保持与原常量一致，保证「未 bind 也能正常显示」
+        var bg: Int = 0xFF0B0F14.toInt(); private set
+        var card: Int = 0xFF161B22.toInt(); private set
+        var cardFocus: Int = 0xFF1F6FEB.toInt(); private set
+        var field: Int = 0xFF21262D.toInt(); private set
+        var text: Int = 0xFFE6EDF3.toInt(); private set
+        var textDim: Int = 0xFF8B949E.toInt(); private set
+        var accent: Int = 0xFF58A6FF.toInt(); private set
+        var ok: Int = 0xFF3FB950.toInt(); private set
+        var warn: Int = 0xFFD29922.toInt(); private set
+        var error: Int = 0xFFF85149.toInt(); private set
+        var mask: Int = 0x99000000.toInt(); private set
+        var neutral: Int = 0xFF666666.toInt(); private set
+
+        internal fun bind(ctx: Context) {
+            bg = ctx.getColor(R.color.tv_bg)
+            card = ctx.getColor(R.color.tv_card)
+            cardFocus = ctx.getColor(R.color.tv_card_focus)
+            field = ctx.getColor(R.color.tv_field)
+            text = ctx.getColor(R.color.tv_text)
+            textDim = ctx.getColor(R.color.tv_text_dim)
+            accent = ctx.getColor(R.color.tv_accent)
+            ok = ctx.getColor(R.color.tv_ok)
+            warn = ctx.getColor(R.color.tv_warn)
+            error = ctx.getColor(R.color.tv_error)
+            mask = ctx.getColor(R.color.tv_mask)
+            neutral = ctx.getColor(R.color.tv_neutral)
+        }
+    }
+
+    /** 由各 Activity 在 `onCreate` 调用一次，把资源色板灌进 [Pal] */
+    fun bindColors(ctx: Context) = Pal.bind(ctx)
 }

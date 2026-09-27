@@ -38,6 +38,7 @@ import android.widget.ViewFlipper
 import kotlin.math.abs
 import kotlin.math.min
 import com.allperiph.R
+import com.allperiph.ui.kit.ApKit
 import com.allperiph.core.AgentStateEvent
 import com.allperiph.core.EventBus
 import com.allperiph.core.GadgetStateEvent
@@ -1353,12 +1354,12 @@ class MainActivity : Activity() {
             }
     }
 
-    /** 色点：选中时描深色粗边 */
-    private fun dotBg(color: Int, selected: Boolean): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(color)
-        setStroke(if (selected) dp(3) else dp(1), if (selected) 0xFF191919.toInt() else 0x33000000)
-    }
+    /** 色点：选中时描深色粗边（形状实现见 [ApKit.oval]） */
+    private fun dotBg(color: Int, selected: Boolean): GradientDrawable = ApKit.oval(
+        color,
+        strokeColor = if (selected) 0xFF191919.toInt() else 0x33000000,
+        strokePx = if (selected) dp(3) else dp(1),
+    )
 
     /** 删除自建模板（快捷键条内容不受影响） */
     private fun confirmDeleteTemplate(t: HotkeyTemplates.Template) {
@@ -2050,14 +2051,15 @@ class MainActivity : Activity() {
         setTextColor(resources.getColor(R.color.md_on_surface_variant))
     }
 
-    private fun card(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(color)
-        cornerRadius = radius.toFloat()
-    }
+    /**
+     * 以下样式工具的实现统一收在 [ApKit] —— 此前每个 Activity 各写一份 GradientDrawable，
+     * 「圆角多少、描边几像素」这类样式改动要在多处分别落地。这里保留签名只为不动调用点。
+     */
+    private fun card(color: Int, radius: Int): GradientDrawable =
+        ApKit.shape(color, radius.toFloat())
 
     private fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =
-        card(color, radius).apply { setStroke(1, stroke) }
+        ApKit.shape(color, radius.toFloat(), strokeColor = stroke, strokePx = ApKit.STROKE_HAIRLINE_PX)
 
     private fun pill(color: Int): GradientDrawable = card(color, dp(999))
 

@@ -78,6 +78,21 @@
 - **文案与真实能力必须对齐**：不可用的功能不得写进状态页的「已实现」清单
   （两组清单见 `res/layout/page_status.xml`）。
 
+### v1.33 起补充的三条硬规则
+
+1. **形状只在 UI Kit 里画**：圆角矩形 / 胶囊 / 圆形统一走 `kit/ApKit.kt` 的
+   `shape() / rect() / pill() / oval()`。此前 `GradientDrawable` 的手写散在 7 个文件共 36 处，
+   改「卡片圆角」要在每处分别落地。Activity 内遗留的 private `card() / strokeCard() / pill()`
+   现在只是转发到 Kit 的薄封装，新代码直接调 Kit。
+   注意：Kit 只接受 **px**，dp 换算仍由调用方的 `dp()` 负责，这样 TV 端（另一套缩放）也能复用。
+2. **颜色只在 XML 里写**：`miuix_*` 一律以 `@color/md_*` 形式**引用**令牌（过去是把值抄一遍，
+   于是改一边不动另一边），Kotlin 侧不出现 hex；亮/暗差异靠 `values-night` 镜像覆盖，
+   **不要**在代码里判断当前是否夜间模式。
+3. **可点元素下限 48dp 且必须有描述**：看起来像按钮的 `TextView` 用 `@style/APTextButton`
+   （自带按压涟漪 + 可聚焦 + 48dp），自绘 View 用 `ApKit.asButton(view, desc)`；
+   两者都要给 `contentDescription`，否则 TalkBack / 遥控器都摸不到它。
+   次要文字与背景的对比度不低于 4.5:1（`md_on_surface_variant` 已按此校准）。
+
 ## 已知限制
 
 - 「链路延迟/丢包」的丢包率用「重同步次数 / 已收帧数」粗估，精确 RTT 需控制面心跳支持。

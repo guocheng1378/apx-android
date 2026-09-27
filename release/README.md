@@ -1,10 +1,30 @@
 # 全能外设 · 发布说明
 
-> **版本 v182**（上一版本：`v181`）｜ 构建日期：2026-09-27 ｜ 手机端 v1.8+ ｜ TV 端 v0.1.0+ ｜ PC 端 Release
+> **版本 v183**（上一版本：`v182`）｜ 构建日期：2026-09-27 ｜ 手机端 v1.8+ ｜ TV 端 v0.1.0+ ｜ PC 端 Release
 > 本次发布已完成 **release 签名**（Android）与 **Release 编译**（PC）。
-> 产物按版本号归档：文件名带 `v182` 的即为本次构建（同目录下无版本后缀的文件是同一批产物的最新副本）。
+> 产物按版本号归档：文件名带 `v183` 的即为本次构建（同目录下无版本后缀的文件是同一批产物的最新副本）。
 
-## 〇·零、v182 构建修复（本轮阻塞项）
+## 〇·零、v183：三端 UI 规范化（本轮主题）
+
+一次性把三端「同一个东西在三处各写一遍」的欠账收拢：
+
+- **手机端**：新增 `ui/kit/ApKit.kt`，接管此前散在 7 个文件共 36 处的手写 `GradientDrawable`；
+  颜色令牌 `miuix_*` 改为**引用** `md_*`（原先是抄一遍同值字面量，改一边却动不了另一边）；
+  次要文字 `#8C8C8C` → `#6E6E6E`（对比度由约 3.5:1 提到约 5.3:1，过 WCAG AA）；
+  新增 `@style/APTextButton`，修掉主页「副屏 / 手柄 / 遥控器 / 编辑」四个 TextView 入口
+  只有 4dp padding、无按压反馈、不可聚焦、无无障碍描述的问题。
+- **TV 端**：新增 `res/values/colors.xml` 令牌；`TvUi` 的 8 个 hex 常量与散落 19 处
+  `Color.parseColor` 全部改为经 `TvUi.Pal` 取色（背景原先 `#0B0F14` 与 `#1A1A2E` 两套并存，
+  现在统一到主题值）；首页按钮与输入法浮层按钮补齐 `focusable` + 48dp 触控下限 +
+  `contentDescription` —— 此前遥控器 DPAD 走不到这几个按钮。
+- **PC 面板**：`tok::` 补齐按钮/开关的孤立 hex（原先内联在 `paintButton` / `paintSwitch` 里）；
+  `scaleLayout()` 由逐字段手写 `sc(l.xxx)` 改为**登记表遍历** —— 这是「加控件要改 5 处」
+  里最容易漏的一环（漏了会在高分屏表现为某个控件不跟着放大）；删除无调用方的 `paintRadio`
+  与从未被赋值的 `phoneStateLine`；文件头新增「新增一个控件要改的地方」逐项清单。
+
+> 历史修复见下一节（v182，那一版解决的构建阻塞项也在其中）。
+
+## 〇·一、v182 构建修复（历史阻塞项）
 
 - `shared/src/hid_layout.cpp` 与 `shared/src/hid_descriptor.cpp` **各定义了一份 `reportSizeById()`**，
   静态库链接时 `ld.lld: duplicate symbol` —— 手机端 native（`libapx.so`）此前无法链接通过。
