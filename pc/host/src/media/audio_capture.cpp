@@ -395,24 +395,21 @@ void AudioCapture::Impl::appendAndSend(const uint8_t* p, size_t bytes) {
 
 void AudioCapture::stop() {
     std::lock_guard<std::mutex> lk(impl_->mu);
-    if (!impl_->running.exchange(false)) {
-#if defined(_WIN32)
-        safeRelease(impl_->capture);
-        safeRelease(impl_->client);
-        if (impl_->evt) {
-            CloseHandle(impl_->evt);
-            impl_->evt = nullptr;
-        }
-        impl_->staging.clear();
-#endif
-        return;
-    }
+    // v184：**无论 running 是否已为 false，都必须先 join 采集线程**。
+    // 采集循环出错时会自己 running.store(false) 再返回（见 captureLoop），
+    // 此时 std::thread 仍然 joinable，旧实现的两个分支都会出事：
+    //   ① start() 里 `impl_->thread = std::thread(...)` 对 joinable 线程赋值 → std::terminate
+    //   ② 直接 Release capture/client，而线程可能正在使用它们 → UAF
+    // 所以统一成：先置标志并唤醒 → join → 停流 → 释放。
+    const bool wasRunning = impl_->running.exchange(false);
 #if defined(_WIN32)
     // 先唤醒采集线程，再 join —— 否则要白等一个 200ms 超时
     if (impl_->evt) SetEvent(impl_->evt);
+#endif
     if (impl_->thread.joinable() && impl_->thread.get_id() != std::this_thread::get_id()) {
         impl_->thread.join();
     }
+#if defined(_WIN32)
     // 停流必须早于 Release，否则引擎还在往已释放的客户端投递
     if (impl_->client) impl_->client->Stop();
     safeRelease(impl_->capture);
@@ -424,7 +421,7 @@ void AudioCapture::stop() {
     impl_->staging.clear();
     impl_->peak.store(0.0);
 #endif
-    APX_LOGI("音箱采集已停止");
+    if (wasRunning) APX_LOGI("音箱采集已停止");
 }
 
 bool AudioCapture::start(MediaSession* session, const AudioCaptureOptions& opt, std::string* err) {

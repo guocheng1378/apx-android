@@ -57,8 +57,13 @@ bool MicBridge::start(const std::string& renderDeviceId, std::string* err) {
 
 void MicBridge::stop() {
     if (!impl_) { impl_ = new Impl(); return; }
-    if (impl_->running.exchange(false)) {
-        if (impl_->th.joinable()) impl_->th.join();
+    // v184：**无论 running 是否已为 false 都要 join 渲染线程**。
+    // 渲染线程初始化失败时会自己 running.store(false) 再返回（见 renderLoop），
+    // 此时 th 仍为 joinable —— 漏 join 会让析构（或下次 start 的重新赋值）
+    // 直接触发 std::terminate（进程闪退）。
+    impl_->running.store(false);
+    if (impl_->th.joinable() && impl_->th.get_id() != std::this_thread::get_id()) {
+        impl_->th.join();
     }
 }
 

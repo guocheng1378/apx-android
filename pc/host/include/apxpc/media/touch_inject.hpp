@@ -20,4 +20,9 @@ namespace apxpc::media {
 /// 解析一帧触摸并注入鼠标。载荷非法返回 false（不注入，不报错）。
 bool injectTouchFrame(const uint8_t* body, size_t len);
 
+/// 抬起所有鼠标键（左/右/中）。
+/// 用途：副屏触摸若停在"按下"帧就断链，PC 会一直按着不放（键卡住 / 拖拽停不下来）。
+/// 控制面断链与退出时调用；幂等，多余的抬起事件无副作用。
+void releaseTouchButtons();
+
 }  // namespace apxpc::media

@@ -5,6 +5,8 @@
 // 仅网络与帧解析是平台无关部分；系统注入见 input_injector_*，剪贴板监听见同文件。
 // ============================================================================
 #include "apxpc/wireless/ctrl9511.hpp"
+// v184：断链/退出时抬起残留按键（副屏触摸可能停在"按下"帧上）
+#include "apxpc/media/touch_inject.hpp"
 
 #include <apx/frame.h>
 
@@ -302,8 +304,23 @@ struct Ctrl9511Server::Impl {
             }
             if (off > 0) acc.erase(acc.begin(), acc.begin() + static_cast<long>(off));
         }
+        // v184：连接断了先抬起残留按键（最后一帧可能是"按下"）——
+        // 否则对端消失后 PC 会一直按着不放。
+        releaseAllInputs();
         closeSock(s);
         resetClientFor(s);
+    }
+
+    /// 抬起所有可能残留的按键（鼠标 / 键盘 / 消费者 / 副屏触摸）。
+    /// 断链与停止时调用：注入是"差量"语义，若最后一个收到的帧是"按下"，
+    /// 对端随后消失，PC 就会一直按着不放（左键卡住、组合键卡住、拖拽停不下来）。
+    void releaseAllInputs() {
+        if (injector) {
+            injector->injectMouse(0, 0, 0, 0);        // mouseButtons_ 置 0 → 差量抬起
+            injector->injectKeyboard(0, nullptr, 0);  // 释放所有键盘键
+            injector->injectConsumer(0);              // 释放所有消费者键
+        }
+        apxpc::media::releaseTouchButtons();          // 副屏触摸路径的鼠标键
     }
 
     void dispatch(const uint8_t* p, uint32_t bodyLen) {
@@ -516,6 +533,8 @@ void Ctrl9511Server::stop() {
     if (impl_->readerThread.joinable()) impl_->readerThread.join();
     if (impl_->writerThread.joinable()) impl_->writerThread.join();
     if (impl_->beaconThread.joinable()) impl_->beaconThread.join();
+    // v184：所有注入相关线程都停了再抬键（此时不会再有新帧把键按下）
+    impl_->releaseAllInputs();
     impl_.reset();
 }
 
@@ -743,10 +762,18 @@ void Ctrl9511Client::sendMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t whe
 }
 void Ctrl9511Client::sendKeyboard(uint8_t mod, const uint8_t* keys, size_t count) {
     if (!impl_) return;
-    // fix: b[8]→b[9]，count=6 时 b[3+6]=b[8] 越界写入 + sendCmd 发 9 字节越界读取
+    // 负载格式（与接收端 dispatch 的 `keys = p + 3` 对齐）：
+    //   body = [0x03, mod, 保留0, keys[0..5]]
+    //                         ↑ body[3] 起是按键码
+    // sendCmd 会把 cmd 放在 body[0]，所以这里的 b[] 是 **cmd 之后** 的内容：
+    //   b[0]=mod、b[1]=保留 0、b[2..7]=keys
+    // 旧实现写成 b[3+i]（等价 body[4] 起）+ 长度 3+count —— 每个键整体后移一位，
+    // 接收端读到的是 [0, k0, k1, ...]，表现为"每帧少按最后一个键"（组合键尾键失效），
+    // 6 键时还有一次越界读。已修正。
     uint8_t b[9] = { mod, 0, 0, 0, 0, 0, 0, 0, 0 };
-    for (size_t i = 0; i < count && i < 6; ++i) b[3 + i] = keys[i];
-    impl_->sendCmd(0x03, b, 3 + (count > 6 ? 6 : count));
+    const size_t n = count > 6 ? 6 : count;
+    for (size_t i = 0; i < n; ++i) b[2 + i] = keys[i];
+    impl_->sendCmd(0x03, b, 2 + n);
 }
 void Ctrl9511Client::sendConsumer(uint16_t bitmap) {
     if (!impl_) return;

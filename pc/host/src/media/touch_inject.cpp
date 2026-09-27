@@ -207,4 +207,18 @@ bool injectTouchFrame(const uint8_t* body, size_t len) {
 #endif
 }
 
+void releaseTouchButtons() {
+#if defined(_WIN32)
+    // 副屏触摸可能停在「按下」帧上，之后连接就断了 —— 不带抬起事件的话
+    // PC 会一直按着键（表现为"光标粘住 / 一直在拖拽"）。把所有键抬起。
+    const DWORD ups[] = { MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_MIDDLEUP };
+    for (DWORD f : ups) {
+        INPUT in{};
+        in.type = INPUT_MOUSE;
+        in.mi.dwFlags = f;
+        ::SendInput(1, &in, sizeof(INPUT));
+    }
+#endif
+}
+
 }  // namespace apxpc::media

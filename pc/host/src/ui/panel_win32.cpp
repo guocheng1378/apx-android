@@ -526,6 +526,10 @@ struct Panel {
     // 与手机端状态会长期不一致。tick 在控制面连上后补发一次。
     bool moduleTogglePending = false;
     bool moduleToggleTarget = true;
+    // v184：试听线程改为**可 join 的成员** —— 原先 detach 的线程在面板销毁后
+    // 仍会访问 Panel（p->media / p->hwnd），点完试听立刻退出就是一次 UAF 崩溃。
+    // 退出收尾处会 join 它。
+    std::thread testToneThread;
     bool btEnabled = false;      // 蓝牙 HID：由手机端配对后启用，PC 仅展示状态
     bool usbEnabled = false;     // USB gadget：由手机端插线授权后启用，PC 仅展示状态
     bool autoMode = true;        // 无线手动地址模式（关 = 自动发现）
@@ -978,11 +982,15 @@ void testSpeakerClick(Panel* p) {
     if (p->testToneBusy.exchange(true)) return;   // 已在推流，忽略重复点击
     p->testToneSent.store(0);
     InvalidateRect(p->hwnd, nullptr, FALSE);
-    std::thread([p] {
+    // v184：改为成员线程（退出收尾会 join）。detach 版会在"点完试听立刻退出"时
+    // 访问已析构的 Panel —— p->media 与 p->hwnd 都是悬垂指针。
+    if (p->testToneThread.joinable()) p->testToneThread.join();   // 上一轮（正常已结束）
+    p->testToneThread = std::thread([p] {
+        if (!p->media) { p->testToneBusy.store(false); return; }
         apxpc::media::AudioCapture::playTestTone(p->media.get(), 2, &p->testToneSent);
         p->testToneBusy.store(false);
-        InvalidateRect(p->hwnd, nullptr, FALSE);
-    }).detach();
+        if (p->hwnd) InvalidateRect(p->hwnd, nullptr, FALSE);
+    });
 }
 
 /// 切换音箱。启动前先确认媒体通道在 —— 否则给出**明确原因**，不静默失败。
@@ -2584,6 +2592,8 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     // 收尾顺序不能乱：先停推流（它还在往媒体连接里写帧），再等建链线程收手，
     // 最后才断媒体 —— 否则工作线程可能访问已析构的 MediaSession。
     if (panel.screenPush) panel.screenPush->stop();
+    // v184：试听线程会用到 panel.media，必须在断媒体之前收手（否则 UAF）
+    if (panel.testToneThread.joinable()) panel.testToneThread.join();
     if (panel.audio) panel.audio->stop();
     if (panel.mediaThread.joinable()) panel.mediaThread.join();
     if (panel.media) panel.media->disconnect();
