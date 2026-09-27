@@ -1,4 +1,5 @@
 #include "apxpc/media/touch_inject.hpp"
+#include "apxpc/media/touch_target.hpp"
 
 #include <apx/frame.h>
 
@@ -44,6 +45,16 @@ bool resolveTargetRect(RECT& out) {
     if (g_targetRect.ok && now - g_targetRect.tick < 5000) {   // 5s 缓存，显示器布局变化自适应
         out.left = g_targetRect.x; out.top = g_targetRect.y;
         out.right = g_targetRect.x + g_targetRect.w; out.bottom = g_targetRect.y + g_targetRect.h;
+        return true;
+    }
+    // 优先用 DDA 采集侧写入的矩形（touch_target.hpp 共享状态）——
+    // 它精确等于推流抓取的那块屏幕，与手机看到的画面严格一致。
+    int tx, ty, tw, th;
+    if (apxpc::media::touchtarget::get(tx, ty, tw, th)) {
+        g_targetRect.x = tx; g_targetRect.y = ty;
+        g_targetRect.w = tw; g_targetRect.h = th;
+        g_targetRect.tick = now; g_targetRect.ok = true;
+        out.left = tx; out.top = ty; out.right = tx + tw; out.bottom = ty + th;
         return true;
     }
     RECT mon{};

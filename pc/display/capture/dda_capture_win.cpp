@@ -10,6 +10,7 @@
 #ifdef _WIN32
 
 #include "capture/i_capture.hpp"
+#include "../../host/include/apxpc/media/touch_target.hpp"
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -73,6 +74,15 @@ public:
         info_.stride = info_.width * 4;
         info_.deviceName = outputDesc_.DeviceName;
         info_.zeroCopyD3D11 = true;
+
+        // v184：把抓取显示器在虚拟桌面中的矩形告知触摸注入侧 ——
+        // 手机副屏触摸的归一化坐标要映射到这块区域（VIRTUALDESK 绝对坐标），
+        // 否则触摸区错位到 1 号主屏。
+        apxpc::media::touchtarget::set(
+            outputDesc_.DesktopCoordinates.left,
+            outputDesc_.DesktopCoordinates.top,
+            static_cast<int>(info_.width),
+            static_cast<int>(info_.height));
 
         // CPU 影子缓冲（自顶向下 BGRA）+ 无光标的干净副本（光标恢复用）
         shadow_.assign(static_cast<size_t>(info_.stride) * info_.height, 0);
