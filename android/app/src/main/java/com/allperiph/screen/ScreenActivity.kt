@@ -1,6 +1,7 @@
 package com.allperiph.screen
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.view.Surface
@@ -115,6 +116,28 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     /** 副屏会话期间持有高性能 WiFi 锁：省电模式掐流是"老是断"的主因 */
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
+    // ———————— 点按触觉反馈 + 双击检测（v184）————————
+    /** 待发的单击（延迟 250ms，等待可能的第二击组成双击） */
+    private var pendingTap: Runnable? = null
+    private var lastTapUpAt = 0L
+    private var lastTapNX = 0; private var lastTapNY = 0
+    private var downNormX = 0; private var downNormY = 0
+
+    private fun buzz(ms: Long) {
+        val vib = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 26)
+                vib.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+            else @Suppress("DEPRECATION") vib.vibrate(ms)
+        }
+    }
+
+    /** 以 (nx, ny) 发一次左键点击（按下+抬起同坐标，PC 光标不漂移） */
+    private fun sendClick(cli: com.allperiph.wireless.TvControllerClient?, nx: Int, ny: Int) {
+        cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, nx, ny)
+        cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, nx, ny)
+    }
+
     /** 双指滚动：累计多少像素算滚一格 */
     private val scrollStepPx get() = (36 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
 
@@ -163,6 +186,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                     scrolled = false
                     dragMode = false
                     downX = e.x; downY = e.y
+                    downNormX = x; downNormY = y
                     downAt = android.os.SystemClock.uptimeMillis()
                     // 兜底：上一笔的 UP 若因断链丢失，这里补松左键（PC 端多余 UP 无害）
                     cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
@@ -180,6 +204,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                             moved && !scrolled
                         ) {
                             dragMode = true
+                            buzz(15)
                             ControlTarget.controlClient?.touch(
                                 MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, lastXNorm, lastYNorm
                             )
@@ -192,6 +217,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         twoFinger = true
                         scrolled = false
                         dragArm?.let { view.removeCallbacks(it) }
+                        pendingTap?.let { view.removeCallbacks(it) }   // 手势升级：取消待发的单击
                         scrollAccum = 0f
                         prevTwoY = e.getY(e.pointerCount - 1)
                         // 若长按拖拽已激活，双指接管前先松左键
@@ -235,6 +261,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                             // 双指点按（几乎没位移）= 右键点击
                             cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_RIGHT, x, y)
                             cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_RIGHT, x, y)
+                            buzz(12)
                         }
                         twoFinger = false
                         true
@@ -243,12 +270,34 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         dragMode = false
                         cli?.touch(if (cancelled) MediaOut.TOUCH_CANCEL else MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
                     } else if (!cancelled) {
-                        // 轻点 = 左键点击（位移小 + 时间短）；快速滑动则只移动了光标，无需点击
+                        // 轻点 = 左键点击（位移小 + 时间短）；快速滑动则只移动了光标，无需点击。
+                        // v184：轻点**延迟 250ms 发出** —— 期间若来第二次轻点则合并为双击
+                        //（四帧紧凑连发，Windows 必判双击；旧方案两次独立点击因绝对定位的
+                        //  手指物理偏差超出双击容差，双击几乎点不出来）。
+                        //  down/up 同用 DOWN 时的归一化坐标，光标不漂移。
                         val dur = android.os.SystemClock.uptimeMillis() - downAt
                         val moved = hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) < tapSlopPx
                         if (moved && dur < 300) {
-                            cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, x, y)
-                            cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                            val now = android.os.SystemClock.uptimeMillis()
+                            val isDouble = now - lastTapUpAt < 350 &&
+                                hypot((downNormX - lastTapNX).toDouble(), (downNormY - lastTapNY).toDouble()) < tapSlopPx * 2
+                            if (isDouble) {
+                                pendingTap?.let { view.removeCallbacks(it) }
+                                pendingTap = null
+                                lastTapUpAt = 0L
+                                sendClick(cli, downNormX, downNormY)
+                                sendClick(cli, downNormX, downNormY)
+                                buzz(20)
+                            } else {
+                                pendingTap?.let { view.removeCallbacks(it) }
+                                pendingTap = Runnable {
+                                    sendClick(ControlTarget.controlClient, downNormX, downNormY)
+                                    buzz(10)
+                                    pendingTap = null
+                                }
+                                view.postDelayed(pendingTap, 250)
+                                lastTapUpAt = now; lastTapNX = downNormX; lastTapNY = downNormY
+                            }
                         }
                         true
                     } else true
