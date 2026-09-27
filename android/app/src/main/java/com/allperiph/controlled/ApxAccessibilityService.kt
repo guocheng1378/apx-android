@@ -19,6 +19,10 @@ import com.allperiph.core.Log
  * 由 [TvInjector] 调用，把另一台手机发来的光标/点击/文本落到被控 Android 系统。
  * 与 TV 模块 [com.allperiph.tv.core.ApxAccessibilityService] 逐字节同实现，仅包名不同。
  *
+ * 本服务同时承担两个职责：
+ * 1. **输入注入**（已有）：接收对端发来的文本/点击指令，注入到当前聚焦的输入框
+ * 2. **焦点检测**（新增）：检测本机 EditText 获焦 → 发送 REQUEST_INPUT 到对端设备
+ *
  * 安卓限制（无 root / 无 adb）：
  *  - 不能自由移动系统鼠标光标（需 INJECT_EVENTS），故光标仅用全局浮层可视化；
  *  - 点击 / 滑动用 GestureDescription.dispatchGesture（无障碍允许，无需 root）；
@@ -29,6 +33,17 @@ import com.allperiph.core.Log
 class ApxAccessibilityService : AccessibilityService() {
 
     private var mainHandler: Handler? = null
+
+    /**
+     * 焦点检测回调（新增）。
+     * 本机 EditText 获焦时触发，参数为 hint 文字。
+     * 调用方应发送 REQUEST_INPUT 帧到对端设备。
+     */
+    var onFocusDetected: ((String) -> Unit)? = null
+
+    /** 防环标记：当前处于远程输入模式，不回推焦点检测 */
+    @Volatile
+    var remoteInputMode = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -42,7 +57,30 @@ class ApxAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event == null) return
+
+        when (event.eventType) {
+            // ———— 新增：输入框焦点检测 ————
+            AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                // 防环：远程输入模式下不触发焦点检测
+                if (remoteInputMode) return
+
+                val node = event.source ?: return
+                val className = node.className?.toString() ?: return
+
+                // 检测 EditText 获焦
+                if (className.contains("EditText") || className.contains("AutoCompleteTextView")) {
+                    val hint = node.hint?.toString()
+                        ?: node.text?.toString()
+                        ?: ""
+                    Log.i("APX 被控", "检测到输入框获焦: hint=$hint")
+                    onFocusDetected?.invoke(hint)
+                }
+            }
+        }
+    }
+
     override fun onInterrupt() {}
 
     private fun post(action: () -> Unit) {
@@ -134,7 +172,7 @@ class ApxAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** 长按：同一位置按住 600ms（以前被控端没有这个能力，长按菜单/拖拽全废） */
+    /** 长按：同一位置按住 600ms */
     fun longPress(x: Float, y: Float): Boolean {
         if (Build.VERSION.SDK_INT < 24) return false
         val p = Path()
