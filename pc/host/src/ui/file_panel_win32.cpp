@@ -152,6 +152,17 @@ void setCell(int row, int sub, const std::wstring& text) {
 void fillList() {
     if (!gList) return;
     ::SendMessageW(gList, LVM_DELETEALLITEMS, 0, 0);
+    // 空列表原先就是一张白表：用户分不清"还没收到文件"还是"面板坏了"。
+    // 插一行占位说明就够。它**不进 gRows**，所以选中 / 打开 / 发回都碰不到它
+    // （selectedRow 会因 i >= gRows.size() 返回 -1）。
+    if (gRows.empty()) {
+        LVITEMW it{};
+        it.mask = LVIF_TEXT;
+        it.iItem = 0;
+        it.pszText = const_cast<LPWSTR>(L"还没有收到文件 —— 手机在「文件传输」里选这台电脑就能发过来");
+        ::SendMessageW(gList, LVM_INSERTITEMW, 0, reinterpret_cast<LPARAM>(&it));
+        return;
+    }
     for (int i = 0; i < static_cast<int>(gRows.size()); ++i) {
         LVITEMW it{};
         it.mask = LVIF_TEXT;
@@ -259,7 +270,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
                 LVCOLUMNW c{};
                 c.mask = LVCF_TEXT | LVCF_WIDTH;
-                c.pszText = const_cast<LPWSTR>(L"收到的文件（双击发回对端）");
+                // 「对端」不再出现：用户手里只有手机 / 电视，没有"对端"
+                c.pszText = const_cast<LPWSTR>(L"收到的文件（双击发回手机）");
                 c.cx = 340 * gScale;
                 ::SendMessageW(gList, LVM_INSERTCOLUMNW, 0, reinterpret_cast<LPARAM>(&c));
                 c.pszText = const_cast<LPWSTR>(L"大小");
@@ -275,7 +287,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                   reinterpret_cast<HMENU>(id), inst, nullptr);
             };
             mk(kIdSend, L"发送本机文件到手机…");
-            mk(kIdSendBack, L"把选中项发回对端");
+            mk(kIdSendBack, L"把选中的发回手机");
             mk(kIdOpenDir, L"打开文件夹");
             mk(kIdRefresh, L"刷新");
             gStatus = ::CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE, 0, 0, 10, 10,
@@ -283,7 +295,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             ::SetTimer(hwnd, kTimer, 250, nullptr);
             scan();
             fillList();
-            setStatus(std::wstring(L"落盘目录：") + gDir);
+            // "落盘目录"是内部说法，用户只关心文件存哪了
+            setStatus(std::wstring(L"收到的文件存在：") + gDir);
             return 0;
         }
 

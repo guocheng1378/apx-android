@@ -88,9 +88,9 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
             isFocusable = false
         }
         statusView = TextView(this).apply {
-            setTextColor(android.graphics.Color.WHITE)
-            TvUi.applyTextSize(this, 13f)
-            text = "等待电脑画面…"
+            setTextColor(TvUi.Pal.text)
+            TvUi.applyTextSize(this, TvUi.Type.CAPTION)
+            text = "还没收到电脑画面"
         }
         overlay.addView(statusView, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.START))
 
@@ -98,13 +98,13 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
         //   用手机控制时屏幕上**看不到出口**（文件页有「← 返回」，这里没有，不一致）。
         backButton = TextView(this).apply {
             text = "← 返回"
-            setTextColor(android.graphics.Color.WHITE)
-            TvUi.applyTextSize(this, 14f)
+            setTextColor(TvUi.Pal.text)
+            TvUi.applyTextSize(this, TvUi.Type.BODY)
             isFocusable = true
             isClickable = true
             background = TvUi.focusBg(
                 TvUi.Pal.card, TvUi.Pal.cardFocus,
-                TvUi.dp(this@TvScreenActivity, 10f), TvUi.dp(this@TvScreenActivity, 3f),
+                TvUi.dp(this@TvScreenActivity, TvUi.Radius.CONTROL), TvUi.dp(this@TvScreenActivity, 3f),
             )
             val p = TvUi.dp(this@TvScreenActivity, 12f)
             setPadding(p * 2, p, p * 2, p)
@@ -137,8 +137,11 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
     }
 
     private fun refreshStatus() {
-        val media = TvServerService.current?.mediaStatus() ?: "媒体通道未启动"
-        statusView.text = "$media · ${TvRenderer.stats()} · ${TvSpeaker.stats()}"
+        // 电视上只报「画面到没到」这一件事。
+        // 解码帧数 / 丢帧 / 播放计数属于排障信息，不该出现在用户看画的那块屏上
+        // （要看它们：手机端「运行日志」或 PC 端「连接诊断」）。
+        val media = TvServerService.current?.mediaStatus() ?: "还没收到电脑画面"
+        statusView.text = media
     }
 
     // ————————————————————————————— Surface —————————————————————————————

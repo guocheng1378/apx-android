@@ -56,39 +56,42 @@ object TvInjector {
     fun systemReady(): Boolean = ApxAccessibilityService.isReady()
 
     /**
-     * 当前可用的注入通道（人话）。**界面与通知共用同一份文案**，避免两边说法不一致。
+     * 当前可用的控制能力（说人话）。**界面与通知共用同一份文案**，避免两边说法不一致。
      *
-     * 三档能力差别极大，必须让用户一眼看到 —— "连上了但点不动 / 方向键只动光标"
-     * 是被控端最常见的困惑，根因就是"走的是哪条通道"：
-     *  · evdev / root：**任意按键**（方向键 = 真方向键会移动焦点、组合键、手柄按钮）+ 点击滑动
-     *  · 仅无障碍：只能点击 / 滑动 / 输入框内打字，**按键全是空的**
-     *  · 都没有：只剩光标可视化
+     * 三档能力差别极大，必须让用户一眼看懂 —— "连上了但点不动 / 方向键只动光标"
+     * 是被控端最常见的困惑，根因就是"拿到了哪一级权限"：
+     *  · 完整按键控制（免 root / 走 root）：任意按键（方向键会真的移动焦点、组合键、手柄）+ 点击滑动
+     *  · 仅点按控制（无障碍）：只能点击 / 滑动 / 输入框内打字，**遥控器按键全是空的**
+     *  · 都没有：只剩光标可视化，点不动
+     *
+     * 这里不再出现 evdev / 注入通道 这类实现词：用户需要知道的是"能做什么"，不是"怎么做到的"。
      */
     fun channelText(): String = when {
-        EvdevInjector.available -> "evdev 内核注入 · 免 root，全键可用"
-        RootInput.available -> "root 注入 · 全键可用"
-        systemReady() -> "无障碍注入 · 仅点击/滑动/输入框打字，按键不可用"
-        else -> "未开启 · 手机只能看到光标，点不动"
+        EvdevInjector.available -> "全部按键都能用（可以像真遥控器一样操作）"
+        RootInput.available -> "全部按键都能用（靠 root 权限）"
+        systemReady() -> "只能点按、滑动和打字，遥控器按键按不了"
+        else -> "点不动 —— 需要先在系统设置里给它权限"
     }
 
-    /** 是否具备「任意按键」级别的能力（evdev / root） */
+    /** 是否具备「任意按键」级别的能力（免 root 或 root 任一条可用即可） */
     fun fullKeyReady(): Boolean = EvdevInjector.available || RootInput.available
 
     /**
      * 控制能力自检清单：`(名称, 是否就绪, 没就绪时该怎么办)`。
      * 电视上没有状态栏提示、用户又看不见日志，"缺哪一项"必须直接列在界面上。
+     * 名称一律说"能做什么"，括号里才给排障线索。
      */
     fun capabilities(): List<Triple<String, Boolean, String>> = listOf(
         Triple(
-            "evdev 内核注入（免 root，全键）",
+            "全部按键控制（不用 root）",
             EvdevInjector.available,
-            "本机 /dev/input 不可写（换 root 或无障碍）",
+            "系统输入设备打不开（可以改用 root，或先打开下面的点按控制）",
         ),
-        Triple("root 注入（全键）", RootInput.available, "未授予 root（可忽略，evdev 已够用）"),
+        Triple("全部按键控制（用 root）", RootInput.available, "没有 root 权限（一般用不着，上面那项够用）"),
         Triple(
-            "无障碍注入（点击 / 滑动 / 打字）",
+            "点按 / 滑动 / 打字控制",
             systemReady(),
-            "到「无障碍 / 辅助功能」里启用本应用",
+            "到系统「无障碍」里启用本应用",
         ),
         Triple(
             "悬浮窗（把手机光标画在电视上）",

@@ -40,7 +40,8 @@ const char* const kLogLevels[] = {"debug", "info", "warn", "error"};
 struct Ctx {
     HWND hwnd = nullptr;
     SettingsCallbacks cb;
-    HFONT font = nullptr;      // 正文字体（系统 GUI 字体，与面板一致性够用）
+    HFONT font = nullptr;      // 正文字体（与主面板同口径：Microsoft YaHei UI，按 DPI 缩放）
+    HFONT fontBold = nullptr;  // 分组标题字体（同字号加粗，做层次用）
     UINT  dpi = 96;
 };
 
@@ -57,6 +58,16 @@ std::wstring toWide(const std::string& s) {
     return w;
 }
 
+/// 建一个与主面板同口径的字体（字体名 / 字号 / DPI 缩放三处都对上）。
+/// 设置窗原先用 `DEFAULT_GUI_FONT`：它是系统位图字体，**不随 DPI 缩放** ——
+/// 125% / 150% 屏上比主面板小一号，字也糊。这里改成矢量字体 + 负 height（= 字高）。
+HFONT makeFont(UINT dpi, int weight) {
+    return ::CreateFontW(-MulDiv(14, static_cast<int>(dpi), 96), 0, 0, 0, weight,
+                         FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
+                         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                         DEFAULT_PITCH | FF_DONTCARE, L"Microsoft YaHei UI");
+}
+
 HWND mk(Ctx& c, const wchar_t* cls, const wchar_t* text, DWORD style,
         int x, int y, int w, int h, int id = 0) {
     HWND child = ::CreateWindowExW(
@@ -68,17 +79,28 @@ HWND mk(Ctx& c, const wchar_t* cls, const wchar_t* text, DWORD style,
     return child;
 }
 
+/// 分组标题：同字号加粗。原生 STATIC 没有颜色 API，只能靠字重做层次 ——
+/// 旧版四个分组标题与正文完全同字号同色，整窗读起来是一坨。
+HWND mkSection(Ctx& c, const wchar_t* text, int x, int y, int w, int h) {
+    HWND child = mk(c, L"STATIC", text, SS_LEFT, x, y, w, h);
+    if (child && c.fontBold) {
+        ::SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(c.fontBold), TRUE);
+    }
+    return child;
+}
+
 void setText(HWND h, const std::string& utf8) {
     if (h) ::SetWindowTextW(h, toWide(utf8).c_str());
 }
 
 void buildChildren(Ctx& c) {
-    mk(c, L"STATIC", L"副屏", SS_LEFT, 16, 14, 200, 20);
-    HWND adaptive = mk(c, L"BUTTON", L"自适应码率（按网络拥塞实时升降，变化会写日志）",
+    mkSection(c, L"副屏", 16, 14, 200, 20);
+    // 说人话：不写"按网络拥塞实时升降"（用户看不出是什么），改成"网络忙时自动降"
+    HWND adaptive = mk(c, L"BUTTON", L"自适应码率（网络忙时自动降、闲时升，变化会记进日志）",
                        BS_AUTOCHECKBOX | WS_TABSTOP, 16, 38, 430, 20, kIdAdaptive);
     ::SendMessageW(adaptive, BM_SETCHECK, c.cb.adaptive ? BST_CHECKED : BST_UNCHECKED, 0);
 
-    mk(c, L"STATIC", L"日志级别", SS_LEFT, 16, 72, 80, 20);
+    mkSection(c, L"日志级别", 16, 72, 80, 20);
     HWND combo = mk(c, L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
                     100, 68, 140, 200, kIdLogLevel);
     for (const char* lv : kLogLevels) {
@@ -89,13 +111,14 @@ void buildChildren(Ctx& c) {
         if (c.cb.logLevel == kLogLevels[i]) sel = i;
     ::SendMessageW(combo, CB_SETCURSEL, sel, 0);
 
-    mk(c, L"STATIC", L"编码器与链路（实时，只读）", SS_LEFT, 16, 102, 300, 20);
+    // 「编码器与链路」是内部说法：用户找的是"画面和连接现在怎么样"
+    mkSection(c, L"画面与连接（实时，只读）", 16, 102, 300, 20);
     mk(c, L"STATIC", L"", SS_LEFT, 16, 126, 432, 92, kIdEncoder);
 
     mk(c, L"BUTTON", L"导出诊断包", BS_PUSHBUTTON | WS_TABSTOP, 16, 226, 130, 26, kIdExport);
     mk(c, L"BUTTON", L"重新扫描设备", BS_PUSHBUTTON | WS_TABSTOP, 156, 226, 130, 26, kIdRescan);
 
-    mk(c, L"STATIC", L"全局热键", SS_LEFT, 16, 266, 200, 20);
+    mkSection(c, L"全局热键", 16, 266, 200, 20);
     mk(c, L"STATIC", L"", SS_LEFT, 16, 288, 432, 34, kIdHotkey);
     mk(c, L"BUTTON", L"重置默认热键", BS_PUSHBUTTON | WS_TABSTOP, 16, 326, 130, 26, kIdResetHk);
 
@@ -116,7 +139,8 @@ LRESULT CALLBACK settingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = ::GetDC(hwnd);
             c.dpi = static_cast<UINT>(::GetDeviceCaps(dc, LOGPIXELSX));
             ::ReleaseDC(hwnd, dc);
-            if (!c.font) c.font = static_cast<HFONT>(::GetStockObject(DEFAULT_GUI_FONT));
+            if (!c.font) c.font = makeFont(c.dpi, FW_NORMAL);
+            if (!c.fontBold) c.fontBold = makeFont(c.dpi, FW_SEMIBOLD);
             buildChildren(c);
             refreshInfo(c);
             ::SetTimer(hwnd, 1, 1000, nullptr);
@@ -164,6 +188,10 @@ LRESULT CALLBACK settingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DESTROY:
             ::KillTimer(hwnd, 1);
+            // 字体是我们 CreateFont 出来的 GDI 对象，窗口每次开关都新建一份；
+            // 不删就是每次开关漏两个（以前用库存 DEFAULT_GUI_FONT，所以不需要这段）。
+            if (c.font) { ::DeleteObject(c.font); c.font = nullptr; }
+            if (c.fontBold) { ::DeleteObject(c.fontBold); c.fontBold = nullptr; }
             c.hwnd = nullptr;
             return 0;
         default:

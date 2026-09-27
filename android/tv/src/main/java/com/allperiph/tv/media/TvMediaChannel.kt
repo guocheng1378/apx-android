@@ -84,8 +84,9 @@ class TvMediaChannel(private val port: Int = MEDIA_PORT) {
         synchronized(rxLock) { rxLen = 0 }
     }
 
+    // 面向用户的说法：不说"媒体通道 / 端口"，只说画面到没到
     fun statusText(): String =
-        if (ready) "媒体已连接 $peerText" else "媒体：等 PC 连入 $port"
+        if (ready) "正在显示电脑画面" else "还没收到电脑画面"
 
     // ————————————————————————————— 接受 —————————————————————————————
 

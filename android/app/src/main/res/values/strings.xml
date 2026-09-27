@@ -1,4 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  ═══════════════════════════════════════════════════════════════════════
+  文案词汇表（三端统一：手机 / TV / PC 都按这张表写）
+  ═══════════════════════════════════════════════════════════════════════
+  角色：控制端 =「手机 / 电脑」；被控端 =「本机」「那台设备」
+        被控制的那台统一叫「被控设备」，动作统一叫「接受控制」
+
+  动作词（一件动作只用一个词）：
+        「打开」开关 /「启动」服务 /「停止」服务 /「退出」应用 /「断开」连接
+
+  功能名：触控板（不写「触摸板」）、副屏（对用户不写「镜像 / 投屏 / 推流」）、
+         麦克风、音响、快捷键、遥控器
+
+  禁止出现在用户文案里的实现词：
+        端口号（9511 / 9502 / 9512）、UDC、Gadget、ConfigFS、UAC2、HID、
+        evdev、minLevel、/sys/... 路径、adb / logcat
+        —— 这些只允许出现在「连接诊断」「运行日志」与日志文件里，
+           且要配上"复制诊断信息"这种一键动作，而不是摆在正文里。
+
+  状态句写法：先说「现在什么情况」，再说「为什么」，最后给「下一步做什么」。
+  ═══════════════════════════════════════════════════════════════════════
+-->
 <resources>
     <string name="app_name">全能外设</string>
 
@@ -12,46 +34,48 @@
     <string name="common_on">运行中</string>
 
     <string name="notify_channel_status_name">全能外设运行状态</string>
-    <string name="notify_channel_status_desc">显示 USB 链路与各模块的运行状态</string>
+    <string name="notify_channel_status_desc">显示手机与电脑的连接是否正常</string>
     <string name="notify_channel_alert_name">全能外设告警</string>
-    <string name="notify_channel_alert_desc">链路降级、模块异常等需要关注的通知</string>
+    <string name="notify_channel_alert_desc">连接降级、功能异常等需要你处理的通知</string>
 
     <string name="notify_title">全能外设正在运行</string>
-    <string name="notify_text_running">上行通道：%1$s</string>
+    <string name="notify_text_running">连接方式：%1$s</string>
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
     <string name="notify_action_screen">副屏</string>
 
-    <string name="card_link">链路状态</string>
+    <string name="card_link">连接状态</string>
 
     <string name="label_root">Root 授权</string>
-    <string name="label_usb_speed">USB 速度</string>
-    <string name="label_udc">UDC / Gadget</string>
-    <string name="label_service">前台服务</string>
-    <string name="label_battery">电池优化白名单</string>
-    <string name="label_link_rt">链路延迟 / 丢包</string>
+    <string name="label_usb_speed">USB 连接速度</string>
+    <!-- 原 label_udc「UDC / Gadget」：那是内核里的名字，用户不需要知道 -->
+    <string name="label_usb_gadget">USB 外设状态</string>
+    <string name="label_service">后台运行</string>
+    <string name="label_battery">省电白名单</string>
+    <string name="label_link_rt">延迟 / 丢包</string>
 
     <string name="value_root_ok">已授权</string>
-    <string name="value_root_missing">未授权（不可用）</string>
+    <string name="value_root_missing">没授权（当外设用不了）</string>
     <string name="value_battery_ok">已加入</string>
-    <string name="value_battery_limited">未加入（后台会被冻结）</string>
+    <string name="value_battery_limited">没加入（后台可能被系统冻结）</string>
 
-    <string name="hint_root_missing">未检测到 root：ConfigFS Gadget 无法挂载，触控板与音频均不可用。请刷入 Magisk/KernelSU 后重启。</string>
-    <string name="hint_usb2">当前非 SuperSpeed（USB 2.0 480Mbps 或更低）。建议更换支持 USB 3.0 的线缆与接口。</string>
-    <string name="hint_usb_ok">SuperSpeed 链路就绪。</string>
-    <string name="hint_idle">未启动 · 打开上方开关后显示链路与运行状态</string>
+    <string name="hint_root_missing">这台手机还没有 root：把手机当外设要用到系统底层的 USB 配置，没有 root 就开不起来（触控板与音频都不行）。刷入 Magisk 或 KernelSU 后重启即可。</string>
+    <string name="hint_usb2">当前是 USB 2.0 的速度（慢档）。换一根 USB 3.0 数据线和 3.0 接口会明显更跟手。</string>
+    <string name="hint_usb_ok">USB 3.0 高速已就绪。</string>
+    <string name="hint_idle">未启动 · 打开上方开关后显示连接与运行状态</string>
     <string name="hint_root_dialog_title">为什么需要 Root？</string>
-    <string name="hint_root_dialog_body">本应用要把手机变成 PC 的外设（鼠标 / 键盘 / 多媒体），必须往内核的 USB Gadget 配置目录（/sys/kernel/config/usb_gadget）写入描述符并绑定 UDC —— 这个目录只有 root 可写，Android 没有对第三方应用开放任何替代接口。
+    <string name="hint_root_dialog_body">要把手机变成电脑的外设（鼠标 / 键盘 / 多媒体），必须往系统的 USB 配置里写入设备描述 —— 这块只有 root 能改，Android 没有给第三方应用留别的方式。
 
-没有 root 时：界面、快捷键与模板编辑、状态诊断都照常可用，但所有「当外设」的能力（含触控板、UAC2 音频）无法启动，蓝牙 HID 也因系统权限限制无法注册。
+没有 root 时：界面、快捷键与模板编辑、状态诊断都照常可用，但所有「当外设」的能力（含触控板与音频）都无法启动，蓝牙键鼠也会因系统权限限制注册不上。
 
-获取方式：解锁 Bootloader 后刷入 Magisk 或 KernelSU（部分内核自带，无需额外刷），重启后授予本应用 root 权限即可。</string>
+怎么获取：解锁 Bootloader 后刷入 Magisk 或 KernelSU（有些内核自带，不用额外刷），重启后授予本应用 root 权限即可。</string>
     <string name="action_battery_whitelist">加入白名单</string>
     <string name="action_refresh">重新检测</string>
 
-    <string name="latency_budget_title">延迟预算</string>
-    <string name="latency_budget_body">触控上行 ≤2ms</string>
+    <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
+    <string name="feel_title">跟手程度</string>
+    <string name="feel_body">连同一个 Wi‑Fi 时光标几乎跟手；如果发飘、卡顿，把手机和电脑都靠近路由器，或者改成插线。</string>
 
-    <string name="accessibility_desc">全能外设「被控模式」：把本机作为被控设备，接收另一台手机发来的光标 / 点击 / 键盘 / 文件 / 剪贴板，并注入到本机系统（无需 root）。需在「无障碍」中启用本服务，并在「显示在其他应用上层」中授权浮层光标。</string>
-    <string name="controlled_enable_hint">被控模式已开启：请在系统「无障碍」中启用「全能外设」，并在「显示在其他应用上层」中允许本应用，系统级注入才会生效（未授权时仅显示网络光标）。</string>
+    <string name="accessibility_desc">全能外设「被控模式」：把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（无需 root）。需要在系统「无障碍」里启用本服务，并允许「显示在其他应用上层」以显示光标。</string>
+    <string name="controlled_enable_hint">被控模式已打开：请到系统「无障碍」里启用「全能外设」，并允许「显示在其他应用上层」，手机发来的操作才能真正作用到本机（没授权时只能看到一个跟着动的光标）。</string>
 </resources>

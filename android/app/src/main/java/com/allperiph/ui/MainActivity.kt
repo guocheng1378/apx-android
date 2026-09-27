@@ -849,7 +849,12 @@ class MainActivity : Activity() {
                 } else {
                     ControlTarget.clear()
                     onTargetChanged()
-                    Toast.makeText(this, "连不上 $ip", Toast.LENGTH_SHORT).show()
+                    // 失败句给"为什么 + 下一步"，别只说一句连不上
+                    Toast.makeText(
+                        this,
+                        "连不上 $ip —— 确认两台设备在同一个 Wi‑Fi，或改用「手动输入 IP」直连",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }, "apx-target").start()
@@ -1138,7 +1143,11 @@ class MainActivity : Activity() {
         Thread({
             val ok = TvFileSender.send(this, host, uri)
             runOnUiThread {
-                Toast.makeText(this, if (ok) "文件已发送" else "发送失败", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    if (ok) "文件已发送" else "发送失败 —— 确认两台设备都还连着，再试一次",
+                    if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                ).show()
             }
         }, "apx-file").start()
     }
@@ -1146,13 +1155,15 @@ class MainActivity : Activity() {
     /** 遥控键映射说明（如实标注 Home / 媒体键限制） */
     private fun renderKeymap() {
         keymapBox.removeAllViews()
+        // 说人话：不出现 HID / evdev / root 通道 / 注入通道 这些实现词。
+        // 用户只需要知道"按下去会发生什么、什么情况下不生效、为什么"。
         val lines = listOf(
-            "方向 / OK / 返回 / 主页：走 USB HID 键盘 usage，连 TV 或 PC 后主页触摸板与快捷键条自动发到对端",
-            "方向键是「真方向键」：被控端走 evdev / root 通道时，它会像实体遥控一样移动电视焦点；" +
-                    "只有被控端退化成「无障碍」通道时，才会变成移动屏幕光标 —— 被控端的「注入通道」会写明是哪一档",
-            "OK=Enter，返回=Esc，主页=Home；被控端若显示「未开启 / 仅可视化」，这几个键就是不会生效（不是没接上）",
-            "媒体 / 音量 / 电源：键盘页「遥控」布局第三行有「电源 / 关机 / 重启」三键" +
-                    "（关机与重启需要被控端有 root，点了会弹确认框；没有 root 只会退回待机）",
+            "方向 / OK / 返回 / 主页：连上 TV 或电脑后自动生效，主页的触控板与快捷键条会一起发过去",
+            "方向键是真的方向键：正常情况下它会像实体遥控一样移动对方屏幕上的焦点；" +
+                    "如果那台设备只允许「点按控制」，方向键就只会移动光标 —— 它的界面上会写清是哪种",
+            "OK = 回车，返回 = Esc，主页 = Home。对方显示「点不动」时说明它还没开权限，不是没连上",
+            "音量 / 电源：键盘页「遥控」布局第三行有「电源 / 关机 / 重启」" +
+                    "（关机与重启需要对方有 root，点了会先弹确认框；没有 root 只会退回待机）",
             "切到 TV 目标时，触摸板下方的快捷键条自动切换为「TV 遥控」预设，可长按编辑、改动单独保存",
         )
         lines.forEach { t ->
@@ -1425,7 +1436,7 @@ class MainActivity : Activity() {
         linkRows = StatusRows(rowsLink)
         rowHandles["root"] = linkRows.addRow(getString(R.string.label_root))
         rowHandles["speed"] = linkRows.addRow(getString(R.string.label_usb_speed))
-        rowHandles["udc"] = linkRows.addRow(getString(R.string.label_udc))
+        rowHandles["udc"] = linkRows.addRow(getString(R.string.label_usb_gadget))
         rowHandles["service"] = linkRows.addRow(getString(R.string.label_service))
         rowHandles["battery"] = linkRows.addRow(getString(R.string.label_battery))
     }
@@ -1453,6 +1464,8 @@ class MainActivity : Activity() {
                 )
                 row.name.text = AgentController.label(m.id)
                 row.detail.text = AgentController.detailOf(m)
+                // 无障碍：Switch 自身没有文字，读屏只会念"开关" —— 把模块名挂上去
+                row.sw.contentDescription = row.name.text
                 if (AgentController.groupsOf(m.id).size > 1) {
                     // v184：多出口模块（触摸板）组内行开关改为**出口级独立开关** ——
                     // 只控制"手势是否走该出口"，不再互相联动、也不再直接启停模块
@@ -1764,7 +1777,7 @@ class MainActivity : Activity() {
                     }
                     true
                 }.getOrDefault(false)
-                toast(if (ok) "主题已导出" else "导出失败")
+                toast(if (ok) "主题已导出" else "导出失败 —— 换个位置存，或检查存储空间后重试")
             }
             REQ_IMPORT_THEME -> {
                 val text = runCatching {
@@ -1772,7 +1785,7 @@ class MainActivity : Activity() {
                 }.getOrNull()
                 val n = ThemeSkin.importJson(this, text.orEmpty())
                 if (n < 0) {
-                    toast("这不是主题文件")
+                    toast("这个文件不是主题文件 —— 选之前「导出」生成的那个")
                 } else {
                     toast(if (n > 0) "已导入 $n 套配色" else "主题已应用")
                     recreate()
@@ -1918,9 +1931,9 @@ class MainActivity : Activity() {
             )
         }
         val envSummary = lastEnv?.summary ?: getString(R.string.common_unknown)
-        val mask = AgentController.runtime?.registry?.mask() ?: 0
-        val maskText = java.lang.Integer.bitCount(mask)
-        tvOverallSub.text = "$envSummary · 启用模块 $maskText 个"
+        // 不再报「启用模块 N 个」：那是内部模块位图计数，用户读不出任何信息
+        // （想细看有哪些功能，去「设置 → 功能开关」）
+        tvOverallSub.text = envSummary
         // 运行摘要的链路口径按实际通道：有 USB 速度才显示 USB 档位；纯蓝牙时提示配对。
         // 原文案固定走 USB 分支，没插线也会显示"建议更换 USB 3.0 线缆"，误导。
         val btRunning = AgentController.module(ModuleId.BTHID)?.state?.isActive == true
@@ -1928,10 +1941,10 @@ class MainActivity : Activity() {
         val linkText = when {
             usbSpeed.isSuperSpeed -> getString(R.string.hint_usb_ok)
             usbSpeed != LinkSpeed.UNKNOWN -> getString(R.string.hint_usb2)
-            btRunning -> "蓝牙 HID 已就绪，PC 端配对后即可使用"
+            btRunning -> "蓝牙已就绪，在电脑上配对后就能用"
             else -> getString(R.string.common_unknown)
         }
-        tvRunningSummary.text = "$envSummary · 启用模块 $maskText 个 · $linkText"
+        tvRunningSummary.text = "$envSummary · $linkText"
 
         // 链路行
         val env = lastEnv

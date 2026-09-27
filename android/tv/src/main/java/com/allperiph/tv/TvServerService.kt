@@ -23,12 +23,12 @@ class TvServerService : Service() {
     @Volatile private var fgFailed = false
     override fun onCreate() {
         super.onCreate()
-        if (Build.VERSION.SDK_INT >= 26) { val ch = NotificationChannel(CHANNEL_ID, "APX TV 状态", NotificationManager.IMPORTANCE_LOW); getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch) }
+        if (Build.VERSION.SDK_INT >= 26) { val ch = NotificationChannel(CHANNEL_ID, "全能外设 TV 状态", NotificationManager.IMPORTANCE_LOW); getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch) }
         current = this
         TvInjector.init(applicationContext)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
-    private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "服务启动中"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
+    private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
     private fun ensureFileReceiver() { runCatching { TvFileReceiver.start(applicationContext) }.onFailure { Log.w("9512 未启动：${it.message}") } }
     private fun newServer(): TcpControlServer = TcpControlServer().also { s ->
         s.onPeerChanged = { connected, ip -> Log.i("对端变化：connected=$connected ip=$ip"); if (connected && ip.isNotEmpty()) rememberPeer(ip); TvInjector.setConnected(connected); refreshNotification() }
@@ -49,7 +49,7 @@ class TvServerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     fun status(): String = server?.statusText() ?: "未启动"
     fun ensureMedia() { if (media != null) return; media = TvMediaChannel().also { if (!it.start()) Log.w("9512 未启动") } }
-    fun mediaStatus(): String = media?.statusText() ?: "媒体：未启动"
+    fun mediaStatus(): String = media?.statusText() ?: "还没收到电脑画面"
     fun sendTargets(): List<String> { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); return out.distinct() }
     fun currentPeer(): String? = server?.currentPeerHost()
     /** 远程输入：将 TV 端用户输入的文本发回手机端 */
@@ -57,10 +57,10 @@ class TvServerService : Service() {
     /** 远程输入：通知手机端输入完成 */
     fun sendInputDone() { server?.sendInputDone() }
     private fun injectStateText(): String = TvInjector.channelText()
-    private fun refreshNotification() { runCatching { getSystemService(NotificationManager::class.java)?.notify(NOTIFY_ID, buildNotification(server?.statusText() ?: "服务启动中")) } }
+    private fun refreshNotification() { runCatching { getSystemService(NotificationManager::class.java)?.notify(NOTIFY_ID, buildNotification(server?.statusText() ?: "正在启动…")) } }
     private fun rememberPeer(ip: String) { val set = knownPeers().toMutableSet(); if (set.add(ip)) { getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(KEY_PEERS, set.toList().takeLast(8).joinToString(",")).apply() } }
     private fun knownPeers(): List<String> = getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_PEERS, "")?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
-    private fun buildNotification(text: String): Notification { val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this); builder.setContentTitle(getString(R.string.tv_notification_title)).setContentText(text + " · " + injectStateText() + (if (fgFailed) " · 未进前台" else "")).setSmallIcon(R.drawable.ic_launcher_tv).setOngoing(true); return builder.build() }
+    private fun buildNotification(text: String): Notification { val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this); builder.setContentTitle(getString(R.string.tv_notification_title)).setContentText(text + " · " + injectStateText() + (if (fgFailed) " · 后台运行受限" else "")).setSmallIcon(R.drawable.ic_launcher_tv).setOngoing(true); return builder.build() }
     companion object {
         private const val CHANNEL_ID = "apxtv_status"
         private const val NOTIFY_ID = 1

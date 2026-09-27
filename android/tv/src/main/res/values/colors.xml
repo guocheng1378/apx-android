@@ -1,29 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  TV 端唯一色板（v1.33 引入）。
-  此前 TV 侧没有 colors.xml：TvUi 里写死 8 个 hex，而 MainActivity / RemoteInputOverlay
-  又各用 `Color.parseColor` 自带一套（背景就有 #0B0F14 与 #1A1A2E 两种），改配色要在
-  代码里翻三处。现在统一到这里，Kotlin 侧一律经 TvUi.Pal 取色。
-  取值沿用 GitHub Dark 一族（原 TvUi 常量），灭 favors 远距离高对比，与 Theme.ApxTv 一致。
+  TV 端色板：**手机端色板的暗色变体**（三端统一视觉语言）。
+  主色与手机端、PC 端同为 HyperOS 蓝 #3482FF —— TV 只是把「表面」换成暗档，
+  不是另起一套配色。
+
+  旧取值是 GitHub Dark 一族（#0B0F14 / #58A6FF / #1F6FEB / #3FB950）：
+  它跟「手机当外设」这件事毫无关系，用户看到的像另一个产品，已全部替换。
+
+  与 app 端 res/values/colors.xml 的对应关系：
+    bg / card / field / stroke       ← md_background / md_surface / md_surface_variant / card_stroke（暗档）
+    text / text_dim / text_weak      ← md_on_background / md_on_surface_variant / miuix_text_tertiary（暗档）
+    accent / accent_soft             ← md_primary 的暗底提亮版 / md_primary_container（暗档）
+    ok / warn / error / idle         ← state_* 的暗底提亮版
+
+  Kotlin 侧一律经 TvUi.Pal 取色，本文件之外不应再出现 hex。
 -->
 <resources>
-    <!-- 表面层级：底 → 卡片 → 输入区 -->
-    <color name="tv_bg">#FF0B0F14</color>
-    <color name="tv_card">#FF161B22</color>
-    <color name="tv_card_focus">#FF1F6FEB</color>
-    <color name="tv_field">#FF21262D</color>
+    <!-- 表面层级：底 → 卡片 → 输入区/浮层 -->
+    <color name="tv_bg">#FF16181D</color>
+    <color name="tv_card">#FF1F2228</color>
+    <color name="tv_card_focus">#FF3482FF</color>
+    <color name="tv_field">#FF272B33</color>
+    <color name="tv_stroke">#FF2E333B</color>
 
-    <!-- 文字：正文 / 弱化（原来的 #99/#BB/#88/#66 半透明白牌回归这两档） -->
-    <color name="tv_text">#FFE6EDF3</color>
-    <color name="tv_text_dim">#FF8B949E</color>
+    <!-- 文字：正文 / 次要 / 三级 -->
+    <color name="tv_text">#FFF2F3F5</color>
+    <color name="tv_text_dim">#FF9BA1AA</color>
+    <color name="tv_text_weak">#FF6E747C</color>
 
     <!-- 强调与语义色 -->
-    <color name="tv_accent">#FF58A6FF</color>
-    <color name="tv_ok">#FF3FB950</color>
-    <color name="tv_warn">#FFD29922</color>
-    <color name="tv_error">#FFF85149</color>
+    <color name="tv_accent">#FF5B9CFF</color>
+    <color name="tv_accent_soft">#FF1E3A66</color>
+    <color name="tv_ok">#FF34D399</color>
+    <color name="tv_warn">#FFFBBF24</color>
+    <color name="tv_error">#FFF87171</color>
+    <color name="tv_idle">#FF8A9199</color>
 
     <!-- 浮层遮罩 / 中性按钮 -->
     <color name="tv_mask">#99000000</color>
-    <color name="tv_neutral">#FF666666</color>
+    <color name="tv_neutral">#FF5A5F66</color>
 </resources>

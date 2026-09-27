@@ -1,16 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  TV 端文案（三端统一词汇表）。
+  用词约定：
+    · 「手机 / 电脑」= 控制端；「本机 / 这台电视」= 被控端
+    · 被控制一律说「接受控制」；不再出现「被控 / 受控」两个说法
+    · 不出现端口号、通道名、服务名、evdev / 注入通道 等实现词
+    · 状态句按「现在什么情况 + 怎么办」写
+-->
 <resources>
-    <string name="app_name">APX TV</string>
-    <string name="tv_status_waiting">等待手机连入…</string>
-    <string name="tv_status_connected">已连接：%1$s</string>
-    <string name="tv_hint">用手机「TV 控制」连本机 IP 与端口；方向键/触摸移动光标，确认键触发</string>
-    <string name="tv_card_launcher">启动器</string>
-    <string name="tv_card_player">媒体播放</string>
-    <string name="tv_card_settings">设置</string>
-    <string name="tv_card_console">终端</string>
-    <string name="tv_card_about">关于</string>
-    <string name="tv_notification_title">APX TV 服务端</string>
-    <string name="tv_enable_system">启用系统控制</string>
-    <string name="tv_enable_system_hint">开启后才能用手机真正操控本机（点击/文本/返回）。需授予「无障碍」与「显示在其他应用上层」。</string>
-    <string name="accessibility_desc">APX TV 控制服务：将手机发来的光标点击、文本输入与返回/主页操作注入本机系统，实现手机遥控手机/电视。</string>
+    <string name="app_name">全能外设 TV</string>
+
+    <!-- 主界面 -->
+    <string name="tv_tagline">手机或电脑连上来，就能控制这台电视</string>
+    <string name="tv_addr">本机地址 %1$s</string>
+    <string name="tv_addr_hint">手机上连不上时，在「TV / PC 控制」里手动输入这个地址</string>
+    <string name="tv_ability_label">现在能被怎么控制</string>
+    <string name="tv_hint">遥控器方向键选择、确认键进入；手机连上后可以直接用手机点屏幕</string>
+    <string name="tv_action_files">收到的文件</string>
+    <string name="tv_action_screen">看电脑画面</string>
+    <string name="tv_action_selfcheck">检查控制能力</string>
+    <string name="tv_accept_on">开始接受控制</string>
+    <string name="tv_accept_off">停止接受控制</string>
+    <string name="tv_service_stopped">控制服务没在运行 —— 点「开始接受控制」后再让手机连</string>
+
+    <!-- 开始 / 停止接受控制的确认 -->
+    <string name="tv_confirm_start_title">开始接受控制？</string>
+    <string name="tv_confirm_start_body">开启后，同一网络里的手机 / 电脑可以连上来操作这台电视。</string>
+    <string name="tv_confirm_stop_title">停止接受控制？</string>
+    <string name="tv_confirm_stop_body">停止后，正在控制的手机 / 电脑会立刻断开，之后也无法连上。</string>
+    <string name="tv_confirm_start_ok">开始</string>
+    <string name="tv_confirm_stop_ok">停止</string>
+    <string name="tv_confirm_cancel">取消</string>
+
+    <!-- 收到的文件（空态要说清「怎么让它不空」） -->
+    <string name="tv_files_title">收到的文件</string>
+    <string name="tv_files_empty">还没有收到文件。手机或电脑在「文件传输」里选这台电视就能发过来。</string>
+
+    <!-- 打字提示 -->
+    <string name="tv_ime_hint">想用手机给电视打字（比如搜片名）：先在系统设置里启用「全能外设输入」法。</string>
+
+    <!-- 通知 -->
+    <string name="tv_notification_title">全能外设 TV</string>
+
+    <!-- 无障碍服务说明（系统设置 → 无障碍里给用户看的） -->
+    <string name="accessibility_desc">全能外设 TV 控制服务：接收手机发来的光标点击、文字输入与返回 / 主页操作并注入本机，用它遥控电视。</string>
 </resources>

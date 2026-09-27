@@ -76,13 +76,14 @@ object EnvChecks {
         val batteryOptimized = !isIgnoringBatteryOptimizations(context)
         val notifGranted = notificationGranted(context)
 
+        // 一句话环境摘要（说人话：能用 / 不能用，别用"降级运行""未加白"这种缩写）
         val summary = buildString {
-            append(if (rooted) "Root 已授权" else if (suPresent()) "发现 su 但未授权" else "未检测到 Root")
-            append(" · USB：")
-            append(if (raw.isBlank()) "未知" else raw)
-            if (!speed.isSuperSpeed) append("（降级运行）")
-            if (batteryOptimized) append(" · 未加电池白名单")
-            if (!notifGranted) append(" · 通知被关闭")
+            append(if (rooted) "Root 已授权" else if (suPresent()) "发现 su 但没授权" else "没有 root")
+            append(" · USB ")
+            append(if (raw.isBlank()) "速度未知" else raw)
+            if (!speed.isSuperSpeed) append("（慢速）")
+            if (batteryOptimized) append(" · 没加入省电白名单")
+            if (!notifGranted) append(" · 通知被系统关掉了")
         }
 
         runCatching { shell?.close() }

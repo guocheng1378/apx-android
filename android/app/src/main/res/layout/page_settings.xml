@@ -252,7 +252,8 @@
                 <Switch
                     android:id="@+id/swHotkeySort"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="wrap_content"
+                    android:contentDescription="快捷键自动排序开关" />
             </LinearLayout>
         </LinearLayout>
 

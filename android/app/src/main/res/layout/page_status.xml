@@ -76,7 +76,8 @@
                     <Switch
                         android:id="@+id/swWifi"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:contentDescription="无线开关" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -96,7 +97,8 @@
                     <Switch
                         android:id="@+id/swBt"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:contentDescription="蓝牙开关" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -116,7 +118,8 @@
                     <Switch
                         android:id="@+id/swUsb"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
+                        android:layout_height="wrap_content"
+                        android:contentDescription="USB 开关" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
@@ -142,7 +145,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="已实现"
+                android:text="打开开关后，手机就变成电脑的外设"
                 android:textAppearance="@style/APTextSubtitle" />
 
             <TextView
@@ -156,7 +159,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义）；插线与 Wi‑Fi 两种接法，PC 都免驱识别为键盘"
+                android:text="键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），插线与 Wi‑Fi 都能用，电脑免驱"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
@@ -170,70 +173,35 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="多媒体 —— 音量增减、播放暂停、上一首 / 下一首"
+                android:text="多媒体 —— 手机上就能调电脑音量、控制播放"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="麦克风 —— UAC2 音频，把手机麦克风上行给 PC"
+                android:text="麦克风 —— 手机说话，进电脑：微信、会议软件里能选到它（需插线）"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="音响 —— UAC2 音频，把 PC 声音下行到手机扬声器"
+                android:text="音响 —— 电脑出声，手机响：把手机当电脑音箱（需插线）"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="蓝牙 HID（鼠标 / 多媒体）—— PC 自带蓝牙时，不插线也能当鼠标、控制播放"
+                android:text="蓝牙 —— 电脑有蓝牙时，不插线也能当鼠标用"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：同一局域网下，PC 端「全能外设」自动发现手机，触控板 / 键盘 / 快捷键直接生效"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="14dp"
-                android:text="尚未接通（计划中）"
-                android:textAppearance="@style/APTextSubtitle" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="8dp"
-                android:text="蓝牙键盘 —— 蓝牙 HID 目前只有鼠标 / 多媒体，键盘待接入（走 Wi‑Fi 控制时键盘已可用）"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
-                android:text="传感器 —— IMU / 光感 / 气压等数据上行给 PC"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
-                android:text="GPS 定位 —— NMEA 经由 CDC ACM 串口上行"
-                android:textAppearance="@style/APTextCaption" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="6dp"
-                android:text="振动 / 手电 / 红外 —— 由 PC 反向控制手机"
+                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：连同一个 Wi‑Fi，电脑端自动发现手机，触控板 / 键盘 / 快捷键立刻生效"
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 
@@ -329,7 +297,8 @@
                     android:textAppearance="@style/APTextCaption" />
             </LinearLayout>
 
-            <!-- 延迟预算说明（MS4 目标 ≤30ms） -->
+            <!-- 跟手程度：说的是"正常该是什么样 + 不跟手怎么办"，
+                 不摆内部指标（旧版写「延迟预算 · 触控上行 ≤2ms」，用户读不出任何可行动信息） -->
             <LinearLayout
                 style="@style/APCardFlat"
                 android:layout_width="match_parent"
@@ -339,14 +308,14 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/latency_budget_title"
+                    android:text="@string/feel_title"
                     android:textAppearance="@style/APTextSubtitle" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="6dp"
-                    android:text="@string/latency_budget_body"
+                    android:text="@string/feel_body"
                     android:textAppearance="@style/APTextCaption" />
             </LinearLayout>
         </LinearLayout>

@@ -1,27 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- TV 服务端深色主题：大字号、高对比，适配远距离观看与老设备 -->
-    <!-- 卡片：大字号、可聚焦、选中高亮（DPAD / 点击通用） -->
-    <style name="TvCard" parent="android:Widget.TextView">
-        <item name="android:layout_width">200dp</item>
-        <item name="android:layout_height">140dp</item>
-        <item name="android:layout_marginEnd">24dp</item>
-        <item name="android:gravity">center</item>
-        <item name="android:textSize">26sp</item>
-        <item name="android:textColor">#C9D1D9</item>
-        <item name="android:focusable">true</item>
-        <item name="android:clickable">true</item>
-        <item name="android:background">@drawable/card_bg</item>
-        <item name="android:padding">16dp</item>
-    </style>
+    <!--
+      TV 主题：手机端同一套设计令牌的暗色变体。
+      大字号、高对比是坐远看的需求，但取值一律来自 colors.xml，不再内联 hex。
 
+      字号层级不在这里定义：TV 界面全部由代码构建（TvUi.applyTextSize），
+      层级统一由 TvUi.Type 的命名档位给出 —— 与手机端 20/15/14/12 同比例。
+    -->
     <style name="Theme.ApxTv" parent="android:Theme.Material.NoActionBar">
-        <item name="android:colorBackground">#0B0F14</item>
-        <item name="android:colorForeground">#E6EDF3</item>
-        <item name="android:windowBackground">#0B0F14</item>
+        <item name="android:colorBackground">@color/tv_bg</item>
+        <item name="android:windowBackground">@color/tv_bg</item>
+        <item name="android:colorPrimary">@color/tv_accent</item>
+        <item name="android:colorAccent">@color/tv_accent</item>
+        <item name="android:colorForeground">@color/tv_text</item>
+        <item name="android:textColor">@color/tv_text</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:textColor">#E6EDF3</item>
         <item name="android:fontFamily">sans-serif</item>
     </style>
 </resources>

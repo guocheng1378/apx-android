@@ -743,7 +743,7 @@ void toggleScreen(Panel* p) {
                     L"请确认：\n"
                     L"  · 手机与电脑在同一 Wi‑Fi\n"
                     L"  · 手机端已打开「Wi‑Fi 控制」模块\n"
-                    L"  · 上方「连接状态」显示已连接",
+                    L"  · 上方「连接方式」显示已连接",
                     L"全能外设", MB_OK | MB_ICONINFORMATION);
         return;
     }
@@ -1010,7 +1010,7 @@ void toggleSpeaker(Panel* p) {
                     L"请确认：\n"
                     L"  · 手机与电脑在同一 Wi‑Fi\n"
                     L"  · 手机端已打开「Wi‑Fi 控制」与「Wi‑Fi 音频」模块\n"
-                    L"  · 上方「连接状态」显示已连接",
+                    L"  · 上方「连接方式」显示已连接",
                     L"全能外设", MB_OK | MB_ICONINFORMATION);
         return;
     }
@@ -1610,41 +1610,42 @@ void applyConnect(Panel* p) {
 void runConnectionDiagnosis(Panel* p) {
     std::wstring s = L"═══ 链路状态 ═══\r\n\r\n";
 
-    // 控制面 9511：PC 主动连手机/TV 的那条（输入、剪贴板、开关都走它）
+    // 说人话：不写端口号（9511 / 9502 是内部实现，原始信息都在「导出诊断包」里）。
+    // 每一行统一"现在的状态 + 怎么改"。
     const bool ctrlOk = p->session && p->session->connected();
-    s += ctrlOk ? L"✔ 控制面 9511：已连接\r\n"
-                : L"✘ 控制面 9511：未连接 —— 在面板拨「无线」开关，或选中要控制设备\r\n";
+    s += ctrlOk ? L"✔ 与手机的连接：已连上\r\n"
+                : L"✘ 与手机的连接：没连上 —— 在面板上打开「无线」开关，或选中要控制的设备\r\n";
 
-    // 媒体通道 9502：副屏画面与音箱声音走这条
+    // 媒体：副屏画面与音箱声音走这条
     const bool mediaOk = p->media && p->media->status().connected;
-    s += mediaOk ? L"✔ 媒体通道 9502：已连接\r\n"
-                 : L"○ 媒体通道 9502：未连接（控制面连上后会自动建立）\r\n";
+    s += mediaOk ? L"✔ 画面与声音通道：已连上\r\n"
+                 : L"○ 画面与声音通道：还没连上（上面那条连上后会自动建立）\r\n";
 
     // 副屏推流（PC 画面 → 手机）
     const bool screenOk = p->screenPush && p->screenPush->running();
-    s += screenOk ? L"✔ 副屏推流：运行中\r\n"
-                  : L"○ 副屏推流：未运行（点面板的「副屏」开关）\r\n";
+    s += screenOk ? L"✔ 副屏：正在把本机画面送到手机\r\n"
+                  : L"○ 副屏：没在推（打开面板上的「副屏」开关）\r\n";
 
     // 音箱采集（PC 系统声音 → 手机）
     const bool spkOk = p->audio && p->audio->running();
-    s += spkOk ? L"✔ 音箱采集：运行中\r\n"
-               : L"○ 音箱采集：未运行（点面板的「音箱」开关）\r\n";
+    s += spkOk ? L"✔ 电脑声音送到手机：运行中\r\n"
+               : L"○ 电脑声音送到手机：没开（打开面板上的「音箱」开关）\r\n";
 
     // 麦克风转发（手机 → PC）
     const bool micOk = p->micBridge && p->micBridge->running();
-    s += micOk ? L"✔ 麦克风转发：运行中\r\n"
-               : L"○ 麦克风转发：未运行（点面板的「麦克风」开关）\r\n";
+    s += micOk ? L"✔ 手机麦克风送进电脑：运行中\r\n"
+               : L"○ 手机麦克风送进电脑：没开（打开面板上的「麦克风」开关）\r\n";
 
     s += L"\r\n═══ 连不上时按这个顺序查 ═══\r\n\r\n";
-    s += L"1) 手机端「被控 / 无线」是否开着？\r\n";
-    s += L"   （PC 面板把无线拨到 OFF 会让手机拒绝连接，拨回 ON 即可恢复）\r\n";
-    s += L"2) 手机与 PC 在同一局域网吗？手机 IP 变了要重新选中设备\r\n";
-    s += L"3) 本机防火墙是否放行 apxdesktop.exe（TCP 9511 / 9502）\r\n";
-    s += L"   首次运行会自动添加放行规则，需管理员权限\r\n";
-    s += L"4) 手机端是否启用了「全能外设输入」法？没有它中文上屏会失败\r\n";
-    s += L"5) 仍不行就看日志：\r\n";
-    s += L"   PC：%LOCALAPPDATA%\\AllPeriph\\（media_debug.log / touch_debug.log）\r\n";
-    s += L"   手机：adb logcat，过滤「被控控制面」\r\n";
+    s += L"1) 手机上「被控模式 / 无线」开着吗？\r\n";
+    s += L"   （面板把「无线」拨到关会让手机拒绝连接，拨回开即可恢复）\r\n";
+    s += L"2) 手机和电脑在同一个 Wi‑Fi 吗？手机换了网络要重新选中设备\r\n";
+    s += L"3) Windows 防火墙放行本程序了吗？\r\n";
+    s += L"   首次运行会弹窗询问，选「允许访问」；误点过「取消」就到防火墙设置里放行\r\n";
+    s += L"4) 手机上启用「全能外设输入」法了吗？没启用的话中文打字上不了屏\r\n";
+    s += L"5) 还是不行，两边都有日志可看：\r\n";
+    s += L"   电脑：托盘菜单 →「导出诊断包…」，把导出的文件发给开发者\r\n";
+    s += L"   手机：设置 →「遥控」→ TV / PC 控制 → 运行日志\r\n";
 
     MessageBoxW(p->hwnd, s.c_str(), L"连接诊断", MB_OK | MB_ICONINFORMATION);
 }
@@ -1804,9 +1805,11 @@ void performHit(Panel* p, Hit h) {
                                   "分辨率 %ux%u · %.1f fps · 码率 %u Kbps · 编码 %.1f ms\r\n",
                                   st.width, st.height, st.fps, st.bitrateKbps, st.encodeMs);
                     s += buf;
-                    if (!st.adaptive) s += "自适应码率：关（固定档位）";
-                    else if (st.adaptiveActive) s += "自适应码率：运行中（按发送拥塞升降）";
-                    else s += "自适应码率：已开但**未生效** —— " + st.abrNote;
+                    if (!st.adaptive) s += "自适应码率：关（一直用你选的档位）";
+                    else if (st.adaptiveActive) s += "自适应码率：运行中（网络忙时自动降、闲时升）";
+                    // 注意：这里是 Win32 STATIC 文本，没有 markdown 渲染 ——
+                    // 旧文案写 "**未生效**"，用户会*连星号一起看到*（v184 修）
+                    else s += "自适应码率：已开但没生效 —— " + st.abrNote;
                 } else {
                     s += st.error.empty() ? "副屏未推流" : ("上次失败：" + st.error);
                 }
@@ -1842,6 +1845,14 @@ void performHit(Panel* p, Hit h) {
             ShowWindow(p->hwnd, SW_HIDE);
             break;
         case Hit::Quit:
+            // 退出 = 真的断开手机 + 收起托盘图标，之前是一点就退（点错只能重开）。
+            // 主窗的 X 只是"隐藏到托盘"（见 WM_CLOSE），两者语义不同 —— 确认文案把区别写明。
+            if (::MessageBoxW(p->hwnd,
+                              L"退出后手机会断开连接，托盘图标也会消失。\n\n"
+                              L"只是想让它从桌面消失，点「隐藏到托盘」就行。\n\n要退出吗？",
+                              L"退出全能外设", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) {
+                break;
+            }
             if (p->tray) {
                 p->tray->setQuitCallback(nullptr);
                 p->tray->setOpenCallback(nullptr);
@@ -2586,27 +2597,27 @@ int runPanel(const std::string& /*preferInstanceId*/) {
             return;
         }
         if (!panel.session || !panel.session->connected()) {
-            panel.tray->notify("还没连上受控设备",
-                               "发剪贴板要先有一条 9511 连接（手机开被控模式 / 面板里选中设备）");
+            panel.tray->notify("还没连上手机",
+                               "先连上手机：手机打开「被控模式」，或在面板里选中要控制的设备");
             return;
         }
         const bool ok = panel.session->sendClipboard(text);
         const std::string preview = text.size() > 40 ? text.substr(0, 40) + "…" : text;
         panel.tray->notify(ok ? "剪贴板已发送" : "剪贴板发送失败",
-                           ok ? preview : preview + "（控制面未就绪，稍后再试）");
+                           ok ? preview : preview + "（还没连上，稍后再试）");
     });
     // 托盘右键 →「让手机帮我输入…」：发 0x25 请求对端弹输入法。
     // 分工：这里只负责"喊一声"；对方回传的文本（0x26）由 WirelessSession 在自己的
     // 回调里直接注入本机当前光标处（见 WirelessSession 构造函数），不绕回 UI 线程。
     panel.tray->setInputCallback([&panel] {
         if (!panel.session || !panel.session->connected()) {
-            panel.tray->notify("还没连上受控设备", "「让手机帮我输入」需要先连上手机 / TV");
+            panel.tray->notify("还没连上手机", "「让手机帮我输入」需要先连上手机 / 电视");
             return;
         }
         const bool ok = panel.session->requestInput("电脑请求输入文本");
-        panel.tray->notify(ok ? "已请手机输入" : "请求失败",
+        panel.tray->notify(ok ? "已请手机输入" : "发送失败",
                            ok ? "在手机上打字，文字会直接进电脑光标处"
-                              : "控制面未就绪，稍后再试");
+                              : "还没连上，稍后再试");
     });
     // 托盘右键 →「连接诊断…」：把这几轮排障时人肉做的检查（链路各环状态 + 该查哪里）
     // 固化成一次点击。诊断本身只读状态、不产生副作用，直接在托盘线程弹窗即可

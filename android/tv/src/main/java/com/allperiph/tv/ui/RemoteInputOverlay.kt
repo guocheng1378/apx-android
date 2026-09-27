@@ -40,13 +40,15 @@ class RemoteInputOverlay(
             setPadding(dp(24f), dp(16f), dp(24f), dp(16f))
         }
         val titleRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(TextView(activity).apply { text = "输入中"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, 14f) })
+        titleRow.addView(TextView(activity).apply { text = "正在接收打字"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY) })
         titleRow.addView(View(activity), LinearLayout.LayoutParams(0, 0, 1f))
-        titleRow.addView(TextView(activity).apply { text = "来自「$fromDevice」"; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, 13f) })
+        titleRow.addView(TextView(activity).apply { text = "来自「$fromDevice」"; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION) })
         panel.addView(titleRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
         val input = EditText(activity).apply {
-            setTextColor(Color.WHITE); setHintTextColor(TvUi.Pal.textDim); this.hint = hint.ifEmpty { "输入内容" }
-            setBackgroundColor(TvUi.Pal.field); setPadding(dp(16f), dp(12f), dp(16f), dp(12f)); textSize = 18f
+            setTextColor(TvUi.Pal.text); setHintTextColor(TvUi.Pal.textDim); this.hint = hint.ifEmpty { "在这里看到对方的输入" }
+            setBackgroundColor(TvUi.Pal.field); setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
+            // 字号走命名档位（同时也拿到分辨率自适应；原先写 textSize = 18f 在 4K 上偏小）
+            TvUi.applyTextSize(this, TvUi.Type.TITLE)
             typeface = Typeface.DEFAULT; isFocusable = true; isFocusableInTouchMode = true; setSingleLine()
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -84,8 +86,8 @@ class RemoteInputOverlay(
         val dp = { v: Float -> (v * activity.resources.displayMetrics.density + 0.5f).toInt() }
         return TextView(activity).apply {
             this.text = text
-            setTextColor(Color.WHITE)
-            TvUi.applyTextSize(this, 14f)
+            setTextColor(TvUi.Pal.text)
+            TvUi.applyTextSize(this, TvUi.Type.BODY)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
@@ -93,7 +95,7 @@ class RemoteInputOverlay(
             minimumHeight = TvUi.dp(activity, 48f)
             isFocusable = true
             contentDescription = text
-            background = TvUi.focusBg(color, TvUi.Pal.cardFocus, dp(6f), dp(2f))
+            background = TvUi.focusBg(color, TvUi.Pal.cardFocus, TvUi.dp(activity, TvUi.Radius.CONTROL), dp(2f))
             setOnClickListener { onClick() }
         }
             .also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } }
