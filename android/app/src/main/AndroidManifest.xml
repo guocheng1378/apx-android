@@ -114,6 +114,15 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
+        <!-- 远程输入：对端设备请求本机输入时弹出（轻量 Activity，系统键盘自动弹出） -->
+        <activity
+            android:name=".controlled.RemoteInputActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize"
+            android:theme="@style/Theme.AllPeriph" />
+
         <!-- 前台服务 -->
         <service
             android:name=".ui.AgentForegroundService"
