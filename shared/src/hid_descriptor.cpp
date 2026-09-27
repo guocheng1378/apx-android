@@ -245,6 +245,62 @@ void buildTlcBattery(Builder& b) {
     b.endCollection();
 }
 
+// ---- v1.8：PTP 触控板 Digitizer TLC（USB 侧）----
+// Report ID = 16，布局：
+//   1(rid) + 5×9(fingers) + 2(scanTime) + 1(count) + 1(buttons) = 50B
+void buildTlcDigitizer(Builder& b) {
+    b.usagePage(kPageDigitizer);
+    b.usage(kUsageTouchPad);
+    b.collection(0x01);   // Application Collection
+    b.reportId(kReportDigitizer);
+    b.logicalMin(0); b.logicalMax(255); b.reportSize(8); b.reportCount(1);
+    b.usage(kUsageInputMode); b.feature(kDataVar);    // Feature: InputMode
+    b.usage(kUsageSurfaceSwitch); b.feature(kDataVar); // Feature: SurfaceSwitch
+    b.usage(kUsageButtonSwitch); b.feature(kDataVar);  // Feature: ButtonSwitch
+    b.logicalMin(0); b.logicalMax(kPtpMaxContacts);
+    b.reportSize(8); b.reportCount(1);
+    b.usage(kUsageContactCount); b.feature(kDataVar);  // Feature: Contact Count Maximum
+    b.usage(kUsagePadType); b.feature(kDataVar);       // Feature: Pad Type (finger=0)
+    // ---- Fingers (5 slots) ----
+    for (uint32_t f = 0; f < kPtpMaxContacts; ++f) {
+        b.collection(0x02);  // Logical Collection (finger)
+        b.usagePage(kPageDigitizer);
+        b.usage(kUsageFinger);
+        b.usage(kUsageTipSwitch); b.usage(kUsageConfidence); b.usage(kUsagePadType);
+        b.usage(kUsageContactId);
+        b.reportSize(1); b.reportCount(3);
+        b.logicalMin(0); b.logicalMax(1);
+        b.input(kDataVar);               // TipSwitch | Confidence | PadType (3 bits)
+        b.reportSize(5); b.reportCount(1); b.input(kConstVar); // 5-bit padding
+        b.reportSize(32); b.reportCount(1); b.logicalMin(0); b.logicalMax(0xFFFFFFFF);
+        b.input(kDataVar);               // ContactId (u32)
+        b.usagePage(kPageGenericDesktop);
+        b.usage(kUsageAxisX); b.usage(kUsageAxisY);
+        b.reportSize(16); b.reportCount(1); b.logicalMin(0); b.logicalMax(kPtpLogicalMaxX);
+        b.input(kDataVar);               // X
+        b.reportSize(16); b.reportCount(1); b.logicalMin(0); b.logicalMax(kPtpLogicalMaxY);
+        b.input(kDataVar);               // Y
+        b.endCollection();               // finger
+    }
+    // ---- ScanTime ----
+    b.usagePage(kPageDigitizer);
+    b.usage(kUsageScanTime);
+    b.reportSize(16); b.reportCount(1); b.logicalMin(0); b.logicalMax(0xFFFF);
+    b.unit(0x1001); b.unitExp(-3); b.input(kDataVar);  // 100us units
+    b.unit(kUnitNone); b.unitExp(0);
+    // ---- Contact Count ----
+    b.usage(kUsageContactCount);
+    b.reportSize(8); b.reportCount(1); b.logicalMin(0); b.logicalMax(kPtpMaxContacts);
+    b.input(kDataVar);
+    // ---- Buttons ----
+    b.usagePage(kPageButton);
+    b.usage(kUsageButton1);
+    b.reportSize(1); b.reportCount(1); b.logicalMin(0); b.logicalMax(1);
+    b.input(kDataVar);
+    b.reportSize(7); b.reportCount(1); b.input(kConstVar); // 7-bit padding
+    b.endCollection();  // TouchPad collection
+}
+
 }  // namespace
 
 std::vector<uint8_t> buildReportDescriptor() {
@@ -253,6 +309,7 @@ std::vector<uint8_t> buildReportDescriptor() {
     buildTlcConsumer(b);
     buildTlcKeyboard(b);
     buildTlcGamepad(b);
+    buildTlcDigitizer(b);  // v1.8 PTP 触控板
     buildTlcVendor(b);
     buildTlcBattery(b);
     return b.out;
@@ -351,6 +408,30 @@ size_t writeBtReportDescriptor(uint8_t* dst, size_t cap) {
     return desc.size();
 }
 
+// ---- reportSizeById：各 Report ID 的完整报告长度（含 Report ID 字节）----
+uint32_t reportSizeById(uint8_t reportId) {
+    switch (reportId) {
+        case kReportImuBatch:   return kSizeImuBatchReport;   // 9
+        case kReportMouse:      return kSizeMouseReport;      // 6
+        case kReportDigitizer:  return kSizeDigitizerReport;  // 102 (v1.8)
+        case kReportConsumer:   return kSizeConsumerReport;   // 4
+        case kReportVendor:     return kSizeVendorOutReport;  // 264 (OUT max)
+        case kReportBattery:    return kSizeBatteryReport;    // 13
+        case kReportKeyboard:   return 8u;                    // 1+1+6 = 8
+        case kReportGamepad:    return kSizeGamepadReport;    // 7
+        default:
+            // v1.8：PTP 触控板系列（16..20）
+            if (reportId >= kReportTouchPad && reportId <= kReportTouchPadHQA) {
+                return kSizePtpReport;  // 50
+            }
+            // 低频传感器（7..15）
+            if (reportId >= kReportAls && reportId <= kReportHeartRate) {
+                return kSizeLowFreqReport;  // 24
+            }
+            return 0u;
+    }
+}
+
 uint32_t maxReportLength() {
     uint32_t m = 0;
     size_t n = 0;
@@ -373,6 +454,7 @@ struct TlcMeta {
 const TlcMeta kTlcMeta[] = {
     { kReportImuBatch,     kPageSensor,    kUsageAccel3D,           "sensor-imu"          },
     { kReportMouse,        kPageGenericDesktop, kUsageMouse,        "touchpad-mouse"      },
+    { kReportDigitizer,    kPageDigitizer, kUsageTouchPad,         "digitizer"           },
     { kReportAls,          kPageSensor,    kUsageAls,               "sensor-light"        },
     { kReportProximity,    kPageSensor,    kUsageProximity,         "sensor-proximity"    },
     { kReportPressure,     kPageSensor,    kUsagePressure,          "sensor-pressure"     },
@@ -382,12 +464,17 @@ const TlcMeta kTlcMeta[] = {
     { kReportHumidity,     kPageSensor,    kUsageHumidity,          "sensor-humidity"     },
     { kReportStepCounter,  kPageSensor,    kUsageSensor,            "sensor-step"         },
     { kReportHeartRate,    kPageSensor,    kUsageSensor,            "sensor-heart-rate"   },
-    { kReportDigitizer,    kPageDigitizer, kUsageTouchScreen,       "digitizer"           },
     { kReportConsumer,     kPageConsumer,  kUsageConsumerControl,   "consumer"            },
     { kReportKeyboard,     kPageGenericDesktop, kUsageKeyboard,     "usb-keyboard"        },
     { kReportGamepad,      kPageGenericDesktop, kUsageGamepad,      "usb-gamepad"         },
     { kReportVendor,       kPageVendor,    0x0001,                  "vendor-ctrl"         },
     { kReportBattery,      kPageBattery,   0x0001,                  "battery"             },
+    // PTP 触控板系列
+    { kReportTouchPad,     kPageDigitizer, kUsageTouchPad,         "ptp-touchpad"        },
+    { kReportTouchPadMode, kPageDigitizer, kUsageConfiguration,    "ptp-mode"            },
+    { kReportTouchPadFunc, kPageDigitizer, kUsageConfiguration,    "ptp-func-switch"     },
+    { kReportTouchPadMax,  kPageDigitizer, kUsageConfiguration,    "ptp-contact-max"     },
+    { kReportTouchPadHQA,  kPageVendorFF,  0x0001,                  "ptp-hqa"             },
 };
 constexpr size_t kTlcMetaCount = sizeof(kTlcMeta) / sizeof(kTlcMeta[0]);
 
@@ -417,11 +504,13 @@ const char* tlcName(uint8_t reportId) {
 const uint8_t* tlcReportIds(size_t& count) {
     static const uint8_t kIds[] = {
         kReportImuBatch,     kReportMouse,
-        kReportAls,          kReportProximity,      kReportPressure,
+        kReportDigitizer,    kReportAls,          kReportProximity,      kReportPressure,
         kReportOrientation,  kReportInclinometer,   kReportAmbientTemp,
         kReportHumidity,     kReportStepCounter,    kReportHeartRate,
-        kReportDigitizer,    kReportConsumer,       kReportVendor, kReportBattery,
-        kReportKeyboard,     kReportGamepad,
+        kReportConsumer,     kReportKeyboard,       kReportGamepad,
+        kReportVendor,       kReportBattery,
+        kReportTouchPad,     kReportTouchPadMode,  kReportTouchPadFunc,
+        kReportTouchPadMax,  kReportTouchPadHQA,
     };
     count = sizeof(kIds) / sizeof(kIds[0]);
     return kIds;
