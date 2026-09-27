@@ -49,6 +49,18 @@ class TvControllerClient(
     @Volatile
     var onReverseClipboard: ((String) -> Unit)? = null
 
+    /** 远程输入请求回调：对端设备请求本机输入（由 UI 注册） */
+    @Volatile
+    var onRemoteInputRequest: ((String, String) -> Unit)? = null  // (fromDevice, hint)
+
+    /** 远程输入文本回调：对端发来输入文本 */
+    @Volatile
+    var onRemoteInputText: ((String, Int) -> Unit)? = null  // (text, flags)
+
+    /** 远程输入完成回调 */
+    @Volatile
+    var onRemoteInputDone: (() -> Unit)? = null
+
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
@@ -158,7 +170,7 @@ class TvControllerClient(
         return out
     }
 
-    /** 处理被控端回传的帧：pong 为心跳应答（忽略，避免与 TV 端形成 pong 互发循环）/ 0x21 反向剪贴板 */
+    /** 处理被控端回传的帧 */
     private fun handleServerFrame(body: ByteArray) {
         if (body.isEmpty()) return
         when (body[0].toInt() and 0xFF) {
@@ -170,6 +182,31 @@ class TvControllerClient(
                     val text = String(body.copyOfRange(3, 3 + len), Charsets.UTF_8)
                     onReverseClipboard?.invoke(text)
                 }
+            }
+            // ———— 远程输入帧（docs/REMOTE-INPUT.md）————
+            0x25 -> {
+                // REQUEST_INPUT：对端请求本机输入
+                if (body.size < 6) return
+                val hintLen = body[5].toInt() and 0xFF
+                if (body.size < 6 + hintLen) return
+                val hint = String(body.copyOfRange(6, 6 + hintLen), Charsets.UTF_8)
+                Log.i("TvCtrl", "收到远程输入请求: hint=$hint")
+                onRemoteInputRequest?.invoke(host, hint)
+            }
+            0x26 -> {
+                // INPUT_TEXT：对端发来输入文本
+                if (body.size < 4) return
+                val flags = body[1].toInt() and 0xFF
+                val textLen = (body[2].toInt() and 0xFF) or ((body[3].toInt() and 0xFF) shl 8)
+                if (body.size < 4 + textLen) return
+                val text = String(body.copyOfRange(4, 4 + textLen), Charsets.UTF_8)
+                Log.i("TvCtrl", "收到远程输入文本: flags=0x${Integer.toHexString(flags)}, text=$text")
+                onRemoteInputText?.invoke(text, flags)
+            }
+            0x27 -> {
+                // INPUT_DONE：对端输入完成
+                Log.i("TvCtrl", "收到远程输入完成")
+                onRemoteInputDone?.invoke()
             }
         }
     }
@@ -277,6 +314,42 @@ class TvControllerClient(
         body[2] = ((bytes.size ushr 8) and 0xFF).toByte()
         bytes.copyInto(body, 3)
         return sendControl(body)
+    }
+
+    // ————————————————————————————— 远程输入（docs/REMOTE-INPUT.md）———————————————————
+
+    /**
+     * 请求对端设备输入（A→B）。
+     * @param hint 输入框提示文字（如 "搜索"、"输入网址"）
+     */
+    fun requestInput(hint: String) {
+        val hintBytes = hint.toByteArray(Charsets.UTF_8)
+        val body = ByteArray(1 + 1 + hintBytes.size)
+        body[0] = ApxFrame.INPUT_REQUEST.toByte()
+        body[1] = hintBytes.size.toByte()
+        hintBytes.copyInto(body, 2)
+        sendControl(body)
+    }
+
+    /**
+     * 发送实时输入文本（B→A）。
+     * @param text 输入的文本
+     * @param flags INPUT_FLAG_* 位组合（默认 INCREMENTAL）
+     */
+    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val body = ByteArray(1 + 1 + 2 + textBytes.size)
+        body[0] = ApxFrame.INPUT_TEXT.toByte()
+        body[1] = flags.toByte()
+        body[2] = (textBytes.size and 0xFF).toByte()
+        body[3] = ((textBytes.size ushr 8) and 0xFF).toByte()
+        textBytes.copyInto(body, 4)
+        sendControl(body)
+    }
+
+    /** 发送输入完成（B→A） */
+    fun sendInputDone() {
+        sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte()))
     }
 
     companion object {
