@@ -595,6 +595,11 @@ struct Ctrl9511Client::Impl {
     // 改为原子（与 Ctrl9511Server 侧的计数方式一致）。
     std::atomic<uint64_t> dropped{0};
 
+    // v184：客户端 reader 也要能注入 —— 手机输入面板的内嵌触控板把 0x01 鼠标帧
+    // 发到这条连接上，旧 reader 没有对应分支，帧到了直接丢弃（用户看到的就是
+    // "触控板划了没反应"）。服务端 Ctrl9511Server 一直有完整 dispatch，这里补齐同一套。
+    std::unique_ptr<InputInjector> injector;
+
     // 注入计数（发送线程累加，status() 按值返回）
     std::atomic<uint64_t> aMouse_{0}, aTouch_{0}, aKeyboard_{0}, aConsumer_{0};
     std::atomic<uint64_t> aRequestInput_{0}, aInputText_{0}, aInputDone_{0};
@@ -639,6 +644,7 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     if (impl_) disconnect();
     ensureWsa();
     auto* im = new Impl();
+    im->injector = createPlatformInjector();   // 注入器建不起来时各分支会跳过注入，不影响连接
     addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
     char portStr[8]; std::snprintf(portStr, sizeof(portStr), "%u", static_cast<unsigned>(port));
@@ -715,6 +721,32 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                         std::string t(reinterpret_cast<const char*>(payload + 3), static_cast<size_t>(len));
                         if (cbClip) cbClip(t);
                     }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 5 && payload[0] == 0x01) {
+                    // v184：鼠标相对移动/按键 —— 手机输入面板内嵌触控板走这条。
+                    // 旧 reader 只认 0x21/0x25/0x26/0x27/0x28，0x01/02/03/04 全部落空被丢。
+                    if (im->injector)
+                        im->injector->injectMouse(payload[1],
+                                                  static_cast<int8_t>(payload[2]),
+                                                  static_cast<int8_t>(payload[3]),
+                                                  static_cast<int8_t>(payload[4]));
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 3 && payload[0] == 0x02) {
+                    if (im->injector)
+                        im->injector->injectConsumer(
+                            static_cast<uint16_t>(payload[1]) |
+                            (static_cast<uint16_t>(payload[2]) << 8));
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 3 && payload[0] == 0x03) {
+                    if (im->injector) {
+                        const size_t cnt = bodyLen - 3;
+                        im->injector->injectKeyboard(payload[1],
+                                                     cnt > 0 ? payload + 3 : nullptr,
+                                                     cnt > 6 ? 6 : cnt);
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 9 && payload[0] == 0x04) {
+                    // 副屏触摸（0..65535 归一化）：injectTouch 内部按推流实际抓取的屏映射
+                    if (im->injector)
+                        im->injector->injectTouch(payload[1], payload[2],
+                            static_cast<uint16_t>(payload[3]) | (static_cast<uint16_t>(payload[4]) << 8),
+                            static_cast<uint16_t>(payload[5]) | (static_cast<uint16_t>(payload[6]) << 8));
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x25 && bodyLen >= 2) {
                     // 对端请求输入文本
                     const uint8_t hl = payload[1];
@@ -793,6 +825,12 @@ void Ctrl9511Client::disconnect() {
     std::thread([raw = im.release()] {
         if (raw->readerThread.joinable()) raw->readerThread.join();
         if (raw->pingThread.joinable()) raw->pingThread.join();
+        // 断开时释放对端按住的键，避免"鼠标左键卡死"（与服务端 releaseAllInputs 同口径）
+        if (raw->injector) {
+            raw->injector->injectMouse(0, 0, 0, 0);
+            raw->injector->injectConsumer(0);
+            raw->injector->injectKeyboard(0, nullptr, 0);
+        }
         delete raw;
     }).detach();
 }
