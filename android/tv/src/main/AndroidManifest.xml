@@ -29,6 +29,8 @@
     <!-- 保活自检：定时闹钟把被杀掉的服务拉回来。Android 12+ 需「闹钟与提醒」权限，
          未授予时代码会自动降级为不精确闹钟（见 KeepAlive），不会崩。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 安装 APK（Android 8+ 必须声明，否则无法安装收到的 APK 文件） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 电视特性：声明 leanback 但非强制，使 APK 同时能在手机/盒子上安装 -->
     <uses-feature
