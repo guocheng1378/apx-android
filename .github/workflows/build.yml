@@ -153,8 +153,26 @@ jobs:
         shell: cmd
         run: cmake -S pc/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
 
+      # windows-latest 镜像里 clang-tidy 不一定在 PATH（VS 自带那份的路径随版本变），
+      # 所以先用 vswhere 定位 VS 自带的，找不到再用 choco 装。
+      # 注意：GitHub 的 job 级 continue-on-error 不生效，必须落在 step 上。
+      - name: Locate clang-tidy
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $t = Get-ChildItem "$vs\VC\Tools\Llvm" -Recurse -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($t) {
+            Write-Host "found bundled clang-tidy: $($t.FullName)"
+            $t.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          } else {
+            Write-Host "not bundled -> installing llvm via choco"
+            choco install llvm -y --no-progress
+          }
+
       # 先只扫改动最频繁、问题最集中的几个文件
       - name: clang-tidy (core modules)
+        continue-on-error: true
         shell: cmd
         run: |
           clang-tidy --version
