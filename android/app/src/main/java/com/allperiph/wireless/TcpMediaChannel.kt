@@ -297,7 +297,13 @@ class TcpMediaChannel(
         if (client === sock) {
             ready = false
             MediaOut.detach()
-            ApxStreams.clear()
+            // v184：**这里不能 clear 流订阅者**。
+            // 媒体连接断开 ≠ 模块停止（副屏 / 音箱开关可能还开着），
+            // 旧实现在这里 ApxStreams.clear() 把所有订阅者一把抹掉，
+            // 而重连后没有任何人会重新注册 —— PC 端重发的音频/视频帧
+            // 于是全部静默丢弃。用户症状：音箱用着用着没声，必须再点一次开关
+            // （点开关会走模块 start() 重新注册）。
+            // 订阅者的生命周期由模块自己负责（start 注册 / stop 反注册）。
             client = null
             out = null
             peerText = ""

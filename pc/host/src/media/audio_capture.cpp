@@ -263,22 +263,34 @@ std::string AudioCapture::defaultRenderDeviceName() {
 // ------------------------------------------------------------------ 采集线程 ----
 
 void AudioCapture::Impl::captureLoop() {
+    // v184：**异常退出必须清 running**。
+    // 旧实现出错时只 break 出循环，running 仍为 true → 面板的"音箱持续保障"
+    // 判据 !running() 永远为假 → 采集死掉后不会自动重拉。
+    // 用户症状：音箱用着用着没声，必须手动再点一次开关才有声
+    // （点开关走 stop()，只有那条路径会清 running）。
     while (running.load()) {
         // 超时 200ms：系统静音时 loopback 可能长时间没有数据，靠超时保持可退出
         if (WaitForSingleObject(evt, 200) != WAIT_OBJECT_0) continue;
 
         UINT32 packet = 0;
-        if (FAILED(capture->GetNextPacketSize(&packet))) break;
+        if (FAILED(capture->GetNextPacketSize(&packet))) {
+            running.store(false);   // 采集链路已死：让上层能看见并重拉
+            break;
+        }
         while (packet != 0 && running.load()) {
             BYTE* data = nullptr;
             UINT32 frames = 0;
             DWORD flags = 0;
-            if (FAILED(capture->GetBuffer(&data, &frames, &flags, nullptr, nullptr))) break;
+            if (FAILED(capture->GetBuffer(&data, &frames, &flags, nullptr, nullptr))) {
+                running.store(false);
+                break;
+            }
             if (frames > 0) {
                 handleBlock(data, frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0);
             }
             capture->ReleaseBuffer(frames);
             if (FAILED(capture->GetNextPacketSize(&packet))) {
+                running.store(false);
                 packet = 0;
                 break;
             }

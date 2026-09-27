@@ -1834,6 +1834,16 @@ class MainActivity : Activity() {
     private fun onTransportToggle(t: String, on: Boolean) {
         AgentController.setTransportEnabled(this, t, on)
         for (id in AgentController.groupModules(t)) {
+            // v184：多出口模块（触摸板同时挂在「无线」与「USB」两组）只有一个
+            // enable.<id>，而两个组的开关都会写它 —— 用户看到的就是
+            // "拨一个另一个跟着变"（点开一起开、关一起关）。
+            // 现在组开关对多出口模块**只切换本组出口**（exit.<id>.<组>），
+            // 模块本身只要任一组开着就保持启用。
+            if (AgentController.groupsOf(id).size > 1) {
+                AgentController.setExitEnabled(this, id, t, on)
+                if (on) AgentController.setModuleEnabled(this, id, true)
+                continue
+            }
             if (!on) {
                 // 关开关时，共享模块（触控板同时挂在无线与 USB 两组）若还被其它**已开启**
                 // 的传输用到，就不能停 —— 否则关 USB 会把无线正在用的触控板一起停掉。

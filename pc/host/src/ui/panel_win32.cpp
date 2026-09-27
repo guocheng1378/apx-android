@@ -521,6 +521,11 @@ struct Panel {
 
     // 三个传输开关（连接区，无总开关）。默认只开无线 = 原"自动发现并立刻连入"行为。
     bool wifiEnabled = true;     // 无线（Wi‑Fi 控制 + 音频 + 副屏）：PC 实际发起连接
+    // v184：模块开关（0x10）目标态缓存 —— 拨动开关时控制面可能尚未连上
+    // （sendModuleToggle 在 client 未就绪时静默返回 false），帧丢了以后面板开关
+    // 与手机端状态会长期不一致。tick 在控制面连上后补发一次。
+    bool moduleTogglePending = false;
+    bool moduleToggleTarget = true;
     bool btEnabled = false;      // 蓝牙 HID：由手机端配对后启用，PC 仅展示状态
     bool usbEnabled = false;     // USB gadget：由手机端插线授权后启用，PC 仅展示状态
     bool autoMode = true;        // 无线手动地址模式（关 = 自动发现）
@@ -1503,12 +1508,20 @@ void applyConnect(Panel* p) {
 void performHit(Panel* p, Hit h) {
     switch (h) {
         case Hit::SwitchWifi:
-            // 无线开关 = 实际发起/断开 Wi‑Fi 控制连接（无独立「连接」按钮）
-            // v184：同时通知手机挂起/恢复被控（0x10）——拨 OFF 后手机侧拒绝连接，
-            // 防止别人趁虚而入；拨 ON 恢复（若控制面在线）。挂起是"拒连接"语义，
-            // 监听保留，PC 再拨 ON 即可恢复，不存在"关了打不开"的单程门。
+            // 无线开关 = 实际发起/断开 Wi‑Fi 控制连接（无独立「连接」按钮），
+            // 同时通知手机挂起/恢复被控（0x10）。
+            // v184 修复：旧代码在此"先发 0x10，再 applyConnect / disconnect"——
+            //   拨 ON：连接是异步建立的，此刻 client 尚未就绪，resume 帧被静默丢弃，
+            //          手机端一直停在挂起态（不执行输入）；
+            //   拨 OFF：挂起帧发出后就断开，之后重新拨 ON 的 resume 同样丢。
+            // 用户症状就是"PC 面板开关控不了手机，拨回去也没用"。
+            // 现在缓存目标态：先尽力发一次，失败则由 tick 在控制面连上后补发。
             p->wifiEnabled = !p->wifiEnabled;
-            if (p->session) p->session->sendModuleToggle("wireless", p->wifiEnabled);
+            p->moduleToggleTarget = p->wifiEnabled;
+            p->moduleTogglePending = true;
+            if (p->session && p->session->sendModuleToggle("wireless", p->wifiEnabled)) {
+                p->moduleTogglePending = false;   // 已送达（OFF 场景：先通知手机再断开本机）
+            }
             if (p->wifiEnabled) applyConnect(p);
             else if (p->session) p->session->disconnect();
             resizeToLayout(p);
@@ -2014,6 +2027,15 @@ void tick(Panel* p) {
         const bool mediaUp = p->media->status().connected;
         if (controlUp) p->ctrlDownSinceMs = 0;   // v184：控制面回来了，清除宽限计时
         if (controlUp) {
+            // v184：模块开关补发 —— 拨开关时控制面可能还没连上（帧被静默丢弃），
+            // 手机端状态会与面板开关长期不一致。控制面一连上就补发一次。
+            if (p->moduleTogglePending && p->session) {
+                if (p->session->sendModuleToggle("wireless", p->moduleToggleTarget)) {
+                    p->moduleTogglePending = false;
+                    panelLog(p->moduleToggleTarget ? "panel: resend module toggle wireless=ON"
+                                                   : "panel: resend module toggle wireless=OFF");
+                }
+            }
             if (!mediaUp && nowMsLocal() - p->lastMediaTryMs >= kMediaRetryMs) {
                 p->lastMediaTryMs = nowMsLocal();
                 pumpMediaConnect(p, peerHost(s.peer));

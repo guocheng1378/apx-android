@@ -127,11 +127,12 @@ class TvControlServer(
     }
 
     private fun activate(sock: Socket) {
-        if (suspended) {
-            Log.i("被控控制面", "被控已挂起，拒绝新连接 ${peerTextOf(sock)}")
-            runCatching { sock.close() }
-            return
-        }
+        // v184：挂起期间**仍然接受连接**。旧实现在这里直接 close + return ——
+        // PC 一旦断线重连就被拒，而"恢复"只能经这条连接送达（0x10 on），
+        // 于是形成"PC 拨 OFF 之后手机再也连不上"的单程门
+        // （真机症状：面板开关拨回去没反应，副屏也连不上）。
+        // 挂起语义改为「连接保持、忽略输入类命令」，过滤见 pump()。
+        if (suspended) Log.i("被控控制面", "被控处于挂起态：保持连接，不执行输入 ${peerTextOf(sock)}")
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear(); pressedKeys.clear(); lastButtons = 0; ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
@@ -191,7 +192,12 @@ class TvControlServer(
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL && payloadLen >= 1) {
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null && body.isNotEmpty()) {
-                        when (body[0].toInt() and 0xFF) {
+                        val cmd = body[0].toInt() and 0xFF
+                        // v184：挂起期间只回 ping、只处理模块开关(0x10)，输入类命令一律丢弃。
+                        // 连接保持（见 activate），因此 PC 随时能把挂起拨回来。
+                        if (suspended && cmd != 'p'.code && cmd != 0x10) {
+                            // 被控已挂起：忽略鼠标/键盘/触摸等输入
+                        } else when (cmd) {
                             'p'.code -> actions.add { sendControl(PONG) }
                             0x01 -> if (body.size >= 5) actions.add { onMouse(body) }
                             0x02 -> if (body.size >= 3) actions.add { onConsumer(body) }
