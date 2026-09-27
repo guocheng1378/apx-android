@@ -93,6 +93,12 @@ public:
 std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     std::function<void(const std::string&)> cb);
 
+/// 把文本写入**本机**剪贴板（控制端收到对端 0x21 反向剪贴板时调用）。
+/// 与 [InputInjector::setClipboard] 的区别只在触发方向：后者是受控端收到 0x20 时调用，
+/// 两者最终落到同一个系统剪贴板。
+/// 成功返回 true；平台未接入时返回 false（如实降级，不假装成功）。
+bool setSystemClipboard(const std::string& text);
+
 // ---------------------------------------------------------- 9511 受控服务端 ----
 struct Ctrl9511ServerStatus {
     bool listening = false;

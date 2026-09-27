@@ -166,7 +166,11 @@ int runCtrlServe(const std::string& name, uint16_t port, int seconds) {
 int runCtrlConnect(const std::string& host, uint16_t port, int seconds) {
     apxpc::wireless::Ctrl9511Client cli;
     cli.onReverseClipboard = [](const std::string& t) {
-        std::printf("\n[反向剪贴板] %s\n", t.c_str());
+        // v1.34：原先只 printf —— 链路是通的，可文本根本没进 Windows 剪贴板，
+        // 用户看到「有收到」却粘不出来。现在同时写入本机剪贴板，并把结果如实打出来。
+        const bool ok = apxpc::wireless::setSystemClipboard(t);
+        std::printf("\n[反向剪贴板] %s（%s）\n", t.c_str(),
+                    ok ? "已写入本机剪贴板" : "写入本机剪贴板失败");
         std::fflush(stdout);
     };
     if (!cli.connect(host, port, "")) {
@@ -191,7 +195,11 @@ int runCtrlConnect(const std::string& host, uint16_t port, int seconds) {
 int runCtrlRemote(const std::string& host, uint16_t port, int seconds) {
     apxpc::wireless::Ctrl9511Client cli;
     cli.onReverseClipboard = [](const std::string& t) {
-        std::printf("\n[反向剪贴板] %s\n", t.c_str());
+        // v1.34：原先只 printf —— 链路是通的，可文本根本没进 Windows 剪贴板，
+        // 用户看到「有收到」却粘不出来。现在同时写入本机剪贴板，并把结果如实打出来。
+        const bool ok = apxpc::wireless::setSystemClipboard(t);
+        std::printf("\n[反向剪贴板] %s（%s）\n", t.c_str(),
+                    ok ? "已写入本机剪贴板" : "写入本机剪贴板失败");
         std::fflush(stdout);
     };
     if (!cli.connect(host, port, "")) {

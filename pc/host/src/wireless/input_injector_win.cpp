@@ -17,6 +17,28 @@
 namespace apxpc::wireless {
 namespace {
 
+/// 写系统剪贴板（UTF-8 → CF_UNICODETEXT）。
+/// v1.34：原先这段逻辑只在 WinInjector::setClipboard 里，于是「受控端收到 0x20」能写进去，
+/// 而「控制端收到 0x21」无处可写（只能 printf）。抽出来给两边共用，故放在文件最前。
+bool writeClipboardUtf8(const std::string& text) {
+    if (!::OpenClipboard(nullptr)) return false;
+    ::EmptyClipboard();
+    bool ok = false;
+    const int wn = static_cast<int>(text.size()) + 1;
+    HGLOBAL h = ::GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wn) * sizeof(wchar_t));
+    if (h) {
+        auto* p = static_cast<wchar_t*>(::GlobalLock(h));
+        if (p) {
+            ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, p, wn);
+            ::GlobalUnlock(h);
+            ::SetClipboardData(CF_UNICODETEXT, h);
+            ok = true;
+        }
+    }
+    ::CloseClipboard();
+    return ok;
+}
+
 int usageToVk(uint8_t u) {
     if (u >= 0x04 && u <= 0x1D) return 'A' + (u - 0x04);
     if (u >= 0x1E && u <= 0x26) return '1' + (u - 0x1E);
@@ -193,21 +215,7 @@ public:
         consumerBm_ = bitmap;
     }
 
-    void setClipboard(const std::string& text) override {
-        if (!::OpenClipboard(nullptr)) return;
-        ::EmptyClipboard();
-        const int wn = static_cast<int>(text.size()) + 1;
-        HGLOBAL h = ::GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wn) * sizeof(wchar_t));
-        if (h) {
-            auto* p = static_cast<wchar_t*>(::GlobalLock(h));
-            if (p) {
-                ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, p, wn);
-                ::GlobalUnlock(h);
-                ::SetClipboardData(CF_UNICODETEXT, h);
-            }
-        }
-        ::CloseClipboard();
-    }
+    void setClipboard(const std::string& text) override { writeClipboardUtf8(text); }
 
     /**
      * 手柄（网络帧 0x07）。
@@ -302,6 +310,7 @@ std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     std::function<void(const std::string&)> cb) {
     return std::make_unique<WinClipboardWatcher>(std::move(cb));
 }
+bool setSystemClipboard(const std::string& text) { return writeClipboardUtf8(text); }
 
 }  // namespace apxpc::wireless
 

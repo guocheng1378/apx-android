@@ -4,6 +4,8 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
@@ -833,9 +835,7 @@ class MainActivity : Activity() {
                     ControlTarget.host = ip
                     ControlTarget.label = name
                     ControlTarget.type = type
-                    c.onReverseClipboard = { text ->
-                        runOnUiThread { Toast.makeText(this, "对端复制：$text", Toast.LENGTH_SHORT).show() }
-                    }
+                    c.onReverseClipboard = { text -> runOnUiThread { recvReverseClipboard(text) } }
                     onTargetChanged()
                     Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
                 } else {
@@ -2041,6 +2041,20 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    /**
+     * 收到受控端（PC / TV）回传的剪贴板（0x21 反向剪贴板）。
+     *
+     * v1.34：此前只弹一句「对端复制：xxx」——**手机系统剪贴板并没有变**，用户以为同步了，
+     * 切到别的 App 粘贴还是旧内容。现在与操控面 [TouchpadActivity] 的行为一致：真正写进
+     * 系统剪贴板；提示语只给前 24 字预览，避免长文本/敏感内容整段糊在屏幕上。
+     */
+    private fun recvReverseClipboard(text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
+        val preview = if (text.length > 24) text.take(24) + "…" else text
+        Toast.makeText(this, "已同步剪贴板：$preview", Toast.LENGTH_SHORT).show()
     }
 
     // ————————————————————————— 样式工具 —————————————————————————
