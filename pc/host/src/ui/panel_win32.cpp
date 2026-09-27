@@ -157,6 +157,7 @@ enum : int {
 constexpr UINT_PTR kRefreshTimer = 1;
 /// 媒体建链失败后的重试间隔（面板每 400ms 一跳，不加节流会疯狂重连）
 constexpr long long kMediaRetryMs = 3000;
+constexpr long long kCtrlGraceMs = 3000;   // v184：控制面断连宽限（见 tick 媒体生命周期段）
 constexpr UINT kMsgTrayQuit = WM_APP + 1;
 /// 托盘「文件传输…」：窗口必须在**面板线程**创建，所以只发消息过来，不在托盘线程建 UI
 constexpr UINT kMsgTrayFilePanel = WM_APP + 2;
@@ -475,6 +476,10 @@ static bool setDisplayResolution(const std::string& devUtf8, int w, int h, std::
 
 struct Panel {
     HWND hwnd = nullptr;
+
+    // v184：控制面抖动容忍——控制面瞬断（如手机端剪贴板/远程输入处理短暂卡顿导致
+    // 心跳迟到）不再立即拆掉副屏+音箱，持续断满 kCtrlGraceMs 才停。
+    DWORD ctrlDownSinceMs = 0;   // 0 = 控制面正常
 
     // 字级对齐手机端 styles.xml
     std::unique_ptr<Gdiplus::Font> fTitle;    // APTextTitle     20sp bold
@@ -1925,6 +1930,21 @@ void pumpMediaConnect(Panel* p, const std::string& host) {
     });
 }
 
+// v184 debug：断链相关事件落盘（与 media_session 的 mediaDebug 同一文件，复现后可移除）
+static void panelLog(const char* why) {
+    char path[MAX_PATH]; path[0] = 0;
+    const char* lad = std::getenv("LOCALAPPDATA");
+    if (lad) _snprintf_s(path, sizeof(path), _TRUNCATE, "%s\\AllPeriph\\media_debug.log", lad);
+    else     _snprintf_s(path, sizeof(path), _TRUNCATE, "media_debug.log");
+    FILE* f = nullptr;
+    if (0 == fopen_s(&f, path, "a") && f) {
+        SYSTEMTIME st; GetLocalTime(&st);
+        fprintf(f, "[%02d:%02d:%02d.%03d panel] %s\n",
+                st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, why);
+        fclose(f);
+    }
+}
+
 void tick(Panel* p) {
     if (!p->session) return;
     const auto s = p->session->snapshot();
@@ -1992,6 +2012,7 @@ void tick(Panel* p) {
     if (p->media) {
         const bool controlUp = (s.phase == LinkPhase::Connected);
         const bool mediaUp = p->media->status().connected;
+        if (controlUp) p->ctrlDownSinceMs = 0;   // v184：控制面回来了，清除宽限计时
         if (controlUp) {
             if (!mediaUp && nowMsLocal() - p->lastMediaTryMs >= kMediaRetryMs) {
                 p->lastMediaTryMs = nowMsLocal();
@@ -2029,6 +2050,18 @@ void tick(Panel* p) {
                 }
             }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
+            // v184：控制面抖动容忍 —— 手机端剪贴板/远程输入处理在主线程可能卡几百毫秒，
+            // 心跳迟到会让 phase 瞬间离开 Connected；旧逻辑立即拆掉副屏+音箱+媒体，
+            // 用户看到的就是"剪贴板一用副屏就断"。现在持续断满 3s 才动手，
+            // 瞬断期间什么都不做（media 会话自己还活着，恢复后无缝继续）。
+            if (p->ctrlDownSinceMs == 0) {
+                p->ctrlDownSinceMs = nowMsLocal();
+                panelLog("panel: ctrl phase left Connected, grace 3s");
+            } else if (nowMsLocal() - p->ctrlDownSinceMs < kCtrlGraceMs) {
+                return;   // 宽限期内：不拆、不清、等它自己回来
+            }
+            p->ctrlDownSinceMs = 0;
+            panelLog("panel: ctrl down persisted, stopping media");
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
             // 音箱同理：连接没了就停采集，别让它在后台空转
             if (p->audio && p->audio->running()) p->audio->stop();
