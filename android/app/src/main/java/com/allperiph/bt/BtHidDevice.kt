@@ -19,15 +19,14 @@ import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 
 /**
- * 蓝牙 HID 设备：手机注册为 HID 设备，PC 零驱动识别为鼠标/键盘/多媒体键。
- * 描述符为裁剪版（鼠标 + 键盘 + 多媒体键），不含传感器 TLC，远小于 USB 版（架构 §3）。
+ * 蓝牙 HID 设备：手机注册为 HID 设备，PC 零驱动识别为鼠标/键盘/多媒体键/游戏手柄。
+ * 描述符为裁剪版（鼠标 + 键盘 + 多媒体键 + 游戏手柄），不含传感器 TLC。
  *
  * 可与 USB 复合设备并存（手机同时做蓝牙触控板 + USB 副屏）。
  *
  * **运行时权限（API 31+）**：`registerApp` / `connect` / `sendReport` 均需
  * `BLUETOOTH_CONNECT`。缺失时**降级为 DEGRADED 并留日志**，绝不抛 SecurityException ——
  * 本回调运行在蓝牙 Binder 线程，未捕获异常会杀死整个进程（真机已复现）。
- * 权限请求由 UI 层（MainActivity）完成。
  */
 class BtHidDevice(private val appContext: Context) : Module {
     override val id: String = ModuleId.BTHID
@@ -63,7 +62,6 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
     }
 
-    /** API 31+ 起蓝牙接口需要 BLUETOOTH_CONNECT 运行时权限（UI 层负责请求） */
     private fun hasConnect(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             appContext.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
@@ -97,7 +95,6 @@ class BtHidDevice(private val appContext: Context) : Module {
         runCatching {
             val qos = BluetoothHidDeviceAppQosSettings(
                 BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT, 800, 9, 0, 11250, 11250)
-            // 优先使用 native 描述符（与 shared/ 协议库一致），fallback 到硬编码版本
             val desc = if (ApxNative.isAvailable) {
                 runCatching { ApxNative.btReportDescriptor() }.getOrNull() ?: BtHidDescriptor.bytes
             } else {
@@ -130,11 +127,9 @@ class BtHidDevice(private val appContext: Context) : Module {
      */
     fun reportKeyboard(mod: Int, keys: ByteArray) {
         if (!isConnected || !hasConnect()) return
-        // 格式：[ReportID=0x02, Modifier, 0x00(reserved), Key0..Key5] = 8 bytes
         val r = ByteArray(8)
-        r[0] = 0x02  // Report ID
+        r[0] = 0x02
         r[1] = mod.toByte()
-        // r[2] = 0 (reserved)
         for (i in 0 until minOf(keys.size, 6)) {
             r[3 + i] = keys[i]
         }
@@ -149,8 +144,32 @@ class BtHidDevice(private val appContext: Context) : Module {
             .onFailure { Log.w(TAG, "reportConsumer failed: ${it.message}") }
     }
 
+    /**
+     * 蓝牙游戏手柄报告（Report ID 4）。
+     * @param buttons 16 位按钮位图（bit0..15 → 按钮 1..16）
+     * @param x 左摇杆 X（-127..127，0=回中）
+     * @param y 左摇杆 Y（-127..127，0=回中）
+     * @param rx 右摇杆 X（-127..127，0=回中）
+     * @param ry 右摇杆 Y（-127..127，0=回中）
+     */
+    fun reportGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+        if (!isConnected || !hasConnect()) return
+        // 格式：[ReportID=0x04, buttons_lo, buttons_hi, x, y, rx, ry] = 7 bytes
+        val r = byteArrayOf(
+            0x04,  // Report ID
+            (buttons and 0xFF).toByte(),
+            ((buttons shr 8) and 0xFF).toByte(),
+            x.coerceIn(-127, 127).toByte(),
+            y.coerceIn(-127, 127).toByte(),
+            rx.coerceIn(-127, 127).toByte(),
+            ry.coerceIn(-127, 127).toByte(),
+        )
+        runCatching { hidDevice?.sendReport(null, 0x04, r) }
+            .onFailure { Log.w(TAG, "reportGamepad failed: ${it.message}") }
+    }
+
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体）" else "蓝牙 HID 已注册（待 PC 配对）"
+        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待 PC 配对）"
         ModuleState.STARTING -> "蓝牙 HID 启动中"
         ModuleState.DEGRADED -> "蓝牙 HID 权限不足"
         ModuleState.ERROR -> "蓝牙 HID 错误：无蓝牙适配器"
@@ -169,19 +188,29 @@ class BtHidDevice(private val appContext: Context) : Module {
  * 蓝牙 HID 描述符（fallback 版本）。
  * 仅当 ApxNative 不可用（libapx.so 未加载）时使用；
  * native 版描述符通过 [ApxNative.btReportDescriptor] 获取，保证与 shared/ 协议库一致。
+ * 含四个 TLC：Mouse(rid=1) + Keyboard(rid=2) + Consumer(rid=3) + Gamepad(rid=4)。
  */
 object BtHidDescriptor {
     val bytes: ByteArray = byteArrayOf(
+        // ---- TLC 1: Mouse (rid=1) ----
         0x05, 0x01, 0x09, 0x02, 0xA1.toByte(), 0x01, 0x09, 0x01, 0xA1.toByte(), 0x00,
         0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01, 0x95.toByte(), 0x03, 0x75, 0x01, 0x81.toByte(), 0x02,
         0x95.toByte(), 0x01, 0x75, 0x05, 0x81.toByte(), 0x03,
         0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38, 0x15, 0x81.toByte(), 0x25, 0x7F, 0x75, 0x08, 0x95.toByte(), 0x03, 0x81.toByte(), 0x06,
         0xC0.toByte(), 0xC0.toByte(),
+        // ---- TLC 2: Keyboard (rid=2) ----
         0x05, 0x01, 0x09, 0x06, 0xA1.toByte(), 0x01, 0x05, 0x07, 0x19, 0xE0.toByte(), 0x29, 0xE7.toByte(), 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95.toByte(), 0x08, 0x81.toByte(), 0x02,
         0x95.toByte(), 0x01, 0x75, 0x08, 0x81.toByte(), 0x03,
         0x05, 0x07, 0x19, 0x01, 0x29, 0x65, 0x15, 0x00, 0x25, 0x65, 0x75, 0x08, 0x95.toByte(), 0x06, 0x81.toByte(), 0x00,
         0xC0.toByte(),
+        // ---- TLC 3: Consumer (rid=3) ----
         0x05, 0x0C, 0x09, 0x01, 0xA1.toByte(), 0x01, 0x19, 0x00, 0x2A, 0x9C.toByte(), 0x02, 0x15, 0x01, 0x26, 0x9C.toByte(), 0x02, 0x95.toByte(), 0x01, 0x75, 0x10, 0x81.toByte(), 0x00,
+        0xC0.toByte(),
+        // ---- TLC 4: Gamepad (rid=4) ----
+        // 16 buttons (Button Page 1..16) + 4 axes X/Y/Rx/Ry (signed 8bit)
+        0x05, 0x01, 0x09, 0x05, 0xA1.toByte(), 0x01, 0x85, 0x04,
+        0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95.toByte(), 0x10, 0x81.toByte(), 0x02,
+        0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x15, 0x81.toByte(), 0x25, 0x7F, 0x75, 0x08, 0x95.toByte(), 0x04, 0x81.toByte(), 0x02,
         0xC0.toByte(),
     )
 }
