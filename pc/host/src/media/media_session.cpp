@@ -312,7 +312,16 @@ bool MediaSession::enqueue(std::vector<uint8_t>&& frame, uint8_t streamId) {
         return false;
     }
     if (outQ_.size() >= kQueueCap) {
-        outQ_.pop_front();   // 保新弃旧
+        // v184：弃旧时**跳过音频帧** —— 音频包小、断一截就是用户听到的"音箱断了"；
+        // 优先丢弃队首的视频帧，实在全是音频时才丢最老的音频帧。
+        size_t drop = 0;
+        while (drop < outQ_.size()) {
+            const auto& f = outQ_[drop];
+            if (f.size() >= 5 && f[4] == kStreamAudio) { ++drop; continue; }
+            break;
+        }
+        if (drop >= outQ_.size()) drop = outQ_.size() - 1;
+        outQ_.erase(outQ_.begin() + static_cast<std::ptrdiff_t>(drop));
         cDropped_.fetch_add(1, std::memory_order_relaxed);
     }
     outQ_.emplace_back(std::move(frame));
@@ -393,8 +402,17 @@ void MediaSession::writerLoop() {
                           [this] { return !outQ_.empty() || !running_.load(); });
             if (!running_.load()) break;
             if (outQ_.empty()) continue;
-            frame = std::move(outQ_.front());
-            outQ_.pop_front();
+            // v184：音频优先 —— 视频丢几帧只是画面顿一下，音频断续就是用户听到的
+            // "音箱断了"。从队列里摘出最早的音频帧优先发出（视频帧 FIFO 顺延）。
+            // APX1 头 off+4 = streamId；kStreamAudio=1。
+            size_t pick = 0;
+            for (; pick < outQ_.size(); ++pick) {
+                const auto& f = outQ_[pick];
+                if (f.size() >= 5 && f[4] == kStreamAudio) break;
+            }
+            if (pick >= outQ_.size()) pick = 0;   // 没有音频帧 → 普通 FIFO
+            frame = std::move(outQ_[pick]);
+            outQ_.erase(outQ_.begin() + static_cast<std::ptrdiff_t>(pick));
         }
         if (!sendAllBlocking(frame.data(), frame.size())) {
             // 部分写出会永久打乱对端的帧对齐，无法局部恢复 —— 只能断链让上层重连。
