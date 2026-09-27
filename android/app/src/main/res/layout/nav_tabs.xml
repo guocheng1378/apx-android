@@ -50,7 +50,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingTop="3dp"
-                android:text="触控板"
+                android:text="@string/ui_main_item_touchpad"
                 android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
@@ -89,7 +89,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingTop="3dp"
-                android:text="状态"
+                android:text="@string/ui_page_state"
                 android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>
@@ -128,7 +128,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:paddingTop="3dp"
-                android:text="设置"
+                android:text="@string/section_settings"
                 android:textSize="10sp" />
         </LinearLayout>
     </LinearLayout>

@@ -24,7 +24,7 @@
         android:paddingEnd="10dp"
         android:paddingBottom="6dp"
         android:background="#99000000"
-        android:text="副屏"
+        android:text="@string/notify_action_screen"
         android:textColor="#FFFFFF"
         android:textSize="12sp" />
 </FrameLayout>

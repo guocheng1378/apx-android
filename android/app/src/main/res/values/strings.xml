@@ -265,4 +265,51 @@
     <string name="ui_filepanel_text_send_failed_2">发送失败</string>
     <string name="ui_screen_text_open_not_please_state">服务未启动：请在状态页打开无线开关</string>
     <!-- ↑↑↑ 迁入结束 ↑↑↑ -->
+    <!-- ↓↓↓ 从布局 XML 迁入（scripts/xml_i18n.py）↓↓↓ -->
+    <string name="lay_main_cd_screen_open">打开副屏页</string>
+    <string name="lay_main_text_gamepad">手柄</string>
+    <string name="lay_main_cd_gamepad_open">打开虚拟手柄页</string>
+    <string name="lay_main_cd_remote_open">打开遥控器页</string>
+    <string name="lay_main_cd_hotkey">管理常用快捷键</string>
+    <string name="lay_transport_wifi">无线</string>
+    <string name="lay_transport_wifi_cd">无线开关</string>
+    <string name="lay_transport_bt">蓝牙</string>
+    <string name="lay_transport_bt_cd">蓝牙开关</string>
+    <string name="lay_transport_usb_cd">USB 开关</string>
+    <string name="lay_status_text_open">打开开关后，手机就变成电脑的外设</string>
+    <string name="lay_status_text_touchpad_cursor_swipe">触控板 —— 手机当鼠标：滑动控光标，轻点左键、双指右键、长按拖选</string>
+    <string name="lay_status_text_remote_keyboard">键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），插线与 Wi‑Fi 都能用，电脑免驱</string>
+    <string name="lay_status_text_hotkey_template">常用快捷键 —— 多套场景模板一键铺开，可拖拽排序、长按按住不放</string>
+    <string name="lay_status_text_volume_play">多媒体 —— 手机上就能调电脑音量、控制播放</string>
+    <string name="lay_status_text_mic">麦克风 —— 手机说话，进电脑：微信、会议软件里能选到它（需插线）</string>
+    <string name="lay_status_text_speaker">音响 —— 电脑出声，手机响：把手机当电脑音箱（需插线）</string>
+    <string name="lay_idle_bluetooth">蓝牙 —— 电脑有蓝牙时，不插线也能当鼠标用</string>
+    <string name="lay_status_text_hotkey_touchpad_keyboard">Wi‑Fi 控制 —— 电脑没有蓝牙也能用：连同一个 Wi‑Fi，电脑端自动发现手机，触控板 / 键盘 / 快捷键立刻生效</string>
+    <string name="lay_howto_title">怎么用（三步）</string>
+    <string name="lay_status_text_disconnect_open">① 手机：打开本页上方开关。插数据线时 PC 的 USB 会短暂断开重连，属正常现象</string>
+    <string name="lay_status_text_open_menu">② PC：安装并打开「全能外设」（开始菜单里），它会自动发现同一局域网内的手机</string>
+    <string name="lay_status_text_hotkey_mic_touchpad_keyboard">③ 使用：不插线时在手机侧打开「Wi‑Fi 控制」模块，触控板 / 键盘 / 快捷键随即生效；麦克风与音响走 USB，需插线并开启对应模块</string>
+    <string name="lay_running_summary">运行摘要</string>
+    <string name="lay_settings_tab_general">通用</string>
+    <string name="lay_settings_tab_look">外观</string>
+    <string name="lay_settings_tab_about">关于</string>
+    <string name="lay_settings_text_hotkey_template">快捷键模板</string>
+    <string name="lay_settings_text_hotkey_template_touchpad">按场景一键铺满触控板页的快捷键条；也可以把当前这条存成自己的模板</string>
+    <string name="lay_settings_modules">功能开关</string>
+    <string name="lay_transport_usb_group">有线（USB）</string>
+    <string name="lay_settings_text_hotkey">快捷键自动排序</string>
+    <string name="lay_settings_text_manual">最常用的自动排到前面；手动拖过就自动关掉</string>
+    <string name="lay_settings_cd_hotkey">快捷键自动排序开关</string>
+    <string name="lay_settings_env">环境摘要</string>
+    <string name="lay_settings_text_theme">主题方案</string>
+    <string name="lay_settings_text_color">模块配色</string>
+    <string name="lay_settings_text_hotkey_theme_touchpad_keyboard">给触控板、键盘、快捷键分别选一套色调；不选就是跟随主题色</string>
+    <string name="lay_settings_text_export">导出</string>
+    <string name="lay_settings_text_import">导入</string>
+    <string name="lay_settings_text_share">分享</string>
+    <string name="lay_settings_text_background">背景与手感</string>
+    <string name="lay_settings_text_background_2">背景可换纯色或相册里的图片；动效快慢、震动强弱、按键音色整体调</string>
+    <string name="lay_settings_remote">TV / PC 控制</string>
+    <string name="lay_settings_text_remote">遥控键映射</string>
+    <!-- ↑↑↑ 迁入结束 ↑↑↑ -->
 </resources>

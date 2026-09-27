@@ -58,7 +58,7 @@
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
                         android:clickable="false"
-                        android:text="在此区域滑动控制光标"
+                        android:text="@string/ui_touchpad_text_cursor_swipe"
                         android:textAppearance="@style/APTextCaption" />
                 </FrameLayout>
 
@@ -77,7 +77,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="常用快捷键"
+                        android:text="@string/ui_touchpad_text_hotkey"
                         android:textAppearance="@style/APTextSubtitle" />
 
                     <TextView
@@ -85,24 +85,24 @@
                         style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="副屏"
-                        android:contentDescription="打开副屏页" />
+                        android:text="@string/notify_action_screen"
+                        android:contentDescription="@string/lay_main_cd_screen_open" />
 
                     <TextView
                         android:id="@+id/btnGamepad"
                         style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="手柄"
-                        android:contentDescription="打开虚拟手柄页" />
+                        android:text="@string/lay_main_text_gamepad"
+                        android:contentDescription="@string/lay_main_cd_gamepad_open" />
 
                     <TextView
                         android:id="@+id/btnEditChips"
                         style="@style/APTextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="编辑"
-                        android:contentDescription="管理常用快捷键" />
+                        android:text="@string/ui_common_edit"
+                        android:contentDescription="@string/lay_main_cd_hotkey" />
                 </LinearLayout>
 
                 <ScrollView

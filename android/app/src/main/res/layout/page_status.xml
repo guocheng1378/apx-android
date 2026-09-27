@@ -70,14 +70,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="无线"
+                        android:text="@string/lay_transport_wifi"
                         android:textAppearance="@style/APTextSubtitle" />
 
                     <Switch
                         android:id="@+id/swWifi"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:contentDescription="无线开关" />
+                        android:contentDescription="@string/lay_transport_wifi_cd" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -91,14 +91,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="蓝牙"
+                        android:text="@string/lay_transport_bt"
                         android:textAppearance="@style/APTextSubtitle" />
 
                     <Switch
                         android:id="@+id/swBt"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:contentDescription="蓝牙开关" />
+                        android:contentDescription="@string/lay_transport_bt_cd" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -119,7 +119,7 @@
                         android:id="@+id/swUsb"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:contentDescription="USB 开关" />
+                        android:contentDescription="@string/lay_transport_usb_cd" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
@@ -145,63 +145,63 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="打开开关后，手机就变成电脑的外设"
+                android:text="@string/lay_status_text_open"
                 android:textAppearance="@style/APTextSubtitle" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="触控板 —— 手机当鼠标：滑动控光标，轻点左键、双指右键、长按拖选"
+                android:text="@string/lay_status_text_touchpad_cursor_swipe"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），插线与 Wi‑Fi 都能用，电脑免驱"
+                android:text="@string/lay_status_text_remote_keyboard"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="常用快捷键 —— 多套场景模板一键铺开，可拖拽排序、长按按住不放"
+                android:text="@string/lay_status_text_hotkey_template"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="多媒体 —— 手机上就能调电脑音量、控制播放"
+                android:text="@string/lay_status_text_volume_play"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="麦克风 —— 手机说话，进电脑：微信、会议软件里能选到它（需插线）"
+                android:text="@string/lay_status_text_mic"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="音响 —— 电脑出声，手机响：把手机当电脑音箱（需插线）"
+                android:text="@string/lay_status_text_speaker"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="蓝牙 —— 电脑有蓝牙时，不插线也能当鼠标用"
+                android:text="@string/lay_idle_bluetooth"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="Wi‑Fi 控制 —— 电脑没有蓝牙也能用：连同一个 Wi‑Fi，电脑端自动发现手机，触控板 / 键盘 / 快捷键立刻生效"
+                android:text="@string/lay_status_text_hotkey_touchpad_keyboard"
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 
@@ -215,28 +215,28 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="怎么用（三步）"
+                android:text="@string/lay_howto_title"
                 android:textAppearance="@style/APTextSubtitle" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="8dp"
-                android:text="① 手机：打开本页上方开关。插数据线时 PC 的 USB 会短暂断开重连，属正常现象"
+                android:text="@string/lay_status_text_disconnect_open"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="② PC：安装并打开「全能外设」（开始菜单里），它会自动发现同一局域网内的手机"
+                android:text="@string/lay_status_text_open_menu"
                 android:textAppearance="@style/APTextCaption" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingTop="6dp"
-                android:text="③ 使用：不插线时在手机侧打开「Wi‑Fi 控制」模块，触控板 / 键盘 / 快捷键随即生效；麦克风与音响走 USB，需插线并开启对应模块"
+                android:text="@string/lay_status_text_hotkey_mic_touchpad_keyboard"
                 android:textAppearance="@style/APTextCaption" />
         </LinearLayout>
 
@@ -256,7 +256,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="运行摘要"
+                    android:text="@string/lay_running_summary"
                     android:textAppearance="@style/APTextSubtitle" />
 
                 <TextView

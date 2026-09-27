@@ -40,7 +40,7 @@
                 android:gravity="center"
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp"
-                android:text="通用"
+                android:text="@string/lay_settings_tab_general"
                 android:textSize="13sp"
                 android:textStyle="bold" />
 
@@ -52,7 +52,7 @@
                 android:gravity="center"
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp"
-                android:text="外观"
+                android:text="@string/lay_settings_tab_look"
                 android:textSize="13sp" />
 
             <TextView
@@ -63,7 +63,7 @@
                 android:gravity="center"
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp"
-                android:text="遥控"
+                android:text="@string/ui_touchpad_text_remote"
                 android:textSize="13sp" />
 
             <TextView
@@ -74,7 +74,7 @@
                 android:gravity="center"
                 android:paddingTop="10dp"
                 android:paddingBottom="10dp"
-                android:text="关于"
+                android:text="@string/lay_settings_tab_about"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -89,7 +89,7 @@
             style="@style/APSectionTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="快捷键模板" />
+            android:text="@string/lay_settings_text_hotkey_template" />
 
         <LinearLayout
             style="@style/APCard"
@@ -100,7 +100,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="按场景一键铺满触控板页的快捷键条；也可以把当前这条存成自己的模板"
+                android:text="@string/lay_settings_text_hotkey_template_touchpad"
                 android:textAppearance="@style/APTextCaption" />
 
             <LinearLayout
@@ -127,7 +127,7 @@
                     android:paddingTop="6dp"
                     android:paddingEnd="2dp"
                     android:paddingBottom="6dp"
-                    android:text="更换 / 展开"
+                    android:text="@string/ui_main_template_expand"
                     android:textColor="@color/md_primary"
                     android:textSize="13sp" />
             </LinearLayout>
@@ -147,7 +147,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="功能开关" />
+            android:text="@string/lay_settings_modules" />
 
         <LinearLayout
             style="@style/APCard"
@@ -166,7 +166,7 @@
                     style="@style/APSectionTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="无线" />
+                    android:text="@string/lay_transport_wifi" />
 
                 <LinearLayout
                     android:id="@+id/rowsWifi"
@@ -187,7 +187,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="10dp"
-                    android:text="蓝牙" />
+                    android:text="@string/lay_transport_bt" />
 
                 <LinearLayout
                     android:id="@+id/rowsBt"
@@ -208,7 +208,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:paddingTop="10dp"
-                    android:text="有线（USB）" />
+                    android:text="@string/lay_transport_usb_group" />
 
                 <LinearLayout
                     android:id="@+id/rowsUsb"
@@ -239,13 +239,13 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="快捷键自动排序"
+                        android:text="@string/lay_settings_text_hotkey"
                         android:textAppearance="@style/APTextSubtitle" />
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="最常用的自动排到前面；手动拖过就自动关掉"
+                        android:text="@string/lay_settings_text_manual"
                         android:textAppearance="@style/APTextCaption" />
                 </LinearLayout>
 
@@ -253,7 +253,7 @@
                     android:id="@+id/swHotkeySort"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:contentDescription="快捷键自动排序开关" />
+                    android:contentDescription="@string/lay_settings_cd_hotkey" />
             </LinearLayout>
         </LinearLayout>
 
@@ -263,7 +263,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="环境摘要" />
+            android:text="@string/lay_settings_env" />
 
         <LinearLayout
             style="@style/APCard"
@@ -293,7 +293,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="主题方案" />
+            android:text="@string/lay_settings_text_theme" />
 
         <LinearLayout
             style="@style/APCard"
@@ -314,7 +314,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="模块配色" />
+            android:text="@string/lay_settings_text_color" />
 
         <LinearLayout
             style="@style/APCard"
@@ -325,7 +325,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="给触控板、键盘、快捷键分别选一套色调；不选就是跟随主题色"
+                android:text="@string/lay_settings_text_hotkey_theme_touchpad_keyboard"
                 android:textAppearance="@style/APTextCaption" />
 
             <LinearLayout
@@ -353,7 +353,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="导出" />
+                    android:text="@string/lay_settings_text_export" />
 
                 <Button
                     android:id="@+id/btnImportTheme"
@@ -362,7 +362,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="导入" />
+                    android:text="@string/lay_settings_text_import" />
 
                 <Button
                     android:id="@+id/btnShareTheme"
@@ -371,7 +371,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="分享" />
+                    android:text="@string/lay_settings_text_share" />
             </LinearLayout>
         </LinearLayout>
 
@@ -381,7 +381,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="背景与手感" />
+            android:text="@string/lay_settings_text_background" />
 
         <LinearLayout
             style="@style/APCard"
@@ -392,7 +392,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="背景可换纯色或相册里的图片；动效快慢、震动强弱、按键音色整体调"
+                android:text="@string/lay_settings_text_background_2"
                 android:textAppearance="@style/APTextCaption" />
 
             <LinearLayout
@@ -417,7 +417,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="TV / PC 控制" />
+            android:text="@string/lay_settings_remote" />
 
         <LinearLayout
             style="@style/APCard"
@@ -437,7 +437,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="文件传输" />
+            android:text="@string/ui_filepanel_text_file" />
 
         <LinearLayout
             style="@style/APCard"
@@ -457,7 +457,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:paddingTop="10dp"
-            android:text="遥控键映射" />
+            android:text="@string/lay_settings_text_remote" />
 
         <LinearLayout
             style="@style/APCard"
