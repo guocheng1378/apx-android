@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
@@ -245,6 +247,23 @@ MediaSession::Counters MediaSession::counters() const {
 
 // ------------------------------------------------------------------ 收流 ----
 
+// v184 debug：断链原因落盘（复现定位后可移除）
+static void mediaLog(const char* why) {
+    char path[MAX_PATH]; path[0] = 0;
+    const char* lad = std::getenv("LOCALAPPDATA");
+    if (lad) _snprintf_s(path, sizeof(path), _TRUNCATE, "%s\\AllPeriph\\media_debug.log", lad);
+    else     _snprintf_s(path, sizeof(path), _TRUNCATE, "media_debug.log");
+    FILE* f = nullptr;
+    if (0 == fopen_s(&f, path, "a") && f) {
+        SYSTEMTIME st; GetLocalTime(&st);
+        fprintf(f, "[%02d:%02d:%02d.%03d T%lu] %s\n",
+                st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                GetCurrentThreadId(), why);
+        fclose(f);
+    }
+}
+
+
 void MediaSession::readerLoop() {
 #if defined(_WIN32)
     std::vector<uint8_t> buf(64 * 1024);
@@ -253,7 +272,11 @@ void MediaSession::readerLoop() {
     while (running_.load()) {
         const int n = ::recv(sock_, reinterpret_cast<char*>(buf.data()),
                              static_cast<int>(buf.size()), 0);
-        if (n <= 0) break;
+        if (n <= 0) {
+            mediaLog((std::string("reader exit n=") + std::to_string(n) +
+                      " err=" + std::to_string(WSAGetLastError())).c_str());
+            break;
+        }
         acc.insert(acc.end(), buf.data(), buf.data() + n);
 
         size_t off = 0;
@@ -416,6 +439,7 @@ void MediaSession::writerLoop() {
         }
         if (!sendAllBlocking(frame.data(), frame.size())) {
             // 部分写出会永久打乱对端的帧对齐，无法局部恢复 —— 只能断链让上层重连。
+            mediaLog("writer break (sendAllBlocking false)");
             APX_LOGW("媒体帧写出失败，判定链路失效");
             break;
         }
@@ -444,10 +468,14 @@ bool MediaSession::sendAllBlocking(const uint8_t* p, size_t n) {
         const int e = WSAGetLastError();
         if (e == WSAEWOULDBLOCK || e == WSAETIMEDOUT || e == WSAENOBUFS) {
             cSendTimeouts_.fetch_add(1, std::memory_order_relaxed);
-            if (GetTickCount64() > deadline) return false;   // congested for 5s: give up
+            if (GetTickCount64() > deadline) {
+                mediaLog("send congest 5s giveup");
+                return false;
+            }
             Sleep(2);                                        // yield to kernel buffer
             continue;
         }
+        mediaLog((std::string("send real err=") + std::to_string(e)).c_str());
         return false;                                        // real error: reset/unreachable
     }
     return true;
@@ -458,6 +486,7 @@ bool MediaSession::sendAllBlocking(const uint8_t* p, size_t n) {
 }
 
 void MediaSession::teardown() {
+    mediaLog("teardown");
     running_.store(false);
 #if defined(_WIN32)
     if (sock_ != INVALID_SOCKET) {
