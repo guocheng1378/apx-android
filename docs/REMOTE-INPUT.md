@@ -10,10 +10,10 @@
 ```
 设备 A（输入框在哪）                    设备 B（键盘在哪）
 ┌──────────────────┐                  ┌──────────────────┐
-│ EditText 获焦     │    0x22 帧       │                  │
+│ EditText 获焦     │    0x25 帧       │                  │
 │ AccessibilitySvc  │ ─────────────→  │ 收到 REQUEST_INPUT│
 │ 检测到焦点        │                  │ 弹 EditText      │
-│                  │    0x23 帧       │ 系统键盘自动弹出   │
+│                  │    0x26 帧       │ 系统键盘自动弹出   │
 │ ApxImeService    │ ←─────────────  │ 用户打字          │
 │ .commitText()    │   实时字符       │ TextWatcher      │
 └──────────────────┘                  └──────────────────┘
@@ -25,13 +25,13 @@
 
 ## 二、协议新增
 
-### 2.1 新增帧类型
+### 2.1 新增帧类型（与 0x20 剪贴板/0x22 电源动作不冲突）
 
 | 帧类型 | ID | 方向 | Payload | 说明 |
 |--------|-----|------|---------|------|
-| `REQUEST_INPUT` | `0x22` | A→B | `[hint_len:u8, hint:utf8]` | 请求 B 设备输入 |
-| `INPUT_TEXT` | `0x23` | B→A | `[flags:u8, text_len:u16, text:utf8]` | 实时输入文本 |
-| `INPUT_DONE` | `0x24` | B→A | 无 | 输入完成 |
+| `REQUEST_INPUT` | `0x25` | A→B | `[hint_len:u8, hint:utf8]` | 请求 B 设备输入 |
+| `INPUT_TEXT` | `0x26` | B→A | `[flags:u8, text_len:u16, text:utf8]` | 实时输入文本 |
+| `INPUT_DONE` | `0x27` | B→A | 无 | 输入完成 |
 
 ### 2.2 INPUT_TEXT flags
 
@@ -44,39 +44,24 @@
 
 ---
 
-## 三、模块改动清单
+## 三、已实现的改动
 
-### 线 1：协议 + 帧处理
-- `shared/` 加帧类型常量
-- `ApxFrame.kt` 加 pack/parse
-- `TcpCtrlBridge` 加 requestInput/sendInputText/sendInputDone
-- `TcpControlServer` (TV) 加 0x22/0x23 帧处理
-- `TcpControlChannel` (手机) 加 0x22/0x23 帧处理
-
-### 线 2：TV/手机端输入覆盖层
-- TV/手机 MainActivity 新增 RemoteInputOverlay
-- EditText + 发送/取消按钮
-- TextWatcher → 实时发 INPUT_TEXT
-
-### 线 3：AccessibilityService 焦点检测
-- `ApxAccessibilityService.onAccessibilityEvent` 加焦点检测
-- 检测 EditText 获焦 → 发 REQUEST_INPUT
-- 防环：remoteInputMode 标记
-
-### 线 4：手机端横屏简化
-- 删除 PAGE_KEYBOARD 和 8 套键盘布局
-- 横屏 ViewFlipper 只保留触控板页
+| 文件 | 改动 | commit |
+|------|------|--------|
+| `ApxFrame.kt` | 新增 0x25/0x26/0x27 帧类型 + pack 方法 | `faa3e7e` |
+| `TcpControlServer.kt`（TV） | 处理 0x25/0x26/0x27 帧 | `eff266a` |
+| `TvControlServer.kt`（手机被控） | 处理 0x25/0x26/0x27 帧 | `0fe8dd2` |
+| `TvControllerClient.kt`（手机控TV） | 新增 requestInput/sendInputText/sendInputDone + 接收回调 | `2436e25` |
+| `ApxAccessibilityService.kt`（TV） | 焦点检测 → 发 REQUEST_INPUT | `7ceb1db` |
+| `RemoteInputOverlay.kt`（TV） | 远程输入覆盖层 UI | `f986886` |
 
 ---
 
-## 四、测试矩阵
+## 四、剩余工作
 
-| 场景 | A（输入框） | B（键盘） | 验证点 |
-|------|------------|----------|--------|
-| 手机→手机 | 手机 A EditText | 手机 B 系统键盘 | 实时注入、退格、中文 |
-| 手机→TV | 手机 A EditText | TV 系统键盘 | 同上 |
-| TV→手机 | TV EditText | 手机系统键盘 | 同上 |
-| PC→手机 | PC 搜索框 | 手机系统键盘 | Ctrl+` 触发 |
-| PC→TV | PC 搜索框 | TV 系统键盘 | 同上 |
-| 防环 | A 输入 → B → A 不回推 | — | 不形成死循环 |
-| 横屏触控板 | 手机横屏 | PC 光标 | 触控板功能不受影响 |
+| 线 | 剩什么 | 难度 |
+|----|--------|------|
+| 线 2 | 手机端 `MainActivity` 复用 `RemoteInputOverlay` | 低 |
+| 线 3 | 手机端 `ApxAccessibilityService` 同样加焦点检测 | 低 |
+| 线 4 | 手机端删除 `PAGE_KEYBOARD` 和 8 套键盘布局 | 中 |
+| PC 端 | `ctrl_channel.cpp` + `panel_win32.cpp` 加远程输入 | 高 |
