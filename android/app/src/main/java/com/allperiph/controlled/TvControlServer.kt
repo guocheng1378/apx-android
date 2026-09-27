@@ -510,6 +510,29 @@ class TvControlServer(
         return sendControl(body)
     }
 
+    // ————————————————————————————— 远程输入发送（供 RemoteInputActivity 调用）———————————————————
+
+    /**
+     * 发送实时输入文本到对端设备（B→A）。
+     * @param text 输入的文本
+     * @param flags INPUT_FLAG_* 位组合（默认 INCREMENTAL）
+     */
+    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val body = ByteArray(1 + 1 + 2 + textBytes.size)
+        body[0] = ApxFrame.INPUT_TEXT.toByte()
+        body[1] = flags.toByte()
+        body[2] = (textBytes.size and 0xFF).toByte()
+        body[3] = ((textBytes.size ushr 8) and 0xFF).toByte()
+        textBytes.copyInto(body, 4)
+        sendControl(body)
+    }
+
+    /** 发送输入完成到对端设备（B→A） */
+    fun sendInputDone() {
+        sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte()))
+    }
+
     // ————————————————————————————— 工具 —————————————————————————————
 
     private fun readU32Le(ins: InputStream): Int {
