@@ -277,6 +277,9 @@ class MainActivity : Activity() {
         // 且回调还会继续往已销毁的界面推字。注意只清回调，**不断开连接**
         // （用户可能只是切页面，控制链路要保持）。
         ControlTarget.controlClient?.onReverseClipboard = null
+        // v184：发现服务此前只 start 不 stop —— 退出 App 后它仍占着 9501 端口与
+        // 发现线程（且会持续收到广播）。TvDiscovery.stop() 早就实现了，只是没人调用。
+        runCatching { TvDiscovery.stop() }
         super.onDestroy()
     }
 

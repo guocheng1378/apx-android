@@ -551,6 +551,9 @@ struct Panel {
     // autoRestore* 是「启动时从 ini 读到的期望状态」；媒体连接建立后由 tick 执行。
     bool autoScreen = false, autoSpeaker = false, autoMic = false;
     bool autoRestoreDone = false;
+    // v184：音箱补拉的节流时间戳改为成员 —— 原来是函数级 static（跨 Panel 实例共享、
+    // 且非原子），与其它成员状态混用是隐患。
+    DWORD lastSpkRetryMs = 0;
     /// 下拉里每一项对应的端点 ID（下标 0 恒为"跟随系统默认"，值是空串）
     std::vector<std::string> speakerDevIds;
 
@@ -2072,10 +2075,9 @@ void tick(Panel* p) {
             // 若启动失败或音频会话中途死掉就永远静音，只能手动再点一次开关。
             // 现在只要 autoSpeaker 开着且采集没在跑，就补拉（5s 节流防刷屏）。
             if (mediaUp && p->autoSpeaker && screenMediaUp(p) && !(p->audio && p->audio->running())) {
-                static DWORD s_lastSpkRetry = 0;
                 const DWORD nowTick = GetTickCount();
-                if (nowTick - s_lastSpkRetry > 5000) {
-                    s_lastSpkRetry = nowTick;
+                if (nowTick - p->lastSpkRetryMs > 5000) {
+                    p->lastSpkRetryMs = nowTick;
                     toggleSpeaker(p);
                 }
             }

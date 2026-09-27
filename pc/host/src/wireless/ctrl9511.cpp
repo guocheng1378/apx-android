@@ -178,14 +178,18 @@ struct Ctrl9511Server::Impl {
         if (text.empty()) return;
         const auto bytes = std::vector<uint8_t>(text.begin(), text.end());
         if (bytes.size() > 0xFFFF) return;
-        uint8_t body[2 + 0xFFFF];
+        // v184：原来在**栈上**开 (2+0xFFFF) 与 (16+3+0xFFFF) 两块 64KB 缓冲（合计 128KB），
+        // 而本函数跑在剪贴板 watcher 线程上 —— 线程栈更浅时就是一次栈溢出。
+        // 改为按实际长度堆分配（也顺便省掉每次调用的 128KB 栈占用）。
+        std::vector<uint8_t> body(2 + bytes.size());
         body[0] = static_cast<uint8_t>(bytes.size() & 0xFF);
         body[1] = static_cast<uint8_t>((bytes.size() >> 8) & 0xFF);
-        std::memcpy(body + 2, bytes.data(), bytes.size());
-        uint8_t buf[apx::kFrameHeaderSize + 3 + 0xFFFF];
+        std::memcpy(body.data() + 2, bytes.data(), bytes.size());
+        std::vector<uint8_t> buf(apx::kFrameHeaderSize + 3 + bytes.size());
         size_t len = 0;
-        if (buildCtrlFrame(buf, sizeof(buf), len, 0x21, body, bytes.size() + 2, seq_.fetch_add(1))) {
-            enqueue(buf, len);
+        if (buildCtrlFrame(buf.data(), buf.size(), len, 0x21, body.data(),
+                           static_cast<size_t>(bytes.size()) + 2, seq_.fetch_add(1))) {
+            enqueue(buf.data(), len);
             aReverse_.fetch_add(1);
         }
     }
@@ -819,11 +823,12 @@ bool Ctrl9511Client::sendClipboard(const std::string& text) {
     if (!impl_ || text.empty()) return false;
     const auto bytes = std::vector<uint8_t>(text.begin(), text.end());
     if (bytes.size() > 0xFFFF) return false;
-    uint8_t b[2 + 0xFFFF];
+    // v184：栈上 64KB 缓冲 → 按需堆分配（详见 onClipboardChanged 注释）
+    std::vector<uint8_t> b(2 + bytes.size());
     b[0] = static_cast<uint8_t>(bytes.size() & 0xFF);
     b[1] = static_cast<uint8_t>((bytes.size() >> 8) & 0xFF);
-    std::memcpy(b + 2, bytes.data(), bytes.size());
-    impl_->sendCmd(0x20, b, bytes.size() + 2);
+    std::memcpy(b.data() + 2, bytes.data(), bytes.size());
+    impl_->sendCmd(0x20, b.data(), static_cast<uint32_t>(bytes.size() + 2));
     return true;
 }
 
@@ -853,12 +858,13 @@ bool Ctrl9511Client::sendInputText(const std::string& text, uint8_t flags) {
     if (!impl_ || text.empty()) return false;
     const auto bytes = std::vector<uint8_t>(text.begin(), text.end());
     if (bytes.size() > 0xFFFF) return false;
-    uint8_t b[4 + 0xFFFF];
+    // v184：栈上 64KB 缓冲 → 按需堆分配
+    std::vector<uint8_t> b(3 + bytes.size());
     b[0] = flags;
     b[1] = static_cast<uint8_t>(bytes.size() & 0xFF);
     b[2] = static_cast<uint8_t>((bytes.size() >> 8) & 0xFF);
-    std::memcpy(b + 3, bytes.data(), bytes.size());
-    impl_->sendCmd(0x26, b, 3 + bytes.size());
+    std::memcpy(b.data() + 3, bytes.data(), bytes.size());
+    impl_->sendCmd(0x26, b.data(), static_cast<uint32_t>(3 + bytes.size()));
     return true;
 }
 

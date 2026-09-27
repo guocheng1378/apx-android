@@ -76,6 +76,12 @@ class TvControlServer(
     private val pressedKeys = HashSet<Int>()
     private var lastButtons = 0
 
+    // v184：注入动作的执行线程 —— actions 里的注入路径会调用 RootInput.run
+    // （往 su 管道写命令，管道满或 su 卡住时**阻塞**）以及无障碍手势 API，
+    // 放在主线程执行就是一次 ANR 隐患。单线程队列保证按键/滑动/点击的先后顺序不变。
+    private val injectThread = android.os.HandlerThread("apx-inject").apply { start() }
+    private val injectHandler = Handler(injectThread.looper)
+
     fun start(): Boolean {
         if (running.get()) return true
         return try {
@@ -94,6 +100,7 @@ class TvControlServer(
 
     fun stop() {
         running.set(false); outQueue.clear()
+        runCatching { injectThread.quitSafely() }   // v184：收掉注入线程
         runCatching { client?.close() }; runCatching { server?.close() }
         server = null; client = null; out = null; peerText = ""; ready = false
         acceptThread = null; readerThread = null; writerThread = null
@@ -180,7 +187,7 @@ class TvControlServer(
             idleTimeouts = 0
             if (n <= 0) break; feed(buf, n)
             val actions = pump()
-            if (actions.isNotEmpty()) { mainHandler.post { for (a in actions) a() } }
+            if (actions.isNotEmpty()) { injectHandler.post { for (a in actions) a() } }
         }
         Log.i("被控控制面", "手机连接已断开：$peerText"); teardown(sock)
     }

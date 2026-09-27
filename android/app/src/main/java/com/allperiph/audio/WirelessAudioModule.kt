@@ -292,7 +292,18 @@ class WirelessAudioModule : Module {
     // ————————————————————————————— 麦克风（上行） —————————————————————————————
 
     private fun startMic(): Boolean {
-        val minBuf = AudioRecord.getMinBufferSize(RATE, IN_CHANNEL, ENCODING)
+        // v184：**先立体声、不行回退单声道** —— 多数机型的 MIC 源并不支持
+        // CHANNEL_IN_STEREO（getMinBufferSize 直接返回负值），旧实现据此判定
+        // "麦克风不可用"，用户看到的就是麦克风开关拨了没反应。
+        // 回退时依旧按双声道发送（把 mono 样本复制成 L/R），PC 侧格式完全不变。
+        val inCh = pickMicChannel()
+        if (inCh == 0) {
+            Log.w(TAG, "麦克风不可用：立体声与单声道均无法初始化")
+            return false
+        }
+        val micStereo = inCh == AudioFormat.CHANNEL_IN_STEREO
+        if (!micStereo) Log.w(TAG, "麦克风回退为单声道采集（设备不支持立体声 MIC），发送前复制成双声道")
+        val minBuf = AudioRecord.getMinBufferSize(RATE, inCh, ENCODING)
         if (minBuf <= 0) {
             Log.w(TAG, "AudioRecord.getMinBufferSize 失败：$minBuf")
             return false
@@ -301,7 +312,7 @@ class WirelessAudioModule : Module {
         // 而不是起个线程后静默失败（那样 UI 会显示"运行中"在骗人）。
         val probe = try {
             AudioRecord(
-                MediaRecorder.AudioSource.MIC, RATE, IN_CHANNEL, ENCODING,
+                MediaRecorder.AudioSource.MIC, RATE, inCh, ENCODING,
                 maxOf(minBuf, FRAME_BYTES * 8),
             )
         } catch (t: Throwable) {
@@ -317,7 +328,7 @@ class WirelessAudioModule : Module {
             val fx = mutableListOf<android.media.audiofx.AudioEffect>()
             try {
                 rec = AudioRecord(
-                    MediaRecorder.AudioSource.MIC, RATE, IN_CHANNEL, ENCODING,
+                    MediaRecorder.AudioSource.MIC, RATE, inCh, ENCODING,
                     maxOf(minBuf, FRAME_BYTES * 8),
                 )
                 if (rec.state != AudioRecord.STATE_INITIALIZED) return@thread
@@ -343,12 +354,32 @@ class WirelessAudioModule : Module {
                     }
                 }
                 rec.startRecording()
-                val buf = ByteArray(FRAME_BYTES)
-                while (running && micOn) {
-                    val n = rec.read(buf, 0, buf.size)
-                    if (n <= 0) continue
-                    // MediaOut 只入队不碰 socket（见 core/MediaOut.kt）；未连入时返回 false，如实丢弃
-                    MediaOut.mic(buf, n)
+                if (micStereo) {
+                    val buf = ByteArray(FRAME_BYTES)
+                    while (running && micOn) {
+                        val n = rec.read(buf, 0, buf.size)
+                        if (n <= 0) continue
+                        // MediaOut 只入队不碰 socket（见 core/MediaOut.kt）；未连入时返回 false，如实丢弃
+                        MediaOut.mic(buf, n)
+                    }
+                } else {
+                    // v184：单声道回退 —— 16bit 样本逐个复制成 L/R，凑成 PC 期望的双声道，
+                    // 否则对端按 48k/2ch 解析会变调、播放速度翻倍。
+                    val mono = ByteArray(FRAME_BYTES / 2)
+                    val out = ByteArray(FRAME_BYTES)
+                    while (running && micOn) {
+                        val n = rec.read(mono, 0, mono.size)
+                        if (n <= 0) continue
+                        var o = 0
+                        var i = 0
+                        while (i + 1 < n) {
+                            val lo = mono[i]; val hi = mono[i + 1]
+                            out[o++] = lo; out[o++] = hi   // L
+                            out[o++] = lo; out[o++] = hi   // R
+                            i += 2
+                        }
+                        if (o > 0) MediaOut.mic(out, o)
+                    }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "麦克风线程异常：${t.message}")
@@ -392,6 +423,18 @@ class WirelessAudioModule : Module {
         private val IN_CHANNEL = AudioFormat.CHANNEL_IN_STEREO
         private val OUT_CHANNEL = AudioFormat.CHANNEL_OUT_STEREO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
+
+        /**
+         * v184：挑可用的麦克风采集通道 —— 优先立体声，设备不支持则回退单声道。
+         * 返回 0 表示两者都不可用（调用方据此如实降级并打日志）。
+         * 判断依据是 getMinBufferSize：设备不支持某通道时它返回负值。
+         */
+        private fun pickMicChannel(): Int {
+            for (ch in intArrayOf(AudioFormat.CHANNEL_IN_STEREO, AudioFormat.CHANNEL_IN_MONO)) {
+                if (AudioRecord.getMinBufferSize(RATE, ch, ENCODING) > 0) return ch
+            }
+            return 0
+        }
 
         /** 10ms 一片：48000 × 2ch × 2B / 100 = 1920 字节 */
         private const val FRAME_BYTES = RATE * 2 * 2 / 100
