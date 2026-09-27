@@ -21,15 +21,12 @@ import com.allperiph.tv.TvServerService
 import com.allperiph.tv.core.Log
 import com.allperiph.tv.core.TvInjector
 import com.allperiph.tv.net.TcpControlServer
-import com.allperiph.tv.net.TvFileReceiver
 
 class MainActivity : android.app.Activity() {
     private lateinit var root: FrameLayout
     private lateinit var overlay: RemoteInputOverlay
     private lateinit var statusTv: TextView
     private lateinit var injectTv: TextView
-    private lateinit var filesTv: TextView
-    private lateinit var fileListView: LinearLayout
     private lateinit var enableSwitch: Switch
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -99,21 +96,25 @@ class MainActivity : android.app.Activity() {
         content.addView(checkRow)
         content.addView(spacer(12f))
 
+        // ---- 功能入口 ----
+        val entryRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        entryRow.addView(mkButton("文件传输") {
+            val i = Intent(this, TvFileActivity::class.java)
+            startActivity(i)
+        })
+        entryRow.addView(mkButton("副屏") {
+            val i = Intent(this, TvScreenActivity::class.java)
+            startActivity(i)
+        })
+        content.addView(entryRow)
+        content.addView(spacer(12f))
+
         // ---- 已连接设备 ----
-        val peerLabel = mkText("已连接设备", 14f, Color.parseColor("#99FFFFFF"))
-        content.addView(peerLabel)
-        content.addView(spacer(4f))
-        content.addView(statusTv.let { mkText("", 13f, Color.parseColor("#FF888888")) }.also { /* peer info updated dynamically */ })
+        content.addView(mkText("已连接设备", 14f, Color.parseColor("#99FFFFFF")))
         content.addView(spacer(12f))
 
         // ---- 文件传输 ----
         content.addView(mkText("文件传输", 16f, Color.WHITE, Typeface.DEFAULT_BOLD))
-        content.addView(spacer(4f))
-        filesTv = mkText("", 13f, Color.parseColor("#99FFFFFF"))
-        content.addView(filesTv)
-        content.addView(spacer(4f))
-        fileListView = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(fileListView)
         content.addView(spacer(4f))
 
         // 已收到的文件（只展示前 10 个）
@@ -152,8 +153,6 @@ class MainActivity : android.app.Activity() {
         statusTv.text = status
         injectTv.text = "注入通道: ${TvInjector.channelText()}"
         enableSwitch.isChecked = TvServerService.isEnabled(this)
-        val peer = svc?.currentPeer()
-        filesTv.text = if (peer != null) "当前对端: $peer" else "等待手机连入..."
     }
 
     // ---- 工具方法 ----
