@@ -154,6 +154,12 @@ struct Ctrl9511Server::Impl {
     // 计数用独立原子（Ctrl9511ServerStatus 成员是普通类型，便于按值返回）
     std::atomic<uint64_t> aMouse_{0}, aTouch_{0}, aKeyboard_{0}, aConsumer_{0};
     std::atomic<uint64_t> aClipboard_{0}, aReverse_{0}, aDropped_{0};
+    std::atomic<uint64_t> aRequestInput_{0}, aInputText_{0}, aInputDone_{0};
+
+    // 远程输入回调（UI 层注册）
+    std::function<void(const std::string&)> onRequestInput_;
+    std::function<void(const std::string&, uint8_t)> onRemoteInputText_;
+    std::function<void()> onRemoteInputDone_;
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -352,6 +358,27 @@ struct Ctrl9511Server::Impl {
             const int8_t rx = static_cast<int8_t>(p[5]);
             const int8_t ry = static_cast<int8_t>(p[6]);
             if (injector) injector->injectGamepad(buttons, x, y, rx, ry);
+        } else if (cmd == 0x25 && bodyLen >= 2) {
+            // REQUEST_INPUT：手机请求本机输入文本
+            const uint8_t hintLen = p[1];
+            if (bodyLen >= static_cast<uint32_t>(2 + hintLen)) {
+                const std::string hint(reinterpret_cast<const char*>(p + 2), hintLen);
+                if (onRequestInput_) onRequestInput_(hint);
+            }
+            aRequestInput_.fetch_add(1);
+        } else if (cmd == 0x26 && bodyLen >= 4) {
+            // INPUT_TEXT：手机发来的输入文本
+            const uint8_t flags = p[1];
+            const uint16_t textLen = static_cast<uint16_t>(p[2]) | (static_cast<uint16_t>(p[3]) << 8);
+            if (bodyLen >= static_cast<uint32_t>(4 + textLen)) {
+                const std::string text(reinterpret_cast<const char*>(p + 4), textLen);
+                if (onRemoteInputText_) onRemoteInputText_(text, flags);
+            }
+            aInputText_.fetch_add(1);
+        } else if (cmd == 0x27) {
+            // INPUT_DONE：手机输入完成
+            if (onRemoteInputDone_) onRemoteInputDone_();
+            aInputDone_.fetch_add(1);
         }
     }
 
@@ -452,6 +479,9 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
             [im](const std::string& t) { im->onClipboardChanged(t); });
         if (im->clip) im->clip->start();
     }
+    im->onRequestInput_ = std::move(onRequestInput_);
+    im->onRemoteInputText_ = std::move(onRemoteInputText_);
+    im->onRemoteInputDone_ = std::move(onRemoteInputDone_);
 
     im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (im->listenFd == kBadSock) { delete im; return false; }
@@ -503,6 +533,9 @@ Ctrl9511ServerStatus Ctrl9511Server::status() const {
     s.clipboard = impl_->aClipboard_.load();
     s.reverseClipboard = impl_->aReverse_.load();
     s.dropped = impl_->aDropped_.load();
+    s.requestInput = impl_->aRequestInput_.load();
+    s.inputText = impl_->aInputText_.load();
+    s.inputDone = impl_->aInputDone_.load();
     return s;
 }
 
@@ -520,6 +553,7 @@ struct Ctrl9511Client::Impl {
 
     // 注入计数（发送线程累加，status() 按值返回）
     std::atomic<uint64_t> aMouse_{0}, aTouch_{0}, aKeyboard_{0}, aConsumer_{0};
+    std::atomic<uint64_t> aRequestInput_{0}, aInputText_{0}, aInputDone_{0};
     // 心跳 RTT：-1 表示未测得；ping 发出时刻由 ping 线程记录，pong 到达时算差
     std::atomic<int64_t> rttMs_{-1};
     std::atomic<int64_t> pingSentMs_{0};
@@ -538,6 +572,9 @@ struct Ctrl9511Client::Impl {
             case 0x02: aConsumer_.fetch_add(1); break;
             case 0x03: aKeyboard_.fetch_add(1); break;
             case 0x04: aTouch_.fetch_add(1); break;
+            case 0x25: aRequestInput_.fetch_add(1); break;
+            case 0x26: aInputText_.fetch_add(1); break;
+            case 0x27: aInputDone_.fetch_add(1); break;
             default: break;
         }
         std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + bodyLen + apx::kFrameCrcSize);
@@ -595,8 +632,11 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     im->running.store(true);
     impl_.reset(im);
 
-    const auto cb = onReverseClipboard;
-    im->readerThread = std::thread([im, cb] {
+    const auto cbClip = onReverseClipboard;
+    const auto cbReqInput = onRequestInput;
+    const auto cbInputText = onRemoteInputText;
+    const auto cbInputDone = onRemoteInputDone;
+    im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -626,8 +666,25 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                     const uint32_t len = static_cast<uint32_t>(payload[1]) | (static_cast<uint32_t>(payload[2]) << 8);
                     if (bodyLen - 2 >= len && len > 0) {
                         std::string t(reinterpret_cast<const char*>(payload + 3), static_cast<size_t>(len));
-                        if (cb) cb(t);
+                        if (cbClip) cbClip(t);
                     }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x25 && bodyLen >= 2) {
+                    // 对端请求输入文本
+                    const uint8_t hl = payload[1];
+                    if (bodyLen >= static_cast<uint32_t>(2 + hl)) {
+                        const std::string hint(reinterpret_cast<const char*>(payload + 2), hl);
+                        if (cbReqInput) cbReqInput(hint);
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x26 && bodyLen >= 4) {
+                    // 对端发回输入文本
+                    const uint8_t flags = payload[1];
+                    const uint16_t tl = static_cast<uint16_t>(payload[2]) | (static_cast<uint16_t>(payload[3]) << 8);
+                    if (bodyLen >= static_cast<uint32_t>(4 + tl)) {
+                        const std::string text(reinterpret_cast<const char*>(payload + 4), tl);
+                        if (cbInputText) cbInputText(text, flags);
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x27) {
+                    if (cbInputDone) cbInputDone();
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
                     im->pingPending_.store(false);
@@ -710,6 +767,37 @@ bool Ctrl9511Client::sendClipboard(const std::string& text) {
     return true;
 }
 
+bool Ctrl9511Client::sendRequestInput(const std::string& hint) {
+    if (!impl_) return false;
+    const auto bytes = std::vector<uint8_t>(hint.begin(), hint.end());
+    if (bytes.size() > 255) return false;
+    uint8_t b[1 + 255];
+    b[0] = 0x25;
+    b[1] = static_cast<uint8_t>(bytes.size());
+    std::memcpy(b + 2, bytes.data(), bytes.size());
+    impl_->sendCmd(0x25, b + 1, 1 + bytes.size());
+    return true;
+}
+
+bool Ctrl9511Client::sendInputText(const std::string& text, uint8_t flags) {
+    if (!impl_ || text.empty()) return false;
+    const auto bytes = std::vector<uint8_t>(text.begin(), text.end());
+    if (bytes.size() > 0xFFFF) return false;
+    uint8_t b[4 + 0xFFFF];
+    b[0] = flags;
+    b[1] = static_cast<uint8_t>(bytes.size() & 0xFF);
+    b[2] = static_cast<uint8_t>((bytes.size() >> 8) & 0xFF);
+    std::memcpy(b + 3, bytes.data(), bytes.size());
+    impl_->sendCmd(0x26, b, 3 + bytes.size());
+    return true;
+}
+
+bool Ctrl9511Client::sendInputDone() {
+    if (!impl_) return false;
+    impl_->sendCmd(0x27, nullptr, 0);
+    return true;
+}
+
 bool Ctrl9511Client::sendControl(const std::vector<uint8_t>& body) {
     if (!impl_ || body.empty()) return false;
     impl_->sendCmd(body[0], body.data() + 1, body.size() - 1);
@@ -726,6 +814,9 @@ Ctrl9511ClientStatus Ctrl9511Client::status() const {
         s.consumer = impl_->aConsumer_.load();
         s.dropped = impl_->dropped;
         s.rttMs = impl_->rttMs_.load();
+        s.requestInput = impl_->aRequestInput_.load();
+        s.inputText = impl_->aInputText_.load();
+        s.inputDone = impl_->aInputDone_.load();
     }
     return s;
 }
