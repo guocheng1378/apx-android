@@ -45,12 +45,14 @@ class ControlledService : Service() {
 
         TvInjector.init(this)
         if (server == null) server = TvControlServer()
+        // 暴露给 RemoteInputActivity 使用
+        Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         TvFileReceiver.start(applicationContext)
         // 信标前缀保持 APX1TV —— 换前缀就得两端同时升级（旧 PC 端只认 APX1TV，换了它会
-        // 发现不到本机，副屏/音箱/麦克风一起废）。改成在**名字**里带「手机被控」标记，
-        // 对面手机据此显示「(手机)」且不切 TV 专属快捷键布局；PC/TV 端不看名字，无需改动。
+        //   发现不到本机，副屏/音箱/麦克风一起废）。改成在**名字**里带「手机被控」标记，
+        //   对面手机据此显示「(手机)」且不切 TV 专属快捷键布局；PC/TV 端不看名字，无需改动。
         val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
         beacon = WirelessBeacon(
             "APX1TV",
@@ -82,6 +84,7 @@ class ControlledService : Service() {
 
     override fun onDestroy() {
         running = false
+        Companion.server = null
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
         server?.stop()
@@ -102,9 +105,6 @@ class ControlledService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         Log.w(TAG, "任务被移除 → 立即重启被控服务")
-        // Android 12+ 在后台直接 startForegroundService 会被拒
-        // （ForegroundServiceStartNotAllowedException）—— 原先只吞掉打日志，于是划掉任务就再也回不来。
-        // 被拒时改交给闹钟：闹钟触发时应用会拿到一小段"允许启动前台服务"的窗口。
         val ok = runCatching {
             val i = Intent(applicationContext, ControlledService::class.java)
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
@@ -148,8 +148,6 @@ class ControlledService : Service() {
         )
         val ready = server?.ready == true
         val sysReady = TvInjector.systemReady()
-        // 缺通知权限 → startForeground 会失败 → 服务其实不是前台服务 → 退后台很快被系统回收。
-        // 以前只在日志里写一行，用户完全看不到；现在直接写进通知正文。
         val noNotif = Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
                 android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -179,6 +177,11 @@ class ControlledService : Service() {
         var running: Boolean = false
             private set
 
+        /** TvControlServer 的公开引用，供 RemoteInputActivity 发送远程输入帧 */
+        @Volatile
+        var server: TvControlServer? = null
+            internal set
+
         /** 是否处于"用户已启用"状态（只有 [start]/[stop] 会改它） */
         fun enabled(c: Context): Boolean =
             c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
@@ -198,7 +201,6 @@ class ControlledService : Service() {
 
         fun stop(c: Context) {
             running = false
-            // 用户主动关掉 → 清标记，闹钟自检不再把它拉回来（不替用户做决定）
             c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
                 .putBoolean(KEY_ENABLED, false).apply()
             runCatching { c.stopService(Intent(c, ControlledService::class.java)) }
