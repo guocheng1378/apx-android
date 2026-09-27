@@ -309,9 +309,15 @@ std::vector<uint8_t> buildReportDescriptor() {
     buildTlcConsumer(b);
     buildTlcKeyboard(b);
     buildTlcGamepad(b);
-    buildTlcDigitizer(b);  // v1.8 PTP 触控板
+    // ⚠️ PTP 触控板（Digitizer，Report 16-20）与电池（Battery，Report 6）**暂时移出 USB 描述符**。
+    // 真机（本 PC）复现：MI_00 HID 接口 Code 10（STATUS_IO_TIMEOUT，ProblemStatus=0xC00000B9）——
+    // Windows 的 PTP 触控板栈启动时会发 GET_REPORT（Input Mode / Surface Switch 等 Feature），
+    // 而 f_hid 的 GET_REPORT 需要用户态经 /dev/hidg0 应答；HidDevice 目前没有 ep0 应答逻辑，
+    // 请求挂起 → HIDCLASS 启动超时 → 整个 HID 接口起不来。其余 TLC 无 Feature 依赖，可正常启动。
+    // 恢复条件：HidDevice 实现 ep0/GET_REPORT 应答，或改用 ffs 自管 ep0。（无线/蓝牙描述符不受影响）
+    // buildTlcDigitizer(b);  // v1.8 PTP 触控板
     buildTlcVendor(b);
-    buildTlcBattery(b);
+    // buildTlcBattery(b);
     return b.out;
 }
 
