@@ -14,20 +14,10 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.allperiph.core.Log
 
-/**
- * 系统级输入注入（无障碍服务）。
- * 由 [TvInjector] 调用，把另一台手机发来的光标/点击/文本落到被控 Android 系统。
- */
 class ApxAccessibilityService : AccessibilityService() {
-
     private var mainHandler: Handler? = null
-
-    /** 焦点检测回调：本机 EditText 获焦时触发 */
     var onFocusDetected: ((String) -> Unit)? = null
-
-    /** 防环标记：远程输入模式下不触发焦点检测 */
-    @Volatile
-    var remoteInputMode = false
+    @Volatile var remoteInputMode = false
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -58,11 +48,6 @@ class ApxAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
-
-    private fun post(action: () -> Unit) {
-        val h = mainHandler
-        if (h != null && Looper.myLooper() != Looper.getMainLooper()) h.post(action) else action()
-    }
 
     fun tap(x: Float, y: Float): Boolean {
         if (Build.VERSION.SDK_INT < 24) return false
