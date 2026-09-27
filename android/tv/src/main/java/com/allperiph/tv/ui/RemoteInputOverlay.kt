@@ -51,7 +51,7 @@ class RemoteInputOverlay(
                 override fun afterTextChanged(s: Editable?) {}
             })
         }
-        this.editText = input
+        editText = input
         panel.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
         val btnRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
         btnRow.addView(makeButton("取消", Color.parseColor("#FF666666")) { onTextChanged("", 0x08); onCancel(); hide() })
