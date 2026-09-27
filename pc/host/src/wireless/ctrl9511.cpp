@@ -578,6 +578,8 @@ struct Ctrl9511Client::Impl {
     std::atomic<int64_t> pingSentMs_{0};
     // fix: 防止双 ping 覆盖时间戳导致 RTT 不准
     std::atomic<bool> pingPending_{false};
+    // v184：连续无 pong 的轮数 —— 达到阈值即判定链路失效（半开检测）
+    std::atomic<int> missedPongs_{0};
 
     int64_t nowMs() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -711,6 +713,7 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
                     im->pingPending_.store(false);
+                    im->missedPongs_.store(0);   // v184：收到 pong，失败计数清零
                     const auto sent = im->pingSentMs_.load();
                     if (sent > 0) im->rttMs_.store(im->nowMs() - sent);
                 }
@@ -732,9 +735,25 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 im->sendCmd('p', reinterpret_cast<const uint8_t*>("ing"), 3);
             }
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            // 超时兜底：如果 2s 内 pong 一直没来，清除 pending 防止永久卡住
-            if (im->pingPending_.load() && im->nowMs() - im->pingSentMs_.load() > 2000)
+            // 超时兜底：2s 内没有 pong 说明这一轮失败。
+            // v184：旧实现只清 pending 等下一轮重发，**从不判定链路失效** ——
+            // 对端半开（拔网线 / 被强杀，没有 FIN）时 running 永远为 true、
+            // 上层 ready() 恒真、不会重连，PC 发出去的输入全进黑洞。
+            // 现在累计连续失败轮数，达 3 轮即判定链路已死：关掉 socket 让 reader
+            // 退出并置 running=false，由上层（WirelessSession）重建连接。
+            if (im->pingPending_.load() && im->nowMs() - im->pingSentMs_.load() > 2000) {
                 im->pingPending_.store(false);
+                const int missed = im->missedPongs_.fetch_add(1) + 1;
+                if (missed >= 3) {
+                    std::fprintf(stderr,
+                                 "[apxctl] 心跳连续 %d 轮无 pong，判定链路失效（半开检测）\n", missed);
+                    im->running.store(false);
+                    Sock s = kBadSock;
+                    { std::lock_guard<std::mutex> lk(im->mu); s = im->sock; }
+                    if (s != kBadSock) shutdown(s, 0);   // 唤醒阻塞中的 reader，令其退出
+                    break;
+                }
+            }
         }
     });
     return true;

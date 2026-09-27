@@ -96,11 +96,14 @@ class TvControllerClient(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off = rxLen; break }
+                // v184：magic / 长度异常改为**逐字节重同步**（原 off = rxLen 会因一次错位
+                // 丢掉后续全部合法帧）；并补上尾部 CRC32 校验。
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off = rxLen; break }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL) {
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null) out.add(body)

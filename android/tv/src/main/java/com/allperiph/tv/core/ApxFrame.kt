@@ -75,6 +75,19 @@ object ApxFrame {
     fun flagsAt(buf: ByteArray, off: Int): Int = buf[off + 5].toInt() and 0xFF
     fun seqAt(buf: ByteArray, off: Int): Int = getU32(buf, off + 12)
     fun bodyLenOf(payloadLen: Int): Int = if (payloadLen < CRC_SIZE) -1 else payloadLen - CRC_SIZE
+
+    /**
+     * 校验一帧尾部 u32 CRC32（覆盖 body，即 payload 去掉最后 4 字节）。
+     * v184：接收侧此前**完全不校验** —— 缓冲错位或脏数据会把坏载荷直接交给
+     * 解码器 / 注入器（花屏、乱点）。与 PC 侧 `apx::verifyPayload` 行为一致。
+     */
+    fun verify(buf: ByteArray, off: Int, payloadLen: Int): Boolean {
+        if (payloadLen < CRC_SIZE) return false
+        val bodyLen = payloadLen - CRC_SIZE
+        val crcAt = off + HEADER_SIZE + bodyLen
+        if (crcAt + 4 > buf.size) return false
+        return crc32(buf, off + HEADER_SIZE, bodyLen) == getU32(buf, crcAt)
+    }
     fun bodyAt(buf: ByteArray, off: Int, payloadLen: Int): ByteArray? {
         val n = bodyLenOf(payloadLen)
         if (n < 0 || off + HEADER_SIZE < 0) return null

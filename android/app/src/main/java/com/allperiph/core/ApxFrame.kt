@@ -163,6 +163,23 @@ object ApxFrame {
     fun bodyLenOf(payloadLen: Int): Int = if (payloadLen < CRC_SIZE) -1 else payloadLen - CRC_SIZE
 
     /**
+     * 校验一帧尾部的 u32 CRC32（覆盖 body，即 payload 去掉最后 4 字节）。
+     *
+     * v184：此前接收侧**完全不校验** —— 一旦缓冲错位或链路进了脏数据，
+     * 坏载荷会被直接喂给解码器 / AudioTrack / 注入器（花屏、爆音、乱点）。
+     * 与 PC 侧 `apx::verifyPayload` 行为一致。
+     *
+     * @return true = 校验通过；false = 该帧应丢弃（缓冲位数不足也返回 false）
+     */
+    fun verify(buf: ByteArray, off: Int, payloadLen: Int): Boolean {
+        if (payloadLen < CRC_SIZE) return false
+        val bodyLen = payloadLen - CRC_SIZE
+        val crcAt = off + HEADER_SIZE + bodyLen
+        if (crcAt + 4 > buf.size) return false
+        return crc32(buf, off + HEADER_SIZE, bodyLen) == getU32(buf, crcAt)
+    }
+
+    /**
      * 取出 body（**不含**尾部 CRC）。接收侧普遍不校验 CRC，但消费方（解码器 /
      * AudioTrack / JPEG 预览）只想要干净载荷，所以统一在这里剥掉。
      * @return body 副本；越界或长度非法返回 null

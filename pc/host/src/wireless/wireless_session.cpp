@@ -103,6 +103,17 @@ WirelessSession::WirelessSession() {
         apxpc::wireless::injectSpecialKey(mod, vk);
     };
     client_.onRemoteInputDone = [] { APX_LOGI("远程输入完成"); };
+    // v184：反向剪贴板（0x21）—— 对端（手机 / TV）上复制的内容写进**本机剪贴板**。
+    // 此前只有 CLI（apxhost ctrl-connect / ctrl-remote）挂了这条回调，
+    // **桌面面板从不注册** —— 于是"在手机上复制、回 PC 粘贴"永远是空的，
+    // 用户可见的症状是"剪贴板功能不对"。现在面板这条链路补齐。
+    client_.onReverseClipboard = [](const std::string& text) {
+        const bool ok = apxpc::wireless::setSystemClipboard(text);
+        if (ok) APX_LOGI("反向剪贴板：已写入本机剪贴板（{} 字节）",
+                         static_cast<unsigned>(text.size()));
+        else APX_LOGW("反向剪贴板：写入本机剪贴板失败（{} 字节）",
+                      static_cast<unsigned>(text.size()));
+    };
 
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);

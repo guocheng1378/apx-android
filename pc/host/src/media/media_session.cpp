@@ -297,6 +297,15 @@ void MediaSession::readerLoop() {
             const size_t total = apx::kFrameHeaderSize + h.payloadLen;
             if (acc.size() - off < total) break;   // 半帧，等下一次 recv
 
+            // v184：补上尾部 CRC32 校验 —— 媒体面此前**完全不校验**，缓冲错位或链路
+            // 脏数据会把坏载荷直接喂给解码器与触摸注入（花屏 / 爆音 / 乱点光标）。
+            // 控制面（ctrl9511.cpp）早有这一步，这里对齐。
+            if (!apx::verifyPayload(p + apx::kFrameHeaderSize, h.payloadLen)) {
+                off += total;
+                cResync_.fetch_add(1, std::memory_order_relaxed);
+                continue;
+            }
+
             const uint8_t* body = p + apx::kFrameHeaderSize;
             const size_t bodyLen = h.payloadLen - apx::kFrameCrcSize;
             switch (h.streamId) {

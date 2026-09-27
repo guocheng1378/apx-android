@@ -155,24 +155,10 @@ class TcpMediaChannel(
                 }
                 continue
             }
-            // 单对端：媒体流对时序敏感，多对端会互相抢带宽
-            // fix(v184)：此前 ready 时**拒绝**新连接 —— 若旧连接是 TCP 半开僵尸态
-            // （PC 已消失但手机端写未失败），PC 每 3s 的重连会被一直拒掉，
-            // 表现为"副屏老是断、断了连不上"。改为接管：踢掉旧连接让位给新连接。
-            // 旧 reader/writer 线程会因 socket 关闭退出，teardown 的 client===sock
-            // 守卫保证它们不会误伤刚建立的新连接。
-            if (ready) {
-                Log.w(TAG, "媒体通道新连接接管，断开旧连接 $peerText")
-                val old = client
-                runCatching { old?.close() }
-                if (client === old) {
-                    ready = false
-                    client = null
-                    out = null
-                    peerText = ""
-                    outQueue.clear()
-                }
-            }
+            // 单对端：媒体流对时序敏感，多对端会互相抢带宽。
+            // 接管**必须等到握手鉴权通过之后**（见 activate）—— 旧实现在这里就踢掉
+            // 在用连接，于是任何连接（令牌错误、来路不明）都能顶掉正在工作的链路：
+            // 既是一个被动的拒绝服务面，用户也会看到"副屏无故断开"。
             Thread({ handshake(sock) }, "apx-media-handshake").apply {
                 isDaemon = true
                 start()
@@ -214,6 +200,20 @@ class TcpMediaChannel(
     }
 
     private fun activate(sock: Socket) {
+        // v184：握手鉴权已通过，**此时**才接管在用连接（踢旧连接让位给新连接）。
+        // 旧连接若是 TCP 半开僵尸态（PC 已消失而本地写未失败），这一步能立刻让位，
+        // 不会像更早的实现那样把 PC 的重连一直拒掉。
+        val prev = client
+        if (prev != null && prev !== sock) {
+            Log.w(TAG, "媒体通道新连接接管，断开旧连接 $peerText")
+            ready = false
+            client = null
+            out = null
+            outQueue.clear()
+            // 旧 reader/writer 会因 socket 关闭退出；teardown 的 client === sock 守卫
+            // 保证它们不会误伤刚建立的新连接。
+            runCatching { prev.close() }
+        }
         client = sock
         out = sock.getOutputStream()
         peerText = "${sock.inetAddress?.hostAddress}:${sock.port}"
@@ -339,17 +339,15 @@ class TcpMediaChannel(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) {
-                    off = rxLen          // 对不齐就整体丢弃重新同步（TCP 可靠有序，不该发生）
-                    break
-                }
+                // v184：magic / 长度异常改为**逐字节重同步**（原 off = rxLen 一次错位就会把
+                // 后续所有合法帧一起丢掉）；并补上尾部 CRC32 校验 —— 坏帧直接喂解码器
+                // 会花屏/爆音。PC 侧同款失配早已是逐字节前进，这里与它对齐。
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {
-                    off = rxLen
-                    break
-                }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
                 val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                 if (body != null) {
                     (outList ?: ArrayList<Parsed>(4).also { outList = it }).add(

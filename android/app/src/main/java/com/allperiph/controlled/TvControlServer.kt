@@ -133,6 +133,11 @@ class TvControlServer(
         // （真机症状：面板开关拨回去没反应，副屏也连不上）。
         // 挂起语义改为「连接保持、忽略输入类命令」，过滤见 pump()。
         if (suspended) Log.i("被控控制面", "被控处于挂起态：保持连接，不执行输入 ${peerTextOf(sock)}")
+        // v184：接管时显式关掉旧连接 —— 旧实现只是覆盖 client，旧 socket 一直挂着
+        // （fd 泄漏，且 PC 端那条死连接不会自愈）。旧 reader 会因 socket 关闭而退出，
+        // readerLoop 的 client === sock 身份判断是第二道保险。
+        val prev = client
+        if (prev != null && prev !== sock) runCatching { prev.close() }
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear(); pressedKeys.clear(); lastButtons = 0; ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
@@ -145,8 +150,29 @@ class TvControlServer(
 
     private fun readerLoop(sock: Socket) {
         val ins = sock.getInputStream(); val buf = ByteArray(4096)
-        while (running.get() && !sock.isClosed) {
-            val n = try { ins.read(buf) } catch (_: Throwable) { continue }
+        // v184：循环条件加上 **client === sock** 身份判断 —— 旧连接被新连接接管后
+        // 它自己的读线程必须退出。否则两条连接（握手窗口内并发到达时）会各起一个
+        // reader，共用同一份 rxBuf/rxLen，后果是输入被重复注入（点一下变两下、
+        // 按键连发）以及缓冲互相踩踏。
+        // v184：读超时不能无限 continue —— 对端半开（WiFi 瞬断 / 被强杀，没有 FIN）时
+        // 这里会永远"活着"，PC 发来的输入全进黑洞且不触发上层重连。
+        // 连续 8 次超时（≈ 8×读超时）即判定链路已死；其它异常也直接退出
+        // （旧实现 catch 后 continue，持续异常时会空转烧 CPU）。
+        var idleTimeouts = 0
+        while (running.get() && !sock.isClosed && client === sock) {
+            val n = try {
+                ins.read(buf)
+            } catch (t: java.net.SocketTimeoutException) {
+                if (++idleTimeouts >= 8) {
+                    Log.w("被控控制面", "读空闲超时 8 次，判定链路已失效：$peerText")
+                    break
+                }
+                continue
+            } catch (t: Throwable) {
+                Log.w("被控控制面", "读异常，断开连接：${t.message}")
+                break
+            }
+            idleTimeouts = 0
             if (n <= 0) break; feed(buf, n)
             val actions = pump()
             if (actions.isNotEmpty()) { mainHandler.post { for (a in actions) a() } }
@@ -184,11 +210,14 @@ class TvControlServer(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off = rxLen; break }
+                // v184：magic / 长度异常改为**逐字节重同步** —— 原来的 off = rxLen 会因
+                // 一次错位把后续全部合法帧一起丢掉；并补上尾部 CRC32 校验（对齐 PC 侧）。
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off = rxLen; break }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL && payloadLen >= 1) {
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null && body.isNotEmpty()) {

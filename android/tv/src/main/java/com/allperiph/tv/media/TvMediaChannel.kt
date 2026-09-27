@@ -202,17 +202,14 @@ class TvMediaChannel(private val port: Int = MEDIA_PORT) {
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) {
-                    off = rxLen
-                    break
-                }
+                // v184：magic / 长度异常改为**逐字节重同步**（原 off = rxLen 一次错位就丢掉
+                // 后续全部合法帧）；并补上尾部 CRC32 校验（坏帧直接进解码器会花屏/爆音）。
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {
-                    off = rxLen
-                    break
-                }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
                 val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                 if (body != null) {
                     val list = outList ?: ArrayList<Parsed>(4).also { outList = it }
