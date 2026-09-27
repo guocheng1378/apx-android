@@ -44,6 +44,21 @@ object ApxFrame {
     /** 单帧载荷上限（含 CRC），与 kMaxFramePayload 一致；超出的帧直接判为非法 */
     const val MAX_PAYLOAD = 4 * 1024 * 1024
 
+    // ———————————————————— 远程输入帧类型（docs/REMOTE-INPUT.md）———————————————————
+    /**
+     * 远程输入帧子类型（payload[0]）。
+     * 帧本身走 STREAM_CONTROL 通道，子类型在 payload 首字节区分。
+     */
+    const val INPUT_REQUEST = 0x22   // A→B：请求 B 设备输入
+    const val INPUT_TEXT = 0x23      // B→A：实时输入文本
+    const val INPUT_DONE = 0x24      // B→A：输入完成
+
+    /** INPUT_TEXT flags */
+    const val INPUT_FLAG_INCREMENTAL = 0x01  // 增量字符（默认）
+    const val INPUT_FLAG_BACKSPACE = 0x02    // 退格
+    const val INPUT_FLAG_COMMIT = 0x04       // 完整文本（粘贴整段）
+    const val INPUT_FLAG_CANCEL = 0x08       // 用户取消
+
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {
             var c = i
@@ -83,6 +98,47 @@ object ApxFrame {
         putU32(out, HEADER_SIZE + body.size, crc32(body))
         return out
     }
+
+    // ———————————————————— 远程输入组帧 ————————————————————
+
+    /**
+     * 组 REQUEST_INPUT 帧（A→B）：请求对端设备输入。
+     * @param hint 输入框提示文字（如 "搜索"、"输入网址"）
+     * @param sourceId 发送方标识（本机 MAC 前 4 字节），用于防环
+     */
+    fun packRequestInput(hint: String, sourceId: Int): ByteArray {
+        val hintBytes = hint.toByteArray(Charsets.UTF_8)
+        val body = ByteArray(1 + 4 + 1 + hintBytes.size)
+        body[0] = INPUT_REQUEST.toByte()
+        putU32(body, 1, sourceId)
+        body[5] = hintBytes.size.toByte()
+        hintBytes.copyInto(body, 6)
+        return body
+    }
+
+    /**
+     * 组 INPUT_TEXT 帧（B→A）：实时输入文本。
+     * @param flags INPUT_FLAG_* 位组合
+     * @param text 输入的文本（增量/完整）
+     */
+    fun packInputText(flags: Int, text: String): ByteArray {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val body = ByteArray(1 + 1 + 2 + textBytes.size)
+        body[0] = INPUT_TEXT.toByte()
+        body[1] = flags.toByte()
+        putU16(body, 2, textBytes.size)
+        textBytes.copyInto(body, 4)
+        return body
+    }
+
+    /**
+     * 组 INPUT_DONE 帧（B→A）：输入完成。
+     */
+    fun packInputDone(): ByteArray {
+        return byteArrayOf(INPUT_DONE.toByte())
+    }
+
+    // ———————————————————— 帧解析工具 ————————————————————
 
     /** 校验帧头 magic；不是 'APX1' 则返回 false（用于收流对齐） */
     fun isMagic(buf: ByteArray, off: Int, len: Int): Boolean =
