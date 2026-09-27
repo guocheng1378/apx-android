@@ -64,6 +64,24 @@ jobs:
           echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
+      # v184：静态检查（**不阻塞**）。本轮人工审查抓到的"无锁共享状态、未清理监听、
+      # 资源泄漏、越界写入"多数本可被 Android Lint 提前发现。首次运行会有一批历史告警，
+      # 故意不拦构建 —— 先建立基线，后续逐步收紧。
+      - name: Static analysis (Android Lint, non-blocking)
+        continue-on-error: true
+        run: ./gradlew :app:lintRelease :tv:lintRelease --no-daemon 2>&1 | tail -40
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: |
+            app/build/reports/lint-results-release.html
+            tv/build/reports/lint-results-release.html
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload app APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -112,6 +130,40 @@ jobs:
             build_host/Release/apxdesktop.exe
             build_host/Release/apxsetup.exe
           retention-days: 14
+
+  # ------------------------------------------------ 静态检查（独立 job，不阻塞）
+  # v184：本轮人工审查抓到的 3 个致命问题（线程未 join → std::terminate、detach 线程 UAF、
+  # 未判返回值空指针）与一批"跨线程裸共享状态"，恰恰都在 clang-analyzer / bugprone 的
+  # 检测范围内。独立成 job：失败不影响构建与发版（先建基线），后续逐步扩大范围并收紧。
+  lint:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Generate compile_commands.json
+        shell: cmd
+        run: cmake -S pc/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
+
+      # 先只扫改动最频繁、问题最集中的几个文件
+      - name: clang-tidy (core modules)
+        shell: cmd
+        run: |
+          clang-tidy --version
+          clang-tidy -p build_tidy pc\host\src\wireless\ctrl9511.cpp
+          clang-tidy -p build_tidy pc\host\src\wireless\input_injector_win.cpp
+          clang-tidy -p build_tidy pc\host\src\media\audio_capture.cpp
+          clang-tidy -p build_tidy pc\host\src\media\mic_bridge.cpp
+          clang-tidy -p build_tidy pc\host\src\media\touch_inject.cpp
+          clang-tidy -p build_tidy pc\host\src\ui\panel_win32.cpp
 
   # ------------------------------------------------ Release（仅 tag v*）
   release:

@@ -252,10 +252,10 @@ public:
      * 但"什么都不做"等于功能不存在 —— 这里做**键盘降级**，多数 PC 游戏与软件都能接受：
      *   按钮 → 键盘等价键（A→Enter、B→Esc、L1/R1→1/2 …，见 kGamepadVk）
      *   左摇杆 → 鼠标相对移动（复用 injectMouse，死区 12，位移按 1/4 缩放）
-     * 右摇杆仍不注入（PC 上没有可类比的"视角"通道），调用方在文档里已如实说明。
+     * 右摇杆 → 滚轮 / 水平滚轮（v184 起）：免驱下没有"视角"通道，滚动是最贴合的降级 ——
+     * 翻网页/列表/菜单时推一下就能滚，比原来直接丢弃有用得多。
      */
     void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
-        (void)rx; (void)ry;
         const uint16_t pressed = static_cast<uint16_t>(buttons & ~gpButtons_);
         const uint16_t released = static_cast<uint16_t>(gpButtons_ & ~buttons);
         for (uint8_t bit = 0; bit < 16; ++bit) {
@@ -268,21 +268,47 @@ public:
         gpButtons_ = buttons;
 
         constexpr int kDead = 12;
+        // 左摇杆 → 鼠标相对移动（死区 12，位移按 1/4 缩放）
         if (x > kDead || x < -kDead || y > kDead || y < -kDead) {
             injectMouse(mouseButtons_, static_cast<int8_t>(x / 4), static_cast<int8_t>(y / 4), 0);
+        }
+        // v184：右摇杆 → 滚轮（垂直）/ 水平滚轮（水平）。免驱架构下 Windows 没有"视角"
+        // 通道，滚动是直觉上最贴合的降级（翻页/翻列表）。摇杆帧率可达几十 Hz，
+        // 滚轮限速到 20Hz，否则会疯狂滚动。
+        if (rx > kDead || rx < -kDead || ry > kDead || ry < -kDead) {
+            const DWORD nowMs = ::GetTickCount();
+            if (nowMs - lastWheelMs_ >= 50) {
+                lastWheelMs_ = nowMs;
+                std::vector<INPUT> ev;
+                ev.reserve(2);
+                if (ry > kDead || ry < -kDead) {
+                    INPUT w{}; w.type = INPUT_MOUSE; w.mi.dwFlags = MOUSEEVENTF_WHEEL;
+                    // 摇杆前推（负 ry）→ 内容上滚（正向滚轮）
+                    w.mi.mouseData = static_cast<DWORD>(-static_cast<int>(ry) / 8 * WHEEL_DELTA);
+                    ev.push_back(w);
+                }
+                if (rx > kDead || rx < -kDead) {
+                    INPUT h{}; h.type = INPUT_MOUSE; h.mi.dwFlags = MOUSEEVENTF_HWHEEL;
+                    h.mi.mouseData = static_cast<DWORD>(static_cast<int>(rx) / 8 * WHEEL_DELTA);
+                    ev.push_back(h);
+                }
+                if (!ev.empty()) ::SendInput(static_cast<UINT>(ev.size()), ev.data(), sizeof(INPUT));
+            }
         }
 
         static bool warned = false;
         if (!warned) {
             warned = true;
             // 本文件不引日志头（与其它注入路径一致，用 stderr 直接输出）
-            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：本平台无手柄注入能力，已降级为"
-                                 "「按钮→键盘 + 左摇杆→鼠标」；要真手柄需 ViGEmBus 之类的虚拟 HID 驱动\n");
+            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：本平台无真手柄注入能力，已降级为"
+                                 "「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
+                                 "要真手柄需 ViGEmBus 之类的虚拟 HID 驱动\n");
         }
     }
 
     uint8_t mouseButtons_ = 0;
     uint16_t gpButtons_ = 0;   ///< 手柄按钮上一帧位图（降级注入要算边沿）
+    DWORD lastWheelMs_ = 0;    ///< v184：右摇杆滚轮的限速时间戳
     uint16_t consumerBm_ = 0;
     uint8_t kbMod_ = 0;
     uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};

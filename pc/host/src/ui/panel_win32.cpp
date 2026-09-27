@@ -1516,6 +1516,51 @@ void applyConnect(Panel* p) {
     p->session->connectManual(toUtf8(host), static_cast<uint16_t>(portNum));
 }
 
+/// 连接诊断（托盘「连接诊断…」）：一次点击给出链路各环状态 + 该按什么顺序排查。
+/// 内容来自真机排障经验 —— 这几轮修的问题绝大多数都能靠这几项直接定位。
+/// 只读状态、无副作用，因此可以直接在托盘线程弹窗（用户点确定即返回）。
+void runConnectionDiagnosis(Panel* p) {
+    std::wstring s = L"═══ 链路状态 ═══\r\n\r\n";
+
+    // 控制面 9511：PC 主动连手机/TV 的那条（输入、剪贴板、开关都走它）
+    const bool ctrlOk = p->session && p->session->connected();
+    s += ctrlOk ? L"✔ 控制面 9511：已连接\r\n"
+                : L"✘ 控制面 9511：未连接 —— 在面板拨「无线」开关，或选中要控制设备\r\n";
+
+    // 媒体通道 9502：副屏画面与音箱声音走这条
+    const bool mediaOk = p->media && p->media->status().connected;
+    s += mediaOk ? L"✔ 媒体通道 9502：已连接\r\n"
+                 : L"○ 媒体通道 9502：未连接（控制面连上后会自动建立）\r\n";
+
+    // 副屏推流（PC 画面 → 手机）
+    const bool screenOk = p->screenPush && p->screenPush->running();
+    s += screenOk ? L"✔ 副屏推流：运行中\r\n"
+                  : L"○ 副屏推流：未运行（点面板的「副屏」开关）\r\n";
+
+    // 音箱采集（PC 系统声音 → 手机）
+    const bool spkOk = p->audio && p->audio->running();
+    s += spkOk ? L"✔ 音箱采集：运行中\r\n"
+               : L"○ 音箱采集：未运行（点面板的「音箱」开关）\r\n";
+
+    // 麦克风转发（手机 → PC）
+    const bool micOk = p->micBridge && p->micBridge->running();
+    s += micOk ? L"✔ 麦克风转发：运行中\r\n"
+               : L"○ 麦克风转发：未运行（点面板的「麦克风」开关）\r\n";
+
+    s += L"\r\n═══ 连不上时按这个顺序查 ═══\r\n\r\n";
+    s += L"1) 手机端「被控 / 无线」是否开着？\r\n";
+    s += L"   （PC 面板把无线拨到 OFF 会让手机拒绝连接，拨回 ON 即可恢复）\r\n";
+    s += L"2) 手机与 PC 在同一局域网吗？手机 IP 变了要重新选中设备\r\n";
+    s += L"3) 本机防火墙是否放行 apxdesktop.exe（TCP 9511 / 9502）\r\n";
+    s += L"   首次运行会自动添加放行规则，需管理员权限\r\n";
+    s += L"4) 手机端是否启用了「全能外设输入」法？没有它中文上屏会失败\r\n";
+    s += L"5) 仍不行就看日志：\r\n";
+    s += L"   PC：%LOCALAPPDATA%\\AllPeriph\\（media_debug.log / touch_debug.log）\r\n";
+    s += L"   手机：adb logcat，过滤「被控控制面」\r\n";
+
+    MessageBoxW(p->hwnd, s.c_str(), L"连接诊断", MB_OK | MB_ICONINFORMATION);
+}
+
 void performHit(Panel* p, Hit h) {
     switch (h) {
         case Hit::SwitchWifi:
@@ -2475,6 +2520,10 @@ int runPanel(const std::string& /*preferInstanceId*/) {
                            ok ? "在手机上打字，文字会直接进电脑光标处"
                               : "控制面未就绪，稍后再试");
     });
+    // 托盘右键 →「连接诊断…」：把这几轮排障时人肉做的检查（链路各环状态 + 该查哪里）
+    // 固化成一次点击。诊断本身只读状态、不产生副作用，直接在托盘线程弹窗即可
+    // （用户点确定就返回，不会长时间阻塞托盘）。
+    panel.tray->setDiagnoseCallback([&panel] { runConnectionDiagnosis(&panel); });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
 
     // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，

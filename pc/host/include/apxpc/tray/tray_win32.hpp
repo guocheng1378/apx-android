@@ -43,6 +43,9 @@ public:
     void setClipboardCallback(std::function<void()> cb) { onClipboard_ = std::move(cb); }
     // 「让手机帮我输入…」回调：请求对端弹输入法，回传的文本由会话注入本机光标处；未设置则不出该项
     void setInputCallback(std::function<void()> cb) { onInput_ = std::move(cb); }
+    // 「连接诊断…」回调：一键自检（控制面 / 媒体 / 音频 / 副屏 + 常见故障提示）；
+    // 未设置则菜单不出该项。v184：把「连不上/没反应时该看哪里」从人工排查变成一次点击。
+    void setDiagnoseCallback(std::function<void()> cb) { onDiagnose_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
@@ -60,6 +63,7 @@ public:
     std::function<void()> onFilePanel_;
     std::function<void()> onClipboard_;
     std::function<void()> onInput_;
+    std::function<void()> onDiagnose_;
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;
