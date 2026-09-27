@@ -64,6 +64,14 @@ jobs:
           echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
+      # v1.7：协议层单元测试（**阻塞**）—— 黄金帧 / CRC 向量 / 重同步纪律 / 分片重组。
+      # 这些是跨端线上格式的契约，挂了就不该发版。
+      # 注意：开发机若是 Windows 且项目路径含中文，本任务会 ClassNotFoundException
+      # （Gradle test worker 在非 ASCII 路径下的老问题），以 CI 结果为准。
+      - name: Protocol unit tests
+        run: ./gradlew :app:testReleaseUnitTest --no-daemon --stacktrace 2>&1 | tail -50
+        shell: bash
+
       # v184：静态检查（**不阻塞**）。本轮人工审查抓到的"无锁共享状态、未清理监听、
       # 资源泄漏、越界写入"多数本可被 Android Lint 提前发现。首次运行会有一批历史告警，
       # 故意不拦构建 —— 先建立基线，后续逐步收紧。

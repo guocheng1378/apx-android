@@ -104,16 +104,28 @@ object ApxFrame {
 
     /**
      * 组 REQUEST_INPUT 帧（A→B）：请求对端设备输入。
-     * @param hint 输入框提示文字（如 "搜索"、"输入网址"）
-     * @param sourceId 发送方标识（本机 MAC 前 4 字节），用于防环
+     *
+     * ★ 线上布局必须是 `[0x25, hintLen(u8), hint(UTF-8)]` —— 另三处实现都是这个：
+     *   · PC 发送 `ctrl9511.cpp::Ctrl9511Client::sendRequestInput`
+     *   · PC 解析 `ctrl9511.cpp` 的 `Ctrl9511Server::dispatch`（`hintLen = p[1]`、文本从 `p+2`）
+     *   · 手机 / TV 解析 `onRequestInput`（`hintLen = body[1]`、文本从 `body[2]`）
+     *
+     * **v1.7 修正**：本函数此前在 cmd 后多塞了 4 字节 `sourceId`，与上述四处**都不兼容** ——
+     * 对端会把 `sourceId` 的最低字节当 hintLen、把后续字节当提示文字，表现为
+     * "输入面板弹出来了但提示是乱码"。此前无调用方，属**潜在陷阱**（第一个调用它的人就会踩），
+     * 故直接对齐线上布局。
+     *
+     * @param hint 输入框提示文字（如 "搜索"、"输入网址"），超 255 字节按 u8 上限截断
+     * @param sourceId 保留入参（防环设计预留）：当前**不上线** —— 没有任何解析方读取它，
+     *                 真要做防环需先改全部四处解析
      */
     fun packRequestInput(hint: String, sourceId: Int): ByteArray {
-        val hintBytes = hint.toByteArray(Charsets.UTF_8)
-        val body = ByteArray(1 + 4 + 1 + hintBytes.size)
+        val all = hint.toByteArray(Charsets.UTF_8)
+        val hintBytes = if (all.size > 255) all.copyOf(255) else all
+        val body = ByteArray(2 + hintBytes.size)
         body[0] = INPUT_REQUEST.toByte()
-        putU32(body, 1, sourceId)
-        body[5] = hintBytes.size.toByte()
-        hintBytes.copyInto(body, 6)
+        body[1] = hintBytes.size.toByte()   // hintLen：u8（与 PC 侧 `b[1] = bytes.size()` 一致）
+        hintBytes.copyInto(body, 2)
         return body
     }
 
