@@ -93,9 +93,9 @@ class TouchpadActivity : Activity() {
     private class Tab(val icon: ImageView, val label: TextView)
 
     private val pages = listOf(
-        Page("触控板", "手势操控 · 常用快捷键长按可编辑", R.drawable.ic_apx_touchpad),
-        Page("键盘", "8 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义", R.drawable.ic_apx_keyboard),
-        Page("副屏", "手机作副屏 / 链接 TV · PC", R.drawable.ic_apx_power),
+        Page(getString(R.string.ui_main_item_touchpad), getString(R.string.ui_touchpad_label_hotkey_edit_longpress), R.drawable.ic_apx_touchpad),
+        Page(getString(R.string.ui_touchpad_label_keyboard), getString(R.string.ui_touchpad_label_remote), R.drawable.ic_apx_keyboard),
+        Page(getString(R.string.notify_action_screen), getString(R.string.ui_touchpad_label_screen), R.drawable.ic_apx_power),
     )
 
     /** 键盘页的 7 套布局（对应 kbPager 的 7 个 child，数据见 ui/KeyLayouts） */
@@ -222,7 +222,7 @@ class TouchpadActivity : Activity() {
             typeface = Typeface.DEFAULT_BOLD
         }
         val st = TextView(this).apply {
-            text = if (hidReady) "0 帧" else "HID 未就绪"
+            text = if (hidReady) getString(R.string.ui_touchpad_text_no_frames) else getString(R.string.ui_touchpad_text_not)
             setTextColor(if (hidReady) cAccent else cDanger)
             textSize = 11f
             gravity = Gravity.CENTER
@@ -230,7 +230,7 @@ class TouchpadActivity : Activity() {
             setPadding(dp(10), dp(6), dp(10), dp(6))
         }
         val exit = TextView(this).apply {
-            text = "退出"
+            text = getString(R.string.ui_common_exit)
             setTextColor(cText2)
             textSize = 13f
             gravity = Gravity.CENTER
@@ -249,7 +249,7 @@ class TouchpadActivity : Activity() {
         chipsRow.addView(st)
         // 被控模式开关：让本机也能被另一台手机控制（无需单独装 TV APK）
         val ctl = TextView(this).apply {
-            text = "被控"
+            text = getString(R.string.ui_touchpad_text_controlled)
             setTextColor(cText2)
             textSize = 12f
             gravity = Gravity.CENTER
@@ -281,7 +281,7 @@ class TouchpadActivity : Activity() {
 
         // 遥控器入口：真机反馈"找不到遥控器的界面" —— 在操控面顶部也放一个，随手可达
         val remote = TextView(this).apply {
-            text = "遥控"
+            text = getString(R.string.ui_touchpad_text_remote)
             setTextColor(cAccent)
             textSize = 12f
             gravity = Gravity.CENTER
@@ -298,7 +298,7 @@ class TouchpadActivity : Activity() {
 
         // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
         val file = TextView(this).apply {
-            text = "文件"
+            text = getString(R.string.ui_touchpad_text_file)
             setTextColor(cText2)
             textSize = 12f
             gravity = Gravity.CENTER
@@ -315,7 +315,7 @@ class TouchpadActivity : Activity() {
             }
         }
         val clip = TextView(this).apply {
-            text = "剪贴板"
+            text = getString(R.string.ui_touchpad_text_clipboard)
             setTextColor(cText2)
             textSize = 12f
             gravity = Gravity.CENTER
@@ -361,7 +361,7 @@ class TouchpadActivity : Activity() {
             isFocusable = false
         }
         area.addView(TextView(this).apply {
-            text = "在此区域滑动控制光标"
+            text = getString(R.string.ui_touchpad_text_cursor_swipe)
             setTextColor(cText3)
             textSize = 13f
             gravity = Gravity.CENTER
@@ -376,11 +376,11 @@ class TouchpadActivity : Activity() {
             setPadding(dp(4), dp(14), dp(4), dp(8))
         }
         head.addView(TextView(this).apply {
-            text = "常用快捷键"; setTextColor(cText); textSize = 14f
+            text = getString(R.string.ui_touchpad_text_hotkey); setTextColor(cText); textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(0, -2, 1f))
         head.addView(TextView(this).apply {
-            text = "编辑"; setTextColor(cAccent); textSize = 12f
+            text = getString(R.string.ui_common_edit); setTextColor(cAccent); textSize = 12f
             isClickable = true
             isFocusable = true
             setPadding(dp(10), dp(4), dp(4), dp(4))
@@ -523,14 +523,14 @@ class TouchpadActivity : Activity() {
         }
         val rows = listOf(
             listOf(
-                Triple("上一曲", R.drawable.ic_apx_prev, HotkeyController.BIT_PREV_TRACK),
-                Triple("播放 / 暂停", R.drawable.ic_apx_play, HotkeyController.BIT_PLAY_PAUSE),
-                Triple("下一曲", R.drawable.ic_apx_next, HotkeyController.BIT_NEXT_TRACK),
+                Triple(getString(R.string.ui_touchpad_media_prev), R.drawable.ic_apx_prev, HotkeyController.BIT_PREV_TRACK),
+                Triple(getString(R.string.ui_touchpad_label_play_pause), R.drawable.ic_apx_play, HotkeyController.BIT_PLAY_PAUSE),
+                Triple(getString(R.string.ui_touchpad_media_next), R.drawable.ic_apx_next, HotkeyController.BIT_NEXT_TRACK),
             ),
             listOf(
-                Triple("音量 −", R.drawable.ic_apx_vol_down, HotkeyController.BIT_VOLUME_DOWN),
-                Triple("静音", R.drawable.ic_apx_mute, HotkeyController.BIT_MUTE),
-                Triple("音量 +", R.drawable.ic_apx_vol_up, HotkeyController.BIT_VOLUME_UP),
+                Triple(getString(R.string.ui_touchpad_label_volume), R.drawable.ic_apx_vol_down, HotkeyController.BIT_VOLUME_DOWN),
+                Triple(getString(R.string.ui_touchpad_media_mute), R.drawable.ic_apx_mute, HotkeyController.BIT_MUTE),
+                Triple(getString(R.string.ui_touchpad_label_volume_2), R.drawable.ic_apx_vol_up, HotkeyController.BIT_VOLUME_UP),
             ),
         )
         rows.forEach { defs ->
@@ -549,9 +549,9 @@ class TouchpadActivity : Activity() {
         val pr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun tileLp() = LinearLayout.LayoutParams(0, dp(110), 1f)
             .apply { setMargins(dp(6), dp(6), dp(6), dp(6)) }
-        pr.addView(mediaTile("电源", R.drawable.ic_apx_power, HotkeyController.BIT_POWER), tileLp())
-        pr.addView(actionTile("关机", 0xFFD23F31.toInt()) { confirmPower(0, "关机") }, tileLp())
-        pr.addView(actionTile("重启", 0xFFF0A020.toInt()) { confirmPower(1, "重启") }, tileLp())
+        pr.addView(mediaTile(getString(R.string.ui_touchpad_label_power), R.drawable.ic_apx_power, HotkeyController.BIT_POWER), tileLp())
+        pr.addView(actionTile(getString(R.string.ui_touchpad_label_poweroff), 0xFFD23F31.toInt()) { confirmPower(0, getString(R.string.ui_touchpad_label_poweroff)) }, tileLp())
+        pr.addView(actionTile(getString(R.string.ui_touchpad_label_reboot), 0xFFF0A020.toInt()) { confirmPower(1, getString(R.string.ui_touchpad_label_reboot)) }, tileLp())
         col.addView(pr, LinearLayout.LayoutParams(-1, -2))
         return col
     }
@@ -573,17 +573,17 @@ class TouchpadActivity : Activity() {
     private fun confirmPower(action: Int, label: String) {
         val c = com.allperiph.wireless.ControlTarget.controlClient
         if (c == null) {
-            Toast.makeText(this, "尚未连接受控设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("$label 被控设备？")
-            .setMessage("将直接$label 对端（需要被控端有 root；没有 root 只会退回待机）。")
+            .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
+            .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
                 c.power(action)
-                Toast.makeText(this, "已发送$label 指令", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ui_touchpad_toast_send_done, label), Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -594,9 +594,9 @@ class TouchpadActivity : Activity() {
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("注入通道自检")
+            .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
             .setMessage("当前：${inj.channelText()}\n\n$lines")
-            .setPositiveButton("关闭", null)
+            .setPositiveButton(getString(R.string.ui_common_close), null)
             .show()
     }
 
@@ -746,7 +746,7 @@ class TouchpadActivity : Activity() {
         val rows = com.allperiph.ui.KeyPref.customRows(this)
         if (rows.isNullOrEmpty()) {
             return TextView(this).apply {
-                text = "长按「自定义」页签编辑布局"
+                text = getString(R.string.ui_touchpad_text_edit_longpress)
                 gravity = Gravity.CENTER
                 setTextColor(cText2)
                 textSize = 14f
@@ -881,7 +881,7 @@ class TouchpadActivity : Activity() {
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
         card.addView(TextView(this).apply {
-            text = "副屏（显示）"
+            text = getString(R.string.ui_touchpad_text_screen)
             setTextColor(cText); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
         })
         val status = TextView(this).apply {
@@ -892,14 +892,14 @@ class TouchpadActivity : Activity() {
         displayStatusView = status
         card.addView(status)
         card.addView(TextView(this).apply {
-            text = "手机作为 PC 副屏：PC 端推流到 9502，本机在「副屏」全屏接收显示。"
+            text = getString(R.string.ui_touchpad_text_screen_recv_fullscreen_local)
             setTextColor(cText2); textSize = 12f
         })
         col.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
 
         // 链接设备
         col.addView(TextView(this).apply {
-            text = "链接设备"
+            text = getString(R.string.ui_touchpad_text_device)
             setTextColor(cAccent); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
             letterSpacing = 0.06f
             setPadding(dp(4), 0, 0, dp(8))
@@ -910,7 +910,7 @@ class TouchpadActivity : Activity() {
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
         val tvBtn = Button(this).apply {
-            text = "链接 TV / PC…"
+            text = getString(R.string.ui_main_item_link)
             setBackgroundResource(R.drawable.bg_btn_primary)
             setTextColor(getColor(R.color.md_on_primary))
             textSize = 15f; typeface = Typeface.DEFAULT_BOLD
@@ -919,7 +919,7 @@ class TouchpadActivity : Activity() {
         }
         linkCard.addView(tvBtn)
         val pcBtn = Button(this).apply {
-            text = "加入副屏"
+            text = getString(R.string.ui_main_item_screen)
             setBackgroundResource(R.drawable.bg_btn_ghost)
             setTextColor(cAccent)
             textSize = 15f
@@ -979,7 +979,7 @@ class TouchpadActivity : Activity() {
             val now = System.currentTimeMillis()
             if (now - lastShown > 250) { // 4Hz 刷新，避免 UI 抖动
                 lastShown = now
-                if (hidReady) statusView?.text = "已上行 $frameCount 帧"
+                if (hidReady) statusView?.text = getString(R.string.ui_touchpad_text_done, frameCount)
             }
         }
         return true
@@ -1015,10 +1015,10 @@ class TouchpadActivity : Activity() {
     override fun onBackPressed() {
         if (backDialog?.isShowing == true) return
         backDialog = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("退出操控面？")
-            .setMessage("外设服务继续运行，随时可以从主页再进来。")
-            .setPositiveButton("退出") { _, _ -> finish() }
-            .setNegativeButton("取消", null)
+            .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
+            .setMessage(getString(R.string.ui_touchpad_dialog_home))
+            .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()
             .also { it.show() }
     }
@@ -1030,7 +1030,7 @@ class TouchpadActivity : Activity() {
         val ready = ControlTarget.isControlling()
         // 出口一并显示：点不动时先看这里到底"发去哪了"。注意本页不订阅事件（无 disposables），
         // 所以这里展示的是**刷新那一刻**的出口；实时显示在主界面顶栏徽章与触控板提示行。
-        c.text = (if (ready) "受控设备 · ${ControlTarget.label}" else ControlTarget.label) +
+        c.text = (if (ready) "被控设备 · ${ControlTarget.label}" else ControlTarget.label) +
             " · ${com.allperiph.core.Uplink.hint()}"
         c.setTextColor(if (ready) cAccent else cText2)
         fileBtn?.visibility = if (ready) View.VISIBLE else View.GONE
@@ -1042,7 +1042,7 @@ class TouchpadActivity : Activity() {
     private fun updateControlledChip() {
         val c = controlledChip ?: return
         val on = ControlledService.isRunning()
-        c.text = if (on) "被控 ✓" else "被控"
+        c.text = if (on) getString(R.string.ui_touchpad_text_controlled_ok) else getString(R.string.ui_touchpad_text_controlled)
         c.setTextColor(if (on) cAccent else cText2)
     }
 
@@ -1051,7 +1051,7 @@ class TouchpadActivity : Activity() {
         if (ControlledService.isRunning()) {
             ControlledService.stop(this)
             updateControlledChip()
-            Toast.makeText(this, "已关闭被控模式", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_touchpad_toast_close_done), Toast.LENGTH_SHORT).show()
             return
         }
         ControlledService.start(this)
@@ -1081,19 +1081,19 @@ class TouchpadActivity : Activity() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
         val preview = if (text.length > 24) text.take(24) + "…" else text
-        Toast.makeText(this, "收到对方剪贴板：$preview", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(R.string.ui_touchpad_toast_clipboard, preview), Toast.LENGTH_LONG).show()
     }
 
     /** 设备选择弹窗：本机/PC（默认）+ 已发现 TV + 手动输入 IP */
     private fun showDevicePicker() {
         TvDiscovery.start()
         val items = ArrayList<CharSequence>()
-        items.add("本机 / PC（默认）")
+        items.add(getString(R.string.ui_main_item_local))
         val tvs = TvDiscovery.list()
         tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
-        items.add("手动输入 TV IP…")
+        items.add(getString(R.string.ui_main_item_input_manual))
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("选择控制设备")
+            .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setItems(items.toTypedArray()) { _, which ->
                 when {
                     which == 0 -> {
@@ -1107,24 +1107,24 @@ class TouchpadActivity : Activity() {
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
     private fun promptTvIp() {
         val edit = EditText(this).apply {
-            hint = "TV IP，如 192.168.1.20"
+            hint = getString(R.string.ui_touchpad_hint_manual_ip)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("输入 TV IP")
+            .setTitle(getString(R.string.ui_touchpad_dialog_input))
             .setView(edit)
-            .setPositiveButton("连接") { _, _ ->
+            .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->
                 val ip = edit.text.toString().trim()
                 if (ip.isNotEmpty()) connectTv(ip, TvControllerClient.PORT, ip, "tv")
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1144,12 +1144,12 @@ class TouchpadActivity : Activity() {
                     // 仅 TV 目标进 TV 专属快捷键布局；PC 退出 TV 模式（保持鼠标 + 完整键鼠）
                     if (type == "tv") hotkeyBoard.enterTvMode() else hotkeyBoard.exitTvMode()
                     updateDeviceChip()
-                    Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.ui_main_toast_done, name), Toast.LENGTH_SHORT).show()
                 } else {
                     ControlTarget.clear()
                     hotkeyBoard.exitTvMode()
                     updateDeviceChip()
-                    Toast.makeText(this, "连不上 $ip", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.ui_touchpad_toast_connect_failed, ip), Toast.LENGTH_SHORT).show()
                 }
             }
         }, "tv-connect").start()
@@ -1159,17 +1159,17 @@ class TouchpadActivity : Activity() {
     private fun sendFile(uri: Uri) {
         val host = ControlTarget.host
         if (host.isEmpty() || !ControlTarget.isControlling()) {
-            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_main_toast_device_not), Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, "正在发送文件…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.ui_main_toast_file_send), Toast.LENGTH_SHORT).show()
         Thread({
             val ok = TvFileSender.send(this, host, uri) { p ->
                 runOnUiThread { statusView?.text = "发送 $p%" }
             }
             runOnUiThread {
-                Toast.makeText(this, if (ok) "文件已发送" else "发送失败", Toast.LENGTH_SHORT).show()
-                statusView?.text = if (hidReady) "0 帧" else "HID 未就绪"
+                Toast.makeText(this, if (ok) getString(R.string.ui_main_text_file_send_done) else getString(R.string.ui_touchpad_text_send_failed), Toast.LENGTH_SHORT).show()
+                statusView?.text = if (hidReady) getString(R.string.ui_touchpad_text_no_frames) else getString(R.string.ui_touchpad_text_not)
             }
         }, "tv-file").start()
     }
@@ -1178,17 +1178,17 @@ class TouchpadActivity : Activity() {
     private fun sendClipboard() {
         val c = ControlTarget.controlClient
         if (c == null || !ControlTarget.isControlling()) {
-            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_main_toast_device_not), Toast.LENGTH_SHORT).show()
             return
         }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val text = cm?.primaryClip?.getItemAt(0)?.text?.toString()
         if (text.isNullOrEmpty()) {
-            Toast.makeText(this, "剪贴板为空", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_touchpad_toast_clipboard_empty), Toast.LENGTH_SHORT).show()
             return
         }
         val ok = c.sendClipboard(text)
-        Toast.makeText(this, if (ok) "已发送剪贴板" else "发送失败", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (ok) getString(R.string.ui_touchpad_text_clipboard_send_done) else getString(R.string.ui_touchpad_text_send_failed), Toast.LENGTH_SHORT).show()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

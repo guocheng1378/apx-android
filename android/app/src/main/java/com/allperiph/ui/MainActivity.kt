@@ -1,4 +1,4 @@
-﻿package com.allperiph.ui
+package com.allperiph.ui
 
 import android.Manifest
 import android.animation.ValueAnimator
@@ -299,13 +299,13 @@ class MainActivity : Activity() {
         if (backDialog?.isShowing == true) return
         val running = AgentForegroundService.running || AgentController.running
         backDialog = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("退出全能外设？")
+            .setTitle(getString(R.string.ui_main_dialog_exit))
             .setMessage(
-                if (running) "外设服务仍在后台运行，退出界面不会停止它（可在通知栏停止）。"
-                else "确定退出应用？"
+                if (running) getString(R.string.ui_main_text_exit)
+                else getString(R.string.ui_main_text_exit_2)
             )
-            .setPositiveButton("退出") { _, _ -> finish() }
-            .setNegativeButton("取消", null)
+            .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()
             .also { it.show() }
     }
@@ -845,7 +845,7 @@ class MainActivity : Activity() {
                     ControlTarget.type = type
                     c.onReverseClipboard = { text -> runOnUiThread { recvReverseClipboard(text) } }
                     onTargetChanged()
-                    Toast.makeText(this, "已连 $name", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.ui_main_toast_done, name), Toast.LENGTH_SHORT).show()
                 } else {
                     ControlTarget.clear()
                     onTargetChanged()
@@ -870,17 +870,17 @@ class MainActivity : Activity() {
         )
         fun rebuild() {
             items.clear()
-            items.add("本机 / PC（默认）")
+            items.add(getString(R.string.ui_main_item_local))
             TvDiscovery.list().forEach {
                 items.add("${it.name}  ${it.ip}  ${it.typeLabel}")
             }
-            if (items.size == 1) items.add("（正在搜索设备…）")
-            items.add("手动输入 TV IP…")
+            if (items.size == 1) items.add(getString(R.string.ui_main_item_device))
+            items.add(getString(R.string.ui_main_item_input_manual))
             adapter.notifyDataSetChanged()
         }
         rebuild()
         val dlg = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("选择控制设备")
+            .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setAdapter(adapter) { _, which ->
                 val tvs = TvDiscovery.list()
                 when {
@@ -893,7 +893,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()
         val tick = object : Runnable {
             override fun run() {
@@ -917,41 +917,41 @@ class MainActivity : Activity() {
 
     private fun promptTargetIp() {
         val edit = EditText(this).apply {
-            hint = "TV / PC IP，如 192.168.1.20"
+            hint = getString(R.string.ui_main_hint_manual_ip)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("输入 TV / PC IP")
+            .setTitle(getString(R.string.ui_main_dialog_input))
             .setView(edit)
-            .setPositiveButton("连接") { _, _ ->
+            .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->
                 val ip = edit.text.toString().trim()
                 if (ip.isNotEmpty()) connectTarget(ip, TvControllerClient.PORT, ip, "tv")
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
     /** 长按底栏「触控板」：选控制目标 / 副屏 / 断开 */
     private fun showTargetMenu() {
         val items = ArrayList<CharSequence>()
-        items.add("链接 TV / PC…")
-        items.add("加入副屏")
+        items.add(getString(R.string.ui_main_item_link))
+        items.add(getString(R.string.ui_main_item_screen))
         // 全屏操控面（触控板 / 键盘 / 副屏三页）的**第二个入口**：
         // 主页面本身够用，但全屏操控面原先只能从"被控通知"进，这里补上随手可达的一处。
-        items.add("全屏操控面")
-        if (ControlTarget.isControlling()) items.add("断开，回本机")
+        items.add(getString(R.string.ui_main_item_fullscreen_console))
+        if (ControlTarget.isControlling()) items.add(getString(R.string.ui_main_item_disconnect_to_local_local))
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("触控板控制目标")
+            .setTitle(getString(R.string.ui_main_dialog_touchpad))
             .setItems(items.toTypedArray()) { _, which ->
                 when (which) {
                     0 -> showDevicePicker()
                     1 -> startActivity(Intent(this, ScreenActivity::class.java))
                     2 -> startActivity(Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java))
-                    3 -> { ControlTarget.clear(); onTargetChanged(); Toast.makeText(this, "已回本机", Toast.LENGTH_SHORT).show() }
+                    3 -> { ControlTarget.clear(); onTargetChanged(); Toast.makeText(this, getString(R.string.ui_main_toast_done_to_local_local), Toast.LENGTH_SHORT).show() }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1041,24 +1041,24 @@ class MainActivity : Activity() {
     private fun renderTv() {
         tvBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
-        tvBox.addView(settingRow("连接 / 切换设备", "去选择", accent) { showDevicePicker() })
+        tvBox.addView(settingRow(getString(R.string.ui_main_label_device_connect), getString(R.string.ui_main_btn_pick), accent) { showDevicePicker() })
         if (ControlTarget.isControlling()) {
-            tvBox.addView(settingRow("断开连接", "回本机", accent) { ControlTarget.clear(); onTargetChanged() })
+            tvBox.addView(settingRow(getString(R.string.ui_main_label_connect_disconnect), getString(R.string.ui_main_btn_to_local_local), accent) { ControlTarget.clear(); onTargetChanged() })
         }
         // ★ 遥控器：设置页也有入口（除了触控板页的「遥控器」按钮）
-        tvBox.addView(settingRow("遥控器（方向 / OK / 音量 / 电源）", "打开", accent) {
+        tvBox.addView(settingRow(getString(R.string.ui_main_label_remote_power_volume), getString(R.string.ui_common_open), accent) {
             startActivity(Intent(this, RemoteActivity::class.java))
         })
         // ★ 全屏操控面（触控板 / 键盘 / 副屏三页）原先**只能靠"被控通知"打开**，
         //   而通知要先开被控才出现 —— 鸡生蛋：用户进不去，也就无法在里面关掉被控。
-        tvBox.addView(settingRow("全屏操控面（触控板 / 键盘 / 副屏）", "打开", accent) {
+        tvBox.addView(settingRow(getString(R.string.ui_main_label_screen_touchpad_keyboard_fullscreen), getString(R.string.ui_common_open), accent) {
             startActivity(Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java))
         })
         // ★ 被控状态 / 注入通道自检：手机端原先**只有通知栏一行字**，页面上看不到缺哪一项
         //   （TV 端首页早有"注入通道"状态行 + 自检对话框，两端不对等）。
-        tvBox.addView(settingRow("被控状态与注入通道", "自检", accent) { showControlledCaps() })
+        tvBox.addView(settingRow(getString(R.string.ui_main_label_state_channel_inject), getString(R.string.ui_main_btn_selftest), accent) { showControlledCaps() })
         // ★ 运行日志：Log 的 512 条环形缓冲一直写着"供 UI 展示"，却**没有任何消费者**
-        tvBox.addView(settingRow("查看运行日志", "打开", accent) { showLogs() })
+        tvBox.addView(settingRow(getString(R.string.ui_main_label_log_view), getString(R.string.ui_common_open), accent) { showLogs() })
         tvStatusView = TextView(this).apply {
             // 出口一并写在设置页：遥控不灵时先在两处看"输入到底发去哪了"（触控板页顶栏徽章 + 这里）
             text = if (ControlTarget.isControlling()) {
@@ -1081,16 +1081,16 @@ class MainActivity : Activity() {
         }
         val running = com.allperiph.controlled.ControlledService.isRunning()
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("被控状态与注入通道")
+            .setTitle(getString(R.string.ui_main_label_state_channel_inject))
             .setMessage(
                 "当前通道：${inj.channelText()}\n" +
                         "被控服务：${if (running) "运行中" else "未运行（在「全屏操控面」里点「被控」开启）"}\n\n" +
                         lines
             )
-            .setPositiveButton("无障碍设置") { _, _ ->
+            .setPositiveButton(getString(R.string.ui_main_btn_a11y_settings)) { _, _ ->
                 runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
             }
-            .setNegativeButton("关闭", null)
+            .setNegativeButton(getString(R.string.ui_common_close), null)
             .show()
     }
 
@@ -1098,14 +1098,14 @@ class MainActivity : Activity() {
     private fun showLogs() {
         val snap = com.allperiph.core.Log.snapshot()
         val text = if (snap.isEmpty()) {
-            "暂无日志（只有 minLevel 之上的条目才会进缓冲）"
+            "暂无日志 —— 只有达到「日志级别」的记录才会留下"
         } else {
             snap.takeLast(120).joinToString("\n") { e -> "${e.level} ${e.tag}: ${e.msg}" }
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle("运行日志（最近 ${minOf(snap.size, 120)} 条）")
             .setMessage(text)
-            .setPositiveButton("关闭", null)
+            .setPositiveButton(getString(R.string.ui_common_close), null)
             .show()
     }
 
@@ -1113,12 +1113,12 @@ class MainActivity : Activity() {
     private fun renderFile() {
         fileBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
-        fileBox.addView(settingRow("发送文件到对端", "选文件", accent) { pickFileToSend() })
-        fileBox.addView(settingRow("收到的文件 / 文件面板", "查看并转发", accent) {
+        fileBox.addView(settingRow(getString(R.string.ui_main_label_file_send), getString(R.string.ui_main_btn_file), accent) { pickFileToSend() })
+        fileBox.addView(settingRow(getString(R.string.ui_main_label_file_panel), getString(R.string.ui_main_btn_forward_view), accent) {
             startActivity(Intent(this, FilePanelActivity::class.java))
         })
         fileBox.addView(TextView(this).apply {
-            text = "经 9512 收发；发文件需先在「连接」里选 TV / PC，收到的文件在「收到的文件」里看"
+            text = getString(R.string.ui_main_text_file_connect_first)
             textSize = 12f
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
             setPadding(dp(4), dp(8), dp(4), dp(2))
@@ -1127,7 +1127,7 @@ class MainActivity : Activity() {
 
     private fun pickFileToSend() {
         if (ControlTarget.host.isEmpty() || !ControlTarget.isControlling()) {
-            Toast.makeText(this, "未选受控设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_main_toast_device_not), Toast.LENGTH_SHORT).show()
             return
         }
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -1139,13 +1139,13 @@ class MainActivity : Activity() {
 
     private fun sendFile(uri: Uri) {
         val host = ControlTarget.host
-        Toast.makeText(this, "正在发送文件…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.ui_main_toast_file_send), Toast.LENGTH_SHORT).show()
         Thread({
             val ok = TvFileSender.send(this, host, uri)
             runOnUiThread {
                 Toast.makeText(
                     this,
-                    if (ok) "文件已发送" else "发送失败 —— 确认两台设备都还连着，再试一次",
+                    if (ok) getString(R.string.ui_main_text_file_send_done) else getString(R.string.ui_main_text_device_send_failed_confirm),
                     if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
                 ).show()
             }
@@ -1216,7 +1216,7 @@ class MainActivity : Activity() {
     private fun toggleTemplates() {
         val show = templatesBox.visibility != View.VISIBLE
         templatesBox.visibility = if (show) View.VISIBLE else View.GONE
-        btnToggleTemplates.text = if (show) "收起" else "更换 / 展开"
+        btnToggleTemplates.text = if (show) getString(R.string.ui_main_template_collapse) else getString(R.string.ui_main_template_expand)
     }
 
     private fun renderTemplates() {
@@ -1272,7 +1272,7 @@ class MainActivity : Activity() {
             // 自建模板多一个删除入口（预置模板不给删）
             if (custom) {
                 row.addView(TextView(this).apply {
-                    text = "删"
+                    text = getString(R.string.ui_main_text_delete)
                     textSize = 12f
                     gravity = Gravity.CENTER
                     setPadding(dp(12), dp(6), dp(6), dp(6))
@@ -1287,7 +1287,7 @@ class MainActivity : Activity() {
 
         // 底部入口：把当前快捷键条存成自己的模板
         templatesBox.addView(TextView(this).apply {
-            text = "＋ 把当前快捷键条存为模板…"
+            text = getString(R.string.ui_main_text_hotkey_template)
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(resources.getColor(R.color.md_primary))
@@ -1315,16 +1315,16 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(6), dp(20), dp(6))
         }
-        box.addView(fieldLabel("模板名称"))
+        box.addView(fieldLabel(getString(R.string.ui_main_label_template)))
         val nameEt = EditText(this).apply {
-            hint = "例如：直播快捷键"
+            hint = getString(R.string.ui_main_hint_hotkey)
             textSize = 15f
             setSingleLine()
             setTextColor(resources.getColor(R.color.md_on_surface))
         }
         box.addView(nameEt, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
-        box.addView(fieldLabel("主题色"), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
+        box.addView(fieldLabel(getString(R.string.ui_main_label_theme)), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
         var pickedIndex = 0
         val dots = mutableListOf<TextView>()
         val colorRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1348,17 +1348,17 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("新建模板")
+            .setTitle(getString(R.string.ui_main_dialog_template_new))
             .setView(box)
-            .setPositiveButton("保存", null)
-            .setNegativeButton("取消", null)
+            .setPositiveButton(getString(R.string.ui_common_save), null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()
             .apply {
                 setOnShowListener {
                     getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val t = HotkeyTemplates.Template(
                             key = customPrefix + System.currentTimeMillis(),
-                            name = nameEt.text.toString().trim().ifEmpty { "我的模板" },
+                            name = nameEt.text.toString().trim().ifEmpty { getString(R.string.ui_main_text_template) },
                             desc = "${hotkeyBoard.shortcuts.size} 项 · 自建",
                             color = templatePalette[pickedIndex],
                             combos = hotkeyBoard.shortcuts.toList(),
@@ -1383,15 +1383,15 @@ class MainActivity : Activity() {
     /** 删除自建模板（快捷键条内容不受影响） */
     private fun confirmDeleteTemplate(t: HotkeyTemplates.Template) {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("删除模板")
+            .setTitle(getString(R.string.ui_main_dialog_template_delete))
             .setMessage("删除「${t.name}」？快捷键条上的内容不受影响。")
-            .setPositiveButton("删除") { _, _ ->
+            .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
                 customTemplates.removeAll { it.key == t.key }
                 HotkeyStore.saveCustom(this, customTemplates)
                 if (HotkeyStore.loadTemplate(this) == t.key) HotkeyStore.markCustom(this)
                 renderTemplates()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1508,12 +1508,12 @@ class MainActivity : Activity() {
                     rowsWifi.addView(sub)
                     return sub
                 }
-                subRow("　· 音箱（PC 声音 → 手机扬声器）",
+                subRow(getString(R.string.ui_main_label_speaker),
                     com.allperiph.audio.WirelessAudioModule.isSpeakerOn(this)) { on ->
                     (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
                         as? com.allperiph.audio.WirelessAudioModule)?.applySpeaker(ctx, on)
                 }
-                subRow("　· 麦克风（手机麦克风 → PC）",
+                subRow(getString(R.string.ui_main_label_mic),
                     com.allperiph.audio.WirelessAudioModule.isMicOn(this)) { on ->
                     (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
                         as? com.allperiph.audio.WirelessAudioModule)?.applyMic(ctx, on)
@@ -1610,43 +1610,43 @@ class MainActivity : Activity() {
         val bg = ThemeSkin.BG_PRESETS.firstOrNull { it.id == ThemeSkin.bgId(this) } ?: ThemeSkin.BG_PRESETS[0]
         val img = ThemeSkin.bgImage(this)
         fxBox.addView(
-            settingRow("背景", if (!img.isNullOrBlank()) "自定义图片" else bg.name, accent) { pickBg() }
+            settingRow(getString(R.string.ui_main_label_background), if (!img.isNullOrBlank()) getString(R.string.ui_main_text_image) else bg.name, accent) { pickBg() }
         )
         fxBox.addView(
-            settingRow("动效", ThemeSkin.MOTION_LABELS[ThemeSkin.motionIndex(this)], accent) {
-                pickChoice("动效快慢", ThemeSkin.MOTION_LABELS, ThemeSkin.motionIndex(this)) { i ->
+            settingRow(getString(R.string.ui_main_label_motion), ThemeSkin.MOTION_LABELS[ThemeSkin.motionIndex(this)], accent) {
+                pickChoice(getString(R.string.ui_main_label_motion_2), ThemeSkin.MOTION_LABELS, ThemeSkin.motionIndex(this)) { i ->
                     ThemeSkin.setMotion(this, i)
                     renderFx()
                 }
             }
         )
         fxBox.addView(
-            settingRow("震动", ThemeSkin.HAPTIC_LABELS[ThemeSkin.hapticIndex(this)], accent) {
-                pickChoice("震动强度", ThemeSkin.HAPTIC_LABELS, ThemeSkin.hapticIndex(this)) { i ->
+            settingRow(getString(R.string.ui_main_label_haptic), ThemeSkin.HAPTIC_LABELS[ThemeSkin.hapticIndex(this)], accent) {
+                pickChoice(getString(R.string.ui_main_label_haptic_2), ThemeSkin.HAPTIC_LABELS, ThemeSkin.hapticIndex(this)) { i ->
                     ThemeSkin.setHaptic(this, i)
                     renderFx()
                 }
             }
         )
         fxBox.addView(
-            settingRow("音效", ThemeSkin.SOUND_LABELS[ThemeSkin.soundIndex(this)], accent) {
-                pickChoice("按键音效", ThemeSkin.SOUND_LABELS, ThemeSkin.soundIndex(this)) { i ->
+            settingRow(getString(R.string.ui_main_label_sound), ThemeSkin.SOUND_LABELS[ThemeSkin.soundIndex(this)], accent) {
+                pickChoice(getString(R.string.ui_main_label_sound_2), ThemeSkin.SOUND_LABELS, ThemeSkin.soundIndex(this)) { i ->
                     ThemeSkin.setSound(this, i)
                     renderFx()
                 }
             }
         )
         fxBox.addView(
-            settingRow("键位排列", KeyPref.LAYOUT_LABELS[KeyPref.layoutIndex(this)], accent) {
-                pickChoice("键位排列", KeyPref.LAYOUT_LABELS, KeyPref.layoutIndex(this)) { i ->
+            settingRow(getString(R.string.ui_main_label_keyrow_arrange), KeyPref.LAYOUT_LABELS[KeyPref.layoutIndex(this)], accent) {
+                pickChoice(getString(R.string.ui_main_label_keyrow_arrange), KeyPref.LAYOUT_LABELS, KeyPref.layoutIndex(this)) { i ->
                     KeyPref.setLayout(this, i)
                     recreate()
                 }
             }
         )
         fxBox.addView(
-            settingRow("键帽密度", KeyPref.DENSITY_LABELS[KeyPref.densityIndex(this)], accent) {
-                pickChoice("键帽密度", KeyPref.DENSITY_LABELS, KeyPref.densityIndex(this)) { i ->
+            settingRow(getString(R.string.ui_main_label_keycap_density), KeyPref.DENSITY_LABELS[KeyPref.densityIndex(this)], accent) {
+                pickChoice(getString(R.string.ui_main_label_keycap_density), KeyPref.DENSITY_LABELS, KeyPref.densityIndex(this)) { i ->
                     KeyPref.setDensity(this, i)
                     recreate()
                 }
@@ -1669,7 +1669,7 @@ class MainActivity : Activity() {
                 onPick(i)
                 d.dismiss()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1678,7 +1678,7 @@ class MainActivity : Activity() {
         val labels = ThemeSkin.BG_PRESETS.map { it.name } + listOf("从相册选图片…", "清除自定义图片")
         val current = ThemeSkin.BG_PRESETS.indexOfFirst { it.id == ThemeSkin.bgId(this) }.coerceAtLeast(0)
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("背景")
+            .setTitle(getString(R.string.ui_main_label_background))
             .setSingleChoiceItems(labels.toTypedArray(), current) { d, i ->
                 d.dismiss()
                 when {
@@ -1696,7 +1696,7 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1709,7 +1709,7 @@ class MainActivity : Activity() {
             addFlags(android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
         }
         runCatching { startActivityForResult(intent, REQ_PICK_BG) }
-            .onFailure { toast("没有可用的图库") }
+            .onFailure { toast(getString(R.string.ui_main_toast_no_gallery)) }
     }
 
     /** 把当前背景铺到页面根视图（图片 > 预设色 > 资源底色） */
@@ -1723,12 +1723,12 @@ class MainActivity : Activity() {
     private fun pickSkin(scope: String, title: String) {
         val skins = listOf(ThemeSkin.followTheme(this)) + ThemeSkin.PRESETS + ThemeSkin.customs(this)
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("$title 配色")
+            .setTitle(getString(R.string.ui_main_dialog_color, title))
             .setItems(skins.map { it.name }.toTypedArray()) { _, i ->
                 ThemeSkin.set(this, scope, skins[i].id.ifBlank { null })
                 recreate() // 触控板光标 / 键盘键帽 / 快捷键芯片一次性换掉
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 
@@ -1740,7 +1740,7 @@ class MainActivity : Activity() {
             putExtra(android.content.Intent.EXTRA_TITLE, "allperiph-theme.json")
         }
         runCatching { startActivityForResult(intent, REQ_EXPORT_THEME) }
-            .onFailure { toast("没有可用的文件管理器") }
+            .onFailure { toast(getString(R.string.ui_main_toast_file_no)) }
     }
 
     /** 导入主题文件 */
@@ -1750,18 +1750,18 @@ class MainActivity : Activity() {
             type = "*/*"
         }
         runCatching { startActivityForResult(intent, REQ_IMPORT_THEME) }
-            .onFailure { toast("没有可用的文件管理器") }
+            .onFailure { toast(getString(R.string.ui_main_toast_file_no)) }
     }
 
     /** 分享主题文本：可直接发给别人 / 传进聊天工具（不需要文件） */
     private fun shareTheme() {
         val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(android.content.Intent.EXTRA_SUBJECT, "全能外设主题")
+            putExtra(android.content.Intent.EXTRA_SUBJECT, getString(R.string.ui_main_text_theme))
             putExtra(android.content.Intent.EXTRA_TEXT, ThemeSkin.exportJson(this@MainActivity))
         }
-        runCatching { startActivity(android.content.Intent.createChooser(intent, "分享主题")) }
-            .onFailure { toast("没有可分享的应用") }
+        runCatching { startActivity(android.content.Intent.createChooser(intent, getString(R.string.ui_main_dialog_theme_share))) }
+            .onFailure { toast(getString(R.string.ui_main_toast_share_no)) }
     }
 
     @Deprecated("Deprecated in Java")
@@ -1777,7 +1777,7 @@ class MainActivity : Activity() {
                     }
                     true
                 }.getOrDefault(false)
-                toast(if (ok) "主题已导出" else "导出失败 —— 换个位置存，或检查存储空间后重试")
+                toast(if (ok) getString(R.string.ui_main_text_theme_export_done) else getString(R.string.ui_main_text_export_failed_empty))
             }
             REQ_IMPORT_THEME -> {
                 val text = runCatching {
@@ -1785,9 +1785,9 @@ class MainActivity : Activity() {
                 }.getOrNull()
                 val n = ThemeSkin.importJson(this, text.orEmpty())
                 if (n < 0) {
-                    toast("这个文件不是主题文件 —— 选之前「导出」生成的那个")
+                    toast(getString(R.string.ui_main_toast_theme_file_export))
                 } else {
-                    toast(if (n > 0) "已导入 $n 套配色" else "主题已应用")
+                    toast(if (n > 0) getString(R.string.ui_main_text_color_import_done, n) else getString(R.string.ui_main_text_theme_done))
                     recreate()
                 }
             }
@@ -1801,7 +1801,7 @@ class MainActivity : Activity() {
                 ThemeSkin.setBgImage(this, uri.toString())
                 applyBackdrop()
                 renderFx()
-                toast("背景已设置")
+                toast(getString(R.string.ui_main_toast_background_done_settings))
             }
             REQ_PICK_FILE -> sendFile(uri)
         }
@@ -1816,7 +1816,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(R.string.hint_root_dialog_title)
             .setMessage(R.string.hint_root_dialog_body)
-            .setPositiveButton("知道了", null)
+            .setPositiveButton(getString(R.string.ui_common_got_it), null)
             .show()
     }
 
@@ -1988,9 +1988,9 @@ class MainActivity : Activity() {
         tvDiag.text = buildString {
             append(if (env.rooted) "Root ✓" else "Root ✗")
             append(" · ").append(if (env.superSpeed) "USB 3.0 ✓" else "USB 2.0")
-            append(" · ").append(if (env.batteryOptimized) "电池未加白 ✗" else "电池已加白 ✓")
+            append(" · ").append(if (env.batteryOptimized) getString(R.string.ui_main_text_not) else getString(R.string.ui_main_text_done_2))
             if (!env.notificationGranted) append(" · 通知未授权 ✗")
-            append("\n详细链路与延迟预算见「状态」页")
+            append("\n详细的连接状态见「状态」页")
         }
         tvDiag.setTextColor(
             resources.getColor(
@@ -2096,7 +2096,7 @@ class MainActivity : Activity() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
         val preview = if (text.length > 24) text.take(24) + "…" else text
-        Toast.makeText(this, "已同步剪贴板：$preview", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.ui_main_toast_clipboard_done, preview), Toast.LENGTH_SHORT).show()
     }
 
     // ————————————————————————— 样式工具 —————————————————————————
