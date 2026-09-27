@@ -389,13 +389,17 @@ object TvInjector {
     fun clipboard(text: String) {
         val c = ctx ?: return
         val cm = c.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
+        // Android 10+：无焦点的 App setPrimaryClip 会被静默丢弃，这里记下结果用于诊断
+        runCatching { cm?.setPrimaryClip(ClipData.newPlainText("APX", text)) }
+            .onSuccess { android.util.Log.i("TvInjector", "远程剪贴板：setPrimaryClip 已调用（后台 App 可能被系统丢弃，看 IME 通道）") }
+            .onFailure { android.util.Log.e("TvInjector", "远程剪贴板：setPrimaryClip 异常 ${it.message}") }
         // ① 输入法通道：**中文**只有这条最稳（root 的 input text 只支持 ASCII，
         //    无障碍 ACTION_SET_TEXT 在不少盒子 / 电视 ROM 上会被拒）
-        if (ApxImeService.commit(text)) return
-        if (systemReady() && ApxAccessibilityService.instance?.typeText(text) == true) return
+        if (ApxImeService.commit(text)) { android.util.Log.i("TvInjector", "远程剪贴板：走 IME 上屏成功"); return }
+        if (systemReady() && ApxAccessibilityService.instance?.typeText(text) == true) { android.util.Log.i("TvInjector", "远程剪贴板：走无障碍 SET_TEXT 成功"); return }
         // 兜底：剪贴板已写好，退到 ACTION_PASTE
-        ApxAccessibilityService.instance?.paste(text)
+        val pasted = ApxAccessibilityService.instance?.paste(text) == true
+        android.util.Log.i("TvInjector", if (pasted) "远程剪贴板：走无障碍 PASTE 成功" else "远程剪贴板：三条通道均未生效（检查全能外设输入法是否设为当前输入法）")
     }
 
     /** 手柄：buttons 16 位位图 + 双摇杆 4 轴（i8，约 -127..127）。
