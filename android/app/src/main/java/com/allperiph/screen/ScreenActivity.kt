@@ -11,6 +11,7 @@ import com.allperiph.R
 import com.allperiph.core.Log
 import com.allperiph.core.MediaOut
 import com.allperiph.wireless.ControlTarget
+import kotlin.math.hypot
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -57,10 +58,26 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
         // 切回副屏页：请 PC 立即出一帧 IDR（控制通道 0x06），否则要等编码端下一个
         // 关键帧，断连久了能黑好几秒。未选受控设备时发送失败，靠编码端周期 IDR 兜底。
         ControlTarget.controlClient?.sendControl(byteArrayOf(0x06))
+        // fix(v184)：副屏期间持高性能 WiFi 锁 —— 省电模式掐 WiFi 是"老是断"的主因
+        // （全仓库此前无任何 WifiLock/WakeLock）。锁挂在 Activity 生命周期上，
+        // 离开副屏页即释放，不会常驻耗电。
+        if (wifiLock == null) {
+            val wm = applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            wifiLock = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "apx-screen").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.i("ScreenActivity", "副屏：WiFi 高性能锁已获取（防省电掐流）")
+        }
     }
 
     override fun onPause() {
         ticker.removeCallbacks(tick)
+        wifiLock?.let {
+            runCatching { it.release() }
+            Log.i("ScreenActivity", "副屏：WiFi 高性能锁已释放")
+        }
+        wifiLock = null
         super.onPause()
     }
 
@@ -82,6 +99,21 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     private var scrollAccum = 0f
     /** 本次双指手势里已发生过滚动（抬起时就不再是"右键点按"） */
     private var scrolled = false
+
+    // ———————— 触控板语义状态（v184）————————
+    /** 长按拖拽已激活（左键已按下，MOVE 即拖动） */
+    private var dragMode = false
+    private var downX = 0f; private var downY = 0f
+    private var downAt = 0L
+    private var lastX = 0f; private var lastY = 0f
+    private var lastXNorm = 0; private var lastYNorm = 0
+    /** 长按检测回调 */
+    private var dragArm: Runnable? = null
+    /** 轻点判定阈值（位移） */
+    private val tapSlopPx get() = 18 * resources.displayMetrics.density
+
+    /** 副屏会话期间持有高性能 WiFi 锁：省电模式掐流是"老是断"的主因 */
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     /** 双指滚动：累计多少像素算滚一格 */
     private val scrollStepPx get() = (36 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
@@ -110,10 +142,15 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
      * 走 9511 控制面而不是 9502 媒体通道：后者只在推流/音箱时建立，
      * 而控制通道在「无线」开着时始终在线（实测踩过：媒体通道未连入时触摸全丢）。
      *
-     * 手势表：
-     *   单指点按/拖动  = 左键（按下即开始拖，可拖窗口/文件）
+     * 手势表（v184 起改为**触控板语义**；旧版"按下即拖"会让滑动变按住拖选，已改）：
+     *   单指滑动       = 移动光标（不按键）
+     *   单指点按       = 左键点击（位移小 + 时间短）
+     *   长按后拖动     = 左键拖拽（≥400ms 且几乎没位移时激活，可拖窗口/文件）
      *   双指滑动       = 滚轮（自然方向：手指上滑内容上移）
      *   双指点按       = 右键（位移小于滚动阈值）
+     *
+     * 防卡键：拖拽激活后若 UP/CANCEL 因断链丢失，PC 左键会一直按着 ——
+     * 因此每次新手势开始时先兜底补一个 TOUCH_UP（多余的一次 UP 在 PC 端无害）。
      * 发送失败如实丢弃：控制通道未连入时点按无效果，但不影响收流显示。
      */
     private fun installTouchBridge() {
@@ -124,18 +161,48 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                 android.view.MotionEvent.ACTION_DOWN -> {
                     twoFinger = false
                     scrolled = false
-                    cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, x, y)
+                    dragMode = false
+                    downX = e.x; downY = e.y
+                    downAt = android.os.SystemClock.uptimeMillis()
+                    // 兜底：上一笔的 UP 若因断链丢失，这里补松左键（PC 端多余 UP 无害）
+                    cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                    // 触控板语义：落指先把光标带到手指位置（纯移动，不按键）
+                    cli?.touch(MediaOut.TOUCH_MOVE, MediaOut.BTN_LEFT, x, y)
+                    // 长按检测：400ms 后仍几乎没位移 → 进入拖拽（发左键按下）
+                    dragArm?.let { view.removeCallbacks(it) }
+                    dragArm = Runnable {
+                        val moved = hypot(
+                            (lastX - downX).toDouble(),
+                            (lastY - downY).toDouble()
+                        ) < tapSlopPx
+                        if (!twoFinger && !dragMode &&
+                            android.os.SystemClock.uptimeMillis() - downAt >= 380 &&
+                            moved && !scrolled
+                        ) {
+                            dragMode = true
+                            ControlTarget.controlClient?.touch(
+                                MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, lastXNorm, lastYNorm
+                            )
+                        }
+                    }
+                    view.postDelayed(dragArm, 400)
                 }
                 android.view.MotionEvent.ACTION_POINTER_DOWN ->
                     if (e.pointerCount >= 2 && !twoFinger) {
                         twoFinger = true
                         scrolled = false
+                        dragArm?.let { view.removeCallbacks(it) }
                         scrollAccum = 0f
                         prevTwoY = e.getY(e.pointerCount - 1)
-                        // 先松掉单指落下的左键：双指不是拖选
-                        cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                        // 若长按拖拽已激活，双指接管前先松左键
+                        if (dragMode) {
+                            cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                            dragMode = false
+                        }
                     } else true
-                android.view.MotionEvent.ACTION_MOVE ->
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    lastX = e.x; lastY = e.y
+                    lastXNorm = x; lastYNorm = y
                     if (twoFinger && e.pointerCount >= 2) {
                         val y2 = e.getY(e.pointerCount - 1)
                         scrollAccum += y2 - prevTwoY
@@ -154,10 +221,15 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         }
                         sent
                     } else {
+                        // 单指移动：MOVE 本身就是纯光标移动（PC 端 MOVE 忽略按键位）；
+                        // 拖拽模式下左键已按着，MOVE 同样生效
                         cli?.touch(MediaOut.TOUCH_MOVE, MediaOut.BTN_LEFT, x, y)
+                        true
                     }
+                }
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     val cancelled = e.actionMasked == android.view.MotionEvent.ACTION_CANCEL
+                    dragArm?.let { view.removeCallbacks(it) }
                     if (twoFinger) {
                         if (!scrolled && !cancelled) {
                             // 双指点按（几乎没位移）= 右键点击
@@ -166,12 +238,20 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         }
                         twoFinger = false
                         true
-                    } else {
-                        cli?.touch(
-                            if (cancelled) MediaOut.TOUCH_CANCEL else MediaOut.TOUCH_UP,
-                            MediaOut.BTN_LEFT, x, y
-                        )
-                    }
+                    } else if (dragMode) {
+                        // 拖拽中抬起 = 松开左键
+                        dragMode = false
+                        cli?.touch(if (cancelled) MediaOut.TOUCH_CANCEL else MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                    } else if (!cancelled) {
+                        // 轻点 = 左键点击（位移小 + 时间短）；快速滑动则只移动了光标，无需点击
+                        val dur = android.os.SystemClock.uptimeMillis() - downAt
+                        val moved = hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) < tapSlopPx
+                        if (moved && dur < 300) {
+                            cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, x, y)
+                            cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_LEFT, x, y)
+                        }
+                        true
+                    } else true
                 }
                 else -> true
             }

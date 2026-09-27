@@ -156,10 +156,22 @@ class TcpMediaChannel(
                 continue
             }
             // 单对端：媒体流对时序敏感，多对端会互相抢带宽
+            // fix(v184)：此前 ready 时**拒绝**新连接 —— 若旧连接是 TCP 半开僵尸态
+            // （PC 已消失但手机端写未失败），PC 每 3s 的重连会被一直拒掉，
+            // 表现为"副屏老是断、断了连不上"。改为接管：踢掉旧连接让位给新连接。
+            // 旧 reader/writer 线程会因 socket 关闭退出，teardown 的 client===sock
+            // 守卫保证它们不会误伤刚建立的新连接。
             if (ready) {
-                Log.w(TAG, "媒体通道已有连接 $peerText，拒绝新连接")
-                runCatching { sock.close() }
-                continue
+                Log.w(TAG, "媒体通道新连接接管，断开旧连接 $peerText")
+                val old = client
+                runCatching { old?.close() }
+                if (client === old) {
+                    ready = false
+                    client = null
+                    out = null
+                    peerText = ""
+                    outQueue.clear()
+                }
             }
             Thread({ handshake(sock) }, "apx-media-handshake").apply {
                 isDaemon = true
@@ -190,7 +202,10 @@ class TcpMediaChannel(
                 runCatching { sock.close() }
                 return
             }
-            sock.soTimeout = 0
+            // fix(v184)：读不再永久阻塞。手机主要在写、PC 只在触摸时才发帧，
+            // 静默超时是常态 → 超时后 continue 继续等；真正半开（PC 消失）
+            // 也会周期性醒来检查 sock.isClosed，不再无限挂死。
+            sock.soTimeout = IDLE_READ_TIMEOUT_MS
             activate(sock)
         } catch (t: Throwable) {
             Log.w(TAG, "媒体握手失败：${t.message}")
@@ -226,6 +241,8 @@ class TcpMediaChannel(
         while (running.get() && !sock.isClosed) {
             val n = try {
                 ins.read(buf)
+            } catch (t: java.net.SocketTimeoutException) {
+                continue   // 空闲超时：PC 没发帧是常态，继续等
             } catch (t: Throwable) {
                 -1
             }
@@ -395,6 +412,9 @@ class TcpMediaChannel(
 
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
+
+    /** 读空闲超时：PC 只在触摸时才发帧，静默是常态；超时仅用于周期醒来检查连接，不清连接 */
+    private const val IDLE_READ_TIMEOUT_MS = 20_000
         private const val QUEUE_CAP = 256
 
         private const val WRITER_IDLE_MS = 200L
