@@ -1,15 +1,21 @@
-name: Build APK
+name: Build
 
+# 触发：
+#   push master        —— 只做构建验证（Android + PC），不发 release
+#   push tag v*        —— 构建三端产物并自动创建 GitHub Release
+#   workflow_dispatch  —— 手动构建验证
 on:
   push:
     branches: [master]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  # ------------------------------------------------ Android（手机 + TV）
+  android:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,8 +44,6 @@ jobs:
             "platforms;android-35" \
             "ndk;27.2.12479018" \
             "cmake;3.22.1"
-          echo "=== SDK platforms ==="
-          ls -la "$ANDROID_HOME/platforms/"
 
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.9
@@ -47,8 +51,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+      # release 签名的 keystore（android/apx-release.keystore）在版本库内，可直接出正式包
+      - name: Build release APKs (app + tv)
+        run: ./gradlew :app:assembleRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
         shell: bash
 
       - name: Show build errors
@@ -59,25 +64,82 @@ jobs:
           echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
-      - name: Find APK
-        if: always()
-        run: find . -name "*.apk" -type f 2>/dev/null
-        working-directory: .
-
-      - name: Upload artifact
+      - name: Upload app APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: apx-debug
-          path: android/app/build/outputs/apk/debug/*.apk
-          retention-days: 7
+          name: apk-app
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 14
 
-      - name: Create Release
+      - name: Upload tv APK
         if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-tv
+          path: android/tv/build/outputs/apk/release/tv-release.apk
+          retention-days: 14
+
+  # ------------------------------------------------ PC（Windows 三件套）
+  pc:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure (CMake)
+        run: cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
+        shell: cmd
+
+      - name: Build (apxhost / apxdesktop / apxsetup)
+        run: cmake --build build_host --config Release --target apxhost apxdesktop apxsetup
+        shell: cmd
+
+      - name: Upload PC exes
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-exes
+          path: |
+            build_host/Release/apxhost.exe
+            build_host/Release/apxdesktop.exe
+            build_host/Release/apxsetup.exe
+          retention-days: 14
+
+  # ------------------------------------------------ Release（仅 tag v*）
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, pc]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Rename artifacts with version
+        run: |
+          VER="${GITHUB_REF_NAME}"   # 形如 v184
+          mkdir -p out
+          cp dist/apk-app/app-release.apk        "out/AllPeriph-${VER}-app-release.apk"
+          cp dist/apk-tv/tv-release.apk          "out/AllPeriph-${VER}-tv-release.apk"
+          cp dist/pc-exes/apxhost.exe            "out/AllPeriph-${VER}-apxhost.exe"
+          cp dist/pc-exes/apxdesktop.exe         "out/AllPeriph-${VER}-apxdesktop.exe"
+          cp dist/pc-exes/apxsetup.exe           "out/AllPeriph-${VER}-apxsetup.exe"
+          ls -la out/
+        shell: bash
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: 全能外设 v${{ github.run_number }}
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          name: 全能外设 ${{ github.ref_name }}
+          files: out/*
           generate_release_notes: true
           make_latest: true
