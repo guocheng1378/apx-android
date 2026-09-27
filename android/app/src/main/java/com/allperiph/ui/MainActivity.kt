@@ -965,7 +965,7 @@ class MainActivity : Activity() {
         if (!::touchHint.isInitialized) return
         // 提示行在滑动开始后会被收起（见 onTouchEvent），这里顺手恢复可见
         touchHint.visibility = android.view.View.VISIBLE
-        val base = if (ControlTarget.isControlling()) getString(R.string.ui_main_text_x, ControlTarget.label) else getString(R.string.ui_main_text_local)
+        val base = if (ControlTarget.isControlling()) getString(R.string.ui_main_text_controlling, ControlTarget.label) else getString(R.string.ui_main_text_local)
         val desc = displayUplinkHint()
         touchHint.text = if (displayUplinkPath() == Uplink.NONE) "⚠ $base · $desc" else "$base · $desc"
         tvStatusView?.text = if (ControlTarget.isControlling()) {
@@ -1224,7 +1224,7 @@ class MainActivity : Activity() {
         // 折叠状态下也要一眼看见"现在挂的是哪一套、几条"
         tvTemplateCurrent.text = HotkeyTemplates.byKey(current)
             ?.let { "${it.name} · ${hotkeyBoard.shortcuts.size} 项" }
-            ?: getString(R.string.ui_main_text_x_2, hotkeyBoard.shortcuts.size)
+            ?: getString(R.string.ui_main_template_custom_count, hotkeyBoard.shortcuts.size)
         (HotkeyTemplates.ALL + customTemplates).forEach { t ->
             val on = t.key == current
             val custom = t.key.startsWith(customPrefix)
@@ -1250,7 +1250,7 @@ class MainActivity : Activity() {
 
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             col.addView(TextView(this).apply {
-                text = if (custom) getString(R.string.ui_main_text_x_3, t.name) else t.name
+                text = if (custom) getString(R.string.ui_main_template_name_custom, t.name) else t.name
                 textSize = 15f
                 setTextColor(tc)
                 typeface = Typeface.DEFAULT_BOLD
@@ -1263,7 +1263,7 @@ class MainActivity : Activity() {
             row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
 
             row.addView(TextView(this).apply {
-                text = if (on) getString(R.string.ui_main_text_done) else getString(R.string.ui_main_text_x_4, t.combos.size)
+                text = if (on) getString(R.string.ui_main_text_done) else getString(R.string.ui_main_template_combo_count, t.combos.size)
                 textSize = 12f
                 setTextColor(if (on) tc else resources.getColor(R.color.md_on_surface_variant))
             })

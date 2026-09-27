@@ -73,7 +73,7 @@ class FilePanelActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "文件传输"
+            text = getString(R.string.ui_filepanel_text_file)
             textSize = 20f
             setTypeface(null, Typeface.BOLD)
             setTextColor(resources.getColor(R.color.md_on_surface))
@@ -88,7 +88,7 @@ class FilePanelActivity : Activity() {
         root.addView(targetView)
 
         root.addView(TextView(this).apply {
-            text = "收到的文件（点一行转发给目标）"
+            text = getString(R.string.ui_filepanel_text_file_forward)
             textSize = 14f
             setTextColor(resources.getColor(R.color.md_on_surface))
             setPadding(0, dp(6f), 0, dp(4f))
@@ -130,7 +130,7 @@ class FilePanelActivity : Activity() {
         listBox.removeAllViews()
         if (files.isEmpty()) {
             listBox.addView(TextView(this).apply {
-                text = "还没有收到文件。对端（电脑 / TV / 另一台手机）用「文件传输」选本机即可推过来。"
+                text = getString(R.string.ui_filepanel_text_file_no_local)
                 textSize = 13f
                 setTextColor(resources.getColor(R.color.md_on_surface_variant))
                 setPadding(0, dp(8f), 0, 0)
@@ -160,7 +160,7 @@ class FilePanelActivity : Activity() {
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
         })
         row.addView(TextView(this).apply {
-            text = "  转发"
+            text = getString(R.string.ui_filepanel_text_forward)
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
             setTextColor(resources.getColor(R.color.md_primary))
@@ -190,11 +190,11 @@ class FilePanelActivity : Activity() {
 
     private fun switchTarget() {
         if (targets.isEmpty()) {
-            toast("还没有可发目标：先连一台设备，或等发现到设备")
+            toast(getString(R.string.ui_filepanel_toast_device_no_first))
             return
         }
         if (targets.size == 1) {
-            toast("只有一个可发目标：${targets[0].first}")
+            toast(getString(R.string.ui_filepanel_toast_only, targets[0].first))
             return
         }
         targetIndex = (targetIndex + 1) % targets.size
@@ -208,28 +208,28 @@ class FilePanelActivity : Activity() {
     private fun sendFile(f: File) {
         val host = currentTarget()
         if (host == null) {
-            status("还没有可发目标：先连一台设备，或等发现到设备", true)
+            status(getString(R.string.ui_filepanel_toast_device_no_first), true)
             return
         }
         if (!busy.compareAndSet(false, true)) {
-            status("正在发送中，请稍候…", true)
+            status(getString(R.string.ui_filepanel_status_send_please), true)
             return
         }
-        status("发送中… ${f.name}", false)
+        status(getString(R.string.ui_filepanel_status_send, f.name), false)
         Thread({
             val ok = TvFileSender.send(this, host, Uri.fromFile(f)) { p ->
                 mainHandler.post { status("发送中 ${p}% · ${f.name}", false) }
             }
             mainHandler.post {
                 busy.set(false)
-                status(if (ok) "已发送：${f.name} → $host" else "发送失败：${f.name}", !ok)
+                status(if (ok) getString(R.string.ui_filepanel_text_send_done, host, f.name) else getString(R.string.ui_filepanel_text_send_failed, f.name), !ok)
             }
         }, "apx-file-panel").start()
     }
 
     private fun pickFromSystem() {
         if (currentTarget() == null) {
-            status("还没有可发目标：先连一台设备，或等发现到设备", true)
+            status(getString(R.string.ui_filepanel_toast_device_no_first), true)
             return
         }
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -239,7 +239,7 @@ class FilePanelActivity : Activity() {
         try {
             startActivityForResult(intent, REQ_PICK)
         } catch (_: Throwable) {
-            status("打不开文件选择器", true)
+            status(getString(R.string.ui_filepanel_status_file_pick), true)
         }
     }
 
@@ -250,14 +250,14 @@ class FilePanelActivity : Activity() {
         val uri = data?.data ?: return
         val host = currentTarget() ?: return
         if (!busy.compareAndSet(false, true)) return
-        status("发送中…", false)
+        status(getString(R.string.ui_filepanel_status_send_2), false)
         Thread({
             val ok = TvFileSender.send(this, host, uri) { p ->
                 mainHandler.post { status("发送中 ${p}%", false) }
             }
             mainHandler.post {
                 busy.set(false)
-                status(if (ok) "已发送 → $host" else "发送失败", !ok)
+                status(if (ok) getString(R.string.ui_filepanel_text_send_done_2, host) else getString(R.string.ui_filepanel_text_send_failed_2), !ok)
             }
         }, "apx-file-panel-pick").start()
     }

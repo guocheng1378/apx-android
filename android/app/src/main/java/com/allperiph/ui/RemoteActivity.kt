@@ -80,7 +80,7 @@ class RemoteActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         head.addView(TextView(this).apply {
-            text = "遥控器"
+            text = getString(R.string.ui_remote_text_remote)
             setTextColor(getColor(R.color.md_on_surface))
             textSize = if (landscape) 17f else 21f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -119,7 +119,7 @@ class RemoteActivity : Activity() {
         }
 
         col.addView(TextView(this).apply {
-            text = "方向/OK/返回/主页/菜单走 HID 键码；音量与媒体走多媒体位图；关机/重启需被控端 root。"
+            text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
             setTextColor(getColor(R.color.md_on_surface_variant))
             textSize = 11f
             setPadding(dp(2), dp(6), dp(2), 0)
@@ -252,24 +252,24 @@ class RemoteActivity : Activity() {
         // 行序即屏幕顺序（电源行在拨盘上方）：电源是遥控器上最需要「盲按」到的一行，
         // 放最上面离拇指最近；其余按使用频率依次是 功能 / 音量 / 媒体。
         arrayOf(
-            "电源" to { HidKeys.tap(U_POWER) },
-            "关机" to { confirmPower(0, "关机") },
-            "重启" to { confirmPower(1, "重启") },
+            getString(R.string.ui_touchpad_label_power) to { HidKeys.tap(U_POWER) },
+            getString(R.string.ui_touchpad_label_poweroff) to { confirmPower(0, getString(R.string.ui_touchpad_label_poweroff)) },
+            getString(R.string.ui_touchpad_label_reboot) to { confirmPower(1, getString(R.string.ui_touchpad_label_reboot)) },
         ),
         arrayOf(
-            "返回" to { HidKeys.tap(U_ESC) },
-            "主页" to { HidKeys.tap(U_HOME) },
-            "菜单" to { HidKeys.tap(U_MENU) },
+            getString(R.string.ui_common_back) to { HidKeys.tap(U_ESC) },
+            getString(R.string.ui_remote_item_home) to { HidKeys.tap(U_HOME) },
+            getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
         ),
         arrayOf(
-            "音量 −" to { media(HotkeyController.BIT_VOLUME_DOWN) },
-            "静音" to { media(HotkeyController.BIT_MUTE) },
-            "音量 ＋" to { media(HotkeyController.BIT_VOLUME_UP) },
+            getString(R.string.ui_touchpad_label_volume) to { media(HotkeyController.BIT_VOLUME_DOWN) },
+            getString(R.string.ui_touchpad_media_mute) to { media(HotkeyController.BIT_MUTE) },
+            getString(R.string.ui_remote_item_volume) to { media(HotkeyController.BIT_VOLUME_UP) },
         ),
         arrayOf(
-            "上一曲" to { media(HotkeyController.BIT_PREV_TRACK) },
-            "播放" to { media(HotkeyController.BIT_PLAY_PAUSE) },
-            "下一曲" to { media(HotkeyController.BIT_NEXT_TRACK) },
+            getString(R.string.ui_touchpad_media_prev) to { media(HotkeyController.BIT_PREV_TRACK) },
+            getString(R.string.ui_remote_item_play) to { media(HotkeyController.BIT_PLAY_PAUSE) },
+            getString(R.string.ui_touchpad_media_next) to { media(HotkeyController.BIT_NEXT_TRACK) },
         ),
     )
     /** 拨盘下方的三行：功能 / 音量 / 媒体（[rows] 的 1..3 项） */
@@ -383,17 +383,17 @@ class RemoteActivity : Activity() {
     private fun confirmPower(action: Int, label: String) {
         val c = ControlTarget.controlClient
         if (c == null) {
-            Toast.makeText(this, "尚未连接受控设备", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("$label 被控设备？")
-            .setMessage("将直接$label 对端（需要被控端有 root；没有 root 只会退回待机）。")
+            .setTitle(getString(R.string.ui_remote_dialog_device, label))
+            .setMessage(getString(R.string.ui_remote_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
                 c.power(action)
-                Toast.makeText(this, "已发送$label 指令", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.ui_remote_toast_send_done, label), Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton("取消", null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
     }
 

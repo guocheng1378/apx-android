@@ -595,7 +595,7 @@ class TouchpadActivity : Activity() {
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
-            .setMessage(getString(R.string.ui_touchpad_dialog_x, lines, inj.channelText()))
+            .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
             .setPositiveButton(getString(R.string.ui_common_close), null)
             .show()
     }

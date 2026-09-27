@@ -278,6 +278,12 @@ def migrate_file(path: str, mg: Migrator, source_text: str = None):
     text = source_text if source_text is not None else open(path, encoding='utf-8').read()
     lines = text.split('\n')
 
+    # getString(...) 不带接收者只能在 Activity / Fragment 里用；object / 辅助类里要显式传
+    # Context —— 那是人工改动（要改函数签名），不机械搬，整文件跳过。
+    if not re.search(r':\s*(?:\w+\.)*\w*(?:Activity|Fragment)\s*[({]', text):
+        return lines, [], [(0, '整文件非 Activity/Fragment（getString 需显式 Context，交人工）',
+                            os.path.basename(path))]
+
     prefix = os.path.basename(path).replace('.kt', '').replace('Activity', '').lower() or 'ui'
     skipped, migrated = [], []
     in_block = False

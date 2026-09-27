@@ -342,7 +342,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     private fun refreshHint() {
         val rt = com.allperiph.ui.AgentController.runtime
         if (rt == null) {
-            hint.text = "服务未启动：请在状态页打开无线开关"
+            hint.text = getString(R.string.ui_screen_text_open_not_please_state)
             return
         }
         val m = com.allperiph.ui.AgentController.module(com.allperiph.core.ModuleId.SCREEN)
