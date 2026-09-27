@@ -1808,7 +1808,7 @@ void performHit(Panel* p, Hit h) {
                     if (!st.adaptive) s += "自适应码率：关（一直用你选的档位）";
                     else if (st.adaptiveActive) s += "自适应码率：运行中（网络忙时自动降、闲时升）";
                     // 注意：这里是 Win32 STATIC 文本，没有 markdown 渲染 ——
-                    // 旧文案写 "**未生效**"，用户会*连星号一起看到*（v184 修）
+                    // 旧文案写 "**未生效**"，用户会*连星号一起看到*（v185 修）
                     else s += "自适应码率：已开但没生效 —— " + st.abrNote;
                 } else {
                     s += st.error.empty() ? "副屏未推流" : ("上次失败：" + st.error);
