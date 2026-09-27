@@ -48,10 +48,11 @@ object ApxFrame {
     /**
      * 远程输入帧子类型（payload[0]）。
      * 帧本身走 STREAM_CONTROL 通道，子类型在 payload 首字节区分。
+     * 注意：0x20=剪贴板, 0x21=反向剪贴板, 0x22=电源动作，故远程输入从 0x25 开始。
      */
-    const val INPUT_REQUEST = 0x22   // A→B：请求 B 设备输入
-    const val INPUT_TEXT = 0x23      // B→A：实时输入文本
-    const val INPUT_DONE = 0x24      // B→A：输入完成
+    const val INPUT_REQUEST = 0x25   // A→B：请求 B 设备输入
+    const val INPUT_TEXT = 0x26      // B→A：实时输入文本
+    const val INPUT_DONE = 0x27      // B→A：输入完成
 
     /** INPUT_TEXT flags */
     const val INPUT_FLAG_INCREMENTAL = 0x01  // 增量字符（默认）
