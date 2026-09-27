@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <thread>
+#include <chrono>
 #include <mutex>
 #include <atomic>
 #include <cstdio>
@@ -312,6 +313,68 @@ std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
 }
 bool setSystemClipboard(const std::string& text) { return writeClipboardUtf8(text); }
 std::string readSystemClipboard() { return readClipboardUtf8(); }
+
+namespace {
+
+/// UTF-8 → UTF-16（SendInput 的 KEYEVENTF_UNICODE 要 UTF-16 码元）
+std::wstring toWide(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (n <= 1) return {};
+    std::wstring w(static_cast<size_t>(n) - 1, L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), n);
+    return w;
+}
+
+void sendCtrlV() {
+    INPUT in[4] = {};
+    auto fill = [&](size_t i, WORD vk, bool up) {
+        in[i].type = INPUT_KEYBOARD;
+        in[i].ki.wVk = vk;
+        in[i].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0u;
+    };
+    fill(0, VK_CONTROL, false);
+    fill(1, 'V', false);
+    fill(2, 'V', true);
+    fill(3, VK_CONTROL, true);
+    ::SendInput(4, in, sizeof(INPUT));
+}
+
+/// 文本是否需要走剪贴板：含非 ASCII、含换行、或较长时逐字符键入不可靠。
+bool needsPaste(const std::string& s) {
+    if (s.size() > 64) return true;
+    for (unsigned char c : s) if (c >= 0x80 || c == '\n' || c == '\r' || c == '\t') return true;
+    return false;
+}
+
+}  // namespace
+
+bool injectSystemText(const std::string& text) {
+    if (text.empty()) return false;
+    if (!needsPaste(text)) {
+        // 短 ASCII：直接键入，完全不碰剪贴板
+        const std::wstring w = toWide(text);
+        for (wchar_t ch : w) {
+            INPUT in[2] = {};
+            in[0].type = INPUT_KEYBOARD;
+            in[0].ki.wScan = static_cast<WORD>(ch);
+            in[0].ki.dwFlags = KEYEVENTF_UNICODE;
+            in[1] = in[0];
+            in[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            ::SendInput(2, in, sizeof(INPUT));
+        }
+        return true;
+    }
+    // 中文 / 多行 / 长文本：剪贴板 + Ctrl+V 保真，用完把用户原来的剪贴板还回去。
+    // 不还原的话，用户复制的东西会被我们悄悄覆盖 —— 这种"顺手毁掉剪贴板"的行为最招骂。
+    const std::string backup = readClipboardUtf8();
+    if (!writeClipboardUtf8(text)) return false;
+    sendCtrlV();
+    // 等目标窗口真的完成粘贴再还原：立即还原会粘回旧内容。
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    if (!backup.empty()) writeClipboardUtf8(backup);
+    return true;
+}
 
 }  // namespace apxpc::wireless
 

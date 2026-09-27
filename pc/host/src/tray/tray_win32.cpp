@@ -28,6 +28,7 @@ const UINT IDM_QUIT = 1002;
 const UINT IDM_SEND_FILE = 1003;
 const UINT IDM_FILE_PANEL = 1004;
 const UINT IDM_CLIPBOARD = 1005;   // 「把电脑剪贴板发给手机」
+const UINT IDM_INPUT = 1006;       // 「让手机帮我输入…」（请求对端弹输入法）
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -50,6 +51,12 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             AppendMenu(m, MF_STRING, IDM_SEND_FILE, L"发送文件到手机…");
             if (self2 && self2->onFilePanel_)
                 AppendMenu(m, MF_STRING, IDM_FILE_PANEL, L"文件传输…（收到的 / 发出去的）");
+            // v1.34：剪贴板与远程输入的入口。此前只加了回调和命令分支，
+            // 忘了往菜单里 Append —— 结果功能写了但用户点不到，等于没做。
+            if (self2 && self2->onClipboard_)
+                AppendMenu(m, MF_STRING, IDM_CLIPBOARD, L"把剪贴板发给手机");
+            if (self2 && self2->onInput_)
+                AppendMenu(m, MF_STRING, IDM_INPUT, L"让手机帮我输入…");
             AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);
@@ -70,6 +77,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         else if (id == IDM_SEND_FILE && self && self->onSendFile_) { self->onSendFile_(); }
         else if (id == IDM_FILE_PANEL && self && self->onFilePanel_) { self->onFilePanel_(); }
         else if (id == IDM_CLIPBOARD && self && self->onClipboard_) { self->onClipboard_(); }
+        else if (id == IDM_INPUT && self && self->onInput_) { self->onInput_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }

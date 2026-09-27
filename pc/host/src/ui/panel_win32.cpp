@@ -2382,6 +2382,19 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         panel.tray->notify(ok ? "剪贴板已发送" : "剪贴板发送失败",
                            ok ? preview : preview + "（控制面未就绪，稍后再试）");
     });
+    // 托盘右键 →「让手机帮我输入…」：发 0x25 请求对端弹输入法。
+    // 分工：这里只负责"喊一声"；对方回传的文本（0x26）由 WirelessSession 在自己的
+    // 回调里直接注入本机当前光标处（见 WirelessSession 构造函数），不绕回 UI 线程。
+    panel.tray->setInputCallback([&panel] {
+        if (!panel.session || !panel.session->connected()) {
+            panel.tray->notify("还没连上受控设备", "「让手机帮我输入」需要先连上手机 / TV");
+            return;
+        }
+        const bool ok = panel.session->requestInput("电脑请求输入文本");
+        panel.tray->notify(ok ? "已请手机输入" : "请求失败",
+                           ok ? "在手机上打字，文字会直接进电脑光标处"
+                              : "控制面未就绪，稍后再试");
+    });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
 
     // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，

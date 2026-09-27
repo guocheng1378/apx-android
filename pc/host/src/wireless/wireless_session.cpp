@@ -86,6 +86,15 @@ const char* linkPhaseName(LinkPhase p) noexcept {
 }
 
 WirelessSession::WirelessSession() {
+    // 远程输入回传（0x26）：对端用户在手机/TV 上敲的字，就地注入**本机当前光标处**。
+    // 回调跑在 9511 的 reader 线程；injectSystemText 内部是 SendInput / 剪贴板 + Ctrl+V，
+    // 都是线程安全的，不需要绕回 UI 线程。
+    client_.onRemoteInputText = [](const std::string& text, uint8_t /*flags*/) {
+        if (!apxpc::wireless::injectSystemText(text))
+            APX_LOGW("远程输入文本注入失败（{} 字节）", static_cast<unsigned>(text.size()));
+    };
+    client_.onRemoteInputDone = [] { APX_LOGI("远程输入完成"); };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -264,6 +273,11 @@ bool WirelessSession::sendClipboard(const std::string& text) {
 }
 
 bool WirelessSession::connected() const { return client_.ready(); }
+
+bool WirelessSession::requestInput(const std::string& hint) {
+    if (!client_.ready()) return false;
+    return client_.sendRequestInput(hint);
+}
 
 #if defined(_WIN32)
 /// 来源地址是否就是本机（网络字节序）。

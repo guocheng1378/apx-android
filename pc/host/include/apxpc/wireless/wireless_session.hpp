@@ -95,6 +95,11 @@ public:
     /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
     bool connected() const;
 
+    /// 请求对端（手机 / TV）弹输入法输入文本（9511 帧 0x25）。
+    /// hint 会显示在对方浮层上（告诉用户这段文字是给谁的）。未连接返回 false。
+    /// 对方回传的文本（0x26）由本类在回调里直接注入本机光标处。
+    bool requestInput(const std::string& hint);
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
