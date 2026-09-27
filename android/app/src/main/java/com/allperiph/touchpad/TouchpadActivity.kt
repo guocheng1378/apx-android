@@ -228,8 +228,13 @@ class TouchpadActivity : Activity() {
             isFocusable = true
             setOnClickListener { finish() }
         }
-        row.addView(tv, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(st)
+        row.addView(tv)
+        // v184：右侧 chips（状态/被控/设备/遥控/文件/剪贴板/退出）收进可横向滑动的容器 ——
+        // chip 一多就顶出屏幕，横滑解决。
+        val chipsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val chipsScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chipsRow) }
+        row.addView(chipsScroll, LinearLayout.LayoutParams(0, -2, 1f))
+        chipsRow.addView(st)
         // 被控模式开关：让本机也能被另一台手机控制（无需单独装 TV APK）
         val ctl = TextView(this).apply {
             text = "被控"
@@ -245,7 +250,7 @@ class TouchpadActivity : Activity() {
             setOnLongClickListener { showInjectCaps(); true }
         }
         controlledChip = ctl
-        row.addView(ctl, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(ctl, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
         // 右上角设备选择器：切换要控制的设备（本机/PC 或局域网内的 TV）
         val dev = TextView(this).apply {
@@ -260,7 +265,7 @@ class TouchpadActivity : Activity() {
             setOnClickListener { showDevicePicker() }
         }
         deviceChip = dev
-        row.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
         // 遥控器入口：真机反馈"找不到遥控器的界面" —— 在操控面顶部也放一个，随手可达
         val remote = TextView(this).apply {
@@ -278,7 +283,6 @@ class TouchpadActivity : Activity() {
                 )
             }
         }
-        row.addView(remote, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
         // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
         val file = TextView(this).apply {
@@ -311,10 +315,11 @@ class TouchpadActivity : Activity() {
         }
         fileBtn = file
         clipBtn = clip
-        row.addView(file, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-        row.addView(clip, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(remote, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(file, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(clip, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
+        chipsRow.addView(exit, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
 
-        row.addView(exit, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
         wrap.addView(row)
 
         val sub = TextView(this).apply {
