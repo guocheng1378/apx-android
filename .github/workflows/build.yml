@@ -183,6 +183,21 @@ jobs:
           clang-tidy -p build_tidy pc\host\src\media\touch_inject.cpp
           clang-tidy -p build_tidy pc\host\src\ui\panel_win32.cpp
 
+  # ------------------------------------------------ 协议一致性（跨端常量 / 命令号）
+  # v1.7：同一份 APX1 协议被手写了四遍（C++ / 手机端 / TV 端 / PC 控制面），
+  # 漂移是"某方向偶尔不工作"类缺陷的主要来源（键码偏移、0x04 分发、CRC 范围都踩过）。
+  # 这个 job 是**阻塞**的：不一致就红，不给合入与发版留口子。
+  protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: 跨端协议一致性校验
+        run: python3 scripts/check_protocol.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   release:
     if: startsWith(github.ref, 'refs/tags/v')

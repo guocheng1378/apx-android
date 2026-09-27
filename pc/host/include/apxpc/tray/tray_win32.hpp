@@ -46,6 +46,9 @@ public:
     // 「连接诊断…」回调：一键自检（控制面 / 媒体 / 音频 / 副屏 + 常见故障提示）；
     // 未设置则菜单不出该项。v184：把「连不上/没反应时该看哪里」从人工排查变成一次点击。
     void setDiagnoseCallback(std::function<void()> cb) { onDiagnose_ = std::move(cb); }
+    // 「导出诊断包…」回调：把状态快照 + 显示器布局 + 日志尾部写成**一个文件**并选中它。
+    // 未设置则菜单不出该项。用户报障时"发一个文件"即可，不必自己去找三个日志。
+    void setExportDiagCallback(std::function<void()> cb) { onExportDiag_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
@@ -64,6 +67,7 @@ public:
     std::function<void()> onClipboard_;
     std::function<void()> onInput_;
     std::function<void()> onDiagnose_;
+    std::function<void()> onExportDiag_;
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;

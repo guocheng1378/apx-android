@@ -385,6 +385,17 @@ struct Ctrl9511Server::Impl {
             const int8_t rx = static_cast<int8_t>(p[5]);
             const int8_t ry = static_cast<int8_t>(p[6]);
             if (injector) injector->injectGamepad(buttons, x, y, rx, ry);
+        } else if (cmd == 0x22 && bodyLen >= 2) {
+            // POWER_ACTION（手机遥控页的「关机 / 重启」）。
+            // ★ PC 端**刻意不执行**：远程关机/重启需要提权（SE_SHUTDOWN_NAME），而且一个
+            //   手机按钮直接关掉用户的电脑风险过高 —— 本机能力边界就定在这里。
+            //   此前这条命令没有分支：用户点了「关机」，手机提示"已发送指令"，
+            //   而 PC 侧既没动作也没日志，属典型的"静默无操作"（协议一致性校验脚本
+            //   正是靠"有人发没人收"把它挑出来的）。
+            //   现在显式记一条，导出的诊断包里能直接看到；发送侧应据此在目标是
+            //   PC 时禁用这两个按钮（见手机端 ControlTarget.type）。
+            std::fprintf(stderr, "[apxctl] 收到电源动作请求 action=%u，PC 端不执行远程关机/重启\n",
+                         static_cast<unsigned>(p[1]));
         } else if (cmd == 0x25 && bodyLen >= 2) {
             // REQUEST_INPUT：手机请求本机输入文本
             const uint8_t hintLen = p[1];

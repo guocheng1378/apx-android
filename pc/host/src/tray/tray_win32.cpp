@@ -30,6 +30,7 @@ const UINT IDM_FILE_PANEL = 1004;
 const UINT IDM_CLIPBOARD = 1005;   // 「把电脑剪贴板发给手机」
 const UINT IDM_INPUT = 1006;       // 「让手机帮我输入…」（请求对端弹输入法）
 const UINT IDM_DIAGNOSE = 1007;    // 「连接诊断…」（一键自检，v184）
+const UINT IDM_EXPORT_DIAG = 1008; // 「导出诊断包…」（状态+环境+日志合成一个文件，v184）
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -55,6 +56,9 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // v184：连不上/没反应时先点这里 —— 一次点击给出链路各环状态与排查提示
             if (self2 && self2->onDiagnose_)
                 AppendMenu(m, MF_STRING, IDM_DIAGNOSE, L"连接诊断…（连不上时先点这个）");
+            // v184：报障要发文件时点这里 —— 状态 + 显示器布局 + 日志尾部合成一个 txt
+            if (self2 && self2->onExportDiag_)
+                AppendMenu(m, MF_STRING, IDM_EXPORT_DIAG, L"导出诊断包…（报障时发这个文件）");
             // v1.34：剪贴板与远程输入的入口。此前只加了回调和命令分支，
             // 忘了往菜单里 Append —— 结果功能写了但用户点不到，等于没做。
             if (self2 && self2->onClipboard_)
@@ -83,6 +87,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         else if (id == IDM_CLIPBOARD && self && self->onClipboard_) { self->onClipboard_(); }
         else if (id == IDM_INPUT && self && self->onInput_) { self->onInput_(); }
         else if (id == IDM_DIAGNOSE && self && self->onDiagnose_) { self->onDiagnose_(); }
+        else if (id == IDM_EXPORT_DIAG && self && self->onExportDiag_) { self->onExportDiag_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }

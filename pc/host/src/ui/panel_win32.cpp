@@ -56,6 +56,7 @@
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/screen_push.hpp"
+#include "apxpc/media/touch_target.hpp"   // 推流屏矩形（诊断包里要报触摸映射目标）
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/ui/file_panel_win32.hpp"      // 文件传输窗口（收到的 / 发出去的）
 #include "apxpc/ui/settings_win32.hpp"        // 「设置…」二级窗口（v118）
@@ -1333,11 +1334,68 @@ static std::wstring panelDir() {
     return pos == std::wstring::npos ? ini : ini.substr(0, pos);
 }
 
+// ——— 诊断包辅助：显示器布局 + 日志尾部 ———
+// 只写"状态快照"是不够的：很多故障（触摸落错屏、副屏断连、音箱无声）**现场在日志里**，
+// 而用户不会自己去翻三个文件。这里把环境与日志尾部一并塞进同一个文件，做到"发一个文件即可"。
+
+struct MonListCtx { std::string out; };
+
+BOOL CALLBACK collectMonCb(HMONITOR hm, HDC, LPRECT, LPARAM lp) {
+    auto* ctx = reinterpret_cast<MonListCtx*>(lp);
+    MONITORINFO mi{ sizeof(MONITORINFO) };
+    if (::GetMonitorInfoW(hm, &mi)) {
+        char b[192];
+        std::snprintf(b, sizeof(b), "  %s  (%ld,%ld) %ldx%ld\r\n",
+                      (mi.dwFlags & MONITORINFOF_PRIMARY) ? "主屏" : "扩展",
+                      mi.rcMonitor.left, mi.rcMonitor.top,
+                      mi.rcMonitor.right - mi.rcMonitor.left,
+                      mi.rcMonitor.bottom - mi.rcMonitor.top);
+        ctx->out += b;
+    }
+    return TRUE;   // 全都要，不提前停
+}
+
+/// 把日志文件的**尾部**追加进诊断文本。全量日志可能几十 MB，
+/// 诊断包要能直接发出去，所以只取尾部（按字节截断，行首可能不完整，可接受）。
+void appendLogTail(std::string& s, const std::wstring& dir, const wchar_t* file, size_t maxBytes) {
+    const std::wstring path = dir + L"\\" + file;
+    FILE* f = nullptr;
+    if (::_wfopen_s(&f, path.c_str(), L"rb") != 0 || !f) {
+        char b[160];
+        std::snprintf(b, sizeof(b), "\r\n========== %s（不存在）==========\r\n",
+                      toUtf8(file).c_str());
+        s += b;
+        return;
+    }
+    std::fseek(f, 0, SEEK_END);
+    const long size = std::ftell(f);
+    if (size <= 0) {
+        std::fclose(f);
+        return;
+    }
+    const long take = (static_cast<size_t>(size) > maxBytes) ? static_cast<long>(maxBytes) : size;
+    std::fseek(f, size - take, SEEK_SET);
+    std::string data(static_cast<size_t>(take), '\0');
+    const size_t got = std::fread(&data[0], 1, static_cast<size_t>(take), f);
+    std::fclose(f);
+    data.resize(got);
+    char hdr[256];
+    std::snprintf(hdr, sizeof(hdr),
+                  "\r\n========== %s（尾部 %lu 字节 / 全文 %ld 字节）==========\r\n",
+                  toUtf8(file).c_str(), static_cast<unsigned long>(got), size);
+    s += hdr;
+    s += data;
+    if (!data.empty() && data.back() != '\n') s += "\r\n";
+}
+
 /**
- * 导出诊断包（设置窗口里的「导出诊断包」）。
+ * 导出诊断包（设置窗口的「导出诊断包」+ 托盘「导出诊断包…」）。
  *
  * 这份能力原先在 Web 面板的 `/api/q/diag.download`；v117 下线 Web 时**整条能力一起消失了** ——
- * 所以补在面板里：点一下就拿到一份可以直接发给别人看的运行快照，并自动打开目录选中它。
+ * 所以补在面板里。v184 起不再只写状态快照：把**显示器布局**与
+ * `media_debug.log` / `touch_debug.log` 的尾部一并写进同一个文件，
+ * 用户报障时"发一个文件"即可，不用自己去找三个日志。
+ * 写盘后自动打开目录并选中该文件。
  */
 void exportDiagnostics(Panel* p) {
     const std::wstring dir = panelDir();
@@ -1408,6 +1466,36 @@ void exportDiagnostics(Panel* p) {
                   p->screenMode == 0 ? "镜像" : "扩展", p->bitrateKbps, p->vddRes,
                   p->hotkeyNote.empty() ? "(未知)" : p->hotkeyNote.c_str());
     s += buf;
+
+    // ---- 环境：多屏布局是"副屏/触摸不对"类问题的第一现场 ----
+    s += "\r\n[环境]\r\n";
+    {
+        wchar_t exe[MAX_PATH]{};
+        if (::GetModuleFileNameW(nullptr, exe, MAX_PATH) > 0) {
+            std::snprintf(buf, sizeof(buf), "程序：%s\r\n", toUtf8(std::wstring(exe)).c_str());
+            s += buf;
+        }
+        const UINT dpi = p->hwnd ? ::GetDpiForWindow(p->hwnd) : 0;
+        std::snprintf(buf, sizeof(buf), "面板 DPI：%u（缩放 %u%%）\r\n显示器布局：\r\n",
+                      dpi, dpi ? (dpi * 100 / 96) : 0);
+        s += buf;
+        MonListCtx mc{};
+        ::EnumDisplayMonitors(nullptr, nullptr, collectMonCb, reinterpret_cast<LPARAM>(&mc));
+        s += mc.out.empty() ? std::string("  (枚举失败)\r\n") : mc.out;
+        int ttx = 0, tty = 0, ttw = 0, tth = 0;
+        if (apxpc::media::touchtarget::get(ttx, tty, ttw, tth)) {
+            std::snprintf(buf, sizeof(buf), "推流屏矩形（触摸映射目标）：%d,%d %dx%d\r\n",
+                          ttx, tty, ttw, tth);
+        } else {
+            std::snprintf(buf, sizeof(buf), "推流屏矩形：未提供（触摸将回退主屏映射）\r\n");
+        }
+        s += buf;
+    }
+
+    // ---- 日志尾部：真正能定位问题的东西 ----
+    // 用户报"触摸不对/副屏断/音箱没声"时，这三段就是全部证据。
+    appendLogTail(s, dir, L"media_debug.log", 96 * 1024);
+    appendLogTail(s, dir, L"touch_debug.log", 64 * 1024);
 
     FILE* f = nullptr;
     if (::_wfopen_s(&f, path.c_str(), L"wb") == 0 && f) {
@@ -2524,6 +2612,9 @@ int runPanel(const std::string& /*preferInstanceId*/) {
     // 固化成一次点击。诊断本身只读状态、不产生副作用，直接在托盘线程弹窗即可
     // （用户点确定就返回，不会长时间阻塞托盘）。
     panel.tray->setDiagnoseCallback([&panel] { runConnectionDiagnosis(&panel); });
+    // 托盘右键 →「导出诊断包…」：状态快照 + 显示器布局 + 日志尾部合成一个 txt 并选中它。
+    // 与设置窗口里那颗按钮同一个实现（exportDiagnostics），只是把入口放到最顺手的地方。
+    panel.tray->setExportDiagCallback([&panel] { exportDiagnostics(&panel); });
     panel.tray->create("全能外设 · 手机当鼠标 / 键盘用", icon);
 
     // 9512 文件接收：手机端「文件传输」连的就是**对端 IP 的 9512**。手机/TV 端早就有接收端，

@@ -362,9 +362,46 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 `android/.../wireless/TvControllerClient.kt`（控设备）/ `android/.../controlled/TvControlServer.kt`（被控）。
 
 ```
-0x01 鼠标   [1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)
-0x02 多媒体 [1..2]=u16 位图（LE）
-0x03 键盘   [1]=mod [2]=0 [3..8]=k1..k6（HID usage 页 0x07，PC 侧查表转 VK）
+命令号 = `body[0]`；下表载荷从 `body[1]` 起算（v1.7 补齐，此前只列了 0x01/0x02/0x03）：
+
+| 命令 | 名称 | 方向 | 载荷 |
+|---|---|---|---|
+| 0x01 | 鼠标 | 控制端 → 被控 | `[1]=buttons [2]=dx(i8) [3]=dy(i8) [4]=wheel(i8)` |
+| 0x02 | 多媒体按键 | 控制端 → 被控 | `[1..2]=u16 位图（LE）` |
+| 0x03 | 键盘 | 控制端 → 被控 | `[1]=mod [2]=保留 0 [3..8]=k1..k6`（HID usage 页 0x07，PC 侧查表转 VK） |
+| 0x04 | 副屏触摸 | 控制端 → 被控 | `[1]=action（0按下/1抬起/2移动/3取消） [2]=buttons [3..4]=x [5..6]=y`（归一化 u16 LE，[7..8] 保留） |
+| 0x05 | 开副屏请求 | PC → 手机 | **已废弃**：被控端只记日志忽略（历史版本遗留，保留接收以兼容旧 PC） |
+| 0x07 | 游戏手柄 | 控制端 → 被控 | `[1..2]=buttons(u16 LE) [3]=x [4]=y [5]=rx [6]=ry`（i8 摇杆） |
+| 0x10 | 模块开关 | 控制端 → 被控 | `[1]=idLen [2..1+idLen]=id(UTF-8) [2+idLen]=on`；`id="wireless"` = 挂起/恢复被控输入（挂起时**保持连接**，见 §3.3.1） |
+| 0x20 | 剪贴板（正向） | PC → 对端 | `[1..2]=len(u16 LE) [3..]=UTF-8 文本` |
+| 0x21 | 剪贴板（反向） | 对端 → PC | 同 0x20 |
+| 0x22 | 电源动作 | 控制端 → 被控 | `[1]=action（0关机 / 1重启）`；**PC 端刻意不执行**（需提权且风险高），仅记日志 |
+| 0x25 | 请求远程输入 | 控制端 → 被控 | `[1]=hintLen [2..]=hint(UTF-8)` |
+| 0x26 | 远程输入文本 | 被控 → 控制端 | `[1]=flags [2..3]=len(u16 LE) [4..]=UTF-8`（flags 见 REMOTE-INPUT.md） |
+| 0x27 | 远程输入结束 | 被控 → 控制端 | 无载荷 |
+| 0x28 | 特殊键/组合键 | 被控 → 控制端 | `[1]=mod（1=Ctrl 2=Shift 4=Alt） [2]=Windows VK 码` |
+| `'p'` | 心跳 | 双向 | 主动方发 `'p'+"ing"`，对端回 `'p'+"ong"`；连续 3 轮无 pong 判定链路失效（见 §3.3.2） |
+
+> **本表由脚本守着**：`scripts/check_protocol.py`（CI 每次提交都跑）把上表的命令号从
+> 三端源码里抽出来比对，**"有人发但没人收"直接报错**。0x22 在 PC 端的缺失就是它先发现的。
+
+**§3.3.1 被控端挂起语义（0x10 `wireless`）**：挂起 = **保持 TCP 连接、忽略输入类命令**
+（`0x01/0x02/0x03/0x04/0x07`），但**仍处理 `'p'` 心跳与 `0x10` 自身** —— 否则"恢复"指令
+永远送不进来（单向门）。控制端侧 `0x10` 在连接建立前发出会丢，因此需要**连上后补发**
+（见 `panel_win32.cpp` 的 `moduleTogglePending`）。
+
+**§3.3.2 心跳与半开检测**：`'p'` 心跳既用于 RTT 估算，也是**半开检测**手段 ——
+对端"消失但没有 FIN"时（Wi-Fi 瞬断 / 进程被杀），只靠 `recv` 会永远认为链路还在，
+输入全部进黑洞且不触发重连。因此：主动方连续 3 轮无 pong 即判链路失效并主动关连接；
+被控方连续 8 次读空闲超时同样判定失效。
+
+**§3.3.3 接收侧必须校验 CRC 并逐字节重同步（v1.7 起）**：
+`payloadLen` **含**尾部 4 字节 CRC32，覆盖范围是 body（不含帧头）。此前 Android 侧与 PC
+媒体面**普遍不校验**，错位或脏数据会直接喂给解码器 / 注入器；现在六条收帧路径
+（手机被控、手机控制端、手机媒体通道、TV 控制面、TV 媒体通道、PC 媒体面）全部校验，
+**校验失败即丢弃该帧**。magic / 长度失配一律**逐字节前进重同步**（`off++`），
+**禁止整体丢弃缓冲** —— 整体丢弃会让一次错位连带丢掉后面所有合法帧（v1.7 前 Android
+侧就是整体丢弃，表现为"偶发整段输入失灵"）。
 ```
 
 承载约定：**统一控制面 TCP `9511`**（手机可服务端可客户端：被控模式手机做服务端、控设备模式手机做客户端），PC 主动连入；UDP `9501` 广播
@@ -431,7 +468,7 @@ PC `pc/host/src/media/media_session.cpp`。
 
 ## 5. 版本与兼容
 
-- 协议版本字段 `u16`，当前 **1.6**
+- 协议版本字段 `u16`，当前 **1.7**
 
 **变更记录**
 
@@ -451,6 +488,8 @@ PC `pc/host/src/media/media_session.cpp`。
 | **1.4** | §2.10 新增 **Report ID 2 触控板（Mouse TLC）**：6 字节相对位移鼠标报告，复用 v1.2 废弃的 Report ID 2 | HID 描述符结构（USB 1727B / 蓝牙 181B）、§2.10 新报告布局、Report ID 复用 | L1（描述符构造器 `buildTlcMouse`）、L3（端侧手势识别+采集）、L4（PC 端相对位移注入）、L5（控制面板配置项） | §2.5 Digitizer 是「绝对坐标」语义、跟手延迟预算高；触控板需要**极高延迟预算（≤10ms）+ 相对位移**，两套语义走 Windows 不同处理路径，混用会让光标在「跳转」与「拖动」之间反复横跳。独立 Mouse TLC（X/Y/Wheel/AC Pan 均为 `Data,Var,Relative`）是免驱识别为鼠标的唯一正确写法 |
 | **1.5** | 传感器 TLC（Report 1 与 7..15）的 Feature Report 补 **Sensor Status（usage 0x0304，8b）**，布局变为 `reportId(1)+state(1)+status(1)+sensitivity(2)+interval(4)` = 9B；低频 TLC 的 Input 数据字段从 Vendor Page 迁移至 **Sensor Page 标准 Data Field usage**（ILLUM 0x04D1、HUMAN_PRESENCE 0x04B1、ATM_PRESSURE 0x0430、ENV_TEMP 0x0434、ATM_HUMIDITY 0x0433、MAGN_FLUX 0x0485-87、TILT 0x047F-81、CUSTOM 0x0543/44） | Feature 布局（8B→9B，`ImuFeatureReport`）、描述符、GET_REPORT 登记载荷 | L1（描述符/布局）、L2（登记载荷） | **真机实测**：缺 Sensor Status 与 Vendor 页数据字段时，Windows `SensorsHIDClassDriver` 以 `STATUS_INVALID_PARAMETER` 拒绝全部传感器 TLC（Code 10）；依据微软《Sensor HID Class Driver》文档四项必需属性 + 数据字段必须在 Sensor Page |
 | **1.6** | 传感器 TLC 的 Feature Report 追加 **Power State（usage 0x0319，8b，D0=0）**，布局变为 `reportId(1)+state(1)+status(1)+sensitivity(2)+interval(4)+power(1)` = 10B；Report Interval 的 Logical Max 改 32 位语义 | Feature 布局（9B→10B，`ImuFeatureReport`）、GET_REPORT 登记载荷 | L1、L2（登记载荷） | 对齐微软《Sensor HID Class Driver》模板字段集（实测固件普遍声明 Power State）；Linux 头 `PROY_POWER_STATE 0x200319` 为权威 |
+| **1.7** | §3.3 补齐控制面命令表（0x04 / 0x07 / 0x10 / 0x20 / 0x21 / 0x22 / 0x25–0x28 与 `'p'` 心跳），并新增 §3.3.1 挂起语义、§3.3.2 半开检测、§3.3.3 CRC 与重同步 | 9511 统一控制面（手机 / TV / PC 三端） | L1、L2、L3、L4、L5 | 命令号此前只散落在代码与各端注释里，是"某方向偶尔不工作"类缺陷的主要来源（键码起始偏移、0x04 分发不一致、CRC 覆盖范围分歧都踩过）。现在由 `scripts/check_protocol.py` 在 CI 守着，**"有人发但没人收"直接报错** —— 0x22 在 PC 端的缺失就是它先发现的 |
+| **1.7** | 明确三条收帧纪律：① 接收侧**必须**校验尾部 CRC32；② magic / 长度失配一律**逐字节重同步**（禁止整体丢缓冲）；③ 被控端"挂起" = **保持连接**、只忽略输入类命令（心跳与 0x10 仍处理，否则"恢复"永远送不进来） | 六条收帧路径（手机被控 / 手机控制端 / 手机媒体 / TV 控制面 / TV 媒体 / PC 媒体面）与三端连接管理 | L2、L3、L4、L5 | 真机踩坑：不校验 CRC 时错位数据直接进解码器（花屏 / 乱点光标）；整体丢缓冲把一次错位放大成"整段输入失灵"；挂起若拒绝连接则控制端再也连不上（单向门） |
 - 手机端与 PC 端版本不一致时：高版本端必须兼容低版本字段集，未知扩展头按 `headerExtWords` 跳过
 
 ---
