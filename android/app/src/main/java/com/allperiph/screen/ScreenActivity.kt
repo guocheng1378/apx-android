@@ -120,7 +120,8 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     /** 待发的单击（延迟 250ms，等待可能的第二击组成双击） */
     private var pendingTap: Runnable? = null
     private var lastTapUpAt = 0L
-    private var lastTapNX = 0; private var lastTapNY = 0
+    /** 上一次轻点的落点（**手机像素**坐标；判定双击必须同单位，归一化值会差 60 倍） */
+    private var lastTapPxX = 0f; private var lastTapPxY = 0f
     private var downNormX = 0; private var downNormY = 0
 
     private fun buzz(ms: Long) {
@@ -233,6 +234,13 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         val y2 = e.getY(e.pointerCount - 1)
                         scrollAccum += y2 - prevTwoY
                         prevTwoY = y2
+                        // v184：滚动死区 —— 双指点按的手指轻颤幅度远小于 scrollStepPx，
+                        // 但旧的累计方式让微小颤动也可能滚出档位、吞掉右键判定。
+                        // 死区：累计量未越过半档之前一律视为"没在滚"，归零计。
+                        if (kotlin.math.abs(scrollAccum) < scrollStepPx / 2f) {
+                            scrollAccum = 0f
+                            true
+                        } else {
                         var sent = true
                         // 自然方向：手指上滑（acc 为负）= 内容上移 = 滚轮向前（+）
                         while (sent) {
@@ -246,6 +254,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                             scrolled = true
                         }
                         sent
+                        }
                     } else {
                         // 单指移动：MOVE 本身就是纯光标移动（PC 端 MOVE 忽略按键位）；
                         // 拖拽模式下左键已按着，MOVE 同样生效
@@ -279,8 +288,9 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                         val moved = hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) < tapSlopPx
                         if (moved && dur < 300) {
                             val now = android.os.SystemClock.uptimeMillis()
-                            val isDouble = now - lastTapUpAt < 350 &&
-                                hypot((downNormX - lastTapNX).toDouble(), (downNormY - lastTapNY).toDouble()) < tapSlopPx * 2
+                            // 双击判定用**手机像素**落点（与 tapSlopPx 同单位），窗口 400ms（对齐 Windows 500ms）
+                            val isDouble = now - lastTapUpAt < 400 &&
+                                hypot((downX - lastTapPxX).toDouble(), (downY - lastTapPxY).toDouble()) < tapSlopPx * 2
                             if (isDouble) {
                                 pendingTap?.let { view.removeCallbacks(it) }
                                 pendingTap = null
@@ -296,7 +306,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
                                     pendingTap = null
                                 }
                                 view.postDelayed(pendingTap, 250)
-                                lastTapUpAt = now; lastTapNX = downNormX; lastTapNY = downNormY
+                                lastTapUpAt = now; lastTapPxX = downX; lastTapPxY = downY
                             }
                         }
                         true
