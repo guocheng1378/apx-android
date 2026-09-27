@@ -100,6 +100,9 @@ class TvControlServer(
 
     fun stop() {
         running.set(false); outQueue.clear()
+        // v1.7：先把"抬起所有按键"排进注入队列，**再** quitSafely ——
+        // quitSafely 会先把已入队的任务跑完再退出，顺序反过来这次释放就丢了。
+        runCatching { injectHandler.post { releaseAllInputs() } }
         runCatching { injectThread.quitSafely() }   // v184：收掉注入线程
         runCatching { client?.close() }; runCatching { server?.close() }
         server = null; client = null; out = null; peerText = ""; ready = false
@@ -206,6 +209,9 @@ class TvControlServer(
             ready = false; client = null; out = null; peerText = ""; outQueue.clear()
             mainHandler.post { TvInputDispatcher.peer(false, "") }
             TvInjector.setConnected(false)
+            // v1.7：断链即归位输入状态（抬起仍按着的键 + 清按键集合）。
+            // 不做的后果见 releaseAllInputs 注释：残留按键 / 重连后第一次按键不生效。
+            runCatching { injectHandler.post { releaseAllInputs() } }
         }
         runCatching { sock.close() }
     }
@@ -323,6 +329,26 @@ class TvControlServer(
         for (u in prev) { if (u !in now) hidUp(u) }
         for (u in now) { if (u !in prev) hidDown(u) }
         synchronized(keysLock) { pressedKeys.clear(); pressedKeys.addAll(now) }
+    }
+
+    /**
+     * v1.7：**断链统一归位输入状态**（与 PC 侧 `Ctrl9511Server::releaseAllInputs` 对应）。
+     *
+     * 不做这一步会留下两类残留：
+     *   1) 按住某键时链路断了 —— 被控端那个键的注入状态一直是"按下"，不会自己抬起；
+     *   2) `pressedKeys` 与真实状态脱节 —— 重连后第一帧键盘按下会跟旧集合做差，
+     *      被判成"本来就是按下"，于是**第一次按键不生效**（要按两次）。
+     * 鼠标同理：左键停在按下会让被控端光标"粘住"。
+     *
+     * 注意：本函数走注入通道（root / 无障碍可能阻塞），必须在**注入线程**上执行，
+     * 所以调用方一律 `injectHandler.post { releaseAllInputs() }`。
+     */
+    private fun releaseAllInputs() {
+        val held = synchronized(keysLock) { HashSet(pressedKeys) }
+        synchronized(keysLock) { pressedKeys.clear() }
+        for (u in held) runCatching { hidUp(u) }
+        if (lastButtons and 0x01 != 0) runCatching { TvInjector.pressUp() }
+        lastButtons = 0
     }
 
     private fun hidDown(usage: Int) {
