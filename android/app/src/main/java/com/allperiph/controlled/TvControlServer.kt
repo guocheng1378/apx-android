@@ -263,11 +263,15 @@ class TvControlServer(
         TvInjector.gamepad(buttons, body[3].toInt().toByte().toInt(), body[4].toInt().toByte().toInt(), body[5].toInt().toByte().toInt(), body[6].toInt().toByte().toInt())
     }
 
+    /**
+     * 远程输入请求帧格式：[0x25, hintLen, hint...]
+     * 与 TvControllerClient.requestInput() 发送格式一致。
+     */
     private fun onRequestInput(body: ByteArray) {
-        if (body.size < 6) return
-        val hintLen = body[5].toInt() and 0xFF
-        if (body.size < 6 + hintLen) return
-        val hint = String(body.copyOfRange(6, 6 + hintLen), Charsets.UTF_8)
+        if (body.size < 2) return
+        val hintLen = body[1].toInt() and 0xFF
+        if (body.size < 2 + hintLen) return
+        val hint = String(body.copyOfRange(2, 2 + hintLen), Charsets.UTF_8)
         Log.i("被控控制面", "远程输入请求: hint=$hint")
         mainHandler.post { onRemoteInputRequest?.invoke(peerText, hint) }
     }
