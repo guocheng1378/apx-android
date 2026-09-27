@@ -40,7 +40,19 @@ class MainActivity : android.app.Activity() {
         content.addView(TextView(this).apply { text = TvServerService.current?.status() ?: "服务未启动"; setTextColor(Color.parseColor("#FF666666")); TvUi.applyTextSize(this, 13f); setPadding(0, TvUi.dp(this@MainActivity, 8f), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(-1, -2))
         setContentView(root)
-        overlay = RemoteInputOverlay(this, root, onTextChanged = { _, _ -> }, onSend = { }, onCancel = { })
+        overlay = RemoteInputOverlay(
+            activity = this,
+            rootLayout = root,
+            onTextChanged = { text, flags ->
+                TvServerService.current?.sendInputText(text, flags)
+            },
+            onSend = {
+                TvServerService.current?.sendInputDone()
+            },
+            onCancel = {
+                TvServerService.current?.sendInputDone()
+            }
+        )
         val filter = IntentFilter(TvServerService.ACTION_REMOTE_INPUT)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) registerReceiver(remoteInputReceiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(remoteInputReceiver, filter)
     }
