@@ -37,7 +37,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CJK = re.compile(r'[\u4e00-\u9fff]')
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 INTERP_SIMPLE = re.compile(r'(?<!\\)\$([A-Za-z_][A-Za-z0-9_]*)')
-INTERP_BRACE = re.compile(r'(?<!\\)\$\{([A-Za-z_][A-Za-z0-9_]*)\}')
+# ${表达式}：允许属性访问 / 函数调用 / 逗号等，但**不含引号与嵌套花括号**（那些留给人工，
+# 例如 ${if (running) "运行中" else "未运行"} —— 里面还有字面量，机械搬运会出错）
+INTERP_BRACE = re.compile(r'(?<!\\)\$\{([^"${}]+)\}')
+# 相邻字面量拼接：`"a" + "b"`（可跨行、可带缩进）。不合并的话它们永远进不了识别范围
+# （前一行的字面量后面跟着 `+`，会被当成"字符串拼接"跳过）
+ADJACENT = re.compile(r'"((?:[^"\\]|\\.)*)"[ \t]*\+[ \t]*(?:\r?\n[ \t]*)?"((?:[^"\\]|\\.)*)"')
 
 # 「行内前缀（到字面量左引号为止）的尾部 → 该字面量在 UI 里扮演的角色」
 TAIL_PATTERNS = [
@@ -206,9 +211,72 @@ class Migrator:
         return name
 
 
-def migrate_file(path: str, mg: Migrator):
-    with open(path, encoding='utf-8') as f:
-        lines = f.read().split('\n')
+def bad_escape(s: str) -> bool:
+    """除换行转义（反斜杠 n）之外的反斜杠转义在 XML 资源里行为不同，都留给人工。"""
+    return bool(re.search(r'\\(?!n)', s))
+
+
+def join_literals(text: str):
+    """把相邻字面量拼接合成一个（`"a" + "b"`，可跨行）。
+
+    纯字面量拼接在语义上就是一条文案；不合并的话它们永远进不了识别范围
+    （前一行的字面量后面跟着 `+`，会被当成"字符串拼接"跳过）。
+    只处理：至少一处含中文、且各部分不含 `$` / `%` / 除换行以外的转义。
+    返回 (新文本, 合并次数)。
+    """
+    count = 0
+    while True:
+        def _sub(m):
+            nonlocal count
+            a, b = m.group(1), m.group(2)
+            if not CJK.search(a + b) or any(c in (a + b) for c in ('$', '%')):
+                return m.group(0)
+            if bad_escape(a) or bad_escape(b):
+                return m.group(0)
+            count += 1
+            return '"%s%s"' % (a, b)
+        new = ADJACENT.sub(_sub, text)
+        if new == text:
+            return text, count
+        text = new
+
+
+def match_kind(s: str):
+    """按"尾部形态"判断这段前缀把字面量放在了 UI 的哪个位置。"""
+    for pat, kind in TAIL_PATTERNS:
+        if re.search(pat, s):
+            return kind
+    return None
+
+
+def kind_of(lines, i: int, start_col: int):
+    """本行前缀匹配不到时，往上找"参数列表开括号"那一行（多行调用写法）。
+
+    例：Toast.makeText( / this, / "连不上…" —— 字面量独自一行，本行没有上下文，
+    只能往上认领；往上只认"以 ( 结尾"的那一行，中途的 `,` 行跳过。
+    """
+    k = match_kind(lines[i][:start_col])
+    if k:
+        return k
+    j, hops = i, 0
+    while j > 0 and hops < 4:
+        j -= 1
+        s = lines[j]
+        if not s.strip():
+            continue
+        hops += 1
+        t = s.rstrip()
+        if t.endswith(','):
+            continue            # 还在参数列表中间，继续往上找
+        if t.endswith('('):
+            return match_kind(s)
+        return None             # 其它情况不猜，交人工
+    return None
+
+
+def migrate_file(path: str, mg: Migrator, source_text: str = None):
+    text = source_text if source_text is not None else open(path, encoding='utf-8').read()
+    lines = text.split('\n')
 
     prefix = os.path.basename(path).replace('.kt', '').replace('Activity', '').lower() or 'ui'
     skipped, migrated = [], []
@@ -241,7 +309,15 @@ def migrate_file(path: str, mg: Migrator):
                 skipped.append((i + 1, 'Log 内容', stripped))
                 ok_all = False
                 break
-            if '\\' in raw:
+            # 属性初始化（val/var，含 companion object 里的）拿不到 Context：
+            # 换成 getString 会直接编译不过 —— PAGE_TITLES / PAGE_SUBS 就这么翻过一次车。
+            # 局部的 val 也一并放过（保守），交人工。
+            if re.match(r'\s*(?:(?:private|internal|public|protected|override|lateinit|@\w+)\s+)*'
+                        r'(?:const\s+)?(?:val|var)\s+\w+', line):
+                skipped.append((i + 1, '属性初始化（可能没有 Context）', stripped))
+                ok_all = False
+                break
+            if bad_escape(raw):
                 skipped.append((i + 1, '含反斜杠转义', stripped))
                 ok_all = False
                 break
@@ -250,10 +326,10 @@ def migrate_file(path: str, mg: Migrator):
                 ok_all = False
                 break
             if line[end:].lstrip().startswith('+') or line[:start].rstrip().endswith('+'):
-                skipped.append((i + 1, '字符串拼接', stripped))
+                skipped.append((i + 1, '字符串拼接（含变量）', stripped))
                 ok_all = False
                 break
-            kind = next((k for pat, k in TAIL_PATTERNS if re.search(pat, line[:start])), None)
+            kind = kind_of(lines, i, start)
             if kind is None:
                 skipped.append((i + 1, '非 UI 调用形态', stripped))
                 ok_all = False
@@ -269,8 +345,10 @@ def migrate_file(path: str, mg: Migrator):
                     args.append(ident)
                 return '%' + str(seen[ident]) + '$s'
 
-            value = INTERP_BRACE.sub(_sub, raw)
-            value = INTERP_SIMPLE.sub(_sub, value)
+            # 顺序要紧：先 $x、再 ${表达式}。反过来的话，${} 生成出来的 %1$s 里那个 "$s"
+            # 会被 SIMPLE 规则再吃一遍，变成 %1%2$s —— 格式串直接坏掉（预览时抓到过一次）。
+            value = INTERP_SIMPLE.sub(_sub, raw)
+            value = INTERP_BRACE.sub(_sub, value)
             # 检查是否还有没被处理掉的模板：先把合法的 %N$s 摘掉再看 $，否则会误判自己插入的占位符
             leftover = re.sub(r'%\d+\$s', '', value)
             if '${' in value or re.search(r'(?<!\\)\$', leftover):
@@ -328,6 +406,7 @@ def ensure_r_import(path: str, module: str) -> bool:
 
 def main():
     apply = '--apply' in sys.argv
+    do_join = '--no-join' not in sys.argv
     files = [a for a in sys.argv[1:] if not a.startswith('--')]
     if not files:
         print(__doc__)
@@ -342,9 +421,13 @@ def main():
             print('!! 无法判断模块（路径需含 android/app 或 android/tv）: %s' % rel)
             continue
         mg = migrators.setdefault(module, Migrator(module))
-        lines, migrated, skipped = migrate_file(path, mg)
+        text = open(path, encoding='utf-8').read()
+        joined = 0
+        if do_join:
+            text, joined = join_literals(text)
+        lines, migrated, skipped = migrate_file(path, mg, text)
         print('=== %s ===' % rel)
-        print('  可迁移 %d 条，跳过 %d 行' % (len(migrated), len(skipped)))
+        print('  合并相邻拼接 %d 处；可迁移 %d 条，跳过 %d 行' % (joined, len(migrated), len(skipped)))
         for ln, name, value in migrated:
             print('    %5d  %-44s %s' % (ln, name, value))
         if skipped:

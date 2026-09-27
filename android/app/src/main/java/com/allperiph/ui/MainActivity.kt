@@ -673,8 +673,8 @@ class MainActivity : Activity() {
     private fun showPage(i: Int) {
         if (!::pager.isInitialized) return
         pager.displayedChild = i
-        tvPageTitle.text = PAGE_TITLES[i]
-        tvPageSub.text = PAGE_SUBS[i]
+        tvPageTitle.text = getString(PAGE_TITLES[i])
+        tvPageSub.text = getString(PAGE_SUBS[i])
         if (i == PAGE_TOUCHPAD) renderChips()
         tabViews.indices.forEach { k ->
             val on = TAB_PAGES[k] == i
@@ -965,7 +965,7 @@ class MainActivity : Activity() {
         if (!::touchHint.isInitialized) return
         // 提示行在滑动开始后会被收起（见 onTouchEvent），这里顺手恢复可见
         touchHint.visibility = android.view.View.VISIBLE
-        val base = if (ControlTarget.isControlling()) "正在控制：${ControlTarget.label}" else "手势操控本机"
+        val base = if (ControlTarget.isControlling()) getString(R.string.ui_main_text_x, ControlTarget.label) else getString(R.string.ui_main_text_local)
         val desc = displayUplinkHint()
         touchHint.text = if (displayUplinkPath() == Uplink.NONE) "⚠ $base · $desc" else "$base · $desc"
         tvStatusView?.text = if (ControlTarget.isControlling()) {
@@ -1103,7 +1103,7 @@ class MainActivity : Activity() {
             snap.takeLast(120).joinToString("\n") { e -> "${e.level} ${e.tag}: ${e.msg}" }
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
-            .setTitle("运行日志（最近 ${minOf(snap.size, 120)} 条）")
+            .setTitle(getString(R.string.ui_main_dialog_log, minOf(snap.size, 120)))
             .setMessage(text)
             .setPositiveButton(getString(R.string.ui_common_close), null)
             .show()
@@ -1158,12 +1158,10 @@ class MainActivity : Activity() {
         // 说人话：不出现 HID / evdev / root 通道 / 注入通道 这些实现词。
         // 用户只需要知道"按下去会发生什么、什么情况下不生效、为什么"。
         val lines = listOf(
-            "方向 / OK / 返回 / 主页：连上 TV 或电脑后自动生效，主页的触控板与快捷键条会一起发过去",
-            "方向键是真的方向键：正常情况下它会像实体遥控一样移动对方屏幕上的焦点；" +
-                    "如果那台设备只允许「点按控制」，方向键就只会移动光标 —— 它的界面上会写清是哪种",
-            "OK = 回车，返回 = Esc，主页 = Home。对方显示「点不动」时说明它还没开权限，不是没连上",
-            "音量 / 电源：键盘页「遥控」布局第三行有「电源 / 关机 / 重启」" +
-                    "（关机与重启需要对方有 root，点了会先弹确认框；没有 root 只会退回待机）",
+            getString(R.string.ui_main_item_hotkey_touchpad_home),
+            getString(R.string.ui_main_item_remote_device_only_cursor),
+            getString(R.string.ui_main_item_perm_no_home),
+            getString(R.string.ui_main_item_remote_keyboard_reboot_poweroff),
             "切到 TV 目标时，触摸板下方的快捷键条自动切换为「TV 遥控」预设，可长按编辑、改动单独保存",
         )
         lines.forEach { t ->
@@ -1226,7 +1224,7 @@ class MainActivity : Activity() {
         // 折叠状态下也要一眼看见"现在挂的是哪一套、几条"
         tvTemplateCurrent.text = HotkeyTemplates.byKey(current)
             ?.let { "${it.name} · ${hotkeyBoard.shortcuts.size} 项" }
-            ?: "自定义 · ${hotkeyBoard.shortcuts.size} 项"
+            ?: getString(R.string.ui_main_text_x_2, hotkeyBoard.shortcuts.size)
         (HotkeyTemplates.ALL + customTemplates).forEach { t ->
             val on = t.key == current
             val custom = t.key.startsWith(customPrefix)
@@ -1252,7 +1250,7 @@ class MainActivity : Activity() {
 
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             col.addView(TextView(this).apply {
-                text = if (custom) "${t.name} · 自建" else t.name
+                text = if (custom) getString(R.string.ui_main_text_x_3, t.name) else t.name
                 textSize = 15f
                 setTextColor(tc)
                 typeface = Typeface.DEFAULT_BOLD
@@ -1265,7 +1263,7 @@ class MainActivity : Activity() {
             row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
 
             row.addView(TextView(this).apply {
-                text = if (on) "已应用" else "${t.combos.size} 项"
+                text = if (on) getString(R.string.ui_main_text_done) else getString(R.string.ui_main_text_x_4, t.combos.size)
                 textSize = 12f
                 setTextColor(if (on) tc else resources.getColor(R.color.md_on_surface_variant))
             })
@@ -1342,7 +1340,7 @@ class MainActivity : Activity() {
         }
         box.addView(colorRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
         box.addView(TextView(this).apply {
-            text = "内容取当前快捷键条（共 ${hotkeyBoard.shortcuts.size} 项），建好后仍可在触控板页逐条改"
+            text = getString(R.string.ui_main_text_hotkey_touchpad, hotkeyBoard.shortcuts.size)
             textSize = 12f
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
@@ -1384,7 +1382,7 @@ class MainActivity : Activity() {
     private fun confirmDeleteTemplate(t: HotkeyTemplates.Template) {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(getString(R.string.ui_main_dialog_template_delete))
-            .setMessage("删除「${t.name}」？快捷键条上的内容不受影响。")
+            .setMessage(getString(R.string.ui_main_dialog_hotkey_delete, t.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
                 customTemplates.removeAll { it.key == t.key }
                 HotkeyStore.saveCustom(this, customTemplates)
@@ -1654,7 +1652,7 @@ class MainActivity : Activity() {
         )
         fxBox.addView(
             settingRow(
-                "自定义键盘", if (KeyPref.customRows(this) == null) "未配置" else "已配置", accent
+                getString(R.string.ui_main_label_keyboard), if (KeyPref.customRows(this) == null) getString(R.string.ui_main_text_not_2) else getString(R.string.ui_main_text_done_3), accent
             ) {
                 CustomKeyboardDialog.show(this) { recreate() }
             }
@@ -2148,12 +2146,22 @@ class MainActivity : Activity() {
          *  由「遥控器」页的「选择设备」使用 —— 见 [maybePickDevice]。 */
         const val EXTRA_PICK_DEVICE = "apx_pick_device"
 
-        private val PAGE_TITLES = arrayOf("触控板", "键盘", "状态", "设置")
-        private val PAGE_SUBS = arrayOf(
-            "滑动控制光标 · 快捷键轻点发送 / 长按按住",
-            "8 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义",
-            "启动开关 · 启动后显示链路与运行状态",
-            "模板与排序 · 功能开关 · 主题 · 维护",
+        /**
+         * 页面标题 / 副标题：存**资源 ID** 而不是字符串。
+         * companion object 里没有 Context，在这儿直接 getString 编译不过（这里翻过一次车）；
+         * 真正的取字符串放在有 Context 的 [showPage] 里做。
+         */
+        private val PAGE_TITLES = intArrayOf(
+            R.string.ui_main_item_touchpad,        // 触控板
+            R.string.ui_touchpad_label_keyboard,   // 键盘
+            R.string.ui_page_state,                // 状态
+            R.string.section_settings,             // 设置
+        )
+        private val PAGE_SUBS = intArrayOf(
+            R.string.ui_main_item_hotkey_send_cursor_swipe,
+            R.string.ui_touchpad_label_remote,
+            R.string.ui_main_item_state,
+            R.string.ui_main_item_template_theme,
         )
     }
 }

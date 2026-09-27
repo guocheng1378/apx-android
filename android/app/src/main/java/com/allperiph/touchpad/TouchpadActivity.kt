@@ -595,7 +595,7 @@ class TouchpadActivity : Activity() {
         }
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
-            .setMessage("当前：${inj.channelText()}\n\n$lines")
+            .setMessage(getString(R.string.ui_touchpad_dialog_x, lines, inj.channelText()))
             .setPositiveButton(getString(R.string.ui_common_close), null)
             .show()
     }
@@ -1030,7 +1030,7 @@ class TouchpadActivity : Activity() {
         val ready = ControlTarget.isControlling()
         // 出口一并显示：点不动时先看这里到底"发去哪了"。注意本页不订阅事件（无 disposables），
         // 所以这里展示的是**刷新那一刻**的出口；实时显示在主界面顶栏徽章与触控板提示行。
-        c.text = (if (ready) "被控设备 · ${ControlTarget.label}" else ControlTarget.label) +
+        c.text = (if (ready) getString(R.string.ui_touchpad_text_device_2, ControlTarget.label) else ControlTarget.label) +
             " · ${com.allperiph.core.Uplink.hint()}"
         c.setTextColor(if (ready) cAccent else cText2)
         fileBtn?.visibility = if (ready) View.VISIBLE else View.GONE

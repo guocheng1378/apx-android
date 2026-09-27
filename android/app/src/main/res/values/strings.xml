@@ -25,6 +25,8 @@
     <string name="app_name">全能外设</string>
 
     <string name="section_settings">设置</string>
+    <!-- 底部导航页名（触控板 / 键盘 / 状态 / 设置）：另三个复用上面的既有资源 -->
+    <string name="ui_page_state">状态</string>
 
     <string name="common_unknown">未知</string>
     <string name="common_ok">正常</string>
@@ -83,7 +85,7 @@
     <string name="ui_main_dialog_exit">退出全能外设？</string>
     <string name="ui_common_exit">退出</string>
     <string name="ui_common_cancel">取消</string>
-    <string name="ui_main_toast_done">已连 %1$s</string>
+    <string name="ui_main_toast_done">已连上 %1$s</string>
     <string name="ui_main_item_local">本机 / PC（默认）</string>
     <string name="ui_main_item_device">（正在搜索设备…）</string>
     <string name="ui_main_item_input_manual">手动输入 TV IP…</string>
@@ -147,9 +149,9 @@
     <string name="ui_touchpad_text_hotkey">常用快捷键</string>
     <string name="ui_common_edit">编辑</string>
     <string name="ui_touchpad_toast_device_connect_not">还没连上手机</string>
-    <string name="ui_touchpad_dialog_device">%1$s 被控设备？</string>
+    <string name="ui_touchpad_dialog_device">要对那台设备执行「%1$s」吗？</string>
     <string name="ui_touchpad_dialog_no_only_need">会直接对那台设备执行「%1$s」（需要它有 root；没有 root 只会退回待机）。</string>
-    <string name="ui_touchpad_toast_send_done">已发送%1$s 指令</string>
+    <string name="ui_touchpad_toast_send_done">已发送「%1$s」指令</string>
     <string name="ui_touchpad_dialog_selftest_channel_inject">权限自检</string>
     <string name="ui_touchpad_text_edit_longpress">长按「自定义」页签编辑布局</string>
     <string name="ui_touchpad_text_screen">副屏（显示）</string>
@@ -210,5 +212,28 @@
     <string name="ui_touchpad_text_controlled_ok">被控 ✓</string>
     <string name="ui_touchpad_text_send_failed">发送失败 —— 确认两边还连着，再试一次</string>
     <string name="ui_touchpad_text_clipboard_send_done">已发送剪贴板</string>
+    <!-- ↑↑↑ 迁入结束 ↑↑↑ -->
+
+    <!-- ↓↓↓ 从 Kotlin 迁入（scripts/kotlin_i18n.py）↓↓↓ -->
+    <string name="ui_main_text_x">正在控制：%1$s</string>
+    <string name="ui_main_text_local">手势操控本机</string>
+    <string name="ui_main_dialog_log">运行日志（最近 %1$s 条）</string>
+    <string name="ui_main_item_hotkey_touchpad_home">方向 / OK / 返回 / 主页：连上 TV 或电脑后自动生效，主页的触控板与快捷键条会一起发过去</string>
+    <string name="ui_main_item_remote_device_only_cursor">方向键是真的方向键：正常情况下它会像实体遥控一样移动对方屏幕上的焦点；如果那台设备只允许「点按控制」，方向键就只会移动光标 —— 它的界面上会写清是哪种</string>
+    <string name="ui_main_item_perm_no_home">OK = 回车，返回 = Esc，主页 = Home。对方显示「点不动」时说明它还没开权限，不是没连上</string>
+    <string name="ui_main_item_remote_keyboard_reboot_poweroff">音量 / 电源：键盘页「遥控」布局第三行有「电源 / 关机 / 重启」（关机与重启需要对方有 root，点了会先弹确认框；没有 root 只会退回待机）</string>
+    <string name="ui_main_text_x_2">自定义 · %1$s 项</string>
+    <string name="ui_main_text_x_3">%1$s · 自建</string>
+    <string name="ui_main_text_x_4">%1$s 项</string>
+    <string name="ui_main_text_hotkey_touchpad">内容取当前快捷键条（共 %1$s 项），建好后仍可在触控板页逐条改</string>
+    <string name="ui_main_dialog_hotkey_delete">删除「%1$s」？快捷键条上的内容不受影响。</string>
+    <string name="ui_main_label_keyboard">自定义键盘</string>
+    <string name="ui_main_text_not_2">未配置</string>
+    <string name="ui_main_text_done_3">已配置</string>
+    <string name="ui_main_item_hotkey_send_cursor_swipe">滑动控制光标 · 快捷键轻点发送 / 长按按住</string>
+    <string name="ui_main_item_state">启动开关 · 启动后显示链路与运行状态</string>
+    <string name="ui_main_item_template_theme">模板与排序 · 功能开关 · 主题 · 维护</string>
+    <string name="ui_touchpad_dialog_x">现在的控制方式：%2$s\n\n%1$s</string>
+    <string name="ui_touchpad_text_device_2">被控设备 · %1$s</string>
     <!-- ↑↑↑ 迁入结束 ↑↑↑ -->
 </resources>
