@@ -19,6 +19,9 @@
 //       0x20 剪贴板 [1..2]=u16 len LE [3..]=UTF-8（控制端 → 受控端）
 //       0x21 反向剪贴板（受控端 → 控制端，受控端系统剪贴板变化时回传）
 //       0x07 手柄   [1..2]=u16 按钮位图(LE) [3]=左摇杆X(i8) [4]=Y [5]=右摇杆RX [6]=RY
+//       0x25 请求输入（控制端 → 受控端）[1]=hintLen [2..]=UTF-8 提示文本
+//       0x26 输入文本（受控端 → 控制端）[1]=flags [2..3]=textLen LE [4..]=UTF-8 文本
+//       0x27 输入完成（受控端 → 控制端）无 payload
 //       'p'  ping（控制端 1s 心跳）；受控端回 'pong'
 //   * 发现信标：受控端每 1.5s 向 9501 广播
 //       "APX1TV|APX1PC|APX1PH <name> <port> <token>"（UTF-8；前缀 = 电视 / PC / 手机被控），
@@ -103,6 +106,9 @@ struct Ctrl9511ServerStatus {
     uint64_t clipboard = 0;
     uint64_t reverseClipboard = 0;
     uint64_t dropped = 0;
+    uint64_t requestInput = 0;
+    uint64_t inputText = 0;
+    uint64_t inputDone = 0;
 };
 
 class Ctrl9511Server {
@@ -118,10 +124,18 @@ public:
     /// 注册反向剪贴板回调：本机剪贴板变化时，自动回传给控制端。
     void setReverseClipboardEnabled(bool on) { reverseClipboard_ = on; }
 
+    /// 远程输入回调：受控端收到手机发来的远程输入请求/文本/完成信号
+    void setOnRequestInput(std::function<void(const std::string&)> cb) { onRequestInput_ = std::move(cb); }
+    void setOnRemoteInputText(std::function<void(const std::string&, uint8_t)> cb) { onRemoteInputText_ = std::move(cb); }
+    void setOnRemoteInputDone(std::function<void()> cb) { onRemoteInputDone_ = std::move(cb); }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
     bool reverseClipboard_ = true;
+    std::function<void(const std::string&)> onRequestInput_;
+    std::function<void(const std::string&, uint8_t)> onRemoteInputText_;
+    std::function<void()> onRemoteInputDone_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----
@@ -135,6 +149,9 @@ struct Ctrl9511ClientStatus {
     uint64_t keyboard = 0;
     uint64_t consumer = 0;
     uint64_t dropped = 0;
+    uint64_t requestInput = 0;
+    uint64_t inputText = 0;
+    uint64_t inputDone = 0;
 };
 
 class Ctrl9511Client {
@@ -156,6 +173,13 @@ public:
     /// 发送剪贴板文本到受控端（body=[0x20,lenLo,lenHi,utf8]）。空文本忽略。
     bool sendClipboard(const std::string& text);
 
+    /// 远程输入：请求对端设备输入文本。hint 为提示信息（如"请输入密码"）。
+    bool sendRequestInput(const std::string& hint);
+    /// 远程输入：向对端发送输入的文本。flags 见 PROTOCOL（0x01=增量 0x04=完整 0x08=取消）。
+    bool sendInputText(const std::string& text, uint8_t flags = 0x04);
+    /// 远程输入：通知对端输入完成。
+    bool sendInputDone();
+
     /// 发送任意控制帧本体（含 cmd 字节）；用于扩展帧（如副屏 0x06 关键帧请求）。
     /// 受控端不识别的 cmd 会忽略，调用方无需关心。
     bool sendControl(const std::vector<uint8_t>& body);
@@ -165,6 +189,13 @@ public:
 
     /// 反向剪贴板回调：受控端剪贴板变化时回传（写入本机剪贴板由调用方决定）。
     std::function<void(const std::string&)> onReverseClipboard;
+
+    /// 远程输入回调：对端请求我输入文本时触发（hint=提示语）
+    std::function<void(const std::string&)> onRequestInput;
+    /// 远程输入回调：对端发回的输入文本（text=文本, flags=标志位）
+    std::function<void(const std::string&, uint8_t)> onRemoteInputText;
+    /// 远程输入回调：对端输入完成
+    std::function<void()> onRemoteInputDone;
 
 private:
     struct Impl;
