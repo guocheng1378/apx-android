@@ -409,20 +409,28 @@ void MediaSession::writerLoop() {
 bool MediaSession::sendAllBlocking(const uint8_t* p, size_t n) {
 #if defined(_WIN32)
     size_t sent = 0;
+    // v184 fix("副屏老是断"): the 50ms SO_SNDTIMEO is only the yield granularity of a
+    // single send() call, NOT a link-down verdict. Previously one congestion timeout
+    // returned false and writerLoop tore the session down, so every WiFi hiccup
+    // caused a reconnect cycle every ~3s. Now congestion retries **within the same
+    // frame** for up to 5s: cSendTimeouts_ still feeds ABR to lower the bitrate,
+    // and frame alignment is preserved (peer clears rx buffer on reconnect).
+    const ULONGLONG deadline = GetTickCount64() + 5000;
     while (sent < n) {
         const int r = ::send(sock_, reinterpret_cast<const char*>(p) + sent,
                              static_cast<int>(n - sent), 0);
-        if (r <= 0) {
-            // ★ 拥塞信号：我们给 socket 设了 50ms 发送超时，所以这里返回 -1 且 errno 是
-            //   WSAEWOULDBLOCK/WSAETIMEDOUT，含义就是"内核发送缓冲已满、网络吃不下当前码率"。
-            //   自适应码率（ABR）唯一的反馈就来自这个计数 —— 以前这里只是 return false，
-            //   上层只能把它当成"链路失效"，无从区分"链路断了"和"只是码率给高了"。
-            const int e = WSAGetLastError();
-            if (e == WSAEWOULDBLOCK || e == WSAETIMEDOUT || e == WSAENOBUFS)
-                cSendTimeouts_.fetch_add(1, std::memory_order_relaxed);
-            return false;
+        if (r > 0) {
+            sent += static_cast<size_t>(r);
+            continue;
         }
-        sent += static_cast<size_t>(r);
+        const int e = WSAGetLastError();
+        if (e == WSAEWOULDBLOCK || e == WSAETIMEDOUT || e == WSAENOBUFS) {
+            cSendTimeouts_.fetch_add(1, std::memory_order_relaxed);
+            if (GetTickCount64() > deadline) return false;   // congested for 5s: give up
+            Sleep(2);                                        // yield to kernel buffer
+            continue;
+        }
+        return false;                                        // real error: reset/unreachable
     }
     return true;
 #else
