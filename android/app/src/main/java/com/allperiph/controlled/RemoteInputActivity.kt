@@ -67,6 +67,67 @@ class RemoteInputActivity : Activity() {
         }
         editText = input
         root.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+
+        // v184：内嵌触控板 —— 输入的同时直接移动 PC 光标，不用退出输入面板。
+        // 手势 → 0x01 鼠标帧经被控控制面上行（与触摸板模块同一链路）：
+        //   滑动 = 移动光标（相对位移，分帧限幅 ±127）
+        //   轻点 = 左键点击（按下/抬起两帧）
+        //   长按 400ms 后拖动 = 左键拖拽
+        fun mouseFrame(buttons: Int, dx: Int, dy: Int) {
+            ControlledService.server?.sendControl(byteArrayOf(0x01.toByte(), buttons.toByte(), dx.toByte(), dy.toByte(), 0))
+        }
+        var tpDown = false; var tpDrag = false
+        var tpLastX = 0f; var tpLastY = 0f
+        var tpDownAt = 0L
+        val touchpad = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(Color.parseColor("#FF2A2A3E"))
+            addView(TextView(this@RemoteInputActivity).apply {
+                text = "触控板 · 滑动移动光标 / 轻点左键 / 长按拖拽"
+                setTextColor(Color.parseColor("#66FFFFFF")); textSize = 12f
+                gravity = Gravity.CENTER
+            }, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+        }
+        val dragArm = Runnable {
+            if (tpDown && !tpDrag) { tpDrag = true; mouseFrame(0x01, 0, 0) }
+        }
+        touchpad.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    tpDown = true; tpDrag = false; tpDownAt = android.os.SystemClock.uptimeMillis()
+                    tpLastX = e.x; tpLastY = e.y
+                    v.removeCallbacks(dragArm); v.postDelayed(dragArm, 400)
+                    true
+                }
+                android.view.MotionEvent.ACTION_MOVE -> if (tpDown) {
+                    var dx = (e.x - tpLastX).toInt(); var dy = (e.y - tpLastY).toInt()
+                    tpLastX = e.x; tpLastY = e.y
+                    // 位移限幅 ±127（i8 帧格式），大幅移动分帧发
+                    while (dx != 0 || dy != 0) {
+                        val sx = dx.coerceIn(-127, 127); val sy = dy.coerceIn(-127, 127)
+                        mouseFrame(if (tpDrag) 0x01 else 0x00, sx, sy)
+                        dx -= sx; dy -= sy
+                    }
+                    true
+                } else false
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    val cancelled = e.actionMasked == android.view.MotionEvent.ACTION_CANCEL
+                    v.removeCallbacks(dragArm)
+                    if (tpDown) {
+                        val dur = android.os.SystemClock.uptimeMillis() - tpDownAt
+                        val moved = kotlin.math.hypot((e.x - tpLastX).toDouble(), (e.y - tpLastY).toDouble()) < dp(12f)
+                        if (!tpDrag && !cancelled && moved && dur < 300) {
+                            mouseFrame(0x01, 0, 0); mouseFrame(0x00, 0, 0)   // 轻点 = 左键点击
+                        } else {
+                            mouseFrame(0x00, 0, 0)                            // 抬起/取消 = 松开左键
+                        }
+                    }
+                    tpDown = false; tpDrag = false
+                    true
+                }
+                else -> false
+            }
+        }
+        root.addView(touchpad, LinearLayout.LayoutParams(-1, dp(170f)).apply { bottomMargin = dp(10f) })
         // v184：文字编辑快捷键排 —— 退格/方向/跳转/组合键经 0x28 特殊键帧直达 PC
         // （手机输入框只负责新增文本；对 PC 上已有内容的修改全走这里）
         fun editKey(label: String, mod: Int, vk: Int) = TextView(this).apply {
