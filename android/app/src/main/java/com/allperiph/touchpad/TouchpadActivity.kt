@@ -92,11 +92,15 @@ class TouchpadActivity : Activity() {
     /** 页签视图对：图标按选中态染色 */
     private class Tab(val icon: ImageView, val label: TextView)
 
-    private val pages = listOf(
-        Page(getString(R.string.ui_main_item_touchpad), getString(R.string.ui_touchpad_label_hotkey_edit_longpress), R.drawable.ic_apx_touchpad),
-        Page(getString(R.string.ui_touchpad_label_keyboard), getString(R.string.ui_touchpad_label_remote), R.drawable.ic_apx_keyboard),
-        Page(getString(R.string.notify_action_screen), getString(R.string.ui_touchpad_label_screen), R.drawable.ic_apx_power),
-    )
+    // **必须 lazy**：属性初始化器在 Activity 构造阶段执行，那时 Context 还没 attach，
+    // getString 会直接 NPE —— 症状就是"全屏操控面点不进去"（v186 回归，v187 修）。
+    private val pages by lazy {
+        listOf(
+            Page(getString(R.string.ui_main_item_touchpad), getString(R.string.ui_touchpad_label_hotkey_edit_longpress), R.drawable.ic_apx_touchpad),
+            Page(getString(R.string.ui_touchpad_label_keyboard), getString(R.string.ui_touchpad_label_remote), R.drawable.ic_apx_keyboard),
+            Page(getString(R.string.notify_action_screen), getString(R.string.ui_touchpad_label_screen), R.drawable.ic_apx_power),
+        )
+    }
 
     /** 键盘页的 7 套布局（对应 kbPager 的 7 个 child，数据见 ui/KeyLayouts） */
     private val kbNames = listOf("快捷", "遥控", "游戏", "数字", "九宫格", "方向", "F 区", "自定义")
