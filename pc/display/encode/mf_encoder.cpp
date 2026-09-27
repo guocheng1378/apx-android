@@ -130,7 +130,10 @@ public:
         lastError_.clear();
 
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        comInitialized_ = SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE;
+        // v184：只有**真正初始化成功**才标记。旧写法把 RPC_E_CHANGED_MODE
+        // （本线程已用其它套间模型初始化过，我们并未新增引用）也算进来，
+        // 于是 shutdown 里的补偿性 CoUninitialize 会多减一次引用。
+        comInitialized_ = SUCCEEDED(hr);
 
         // v1.10 修复：此前从未调用 MFStartup——MF 平台未初始化时 MFTEnumEx/
         // SetInputType 全部失败（真机验证：--list-encoders 报 SetInputType(NV12) 失败）。
@@ -262,6 +265,10 @@ public:
         eventGen_.Reset();
         ready_ = false;
         if (mfStarted_) { MFShutdown(); mfStarted_ = false; }
+        // v184：补上 CoUninitialize。configure() 每次都会 CoInitializeEx，却从不反初始化 ——
+        // 每重建一次编码器（切分辨率 / 断流重连）就泄漏一个 COM 套间引用。
+        // 顺序：先 MFShutdown（其内部可能依赖 COM）再 CoUninitialize。
+        if (comInitialized_) { ::CoUninitialize(); comInitialized_ = false; }
     }
 
     std::string lastError() const override { return lastError_; }
@@ -437,7 +444,11 @@ private:
         buffer->SetCurrentLength(static_cast<DWORD>(size));
         buffer->Unlock();
 
-        MFCreateSample(&sample);
+        // v184：必须判返回值 —— 失败时 sample 为空，下一行 AddBuffer 就是空指针解引用（崩溃）
+        if (FAILED(MFCreateSample(&sample)) || !sample) {
+            lastError_ = "MFCreateSample 失败（输入样本）";
+            return false;
+        }
         sample->AddBuffer(buffer.Get());
         sample->SetSampleTime(ptsNs / 100);  // MF 时间单位 100ns
         sample->SetSampleDuration(10000000 / (params_.frameRateX100 / 100));

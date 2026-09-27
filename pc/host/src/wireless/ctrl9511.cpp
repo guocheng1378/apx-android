@@ -140,6 +140,9 @@ struct Ctrl9511Server::Impl {
     std::thread readerThread;
     std::thread writerThread;
     std::thread beaconThread;
+    // v184：握手线程 —— 握手最长要等 5s 超时，不能占着 accept 线程（期间无法接受
+    // 新连接，慢连接或恶意连接就能把监听卡住）。用"先 join 上一个"保证串行。
+    std::thread hsThread;
 
     std::mutex writeMu;
     std::condition_variable writeCv;
@@ -203,7 +206,10 @@ struct Ctrl9511Server::Impl {
                 }
                 clientFd = c;
             }
-            handshake(c);
+            // v184：握手移出 accept 线程（见 hsThread 注释）。先 join 上一个握手线程
+            // 保证串行，避免并发握手同时改写 readerThread / writerThread 等成员。
+            if (hsThread.joinable()) hsThread.join();
+            hsThread = std::thread([this, c] { handshake(c); });
         }
     }
 
@@ -530,6 +536,8 @@ void Ctrl9511Server::stop() {
       if (impl_->clientFd != kBadSock) { shutdown(impl_->clientFd, 0); closeSock(impl_->clientFd); } }
     if (impl_->clip) impl_->clip->stop();
     if (impl_->acceptThread.joinable()) impl_->acceptThread.join();
+    // v184：accept 退出后再收握手线程（它由 accept 线程创建）
+    if (impl_->hsThread.joinable()) impl_->hsThread.join();
     if (impl_->readerThread.joinable()) impl_->readerThread.join();
     if (impl_->writerThread.joinable()) impl_->writerThread.join();
     if (impl_->beaconThread.joinable()) impl_->beaconThread.join();
@@ -568,7 +576,9 @@ struct Ctrl9511Client::Impl {
     std::atomic<uint32_t> seq_{1};
     std::thread readerThread;
     std::thread pingThread;
-    uint64_t dropped = 0;
+    // v184：reader 线程自增、status() 从调用方线程读 —— 裸 uint64_t 是数据竞争，
+    // 改为原子（与 Ctrl9511Server 侧的计数方式一致）。
+    std::atomic<uint64_t> dropped{0};
 
     // 注入计数（发送线程累加，status() 按值返回）
     std::atomic<uint64_t> aMouse_{0}, aTouch_{0}, aKeyboard_{0}, aConsumer_{0};
@@ -872,7 +882,7 @@ Ctrl9511ClientStatus Ctrl9511Client::status() const {
         s.touch = impl_->aTouch_.load();
         s.keyboard = impl_->aKeyboard_.load();
         s.consumer = impl_->aConsumer_.load();
-        s.dropped = impl_->dropped;
+        s.dropped = impl_->dropped.load();
         s.rttMs = impl_->rttMs_.load();
         s.requestInput = impl_->aRequestInput_.load();
         s.inputText = impl_->aInputText_.load();

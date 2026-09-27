@@ -69,6 +69,10 @@ class TvControlServer(
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
+    // v184：pressedKeys 会被**握手线程**（activate 里 clear）与**主线程**
+    // （onKeyboard 里遍历/改写）同时访问，裸 HashSet 竞态会导致漏释放（按键卡住）
+    // 甚至遍历时抛 ConcurrentModificationException。所有访问纳入同一把锁。
+    private val keysLock = Any()
     private val pressedKeys = HashSet<Int>()
     private var lastButtons = 0
 
@@ -139,7 +143,8 @@ class TvControlServer(
         val prev = client
         if (prev != null && prev !== sock) runCatching { prev.close() }
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
-        synchronized(rxLock) { rxLen = 0 }; outQueue.clear(); pressedKeys.clear(); lastButtons = 0; ready = true
+        synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+        synchronized(keysLock) { pressedKeys.clear() }; lastButtons = 0; ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
         mainHandler.post { TvInputDispatcher.peer(true, peerText) }
         TvInjector.setConnected(true)
@@ -300,14 +305,17 @@ class TvControlServer(
         val end = if (body.size < 9) body.size else 9
         for (i in 3 until end) { val usage = body[i].toInt() and 0xFF; if (usage != 0) now.add(usage) }
         if (mod and 8 != 0 && now == HashSet(listOf(0x0F))) {
-            pressedKeys.clear()
+            synchronized(keysLock) { pressedKeys.clear() }
             if (RootInput.available) RootInput.run("input keyevent 26") else ApxAccessibilityService.instance?.lockScreen()
             return
         }
         for (bit in 0 until 8) { if (mod and (1 shl bit) != 0) now.add(0xE0 + bit) }
-        for (u in pressedKeys) { if (u !in now) hidUp(u) }
-        for (u in now) { if (u !in pressedKeys) hidDown(u) }
-        pressedKeys.clear(); pressedKeys.addAll(now)
+        // v184：先取快照再比较、最后整体写回 —— 避免在锁内执行注入（hidUp/hidDown 会走
+        // 系统调用），也避免遍历过程中集合被另一个线程改掉。
+        val prev = synchronized(keysLock) { HashSet(pressedKeys) }
+        for (u in prev) { if (u !in now) hidUp(u) }
+        for (u in now) { if (u !in prev) hidDown(u) }
+        synchronized(keysLock) { pressedKeys.clear(); pressedKeys.addAll(now) }
     }
 
     private fun hidDown(usage: Int) {
