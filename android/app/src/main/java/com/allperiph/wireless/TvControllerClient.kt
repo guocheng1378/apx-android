@@ -36,21 +36,26 @@ class TvControllerClient(
 
     fun connect(): Boolean {
         if (running.get()) return ready
-        return try {
-            val s = Socket()
-            s.tcpNoDelay = true; s.connect(InetSocketAddress(host, port), 5000)
-            sock = s; out = s.getOutputStream()
-            val tok = token.toByteArray(Charsets.UTF_8)
-            val hdr = ByteArray(4); hdr[0] = (tok.size and 0xFF).toByte(); hdr[1] = ((tok.size ushr 8) and 0xFF).toByte(); hdr[2] = 0; hdr[3] = 0
-            out!!.write(hdr); if (tok.isNotEmpty()) out!!.write(tok); out!!.flush()
-            running.set(true); ready = true; synchronized(rxLock) { rxLen = 0 }
-            thread(name = "tvctrl-reader") { readerLoop(s) }
-            thread(name = "tvctrl-ping") { pingLoop() }
-            startTx()
-            Log.i("TvCtrl", "已连 TV $host:$port")
-            true
-        } catch (t: Throwable) { Log.e("TvCtrl", "连 TV 失败：${t.message}"); runCatching { s_close() }; false }
+        running.set(true)
+        val ok = openSocket()
+        if (ok) thread(name = "tvctrl-ping") { pingLoop() } else running.set(false)
+        return ok
     }
+
+    /** 建立 socket + 握手 + 启动 reader（connect 与自动重连共用） */
+    private fun openSocket(): Boolean = try {
+        val s = Socket()
+        s.tcpNoDelay = true; s.connect(InetSocketAddress(host, port), 5000)
+        sock = s; out = s.getOutputStream()
+        val tok = token.toByteArray(Charsets.UTF_8)
+        val hdr = ByteArray(4); hdr[0] = (tok.size and 0xFF).toByte(); hdr[1] = ((tok.size ushr 8) and 0xFF).toByte(); hdr[2] = 0; hdr[3] = 0
+        out!!.write(hdr); if (tok.isNotEmpty()) out!!.write(tok); out!!.flush()
+        ready = true; synchronized(rxLock) { rxLen = 0 }
+        thread(name = "tvctrl-reader") { readerLoop(s) }
+        startTx()
+        Log.i("TvCtrl", "已连 TV $host:$port")
+        true
+    } catch (t: Throwable) { Log.e("TvCtrl", "连 TV 失败：${t.message}"); runCatching { s_close() }; false }
 
     fun disconnect() { running.set(false); ready = false; runCatching { txQueue.clear() }; runCatching { txThread?.interrupt() }; txThread = null; s_close() }
     private fun s_close() = runCatching { sock?.close() }.also { sock = null; out = null }
@@ -64,6 +69,19 @@ class TvControllerClient(
             for (b in pumpFrames()) handleServerFrame(b)
         }
         ready = false
+        // v184：被动断线（对端重启/网络抖动）自动重连 —— 此前断开后 ready=false 且
+        // connect() 被 running 短路，副屏/触控板触摸全部静默丢失，只能手动重选设备。
+        // 用户主动 disconnect() 会先置 running=false，这里自然不进入。
+        if (running.get()) {
+            Log.w("TvCtrl", "连接断开，启动自动重连 $host:$port")
+            thread(name = "tvctrl-reconn") {
+                while (running.get() && !ready) {
+                    try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+                    if (!running.get() || ready) break
+                    if (openSocket()) break
+                }
+            }
+        }
     }
 
     private fun feed(data: ByteArray, n: Int) {
