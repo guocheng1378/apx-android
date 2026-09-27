@@ -75,10 +75,7 @@ class TvControlServer(
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
 
-    /** 键盘按下态（HID usage 集合），用于构造 key-up 边沿 */
     private val pressedKeys = HashSet<Int>()
-
-    /** 鼠标左键上一帧状态，用于检测按下边沿 */
     private var lastButtons = 0
 
     fun start(): Boolean {
@@ -120,19 +117,13 @@ class TvControlServer(
 
     fun statusText(): String = if (ready) "已连接 $peerText" else "监听 $port · 等待手机连入"
 
-    // ————————————————————————————— 接受 —————————————————————————————
-
     private fun acceptLoop(ss: ServerSocket) {
         while (running.get()) {
             val sock = try {
                 ss.accept()
             } catch (t: Throwable) {
                 if (!running.get()) break
-                try {
-                    Thread.sleep(200)
-                } catch (_: InterruptedException) {
-                    break
-                }
+                try { Thread.sleep(200) } catch (_: InterruptedException) { break }
                 continue
             }
             if (ready) {
@@ -167,10 +158,7 @@ class TvControlServer(
             }
             if (len > 0) {
                 val buf = ByteArray(len)
-                if (!readFully(ins, buf)) {
-                    runCatching { sock.close() }
-                    return
-                }
+                if (!readFully(ins, buf)) { runCatching { sock.close() }; return }
                 if (token.isNotEmpty() && String(buf, Charsets.UTF_8) != token) {
                     Log.w("被控控制面", "令牌不匹配，拒绝 ${peerTextOf(sock)}")
                     runCatching { sock.close() }
@@ -195,7 +183,6 @@ class TvControlServer(
         lastButtons = 0
         ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
-        mainHandler.post { TvInputDispatcher.peer(true, peerText) }
         TvInjector.setConnected(true)
 
         runCatching { sock.soTimeout = READ_TIMEOUT_MS }
@@ -214,17 +201,11 @@ class TvControlServer(
         val ins = sock.getInputStream()
         val buf = ByteArray(4096)
         while (running.get() && !sock.isClosed) {
-            val n = try {
-                ins.read(buf)
-            } catch (t: Throwable) {
-                continue
-            }
+            val n = try { ins.read(buf) } catch (_: Throwable) { continue }
             if (n <= 0) break
             feed(buf, n)
             val actions = pump()
-            if (actions.isNotEmpty()) {
-                mainHandler.post { for (a in actions) a() }
-            }
+            if (actions.isNotEmpty()) { mainHandler.post { for (a in actions) a() } }
         }
         Log.i("被控控制面", "手机连接已断开：$peerText")
         teardown(sock)
@@ -235,14 +216,9 @@ class TvControlServer(
         while (running.get() && !sock.isClosed) {
             val frame = try {
                 outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS)
-            } catch (_: InterruptedException) {
-                break
-            } ?: continue
-            try {
-                o.write(frame)
-                o.flush()
-            } catch (t: Throwable) {
-                Log.w("被控控制面", "控制帧写出失败，视为链路断开：${t.message}")
+            } catch (_: InterruptedException) { break } ?: continue
+            try { o.write(frame); o.flush() } catch (t: Throwable) {
+                Log.w("被控控制面", "控制帧写出失败：${t.message}")
                 break
             }
         }
@@ -258,7 +234,6 @@ class TvControlServer(
             peerText = ""
             outQueue.clear()
             TvInjector.setConnected(false)
-            mainHandler.post { TvInputDispatcher.peer(false, "") }
         }
         runCatching { sock.close() }
     }
@@ -277,21 +252,14 @@ class TvControlServer(
         }
     }
 
-    /** @return 待在主线程执行的输入动作列表（保持帧内顺序） */
     private fun pump(): List<() -> Unit> {
         val actions = ArrayList<() -> Unit>()
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) {
-                    off = rxLen
-                    break
-                }
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off = rxLen; break }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {
-                    off = rxLen
-                    break
-                }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off = rxLen; break }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL && payloadLen >= 1) {
@@ -306,10 +274,9 @@ class TvControlServer(
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
                             0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
-                            0x21 -> Log.i("被控控制面", "收到反向剪贴板帧（本端忽略，由对方处理）")
+                            0x21 -> Log.i("被控控制面", "收到反向剪贴板帧（忽略）")
                             0x05 -> Log.i("被控控制面", "收到开副屏请求（忽略）")
                             0x10 -> Log.i("被控控制面", "收到模块开关（忽略）")
-                            // ———— 远程输入帧（docs/REMOTE-INPUT.md）————
                             0x25 -> if (body.size >= 2) actions.add { onRequestInput(body) }
                             0x26 -> if (body.size >= 2) actions.add { onInputText(body) }
                             0x27 -> actions.add { onInputDone() }
@@ -333,7 +300,6 @@ class TvControlServer(
         val dx = body[2].toInt().toByte().toInt()
         val dy = body[3].toInt().toByte().toInt()
         val wheel = if (body.size >= 5) body[4].toInt().toByte().toInt() else 0
-        TvInputDispatcher.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         TvInjector.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         if ((buttons and 1) != 0 && (lastButtons and 1) == 0) TvInjector.pressDown()
         if ((buttons and 1) == 0 && (lastButtons and 1) == 1) TvInjector.pressUp()
@@ -347,26 +313,16 @@ class TvControlServer(
         val y = (body[5].toInt() and 0xFF) or ((body[6].toInt() and 0xFF) shl 8)
         val fx = x / 65535f
         val fy = y / 65535f
-        TvInputDispatcher.cursorMove(fx, fy, absolute = true)
         TvInjector.cursorMove(fx, fy, absolute = true)
         when (action) {
             0 -> TvInjector.touchDown(fx, fy)
-            1 -> {
-                TvInputDispatcher.cursorClick()
-                TvInjector.touchUp(fx, fy)
-            }
+            1 -> TvInjector.touchUp(fx, fy)
         }
     }
 
     private fun onConsumer(body: ByteArray) {
         val bitmap = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
         TvInjector.consumer(bitmap)
-        for (bit in 0 until 16) {
-            if ((bitmap ushr bit) and 1 == 0) continue
-            val kc = CONSUMER_MAP[bit] ?: continue
-            TvInputDispatcher.key(kc, true)
-            TvInputDispatcher.key(kc, false)
-        }
     }
 
     private fun onPowerAction(body: ByteArray) {
@@ -394,12 +350,8 @@ class TvControlServer(
         for (bit in 0 until 8) {
             if (mod and (1 shl bit) != 0) now.add(0xE0 + bit)
         }
-        for (u in pressedKeys) {
-            if (u !in now) hidUp(u)
-        }
-        for (u in now) {
-            if (u !in pressedKeys) hidDown(u)
-        }
+        for (u in pressedKeys) { if (u !in now) hidUp(u) }
+        for (u in now) { if (u !in pressedKeys) hidDown(u) }
         pressedKeys.clear()
         pressedKeys.addAll(now)
     }
@@ -407,33 +359,22 @@ class TvControlServer(
     private fun hidDown(usage: Int) {
         if (usage in 0xE0..0xE7) {
             val kc = MOD_KEYCODE[usage - 0xE0]
-            TvInputDispatcher.key(kc, true)
             TvInjector.key(kc, true)
             return
         }
         val (kc, ch) = HID_MAP[usage] ?: (0 to '\u0000')
-        if (kc != 0) {
-            TvInputDispatcher.key(kc, true)
-            TvInjector.key(kc, true)
-        }
-        if (ch != '\u0000') {
-            TvInputDispatcher.text(ch)
-            TvInjector.text(ch)
-        }
+        if (kc != 0) TvInjector.key(kc, true)
+        if (ch != '\u0000') TvInjector.text(ch)
     }
 
     private fun hidUp(usage: Int) {
         if (usage in 0xE0..0xE7) {
             val kc = MOD_KEYCODE[usage - 0xE0]
-            TvInputDispatcher.key(kc, false)
             TvInjector.key(kc, false)
             return
         }
         val (kc, _) = HID_MAP[usage] ?: (0 to '\u0000')
-        if (kc != 0) {
-            TvInputDispatcher.key(kc, false)
-            TvInjector.key(kc, false)
-        }
+        if (kc != 0) TvInjector.key(kc, false)
     }
 
     private fun onClipboard(body: ByteArray) {
@@ -449,7 +390,6 @@ class TvControlServer(
         val y = body[4].toInt().toByte().toInt()
         val rx = body[5].toInt().toByte().toInt()
         val ry = body[6].toInt().toByte().toInt()
-        TvInputDispatcher.onGamepad(buttons, x, y, rx, ry)
         TvInjector.gamepad(buttons, x, y, rx, ry)
     }
 
@@ -461,9 +401,7 @@ class TvControlServer(
         if (body.size < 6 + hintLen) return
         val hint = String(body.copyOfRange(6, 6 + hintLen), Charsets.UTF_8)
         Log.i("被控控制面", "远程输入请求: hint=$hint")
-        mainHandler.post {
-            onRemoteInputRequest?.invoke(peerText, hint)
-        }
+        mainHandler.post { onRemoteInputRequest?.invoke(peerText, hint) }
     }
 
     private fun onInputText(body: ByteArray) {
@@ -473,16 +411,12 @@ class TvControlServer(
         if (body.size < 4 + textLen) return
         val text = String(body.copyOfRange(4, 4 + textLen), Charsets.UTF_8)
         Log.i("被控控制面", "远程输入文本: flags=0x${Integer.toHexString(flags)}, text=$text")
-        mainHandler.post {
-            onRemoteInputText?.invoke(text, flags)
-        }
+        mainHandler.post { onRemoteInputText?.invoke(text, flags) }
     }
 
     private fun onInputDone() {
         Log.i("被控控制面", "远程输入完成")
-        mainHandler.post {
-            onRemoteInputDone?.invoke()
-        }
+        mainHandler.post { onRemoteInputDone?.invoke() }
     }
 
     // ————————————————————————————— 发送 —————————————————————————————
@@ -510,13 +444,6 @@ class TvControlServer(
         return sendControl(body)
     }
 
-    // ————————————————————————————— 远程输入发送（供 RemoteInputActivity 调用）———————————————————
-
-    /**
-     * 发送实时输入文本到对端设备（B→A）。
-     * @param text 输入的文本
-     * @param flags INPUT_FLAG_* 位组合（默认 INCREMENTAL）
-     */
     fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
         val textBytes = text.toByteArray(Charsets.UTF_8)
         val body = ByteArray(1 + 1 + 2 + textBytes.size)
@@ -528,7 +455,6 @@ class TvControlServer(
         sendControl(body)
     }
 
-    /** 发送输入完成到对端设备（B→A） */
     fun sendInputDone() {
         sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte()))
     }
@@ -546,11 +472,7 @@ class TvControlServer(
     private fun readFully(ins: InputStream, dst: ByteArray): Boolean {
         var got = 0
         while (got < dst.size) {
-            val n = try {
-                ins.read(dst, got, dst.size - got)
-            } catch (t: Throwable) {
-                -1
-            }
+            val n = try { ins.read(dst, got, dst.size - got) } catch (_: Throwable) { -1 }
             if (n <= 0) return false
             got += n
         }
@@ -559,7 +481,6 @@ class TvControlServer(
 
     companion object {
         const val PORT = 9511
-
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val QUEUE_CAP = 256
@@ -576,25 +497,23 @@ class TvControlServer(
                 .flatMap { ni -> Collections.list(ni.inetAddresses) }
                 .firstOrNull { !it.isLoopbackAddress && it.hostAddress?.contains(':') == false }
                 ?.hostAddress
-        } catch (t: Throwable) {
-            null
-        }
+        } catch (_: Throwable) { null }
 
         private val HID_MAP: Map<Int, Pair<Int, Char>> = buildMap {
-            put(0x29, 4 to '\u0000')           // Esc → Back
-            put(0x4A, 3 to '\u0000')           // Home
-            put(0x2B, 61 to '\u0000')          // Tab
+            put(0x29, 4 to '\u0000')
+            put(0x4A, 3 to '\u0000')
+            put(0x2B, 61 to '\u0000')
             for (i in 0 until 12) put(0x3A + i, 131 + i to '\u0000')
-            put(0x28, 66 to '\u0000')          // Enter
-            put(0x2A, 67 to '\u0000')          // Backspace
-            put(0x2C, 62 to ' ')              // Space
-            put(0x4C, 112 to '\u0000')         // Delete
-            put(0x66, 26 to '\u0000')          // Power
-            put(0x65, 82 to '\u0000')          // Menu
-            put(0x4F, 22 to '\u0000')          // Right
-            put(0x50, 21 to '\u0000')          // Left
-            put(0x51, 20 to '\u0000')          // Down
-            put(0x52, 19 to '\u0000')          // Up
+            put(0x28, 66 to '\u0000')
+            put(0x2A, 67 to '\u0000')
+            put(0x2C, 62 to ' ')
+            put(0x4C, 112 to '\u0000')
+            put(0x66, 26 to '\u0000')
+            put(0x65, 82 to '\u0000')
+            put(0x4F, 22 to '\u0000')
+            put(0x50, 21 to '\u0000')
+            put(0x51, 20 to '\u0000')
+            put(0x52, 19 to '\u0000')
             for (c in 'a'..'z') put(0x04 + (c - 'a'), 0 to c)
             val digits = "1234567890"
             for (i in digits.indices) put(0x1E + i, 0 to digits[i])
