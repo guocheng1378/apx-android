@@ -69,6 +69,26 @@ class TcpControlServer(
     var onOpenScreenRequest: (() -> Unit)? = null
 
     /**
+     * 远程输入请求回调（**主线程**调用）：对端设备请求本机输入。
+     * 参数：(fromDevice: 来源设备名, hint: 输入框提示文字)
+     */
+    @Volatile
+    var onRemoteInputRequest: ((String, String) -> Unit)? = null
+
+    /**
+     * 远程输入文本回调（**主线程**调用）：对端设备发来输入文本。
+     * 参数：(text: 文本, flags: INPUT_FLAG_* 位组合)
+     */
+    @Volatile
+    var onRemoteInputText: ((String, Int) -> Unit)? = null
+
+    /**
+     * 远程输入完成回调（**主线程**调用）：对端设备输入完成。
+     */
+    @Volatile
+    var onRemoteInputDone: (() -> Unit)? = null
+
+    /**
      * 是否允许该对端（IP）控制本机 —— **握手通过后、接管连接前**调用（非主线程）。
      *
      * 返回 `false` 即拒绝：这条连接会被直接关掉，**不做接管**。
@@ -364,9 +384,14 @@ class TcpControlServer(
                             0x04 -> if (body.size >= 9) actions.add { onTouch(body) }
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
                             0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
+                            0x21 -> if (body.size >= 4) actions.add { onClipboard(body) }  // 反向剪贴板同处理
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
                             0x05 -> actions.add { onOpenScreen() }
                             0x10 -> Log.i("收到模块开关（TV 端只做被控，此项忽略）")
+                            // ———— 远程输入帧（docs/REMOTE-INPUT.md）————
+                            0x25 -> if (body.size >= 2) actions.add { onRequestInput(body) }
+                            0x26 -> if (body.size >= 2) actions.add { onInputText(body) }
+                            0x27 -> actions.add { onInputDone() }
                         }
                     }
                 }
@@ -457,6 +482,55 @@ class TcpControlServer(
         Log.i("收到开副屏请求 → 拉起副屏页")
         onOpenScreenRequest?.invoke()
     }
+
+    // ————————————————————————————— 远程输入帧处理 —————————————————————————————
+
+    /**
+     * REQUEST_INPUT（0x25）：对端请求本机输入。
+     * body=[0x25, sourceId:u32, hintLen:u8, hint:utf8]
+     */
+    private fun onRequestInput(body: ByteArray) {
+        if (body.size < 6) return
+        val sourceId = (body[1].toInt() and 0xFF) or
+            ((body[2].toInt() and 0xFF) shl 8) or
+            ((body[3].toInt() and 0xFF) shl 16) or
+            ((body[4].toInt() and 0xFF) shl 24)
+        val hintLen = body[5].toInt() and 0xFF
+        if (body.size < 6 + hintLen) return
+        val hint = String(body.copyOfRange(6, 6 + hintLen), Charsets.UTF_8)
+        Log.i("远程输入请求：sourceId=0x${Integer.toHexString(sourceId)}, hint=$hint")
+        mainHandler.post {
+            onRemoteInputRequest?.invoke(peerText, hint)
+        }
+    }
+
+    /**
+     * INPUT_TEXT（0x26）：对端发来输入文本。
+     * body=[0x26, flags:u8, textLen:u16 LE, text:utf8]
+     */
+    private fun onInputText(body: ByteArray) {
+        if (body.size < 4) return
+        val flags = body[1].toInt() and 0xFF
+        val textLen = (body[2].toInt() and 0xFF) or ((body[3].toInt() and 0xFF) shl 8)
+        if (body.size < 4 + textLen) return
+        val text = String(body.copyOfRange(4, 4 + textLen), Charsets.UTF_8)
+        Log.i("远程输入文本：flags=0x${Integer.toHexString(flags)}, text=$text")
+        mainHandler.post {
+            onRemoteInputText?.invoke(text, flags)
+        }
+    }
+
+    /**
+     * INPUT_DONE（0x27）：对端输入完成。
+     */
+    private fun onInputDone() {
+        Log.i("远程输入完成")
+        mainHandler.post {
+            onRemoteInputDone?.invoke()
+        }
+    }
+
+    // ————————————————————————————— HID 修饰键 / 键盘 —————————————————————————————
 
     /** HID 修饰位 → Android keyCode（bit0..3 = 左 Ctrl/Shift/Alt/Win，bit4..7 = 右；与 PC 端 injectKeyboard 位序一致） */
     private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
