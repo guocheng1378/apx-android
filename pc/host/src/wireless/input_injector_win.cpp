@@ -3,6 +3,8 @@
 // 免驱：全部走 SendInput / Win32 剪贴板 API（与 wireless_link.cpp 同源思路）。
 // ============================================================================
 #include "apxpc/wireless/ctrl9511.hpp"
+// v184：触摸注入与 9502 媒体会话路径共用同一套「按推流屏映射」实现
+#include "apxpc/media/touch_inject.hpp"
 
 #if defined(_WIN32)
 
@@ -190,15 +192,20 @@ public:
     }
 
     void injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) override {
-        constexpr uint8_t kDown = 0, kUp = 1;
-        DWORD click = 0;
-        if (action == kDown) click = (buttons & 0x02) ? MOUSEEVENTF_RIGHTDOWN : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEDOWN : MOUSEEVENTF_LEFTDOWN;
-        else if (action == kUp || action == 3) click = (buttons & 0x02) ? MOUSEEVENTF_RIGHTUP : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_LEFTUP;
-
-        INPUT m{}; m.type = INPUT_MOUSE;
-        m.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | click;
-        m.mi.dx = static_cast<LONG>(x); m.mi.dy = static_cast<LONG>(y);
-        ::SendInput(1, &m, sizeof(INPUT));
+        // v184：9511 控制面（手机副屏触摸走这里）与 9502 媒体会话曾是**两套**注入实现，
+        // 而 9511 这套是旧版：把 0..65535 直接当「主屏绝对坐标」注入，
+        // 扩展屏模式下触摸区整体错位到 1 号屏（真机复现：归一化 (32767,32767)
+        // 落到主屏正中 (959,539)）。现统一复用 apxpc::media::injectTouchFrame ——
+        // 它按「推流实际抓取的那块屏」映射（DDA 侧精确供给矩形，回退第一个非主屏）。
+        // 注意：injectTouchFrame 的 body 不含 cmd 字节（[action,buttons,xLo,xHi,yLo,yHi,...]），
+        // 与 9502 的 kStreamTouch 负载逐字节一致。
+        uint8_t body[9] = {
+            action, buttons,
+            static_cast<uint8_t>(x & 0xFF), static_cast<uint8_t>((x >> 8) & 0xFF),
+            static_cast<uint8_t>(y & 0xFF), static_cast<uint8_t>((y >> 8) & 0xFF),
+            0, 0, 0
+        };
+        apxpc::media::injectTouchFrame(body, sizeof(body));
     }
 
     void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count) override {

@@ -239,6 +239,10 @@ if(WIN32)
   target_link_libraries(apxpc_media PUBLIC ws2_32 ole32 uuid)
 endif()
 
+# 9511 控制面的触摸注入复用媒体侧实现（input_injector_win.cpp::injectTouch →
+# apxpc::media::injectTouchFrame），保证「手机副屏触摸」与「媒体会话触摸」映射一致。
+target_link_libraries(apxpc_wireless PUBLIC apxpc_media)
+
 # ---------------------------------------------------------------- 目标：副屏推流
 # 复用 pc/display 的抓屏（DDA）/ 编码（MF）/ 组帧（FrameWriter）/ 三线程编排（Pipeline）
 # —— 那套已是完整实现，没必要重写；这里只把传输层换成**共用的媒体连接**
