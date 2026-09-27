@@ -1445,13 +1445,24 @@ class MainActivity : Activity() {
                 )
                 row.name.text = AgentController.label(m.id)
                 row.detail.text = AgentController.detailOf(m)
-                val enabled = AgentController.isEnabled(this, m.id)
-                row.sw.isChecked = enabled
-                row.sw.setOnCheckedChangeListener { _, checked ->
-                    AgentController.setModuleEnabled(this, m.id, checked)
-                    // 同组多份视图的状态联动
-                    views.forEach { it.sw.isChecked = checked }
-                    refresh()
+                if (AgentController.groupsOf(m.id).size > 1) {
+                    // v184：多出口模块（触摸板）组内行开关改为**出口级独立开关** ——
+                    // 只控制"手势是否走该出口"，不再互相联动、也不再直接启停模块
+                    // （模块启停仍由状态页/传输组开关的 enable.touchpad 决定）。
+                    row.sw.isChecked = AgentController.isExitEnabled(m.id, g)
+                    row.sw.setOnCheckedChangeListener { _, checked ->
+                        AgentController.setExitEnabled(this, m.id, g, checked)
+                        refresh()
+                    }
+                } else {
+                    val enabled = AgentController.isEnabled(this, m.id)
+                    row.sw.isChecked = enabled
+                    row.sw.setOnCheckedChangeListener { _, checked ->
+                        AgentController.setModuleEnabled(this, m.id, checked)
+                        // 同组多份视图的状态联动
+                        views.forEach { it.sw.isChecked = checked }
+                        refresh()
+                    }
                 }
                 when (g) {
                     "bt" -> rowsBt

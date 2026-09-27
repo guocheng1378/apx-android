@@ -272,6 +272,11 @@ bool WirelessSession::sendClipboard(const std::string& text) {
     return client_.sendClipboard(text);
 }
 
+bool WirelessSession::sendModuleToggle(const std::string& id, bool on) {
+    if (!client_.ready()) return false;
+    return client_.sendModuleToggle(id, on);
+}
+
 bool WirelessSession::connected() const { return client_.ready(); }
 
 bool WirelessSession::requestInput(const std::string& hint) {

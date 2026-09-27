@@ -237,7 +237,18 @@ class TouchpadModule : Module {
         val bt = ctx.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice
         val wirelessReady = com.allperiph.wireless.ControlTarget.isControlling() &&
             com.allperiph.wireless.ControlTarget.controlClient != null
-        val path = Uplink.resolve(ctx.hid, bt?.isConnected == true, wirelessReady)
+        // v184：出口级独立开关 —— 用户在设置页把某条出口关掉后，手势按剩余出口回落，
+        // 而不是被 Uplink.resolve 直接选中后强行发出（也避免"开一个全开"的联动感知）
+        val wifiOn = com.allperiph.ui.AgentController.isExitEnabled(ModuleId.TOUCHPAD, "wifi")
+        val usbOn = com.allperiph.ui.AgentController.isExitEnabled(ModuleId.TOUCHPAD, "usb")
+        var path = Uplink.resolve(ctx.hid, bt?.isConnected == true, wirelessReady && wifiOn)
+        if (path == Uplink.USB && !usbOn) {
+            path = if (bt?.isConnected == true) Uplink.BLUETOOTH else Uplink.NONE
+            if (path == Uplink.NONE) {
+                Uplink.set(path, "USB 触摸板已在设置中停用")
+                return
+            }
+        }
 
         when (path) {
             Uplink.WIRELESS -> {

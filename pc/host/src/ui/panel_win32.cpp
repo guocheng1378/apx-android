@@ -1499,7 +1499,11 @@ void performHit(Panel* p, Hit h) {
     switch (h) {
         case Hit::SwitchWifi:
             // 无线开关 = 实际发起/断开 Wi‑Fi 控制连接（无独立「连接」按钮）
+            // v184：同时通知手机挂起/恢复被控（0x10）——拨 OFF 后手机侧拒绝连接，
+            // 防止别人趁虚而入；拨 ON 恢复（若控制面在线）。挂起是"拒连接"语义，
+            // 监听保留，PC 再拨 ON 即可恢复，不存在"关了打不开"的单程门。
             p->wifiEnabled = !p->wifiEnabled;
+            if (p->session) p->session->sendModuleToggle("wireless", p->wifiEnabled);
             if (p->wifiEnabled) applyConnect(p);
             else if (p->session) p->session->disconnect();
             resizeToLayout(p);
@@ -2012,6 +2016,17 @@ void tick(Panel* p) {
                     toggleMicForward(p);
                 }
 
+            }
+            // v184：音箱改为**持续保障** —— 原先只在重连后的"一次性恢复"里拉起，
+            // 若启动失败或音频会话中途死掉就永远静音，只能手动再点一次开关。
+            // 现在只要 autoSpeaker 开着且采集没在跑，就补拉（5s 节流防刷屏）。
+            if (mediaUp && p->autoSpeaker && screenMediaUp(p) && !(p->audio && p->audio->running())) {
+                static DWORD s_lastSpkRetry = 0;
+                const DWORD nowTick = GetTickCount();
+                if (nowTick - s_lastSpkRetry > 5000) {
+                    s_lastSpkRetry = nowTick;
+                    toggleSpeaker(p);
+                }
             }
         } else if (mediaUp || (!p->mediaBusy.load() && p->mediaThread.joinable())) {
             if (p->screenPush && p->screenPush->running()) p->screenPush->stop();

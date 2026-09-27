@@ -32,6 +32,28 @@ class TvControlServer(
     @Volatile var ready: Boolean = false; private set
 
     @Volatile var onClipboardChange: ((String) -> Unit)? = null
+
+    /**
+     * 0x10 模块开关（v184 新增协议）：PC 面板拨"无线"开关时通知手机挂起/恢复被控。
+     * 语义是**挂起**而非停服务 —— 监听保持，仅拒绝/断开连接；这样 PC 端重新拨 ON
+     * 后 3s 重连即可恢复，不会出现"关了就再也打不开"的单程门。
+     */
+    @Volatile var onModuleToggle: ((String, Boolean) -> Unit)? = null
+
+    @Volatile private var suspended = false
+
+    /** PC 请求挂起被控：断开当前连接并拒绝新连接（监听保留，可随时恢复） */
+    fun suspendAccept() {
+        suspended = true
+        Log.i("被控控制面", "无线被控已挂起（PC 请求）")
+        runCatching { client?.close() }
+    }
+
+    /** PC 请求恢复被控：重新接受连接 */
+    fun resumeAccept() {
+        if (suspended) Log.i("被控控制面", "无线被控已恢复（PC 请求）")
+        suspended = false
+    }
     @Volatile var onRemoteInputRequest: ((String, String) -> Unit)? = null
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
@@ -105,6 +127,11 @@ class TvControlServer(
     }
 
     private fun activate(sock: Socket) {
+        if (suspended) {
+            Log.i("被控控制面", "被控已挂起，拒绝新连接 ${peerTextOf(sock)}")
+            runCatching { sock.close() }
+            return
+        }
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear(); pressedKeys.clear(); lastButtons = 0; ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
@@ -175,7 +202,7 @@ class TvControlServer(
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
                             0x21 -> Log.i("被控控制面", "收到反向剪贴板帧（忽略）")
                             0x05 -> Log.i("被控控制面", "收到开副屏请求（忽略）")
-                            0x10 -> Log.i("被控控制面", "收到模块开关（忽略）")
+                            0x10 -> if (body.size >= 3) actions.add { onModuleToggle(body) }
                             0x25 -> if (body.size >= 2) actions.add { onRequestInput(body) }
                             0x26 -> if (body.size >= 2) actions.add { onInputText(body) }
                             0x27 -> actions.add { onInputDone() }
@@ -214,6 +241,16 @@ class TvControlServer(
         TvInjector.consumer(bitmap)
         for (bit in 0 until 16) { if ((bitmap ushr bit) and 1 == 0) continue; val kc = CONSUMER_MAP[bit] ?: continue
             TvInputDispatcher.key(kc, true); TvInputDispatcher.key(kc, false) }
+    }
+
+    /** 0x10 模块开关帧：[0x10, idLen, id..., on(0/1)]（v184） */
+    private fun onModuleToggle(body: ByteArray) {
+        val idLen = body[1].toInt() and 0xFF
+        if (body.size < 2 + idLen + 1) return
+        val id = String(body, 2, idLen, Charsets.UTF_8)
+        val on = body[2 + idLen].toInt() != 0
+        Log.i("被控控制面", "收到模块开关：$id -> $on")
+        mainHandler.post { onModuleToggle?.invoke(id, on) }
     }
 
     private fun onPowerAction(body: ByteArray) {

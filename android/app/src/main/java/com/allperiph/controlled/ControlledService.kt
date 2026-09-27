@@ -37,6 +37,12 @@ class ControlledService : Service() {
         if (server == null) server = TvControlServer()
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
+        // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
+        server?.onModuleToggle = { id, on ->
+            if (id == "wireless") {
+                if (on) server?.resumeAccept() else server?.suspendAccept()
+            }
+        }
         // 注册远程输入回调：收到 REQUEST_INPUT 时弹出 RemoteInputActivity
         server?.onRemoteInputRequest = { fromDevice, hint ->
             Log.i("ControlledService", "远程输入请求: from=$fromDevice, hint=$hint")

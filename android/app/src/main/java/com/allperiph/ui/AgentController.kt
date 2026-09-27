@@ -54,6 +54,7 @@ object AgentController {
 
     fun build(context: Context): AgentRuntime {
         val app = context.applicationContext
+        appContext = app
         val rt = runtime ?: AgentRuntime(app).also { runtime = it }
         if (rt.registry.all().isEmpty()) {
             rt.register(GadgetManager(app, rt))
@@ -164,6 +165,21 @@ object AgentController {
 
     private fun setEnabled(context: Context, id: String, enabled: Boolean) {
         prefs(context).edit().putBoolean("enable.$id", enabled).apply()
+    }
+
+    // —— 出口级独立开关（v184）——
+    // 触摸板是多出口模块（无线 9511 / USB HID / 蓝牙），此前在「无线」「有线(USB)」
+    // 两个分组里的行开关写同一个 enable.touchpad，表现为"开一起开关一起关"。
+    // 现在组内行开关写 exit.<id>.<group>：只控制"手势是否走该出口"，模块启停仍由
+    // enable.<id>（状态页/传输组开关）决定。运行中即时生效（dispatch 每帧读，SharedPreferences 有内存缓存）。
+
+    @Volatile private var appContext: Context? = null
+
+    fun isExitEnabled(id: String, g: String): Boolean =
+        appContext?.let { prefs(it).getBoolean("exit.$id.$g", true) } ?: true
+
+    fun setExitEnabled(context: Context, id: String, g: String, on: Boolean) {
+        prefs(context).edit().putBoolean("exit.$id.$g", on).apply()
     }
 
     private fun prefs(context: Context) =

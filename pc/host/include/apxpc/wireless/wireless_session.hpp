@@ -92,6 +92,10 @@ public:
     /// 这里不弹窗也不静默假装成功。
     bool sendClipboard(const std::string& text);
 
+    /// 模块开关（0x10，v184）：通知已连接的受控端挂起/恢复某模块（如 "wireless"）。
+    /// 未连接返回 false，由调用方决定如何提示。
+    bool sendModuleToggle(const std::string& id, bool on);
+
     /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
     bool connected() const;
 

@@ -767,6 +767,16 @@ bool Ctrl9511Client::sendClipboard(const std::string& text) {
     return true;
 }
 
+bool Ctrl9511Client::sendModuleToggle(const std::string& id, bool on) {
+    if (!impl_ || id.empty() || id.size() > 255) return false;
+    uint8_t b[2 + 255];
+    b[0] = static_cast<uint8_t>(id.size());
+    std::memcpy(b + 1, id.data(), id.size());
+    b[1 + id.size()] = on ? 1 : 0;
+    impl_->sendCmd(0x10, b, id.size() + 2);
+    return true;
+}
+
 bool Ctrl9511Client::sendRequestInput(const std::string& hint) {
     if (!impl_) return false;
     const auto bytes = std::vector<uint8_t>(hint.begin(), hint.end());

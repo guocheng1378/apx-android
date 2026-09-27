@@ -190,6 +190,10 @@ public:
     /// 发送剪贴板文本到受控端（body=[0x20,lenLo,lenHi,utf8]）。空文本忽略。
     bool sendClipboard(const std::string& text);
 
+    /// 模块开关（v184 新增协议 0x10）：通知受控端挂起/恢复某模块（如 "wireless"）。
+    /// body=[0x10,idLen,id...,on(0/1)]。仅控制面已连接时可发。
+    bool sendModuleToggle(const std::string& id, bool on);
+
     /// 远程输入：请求对端设备输入文本。hint 为提示信息（如"请输入密码"）。
     bool sendRequestInput(const std::string& hint);
     /// 远程输入：向对端发送输入的文本。flags 见 PROTOCOL（0x01=增量 0x04=完整 0x08=取消）。
