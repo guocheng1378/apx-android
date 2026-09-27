@@ -149,6 +149,18 @@ class TouchpadActivity : Activity() {
         super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
     }
 
+    /**
+     * v184：清掉挂在全局 ControlTarget 上的回调。
+     * 那个闭包捕获了本 Activity（runOnUiThread { recvClipboard(...) }），
+     * 而本页此前**没有任何生命周期清理** —— Activity 销毁后仍被静态对象引用
+     * （Activity 与整棵视图树一起泄漏），回调还会继续往已销毁的界面推字。
+     * 只清回调，**不断开控制连接**（切页面不该掉链路）。
+     */
+    override fun onDestroy() {
+        ControlTarget.controlClient?.onReverseClipboard = null
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // v1.7：触控板模式防截屏/防投屏窥视（架构 §4 触控板模式屏幕为手势采集面）

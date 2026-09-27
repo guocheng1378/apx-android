@@ -272,6 +272,11 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         for (d in disposables) d.dispose()
         disposables.clear()
+        // v184：清掉挂在**全局** ControlTarget 上的回调 —— 那个闭包捕获了本 Activity
+        // （runOnUiThread 里调用本实例方法），不清就会随静态对象一起泄漏，
+        // 且回调还会继续往已销毁的界面推字。注意只清回调，**不断开连接**
+        // （用户可能只是切页面，控制链路要保持）。
+        ControlTarget.controlClient?.onReverseClipboard = null
         super.onDestroy()
     }
 

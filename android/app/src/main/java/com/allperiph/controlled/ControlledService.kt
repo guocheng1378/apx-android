@@ -18,6 +18,8 @@ import com.allperiph.touchpad.TouchpadActivity
 class ControlledService : Service() {
     private var server: TvControlServer? = null
     private var beacon: WirelessBeacon? = null
+    /** v184：剪贴板监听是否已注册 —— onStartCommand 可能被反复调用，重复挂会多次回传 */
+    private var clipListenerRegistered = false
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         // v184：程序性写入抑制 —— 收到 PC 的 0x20 后 TvInjector.clipboard 会写剪贴板，
         // 这里若照常回传 0x21，PC 端 watcher 又写又回传，剪贴板内容来回乱跳。
@@ -58,19 +60,29 @@ class ControlledService : Service() {
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         TvFileReceiver.start(applicationContext)
         val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
-        beacon = WirelessBeacon(
-            "APX1TV",
-            com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
-            TvControlServer.PORT, "",
-            unicastHosts = {
-                val hosts = ArrayList<String>(8)
-                com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
-                com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
-                hosts.distinct()
-            },
-        ).also { it.start() }
+        // v184：以下两处必须幂等 —— onStartCommand 会被反复调用（START_STICKY 重启、
+        // onTaskRemoved 拉起、系统回收后重建）。旧实现每次都新建一个 beacon（旧实例的
+        // 线程与端口从此没人管，逐次累积）并再 addPrimaryClipChangedListener 一次
+        // （同一个 listener 挂多份 → 剪贴板变化被回传多次）。
+        if (beacon == null) {
+            beacon = WirelessBeacon(
+                "APX1TV",
+                com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
+                TvControlServer.PORT, "",
+                unicastHosts = {
+                    val hosts = ArrayList<String>(8)
+                    com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
+                    com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
+                    hosts.distinct()
+                },
+            ).also { it.start() }
+        }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        cm?.addPrimaryClipChangedListener(clipListener)
+        if (!clipListenerRegistered) {
+            runCatching { cm?.removePrimaryClipChangedListener(clipListener) }   // 保险：先摘再挂
+            cm?.addPrimaryClipChangedListener(clipListener)
+            clipListenerRegistered = true
+        }
         KeepAlive.schedule(this)
         val init = currentClipboardText()
         if (!init.isNullOrEmpty()) server?.sendReverseClipboard(init)
@@ -81,6 +93,7 @@ class ControlledService : Service() {
         running = false; Companion.server = null
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
+        clipListenerRegistered = false   // v184：服务重建时重新注册
         server?.stop(); server = null; beacon?.stop(); beacon = null
         TvFileReceiver.stop(); TvInjector.onDestroy(); super.onDestroy()
     }

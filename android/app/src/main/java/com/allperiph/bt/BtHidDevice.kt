@@ -127,7 +127,9 @@ class BtHidDevice(private val appContext: Context) : Module {
      */
     fun reportKeyboard(mod: Int, keys: ByteArray) {
         if (!isConnected || !hasConnect()) return
-        val r = ByteArray(8)
+        // v184：报告必须是 9 字节 —— reportId(1) + modifier(1) + reserved(1) + 6 个按键码。
+        // 旧实现用 ByteArray(8)，当 keys 满 6 个时 i=5 会写 r[8]，直接数组越界崩溃。
+        val r = ByteArray(9)
         r[0] = 0x02
         r[1] = mod.toByte()
         for (i in 0 until minOf(keys.size, 6)) {
