@@ -61,29 +61,8 @@ const char* reportIdName(uint8_t id) {
     }
 }
 
-uint32_t reportSizeById(uint8_t reportId) {
-    switch (reportId) {
-        case kReportImuBatch:  return kSizeImuBatchReport;
-        case kReportMouse:     return kSizeMouseReport;
-        case kReportDigitizer: return kSizeDigitizerReport;
-        case kReportConsumer:  return kSizeConsumerReport;
-        case kReportVendor:    return kSizeVendorOutReport;  // OUT 为最长的一支
-        case kReportBattery:   return kSizeBatteryReport;
-        // v1.2：低频传感器各自独立 Report ID，但共用同一份 24 字节布局
-        case kReportAls:
-        case kReportProximity:
-        case kReportPressure:
-        case kReportOrientation:
-        case kReportInclinometer:
-        case kReportAmbientTemp:
-        case kReportHumidity:
-        case kReportStepCounter:
-        case kReportHeartRate: return kSizeLowFreqReport;
-        case kReportKeyboard:  return 9;                 // 1 + 修饰1 + reserved1 + 6
-        case kReportGamepad:   return kSizeGamepadReport;
-        default:               return 0;
-    }
-}
+// reportSizeById() 的唯一实现在 hid_descriptor.cpp（含 v1.8 PTP 系列分支），
+// 此处不再重复定义，否则静态库链接时出现 duplicate symbol。
 
 // ------------------------------------------------------- §2.4 v1.2 映射 ----
 // 显式列表而非算术偏移：kSensorBatteryTemp(0x16) 不占独立 Report，映射在这里断开。

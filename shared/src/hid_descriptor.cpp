@@ -417,7 +417,7 @@ uint32_t reportSizeById(uint8_t reportId) {
         case kReportConsumer:   return kSizeConsumerReport;   // 4
         case kReportVendor:     return kSizeVendorOutReport;  // 264 (OUT max)
         case kReportBattery:    return kSizeBatteryReport;    // 13
-        case kReportKeyboard:   return 8u;                    // 1+1+6 = 8
+        case kReportKeyboard:   return 9u;                    // ID + 修饰1 + reserved1 + 按键6
         case kReportGamepad:    return kSizeGamepadReport;    // 7
         default:
             // v1.8：PTP 触控板系列（16..20）

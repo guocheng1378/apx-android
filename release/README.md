@@ -1,7 +1,19 @@
-# 全能外设 · 发布说明（本次构建）
+# 全能外设 · 发布说明
 
-> 构建日期：2026-09-26 ｜ 手机端 v1.8+ ｜ TV 端 v0.1.0+ ｜ PC 端 Release
+> **版本 v182**（上一版本：`v181`）｜ 构建日期：2026-09-27 ｜ 手机端 v1.8+ ｜ TV 端 v0.1.0+ ｜ PC 端 Release
 > 本次发布已完成 **release 签名**（Android）与 **Release 编译**（PC）。
+> 产物按版本号归档：文件名带 `v182` 的即为本次构建（同目录下无版本后缀的文件是同一批产物的最新副本）。
+
+## 〇·零、v182 构建修复（本轮阻塞项）
+
+- `shared/src/hid_layout.cpp` 与 `shared/src/hid_descriptor.cpp` **各定义了一份 `reportSizeById()`**，
+  静态库链接时 `ld.lld: duplicate symbol` —— 手机端 native（`libapx.so`）此前无法链接通过。
+  现保留 `hid_descriptor.cpp` 中的实现（含 v1.8 PTP 触控板 16..20 分支），另一处改为注释说明。
+- 顺带修正 USB 键盘报告长度：描述符与自测均为 `ID + 修饰1 + reserved1 + 按键6 = 9B`，
+  `reportSizeById(kReportKeyboard)` 原先返回 **8**（误用了蓝牙键盘布局），现返回 **9**。
+- `android/.../bt/BtHidDevice.kt`：蓝牙 HID 描述符常量 `0x85` 未加 `.toByte()`，
+  Kotlin 编译报 `Int` → `Byte` 类型不匹配（同一段里其余 >0x7F 的字节都已加）。
+- `scripts/build.bat`：`cd /d "%~dp0"` 会停在 `scripts\` 下，导致 `-S pc\host` 路径不存在；改为 `"%~dp0.."`。
 
 ---
 
@@ -38,16 +50,18 @@
 ### Android（已签名 release APK）
 | 文件 | 说明 | 版本 |
 |---|---|---|
-| `android/app-release.apk` | 手机端 App（遥控器 / USB 外设 / 被控 / 副屏服务端） | v1.8 |
-| `android/tv-release.apk`  | Android TV 被控端（9511 服务端） | v0.1.0 |
+| `android/AllPeriph-v182-app-release.apk` | 手机端 App（遥控器 / USB 外设 / 被控 / 副屏服务端） | v182 |
+| `android/AllPeriph-v182-tv-release.apk` | Android TV 被控端（9511 服务端） | v182 |
+| `android/app-release.apk` / `android/tv-release.apk` | 同上最新副本（便于脚本引用） | v182 |
 
 ### PC（Release 编译，未做 Authenticode 代码签名）
 | 文件 | 说明 |
 |---|---|
-| `pc/apxdesktop.exe` | 主机面板（常驻 UI，设备发现 / 控手机 / 副屏设置） |
-| `pc/apxhost.exe`     | 常驻控制服务（9511 客户端 + 服务端、广播信标） |
-| `pc/apxsetup.exe`    | 安装包 |
-| `pc/apxdisp.exe`     | 副屏接收端（拉流显示手机画面，端口 9502） |
+| `pc/AllPeriph-v182-apxdesktop.exe` | 主机面板（常驻 UI，设备发现 / 控手机 / 副屏设置） |
+| `pc/AllPeriph-v182-apxhost.exe`     | 常驻控制服务（9511 客户端 + 服务端、广播信标） |
+| `pc/AllPeriph-v182-apxsetup.exe`    | 安装包 |
+| `pc/apxdesktop.exe` / `apxhost.exe` / `apxsetup.exe` | 同上最新副本 |
+| `pc/apxdisp.exe`                    | 副屏接收端（v120 遗留产物，本次未重建） |
 
 ---
 
