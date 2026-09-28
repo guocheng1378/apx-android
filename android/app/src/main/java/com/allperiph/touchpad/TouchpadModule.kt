@@ -55,8 +55,8 @@ class TouchpadModule : Module {
                 val exists = workingContacts.any { it.cid == (pid % 5) }
                 if (!exists && workingContacts.size < 5) {
                     workingContacts.add(Contact(nextContactId, ev.getX(i), ev.getY(i)))
-                    // fix: and 0x04（循环 0-4），原 and 0x03 只循环 0-3
-                    nextContactId = (nextContactId + 1) and 0x04
+                    // fix: % 5（循环 0-4），原 and 0x04 恒为 0 导致所有手指 cid 碰撞
+                    nextContactId = (nextContactId + 1) % 5
                 }
             }
             android.view.MotionEvent.ACTION_UP,

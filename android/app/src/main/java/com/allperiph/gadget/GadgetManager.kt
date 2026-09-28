@@ -111,6 +111,7 @@ class GadgetManager(
     @Volatile
     private var retryAbort = false
 
+    @Volatile
     private var healCount = 0
 
     override fun start(ctx: ModuleContext) {
