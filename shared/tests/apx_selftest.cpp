@@ -115,7 +115,7 @@ int main() {
     CHECK_EQ(apx::kModuleDisplay, 1ULL << 37);        // §2.9 副屏视频
     CHECK_EQ(apx::kModuleTouchpad, 1ULL << 38);       // v1.4 触控板（相对位移）
 
-    CHECK_EQ(apx::kMaskModules >> 32, 0xFFULL);       // bit32..39 全模块
+    CHECK_EQ(apx::kMaskModules >> 32, 0x7FULL);       // bit32..38 现有 7 个模块
     CHECK((apx::kMaskModules & apx::kMaskAll) == 0ULL);  // 模块位与传感器位不重叠
 
     // ================================ §3 帧头与 CRC =========================
@@ -373,13 +373,14 @@ int main() {
     CHECK_EQ(s.inputBits[apx::kReportVendor] / 8 + 1, 24);
     CHECK_EQ(s.outputBits[apx::kReportVendor] / 8 + 1, 264);
     CHECK_EQ(s.featureBits[apx::kReportVendor] / 8 + 1, 24);
-    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 13);
+    // v1.11：Battery TLC 同 Digitizer 暂时移出 USB 描述符，断言「不存在」= 0 bits → 1
+    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 1);
     CHECK_EQ(apx::maxReportLength(), 264u);
 
-    // v1.11：TLC 元数据表增至 16 个（新增 USB 键盘，Report ID 21）
+    // v1.11：TLC 元数据表 22 个（含 USB 键盘 21 与 PTP 系列 16..20）
     size_t tlcCount = 0;
     const uint8_t* ids = apx::tlcReportIds(tlcCount);
-    CHECK_EQ(tlcCount, 16u);
+    CHECK_EQ(tlcCount, 22u);
     CHECK_EQ(ids[0], apx::kReportImuBatch);
     CHECK_EQ(ids[1], apx::kReportMouse);
     CHECK_EQ(apx::usagePageOf(apx::kReportImuBatch), apx::kPageSensor);

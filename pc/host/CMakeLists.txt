@@ -348,6 +348,13 @@ if(APXPC_BUILD_TESTS)
     target_link_libraries(arbiter_test PRIVATE ws2_32 hid setupapi cfgmgr32)
   endif()
   add_test(NAME arbiter_test COMMAND arbiter_test)
+
+  add_executable(ctrl_frame_test "${APXPC_ROOT}/tests/ctrl_frame_test.cpp")
+  target_link_libraries(ctrl_frame_test PRIVATE apxpc_ctrl)
+  if(WIN32)
+    target_link_libraries(ctrl_frame_test PRIVATE ws2_32 hid setupapi cfgmgr32)
+  endif()
+  add_test(NAME ctrl_frame_test COMMAND ctrl_frame_test)
 endif()
 
 # ---------------------------------------------------------------- 安装
