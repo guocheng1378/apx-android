@@ -373,13 +373,14 @@ int main() {
     CHECK_EQ(s.inputBits[apx::kReportVendor] / 8 + 1, 24);
     CHECK_EQ(s.outputBits[apx::kReportVendor] / 8 + 1, 264);
     CHECK_EQ(s.featureBits[apx::kReportVendor] / 8 + 1, 24);
-    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 13);
+    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 1);   // Battery TLC 已移出 USB 描述符（Code 10 规避）
     CHECK_EQ(apx::maxReportLength(), 264u);
 
-    // v1.11：TLC 元数据表增至 16 个（新增 USB 键盘，Report ID 21）
+    // TLC 元数据表覆盖全部已知 Report ID（含已移出 USB 描述符的 IMU/低频/Digitizer/Battery/PTP），
+    // 供 reportSizeById / usagePageOf / tlcName 等查表使用，共 22 项。
     size_t tlcCount = 0;
     const uint8_t* ids = apx::tlcReportIds(tlcCount);
-    CHECK_EQ(tlcCount, 16u);
+    CHECK_EQ(tlcCount, 22u);
     CHECK_EQ(ids[0], apx::kReportImuBatch);
     CHECK_EQ(ids[1], apx::kReportMouse);
     CHECK_EQ(apx::usagePageOf(apx::kReportImuBatch), apx::kPageSensor);
