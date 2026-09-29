@@ -115,7 +115,7 @@ int main() {
     CHECK_EQ(apx::kModuleDisplay, 1ULL << 37);        // §2.9 副屏视频
     CHECK_EQ(apx::kModuleTouchpad, 1ULL << 38);       // v1.4 触控板（相对位移）
 
-    CHECK_EQ(apx::kMaskModules >> 32, 0xFFULL);       // bit32..39 全模块
+    CHECK_EQ(apx::kMaskModules >> 32, 0x7FULL);       // bit32..38（7 个模块，bit39 保留）
     CHECK((apx::kMaskModules & apx::kMaskAll) == 0ULL);  // 模块位与传感器位不重叠
 
     // ================================ §3 帧头与 CRC =========================
@@ -359,6 +359,7 @@ int main() {
     // 每项 Main item 位数 / 8 + 1(Report ID) 必须等于 hid_layout.h 的长度常量
     // v1.11：传感器（IMU + 低频 7..15）与数位屏（rid 3）已移出 USB 描述符
     // （hidparse 除零蓝屏），断言改为「rid 不存在于描述符」（0 bits → 1）。
+    // v1.8：Battery（rid 6）同理移出（Windows GET_REPORT 超时致 Code 10），断言同上。
     CHECK_EQ(s.inputBits[apx::kReportImuBatch] / 8 + 1, 1);
     CHECK_EQ(s.inputBits[apx::kReportMouse] / 8 + 1, 6);   // v1.4 触控板
     for (size_t i = 0; i < apx::kLowFreqReportCount; ++i) {
@@ -373,13 +374,15 @@ int main() {
     CHECK_EQ(s.inputBits[apx::kReportVendor] / 8 + 1, 24);
     CHECK_EQ(s.outputBits[apx::kReportVendor] / 8 + 1, 264);
     CHECK_EQ(s.featureBits[apx::kReportVendor] / 8 + 1, 24);
-    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 13);
+    CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 1);   // v1.8 移出描述符（同 IMU/Digitizer）
     CHECK_EQ(apx::maxReportLength(), 264u);
 
-    // v1.11：TLC 元数据表增至 16 个（新增 USB 键盘，Report ID 21）
+    // TLC 元数据表：22 个（IMU + Mouse + Digitizer + 9 低频 + Consumer + Keyboard +
+    // Gamepad + Vendor + Battery + 5 PTP）。表含全部 Report ID 供元数据查询，
+    // 不代表全部都在 USB 描述符里（见上方 inputBits 断言）。
     size_t tlcCount = 0;
     const uint8_t* ids = apx::tlcReportIds(tlcCount);
-    CHECK_EQ(tlcCount, 16u);
+    CHECK_EQ(tlcCount, 22u);
     CHECK_EQ(ids[0], apx::kReportImuBatch);
     CHECK_EQ(ids[1], apx::kReportMouse);
     CHECK_EQ(apx::usagePageOf(apx::kReportImuBatch), apx::kPageSensor);
