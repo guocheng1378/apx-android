@@ -1,280 +1,183 @@
 # 全能外设（AllPeriph）
 
-把手机变成电脑的外设：**触控板、键盘、多媒体键、麦克风与音响，以及副屏（屏幕投射）**。
-电脑端一个桌面控制面板（托盘常驻）统一管理，命令行宿主 `apxhost` 供调试与脚本用。
-支持**有线（USB，性能最高且手机同时充电）**与**无线（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）**两条主线。
+> **把手机变成电脑的外设** —— 触控板、键盘、多媒体键、麦克风与音响、副屏，以及双向互控互传。
 
-- 电脑端：C++20（Windows），**零第三方依赖**，自写 winsock HTTP/1.1 + SSE。
-- 控制面板：**原生 Win32 桌面面板**（`apxdesktop`，托盘常驻）。v117 起**不再提供 Web 控制台**。
-- 手机端：Kotlin（Android），蓝牙 HID + 局域网 TCP + USB Gadget（有线模式）。
+<div align="center">
 
-> 项目首页文档：[`README.md`](./README.md) ·
-> **最终用户使用说明：[`docs/使用说明.md`](./docs/使用说明.md)** ·
-> 架构说明：[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) ·
-> 协议定义：[`docs/PROTOCOL.md`](./docs/PROTOCOL.md) ·
-> 真机实测记录：[`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md) ·
-> 路线图与接口预留：[`docs/ROADMAP.md`](./docs/ROADMAP.md) ·
-> 更新日志：[`docs/CHANGELOG.md`](./docs/CHANGELOG.md)
+```
+ 📱 手机  ──── USB / Wi-Fi / 蓝牙 ────▶  💻 电脑
+                    ◀─────────────────
+ 📱 手机  ◀──── Wi-Fi (9511) ──────▶  📱 另一台手机
+ 📱 手机  ◀──── Wi-Fi (9511) ──────▶  📺 TV
+```
 
-> **当前阶段**：有线（USB）能力已收尾；**Wi‑Fi 控制**已真机验证；
-> **Wi‑Fi 媒体**（副屏镜像/扩展屏 + 触摸、音箱、麦克风）已落地，电脑面板三张媒体卡可用；
-> **统一控制面 9511**（手机 / TV / PC 三端同一套协议，可互相发现与互控，含文件传输 9512）已落地，
-> **TV 端**可作为长期在线的被控端（信标随服务常驻 + 开机自启 + 保活引导）。
-> 蓝牙键盘/手柄仍在补全（见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)）。
+</div>
+
+**有线（USB）** 性能最高且手机同时充电 · **无线（蓝牙 + Wi-Fi）** 免 root 免线缆
 
 ---
 
-## 一、最简单的用法
+## ✨ 能做什么
 
-### A. 最终用户：装包即用（推荐）
+| 场景 | 说明 |
+|------|------|
+| 🖱️ **触控板 + 键盘** | 手机当电脑的鼠标和键盘，双指滚动、手势右键 |
+| ⌨️ **远程输入** | 手机打字，电脑即时上屏；支持增量输入和整段粘贴 |
+| 🎵 **多媒体控制** | 音量、播放、暂停、切歌 |
+| 🔊 **音箱 + 麦克风** | 电脑音频从手机播放；手机麦克风当电脑麦克风 |
+| 🖥️ **副屏（扩展屏）** | 手机当电脑第二块屏，触摸直接操作 |
+| 📱 **手机互控** | 两台手机双向实时控制 + 互传文件 |
+| 📺 **TV 被控** | 手机/电脑控制 Android TV |
+| 🔌 **USB HID 外设** | 通过 USB 枚举为键盘、鼠标、声卡（需 root） |
 
-拿到 `apxsetup.exe`（单文件，不依赖任何打包工具链）双击安装：
+---
+
+## ⚡ 5 分钟上手
+
+### 方式一：无线（推荐，免 root）
+
+1. **电脑**：下载 `apxsetup.exe`，双击安装 → 开始菜单打开「全能外设」
+2. **手机**：安装 `app-release.apk` → 打开 App → 进入「触控板」页
+3. **连接**：手机自动发现同一局域网内的电脑，点设备列表里的电脑名即可连接
+4. **开搞**：滑动 = 移动鼠标，轻点 = 左键，双指 = 滚动，点「键盘」= 打字
+
+### 方式二：USB 有线（需 root，性能最高）
+
+1. 手机开启 USB 调试 → 插线连电脑
+2. 手机端 App 开启「有线模式」
+3. 电脑端 `apxdesktop.exe` 自动发现并连接
+
+### 方式三：手机被电脑控制
+
+1. 手机 App → 触控板页 → 打开「被控模式」开关
+2. **开启系统「无障碍服务」**（否则只能看不能操作）
+3. 电脑端选设备列表里的手机名 → 开始控制
+
+---
+
+## 📦 产物一览
+
+| 平台 | 文件 | 说明 |
+|------|------|------|
+| 📱 手机 | `AllPeriph-v186-app-release.apk` | 手机端 App（遥控器 / USB 外设 / 被控 / 副屏） |
+| 📺 TV | `AllPeriph-v186-tv-release.apk` | Android TV 被控端 |
+| 💻 电脑 | `AllPeriph-v186-apxdesktop.exe` | 桌面面板（设备发现 / 控制 / 副屏） |
+| 💻 电脑 | `AllPeriph-v186-apxhost.exe` | 常驻服务（9511 受控端 + 热键） |
+| 💻 电脑 | `AllPeriph-v186-apxsetup.exe` | 安装包（一键装到开始菜单） |
+
+> 所有 PC exe **未做 Windows Authenticode 代码签名**，外发会被 SmartScreen 拦截。
+> 所有 APK 使用自签证书，**不能上架 Google Play**。
+
+---
+
+## 🔧 源码构建
+
+### 电脑端（Windows）
+
+> 前提：Windows 10/11 + Visual Studio 2022（C++ 桌面开发）+ CMake ≥ 3.20
 
 ```bat
-apxsetup.exe                    :: 装到 %LOCALAPPDATA%\Programs\AllPeriph，并建开始菜单快捷方式
-apxsetup.exe --uninstall
-apxsetup.exe --silent-install :: 静默安装（另有 --silent-uninstall）
-```
-
-从开始菜单打开「全能外设」后，面板即开始监听手机信标；**手机侧打开「Wi‑Fi 控制」模块
-便会自动连入**，无需填写任何地址。关闭窗口 = 收进托盘（输入注入照常工作）。
-
-### B. 开发：源码构建
-
-> 前提：Windows 10/11 + Visual Studio 2022（含「使用 C++ 的桌面开发」）+ CMake ≥ 3.20。
-
-在仓库 `scripts/` 目录下执行：
-
-```bat
-:: 一键构建三个产物（apxhost / apxdesktop / apxsetup）；加 nobuild 参数则只构建不启动
+:: 一键构建三件套（apxhost / apxdesktop / apxsetup）
 scripts\build.bat
 
-:: 或只要命令行宿主（产物：build_host\Release\apxhost.exe）
+:: 或手动
 cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
-cmake --build build_host --config Release --target apxhost
-
-:: 免安装直接跑桌面端面板
-build_host\Release\apxdesktop.exe
+cmake --build build_host --config Release --target apxhost apxdesktop apxsetup
 ```
 
-PC 端的图形界面就是上面的**桌面端面板 `apxdesktop`**（原生 Win32 UI、托盘常驻）。
+### 手机端（Android）
 
-命令行宿主 `apxhost serve` 只负责两件事：**9511 受控端**（让手机 / TV 能控本机）+ **全局热键**：
+> 前提：Android SDK + JDK 17
 
 ```bat
-build_host\Release\apxhost.exe serve
+cd android
+gradlew assembleRelease
 ```
 
-> **v117 起 Web 控制台已整体下线**（按需求移除）：不再起本地 HTTP 服务、不再有
-> `pc\host\web` 前端、也不会自动打开浏览器。原先 `apxhost ui / pair / scene`
-> 这三个"开浏览器"的子命令已删除（执行会明确提示改用 `apxdesktop` 或 `apxhost serve`）。
-
----
-
-## 二、目录结构
-
-```text
-全能外设/
-├─ README.md                         本文件
-├─ LICENSE                           MIT 许可证
-├─ .gitignore                        构建产物与临时文件忽略规则
-├─ .gitattributes                    换行统一（.bat=CRLF / .sh=LF）
-│
-├─ docs/                             设计与协议文档
-│   ├─ ARCHITECTURE.md               双主线架构、通道表、Report ID 复用、降级代价
-│   ├─ PROTOCOL.md                   帧格式、Mouse TLC、触控板载荷、控制面命令
-│   ├─ REALDEVICE-NOTES.md           蓝牙 HID / Wi‑Fi 传输的真机实测结论
-│   ├─ ROADMAP.md                    能力现状、蓝牙/Wi‑Fi 两条线的扩展点与实施顺序
-│   ├─ CHANGELOG.md                  版本更新日志（v0.3.0 ~ 当前）
-│   ├─ 使用说明.md                    最终用户使用说明
-│   ├─ 依赖与安装.md                  依赖与安装说明
-│   ├─ REQ-PTP.md                    PTP 需求文档
-│   ├─ REQ-五路回报.md               五路回报需求文档
-│   └─ 安卓手机USB外设共享技术深度调研报告.pdf  USB 方案调研文档
-│
-├─ shared/                           两端共享契约（core-proto 协议库）
-│   ├─ CMakeLists.txt
-│   ├─ README.md
-│   ├─ include/apx/                  头文件（frame / hid_layout / hid_descriptor / clock / units）
-│   ├─ src/                          实现文件（*.cpp）
-│   └─ tests/
-│
-├─ pc/                               电脑端（Windows）
-│   ├─ host/                         常驻宿主服务（9511 受控端 + 热键）+ 桌面面板源码
-│   │   ├─ include/apxpc/            公共头文件
-│   │   ├─ src/
-│   │   │   ├─ host_main.cpp         命令行入口
-│   │   │   ├─ desktop_main.cpp      桌面端面板入口
-│   │   │   ├─ setup_main.cpp        安装/卸载
-│   │   │   ├─ wireless/             Wi‑Fi 控制通道
-│   │   │   ├─ ui/panel_win32.cpp    桌面端面板
-│   │   │   └─ ...                   服务编排 / 配置 / 日志 / 工具
-│   │   └─ tests/
-│   ├─ display/                      副屏推流与触控注入
-│   │   ├─ capture/ encode/ transport/ inject/ pipeline/ protocol/
-│   │   └─ tests/
-│   └─ tools/
-│
-├─ android/                          手机端（Kotlin）
-│   ├─ app/                          Android App 模块
-│   ├─ tv/                           TV 端模块
-│   ├─ gradle/                       Gradle Wrapper
-│   ├─ apx-release.keystore          签名密钥
-│   ├─ build.gradle.kts              根构建脚本
-│   ├─ settings.gradle.kts           项目设置
-│   └─ gradle.properties             Gradle 配置
-│
-├─ scripts/                          构建与辅助脚本
-│   ├─ build.bat                     一键构建 PC 三件套
-│   ├─ build_apx.bat                 快速构建 apxdesktop
-│   ├─ run.bat                       仅启动面板
-│   ├─ build_display.bat             构建副屏模块
-│   ├─ build_android_release.bat     构建 Android Release
-│   ├─ adb_install_release.bat       ADB 安装 Release APK
-│   ├─ apx_gadget.sh                 Linux Gadget 配置
-│   ├─ aggregate.py                  数据汇总
-│   ├─ hid_sensor_probe.py           传感器探测
-│   ├─ make_icon.ps1                 图标生成
-│   ├─ verify_ms1.ps1               电源验证
-│   └─ verify_report.json            验证报告
-│
-├─ release/                          发布产物与说明
-│   └─ README.md
-│
-├─ reports/                          生成的报告（L1~L5 + 汇总 + 状态）
-│   ├─ L1~L5.md / .json             分级报告
-│   ├─ SUMMARY.md                    汇总报告
-│   ├─ STATUS.json                   项目状态
-│   ├─ MAIN-INTERVENTIONS.md         主要干预记录
-│   ├─ PROJECT-MINDMAP.md            项目脑图
-│   ├─ apx_panel.png                 面板截图
-│   └─ history/                      历史报告
-│
-└─ .github/workflows/               CI/CD
-    └─ build.yml                     Android APK 构建
-```
-
----
-
-## 三、电脑端宿主服务（apxhost）
-
-### 子命令
-
-| 命令 | 说明 |
-| --- | --- |
-| `apxhost serve` | 启动常驻服务：**9511 受控端 + 全局热键 + 托盘**（v117 起无 Web 界面） |
-| ~~`apxhost ui` / `pair` / `scene`~~ | 已随 Web 控制台下线；执行会提示改用 `apxdesktop` 或 `apxhost serve` |
-| `apxhost list` | 枚举设备后退出 |
-| `apxhost ctrl9511-connect <手机IP>[:端口] [秒数]` | 连入手机/电视 9511 统一控制面并注入输入（默认端口 9511） |
-| `apxhost ctrl9511-remote <手机IP>[:端口] [秒数]` | 远程桌面接管（连入后回传本机屏幕） |
-| `apxhost ctrl9511-serve [端口] [名称] [秒数]` | 本机作为 9511 服务端并被控（广播 APX1TV 供手机自动发现） |
-| （无参数）`apxhost` | 进入交互式命令循环 |
-
-日常使用建议直接跑桌面端 `apxdesktop.exe`（装包后是开始菜单里的「全能外设」），
-它把上面的发现 / 建链 / 注入 / 托盘常驻包成了一个窗口。
-
-### 配置文件
-
-```text
-%LOCALAPPDATA%\AllPeriph\config.json
-```
-
-包含 `schemaVersion`（当前 1）、HTTP 端口、开机自启、连接模式、触控板参数、热键绑定与场景绑定。
-字段缺失会自动回落默认值，不会因旧配置崩溃。
-
----
-
-## 四、构建
-
-### 1) 电脑端宿主服务（必需）
-
-```bat
-cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
-cmake --build build_host --config Release --target apxhost
-:: 产物：build_host\Release\apxhost.exe
-```
-
-### 2) 电脑端副屏模块
+### 副屏模块（可选）
 
 ```bat
 cmake -S pc/display -B build_display
 cmake --build build_display --config Release
 ```
 
-### 3) 共享协议库（可选）
+---
 
-```bat
-cmake -S shared -B shared/build
-cmake --build shared/build --config Release
+## 📁 项目结构
+
 ```
-
-### 4) 手机端（需要 Android SDK）
-
-```bat
-cd android
-gradlew.bat assembleDebug
+全能外设/
+├─ shared/              两端共享协议库（APX1 帧格式）
+├─ pc/                  电脑端（C++20，零第三方依赖）
+│  ├─ host/             常驻宿主 + 桌面面板源码
+│  └─ display/          副屏推流与触控注入
+├─ android/             手机端 + TV 端（Kotlin）
+│  ├─ app/              手机端 App
+│  └─ tv/               TV 端 App
+├─ scripts/             构建与辅助脚本
+├─ docs/                设计与协议文档
+├─ release/             发布产物
+├─ reports/             测试报告
+└─ .github/workflows/   CI/CD
 ```
-
-> 一键构建 PC 三件套：执行 `scripts/build.bat`。
 
 ---
 
-## 五、测试（离线可跑，无需真机）
+## 🔌 端口速览
+
+| 端口 | 协议 | 用途 |
+|------|------|------|
+| 9511 | TCP | 统一控制面（手机/TV/PC 互控） |
+| 9502 | TCP | 媒体通道（副屏视频下行 + 触控上行 + 音频） |
+| 9501 | UDP | 局域网发现信标（广播 `APX1TV`） |
+| 9512 | TCP | 文件传输 |
+
+---
+
+## 📖 完整文档
+
+| 文档 | 内容 |
+|------|------|
+| [docs/使用说明.md](docs/使用说明.md) | **最终用户使用说明** |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 双主线架构、通道表、降级策略 |
+| [docs/PROTOCOL.md](docs/PROTOCOL.md) | APX1 帧格式、控制面命令 |
+| [docs/REALDEVICE-NOTES.md](docs/REALDEVICE-NOTES.md) | 真机实测结论 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 能力现状与扩展点 |
+| [docs/CHANGELOG.md](docs/CHANGELOG.md) | 版本更新日志 |
+
+---
+
+## 🧪 测试
 
 ```bat
-:: 带宽仲裁
+:: 协议层单元测试（CI 自动运行）
+gradlew :app:testReleaseUnitTest
+
+:: 带宽仲裁测试
 cmake --build build_host --config Release --target arbiter_test
 build_host\Release\arbiter_test.exe
-
-:: TCP 传输
-cmake --build build_display --config Release --target tcp_transport_test
-build_display\Release\tcp_transport_test.exe
 ```
 
 ---
 
-## 六、两种连接模式
+## ⚠️ 已知限制
 
-### 有线模式（USB）
-
-手机通过 USB 复合设备被电脑免驱识别，性能最高，且手机同时充电。
-**需要 Gadget 权限（通常需 root）**；部分机型请走无线模式（详见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)）。
-
-### 无线模式（蓝牙 + 局域网 Wi‑Fi，免 root 免线缆）
-
-- **Wi‑Fi 控制（已落地）**：统一控制面 TCP `9511` + UDP `9501` 信标，电脑主动连入。
-- **蓝牙 HID（部分）**：触控板与多媒体键已可用；**键盘与手柄待补**。
-- **面板**：桌面端自动发现（监听 APX1TV 信标）或填 IP:9511。
+1. **蓝牙键盘/手柄**尚未补全（见 [ROADMAP.md](docs/ROADMAP.md)）
+2. **Windows 无原生虚拟麦克风 API**，需第三方虚拟声卡（如 VB-Cable）
+3. **副屏握手**仅代码层确认，建议首次使用真机验证
+4. **被控手机显示名**为 `APX1TV`，不够直观（可后续优化为真实机型名）
 
 ---
 
-## 七、如实降级
+## 📋 开发约定
 
-本项目原则：**不可用的能力必须明确标注，绝不伪装成功。**
-
-- 手机端模块状态 RUNNING / DEGRADED / ERROR / STOPPED 如实上报。
-- Wi‑Fi 控制链路口径与真实择路完全一致。
-- 带宽不足时按优先级降级（触控上行 > 视频 > 音频）。
-
----
-
-## 八、已知限制
-
-1. Android 端编译验证通过，真机结论见 [`docs/REALDEVICE-NOTES.md`](./docs/REALDEVICE-NOTES.md)。
-2. 副屏模块可独立构建，不在 `scripts/build.bat` 范围内。
-3. Windows 无原生虚拟麦克风 API，需第三方虚拟声卡（如 VB-Cable）。
+- **零第三方依赖**：离线可用，只依赖 framework API
+- **如实降级**：不可用的能力明确标注，绝不伪装成功
+- **共享契约先行**：`shared/` 改动需两端同步
+- **协议一致性**：CI 自动校验跨端常量（`scripts/check_protocol.py`）
 
 ---
 
-## 九、许可
+## 📜 许可
 
-MIT，详见 [`LICENSE`](./LICENSE)。
-
----
-
-## 十、开发约定
-
-- **零第三方依赖**：离线可用。
-- **面板交互**：pending / success / error 三态，失败就地展示。
-- **传输统一**：APX1 帧格式，`shared/` 与两端一致。
-- **共享契约先行**：`shared/include/apx/` 改动需两端同步。
+[MIT](LICENSE)
