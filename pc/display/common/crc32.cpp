@@ -1,23 +1,26 @@
 #include "common/crc32.hpp"
 
+#include <array>
+
 namespace apxdisp {
 namespace {
 
 const uint32_t kCrcPoly = 0xEDB88320u;
 
 uint32_t* makeTable() {
-    static uint32_t table[256];
-    static bool built = false;
-    if (built) return table;
-    for (uint32_t i = 0; i < 256; ++i) {
-        uint32_t c = i;
-        for (int k = 0; k < 8; ++k) {
-            c = (c & 1u) ? (kCrcPoly ^ (c >> 1)) : (c >> 1);
+    // C++11 保证 static 局部变量初始化线程安全，lambda + std::array 一次性构建整张表
+    static const std::array<uint32_t, 256> table = [] {
+        std::array<uint32_t, 256> t{};
+        for (uint32_t i = 0; i < 256; ++i) {
+            uint32_t c = i;
+            for (int k = 0; k < 8; ++k) {
+                c = (c & 1u) ? (kCrcPoly ^ (c >> 1)) : (c >> 1);
+            }
+            t[i] = c;
         }
-        table[i] = c;
-    }
-    built = true;
-    return table;
+        return t;
+    }();
+    return const_cast<uint32_t*>(table.data());
 }
 
 }  // namespace
