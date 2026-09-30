@@ -90,7 +90,7 @@ StatusEx CtrlClient::handshake() {
         if (!s.ok()) return s;
     }
 
-    const uint32_t seq = seq_++;
+    const uint32_t seq = seq_.fetch_add(1);
     const uint64_t pcNow = monotonicNs();
     StatusEx s = sendFrame(buildHello(seq, kProtocolVersion, pcNow, opt_.capabilities));
     if (!s.ok()) return s;
@@ -133,7 +133,7 @@ StatusEx CtrlClient::configure(uint64_t sensorMask, const std::vector<SampleRate
     lastDisplayMode_ = displayMode;
     lastVideo_       = video;
 
-    const uint32_t seq = seq_++;
+    const uint32_t seq = seq_.fetch_add(1);
     StatusEx s = sendFrame(buildConfig(seq, sensorMask, rates, displayMode, video));
     if (!s.ok()) return s;
 
@@ -169,7 +169,7 @@ StatusEx CtrlClient::replayConfig() {
 
 StatusEx CtrlClient::bye(const std::string& reason) {
     if (!isOpen()) return ok();
-    StatusEx s = sendFrame(buildBye(seq_++, reason));
+    StatusEx s = sendFrame(buildBye(seq_.fetch_add(1), reason));
     std::lock_guard<std::mutex> g(mu_);
     st_.running   = false;
     st_.connected = false;
@@ -211,7 +211,7 @@ StatusEx CtrlClient::setDisplayMode(uint8_t mode) {
 // ------------------------------------------------------------ Vendor Report 5
 StatusEx CtrlClient::sendVendorRaw(uint8_t cmd, const std::vector<uint8_t>& payload) {
     if (!isOpen()) return err(Status::NotConnected, "not connected");
-    auto frame = buildVendorCommand(cmd, static_cast<uint8_t>(seq_++ & 0xFF), payload);
+    auto frame = buildVendorCommand(cmd, static_cast<uint8_t>(seq_.fetch_add(1) & 0xFF), payload);
     return transport_->send(frame.data(), frame.size());
 }
 
@@ -243,7 +243,7 @@ StatusEx CtrlClient::irSend(uint32_t freqHz, const std::vector<uint16_t>& patter
 StatusEx CtrlClient::heartbeatOnce() {
     if (!isOpen()) return err(Status::NotConnected, "not connected");
 
-    const uint32_t seq = seq_++;
+    const uint32_t seq = seq_.fetch_add(1);
     const int64_t  t0  = static_cast<int64_t>(monotonicNs());
     StatusEx s = sendFrame(buildPing(seq, static_cast<uint64_t>(t0)));
     if (!s.ok()) return s;

@@ -1,25 +1,27 @@
 // §3 Bulk 帧：CRC32 / 小端读写 / 分片 / 组装
 #include "apx/frame.h"
 
+#include <array>
 #include <cstring>
 
 namespace apx {
 namespace {
 
 const uint32_t* crcTable() {
-    static uint32_t table[256];
-    static bool built = false;
-    if (!built) {
+    // C++11 保证 static 局部变量的初始化是线程安全的 —— 利用 lambda + std::array
+    // 把整张表在首次调用时一次性构建完毕，完全消除原先 double-checked locking 的竞态。
+    static const std::array<uint32_t, 256> table = [] {
+        std::array<uint32_t, 256> t{};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
             for (int k = 0; k < 8; ++k) {
                 c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
-            table[i] = c;
+            t[i] = c;
         }
-        built = true;
-    }
-    return table;
+        return t;
+    }();
+    return table.data();
 }
 
 }  // namespace

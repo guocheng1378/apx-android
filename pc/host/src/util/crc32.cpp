@@ -2,21 +2,23 @@
 
 #include "apxpc/format.hpp"
 
+#include <array>
+
 namespace apxpc {
 
 // 运行时生成查找表，避免静态初始化顺序问题
 static const uint32_t* crcTable() {
-    static bool inited = false;
-    static uint32_t table[256];
-    if (!inited) {
+    // C++11 保证 static 局部变量的初始化线程安全 —— lambda + std::array 一次性构建整张表
+    static const std::array<uint32_t, 256> table = [] {
+        std::array<uint32_t, 256> t{};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
             for (int k = 0; k < 8; ++k) c = (c & 1u) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-            table[i] = c;
+            t[i] = c;
         }
-        inited = true;
-    }
-    return table;
+        return t;
+    }();
+    return table.data();
 }
 
 uint32_t crc32Combine(uint32_t crc, const void* data, size_t len) noexcept {

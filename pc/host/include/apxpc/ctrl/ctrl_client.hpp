@@ -119,7 +119,7 @@ private:
     std::vector<SampleRate> lastRates_;
     uint8_t            lastDisplayMode_{0};
     VideoParams        lastVideo_;
-    uint32_t           seq_{1};
+    std::atomic<uint32_t> seq_{1};   // 心跳线程与外部 API 并发 ++ → 必须 atomic
 
     std::thread        hbThread_;
     std::atomic<bool>  hbRunning_{false};
