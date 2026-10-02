@@ -28,10 +28,16 @@ object TvRenderer {
     @Volatile
     private var surface: Surface? = null
 
-    private var codec: MediaCodec? = null
-    private var mime: String = MediaFormat.MIMETYPE_VIDEO_AVC
-    private var width = 0
-    private var height = 0
+    // v1.7：解码器状态会被**两个线程**访问 —— 收流线程（submit → ensureCodec）与
+    // 解码线程（decodeLoop 读 codec / 尺寸）。此前既无锁也没 volatile：
+    // 可能读到过期值（花屏），或刚取到引用就被另一边 release（IllegalStateException）。
+    // 现在字段统一 volatile 保证可见性，"建 / 释放"用同一把锁串行化。
+    private val codecLock = Any()
+
+    @Volatile private var codec: MediaCodec? = null
+    @Volatile private var mime: String = MediaFormat.MIMETYPE_VIDEO_AVC
+    @Volatile private var width = 0
+    @Volatile private var height = 0
 
     @Volatile
     private var running = false
@@ -113,18 +119,21 @@ object TvRenderer {
             return
         }
         val stream = body.copyOfRange(f.bitstreamOffset, f.bitstreamOffset + f.bitstreamLength)
-        // 已判定这个流在本机解不了：直接丢，**不再每帧试图重建解码器**
-        if (codec == null && failedKey == "${mimeFor(f.codecId)}/${f.width}x${f.height}") {
-            skippedCodec.incrementAndGet()
-            return
-        }
-        // 编码/分辨率变化需要重建解码器 —— 用首帧或变化帧的参数驱动
-        if (codec == null || f.width != width || f.height != height ||
-            mimeFor(f.codecId) != mime
-        ) {
-            ensureCodec(f.width, f.height, mimeFor(f.codecId), stream)
-            onFormatChanged?.invoke(f.width, f.height)
-            return
+        // v1.7：判断与重建必须原子 —— 否则两个线程可能同时判定"需要重建"，
+        // 各自建一个解码器（后建的顶掉先建的，却没人释放它）。
+        synchronized(codecLock) {
+            if (codec == null && failedKey == "${mimeFor(f.codecId)}/${f.width}x${f.height}") {
+                skippedCodec.incrementAndGet()
+                return
+            }
+            // 编码/分辨率变化需要重建解码器 —— 用首帧或变化帧的参数驱动
+            if (codec == null || f.width != width || f.height != height ||
+                mimeFor(f.codecId) != mime
+            ) {
+                ensureCodec(f.width, f.height, mimeFor(f.codecId), stream)
+                onFormatChanged?.invoke(f.width, f.height)
+                return
+            }
         }
         if (!queue.offer(stream)) {
             queue.poll()               // 保新弃旧：副屏宁可跳帧也不要积出延迟
@@ -302,14 +311,18 @@ object TvRenderer {
     }
 
     private fun releaseCodec() {
-        runCatching {
-            codec?.stop()
-            codec?.release()
+        // v1.7：与 ensureCodec 用同一把锁 —— 避免"这边正在释放、那边正在用"。
+        // synchronized 可重入，ensureCodec 内部调用本函数不会死锁。
+        synchronized(codecLock) {
+            runCatching {
+                codec?.stop()
+                codec?.release()
+            }
+            codec = null
+            width = 0
+            height = 0
+            videoWidth = 0
+            videoHeight = 0
         }
-        codec = null
-        width = 0
-        height = 0
-        videoWidth = 0
-        videoHeight = 0
     }
 }

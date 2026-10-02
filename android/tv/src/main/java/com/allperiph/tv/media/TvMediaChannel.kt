@@ -186,9 +186,16 @@ class TvMediaChannel(private val port: Int = MEDIA_PORT) {
 
     private fun feed(data: ByteArray, n: Int) {
         synchronized(rxLock) {
-            if (rxLen + n > rxBuf.size) {
+            // v1.7：给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
+            // 导致 rxBuf 无限扩容 → OOM 崩溃。
+            val need = rxLen + n
+            if (need > MAX_RX_BUF) {
+                throw IllegalStateException("媒体通道接收缓冲溢出（${need}B > ${MAX_RX_BUF}B）")
+            }
+            if (need > rxBuf.size) {
                 var cap = rxBuf.size
-                while (cap < rxLen + n) cap *= 2
+                while (cap < need) cap *= 2
+                if (cap > MAX_RX_BUF) cap = MAX_RX_BUF
                 rxBuf = rxBuf.copyOf(cap)
             }
             System.arraycopy(data, 0, rxBuf, rxLen, n)
@@ -267,5 +274,7 @@ class TvMediaChannel(private val port: Int = MEDIA_PORT) {
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val READ_TIMEOUT_MS = 3_000
+        // 接收缓冲上限：APX 单帧最大 ~4MB，8MB 足够容纳粘包的多帧拼接，同时防止 OOM
+        private const val MAX_RX_BUF = 8 * 1024 * 1024
     }
 }
