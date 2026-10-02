@@ -7,20 +7,23 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import com.allperiph.shared.inject.CursorOverlay
 import com.allperiph.shared.util.Log
 
 /**
  * 全局光标浮层：被控端把手机光标画在最上层，提示当前落点。
  * 需要「显示在其他应用上层」权限（SYSTEM_ALERT_WINDOW）；未授予时静默失败，仅丢失可视化。
+ * 本对象实现共享 [CursorOverlay]，供 [com.allperiph.shared.inject.TvInjector] 经
+ * [com.allperiph.shared.inject.InjectorPlatform.overlay] 注入。
  */
-object TvOverlay {
+object TvOverlay : CursorOverlay {
     private var wm: WindowManager? = null
     private var view: View? = null
     private var params: WindowManager.LayoutParams? = null
     private var size = 16
     private var shown = false
 
-    fun init(ctx: Context) {
+    override fun init(ctx: Context) {
         if (wm != null) return
         wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val dm = ctx.resources.displayMetrics
@@ -59,10 +62,10 @@ object TvOverlay {
     }
 
     /** 浮层是否真的建起来了（没拿到「显示在其他应用上层」时会失败） */
-    val isReady: Boolean
+    override val isReady: Boolean
         get() = wm != null && view != null
 
-    fun move(x: Float, y: Float) {
+    override fun move(x: Float, y: Float) {
         val v = view ?: return
         val p = params ?: return
         p.x = (x - size / 2).toInt().coerceAtLeast(0)
@@ -77,12 +80,12 @@ object TvOverlay {
         }
     }
 
-    fun hide() {
+    override fun hide() {
         view?.let { it.visibility = View.GONE }
         shown = false
     }
 
-    fun destroy() {
+    override fun destroy() {
         view?.let { runCatching { wm?.removeView(it) } }
         view = null
         wm = null

@@ -593,7 +593,7 @@ class TouchpadActivity : Activity() {
 
     /** 注入通道自检：被控端"缺哪一项"在手机上原先只有通知栏一行字 */
     private fun showInjectCaps() {
-        val inj = com.allperiph.controlled.TvInjector
+        val inj = com.allperiph.shared.inject.TvInjector
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }

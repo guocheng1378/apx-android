@@ -19,7 +19,8 @@ import android.widget.Toast
 import com.allperiph.tv.R
 import com.allperiph.tv.TvServerService
 import com.allperiph.shared.util.Log
-import com.allperiph.tv.core.TvInjector
+import com.allperiph.shared.inject.TvInjector
+import com.allperiph.tv.core.TvInjectorPlatform
 import com.allperiph.shared.net.ControlServer
 
 /**
@@ -63,7 +64,7 @@ class MainActivity : android.app.Activity() {
         super.onCreate(savedInstanceState)
         TvUi.bindColors(this)
         // 注入通道初始化幂等；被控服务由用户开关控制（见 toggleService）
-        TvInjector.init(this)
+        TvInjector.init(this, TvInjectorPlatform)
         setContentView(buildUi())
 
         overlay = RemoteInputOverlay(

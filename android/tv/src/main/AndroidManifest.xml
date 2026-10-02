@@ -45,6 +45,7 @@
         android:required="false" />
 
     <application
+        android:name=".App"
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher_tv"
         android:banner="@drawable/banner"
@@ -94,7 +95,7 @@
         <!-- 隐形输入法：借用系统输入通道稳定打字（文本兜底里最稳的一层）。
              用户在系统「输入法」里启用并切到它即可；不显示任何键盘。 -->
         <service
-            android:name=".core.ApxImeService"
+            android:name="com.allperiph.shared.ime.ApxImeService"
             android:exported="true"
             android:label="全能外设输入"
             android:permission="android.permission.BIND_INPUT_METHOD">
@@ -108,7 +109,7 @@
 
         <!-- 系统级输入注入（手机遥控手机 / 电视） -->
         <service
-            android:name=".core.ApxAccessibilityService"
+            android:name="com.allperiph.shared.accessibility.ApxAccessibilityService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -134,7 +135,7 @@
              闹钟触发时应用会拿到一小段「允许启动前台服务」的窗口，这是 Android 12+
              后台能重新进前台的少数合法路径之一。 -->
         <receiver
-            android:name=".KeepAliveReceiver"
+            android:name="com.allperiph.shared.inject.KeepAliveReceiver"
             android:enabled="true"
             android:exported="false" />
     </application>

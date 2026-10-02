@@ -1,4 +1,4 @@
-package com.allperiph.tv.core
+package com.allperiph.shared.accessibility
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -40,7 +40,7 @@ class ApxAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         mainHandler = Handler(Looper.getMainLooper())
-        Log.i("APX 无障碍服务已连接")
+        Log.i("APX", "无障碍服务已连接")
     }
 
     override fun onDestroy() {
@@ -57,7 +57,7 @@ class ApxAccessibilityService : AccessibilityService() {
                 val className = node.className?.toString() ?: return
                 if (className.contains("EditText") || className.contains("AutoCompleteTextView")) {
                     val hint = event.text?.toString() ?: node.contentDescription?.toString() ?: ""
-                    Log.i("检测到输入框获焦: $hint")
+                    Log.i("APX", "检测到输入框获焦: $hint")
                     onFocusDetected?.invoke(hint)
                 }
             }

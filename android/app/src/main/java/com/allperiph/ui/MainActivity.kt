@@ -1075,7 +1075,7 @@ class MainActivity : Activity() {
 
     /** 被控端注入通道自检（与 TV 端首页自检对话框同一份数据源） */
     private fun showControlledCaps() {
-        val inj = com.allperiph.controlled.TvInjector
+        val inj = com.allperiph.shared.inject.TvInjector
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }

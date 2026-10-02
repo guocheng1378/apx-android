@@ -12,13 +12,15 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.allperiph.R
+import com.allperiph.shared.accessibility.ApxAccessibilityService
 import com.allperiph.shared.net.ControlServer
 import com.allperiph.shared.net.ControlEndpoint
 import com.allperiph.shared.net.FileReceiver
 import com.allperiph.shared.net.WirelessBeacon
 import com.allperiph.shared.util.Log
-import com.allperiph.controlled.KeepAlive
-import com.allperiph.controlled.TvInjector
+import com.allperiph.shared.inject.KeepAlive
+import com.allperiph.shared.inject.ServiceController
+import com.allperiph.shared.inject.TvInjector
 import com.allperiph.touchpad.TouchpadActivity
 
 class ControlledService : Service() {
@@ -74,7 +76,7 @@ class ControlledService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundGuarded()
-        TvInjector.init(this)
+        TvInjector.init(this, PhoneInjectorPlatform)
         if (server == null) server = ControlServer(endpoint = controlEndpoint)
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
@@ -163,7 +165,7 @@ class ControlledService : Service() {
             (if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) " · 未授予通知权限" else "")
         return Notification.Builder(this, CHANNEL_ID).setContentTitle("全能外设 · 被控模式").setContentText(text).setSmallIcon(R.drawable.ic_launcher_app).setContentIntent(openPi).setOngoing(true).build()
     }
-    companion object {
+    companion object : ServiceController {
         private const val TAG = "ControlledService"
         private const val CHANNEL_ID = "controlled_status"
         private const val NOTIFY_ID = 0x9A3
@@ -171,8 +173,8 @@ class ControlledService : Service() {
         private const val KEY_ENABLED = "enabled"
         @Volatile var running: Boolean = false; private set
         @Volatile var server: ControlServer? = null; internal set
-        fun enabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-        fun start(c: Context) {
+        override fun enabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+        override fun start(c: Context) {
             running = true; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
             val i = Intent(c, ControlledService::class.java)
             runCatching { if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) }.onFailure { running = false; Log.e(TAG, "启动被控服务失败", it) }
@@ -181,6 +183,6 @@ class ControlledService : Service() {
             running = false; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply()
             runCatching { c.stopService(Intent(c, ControlledService::class.java)) }
         }
-        fun isRunning() = running
+        override fun isRunning(): Boolean = running
     }
 }

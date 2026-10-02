@@ -1,4 +1,4 @@
-package com.allperiph.controlled
+package com.allperiph.shared.inject
 
 import android.app.AlarmManager
 import android.app.PendingIntent
@@ -10,17 +10,18 @@ import android.os.SystemClock
 import com.allperiph.shared.util.Log
 
 /**
- * **进程级保活（手机被控端）**：与 TV 端 `com.allperiph.tv.KeepAlive` 同一套做法。
+ * **进程级保活（共享）**：手机端与 TV 端共用同一份闹钟自检逻辑，平台差异通过
+ * [ServiceController] 注入。各端在 Application.onCreate 里设置 [controller]。
  *
  * 为什么需要它：`START_STICKY` 与 `onTaskRemoved` 都**不保证**被控服务能回来 ——
  *  - Android 12+ 禁止应用在后台启动前台服务，`onTaskRemoved` 里直接
- *    `startForegroundService` 会抛 `ForegroundServiceStartNotAllowedException`（原先只吞掉打日志）；
+ *    `startForegroundService` 会抛 `ForegroundServiceStartNotAllowedException`；
  *  - MIUI / HyperOS 从最近任务划掉 = 连进程一起杀，被控端随即"消失"。
  *
- * 而**闹钟触发时系统会给应用一小段"允许启动前台服务"的窗口**，所以用一个定时闹钟做最后一道自检：
- * 服务不在就拉起来，然后再排下一次，形成自愈闭环。
+ * 而**闹钟触发时系统会给应用一小段"允许启动前台服务"的窗口**，所以用一个定时闹钟做
+ * 最后一道自检：服务不在就拉起来，然后再排下一次，形成自愈闭环。
  *
- * 只在用户**主动开过被控**（[ControlledService.KEY_ENABLED]）时才拉起，不替用户做决定。
+ * 只在用户**主动开过被控**（[ServiceController.enabled]）时才拉起，不替用户做决定。
  */
 object KeepAlive {
 
@@ -29,7 +30,18 @@ object KeepAlive {
     /** 常规自检间隔 */
     private const val INTERVAL_MS = 60_000L
 
-    private const val RC = 0x7A52
+    /** 共享 RC 码：两端 applicationId 不同，PendingIntent 不会冲突 */
+    private const val RC = 0x7A50
+
+    /**
+     * 平台特定的被控服务控制器。由各端在 Application.onCreate 中设置。
+     *
+     * 必须在 Application.onCreate 注入：保活闹钟的杀手锏是「进程被杀后系统重新拉起
+     * 一个全新进程来投递闹钟广播」，新进程里没有任何平台代码跑过，若不在
+     * Application.onCreate 提前注入，[onAlarm] 会拿到 null controller 而无法拉起服务。
+     */
+    @Volatile
+    var controller: ServiceController? = null
 
     /**
      * 排下一次自检。[delayMs] 用于"刚被拒 → 尽快重试"。
@@ -56,13 +68,25 @@ object KeepAlive {
         return PendingIntent.getBroadcast(ctx, RC, i, flags)
     }
 
+    /**
+     * 取消自检闹钟 —— 用户**主动关掉被控**时必须调，否则闹钟下一秒又把服务拉回来，
+     * 变成"关不掉"。见 [ServiceController.stopAll]。
+     */
+    fun cancel(ctx: Context) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        runCatching { am.cancel(pending(ctx)) }
+            .onFailure { Log.w(TAG, "取消保活闹钟失败：${it.message}") }
+    }
+
     /** 闹钟到点：服务不在就拉起来，然后无条件重排（自愈闭环） */
     fun onAlarm(ctx: Context) {
         val c = ctx.applicationContext
-        // running 是**进程内**静态量：进程被杀后重启的新进程里它必然为 false，正好当"服务已死"的判据
-        if (ControlledService.enabled(c) && !ControlledService.isRunning()) {
+        val ctrl = controller
+        // running 是进程内静态量：进程被杀后重启的新进程里它必然为 false，正好当"服务已死"的判据
+        if (ctrl != null && ctrl.enabled(c) && !ctrl.isRunning()) {
             Log.i(TAG, "保活自检：被控服务不在 → 重新拉起")
-            ControlledService.start(c)
+            runCatching { ctrl.start(c) }
+                .onFailure { Log.w(TAG, "保活自检拉起失败：${it.message}") }
         }
         schedule(c)
     }

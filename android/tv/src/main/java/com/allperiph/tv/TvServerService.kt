@@ -16,9 +16,11 @@ import com.allperiph.shared.net.FileReceiver
 import com.allperiph.shared.net.WirelessBeacon
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
-import com.allperiph.tv.KeepAlive
-import com.allperiph.tv.core.TvInjector
-import com.allperiph.tv.core.ApxAccessibilityService
+import com.allperiph.shared.inject.KeepAlive
+import com.allperiph.shared.inject.ServiceController
+import com.allperiph.shared.inject.TvInjector
+import com.allperiph.tv.core.TvInjectorPlatform
+import com.allperiph.shared.accessibility.ApxAccessibilityService
 import com.allperiph.tv.media.TvSpeaker
 import com.allperiph.tv.ui.TvInputDispatcher
 
@@ -61,7 +63,7 @@ class TvServerService : Service() {
         super.onCreate()
         if (Build.VERSION.SDK_INT >= 26) { val ch = NotificationChannel(CHANNEL_ID, "全能外设 TV 状态", NotificationManager.IMPORTANCE_LOW); getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch) }
         current = this
-        TvInjector.init(applicationContext)
+        TvInjector.init(applicationContext, TvInjectorPlatform)
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
     private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
@@ -107,7 +109,7 @@ class TvServerService : Service() {
     private fun rememberPeer(ip: String) { val set = knownPeers().toMutableSet(); if (set.add(ip)) { getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putString(KEY_PEERS, set.toList().takeLast(8).joinToString(",")).apply() } }
     private fun knownPeers(): List<String> = getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_PEERS, "")?.split(',')?.filter { it.isNotBlank() } ?: emptyList()
     private fun buildNotification(text: String): Notification { val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this); builder.setContentTitle(getString(R.string.tv_notification_title)).setContentText(text + " · " + injectStateText() + (if (fgFailed) " · 后台运行受限" else "")).setSmallIcon(R.drawable.ic_launcher_tv).setOngoing(true); return builder.build() }
-    companion object {
+    companion object : ServiceController {
         private const val CHANNEL_ID = "apxtv_status"
         private const val NOTIFY_ID = 1
         const val PREF = "apx_tv"
@@ -128,9 +130,11 @@ class TvServerService : Service() {
         fun onlyTrustedEnabled(c: Context): Boolean = prefsOf(c).getBoolean(KEY_ONLY_TRUSTED, false)
         fun setOnlyTrusted(c: Context, on: Boolean) { prefsOf(c).edit().putBoolean(KEY_ONLY_TRUSTED, on).apply() }
         fun isEnabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+        override fun enabled(ctx: Context): Boolean = isEnabled(ctx)
         fun isUserStopped(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_USER_STOPPED, false)
-        fun start(c: Context) { c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).putBoolean(KEY_USER_STOPPED, false).apply(); val i = Intent(c, TvServerService::class.java); runCatching { if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) }.onFailure { Log.w("拉起失败：${it.message}") } }
+        override fun isRunning(): Boolean = current != null
+        override fun start(c: Context) { c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).putBoolean(KEY_USER_STOPPED, false).apply(); val i = Intent(c, TvServerService::class.java); runCatching { if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) }.onFailure { Log.w("拉起失败：${it.message}") } }
         fun startIfNeeded(c: Context) { if (isUserStopped(c)) return; start(c) }
-        fun stopAll(c: Context) { c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).putBoolean(KEY_USER_STOPPED, true).apply(); KeepAlive.cancel(c); runCatching { c.stopService(Intent(c, TvServerService::class.java)) }.onFailure { Log.w("停止失败：${it.message}") } }
+        override fun stopAll(c: Context) { c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).putBoolean(KEY_USER_STOPPED, true).apply(); KeepAlive.cancel(c); runCatching { c.stopService(Intent(c, TvServerService::class.java)) }.onFailure { Log.w("停止失败：${it.message}") } }
     }
 }
