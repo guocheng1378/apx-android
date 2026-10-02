@@ -56,8 +56,10 @@ std::string readClipboardUtf8() {
     if (w.empty()) return {};
     const int n = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (n <= 1) return {};
-    std::string s(static_cast<size_t>(n) - 1, '\0');
+    // fix: 先按 n（含 null terminator）分配，转换后再 resize 掉末尾的 '\0'
+    std::string s(static_cast<size_t>(n), '\0');
     ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), n, nullptr, nullptr);
+    s.resize(static_cast<size_t>(n) - 1);
     return s;
 }
 
@@ -370,8 +372,10 @@ std::wstring toWide(const std::string& s) {
     if (s.empty()) return {};
     const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
     if (n <= 1) return {};
-    std::wstring w(static_cast<size_t>(n) - 1, L'\0');
+    // fix: 先按 n（含 null terminator）分配，转换后再 resize 掉末尾的 '\0'
+    std::wstring w(static_cast<size_t>(n), L'\0');
     ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), n);
+    w.resize(static_cast<size_t>(n) - 1);
     return w;
 }
 

@@ -348,6 +348,12 @@ if(APXPC_BUILD_TESTS)
     target_link_libraries(arbiter_test PRIVATE ws2_32 hid setupapi cfgmgr32)
   endif()
   add_test(NAME arbiter_test COMMAND arbiter_test)
+
+  add_executable(utf16_convert_test "${APXPC_ROOT}/tests/utf16_convert_test.cpp")
+  if(WIN32)
+    target_link_libraries(utf16_convert_test PRIVATE user32 ole32)
+  endif()
+  add_test(NAME utf16_convert_test COMMAND utf16_convert_test)
 endif()
 
 # ---------------------------------------------------------------- 安装
