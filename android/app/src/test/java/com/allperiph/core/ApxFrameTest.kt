@@ -1,5 +1,6 @@
 package com.allperiph.core
 
+import com.allperiph.shared.proto.ApxFrame
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

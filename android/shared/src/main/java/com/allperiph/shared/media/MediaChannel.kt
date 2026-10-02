@@ -1,23 +1,25 @@
-package com.allperiph.wireless
+package com.allperiph.shared.media
 
-import com.allperiph.core.ApxFrame
-import com.allperiph.core.ApxStreams
-import com.allperiph.core.Log
-import com.allperiph.core.MediaOut
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Wi‑Fi **媒体通道**：与控制面（9511，[com.allperiph.wireless.TvControllerClient] /
- * [com.allperiph.controlled.ControlledService]）并列的第二条连接，承载大流量流。
+ * Wi‑Fi **媒体通道**：与控制面（9511）并列的第二条连接，承载大流量流。
+ *
+ * v1.8：从手机端 `com.allperiph.wireless.TcpMediaChannel` 与 TV 端
+ * `com.allperiph.tv.media.TvMediaChannel` 提取到共享模块。两端收流/协议部分逐字节相同，
+ * 差异仅在「分发去哪里」与「是否做上行」—— 这两点由构造回调参数化，不再硬编码：
+ * - [onFrame]：收到的帧往哪分发（手机端交给 `ApxStreams.dispatch`，TV 端直接喂 `Renderer` / `TvSpeaker`）。
+ * - [onReady] / [onDisconnect]：连接建立 / 断开时的钩子（手机端借此挂 `MediaOut` 上下行出口）。
+ * - [enableUpLink]：是否启用上行（手机端有麦克风/触摸上行 = true；TV 端只收不发 = false）。
  *
  * ## 为什么媒体与控制面分两条连接（而不是一条多路复用）
  * 控制面（9511）是**单对端语义**。把媒体（10Mbps 级视频 + 音频）
@@ -27,29 +29,30 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * ## 端口约定（PC 侧常量需与此一致）
  * ```
- * 9511  TCP  控制面（统一协议；手机可被控 / 控设备）  —— TvControlServer / TvControllerClient
- * 9501  UDP  信标广播（APX1TV）                    —— WirelessBeacon
- * 9502  TCP  媒体（手机做服务端，PC 连入）          —— 本类
- * ```
- *
- * ## 承载的流（方向见 [ApxFrame.STREAM_*] 注释）
- * ```
- * 下行 0 video   副屏画面        → ApxStreams 分发给 screen 模块
- * 下行 1 audio   音箱 PCM        → 分发给 wireless 音频播放
- * 上行 5 mic     手机录音 PCM    → MediaOut.mic()
-
+ * 9511  TCP  控制面（统一协议；手机可被控 / 控设备）
+ * 9501  UDP  信标广播（APX1TV）
+ * 9502  TCP  媒体（手机 / TV 做服务端，PC 连入）  —— 本类
  * ```
  *
  * ## 背压策略（重要）
  * 上行只有**一个** writer 线程（socket 写必须单写者才保序）。麦克风（~190KB/s、
- * 时延敏感）独占队列，无需为其它大块载荷设闸：
- * 丢帧计数分开统计，
- * UI 如实展示，不静默。
+ * 时延敏感）独占队列，丢帧计数分开统计，UI 如实展示，不静默。
+ *
+ * @param onFrame 收到一帧（已剥帧头/CRC）时分发；在锁外调用，允许较慢。
+ * @param port 监听端口，默认 9502。
+ * @param token 握手令牌；非空时校验，空则跳过（TV 端不校验）。
+ * @param onReady 连接建立并通过握手鉴权后回调（手机端借此 `MediaOut.attach`）。
+ * @param onDisconnect 连接断开时回调（手机端借此 `MediaOut.detach`）。
+ * @param enableUpLink 是否启用上行（手机端 true，TV 端 false）。
  */
-class TcpMediaChannel(
+class MediaChannel(
+    private val onFrame: (streamId: Int, flags: Int, seq: Int, body: ByteArray) -> Unit,
     private val port: Int = MEDIA_PORT,
     private val token: String = "",
-) : MediaOut.Sink {
+    private val onReady: ((MediaChannel) -> Unit)? = null,
+    private val onDisconnect: (() -> Unit)? = null,
+    private val enableUpLink: Boolean = false,
+) {
 
     @Volatile
     private var server: ServerSocket? = null
@@ -64,7 +67,7 @@ class TcpMediaChannel(
     private var peerText: String = ""
 
     @Volatile
-    override var ready: Boolean = false
+    var ready: Boolean = false
         private set
 
     fun peer(): String = peerText
@@ -121,8 +124,7 @@ class TcpMediaChannel(
         out = null
         peerText = ""
         ready = false
-        MediaOut.detach()
-        ApxStreams.clear()
+        onDisconnect?.invoke()
         acceptThread = null
         readerThread = null
         writerThread = null
@@ -188,9 +190,9 @@ class TcpMediaChannel(
                 runCatching { sock.close() }
                 return
             }
-            // fix(v184)：读不再永久阻塞。手机主要在写、PC 只在触摸时才发帧，
-            // 静默超时是常态 → 超时后 continue 继续等；真正半开（PC 消失）
-            // 也会周期性醒来检查 sock.isClosed，不再无限挂死。
+            // 读不再永久阻塞。PC 只在触摸/推流时才发帧，静默超时是常态 →
+            // 超时后 continue 继续等；真正半开（PC 消失）也会周期性醒来检查
+            // sock.isClosed，不再无限挂死。
             sock.soTimeout = IDLE_READ_TIMEOUT_MS
             activate(sock)
         } catch (t: Throwable) {
@@ -200,7 +202,7 @@ class TcpMediaChannel(
     }
 
     private fun activate(sock: Socket) {
-        // v184：握手鉴权已通过，**此时**才接管在用连接（踢旧连接让位给新连接）。
+        // 握手鉴权已通过，**此时**才接管在用连接（踢旧连接让位给新连接）。
         // 旧连接若是 TCP 半开僵尸态（PC 已消失而本地写未失败），这一步能立刻让位，
         // 不会像更早的实现那样把 PC 的重连一直拒掉。
         val prev = client
@@ -221,16 +223,18 @@ class TcpMediaChannel(
         outQueue.clear()
         droppedFrames.set(0)
         ready = true
-        MediaOut.attach(this)
+        onReady?.invoke(this)
         Log.i(TAG, "PC 已连入媒体通道：$peerText")
 
         readerThread = Thread({ readerLoop(sock) }, "apx-media-reader").apply {
             isDaemon = true
             start()
         }
-        writerThread = Thread({ writerLoop(sock) }, "apx-media-writer").apply {
-            isDaemon = true
-            start()
+        if (enableUpLink) {
+            writerThread = Thread({ writerLoop(sock) }, "apx-media-writer").apply {
+                isDaemon = true
+                start()
+            }
         }
     }
 
@@ -238,7 +242,7 @@ class TcpMediaChannel(
         val ins = sock.getInputStream()
         // 收流缓冲开大一点：视频帧单分片可达 256KiB，小缓冲会把 recv 次数打上去
         val buf = ByteArray(64 * 1024)
-        while (running.get() && !sock.isClosed) {
+        while (running.get() && !sock.isClosed && client === sock) {
             val n = try {
                 ins.read(buf)
             } catch (t: java.net.SocketTimeoutException) {
@@ -251,7 +255,7 @@ class TcpMediaChannel(
             // 关键：解析在锁内、**分发在锁外** —— 解码/播放回调可能较慢，
             // 不能握着 rxLock 做，否则整条连接的收流都被拖住。
             val frames = pump()
-            for (f in frames) ApxStreams.dispatch(f.streamId, f.flags, f.seq, f.body)
+            for (f in frames) onFrame(f.streamId, f.flags, f.seq, f.body)
         }
         Log.i(TAG, "PC 媒体连接已断开：$peerText")
         teardown(sock)
@@ -282,7 +286,7 @@ class TcpMediaChannel(
                 teardown(sock)
                 return
             }
-            // 2) 队列皆空：短暂等待，避免忙轮询
+            // 队列皆空：短暂等待，避免忙轮询
             try {
                 Thread.sleep(5)
             } catch (_: InterruptedException) {
@@ -296,18 +300,18 @@ class TcpMediaChannel(
     private fun teardown(sock: Socket) {
         if (client === sock) {
             ready = false
-            MediaOut.detach()
-            // v184：**这里不能 clear 流订阅者**。
+            onDisconnect?.invoke()
+            // **这里不能 clear 流订阅者**。
             // 媒体连接断开 ≠ 模块停止（副屏 / 音箱开关可能还开着），
-            // 旧实现在这里 ApxStreams.clear() 把所有订阅者一把抹掉，
-            // 而重连后没有任何人会重新注册 —— PC 端重发的音频/视频帧
-            // 于是全部静默丢弃。用户症状：音箱用着用着没声，必须再点一次开关
-            // （点开关会走模块 start() 重新注册）。
+            // 旧实现在这里把所有订阅者一把抹掉，而重连后没有任何人会重新注册 ——
+            // PC 端重发的音频/视频帧于是全部静默丢弃。用户症状：音箱用着用着没声，
+            // 必须再点一次开关（点开关会走模块 start() 重新注册）。
             // 订阅者的生命周期由模块自己负责（start 注册 / stop 反注册）。
             client = null
             out = null
             peerText = ""
             outQueue.clear()
+            synchronized(rxLock) { rxLen = 0 }
         }
         runCatching { sock.close() }
     }
@@ -316,7 +320,7 @@ class TcpMediaChannel(
 
     private fun feed(data: ByteArray, n: Int) {
         synchronized(rxLock) {
-            // v1.7：给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
+            // 给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
             // 导致 rxBuf 无限扩容 → OOM 崩溃。正常 APX 帧最大 ~4MB，8MB 足够容纳
             // 粘包场景下的多帧拼接。
             val need = rxLen + n
@@ -347,7 +351,7 @@ class TcpMediaChannel(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                // v184：magic / 长度异常改为**逐字节重同步**（原 off = rxLen 一次错位就会把
+                // magic / 长度异常改为**逐字节重同步**（原 off = rxLen 一次错位就会把
                 // 后续所有合法帧一起丢掉）；并补上尾部 CRC32 校验 —— 坏帧直接喂解码器
                 // 会花屏/爆音。PC 侧同款失配早已是逐字节前进，这里与它对齐。
                 if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
@@ -377,10 +381,14 @@ class TcpMediaChannel(
         return outList ?: emptyList()
     }
 
-    // ————————————————————————————— 发送（上行） —————————————————————————————
+    // ————————————————————————————— 发送（上行，仅 enableUpLink 时） —————————————————————————————
 
-    override fun send(streamId: Int, body: ByteArray, flags: Int): Boolean {
-        if (!ready) return false
+    /**
+     * 上行发送：组帧 + 入队（不碰 socket，由 writerLoop 单写者线程写出）。
+     * 未启用上行（[enableUpLink] = false）或未连入时返回 false。
+     */
+    fun send(streamId: Int, body: ByteArray, flags: Int): Boolean {
+        if (!ready || !enableUpLink) return false
 
         val frame = synchronized(writeLock) {
             seq = (seq + 1) and 0x7FFFFFFF
@@ -417,7 +425,7 @@ class TcpMediaChannel(
     }
 
     companion object {
-        private const val TAG = "TcpMediaChannel"
+        private const val TAG = "MediaChannel"
 
         /** 媒体端口（PC 侧 `apxdesktop` 用同一常量连入） */
         const val MEDIA_PORT = 9502
@@ -425,11 +433,10 @@ class TcpMediaChannel(
         private const val MAX_TOKEN = 256
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
 
-    /** 读空闲超时：PC 只在触摸时才发帧，静默是常态；超时仅用于周期醒来检查连接，不清连接 */
-    private const val IDLE_READ_TIMEOUT_MS = 20_000
+        /** 读空闲超时：PC 只在触摸/推流时才发帧，静默是常态；超时仅用于周期醒来检查连接，不清连接 */
+        private const val IDLE_READ_TIMEOUT_MS = 20_000
         private const val QUEUE_CAP = 256
 
-        private const val WRITER_IDLE_MS = 200L
         // 接收缓冲上限：APX 单帧最大 ~4MB，8MB 足够容纳粘包的多帧拼接，同时防止 OOM
         private const val MAX_RX_BUF = 8 * 1024 * 1024
     }

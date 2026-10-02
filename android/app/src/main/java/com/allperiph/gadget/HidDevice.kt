@@ -6,7 +6,7 @@ import android.system.OsConstants
 import com.allperiph.core.GadgetConst
 import com.allperiph.core.HID_MAX_REPORT_BYTES
 import com.allperiph.core.HidTransport
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.SysPath
 import java.io.FileDescriptor
 

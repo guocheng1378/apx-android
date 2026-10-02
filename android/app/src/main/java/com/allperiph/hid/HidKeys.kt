@@ -2,7 +2,7 @@ package com.allperiph.hid
 
 import android.os.Handler
 import android.os.Looper
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Uplink
 import com.allperiph.ui.AgentController
 

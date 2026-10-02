@@ -1,34 +1,40 @@
-package com.allperiph.tv.media
+package com.allperiph.shared.media
 
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.os.Process
 import android.view.Surface
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * TV 副屏渲染器：MediaCodec 硬解 → Surface（由 [TvScreenActivity] 提供）。
+ * 副屏渲染器：MediaCodec 硬解 → Surface（由各端 Activity 提供）。
  *
- * 移植自手机端 `ScreenRenderer`，并保留它那条最重要的纪律：
- * **收流线程只入队，绝不喂解码器** —— `queueInputBuffer` 在输入缓冲用尽时会阻塞，
- * 在收流线程上做会把同一条连接上的音频一起拖住。喂码由专用解码线程完成。
+ * 为什么是单例：产生帧的是媒体收流线程，而 Surface 由 Activity 的
+ * `onSurfaceTextureAvailable` / `SurfaceHolder.Callback` 提供 —— 两者生命周期不同步。
+ * 单例让「模块先启动、用户后打开副屏页」也能工作（打开前的帧直接丢，见 [submit]）。
  *
- * 为什么是单例：帧来自媒体收流线程，而 Surface 由 Activity 生命周期提供，
- * 两者不同步；单例让「PC 先连上、用户后打开副屏页」也能工作（打开前的帧直接丢）。
+ * ## 线程纪律
+ * `MediaCodec.queueInputBuffer` 在输入缓冲用尽时会阻塞。收流线程上绝对不能做这件事
+ * （会把同一连接上的音频拖住），所以这里只把位流**入队**，
+ * 由专用解码线程喂给解码器。
+ *
+ * v1.8：从手机端 `com.allperiph.screen.ScreenRenderer` 与 TV 端
+ * `com.allperiph.tv.media.TvRenderer` 提取到共享模块，消除两端解码器代码的重复维护。
+ * TV 端的 `onFormatChanged` 回调一并保留（手机端留空即可）。
  */
-object TvRenderer {
+object Renderer {
 
-    private const val TAG = "TvRenderer"
+    private const val TAG = "Renderer"
     private const val QUEUE_CAP = 8
     private const val TIMEOUT_US = 10_000L
 
     @Volatile
     private var surface: Surface? = null
 
-    // v1.7：解码器状态会被**两个线程**访问 —— 收流线程（submit → ensureCodec）与
+    // 解码器状态会被**两个线程**访问 —— 收流线程（submit → ensureCodec）与
     // 解码线程（decodeLoop 读 codec / 尺寸）。此前既无锁也没 volatile：
     // 可能读到过期值（花屏），或刚取到引用就被另一边 release（IllegalStateException）。
     // 现在字段统一 volatile 保证可见性，"建 / 释放"用同一把锁串行化。
@@ -42,24 +48,28 @@ object TvRenderer {
     @Volatile
     private var running = false
 
-    /** 当前视频流尺寸；0 = 尚未知。Activity 据此计算「等比适配屏幕」的目标矩形 */
+    /** 当前视频流尺寸（触摸坐标按画面比例映射必读；0 = 尚未知） */
     @Volatile
     var videoWidth = 0
         private set
-
     @Volatile
     var videoHeight = 0
         private set
 
-    /** 分辨率/编码变化时回调（Activity 重新计算 Surface 尺寸） */
+    /** 分辨率/编码变化时回调（TV 端 Activity 重新计算 Surface 尺寸；手机端不设） */
     @Volatile
     var onFormatChanged: ((Int, Int) -> Unit)? = null
 
     private var decodeThread: Thread? = null
+
     private val queue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
 
+    /** 没有 Surface 时被丢弃的帧数（用户还没打开副屏页） */
     val droppedNoSurface = AtomicLong(0)
+
+    /** 解码器不认的编码（RAW_LZ4 / MJPEG）被跳过的帧数 */
     val skippedCodec = AtomicLong(0)
+
     private val decodedFrames = AtomicLong(0)
 
     /** 因超过输入缓冲被跳过的帧数（配合 KEY_MAX_INPUT_SIZE，正常应恒为 0） */
@@ -67,8 +77,8 @@ object TvRenderer {
 
     /**
      * 已判定"本机解不了"的 (mime,宽,高)。命中后**不再尝试重建解码器** ——
-     * 以前每帧都会 createDecoderByType + 打异常堆栈，全部发生在**收流线程**上，
-     * 一条解不了的流能把整条媒体链路（含音频）拖死。
+     * 以前每帧都会 createDecoderByType + 打异常，全部发生在**收流线程**上，
+     * 一条解不了的流能把整条媒体链路拖死。
      */
     private var failedKey: String? = null
 
@@ -79,21 +89,22 @@ object TvRenderer {
     @Volatile
     var requestKeyFrame: (() -> Unit)? = null
 
-    // 周期统计：TV 端原先**只有事件日志、没有 fps/丢帧**，真机"卡"根本没法量
+    // 周期统计：原来只有"已解码 N 帧"进 UI，没有周期日志，真机卡顿没法量
     private var statAtMs = 0L
     private var statFrames = 0L
 
     val attached: Boolean get() = surface != null
 
+    /** 由各端 Activity 在 Surface 就绪时调用；宽高用首帧的真实值，未知时传 0 由帧内信息决定 */
     fun attachSurface(s: Surface) {
         detachSurface()
         surface = s
         running = true
-        decodeThread = Thread({ decodeLoop() }, "apxtv-screen-dec").apply {
+        decodeThread = Thread({ decodeLoop() }, "apx-renderer-dec").apply {
             isDaemon = true
             start()
         }
-        Log.i("$TAG Surface 已接入，等待首帧确定编码与分辨率")
+        Log.i(TAG, "Surface 已接入，等待首帧以确定编码与分辨率")
     }
 
     fun detachSurface() {
@@ -113,14 +124,15 @@ object TvRenderer {
             droppedNoSurface.incrementAndGet()
             return
         }
-        val f = TvVideoFrame.parse(body) ?: return
+        val f = VideoFrame.parse(body) ?: return
         if (!f.decodable) {
             skippedCodec.incrementAndGet()
             return
         }
-        val stream = body.copyOfRange(f.bitstreamOffset, f.bitstreamOffset + f.bitstreamLength)
-        // v1.7：判断与重建必须原子 —— 否则两个线程可能同时判定"需要重建"，
+        // 已判定这个流在本机解不了：直接丢，**不再每帧试图重建解码器**
+        // 判断与重建必须原子 —— 否则两个线程可能同时判定"需要重建"，
         // 各自建一个解码器（后建的顶掉先建的，却没人释放它）。
+        // synchronized 是 inline 函数，内部的 return 会直接返回本函数（并正常释放锁）。
         synchronized(codecLock) {
             if (codec == null && failedKey == "${mimeFor(f.codecId)}/${f.width}x${f.height}") {
                 skippedCodec.incrementAndGet()
@@ -130,11 +142,13 @@ object TvRenderer {
             if (codec == null || f.width != width || f.height != height ||
                 mimeFor(f.codecId) != mime
             ) {
+                val stream = body.copyOfRange(f.bitstreamOffset, f.bitstreamOffset + f.bitstreamLength)
                 ensureCodec(f.width, f.height, mimeFor(f.codecId), stream)
                 onFormatChanged?.invoke(f.width, f.height)
                 return
             }
         }
+        val stream = body.copyOfRange(f.bitstreamOffset, f.bitstreamOffset + f.bitstreamLength)
         if (!queue.offer(stream)) {
             queue.poll()               // 保新弃旧：副屏宁可跳帧也不要积出延迟
             queue.offer(stream)
@@ -158,11 +172,16 @@ object TvRenderer {
     // ————————————————————————————— 内部 —————————————————————————————
 
     private fun mimeFor(codecId: Int): String = when (codecId) {
-        TvVideoFrame.CODEC_HEVC -> MediaFormat.MIMETYPE_VIDEO_HEVC
-        TvVideoFrame.CODEC_AV1 -> MediaFormat.MIMETYPE_VIDEO_AV1
+        VideoFrame.CODEC_HEVC -> MediaFormat.MIMETYPE_VIDEO_HEVC
+        VideoFrame.CODEC_AV1 -> MediaFormat.MIMETYPE_VIDEO_AV1
         else -> MediaFormat.MIMETYPE_VIDEO_AVC
     }
 
+    /**
+     * 建/重建解码器。必须**带上首帧的 CSD**（H.264 的 SPS/PPS 在 MediaCodec 的
+     * `csd-0` 里；PC 侧编出来的流若把 SPS/PPS 内联在码流里，直接喂也能解，
+     * 但显式设置更稳）。这里把触发重建的那一帧作为首帧立即投喂。
+     */
     private fun ensureCodec(w: Int, h: Int, newMime: String, firstFrame: ByteArray) {
         releaseCodec()
         val s = surface ?: return
@@ -174,7 +193,7 @@ object TvRenderer {
                 setInteger(MediaFormat.KEY_FRAME_RATE, 60)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
                 setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
-                // ★ 关键：不设它时输入缓冲默认很小，一到关键帧就 BufferOverflow →
+                // ★ 不设它时输入缓冲默认偏小，一到关键帧就 BufferOverflow →
                 //   被当成"解码失败"整帧丢弃 → 观感是"周期性花屏/顿一下"。
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 2 * 1024 * 1024)
             }
@@ -191,11 +210,11 @@ object TvRenderer {
             decodedFrames.set(0)
             failedKey = null
             statAtMs = 0L
-            Log.i("$TAG 解码器已启动：$newMime ${w}x$h（$codecName）")
+            Log.i(TAG, "解码器已启动：$newMime ${w}x$h（$codecName）")
             // 重建时的这一帧不能丢，否则要等到下一个关键帧才有画面
             feed(c, firstFrame)
         } catch (t: Throwable) {
-            Log.e("$TAG 解码器创建失败（$newMime ${w}x$h）：${t.message}", t)
+            Log.e(TAG, "解码器创建失败（$newMime ${w}x$h）：${t.message}")
             failedKey = key
             releaseCodec()
         }
@@ -204,10 +223,9 @@ object TvRenderer {
     /**
      * 优先挑**硬件**解码器。
      *
-     * `MediaCodec.createDecoderByType()` 只保证"第一个匹配" —— 有些 ROM（尤其老盒子）
-     * 会把软解排在前面，拿到软解去解 1080p 就是 CPU 打满、画面跟着卡。
-     * API 29+ 可用 `isHardwareAccelerated`；API 25 这类老系统只能按名字启发式判断
-     * （`OMX.google.*` / `c2.android.*` / 带 software 字样的都是软解）。
+     * `MediaCodec.createDecoderByType()` 只保证"第一个匹配"，有些 ROM 会把软解排在前面 ——
+     * 拿软解去解 1080p 就是 CPU 打满、画面跟着卡。API 29+ 用 `isHardwareAccelerated`，
+     * 更老的系统按名字启发式判断（`OMX.google.*` / `c2.android.*` 都是软解）。
      */
     private fun createPreferredDecoder(mimeType: String): MediaCodec {
         val all = try {
@@ -225,7 +243,7 @@ object TvRenderer {
         val pick = all.firstOrNull { isHw(it) } ?: all.firstOrNull()
         return if (pick != null) {
             codecName = pick.name + if (isHw(pick)) "（硬解）" else "（软解回退）"
-            if (!isHw(pick)) Log.w("$TAG 没有可用的硬解解码器，只能软解：${pick.name}")
+            if (!isHw(pick)) Log.w(TAG, "没有可用的硬解解码器，只能软解：${pick.name}")
             MediaCodec.createByCodecName(pick.name)
         } else {
             codecName = "系统默认"
@@ -253,21 +271,20 @@ object TvRenderer {
                 val buf = c.getInputBuffer(inIndex)
                 if (buf != null) {
                     buf.clear()
-                    // ★ 容量先校验，别让它抛异常：原来是 `buf.put(data)` 一把塞，
-                    //   某个大 I 帧超过输入缓冲容量时抛 BufferOverflowException，
-                    //   被外层 catch 当成"解码失败"整帧丢弃 —— 表现是**每个关键帧周期性地花屏/顿一下**。
-                    //   正确做法是"缓冲要足够大"（见 ensureCodec 的 KEY_MAX_INPUT_SIZE）；
-                    //   真装不下时**如实跳过这帧并请求关键帧**，绝不把一段码流拆到两个输入缓冲
-                    //   （那需要 PARTIAL_FRAME 语义，拆错比丢一帧更糟）。
+                    // ★ 容量先校验：`buf.put(data)` 一把塞时，大关键帧会抛 BufferOverflowException，
+                    //   被外层 catch 当成"解码失败"整帧丢 —— 观感是"周期性花屏/顿一下"。
+                    //   缓冲本身已在 ensureCodec 里放大（KEY_MAX_INPUT_SIZE）；真装不下就如实跳过，
+                    //   绝不像素级把一段码流拆到两个输入缓冲（那需要 PARTIAL_FRAME 语义）。
                     if (data.size > buf.remaining()) {
                         oversizedFrames.incrementAndGet()
                         c.queueInputBuffer(inIndex, 0, 0, 0, 0)
-                        Log.w("$TAG 帧过大（${data.size}B > 输入缓冲 ${buf.remaining()}B），已跳过并请求关键帧")
+                        Log.w(TAG, "帧过大（${data.size}B > 输入缓冲 ${buf.remaining()}B），已跳过并请求关键帧")
                         requestKeyFrame?.invoke()
                         return
                     }
                     buf.put(data)
-                    c.queueInputBuffer(inIndex, 0, data.size, decodedFrames.get() * 16_666L, 0)
+                    c.queueInputBuffer(inIndex, 0, data.size,
+                        decodedFrames.get() * 16_666L, 0)
                 } else {
                     c.queueInputBuffer(inIndex, 0, 0, 0, 0)
                 }
@@ -281,17 +298,14 @@ object TvRenderer {
             }
             logStatsIfDue()
         } catch (t: Throwable) {
-            // 单帧解码失败按帧丢弃，不拆掉整个渲染器（下一帧可能是新关键帧）
-            Log.w("$TAG 解码失败：${t.message}")
+            // 解码失败按帧丢弃，不把整个渲染器拆掉（下一帧可能是新关键帧）
+            Log.w(TAG, "解码失败：${t.message}")
         }
     }
 
     /**
-     * 每 5 秒打一行 fps / 丢帧统计。
-     *
-     * 加它的原因：TV 端原先**只有事件日志**（"解码器已启动 / 创建失败"），
-     * 真机"副屏很卡"这件事在日志里完全量不出来 —— 只能盯着屏幕上的状态行看。
-     * 现在 `adb logcat -s ApxTv` 就能直接读 fps 与各类丢弃计数。
+     * 每 5 秒一行 fps / 丢帧统计 —— `adb logcat -s Renderer` 里能直接读。
+     * （原来只有"已解码 N 帧"进 UI，真机卡顿没有可量的日志。）
      */
     private fun logStatsIfDue() {
         val now = android.os.SystemClock.elapsedRealtime()
@@ -302,7 +316,8 @@ object TvRenderer {
         val secs = (now - statAtMs) / 1000.0
         val fps = (decodedFrames.get() - statFrames) / secs
         Log.i(
-            "$TAG 副屏统计：${"%.1f".format(fps)} fps · 队列积压 ${queue.size} · " +
+            TAG,
+            "副屏统计：${"%.1f".format(fps)} fps · 队列积压 ${queue.size} · " +
                     "已解码 ${decodedFrames.get()} · 过大跳过 ${oversizedFrames.get()} · " +
                     "编码不支持 ${skippedCodec.get()} · 无画面丢弃 ${droppedNoSurface.get()}"
         )
@@ -311,7 +326,7 @@ object TvRenderer {
     }
 
     private fun releaseCodec() {
-        // v1.7：与 ensureCodec 用同一把锁 —— 避免"这边正在释放、那边正在用"。
+        // 与 ensureCodec 用同一把锁 —— 避免"这边正在释放、那边正在用"。
         // synchronized 可重入，ensureCodec 内部调用本函数不会死锁。
         synchronized(codecLock) {
             runCatching {

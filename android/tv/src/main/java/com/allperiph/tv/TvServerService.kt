@@ -8,19 +8,55 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.media.MediaChannel
+import com.allperiph.shared.media.Renderer
+import com.allperiph.shared.net.ControlServer
+import com.allperiph.shared.net.ControlEndpoint
+import com.allperiph.shared.net.FileReceiver
+import com.allperiph.shared.net.WirelessBeacon
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
+import com.allperiph.tv.KeepAlive
 import com.allperiph.tv.core.TvInjector
-import com.allperiph.tv.media.TvMediaChannel
-import com.allperiph.tv.net.TcpControlServer
-import com.allperiph.tv.net.TvFileReceiver
-import com.allperiph.tv.net.WirelessBeacon
+import com.allperiph.tv.core.ApxAccessibilityService
+import com.allperiph.tv.media.TvSpeaker
+import com.allperiph.tv.ui.TvInputDispatcher
 
 class TvServerService : Service() {
-    private var server: TcpControlServer? = null
-    private var media: TvMediaChannel? = null
+    private var server: ControlServer? = null
+    private var media: MediaChannel? = null
     private var beacon: WirelessBeacon? = null
     private val wdRunning = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var fgFailed = false
+
+    /** 控制面端点：把 shared ControlServer 的输入注入回调到本端 TvInjector + TvInputDispatcher */
+    private val controlEndpoint = object : ControlEndpoint {
+        override fun onPeerStateChanged(connected: Boolean, peerText: String) {
+            TvInputDispatcher.peer(connected, peerText)
+        }
+        override fun cursorMove(x: Float, y: Float, absolute: Boolean) {
+            TvInputDispatcher.cursorMove(x, y, absolute); TvInjector.cursorMove(x, y, absolute)
+        }
+        override fun cursorClick() = TvInputDispatcher.cursorClick()
+        override fun key(keyCode: Int, down: Boolean) {
+            TvInputDispatcher.key(keyCode, down); TvInjector.key(keyCode, down)
+        }
+        override fun text(ch: Char) {
+            TvInputDispatcher.text(ch); TvInjector.text(ch)
+        }
+        override fun pressDown() = TvInjector.pressDown()
+        override fun pressUp() = TvInjector.pressUp()
+        override fun scroll(wheel: Int) = TvInjector.scroll(wheel)
+        override fun touchDown(x: Float, y: Float) = TvInjector.touchDown(x, y)
+        override fun touchUp(x: Float, y: Float) = TvInjector.touchUp(x, y)
+        override fun consumer(bitmap: Int) = TvInjector.consumer(bitmap)
+        override fun powerAction(action: Int) { TvInjector.powerAction(action) }
+        override fun clipboard(text: String) = TvInjector.clipboard(text)
+        override fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+            TvInputDispatcher.onGamepad(buttons, x, y, rx, ry); TvInjector.gamepad(buttons, x, y, rx, ry)
+        }
+        override fun lockScreen() { ApxAccessibilityService.instance?.lockScreen() }
+    }
     override fun onCreate() {
         super.onCreate()
         if (Build.VERSION.SDK_INT >= 26) { val ch = NotificationChannel(CHANNEL_ID, "全能外设 TV 状态", NotificationManager.IMPORTANCE_LOW); getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch) }
@@ -29,8 +65,8 @@ class TvServerService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
     private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
-    private fun ensureFileReceiver() { runCatching { TvFileReceiver.start(applicationContext) }.onFailure { Log.w("9512 未启动：${it.message}") } }
-    private fun newServer(): TcpControlServer = TcpControlServer().also { s ->
+    private fun ensureFileReceiver() { runCatching { FileReceiver.start(applicationContext) }.onFailure { Log.w("9512 未启动：${it.message}") } }
+    private fun newServer(): ControlServer = ControlServer(endpoint = controlEndpoint).also { s ->
         s.onPeerChanged = { connected, ip -> Log.i("对端变化：connected=$connected ip=$ip"); if (connected && ip.isNotEmpty()) rememberPeer(ip); TvInjector.setConnected(connected); refreshNotification() }
         s.onOpenScreenRequest = { openScreenPage() }
         s.onAuthorizePeer = { ip -> isPeerAllowed(ip) }
@@ -41,14 +77,24 @@ class TvServerService : Service() {
     private fun isPeerAllowed(ip: String): Boolean { if (ip.isBlank()) return true; if (!onlyTrustedEnabled(applicationContext)) return true; val ok = trustedPeers(applicationContext).contains(ip); if (!ok) Log.w("授权拒绝：$ip 不在允许名单"); return ok }
     private fun openScreenPage() { runCatching { val i = Intent(applicationContext, com.allperiph.tv.ui.TvScreenActivity::class.java); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(i) }.onFailure { Log.w("拉起副屏页失败：${it.message}") } }
     private fun ensureControlPlane() { if (server == null) server = newServer(); if (server!!.start()) ensureBeacon() else Log.e("TV 控制面启动失败") }
-    private fun ensureBeacon() { if (beacon != null) return; val name = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android TV"; beacon = WirelessBeacon(name, TcpControlServer.PORT, "", unicastHosts = { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); out }).also { it.start() } }
+    private fun ensureBeacon() { if (beacon != null) return; val name = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android TV"; beacon = WirelessBeacon("APX1TV", name, ControlServer.PORT, "", unicastHosts = { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); out }).also { it.start() } }
     private fun startWatchdog() { if (!wdRunning.compareAndSet(false, true)) return; Thread({ while (wdRunning.get()) { try { Thread.sleep(15000) } catch (_: InterruptedException) { break }; if (!wdRunning.get()) break; try { val listening = server?.isListening == true; if (!listening) { Log.w("看门狗：9511 不在监听 → 重建"); runCatching { server?.stop() }; server = newServer().also { it.start() }; ensureBeacon() } else if (beacon == null) ensureBeacon(); refreshNotification() } catch (t: Throwable) { Log.w("看门狗异常：${t.message}") } } }, "apx-tv-watchdog").start() }
     override fun onDestroy() { wdRunning.set(false); beacon?.stop(); beacon = null; media?.stop(); media = null; server?.stop(); server = null; current = null; super.onDestroy() }
     override fun onTaskRemoved(rootIntent: Intent?) { super.onTaskRemoved(rootIntent); Log.w("任务被移除 → 重启"); restartService() }
     private fun restartService() { val ok = runCatching { val i = Intent(applicationContext, TvServerService::class.java); if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i); true }.getOrElse { false }; if (!ok) KeepAlive.schedule(applicationContext, 1_000L) }
     override fun onBind(intent: Intent?): IBinder? = null
     fun status(): String = server?.statusText() ?: "未启动"
-    fun ensureMedia() { if (media != null) return; media = TvMediaChannel().also { if (!it.start()) Log.w("9512 未启动") } }
+    fun ensureMedia() {
+        if (media != null) return
+        // 媒体通道收到的帧直接喂给 TV 端的渲染器 / 音箱（TV 不做上行）。
+        media = MediaChannel(onFrame = { streamId, _, _, body ->
+            when (streamId) {
+                ApxFrame.STREAM_VIDEO -> Renderer.submit(body)
+                ApxFrame.STREAM_AUDIO -> TvSpeaker.submit(body)
+                else -> {}
+            }
+        }).also { if (!it.start()) Log.w("9512 未启动") }
+    }
     fun mediaStatus(): String = media?.statusText() ?: "还没收到电脑画面"
     fun sendTargets(): List<String> { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); return out.distinct() }
     fun currentPeer(): String? = server?.currentPeerHost()

@@ -12,7 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 
 class ApxAccessibilityService : AccessibilityService() {
     private var mainHandler: Handler? = null

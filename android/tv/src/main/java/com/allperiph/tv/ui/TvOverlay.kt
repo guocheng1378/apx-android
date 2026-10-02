@@ -7,7 +7,7 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 
 /**
  * 全局光标浮层：被控端把手机光标画在最上层，提示当前落点。

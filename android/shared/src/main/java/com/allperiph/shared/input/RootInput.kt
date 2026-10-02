@@ -1,7 +1,7 @@
-package com.allperiph.controlled
+package com.allperiph.shared.input
 
 import android.os.SystemClock
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import java.io.OutputStreamWriter
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -19,6 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - **异步 fire-and-forget**：输入命令不等返回（等返回会拖到 ~100ms/条），
  *    只靠 [probe] 在启动时确认一次通道可用；
  *  - 无 root / 被拒绝时 [available] 为 false，调用方自动退回无障碍，绝不崩。
+ *
+ * v1.8：从手机端 `com.allperiph.controlled.RootInput` 和 TV 端 `com.allperiph.tv.core.RootInput`
+ * 提取到共享模块。合并了 TV 端对 `Process.isAlive()`（API 26+）的兼容处理 ——
+ * TV 模块 minSdk=23，在 Android 7（API 25）的盒子上直接调 `isAlive` 会抛
+ * `NoSuchMethodError`，这里改用 `exitValue()` 探测。
  */
 object RootInput {
 
@@ -34,7 +39,21 @@ object RootInput {
 
     /** root 通道是否可用（未授权 root / 无 root / su 异常 → false） */
     val available: Boolean
-        get() = process?.isAlive == true && writer != null
+        get() = process?.let { alive(it) } == true && writer != null
+
+    /**
+     * `Process.isAlive()` 是 **API 26** 才有的方法，而 TV 模块 minSdk=23。
+     * 原先到处直接用 `isAlive`，在 Android 7（API 25）的盒子上会抛
+     * `NoSuchMethodError: No virtual method isAlive()Z`，导致 root 通道永远起不来
+     * （真机日志：`启动 root shell 失败：No virtual method isAlive()Z`）。
+     * 这里改用 `exitValue()` 探测：还活着会抛 IllegalThreadStateException。
+     */
+    private fun alive(p: Process): Boolean = try {
+        p.exitValue()
+        false
+    } catch (_: IllegalThreadStateException) {
+        true
+    }
 
     /** 尽力启动一次（可重复调用；已在跑或正在启动则直接返回） */
     fun tryStart() {
@@ -42,7 +61,7 @@ object RootInput {
         Thread({
             try {
                 val p = openRootShell() ?: run {
-                    Log.i(TAG, "root 不可用（未授权 / 无 root）→ 输入退回头无障碍通道")
+                    Log.i(TAG, "root 不可用（未授权 / 无 root）→ 输入退回无障碍通道")
                     return@Thread
                 }
                 process = p
@@ -85,7 +104,7 @@ object RootInput {
             }
             // 给一点时间让 root 管理器弹授权/拒绝
             SystemClock.sleep(200)
-            if (p.isAlive) return p
+            if (alive(p)) return p
             runCatching { p.destroy() }
         }
         return null
@@ -117,7 +136,7 @@ object RootInput {
     fun run(cmd: String): Boolean {
         val w = writer ?: return false
         val p = process ?: return false
-        if (!p.isAlive) return false
+        if (!alive(p)) return false
         return try {
             w.write(cmd)
             w.write("\n")

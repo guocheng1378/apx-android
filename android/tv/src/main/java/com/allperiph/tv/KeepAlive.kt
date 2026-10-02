@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 
 /**
  * **进程级保活**：看门狗（[TvServerService.startWatchdog]）只能救「同一个进程里 9511 挂了」，

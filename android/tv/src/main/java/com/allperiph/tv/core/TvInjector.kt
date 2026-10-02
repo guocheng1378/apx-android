@@ -14,6 +14,10 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.InputEvent
 import com.allperiph.tv.ui.TvOverlay
+import com.allperiph.shared.input.EvdevInjector
+import com.allperiph.shared.input.RootInput
+import com.allperiph.shared.input.UinputGamepad
+import com.allperiph.shared.util.Log
 
 /**
  * 控制帧的最终落点：把手机发来的光标/按键/文本/剪贴板转成对系统的真实操作。
@@ -355,7 +359,7 @@ object TvInjector {
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
     fun consumer(bitmap: Int) {
         // ★ bit3 = 电源：**必须在这里注入**。
-        //   TcpControlServer.onConsumer 里那圈 CONSUMER_MAP 只调了 TvInputDispatcher
+        //   ControlServer.onConsumer 里那圈 CONSUMER_MAP 只调了 TvInputDispatcher
         //   （驱动界面 Toast / 高亮），**没有调 TvInjector** —— 所以只往 CONSUMER_MAP 里加
         //   "3 to 26" 是不会真的发出电源键的（真机症状：点「电源」毫无反应）。
         //   电原本该由系统电源键处理：evdev / root 下就是一颗真电源键（待机/唤醒）。

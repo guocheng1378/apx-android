@@ -1,10 +1,14 @@
-package com.allperiph.tv.net
+package com.allperiph.shared.net
 
 import android.content.Context
-import com.allperiph.tv.core.Log
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
+import com.allperiph.shared.util.Log
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -13,11 +17,14 @@ import kotlin.concurrent.thread
 import kotlin.math.min
 
 /**
- * 文件接收通道（TCP 端口 [PORT]）：手机端 [com.allperiph.wireless.TvFileSender] 连入，
+ * 文件接收通道（TCP 端口 [PORT]=9512）：对端（手机 / PC / TV）连入，
  * 先发 head(u32 名称长度 + 名称 + u64 文件大小)，随后流式写入文件。
  * 落盘到应用私有外部文件目录 <外部文件>/APX/<name>（无需任何存储权限）。
+ *
+ * 统一自手机被控端 `com.allperiph.controlled.TvFileReceiver` 与 TV 端
+ * `com.allperiph.tv.net.TvFileReceiver`（两端逐字节同实现，对端设备通用）。
  */
-object TvFileReceiver {
+object FileReceiver {
     const val PORT = 9512
 
     private val running = AtomicBoolean(false)
@@ -35,10 +42,10 @@ object TvFileReceiver {
             }
             server = ss
             running.set(true)
-            thread = thread(name = "apxtv-file") { loop(ss) }
-            Log.i("文件接收监听 *:$PORT")
+            thread = thread(name = "apxctl-file") { loop(ss) }
+            Log.i("文件接收", "文件接收监听 *:$PORT")
         } catch (t: Throwable) {
-            Log.e("文件接收监听失败：${t.message}")
+            Log.e("文件接收", "文件接收监听失败：${t.message}")
         }
     }
 
@@ -55,7 +62,7 @@ object TvFileReceiver {
             } catch (_: Throwable) {
                 break
             }
-            thread(name = "apxtv-file-client") { handle(sock) }
+            thread(name = "apxctl-file-client") { handle(sock) }
         }
     }
 
@@ -74,7 +81,7 @@ object TvFileReceiver {
                 val base = ctx?.getExternalFilesDir(null) ?: return
                 val dir = File(base, "APX").apply { mkdirs() }
                 val out = File(dir, name)
-                Log.i("接收文件 $name (${size}B) → $out")
+                Log.i("文件接收", "接收文件 $name (${size}B) → $out")
                 var left = size
                 val buf = ByteArray(32 * 1024)
                 FileOutputStream(out).use { fos ->
@@ -86,16 +93,21 @@ object TvFileReceiver {
                         left -= n
                     }
                 }
-                Log.i("文件已存：$out")
+                Log.i("文件接收", "文件已存：$out")
+                ctx?.let { c ->
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(c, "已接收文件：$name", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         } catch (t: Throwable) {
-            Log.e("文件接收异常：${t.message}")
+            Log.e("文件接收", "文件接收异常：${t.message}")
         } finally {
             runCatching { sock.close() }
         }
     }
 
-    private fun readU32(ins: java.io.InputStream): Int {
+    private fun readU32(ins: InputStream): Int {
         val b = ByteArray(4)
         if (!readFully(ins, b)) return -1
         var v = 0
@@ -103,7 +115,7 @@ object TvFileReceiver {
         return v
     }
 
-    private fun readU64(ins: java.io.InputStream): Long {
+    private fun readU64(ins: InputStream): Long {
         val b = ByteArray(8)
         if (!readFully(ins, b)) return -1L
         var v = 0L
@@ -111,7 +123,7 @@ object TvFileReceiver {
         return v
     }
 
-    private fun readFully(ins: java.io.InputStream, dst: ByteArray): Boolean {
+    private fun readFully(ins: InputStream, dst: ByteArray): Boolean {
         var got = 0
         while (got < dst.size) {
             val n = try {

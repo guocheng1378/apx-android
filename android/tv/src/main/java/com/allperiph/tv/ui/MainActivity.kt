@@ -18,9 +18,9 @@ import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.tv.R
 import com.allperiph.tv.TvServerService
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.tv.core.TvInjector
-import com.allperiph.tv.net.TcpControlServer
+import com.allperiph.shared.net.ControlServer
 
 /**
  * APX TV 主界面（纯代码构建）。
@@ -103,7 +103,7 @@ class MainActivity : android.app.Activity() {
         col.addView(statusTv)
 
         // ---- 本机地址 + 连法：只有真有个地址可报时才显示 ----
-        val addr = TcpControlServer.localIpv4()
+        val addr = ControlServer.localIpv4()
         if (addr != null) {
             col.addView(mkText(getString(R.string.tv_addr, addr), TvUi.Type.CAPTION, TvUi.Pal.textDim))
             col.addView(mkText(getString(R.string.tv_addr_hint), TvUi.Type.MICRO, TvUi.Pal.textWeak))

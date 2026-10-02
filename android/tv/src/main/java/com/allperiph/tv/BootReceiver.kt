@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 
 /**
  * 开机 / 应用更新后自动拉起被控服务。

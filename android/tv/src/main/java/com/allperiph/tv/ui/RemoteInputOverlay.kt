@@ -14,7 +14,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 
 class RemoteInputOverlay(
     private val activity: Activity,

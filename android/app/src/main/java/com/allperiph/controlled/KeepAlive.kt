@@ -7,7 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 
 /**
  * **进程级保活（手机被控端）**：与 TV 端 `com.allperiph.tv.KeepAlive` 同一套做法。

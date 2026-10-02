@@ -12,7 +12,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.allperiph.tv.TvServerService
-import com.allperiph.tv.media.TvRenderer
+import com.allperiph.shared.media.Renderer
 import com.allperiph.tv.media.TvSpeaker
 
 /**
@@ -22,7 +22,7 @@ import com.allperiph.tv.media.TvSpeaker
  * 电脑画面与电视的宽高比几乎不可能刚好一致（16:9 的电视看 16:10 / 21:9 的桌面、或反过来），
  * 直接拉伸会变形。这里按**等比 fit-center** 摆放 Surface：取视频宽高比与可用区域求交，
  * 居中并留黑边（letterbox），且在**过扫描安全边距**之内 —— 四周不会被电视裁掉。
- * 分辨率变化时（PC 换分辨率/旋转）由 [TvRenderer.onFormatChanged] 触发重算。
+ * 分辨率变化时（PC 换分辨率/旋转）由 [Renderer.onFormatChanged] 触发重算。
  *
  * ## 音频
  * 进页面即启动 [TvSpeaker]（电脑的声音一起到电视/音响），退页面停掉。
@@ -50,7 +50,7 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
         TvUi.bindColors(this)
         setContentView(buildUi())
         surfaceView.holder.addCallback(this)
-        TvRenderer.onFormatChanged = { _, _ -> mainHandler.post { fitSurface() } }
+        Renderer.onFormatChanged = { _, _ -> mainHandler.post { fitSurface() } }
     }
 
     override fun onResume() {
@@ -67,7 +67,7 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(tick)
-        TvRenderer.onFormatChanged = null
+        Renderer.onFormatChanged = null
         TvSpeaker.stop()
         super.onDestroy()
     }
@@ -117,8 +117,8 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
 
     /** 等比 fit-center：居中留黑边，并留在过扫描安全边距内 */
     private fun fitSurface() {
-        val vw = TvRenderer.videoWidth
-        val vh = TvRenderer.videoHeight
+        val vw = Renderer.videoWidth
+        val vh = Renderer.videoHeight
         val availW = root.width
         val availH = root.height
         if (vw <= 0 || vh <= 0 || availW <= 0 || availH <= 0) {
@@ -147,7 +147,7 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
     // ————————————————————————————— Surface —————————————————————————————
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        TvRenderer.attachSurface(holder.surface)
+        Renderer.attachSurface(holder.surface)
         TvSpeaker.start()
         mainHandler.post { fitSurface() }
     }
@@ -157,14 +157,14 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        TvRenderer.detachSurface()
+        Renderer.detachSurface()
         TvSpeaker.stop()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // 遥控器返回键退出副屏，回到首页（不要把整台电视的返回吃掉）
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            TvRenderer.detachSurface()
+            Renderer.detachSurface()
             TvSpeaker.stop()
             finish()
             return true

@@ -1,10 +1,12 @@
 package com.allperiph.core
 
+import com.allperiph.shared.event.LogEvent
+import com.allperiph.shared.util.Log
+
 /**
  * 事件定义（core/ 全局，UI 与模块共用）。
  * 数据面事件（传感器样本）**不**走总线，避免每帧分配；只有状态/控制事件走总线。
  */
-data class LogEvent(val entry: Log.Entry)
 
 /** M2 挂载状态变化 */
 data class GadgetStateEvent(

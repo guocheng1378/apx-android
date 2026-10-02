@@ -9,7 +9,8 @@ import android.view.TextureView
 import android.view.WindowManager
 import android.widget.TextView
 import com.allperiph.R
-import com.allperiph.core.Log
+import com.allperiph.shared.media.Renderer
+import com.allperiph.shared.util.Log
 import com.allperiph.core.MediaOut
 import com.allperiph.wireless.ControlTarget
 import kotlin.math.hypot
@@ -20,9 +21,9 @@ import kotlin.math.hypot
  * 用 `TextureView` 而不是 `SurfaceView`：SurfaceView 在沉浸式/过渡动画时容易出现
  * 黑块与层级问题（旧实现也因此改用 TextureView）。
  *
- * 页面本身不碰编解码 —— 它只负责把一个 `Surface` 交给 [ScreenRenderer]，
+ * 页面本身不碰编解码 —— 它只负责把一个 `Surface` 交给 [Renderer]，
  * 真正的解码发生在 [ScreenModule] 收到的帧上。因此**退出页面不影响模块收流**，
- * 只是画面无处可画（此时帧会被丢弃并计数，[ScreenRenderer.stats] 会如实显示）。
+ * 只是画面无处可画（此时帧会被丢弃并计数，[Renderer.stats] 会如实显示）。
  */
 class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
 
@@ -86,7 +87,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
         ticker.removeCallbacks(tick)
         // 必须先 detach 再让 Surface 失效：否则解码器还持有已销毁的 Surface
         view.surfaceTextureListener = null
-        ScreenRenderer.detachSurface()
+        Renderer.detachSurface()
         super.onDestroy()
     }
 
@@ -147,7 +148,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
      *
      * 按**整个视图**归一化：MediaCodec 渲染到 TextureView 是拉伸填充（无黑边），
      * 实测按画面比例做 fitCenter 反而引入系统性偏移——视图坐标与画面坐标
-     * 一一对应，直接归一化即准。视频尺寸字段保留（ScreenRenderer.videoWidth），
+     * 一一对应，直接归一化即准。视频尺寸字段保留（Renderer.videoWidth），
      * 将来若渲染端改成保持比例的 letterbox，这里再启用 fitCenter。
      */
     private fun normalized(v: android.view.View, e: android.view.MotionEvent): Pair<Int, Int> {
@@ -321,16 +322,16 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     // ————————————————————— TextureView.SurfaceTextureListener —————————————————————
 
     override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-        ScreenRenderer.attachSurface(Surface(st))
+        Renderer.attachSurface(Surface(st))
         refreshHint()
     }
 
     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
-        // 分辨率变化由 ScreenRenderer 依帧内信息重建解码器，这里无需处理
+        // 分辨率变化由 Renderer 依帧内信息重建解码器，这里无需处理
     }
 
     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
-        ScreenRenderer.detachSurface()
+        Renderer.detachSurface()
         return true
     }
 

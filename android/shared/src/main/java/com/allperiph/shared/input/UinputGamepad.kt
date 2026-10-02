@@ -1,22 +1,25 @@
-package com.allperiph.tv.core
+package com.allperiph.shared.input
+
+import com.allperiph.shared.util.Log
 
 /**
  * **虚拟手柄**（uinput 内核级，原生实现见 `cpp/apx_uinput.c`）。
  *
- * 为什么手柄必须单独走这条路：
- *  - **evdev 通道给不出摇杆** —— 它是"冒充某个已存在的输入设备"，而本机那台键盘设备只有
+ * 手柄摇杆只有这一条路能给出来：
+ *  - **evdev 通道给不出摇杆** —— 它冒充的是已存在的输入设备，而本机键盘设备只有
  *    `EV_KEY/EV_REL`，**没有 ABS 轴**，写摇杆值内核不认；
- *  - **root 的 `input` 命令根本没有摇杆语义**；
+ *  - **root 的 `input` 命令没有摇杆语义**；
  *  - `InputManager.injectInputEvent` 需要 `INJECT_EVENTS`（系统签名级）。
  *
- * 而 `/dev/uinput` 能**新建一个内核输入设备**：声明按键 + 双摇杆 ABS 轴后，
- * 系统就把它当真手柄（`SOURCE_GAMEPAD`、摇杆轴、按键全是真的）。
+ * `/dev/uinput` 能**新建一个内核输入设备**：声明按键 + 双摇杆 ABS 轴后，系统就把它当真手柄
+ * （`SOURCE_GAMEPAD`、摇杆轴、按键全是真的）。
  *
- * 拿不到 `/dev/uinput`（权限）时 [ready] 为 false，调用方自动退回
- * 「按钮走 evdev / root、摇杆不可用」，不会有任何异常。
+ * 拿不到 `/dev/uinput`（权限）时 [ready] 为 false，调用方退回「按钮走 evdev/root、
+ * 摇杆不可用」，不会有任何异常。有 root 时会顺手 `chmod 666 /dev/uinput` 再重试一次 ——
+ * 很多设备该节点是 `0660 root:input`，普通 App 打不开，但既然有 root 就没必要卡在这里。
  *
- * 有 root 时会顺手 `chmod 666 /dev/uinput` 再重试一次 —— 很多设备该节点是 `0660 root:input`，
- * 普通 App 打不开，但既然有 root 就没必要卡在这里。
+ * v1.8：从手机端 `com.allperiph.controlled.UinputGamepad` 和 TV 端 `com.allperiph.tv.core.UinputGamepad`
+ * 提取到共享模块。手机端原生库名为 `apx`，TV 端为 `apxtv` —— 加载时都试一遍。
  */
 object UinputGamepad {
 
@@ -29,7 +32,7 @@ object UinputGamepad {
     private const val ABS_RY = 0x04
 
     /**
-     * 手柄位 → Linux `BTN_*`，**位序与 [TvInjector.GAMEPAD_KEYCODES] 严格一致**
+     * 手柄位 → Linux `BTN_*`，**位序与注入器的 GAMEPAD_KEYCODES 严格一致**
      * （0=A 1=B 2=X 3=Y 4=L1 5=R1 6=L2 7=R2 8=SELECT 9=START 10=C 11=Z 12=MODE 13=THUMBL 14=THUMBR）。
      */
     private val BTN_OF_BIT = intArrayOf(
@@ -52,11 +55,17 @@ object UinputGamepad {
     )
 
     private val loaded: Boolean = try {
-        System.loadLibrary("apxtv")
+        // 手机端原生库名为 apx，TV 端为 apxtv —— 都试一遍，谁加载成功用谁
+        System.loadLibrary("apx")
         true
     } catch (t: Throwable) {
-        android.util.Log.w(TAG, "加载 libapxtv.so 失败（${t.message}）→ 摇杆不可用，手柄按钮仍走 evdev / root")
-        false
+        try {
+            System.loadLibrary("apxtv")
+            true
+        } catch (t2: Throwable) {
+            Log.w(TAG, "加载 libapx.so / libapxtv.so 失败（${t.message}）→ 摇杆不可用，手柄按钮仍走 evdev / root")
+            false
+        }
     }
 
     @Volatile
@@ -80,10 +89,10 @@ object UinputGamepad {
                 // 很多设备该节点是 0660 root:input；既然有 root，就别卡在权限上
                 ready = openGamepad()
             }
-            if (ready) android.util.Log.i(TAG, "虚拟手柄已就绪：摇杆与手柄按钮均为内核级真实输入")
+            if (ready) Log.i(TAG, "虚拟手柄已就绪：摇杆与手柄按钮均为内核级真实输入")
             return ready
         } catch (t: Throwable) {
-            android.util.Log.w(TAG, "创建虚拟手柄异常：${t.message}")
+            Log.w(TAG, "创建虚拟手柄异常：${t.message}")
             return false
         } finally {
             starting.set(false)
@@ -101,10 +110,11 @@ object UinputGamepad {
     fun sticks(x: Int, y: Int, rx: Int, ry: Int) {
         if (!ready) return
         val want = intArrayOf(x, y, rx, ry)
+        val axes = intArrayOf(ABS_X, ABS_Y, ABS_RX, ABS_RY)
         runCatching {
             for (i in 0..3) {
                 if (want[i] == lastAxes[i]) continue
-                sendAxis(intArrayOf(ABS_X, ABS_Y, ABS_RX, ABS_RY)[i], want[i].coerceIn(-128, 127))
+                sendAxis(axes[i], want[i].coerceIn(-128, 127))
                 lastAxes[i] = want[i]
             }
         }

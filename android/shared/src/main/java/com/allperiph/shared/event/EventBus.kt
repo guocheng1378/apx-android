@@ -1,8 +1,9 @@
-package com.allperiph.core
+package com.allperiph.shared.event
 
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CopyOnWriteArrayList
+import com.allperiph.shared.util.Log
 
 /**
  * 极简同步事件总线（无第三方依赖）。

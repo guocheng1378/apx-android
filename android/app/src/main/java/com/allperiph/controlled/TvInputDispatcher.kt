@@ -1,7 +1,7 @@
 package com.allperiph.controlled
 
 /**
- * 网络输入事件中枢：对方手机连入后，[TvControlServer] 解析出鼠标 / 键盘 / 触摸 / 多媒体
+ * 网络输入事件中枢：对方手机连入后，[com.allperiph.shared.net.ControlServer] 解析出鼠标 / 键盘 / 触摸 / 多媒体
  * 帧并调用这里的桥接方法；被控模式无演示 UI，[Listener] 默认不注册（仅系统注入走 [TvInjector]）。
  *
  * 所有桥接方法都在主线程被调用（server 在分发前已切主线程）。

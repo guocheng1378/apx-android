@@ -1,6 +1,8 @@
 package com.allperiph.core
 
 import android.os.Handler
+import com.allperiph.shared.event.EventBus
+import com.allperiph.shared.util.Log
 
 /**
  * 模块生命周期契约（core/ 提供的骨架）。

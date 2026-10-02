@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.util.Log
+
 /**
  * UAC2 gadget 的 PCM 通道（native 裸 ALSA ioctl 的薄封装）。
  *

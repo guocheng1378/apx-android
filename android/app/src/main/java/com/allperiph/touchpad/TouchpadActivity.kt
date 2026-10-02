@@ -29,7 +29,7 @@ import android.widget.Toast
 import android.widget.ViewFlipper
 import com.allperiph.R
 import com.allperiph.core.ModuleId
-import com.allperiph.wireless.TvFileSender
+import com.allperiph.shared.net.FileSender
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.AgentController
@@ -1168,7 +1168,7 @@ class TouchpadActivity : Activity() {
         }
         Toast.makeText(this, getString(R.string.ui_main_toast_file_send), Toast.LENGTH_SHORT).show()
         Thread({
-            val ok = TvFileSender.send(this, host, uri) { p ->
+            val ok = FileSender.send(this, host, uri) { p ->
                 runOnUiThread { statusView?.text = "发送 $p%" }
             }
             runOnUiThread {

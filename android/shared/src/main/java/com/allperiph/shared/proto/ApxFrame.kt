@@ -1,7 +1,10 @@
-package com.allperiph.core
+package com.allperiph.shared.proto
 
 /**
  * APX1 帧构造（`shared/include/apx/frame.h` 的 Kotlin 侧实现，docs/PROTOCOL.md §3）。
+ *
+ * **v1.8：从手机端 `com.allperiph.core.ApxFrame` 和 TV 端 `com.allperiph.tv.core.ApxFrame`
+ * 提取到共享模块**，消除两端协议帧代码的重复维护问题。
  *
  * 帧结构（**16 字节固定头**，多字节字段显式小端，不依赖主机字节序）：
  * ```
@@ -16,8 +19,8 @@ package com.allperiph.core
  *      4    CRC32(body)，IEEE 802.3 反射多项式 0xEDB88320
  * ```
  *
- * 本文件只负责**发送方向**的组帧；接收解析在 9511 控制面（[com.allperiph.wireless.TvControllerClient] /
- * `pc/host/src/wireless/ctrl9511.cpp`），两侧 CRC 必须逐字节一致。
+ * 本文件只负责**发送方向**的组帧；接收解析在 9511 控制面（手机侧 TvControllerClient /
+ * TV 侧 ControlServer / `pc/host/src/wireless/ctrl9511.cpp`），两侧 CRC 必须逐字节一致。
  */
 object ApxFrame {
     const val HEADER_SIZE = 16

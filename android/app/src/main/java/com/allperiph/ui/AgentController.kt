@@ -6,7 +6,7 @@ import com.allperiph.audio.WirelessAudioModule
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.AgentRuntime
 import com.allperiph.core.LinkSpeed
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState

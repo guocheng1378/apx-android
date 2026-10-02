@@ -3,7 +3,7 @@ package com.allperiph.ui
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.R
 
 /**

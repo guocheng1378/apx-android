@@ -73,5 +73,5 @@ android {
 
 // 与 :app 一致：零第三方依赖，仅 framework API
 dependencies {
-    // 无外部依赖
+    implementation(project(":shared"))
 }

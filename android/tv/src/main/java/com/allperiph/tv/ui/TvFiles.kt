@@ -2,7 +2,7 @@ package com.allperiph.tv.ui
 
 import android.content.Context
 import com.allperiph.tv.TvServerService
-import com.allperiph.tv.net.TvFileReceiver
+import com.allperiph.shared.net.FileReceiver
 import java.io.File
 
 /**
@@ -14,7 +14,7 @@ import java.io.File
  */
 object TvFiles {
 
-    /** 接收目录：与 [TvFileReceiver] 的落盘位置必须一致（<外部文件>/APX） */
+    /** 接收目录：与 [FileReceiver] 的落盘位置必须一致（<外部文件>/APX） */
     fun recvDir(ctx: Context): File =
         File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "APX")
 

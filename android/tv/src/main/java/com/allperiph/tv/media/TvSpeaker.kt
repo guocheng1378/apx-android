@@ -3,7 +3,7 @@ package com.allperiph.tv.media
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import com.allperiph.tv.core.Log
+import com.allperiph.shared.util.Log
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong

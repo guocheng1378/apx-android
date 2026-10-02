@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
 import java.io.ByteArrayOutputStream
 
 /**

@@ -1,6 +1,6 @@
 package com.allperiph.gadget
 
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import java.io.File
 import java.io.OutputStreamWriter
 import java.util.concurrent.LinkedBlockingQueue

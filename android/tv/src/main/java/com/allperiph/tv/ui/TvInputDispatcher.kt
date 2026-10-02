@@ -3,7 +3,7 @@ package com.allperiph.tv.ui
 import android.graphics.PointF
 
 /**
- * 网络输入事件中枢：手机连入后，[com.allperiph.tv.net.TcpControlServer] 解析出
+ * 网络输入事件中枢：手机连入后，[com.allperiph.shared.net.ControlServer] 解析出
  * 鼠标 / 键盘 / 触摸 / 多媒体帧并调用这里的桥接方法；UI（[MainActivity]）注册
  * [Listener] 把事件落到界面（光标移动、卡片选中、文本输入等）。
  *

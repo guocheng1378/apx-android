@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.PowerManager
 import com.allperiph.core.LinkSpeed
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.SysPath
 import com.allperiph.gadget.RootShell
 import com.allperiph.gadget.UdcProbe

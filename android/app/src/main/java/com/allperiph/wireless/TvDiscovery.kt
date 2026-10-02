@@ -6,7 +6,7 @@ import java.net.NetworkInterface
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 
 /**
  * 局域网发现：监听各端 [WirelessBeacon] 广播的 `<前缀> <name> <port> <token>`（UDP 9501）。

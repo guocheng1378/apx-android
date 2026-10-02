@@ -1,6 +1,6 @@
-package com.allperiph.controlled
+package com.allperiph.shared.net
 
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -8,16 +8,18 @@ import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 被控侧反向信标：周期向局域网广播「我是可控制的手机 / 控制端口 / 令牌」。
- * 载荷：`APX1TV <name> <port> <token>`（UTF-8），广播到 9501。
+ * 反向信标：周期向局域网广播「我是 <设备类型> / 控制端口 / 令牌」。
+ * 载荷：`<prefix> <name> <port> <token>`（UTF-8），广播到 [BEACON_PORT]。
+ * prefix 例：`APX1TV` 电视 / `APX1PC` PC / `APX1PH` 手机被控。
  *
  * **必须同时发受限广播与各网卡的子网定向广播**：Xiaomi MIUI / Android 15 会丢弃
- * `255.255.255.255` 受限广播，只发它时 PC 端面板会永远停在「正在发现」，
+ * `255.255.255.255` 受限广播，只发它时对端面板会永远停在「正在发现」，
  * 进而连不上 9502 媒体口（副屏 / 音箱 / 麦克风全废）。PC 侧 ctrl9511.cpp 早已
- * 用同样办法绕开，这里补齐同一处理。
+ * 用同样办法绕开，这里保持同一处理。
  *
- * 对方手机端 [com.allperiph.wireless.TvControllerClient] / [TvDiscovery] 监听该信标即可零配置发现本机。
- * 与 TV 模块 [com.allperiph.tv.net.WirelessBeacon] 同实现。
+ * 统一自手机被控端 `com.allperiph.controlled.WirelessBeacon` 与 TV 端
+ * `com.allperiph.tv.net.WirelessBeacon`（两端同实现，TV 端原硬编码 `APX1TV` 前缀，
+ * 这里改为构造参数以覆盖 PC / 手机被控等多种设备类型）。
  */
 class WirelessBeacon(
     /** 信标前缀 = 设备类型：APX1TV 电视 / APX1PC PC / APX1PH 手机被控 */
@@ -28,7 +30,7 @@ class WirelessBeacon(
     /**
      * 额外**单播**目标（每轮重新取值）。原因：不少廉价 AP / 中继 / Mesh 会丢弃
      * 「Wi‑Fi 客户端 → 有线」的广播（有线 → Wi‑Fi 却正常），此时只发广播对面永远
-     * 发现不到本机 —— 表现为 PC 面板一直「正在发现」，副屏/音箱/麦克风全废。
+     * 发现不到本机 —— 表现为对端面板一直「正在发现」，副屏/音箱/麦克风全废。
      * 这里对已知对端（如正在控的 PC）再单播一份，兜住这种情况。
      */
     private val unicastHosts: () -> List<String> = { emptyList() },
@@ -66,7 +68,7 @@ class WirelessBeacon(
                 if (first) {
                     // 首轮把目标打出来：广播目标里没有子网广播地址 = 对面永远收不到
                     first = false
-                    Log.i("被控信标", "广播目标=${bcasts.map { it.hostAddress }} 单播目标=$uni")
+                    Log.i("信标", "广播目标=${bcasts.map { it.hostAddress }} 单播目标=$uni")
                 }
                 for (addr in bcasts) {
                     try {
@@ -75,7 +77,7 @@ class WirelessBeacon(
                         // 单次失败（网卡切换/休眠）不影响 TCP 监听；首次失败要显形
                         if (!loggedFail) {
                             loggedFail = true
-                            Log.w("被控信标", "广播发送失败 ${addr.hostAddress}：${t.message}")
+                            Log.w("信标", "广播发送失败 ${addr.hostAddress}：${t.message}")
                         }
                     }
                 }
@@ -88,7 +90,7 @@ class WirelessBeacon(
                         // 同上：单次失败不致命
                         if (!loggedFail) {
                             loggedFail = true
-                            Log.w("被控信标", "单播发送失败 $h：${t.message}")
+                            Log.w("信标", "单播发送失败 $h：${t.message}")
                         }
                     }
                 }
@@ -99,7 +101,7 @@ class WirelessBeacon(
                 }
             }
         } catch (t: Throwable) {
-            Log.w("被控信标", "广播不可用：${t.message}")
+            Log.w("信标", "广播不可用：${t.message}")
         } finally {
             runCatching { socket?.close() }
         }
