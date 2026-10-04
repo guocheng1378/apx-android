@@ -55,8 +55,10 @@ class TouchpadModule : Module {
                 val exists = workingContacts.any { it.cid == (pid % 5) }
                 if (!exists && workingContacts.size < 5) {
                     workingContacts.add(Contact(nextContactId, ev.getX(i), ev.getY(i)))
-                    // fix: and 0x04（循环 0-4），原 and 0x03 只循环 0-3
-                    nextContactId = (nextContactId + 1) and 0x04
+                    // fix: % 5（循环 0-4）。原 `and 0x04` 是按位与：只可能得 0 或 4，
+                    // 从 0 出发 (0+1) and 4 == 0 恒成立 → nextContactId 永远为 0，
+                    // 所有手指 cid 相同：第 2 根手指起坐标更新被丢弃、抬起时删错对象。
+                    nextContactId = (nextContactId + 1) % 5
                 }
             }
             android.view.MotionEvent.ACTION_UP,
