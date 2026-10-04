@@ -172,7 +172,10 @@ jobs:
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          $t = Get-ChildItem "$vs\VC\Tools\Llvm" -Recurse -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          # 递归查找会先命中 ARM64 版（目录排序在前），在 x64 runner 上执行会报
+          # "not compatible with the version of Windows" —— 必须排除，只取 x64。
+          $t = Get-ChildItem "$vs\VC\Tools\Llvm" -Recurse -Filter clang-tidy.exe -ErrorAction SilentlyContinue |
+               Where-Object { $_.FullName -notmatch '\\ARM64\\' } | Select-Object -First 1
           if ($t) {
             Write-Host "found bundled clang-tidy: $($t.FullName)"
             $t.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
