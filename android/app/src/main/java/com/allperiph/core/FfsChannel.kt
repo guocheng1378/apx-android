@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.util.Log
+
 /**
  * FunctionFS：副屏的 bulk 数据面（video 下行 / touch 上行）。
  *

@@ -2,8 +2,11 @@ package com.allperiph.controlled
 
 import android.os.Handler
 import android.os.Looper
-import com.allperiph.core.ApxFrame
-import com.allperiph.core.Log
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
+import com.allperiph.shared.accessibility.ApxAccessibilityService
+import com.allperiph.shared.input.RootInput
+import com.allperiph.shared.inject.TvInjector
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
@@ -74,6 +77,7 @@ class TvControlServer(
     // 甚至遍历时抛 ConcurrentModificationException。所有访问纳入同一把锁。
     private val keysLock = Any()
     private val pressedKeys = HashSet<Int>()
+    // 与 pressedKeys 共用 keysLock：所有读写必须在 synchronized(keysLock) 内
     private var lastButtons = 0
 
     // v184：注入动作的执行线程 —— actions 里的注入路径会调用 RootInput.run
@@ -154,7 +158,7 @@ class TvControlServer(
         if (prev != null && prev !== sock) runCatching { prev.close() }
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
-        synchronized(keysLock) { pressedKeys.clear() }; lastButtons = 0; ready = true
+        synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
         Log.i("被控控制面", "手机已连入：$peerText")
         mainHandler.post { TvInputDispatcher.peer(true, peerText) }
         TvInjector.setConnected(true)
@@ -218,7 +222,19 @@ class TvControlServer(
 
     private fun feed(data: ByteArray, n: Int) {
         synchronized(rxLock) {
-            if (rxLen + n > rxBuf.size) { var c = rxBuf.size * 2; while (c < rxLen + n) c *= 2; rxBuf = rxBuf.copyOf(c) }
+            // v1.7：给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
+            // 导致 rxBuf 无限扩容 → OOM 崩溃。正常 APX 帧最大 ~4MB，8MB 足够容纳
+            // 粘包场景下的多帧拼接。
+            val need = rxLen + n
+            if (need > MAX_RX_BUF) {
+                throw IllegalStateException("接收缓冲溢出（${need}B > ${MAX_RX_BUF}B）")
+            }
+            if (need > rxBuf.size) {
+                var c = rxBuf.size * 2
+                while (c < need) c *= 2
+                if (c > MAX_RX_BUF) c = MAX_RX_BUF
+                rxBuf = rxBuf.copyOf(c)
+            }
             System.arraycopy(data, 0, rxBuf, rxLen, n); rxLen += n
         }
     }
@@ -270,13 +286,22 @@ class TvControlServer(
     }
 
     private fun onMouse(body: ByteArray) {
-        val buttons = body[1].toInt() and 0xFF; val dx = body[2].toInt().toByte().toInt(); val dy = body[3].toInt().toByte().toInt()
+        val buttons = body[1].toInt() and 0xFF
+        val dx = body[2].toInt().toByte().toInt()
+        val dy = body[3].toInt().toByte().toInt()
         val wheel = if (body.size >= 5) body[4].toInt().toByte().toInt() else 0
         TvInputDispatcher.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
         TvInjector.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
-        if ((buttons and 1) != 0 && (lastButtons and 1) == 0) TvInjector.pressDown()
-        if ((buttons and 1) == 0 && (lastButtons and 1) == 1) TvInjector.pressUp()
-        if (wheel != 0) TvInjector.scroll(wheel); lastButtons = buttons
+        // v1.7：lastButtons 与 pressedKeys 共用 keysLock，避免 readerLoop 与
+        // releaseAllInputs（注入线程）并发读写导致左键卡死。
+        // 锁内取快照 + 更新状态，锁外执行注入（避免阻塞注入路径卡住收流线程）。
+        val prev = synchronized(keysLock) { lastButtons }
+        val needDown = (buttons and 1) != 0 && (prev and 1) == 0
+        val needUp = (buttons and 1) == 0 && (prev and 1) == 1
+        synchronized(keysLock) { lastButtons = buttons }
+        if (needDown) TvInjector.pressDown()
+        if (needUp) TvInjector.pressUp()
+        if (wheel != 0) TvInjector.scroll(wheel)
     }
 
     private fun onTouch(body: ByteArray) {
@@ -345,10 +370,10 @@ class TvControlServer(
      */
     private fun releaseAllInputs() {
         val held = synchronized(keysLock) { HashSet(pressedKeys) }
-        synchronized(keysLock) { pressedKeys.clear() }
+        val hadLeftBtn = synchronized(keysLock) { (lastButtons and 0x01) != 0 }
+        synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }
         for (u in held) runCatching { hidUp(u) }
-        if (lastButtons and 0x01 != 0) runCatching { TvInjector.pressUp() }
-        lastButtons = 0
+        if (hadLeftBtn) runCatching { TvInjector.pressUp() }
     }
 
     private fun hidDown(usage: Int) {
@@ -407,7 +432,10 @@ class TvControlServer(
     fun sendControl(body: ByteArray): Boolean {
         if (!ready) return false
         val frame = synchronized(writeLock) { seq = (seq + 1) and 0x7FFFFFFF; ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq) }
-        if (outQueue.offer(frame)) return true; outQueue.poll(); return outQueue.offer(frame)
+        // v1.7：控制面队列改为"丢新不丢旧"——队列满时返回 false，不丢弃队头帧。
+        // 队头可能是按键抬起/鼠标抬起等状态变更帧，丢弃会导致按键永久卡住。
+        // 调用方（pong 回复、主动帧发送）需自行处理发送失败。
+        return outQueue.offer(frame)
     }
 
     fun sendReverseClipboard(text: String): Boolean {
@@ -449,6 +477,8 @@ class TvControlServer(
         private const val QUEUE_CAP = 256
         private const val WRITER_IDLE_MS = 200L
         private const val READ_TIMEOUT_MS = 3_000
+        // 接收缓冲上限：APX 单帧最大 ~4MB，8MB 足够容纳粘包的多帧拼接，同时防止 OOM
+        private const val MAX_RX_BUF = 8 * 1024 * 1024
         private val PONG = "pong".toByteArray(Charsets.UTF_8)
         private fun peerTextOf(sock: Socket): String = sock.inetAddress?.hostAddress?.let { "$it:${sock.port}" } ?: "?"
         fun localIpv4(): String? = try {

@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.util.Log
+
 /**
  * shared/（C++17 协议库）的唯一 Kotlin 入口。
  *

@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.util.Log
+
 /**
  * 无线模式虚拟设备探测（架构 §三 阶段二）：探测本机是否已安装第三方虚拟
  * 传感器 / 虚拟声卡 / 虚拟摄像头，供面板给出可用性与引导；不可用时如实降级。

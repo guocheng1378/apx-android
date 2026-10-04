@@ -5,9 +5,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
-import com.allperiph.core.ApxFrame
+import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.core.ApxStreams
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.MediaOut
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext

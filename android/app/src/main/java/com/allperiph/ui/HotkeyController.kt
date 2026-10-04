@@ -2,7 +2,7 @@ package com.allperiph.ui
 
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.ApxNative
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.ModuleId
 import com.allperiph.core.Uplink
 

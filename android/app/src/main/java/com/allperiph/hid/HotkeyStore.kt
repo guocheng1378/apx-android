@@ -36,11 +36,17 @@ object HotkeyStore {
      * 优化 #4：ConcurrentHashMap 替代普通 MutableMap，
      * bump() 可从 HID 读线程高频调用，loadUsage() 在 UI 线程读取，
      * 两者并发时旧实现可能丢失计数或触发 ConcurrentModificationException。
+     *
+     * v1.7 修复：usageCache/usageCtx 加 @Volatile 保证多线程可见；
+     * 初始化用 double-check locking 避免多线程同时 loadUsage 导致覆盖丢失。
      */
+    @Volatile
     private var usageCache: ConcurrentHashMap<String, Int>? = null
+    @Volatile
     private var usageCtx: Context? = null
     private val usageHandler = Handler(Looper.getMainLooper())
     private val usageFlush = Runnable { flushUsage() }
+    private val usageLock = Any()
 
     fun isAutoSort(ctx: Context): Boolean =
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SORT, true)
@@ -53,8 +59,10 @@ object HotkeyStore {
     fun comboKey(c: HidKeys.Combo): String = "${c.mod}:${c.usage}"
 
     fun bump(ctx: Context, c: HidKeys.Combo) {
-        val cache = usageCache ?: loadUsage(ctx).let { m ->
-            ConcurrentHashMap<String, Int>(m).also { usageCache = it }
+        // v1.7：double-check locking 保证只有一个线程执行初始化，
+        // 避免多线程同时看到 usageCache==null → 各自 loadUsage → 后赋值覆盖前一个的修改。
+        val cache = usageCache ?: synchronized(usageLock) {
+            usageCache ?: ConcurrentHashMap<String, Int>(loadUsage(ctx)).also { usageCache = it }
         }
         val k = comboKey(c)
         cache[k] = (cache[k] ?: 0) + 1

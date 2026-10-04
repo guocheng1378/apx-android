@@ -1,6 +1,6 @@
 package com.allperiph.touchpad
 
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId

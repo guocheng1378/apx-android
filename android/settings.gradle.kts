@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 rootProject.name = "AllPeriph"
 include(":app")
 include(":tv")
+include(":shared")

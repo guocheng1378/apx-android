@@ -3,6 +3,8 @@ package com.allperiph.core
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.allperiph.shared.event.EventBus
+import com.allperiph.shared.util.Log
 
 /**
  * 运行时容器：实现 [ModuleContext]，持有模块注册表与可热替换的传输口。

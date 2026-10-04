@@ -84,6 +84,7 @@ android {
 // 也不改变上面这条原则）。协议层的组帧/解析/重同步纪律需要有回归网 ——
 // v1.7 之前修过的多处"协议漂移"缺陷，若有这些测试本可以当场被拦住。
 dependencies {
+    implementation(project(":shared"))
     testImplementation("junit:junit:4.13.2")
 }
 

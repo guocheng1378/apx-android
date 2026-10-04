@@ -10,6 +10,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,7 @@ jbyteArray toByteArray(JNIEnv* env, const uint8_t* data, size_t len) {
 // 单个 epN 文件只能单向使用；而上层 BulkTransport 要求同一通道既能读（收 video）
 // 又能写（发 touch）。故拆成 rx / tx 两个 fd。
 struct BulkChannel {
+    mutable std::mutex mu;
     int         fdRx = -1;   ///< 读：PC → 手机（FFS 的 OUT 端点）
     int         fdTx = -1;   ///< 写：手机 → PC（FFS 的 IN 端点）
     std::string rxPath;
@@ -313,6 +315,7 @@ JNIEXPORT jint JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeSetPaths(JNIEnv* env, jobject, jint streamId,
                                                       jstring rxPath, jstring txPath) {
     BulkChannel& ch = channelOf(streamId);
+    std::lock_guard<std::mutex> lock(ch.mu);
     if (rxPath != nullptr) {
         const char* p = env->GetStringUTFChars(rxPath, nullptr);
         if (p == nullptr) return -1;
@@ -332,6 +335,7 @@ Java_com_allperiph_core_UsbBulkChannel_nativeSetPaths(JNIEnv* env, jobject, jint
 JNIEXPORT jint JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeOpen(JNIEnv*, jobject, jint streamId) {
     BulkChannel& ch = channelOf(streamId);
+    std::lock_guard<std::mutex> lock(ch.mu);
     if (ch.isOpen()) return 0;
     const std::string rx = ch.rxPath.empty() ? defaultRxPathFor(streamId) : ch.rxPath;
     const std::string tx = ch.txPath.empty() ? defaultTxPathFor(streamId) : ch.txPath;
@@ -360,14 +364,20 @@ JNIEXPORT jint JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeRead(JNIEnv* env, jobject, jint streamId,
                                                   jbyteArray dst, jint maxLen) {
     BulkChannel& ch = channelOf(streamId);
-    if (ch.fdRx < 0) return -static_cast<jint>(ENOTCONN);
     if (dst == nullptr || maxLen <= 0) return 0;
+    // 锁内取 fd，锁外执行阻塞 IO（避免 nativeWrite 被 read 的阻塞操作锁住）
+    int fd;
+    {
+        std::lock_guard<std::mutex> lock(ch.mu);
+        if (ch.fdRx < 0) return -static_cast<jint>(ENOTCONN);
+        fd = ch.fdRx;
+    }
     const jsize cap = env->GetArrayLength(dst);
     const jint want = (maxLen < cap) ? maxLen : cap;
     std::vector<uint8_t> tmp(static_cast<size_t>(want));
     ssize_t n;
     do {
-        n = ::read(ch.fdRx, tmp.data(), static_cast<size_t>(want));
+        n = ::read(fd, tmp.data(), static_cast<size_t>(want));
     } while (n < 0 && errno == EINTR);
     if (n < 0) return -static_cast<jint>(errno);
     if (n > 0) {
@@ -385,7 +395,6 @@ JNIEXPORT jint JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeWrite(JNIEnv* env, jobject, jint streamId,
                                                    jbyteArray src, jint off, jint len) {
     BulkChannel& ch = channelOf(streamId);
-    if (ch.fdTx < 0) return -static_cast<jint>(ENOTCONN);
     if (src == nullptr || len <= 0) return 0;
     std::vector<uint8_t> raw;
     if (!fromByteArray(env, src, raw)) return -static_cast<jint>(EINVAL);
@@ -393,10 +402,17 @@ Java_com_allperiph_core_UsbBulkChannel_nativeWrite(JNIEnv* env, jobject, jint st
     size_t n = static_cast<size_t>(len);
     const size_t avail = raw.size() - static_cast<size_t>(off);
     if (n > avail) n = avail;
+    // 锁内取 fd，锁外执行阻塞 write（避免 nativeRead 被 write 的阻塞操作锁住）
+    int fd;
+    {
+        std::lock_guard<std::mutex> lock(ch.mu);
+        if (ch.fdTx < 0) return -static_cast<jint>(ENOTCONN);
+        fd = ch.fdTx;
+    }
     // Touch 上行契约是"写入即发"，短写会把一帧截断，所以循环写到完为止。
     size_t done = 0;
     while (done < n) {
-        const ssize_t w = ::write(ch.fdTx, raw.data() + off + done, n - done);
+        const ssize_t w = ::write(fd, raw.data() + off + done, n - done);
         if (w < 0) {
             if (errno == EINTR) continue;
             return -static_cast<jint>(errno);
@@ -409,6 +425,7 @@ Java_com_allperiph_core_UsbBulkChannel_nativeWrite(JNIEnv* env, jobject, jint st
 JNIEXPORT jint JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeClose(JNIEnv*, jobject, jint streamId) {
     BulkChannel& ch = channelOf(streamId);
+    std::lock_guard<std::mutex> lock(ch.mu);
     if (ch.fdRx >= 0) {
         ::close(ch.fdRx);
         ch.fdRx = -1;
@@ -422,7 +439,9 @@ Java_com_allperiph_core_UsbBulkChannel_nativeClose(JNIEnv*, jobject, jint stream
 
 JNIEXPORT jboolean JNICALL
 Java_com_allperiph_core_UsbBulkChannel_nativeIsOpen(JNIEnv*, jobject, jint streamId) {
-    return channelOf(streamId).isOpen() ? JNI_TRUE : JNI_FALSE;
+    BulkChannel& ch = channelOf(streamId);
+    std::lock_guard<std::mutex> lock(ch.mu);
+    return ch.isOpen() ? JNI_TRUE : JNI_FALSE;
 }
 
 // ========================= core.HidFeature ================================

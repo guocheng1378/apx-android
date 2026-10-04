@@ -15,8 +15,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.allperiph.core.ApxFrame
-import com.allperiph.core.Log
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
 
 class RemoteInputActivity : Activity() {
     private var editText: EditText? = null

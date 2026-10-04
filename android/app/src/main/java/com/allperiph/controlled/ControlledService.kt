@@ -12,12 +12,49 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.allperiph.R
-import com.allperiph.core.Log
+import com.allperiph.shared.accessibility.ApxAccessibilityService
+import com.allperiph.shared.net.ControlServer
+import com.allperiph.shared.net.ControlEndpoint
+import com.allperiph.shared.net.FileReceiver
+import com.allperiph.shared.net.WirelessBeacon
+import com.allperiph.shared.util.Log
+import com.allperiph.shared.inject.KeepAlive
+import com.allperiph.shared.inject.ServiceController
+import com.allperiph.shared.inject.TvInjector
 import com.allperiph.touchpad.TouchpadActivity
 
 class ControlledService : Service() {
-    private var server: TvControlServer? = null
+    private var server: ControlServer? = null
     private var beacon: WirelessBeacon? = null
+
+    /** 控制面端点：把 shared ControlServer 的输入注入回调到本端 TvInjector + TvInputDispatcher */
+    private val controlEndpoint = object : ControlEndpoint {
+        override fun onPeerStateChanged(connected: Boolean, peerText: String) {
+            TvInputDispatcher.peer(connected, peerText); TvInjector.setConnected(connected)
+        }
+        override fun cursorMove(x: Float, y: Float, absolute: Boolean) {
+            TvInputDispatcher.cursorMove(x, y, absolute); TvInjector.cursorMove(x, y, absolute)
+        }
+        override fun cursorClick() { TvInputDispatcher.cursorClick() }
+        override fun key(keyCode: Int, down: Boolean) {
+            TvInputDispatcher.key(keyCode, down); TvInjector.key(keyCode, down)
+        }
+        override fun text(ch: Char) {
+            TvInputDispatcher.text(ch); TvInjector.text(ch)
+        }
+        override fun pressDown() = TvInjector.pressDown()
+        override fun pressUp() = TvInjector.pressUp()
+        override fun scroll(wheel: Int) = TvInjector.scroll(wheel)
+        override fun touchDown(x: Float, y: Float) = TvInjector.touchDown(x, y)
+        override fun touchUp(x: Float, y: Float) = TvInjector.touchUp(x, y)
+        override fun consumer(bitmap: Int) = TvInjector.consumer(bitmap)
+        override fun powerAction(action: Int) { TvInjector.powerAction(action) }
+        override fun clipboard(text: String) = TvInjector.clipboard(text)
+        override fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
+            TvInputDispatcher.onGamepad(buttons, x, y, rx, ry); TvInjector.gamepad(buttons, x, y, rx, ry)
+        }
+        override fun lockScreen() { ApxAccessibilityService.instance?.lockScreen() }
+    }
     /** v184：剪贴板监听是否已注册 —— onStartCommand 可能被反复调用，重复挂会多次回传 */
     private var clipListenerRegistered = false
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -39,8 +76,8 @@ class ControlledService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundGuarded()
-        TvInjector.init(this)
-        if (server == null) server = TvControlServer()
+        TvInjector.init(this, PhoneInjectorPlatform)
+        if (server == null) server = ControlServer(endpoint = controlEndpoint)
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
@@ -58,7 +95,7 @@ class ControlledService : Service() {
             // 文本由 RemoteInputActivity 直接通过 server 发送，这里不重复
         }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
-        TvFileReceiver.start(applicationContext)
+        FileReceiver.start(applicationContext)
         val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
         // v184：以下两处必须幂等 —— onStartCommand 会被反复调用（START_STICKY 重启、
         // onTaskRemoved 拉起、系统回收后重建）。旧实现每次都新建一个 beacon（旧实例的
@@ -68,7 +105,7 @@ class ControlledService : Service() {
             beacon = WirelessBeacon(
                 "APX1TV",
                 com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
-                TvControlServer.PORT, "",
+                ControlServer.PORT, "",
                 unicastHosts = {
                     val hosts = ArrayList<String>(8)
                     com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
@@ -95,7 +132,7 @@ class ControlledService : Service() {
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
         clipListenerRegistered = false   // v184：服务重建时重新注册
         server?.stop(); server = null; beacon?.stop(); beacon = null
-        TvFileReceiver.stop(); TvInjector.onDestroy(); super.onDestroy()
+        FileReceiver.stop(); TvInjector.onDestroy(); super.onDestroy()
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -124,20 +161,20 @@ class ControlledService : Service() {
         val openPi = PendingIntent.getActivity(this, 1, Intent(this, TouchpadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val ready = server?.ready == true
         val sysReady = TvInjector.systemReady()
-        val text = (if (!ready) "等待手机连入 :${TvControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") +
+        val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") +
             (if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) " · 未授予通知权限" else "")
         return Notification.Builder(this, CHANNEL_ID).setContentTitle("全能外设 · 被控模式").setContentText(text).setSmallIcon(R.drawable.ic_launcher_app).setContentIntent(openPi).setOngoing(true).build()
     }
-    companion object {
+    companion object : ServiceController {
         private const val TAG = "ControlledService"
         private const val CHANNEL_ID = "controlled_status"
         private const val NOTIFY_ID = 0x9A3
         private const val PREF = "apx_controlled"
         private const val KEY_ENABLED = "enabled"
         @Volatile var running: Boolean = false; private set
-        @Volatile var server: TvControlServer? = null; internal set
-        fun enabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-        fun start(c: Context) {
+        @Volatile var server: ControlServer? = null; internal set
+        override fun enabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+        override fun start(c: Context) {
             running = true; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
             val i = Intent(c, ControlledService::class.java)
             runCatching { if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) }.onFailure { running = false; Log.e(TAG, "启动被控服务失败", it) }
@@ -146,6 +183,6 @@ class ControlledService : Service() {
             running = false; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply()
             runCatching { c.stopService(Intent(c, ControlledService::class.java)) }
         }
-        fun isRunning() = running
+        override fun isRunning(): Boolean = running
     }
 }

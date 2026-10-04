@@ -1,7 +1,7 @@
 package com.allperiph.wireless
 
-import com.allperiph.core.ApxFrame
-import com.allperiph.core.Log
+import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.util.Log
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -186,7 +186,7 @@ class TvControllerClient(
     // 远程输入发送
     fun requestInput(hint: String) {
         val hintBytes = hint.toByteArray(Charsets.UTF_8)
-        // 格式：[0x25, hintLen, hint...] — 与接收端 TcpControlServer onRequestInput 一致
+        // 格式：[0x25, hintLen, hint...] — 与接收端 ControlServer onRequestInput 一致
         val body = ByteArray(1 + 1 + hintBytes.size)
         body[0] = ApxFrame.INPUT_REQUEST.toByte()
         body[1] = hintBytes.size.toByte()

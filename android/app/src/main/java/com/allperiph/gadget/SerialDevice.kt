@@ -4,7 +4,7 @@ import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
 import com.allperiph.core.GadgetConst
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.SerialSink
 import com.allperiph.core.SysPath
 import java.io.FileDescriptor

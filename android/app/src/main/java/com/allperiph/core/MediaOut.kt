@@ -1,5 +1,7 @@
 package com.allperiph.core
 
+import com.allperiph.shared.proto.ApxFrame
+
 /**
  * 媒体流**发侧出口**：手机 → PC 的上行流（麦克风 5）。
  *

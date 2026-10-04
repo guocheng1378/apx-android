@@ -42,11 +42,11 @@ import kotlin.math.min
 import com.allperiph.R
 import com.allperiph.ui.kit.ApKit
 import com.allperiph.core.AgentStateEvent
-import com.allperiph.core.EventBus
+import com.allperiph.shared.event.EventBus
 import com.allperiph.core.GadgetStateEvent
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.LinkSpeedDegradedEvent
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
@@ -60,7 +60,7 @@ import com.allperiph.screen.ScreenActivity
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
-import com.allperiph.wireless.TvFileSender
+import com.allperiph.shared.net.FileSender
 
 /**
  * 【M6】主控制面（v1.16 三页签底栏 + 横屏键盘，MIUIX / HyperOS 亮色）。
@@ -1097,7 +1097,7 @@ class MainActivity : Activity() {
 
     /** 被控端注入通道自检（与 TV 端首页自检对话框同一份数据源） */
     private fun showControlledCaps() {
-        val inj = com.allperiph.controlled.TvInjector
+        val inj = com.allperiph.shared.inject.TvInjector
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
@@ -1116,9 +1116,9 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** 运行日志（[com.allperiph.core.Log] 的环形缓冲，此前没有 UI 消费者） */
+    /** 运行日志（[com.allperiph.shared.util.Log] 的环形缓冲，此前没有 UI 消费者） */
     private fun showLogs() {
-        val snap = com.allperiph.core.Log.snapshot()
+        val snap = com.allperiph.shared.util.Log.snapshot()
         val text = if (snap.isEmpty()) {
             "暂无日志 —— 只有达到「日志级别」的记录才会留下"
         } else {
@@ -1163,7 +1163,7 @@ class MainActivity : Activity() {
         val host = ControlTarget.host
         Toast.makeText(this, getString(R.string.ui_main_toast_file_send), Toast.LENGTH_SHORT).show()
         Thread({
-            val ok = TvFileSender.send(this, host, uri)
+            val ok = FileSender.send(this, host, uri)
             runOnUiThread {
                 Toast.makeText(
                     this,

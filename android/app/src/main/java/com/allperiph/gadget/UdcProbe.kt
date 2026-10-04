@@ -1,7 +1,7 @@
 package com.allperiph.gadget
 
 import com.allperiph.core.LinkSpeed
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.SysPath
 
 /**

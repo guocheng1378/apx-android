@@ -12,10 +12,10 @@ import android.os.IBinder
 import android.os.Looper
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.AgentStateEvent
-import com.allperiph.core.EventBus
+import com.allperiph.shared.event.EventBus
 import com.allperiph.core.GadgetStateEvent
 import com.allperiph.core.LinkSpeed
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.core.ScreenOpenRequestEvent

@@ -16,10 +16,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
-import com.allperiph.controlled.TvFileReceiver
+import com.allperiph.shared.net.FileReceiver
+import com.allperiph.shared.net.FileSender
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
-import com.allperiph.wireless.TvFileSender
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 此前手机端只有「发送文件」一个入口 —— 电脑/TV/另一台手机推过来的文件落在
  * `<外部文件>/APX/`，界面上完全看不见（Android 11+ 又不好翻应用私有目录）。
  * 现在：
- *  · 上半：**收到的文件**（就是 TvFileReceiver 的落盘目录），点一行即转发给目标；
+ *  · 上半：**收到的文件**（就是 FileReceiver 的落盘目录），点一行即转发给目标；
  *  · 下半：从本机再挑一个文件发出去；
  *  · 目标：当前受控设备优先，其次是局域网发现到的设备 —— 点一下即可切换，不用输 IP。
  *
@@ -120,7 +120,7 @@ class FilePanelActivity : Activity() {
 
     // ————————————————————————————— 数据 —————————————————————————————
 
-    /** 接收目录：与 [TvFileReceiver] 落盘位置一致（<外部文件>/APX） */
+    /** 接收目录：与 [FileReceiver] 落盘位置一致（<外部文件>/APX） */
     private fun recvDir(): File = File(getExternalFilesDir(null) ?: filesDir, "APX")
 
     private fun refreshList() {
@@ -217,7 +217,7 @@ class FilePanelActivity : Activity() {
         }
         status(getString(R.string.ui_filepanel_status_send, f.name), false)
         Thread({
-            val ok = TvFileSender.send(this, host, Uri.fromFile(f)) { p ->
+            val ok = FileSender.send(this, host, Uri.fromFile(f)) { p ->
                 mainHandler.post { status("发送中 ${p}% · ${f.name}", false) }
             }
             mainHandler.post {
@@ -252,7 +252,7 @@ class FilePanelActivity : Activity() {
         if (!busy.compareAndSet(false, true)) return
         status(getString(R.string.ui_filepanel_status_send_2), false)
         Thread({
-            val ok = TvFileSender.send(this, host, uri) { p ->
+            val ok = FileSender.send(this, host, uri) { p ->
                 mainHandler.post { status("发送中 ${p}%", false) }
             }
             mainHandler.post {

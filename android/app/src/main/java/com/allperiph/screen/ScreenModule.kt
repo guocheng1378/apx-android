@@ -1,9 +1,10 @@
 package com.allperiph.screen
 
-import com.allperiph.core.ApxFrame
+import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.core.ApxStreams
 import com.allperiph.core.FragmentJoiner
-import com.allperiph.core.Log
+import com.allperiph.shared.media.Renderer
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
@@ -11,7 +12,7 @@ import com.allperiph.core.ModuleState
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 副屏模块（**Wi‑Fi 路线**）：接收 PC 推来的画面并交给 [ScreenRenderer] 解码显示。
+ * 副屏模块（**Wi‑Fi 路线**）：接收 PC 推来的画面并交给 [Renderer] 解码显示。
  *
  * ## 与旧实现（`app/src/disabled/screen/`）的区别
  * 旧版走 **USB bulk**（FunctionFS 下的 `/dev/usb-ffs/apx/ep*` 端点），且依赖一套已被删除的
@@ -45,8 +46,8 @@ class ScreenModule : Module {
             fragments.incrementAndGet()
             val full = joiner.push(flags, seq, body) ?: return
             frames.incrementAndGet()
-            // submit 内部只入队（见 ScreenRenderer 的线程纪律说明），不会阻塞收流线程
-            ScreenRenderer.submit(full)
+            // submit 内部只入队（见 Renderer 的线程纪律说明），不会阻塞收流线程
+            Renderer.submit(full)
         }
     }
 
@@ -65,7 +66,7 @@ class ScreenModule : Module {
         state = ModuleState.STOPPING
         ApxStreams.unregister(ApxFrame.STREAM_VIDEO, consumer)
         joiner.reset()
-        ScreenRenderer.detachSurface()
+        Renderer.detachSurface()
         state = ModuleState.STOPPED
     }
 
@@ -74,7 +75,7 @@ class ScreenModule : Module {
             val f = frames.get()
             when {
                 f == 0L -> "副屏等待画面（PC 端需开启推流）"
-                ScreenRenderer.attached -> "副屏运行中 · ${ScreenRenderer.stats()}"
+                Renderer.attached -> "副屏运行中 · ${Renderer.stats()}"
                 else -> "副屏已收到 $f 帧 · 点「副屏」进入全屏"
             }
         }

@@ -13,7 +13,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 被控端保活自检：定时闹钟把被杀掉的被控服务拉回来。
-         Android 12+ 需「闹钟与提醒」权限，未授予时代码自动降级为不精确闹钟（见 controlled/KeepAlive）。 -->
+         Android 12+ 需「闹钟与提醒」权限，未授予时代码自动降级为不精确闹钟（见 shared/inject/KeepAlive）。 -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Wi‑Fi 控制通道（局域网 TCP + UDP 信标，见 wireless/TcpControlChannel.kt） -->
@@ -46,6 +46,7 @@
         android:required="false" />
 
     <application
+        android:name=".App"
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher_app"
         android:label="@string/app_name"
@@ -139,7 +140,7 @@
 
         <!-- 隐形输入法：借用系统输入通道稳定打字（中英文都稳，root 的 input text 只支持 ASCII） -->
         <service
-            android:name=".controlled.ApxImeService"
+            android:name="com.allperiph.shared.ime.ApxImeService"
             android:exported="true"
             android:label="全能外设输入"
             android:permission="android.permission.BIND_INPUT_METHOD">
@@ -153,7 +154,7 @@
 
         <!-- 系统级输入注入（被控模式）：本机作为被控设备驱动系统 -->
         <service
-            android:name=".controlled.ApxAccessibilityService"
+            android:name="com.allperiph.shared.accessibility.ApxAccessibilityService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -168,7 +169,7 @@
              闹钟触发时应用会拿到一小段「允许启动前台服务」的窗口，这是 Android 12+
              后台能重新进前台的少数合法路径之一。 -->
         <receiver
-            android:name=".controlled.KeepAliveReceiver"
+            android:name="com.allperiph.shared.inject.KeepAliveReceiver"
             android:enabled="true"
             android:exported="false" />
 

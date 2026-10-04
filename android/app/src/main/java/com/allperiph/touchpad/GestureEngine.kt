@@ -95,28 +95,28 @@ class GestureEngine(private val sink: TouchpadSink) {
 
     fun armDrag(): Boolean {
         if (activePointers != 1 || dragSent) {
-            com.allperiph.core.Log.i("GestureEngine",
+            com.allperiph.shared.util.Log.i("GestureEngine",
                 "armDrag skipped: ptr=$activePointers armed=$dragArmed sent=$dragSent")
             return false
         }
         if (dragArmed) {
-            com.allperiph.core.Log.i("GestureEngine", "armDrag already armed → buzz")
+            com.allperiph.shared.util.Log.i("GestureEngine", "armDrag already armed → buzz")
             return true
         }
         val moved = hypot((lastX - downX).toDouble(), (lastY - downY).toDouble())
         if (moved >= TAP_SLOP * 2f) {
-            com.allperiph.core.Log.i("GestureEngine", "armDrag skipped: moved=$moved")
+            com.allperiph.shared.util.Log.i("GestureEngine", "armDrag skipped: moved=$moved")
             return false
         }
         dragArmed = true
-        com.allperiph.core.Log.i("GestureEngine", "armDrag LOCKED")
+        com.allperiph.shared.util.Log.i("GestureEngine", "armDrag LOCKED")
         return true
     }
 
     fun armRightDrag() {
         if (activePointers < 2) return
         pendingButtons = pendingButtons or 0x02  // bit1 = right click
-        com.allperiph.core.Log.i("GestureEngine", "armRightDrag: buttons=$pendingButtons")
+        com.allperiph.shared.util.Log.i("GestureEngine", "armRightDrag: buttons=$pendingButtons")
     }
 
     fun onTouch(ev: MotionEvent) {
@@ -170,7 +170,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                         try { Thread.sleep(25) } catch (_: InterruptedException) {}
                         sink.send(TouchpadFrame(0, 0, 0x00, tsNs = ts + 25_000_000L))
                     }
-                    com.allperiph.core.Log.i("GestureEngine", "tap sent (dur=${dur}ms)")
+                    com.allperiph.shared.util.Log.i("GestureEngine", "tap sent (dur=${dur}ms)")
                 }
                 pendingButtons = 0
                 activePointers = 0

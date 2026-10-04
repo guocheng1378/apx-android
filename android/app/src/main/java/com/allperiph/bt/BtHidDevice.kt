@@ -12,7 +12,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import com.allperiph.core.ApxNative
-import com.allperiph.core.Log
+import com.allperiph.shared.util.Log
 import com.allperiph.core.Module
 import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
