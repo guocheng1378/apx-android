@@ -97,6 +97,14 @@
                         android:contentDescription="@string/lay_main_cd_gamepad_open" />
 
                     <TextView
+                        android:id="@+id/btnRemote"
+                        style="@style/APTextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/ui_remote_text_remote"
+                        android:contentDescription="@string/lay_main_cd_remote_open" />
+
+                    <TextView
                         android:id="@+id/btnEditChips"
                         style="@style/APTextButton"
                         android:layout_width="wrap_content"
