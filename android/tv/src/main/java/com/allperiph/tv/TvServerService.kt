@@ -39,7 +39,7 @@ class TvServerService : Service() {
         override fun cursorMove(x: Float, y: Float, absolute: Boolean) {
             TvInputDispatcher.cursorMove(x, y, absolute); TvInjector.cursorMove(x, y, absolute)
         }
-        override fun cursorClick() = TvInputDispatcher.cursorClick()
+        override fun cursorClick() { TvInputDispatcher.cursorClick() }
         override fun key(keyCode: Int, down: Boolean) {
             TvInputDispatcher.key(keyCode, down); TvInjector.key(keyCode, down)
         }

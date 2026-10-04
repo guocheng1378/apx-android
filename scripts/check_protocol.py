@@ -203,9 +203,12 @@ def main() -> int:
 
     rep = Report()
 
+    # v184 起帧定义收敛到 :shared 模块，app / tv 共用同一份 ApxFrame.kt
+    # （结构上已不可能漂移，此处两侧指向同一文件，保留标签便于报告可读）
+    shared_pkg = p("android", "shared", "src", "main", "java", "com", "allperiph", "shared")
     kotlin_files = {
-        "app": p("android", "app", "src", "main", "java", "com", "allperiph", "core", "ApxFrame.kt"),
-        "tv": p("android", "tv", "src", "main", "java", "com", "allperiph", "tv", "core", "ApxFrame.kt"),
+        "app": os.path.join(shared_pkg, "proto", "ApxFrame.kt"),
+        "tv": os.path.join(shared_pkg, "proto", "ApxFrame.kt"),
     }
     cpp_frame = p("shared", "include", "apx", "frame.h")
     ctrl_cpp = p("pc", "host", "src", "wireless", "ctrl9511.cpp")
@@ -282,7 +285,6 @@ def main() -> int:
     senders: dict[str, set[int]] = {}
     receivers: dict[str, set[int]] = {}
     app_pkg = p("android", "app", "src", "main", "java", "com", "allperiph")
-    tv_pkg = p("android", "tv", "src", "main", "java", "com", "allperiph", "tv")
 
     senders["app 控制端"] = cmd_tokens_kotlin_send(
         os.path.join(app_pkg, "wireless", "TvControllerClient.kt"))
@@ -291,7 +293,9 @@ def main() -> int:
     senders["pc 控制端"] = cmd_tokens_cpp_send(ctrl_cpp)
     receivers["app 被控"] = cmd_tokens_kotlin_dispatch(
         os.path.join(app_pkg, "controlled", "TvControlServer.kt"))
-    receivers["tv 被控"] = cmd_tokens_kotlin_dispatch(os.path.join(tv_pkg, "net", "TcpControlServer.kt"))
+    # TV 被控端接收在 :shared 的 ControlServer（viAZL0 起 app/tv 共用该实现）
+    receivers["tv 被控"] = cmd_tokens_kotlin_dispatch(
+        os.path.join(shared_pkg, "net", "ControlServer.kt"))
     receivers["pc 被控"] = cmd_tokens_cpp_dispatch(ctrl_cpp)
     # 「对端 → 控制端」方向：回传帧只出现在控制端的读取器里
     receivers["pc 控制端(收)"] = cmd_tokens_cpp_client_reader(ctrl_cpp)
