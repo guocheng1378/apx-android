@@ -23,7 +23,7 @@ struct LinkStatus {
     bool     running{false};
     uint16_t protocolVersion{0};
     uint8_t  udcSpeed{0};         // §2.7 linkSpeed
-    uint8_t  moduleMask{0};
+    uint64_t moduleMask{0};
     uint8_t  runStatus{0};
     uint32_t errorCode{0};
     uint64_t uptimeMs{0};
