@@ -203,7 +203,7 @@ static VOID ApxHidEvtInternalDeviceControl(
         status = WdfRequestRetrieveOutputMemory(Request, &memory);
         if (NT_SUCCESS(status)) {
             status = WdfMemoryCopyFromBuffer(memory, 0, (PVOID)g_ApxHidReportDescriptor,
-                                             sizeof(g_ApxHidReportDescriptor));
+                                             min(sizeof(g_ApxHidReportDescriptor), OutputBufferLength));
             bytesReturned = sizeof(g_ApxHidReportDescriptor);
         }
         break;
@@ -212,7 +212,7 @@ static VOID ApxHidEvtInternalDeviceControl(
         status = WdfRequestRetrieveOutputMemory(Request, &memory);
         if (NT_SUCCESS(status)) {
             status = WdfMemoryCopyFromBuffer(memory, 0, (PVOID)&g_ApxHidAttributes,
-                                             sizeof(g_ApxHidAttributes));
+                                             min(sizeof(g_ApxHidAttributes), OutputBufferLength));
             bytesReturned = sizeof(g_ApxHidAttributes);
         }
         break;

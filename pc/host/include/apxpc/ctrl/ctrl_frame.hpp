@@ -164,7 +164,7 @@ std::vector<uint8_t> buildVendorCommand(uint8_t cmd, uint8_t seq,
 struct VendorStatusInfo {
     uint8_t  status{0};
     uint8_t  linkSpeed{0};
-    uint8_t  moduleMask{0};
+    uint64_t moduleMask{0};
     uint32_t errorCode{0};
     uint64_t uptimeMs{0};
 };

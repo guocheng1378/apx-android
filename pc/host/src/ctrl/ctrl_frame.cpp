@@ -262,14 +262,14 @@ std::vector<uint8_t> buildVendorCommand(uint8_t cmd, uint8_t seq,
 }
 
 StatusEx parseVendorStatus(const uint8_t* data, size_t len, VendorStatusInfo& out) {
-    if (!data || len < 16) return err(Status::Protocol, "vendor status too short");
+    if (!data || len < 24) return err(Status::Protocol, "vendor status too short");
     if (data[0] != apx::kReportVendor) return err(Status::Protocol, "not report 5");
     VendorStatusInfo r;
     r.status     = data[1];
     r.linkSpeed  = data[2];
-    r.moduleMask = data[3];
-    r.errorCode  = rdU32(data + 4);
-    r.uptimeMs   = rdU64(data + 8);
+    r.moduleMask = rdU64(data + 3);
+    r.errorCode  = rdU32(data + 11);
+    r.uptimeMs   = rdU64(data + 15);
     out = r;
     return ok();
 }
