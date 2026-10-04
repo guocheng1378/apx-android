@@ -392,12 +392,16 @@ class MainActivity : Activity() {
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        // 配置变化时用新配置校准 landscape（与 orientListener 的物理朝向判断互为兜底）
+        landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
         applyOrientationLayout()
         handler.post { snapIndicator() }
     }
 
     private fun applyOrientationLayout() {
-        landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        // landscape 由调用方设置（orientListener / onConfigurationChanged），
+        // 这里不再从 resources.configuration 重读 —— 避免 requestedOrientation 未生效时
+        // 配置方向滞后于物理朝向，导致横屏仍停在触控板页。
         val dm = resources.displayMetrics
         Log.i(
             TAG,
@@ -524,6 +528,8 @@ class MainActivity : Activity() {
         navGlass = NavBarDrawable(this)
         tabBarView.background = navGlass
         tabBarView.elevation = 0f // 无底板 → 不要容器投影
+        // 初始朝向由当前配置决定（冷启动时物理朝向 = 配置方向）
+        landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         applyOrientationLayout() // 竖屏/横屏两套 chrome（横屏为沉浸操控面）
         findViewById<View>(R.id.contentStack).post { snapIndicator() }
         // 朝向兜底：个别 ROM（MIUI 某些省电/分屏场景）旋屏不派发 onConfigurationChanged，
@@ -533,10 +539,17 @@ class MainActivity : Activity() {
 
     private val orientPoll = object : Runnable {
         override fun run() {
-            val land = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-            if (land != landscape) {
-                Log.i(TAG, "朝向兜底触发：config=$land vs applied=$landscape")
-                applyOrientationLayout()
+            val configLand = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            if (configLand != landscape) {
+                // 配置方向与期望方向（物理朝向）不一致：说明 requestedOrientation 尚未生效
+                // （某些 ROM 延迟 / 节流冲突 / configChanges 拦截）。重新请求一次，
+                // 但不覆盖 landscape —— 页面已经按物理朝向切好了，这里只催 Activity 跟上。
+                Log.i(TAG, "朝向兜底：期望=$landscape 配置=$configLand，重新请求方向")
+                requestedOrientation = if (landscape)
+                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else
+                    ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                forcedOrient = if (landscape) 1 else 2
             }
             handler.postDelayed(this, 1000)
         }
@@ -581,15 +594,24 @@ class MainActivity : Activity() {
                 if (now - lastOrientSwitchMs < 1500) return   // 节流：旋转动画 ~300ms，切太快系统来不及执行
                 lastOrientSwitchMs = now
                 forcedOrient = want
+                val toLandscape = want == 1
                 // 横持：App 请求横屏（视频 App 同原理，系统方向锁拦不住）；
                 // 竖持：**交还系统**（UNSPECIFIED）而不是请求竖屏 ——
                 // 实测 MIUI 在收到 PORTRAIT 请求时会关掉自动旋转并写死 user_rotation=0，
                 // 导致之后横持请求被忽略（「键盘没了」的元凶）。交还则不会。
-                requestedOrientation = if (want == 1)
+                requestedOrientation = if (toLandscape)
                     ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 else
                     ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                Log.i(TAG, "物理朝向切换：force=$want deg=$deg")
+                // 直接按物理朝向切换页面，不等待 onConfigurationChanged ——
+                // 某些 ROM 下 requestedOrientation 未即时生效，配置方向滞后，
+                // 若只靠 applyOrientationLayout 里的 resources.configuration 判断，
+                // 横屏后会仍停在触控板页。
+                if (landscape != toLandscape) {
+                    landscape = toLandscape
+                    applyOrientationLayout()
+                }
+                Log.i(TAG, "物理朝向切换：force=$want deg=$deg landscape=$landscape")
             }
         }
     }
