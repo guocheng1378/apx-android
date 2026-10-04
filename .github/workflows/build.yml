@@ -3,11 +3,14 @@ name: Build
 # 触发：
 #   push master        —— 只做构建验证（Android + PC），不发 release
 #   push tag v*        —— 构建三端产物并自动创建 GitHub Release
+#   pull_request→master—— PR 上先构建验证，编译错误在合入前拦下
 #   workflow_dispatch  —— 手动构建验证
 on:
   push:
     branches: [master]
     tags: ['v*']
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
