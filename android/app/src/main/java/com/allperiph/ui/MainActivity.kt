@@ -1538,7 +1538,9 @@ class MainActivity : Activity() {
         }
         // 遥控器入口（真机反馈"找不到遥控器的界面"）：方向盘 + OK/返回/主页/菜单 + 音量/媒体 + 电源。
         // 此前遥控能力只藏在键盘页的「遥控」布局与"选中 TV 才自动切换"的快捷键条里，不易发现。
-        findViewById<TextView>(R.id.btnRemote).setOnClickListener {
+        // 横屏布局曾漏放此按钮 → findViewById 返回 null → setOnClickListener 抛 NPE → 横屏启动闪退。
+        // 这里做空安全兜底，避免布局差异再次导致崩溃。
+        findViewById<TextView>(R.id.btnRemote)?.setOnClickListener {
             startActivity(Intent(this, RemoteActivity::class.java))
         }
         // 副屏入口：全屏显示 PC 推来的桌面画面（Wi‑Fi 媒体通道 streamId=0）
