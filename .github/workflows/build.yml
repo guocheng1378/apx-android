@@ -161,8 +161,22 @@ jobs:
           arch: x64
 
       - name: Generate compile_commands.json
-        shell: cmd
-        run: cmake -S pc/host -B build_tidy -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # CMake 只在 Makefile / Ninja 生成器下导出 compile_commands.json；默认的
+          # Visual Studio 生成器**不支持**该输出 —— 这正是之前 clang-tidy 报
+          # "No compilation database found in build_tidy" 的原因。故显式改用 Ninja。
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            Write-Host "ninja not found -> installing via choco"
+            choco install ninja -y --no-progress
+            $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+          }
+          if (Test-Path build_tidy) { Remove-Item -Recurse -Force build_tidy }
+          cmake -S pc/host -B build_tidy -G Ninja `
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
+            -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
+          if (-not (Test-Path build_tidy/compile_commands.json)) { throw "compile_commands.json 未生成" }
 
       # windows-latest 镜像里 clang-tidy 不一定在 PATH（VS 自带那份的路径随版本变），
       # 所以先用 vswhere 定位 VS 自带的，找不到再用 choco 装。
@@ -183,18 +197,21 @@ jobs:
             choco install llvm -y --no-progress
           }
 
-      # 先只扫改动最频繁、问题最集中的几个文件
+      # 先只扫改动最频繁、问题最集中的几个文件。
+      # 必须显式给 -checks：仓库里没有 .clang-tidy 配置，不传时 clang-tidy 会以
+      # "Error: no checks enabled." 打印帮助并退出 1（此前一直空转的另一半原因）。
       - name: clang-tidy (core modules)
         continue-on-error: true
         shell: cmd
         run: |
           clang-tidy --version
-          clang-tidy -p build_tidy pc\host\src\wireless\ctrl9511.cpp
-          clang-tidy -p build_tidy pc\host\src\wireless\input_injector_win.cpp
-          clang-tidy -p build_tidy pc\host\src\media\audio_capture.cpp
-          clang-tidy -p build_tidy pc\host\src\media\mic_bridge.cpp
-          clang-tidy -p build_tidy pc\host\src\media\touch_inject.cpp
-          clang-tidy -p build_tidy pc\host\src\ui\panel_win32.cpp
+          set "CHECKS=-*,bugprone-*,clang-analyzer-*,performance-*,-bugprone-easily-swappable-parameters"
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\wireless\ctrl9511.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\wireless\input_injector_win.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\audio_capture.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\mic_bridge.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\touch_inject.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\ui\panel_win32.cpp
 
   # ------------------------------------------------ 协议一致性（跨端常量 / 命令号）
   # v1.7：同一份 APX1 协议被手写了四遍（C++ / 手机端 / TV 端 / PC 控制面），
