@@ -19,6 +19,10 @@
     <string name="tv_action_files">收到的文件</string>
     <string name="tv_action_screen">看电脑画面</string>
     <string name="tv_action_selfcheck">检查控制能力</string>
+    <string name="tv_action_a11y">开启无障碍</string>
+    <string name="tv_a11y_already">无障碍已开启，点按 / 滑动 / 打字都能用</string>
+    <string name="tv_a11y_root_tried">已尝试用 root 自动开启无障碍，若未生效请到系统设置里手动开启</string>
+    <string name="tv_a11y_open_failed">这台电视打不开系统无障碍设置，请到「设置 → 无障碍」里手动开启</string>
     <string name="tv_accept_on">开始接受控制</string>
     <string name="tv_accept_off">停止接受控制</string>
     <string name="tv_service_stopped">控制服务没在运行 —— 点「开始接受控制」后再让手机连</string>

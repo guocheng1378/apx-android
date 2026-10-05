@@ -67,7 +67,13 @@ class TvServerService : Service() {
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
     private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
-    private fun ensureFileReceiver() { runCatching { FileReceiver.start(applicationContext) }.onFailure { Log.w("9512 未启动：${it.message}") } }
+    private fun ensureFileReceiver() {
+        runCatching {
+            FileReceiver.start(applicationContext)
+            // 收到文件后弹「打开 / 删除」交互浮窗（原先只有一句 Toast）
+            FileReceiver.onReceived = { c, f -> com.allperiph.tv.ui.TvFilePrompt.show(c, f) }
+        }.onFailure { Log.w("9512 未启动：${it.message}") }
+    }
     private fun newServer(): ControlServer = ControlServer(endpoint = controlEndpoint).also { s ->
         s.onPeerChanged = { connected, ip -> Log.i("对端变化：connected=$connected ip=$ip"); if (connected && ip.isNotEmpty()) rememberPeer(ip); TvInjector.setConnected(connected); refreshNotification() }
         s.onOpenScreenRequest = { openScreenPage() }

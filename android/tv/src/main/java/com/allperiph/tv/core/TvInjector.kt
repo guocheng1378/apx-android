@@ -75,7 +75,7 @@ object TvInjectorPlatform : InjectorPlatform {
         Triple(
             "a11y",
             "点按 / 滑动 / 打字控制",
-            "到系统「无障碍」里启用本应用",
+            "点首页「开启无障碍」自动开启（有 root）；否则到系统「无障碍」里启用本应用",
         ),
         Triple(
             "overlay",

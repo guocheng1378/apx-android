@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.tv.R
 import com.allperiph.tv.TvServerService
+import com.allperiph.shared.accessibility.AccessibilityAutoEnable
 import com.allperiph.shared.util.Log
 import com.allperiph.shared.inject.TvInjector
 import com.allperiph.tv.core.TvInjectorPlatform
@@ -65,6 +66,10 @@ class MainActivity : android.app.Activity() {
         TvUi.bindColors(this)
         // 注入通道初始化幂等；被控服务由用户开关控制（见 toggleService）
         TvInjector.init(this, TvInjectorPlatform)
+        // 电视视为常驻家电：打开过 App 一次即自动开始接受控制（点过「停止接受控制」则不强推，
+        // 由 startIfNeeded 内部判断）。这也补上了此前从未被调用的 startIfNeeded —— 否则
+        // 用户不点按钮就永远不会写入 enabled，开机自启的判定条件永远为 false。
+        TvServerService.startIfNeeded(this)
         setContentView(buildUi())
 
         overlay = RemoteInputOverlay(
@@ -77,6 +82,11 @@ class MainActivity : android.app.Activity() {
 
         val filter = IntentFilter(TvServerService.ACTION_REMOTE_INPUT)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(remoteInputReceiver, filter, Context.RECEIVER_NOT_EXPORTED) else registerReceiver(remoteInputReceiver, filter)
+
+        // 有 root 时自动开启无障碍（root 探测在 TvInjector.init 里异步进行，稍等再试一次）
+        handler.postDelayed({
+            if (!TvInjector.systemReady()) AccessibilityAutoEnable.tryEnableViaRoot(applicationContext)
+        }, 2500)
     }
 
     override fun onResume() { super.onResume(); handler.post(refreshRunnable) }
@@ -120,11 +130,12 @@ class MainActivity : android.app.Activity() {
         col.addView(injectTv)
         col.addView(spacer(gap.toFloat()))
 
-        // ---- 四个动作 ----
+        // ---- 动作按钮 ----
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         actions.addView(actionButton(getString(R.string.tv_action_files)) { startActivity(Intent(this, TvFileActivity::class.java)) })
         actions.addView(actionButton(getString(R.string.tv_action_screen)) { startActivity(Intent(this, TvScreenActivity::class.java)) })
         actions.addView(actionButton(getString(R.string.tv_action_selfcheck)) { showCapabilities() })
+        actions.addView(actionButton(getString(R.string.tv_action_a11y)) { onAccessibilityAction() })
         toggleService = actionButton(getString(R.string.tv_accept_on)) { confirmToggleService() }
         actions.addView(toggleService)
         col.addView(actions)
@@ -173,6 +184,28 @@ class MainActivity : android.app.Activity() {
             getString(R.string.tv_ability_label) + "：" + TvInjector.channelText() + "\n" + st,
             Toast.LENGTH_LONG
         ).show()
+    }
+
+    /**
+     * 「开启无障碍」：无障碍服务在无 root / 无 adb 时只能由用户手动勾选。
+     * 这里先尝试用 root 直接开启（[AccessibilityAutoEnable.tryEnableViaRoot]）；
+     * root 未生效（无 root，或系统有延迟尚未连上）则跳转到系统无障碍设置页引导用户手动开。
+     */
+    private fun onAccessibilityAction() {
+        if (TvInjector.systemReady()) {
+            Toast.makeText(this, getString(R.string.tv_a11y_already), Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (AccessibilityAutoEnable.tryEnableViaRoot(applicationContext)) {
+            Toast.makeText(this, getString(R.string.tv_a11y_root_tried), Toast.LENGTH_LONG).show()
+        }
+        // root 生效可能有延迟：稍后复核，仍未生效才打开系统设置页（避免 root 成功还硬跳设置）
+        handler.postDelayed({
+            if (!TvInjector.systemReady()) {
+                runCatching { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    .onFailure { Toast.makeText(this, getString(R.string.tv_a11y_open_failed), Toast.LENGTH_LONG).show() }
+            }
+        }, 1500)
     }
 
     /** 「停止接受控制」会立刻断开所有控制端，先确认再执行 */

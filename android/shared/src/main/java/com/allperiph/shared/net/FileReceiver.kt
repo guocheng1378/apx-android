@@ -32,6 +32,15 @@ object FileReceiver {
     private var thread: Thread? = null
     private var ctx: Context? = null
 
+    /**
+     * 文件接收完成回调（**主线程**）。各端在服务启动时设置：
+     *  - TV 端 → 弹「打开 / 删除」交互浮窗（见 `TvFilePrompt`）；
+     *  - 手机端不设置 → 退回一句 Toast（保持原有行为）。
+     * 回调里抛异常不会影响接收（内部已 try-catch）。
+     */
+    @Volatile
+    var onReceived: ((Context, File) -> Unit)? = null
+
     fun start(c: Context) {
         if (running.get()) return
         ctx = c.applicationContext
@@ -94,9 +103,17 @@ object FileReceiver {
                     }
                 }
                 Log.i("文件接收", "文件已存：$out")
-                ctx?.let { c ->
+                val c = ctx
+                if (c != null) {
                     Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(c, "已接收文件：$name", Toast.LENGTH_SHORT).show()
+                        val cb = onReceived
+                        if (cb != null) {
+                            runCatching { cb(c, out) }
+                        } else {
+                            runCatching {
+                                Toast.makeText(c, "已接收文件：$name", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 }
             }
