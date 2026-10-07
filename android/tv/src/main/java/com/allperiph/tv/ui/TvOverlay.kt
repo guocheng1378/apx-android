@@ -27,7 +27,7 @@ object TvOverlay : CursorOverlay {
         if (wm != null) return
         wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val dm = ctx.resources.displayMetrics
-        size = (10 * dm.density).toInt().coerceAtLeast(8)
+        size = (24 * dm.density).toInt().coerceAtLeast(8)
         val dot = View(ctx).apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -68,8 +68,10 @@ object TvOverlay : CursorOverlay {
     override fun move(x: Float, y: Float) {
         val v = view ?: return
         val p = params ?: return
-        p.x = (x - size / 2).toInt().coerceAtLeast(0)
-        p.y = (y - size / 2).toInt().coerceAtLeast(0)
+        val screenWidth = wm?.defaultDisplay?.width ?: 0
+        val screenHeight = wm?.defaultDisplay?.height ?: 0
+        p.x = (x - size / 2).toInt().coerceIn(0, (screenWidth - size).coerceAtLeast(0))
+        p.y = (y - size / 2).toInt().coerceIn(0, (screenHeight - size).coerceAtLeast(0))
         try {
             wm?.updateViewLayout(v, p)
         } catch (_: Throwable) {
