@@ -63,12 +63,8 @@ class TvFileActivity : Activity() {
         head.addView(targetView); root.addView(head, LinearLayout.LayoutParams(-1, -2))
         dirView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.MICRO); setPadding(0, gap / 2, 0, 0) }; root.addView(dirView)
         countView = TextView(this).apply { setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, gap / 3, 0, gap / 3) }; root.addView(countView)
-        // 进度条
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progress = 0
-            visibility = View.GONE
-            setPadding(0, gap / 2, 0, gap / 2)
+            max = 100; progress = 0; visibility = View.GONE; setPadding(0, gap / 2, 0, gap / 2)
         }
         root.addView(progressBar, LinearLayout.LayoutParams(-1, TvUi.dp(this, 8)))
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -99,14 +95,11 @@ class TvFileActivity : Activity() {
             return
         }
         val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), "application/vnd.android.package-archive"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
-        try { startActivity(intent) } catch (e: ActivityNotFoundException) { status("这台电视没有安装程序，打不开这个安装包", TvUi.Pal.warn) }
+        try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (e: ActivityNotFoundException) { status("这台电视没有安装程序，打不开这个安装包", TvUi.Pal.warn) }
     }
-    private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), guessMime(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }; try { startActivity(intent) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
+    private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), guessMime(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }; try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
     private fun guessMime(name: String): String? = when { name.endsWith(".apk", true) -> "application/vnd.android.package-archive"; name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"; name.endsWith(".png", true) -> "image/png"; name.endsWith(".gif", true) -> "image/gif"; name.endsWith(".mp4", true) -> "video/mp4"; name.endsWith(".mkv", true) -> "video/x-matroska"; name.endsWith(".mp3", true) -> "audio/mpeg"; name.endsWith(".txt", true) -> "text/plain"; name.endsWith(".pdf", true) -> "application/pdf"; name.endsWith(".zip", true) -> "application/zip"; else -> null }
-    private fun showProgress(p: Int) {
-        progressBar.progress = p
-        progressBar.visibility = if (p in 1..99) View.VISIBLE else View.GONE
-    }
+    private fun showProgress(p: Int) { progressBar.progress = p; progressBar.visibility = if (p in 1..99) View.VISIBLE else View.GONE }
     private fun sendFile(f: File) { val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) { status("正在发送上一个文件，等它发完", TvUi.Pal.warn); return }; status("正在发送 ${f.name}", TvUi.Pal.accent); showProgress(0); Thread({ val ok = FileSender.send(target, f) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-send").start() }
     private fun pickFromSystem() { if (currentTarget() == null) { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }, REQ_PICK) } catch (_: ActivityNotFoundException) { status("这台电视没有文件选择器，可以改从手机 / 电脑发过来", TvUi.Pal.warn) } }
     @Deprecated("电视端沿用传统回调") override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode != REQ_PICK || resultCode != RESULT_OK) return; val uri: Uri = data?.data ?: return; val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) return; val (name, size) = queryNameSize(uri); status("正在发送 $name", TvUi.Pal.accent); showProgress(0); Thread({ val ok = try { contentResolver.openInputStream(uri)?.use { ins -> FileSender.send(target, name, size, ins) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } } } ?: false } catch (t: Throwable) { Log.e("发送失败：${t.message}"); false }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：$name" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-pick").start() }
