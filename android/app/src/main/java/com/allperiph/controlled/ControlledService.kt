@@ -182,6 +182,10 @@ class ControlledService : Service() {
         fun stop(c: Context) {
             running = false; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, false).apply()
             runCatching { c.stopService(Intent(c, ControlledService::class.java)) }
+            // v196：必须一并撤掉保活闹钟 —— KeepAlive.onAlarm 结尾会无条件再排下一次，
+            // 只停服务不撤闹钟的话，用户关了被控模式，系统仍每分钟唤起一次本进程
+            // （Application.onCreate 照跑），耗电且停不下来。TV 端 TvServerService.stopAll() 早有同样处理。
+            runCatching { com.allperiph.shared.inject.KeepAlive.cancel(c) }
         }
         override fun isRunning(): Boolean = running
     }

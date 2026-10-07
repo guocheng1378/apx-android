@@ -52,6 +52,9 @@ class SettingsFragment : Fragment() {
         fun card(color: Int, radius: Int): GradientDrawable
         fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable
         fun showDevicePicker()
+
+        /** 连入指定 TV/PC（复用宿主的 connectTarget —— 握手与回调都在那一处） */
+        fun connectTarget(ip: String, port: Int, name: String, type: String)
         fun onTargetChanged()
         fun renderUplink()
         fun displayUplinkPath(): String
@@ -532,6 +535,28 @@ class SettingsFragment : Fragment() {
         })
         tvBox.addView(settingRow(getString(R.string.ui_main_label_state_channel_inject), getString(R.string.ui_main_btn_selftest), accent) { showControlledCaps() })
         tvBox.addView(settingRow(getString(R.string.ui_main_label_log_view), getString(R.string.ui_common_open), accent) { showLogs() })
+        // 最近连过的设备（ConnectHistory 持久化，v196）：点一下直接重连，不用重新挑设备。
+        //   这段曾加在 MainActivity.renderTv() 里，而那个方法后来改成转发到本 Fragment ——
+        //   随之被一起丢掉了（ConnectHistory 只写不读、文案零引用），现在补在真正的渲染方。
+        val act = activity ?: return
+        val recent = ConnectHistory.getRecent(act, 3)
+        tvBox.addView(fieldLabel(getString(R.string.ui_main_label_recent_devices)))
+        if (recent.isEmpty()) {
+            tvBox.addView(TextView(act).apply {
+                text = getString(R.string.ui_main_text_no_recent)
+                textSize = 12f
+                setTextColor(act.resources.getColor(R.color.md_on_surface_variant))
+                setPadding(h.dp(4), h.dp(2), h.dp(4), h.dp(6))
+            })
+        } else {
+            for (item in recent) {
+                tvBox.addView(settingRow(item.name, "${item.host}:${item.port}", accent) {
+                    // 复用宿主的连入逻辑（Activity.connectTarget）：设置器、握手、
+                    // 反向剪贴板回调都在那一处，这里不重复实现。
+                    host?.connectTarget(item.host, item.port, item.name, "tv")
+                })
+            }
+        }
         tvStatusView = TextView(activity).apply {
             text = if (h.isControlling()) {
                 "当前控制：${h.getControlTargetLabel()} · ${h.displayUplinkHint()}"

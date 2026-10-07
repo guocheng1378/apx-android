@@ -57,6 +57,23 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
+      悬浮窗：被控模式（手机当被控端）显示对方光标落点，用的是 TYPE_APPLICATION_OVERLAY。
+      ⚠️ v196 之前只有注释「SYSTEM_ALERT_WINDOW：Toast overlay（fallback 用）」，没有声明 ——
+      TvOverlay 创建浮层抛 SecurityException 又被 try/catch 吞掉，结果是
+      **被控模式下永远看不到光标可视化**，日志只有一行「被控浮层 创建失败」。
+      SYSTEM_ALERT_WINDOW 是特殊权限：声明后仍需用户在系统设置里手动授权
+      （应用内已由 TouchpadActivity 的「开启悬浮窗」入口引导）。
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!--
+      电池白名单申请：MainActivity 用ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+      拉起系统弹窗，未声明时 runCatching 吞掉异常并降级到"自己去找设置列表"，
+      用户点「加入白名单」永远没反应。tv 模块早就声明了，app 漏了。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
       Wi-Fi 控制：读/写系统设置（锁定/解锁 AP 限制）
     -->
 

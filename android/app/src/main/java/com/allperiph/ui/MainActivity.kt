@@ -1010,7 +1010,10 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
     /** 连入 TV/PC（9511）并设为当前控制目标：主页触摸板与快捷键会自动改发到对端
      * @param type 设备类型 "tv" 或 "pc"，决定快捷键条是否进 TV 专属布局 */
-    private fun connectTarget(ip: String, port: Int, name: String, type: String = "tv") {
+    override fun connectTarget(ip: String, port: Int, name: String, type: String) =
+        connectTargetInternal(ip, port, name, type)
+
+    private fun connectTargetInternal(ip: String, port: Int, name: String, type: String = "tv") {
         Thread({
             val c = TvControllerClient(ip, port)
             val ok = c.connect()
