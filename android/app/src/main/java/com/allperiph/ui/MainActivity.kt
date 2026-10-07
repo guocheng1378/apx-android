@@ -78,7 +78,7 @@ import com.allperiph.shared.net.FileSender
  * 所有 IO（su、sysfs、设备节点）都在后台线程，本 Activity 只做事件订阅与视图刷新。
  * 主题实现：覆写 [attachBaseContext] 注入 uiMode，深色取值来自 res/values-night/。
  */
-class MainActivity : Activity() {
+class MainActivity : Activity(), TouchpadFragment.Host {
 
     private val handler = Handler(Looper.getMainLooper())
     private val disposables = ArrayList<EventBus.Disposable>()
@@ -836,22 +836,42 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun renderChips() = hotkeyBoard.render()
+    // ————————————————————————— TouchpadFragment.Host —————————————————————————
+    //触控板页拆成 Fragment 后由它驱动，宿主只提供数据与转发（v196 接线第 1 步：
+    // 先把接口实现齐、编译通过，下一步再 add Fragment 并删除下方重复实现）。
+    // 本项目用的是平台android.app.Fragment（非 androidx），所以宿主**不需要** FragmentActivity。
+
+    override fun getTouchpadHandler(): Handler = handler
+
+    override fun feedGesture(ev: MotionEvent) {
+        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.feed(ev)
+    }
+
+    override fun isTouchpadPage(): Boolean =
+        ::pager.isInitialized && pager.displayedChild == PAGE_TOUCHPAD
+
+    override fun onLongPressArmDrag() {
+        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.armDrag()
+    }
+
+    override fun getHotkeyBoard(): HotkeyBoard = hotkeyBoard
+
+    override fun renderChips() = hotkeyBoard.render()
 
     /** 设置页的自动排序开关跟随真实状态（拖拽/上下移会把它关掉，开关要跟着变） */
-    private fun syncSortSwitch() {
+    override fun syncSortSwitch() {
         val sw = findViewById<Switch>(R.id.swHotkeySort) ?: return
         val on = HotkeyStore.isAutoSort(this)
         if (sw.isChecked != on) sw.isChecked = on // 值有变才赋值，listener 不会无限递归
     }
 
     /** 当前生效模板的主题色；逐条改过（自定义）时回落到主色 */
-    private fun templateColor(): Int =
+    override fun templateColor(): Int =
         HotkeyTemplates.byKey(HotkeyStore.loadTemplate(this))?.color
             ?: resources.getColor(R.color.md_primary)
 
     /** 同色调的浅底（12% 不透明度），给 chip / 模板行做底 */
-    private fun softTint(color: Int): Int =
+    override fun softTint(color: Int): Int =
         (color and 0x00FFFFFF) or (0x1F shl 24)
 
 
@@ -2181,7 +2201,7 @@ class MainActivity : Activity() {
 
     private fun pill(color: Int): GradientDrawable = card(color, dp(999))
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    override fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     companion object {
         private const val TAG = "MainActivity"
