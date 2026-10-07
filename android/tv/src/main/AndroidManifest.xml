@@ -1,1 +1,161 @@
-PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPCEtLQogIEFQWCBUVSDnurfnu5/mmJ/mja7mmJ/og73niannmb7lkYzlp4TmlbDmja7mmJ/mnIDpqovnmoTkvovnu4TigJQKICBuYW1zcGFjZTogY29tLmFsbGVyaXBoLnR2CiAg6K6h566X5b+D575uLm1pblNkaz0yMyDnlJ/nqqTorqHnrpc7CnRvZG8oaGVhbmJsZSDpg73niannmb7lkYzlp4TmlbDnmoTor4HvvIzniYfliqDovb3np7vlvIDmupTliqjigJQKIC0tPgo8bWFuaWZlc3QgeG1sbnM6YW5kcm9pZD0iaHR0cDovL3NjaGVtYXMuYW5kcm9pZC5jb20vYXBrL3JlcyIKICAgIHhtbG5zOnRvb2xzPSJodHRwOi8vc2NoZW1hcy5hbmRyb2lkLmNvbS90b29scyI+CiAgCiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uSU5URVJORVQiIC8+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uU1lTVEVNX0FMRVJUX1dJTkRPVyIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5RVVJZX0FMTF9QQUNLQUdFIiAvPgogICAgPHVzZS1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLkZPUkVHUk9VTkRfU0VSVklDRSIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5GT1JFR1JVTkRfU0VSVklDRV9DT05ORUNURUQiIC8+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uQ0hBTkdFX05FVFdPUktfU1RBVEUiIC8+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uUkVDRUlWRV9CT09UX0NPTVBMRVRFRCIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5QT1NUX05PVElGSUNBVElPTlMiIC8+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uV0FLZV9MT0NLIiAvPgogICAgPHVzZS1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLlJFUVVFU1RfSUdOT1JFX0JBVFRFUllfT1BUSU1JWkFUSU9OUyIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5TQ0hFRVRFX0VYQUNUX0FMRVJNIiAvPgogICAgCiAgICA8dXNlLWZlYXR1cmUKICAgICAgICBuYW1lPSJhbmRyb2lkLnNvZnR3YXJlLmxlYW5iYWNrIgogICAgICAgIHJlcXVpcmVkPSJmYWxzZSIgLz4KICAgIDx1c2UtZmVhdHVyZQogICAgICAgIG5hbWU9ImFuZHJvaWQuaGFyZHdhcmUudG91Y2hzY3JlZW4iCiAgICAgICAgcmVxdWlyZWQ9ImZhbHNlIiAvPgogICAgPHVzZS1mZWF0dXJlCiAgICAgICAgbmFtZT0iYW5kcm9pZC5oYXJkd2FyZS5mYWtldG91Y2giCiAgICAgICAgcmVxdWlyZWQ9ImZhbHNlIiAvPgoKICAgIDxhcHBsaWNhdGlvbgogICAgICAgIGFuZHJvaWQ6bmFtZT0iLkFwcCIKICAgICAgICBhbmRyb2lkOmFsbG93QmFjaz0iZmFsc2UiCiAgICAgICAgYW5kcm9pZDppY29uPSJAYmFza2VibGVfcmVzb3VyY2UvaWNfdmxhbmNoZXJfdHYiCiAgICAgICAgYW5kcm9pZDpiYW5uZXI9IkBiYXNrZWJsZV9yZXNvdXJjZS9iYW5uZXIiCiAgICAgICAgYW5kcm9pZDpsYWJlbD0iQHN0cmluZy9hcHBfbmFtZSIKICAgICAgICBhbmRyb2lkOnN1cHBvcnRzUmFsPSJ0cnVlIgogICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBzdHlsZS9UaGVtZS5BeHBUdiIKICAgICAgICBhbmRyb2lkOmhhcmR3YXJlQWNjZWxlcmF0ZWQ9InRydWUiCiAgICAgICAgdG9vbHM6dGFyZ2V0QXBpPSIzNCI+CgogICAgICA8YWN0aXZpdHkKICAgICAgICAgICAgYW5kcm9pZDpuYW1lPSIudWkuTWFpbkFjdGl2aXR5IgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOmxhdW5jaE1vZGU9InNpbmdsZVRvcCIKICAgICAgICAgICAgYW5kcm9pZDpzY3JlZW5PcmllbnRhdGlvbj0ic2Vuc29yTGFuZHNjYXBlIgogICAgICAgICAgICBhbmRyb2lkOmNvbmZpZ0NoYW5nZXM9Im9yaWVudGF0aW9ufHNjcmVlblNpemV8c21hbGxlZXRTY3JlZW5TaXplfHNjcmVlblBsYXlvdXR8ZGVuc2l0eXx1aU1vZGUiCiAgICAgICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBzdHlsZS9UaGVtZS5BeHBUdiI+CiAgICAgICAgICAgIDxpbnRlbnQtZmlsdGVyPgogICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuaW50ZW50LmFjdGlvbi5NQUlOIiAvPgogICAgICAgICAgICAgICAgPGNhdGVnb3J5IGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5pbnRlbnQuY2F0ZWdvcnkuTEFVTkNIRVIiIC8+CiAgICAgICAgICAgICAgICA8Y2F0ZWdvcnkgYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5jYXRlZ29yeS5MRUFOQkFDS19MQVVOQ0hFUiIgLz4KICAgICAgICAgICAgPC9pbnRlbnQtZmlsdGVyPgogICAgICAgIDwvYWN0aXZpdHk+CgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii51aS5UdkNyZWVuQWN0aXZpdHkiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9ImZhbHNlIgogICAgICAgICAgICBhbmRyb2lkOndpbmRvd1NvZnRJbnB1dE1vZGU9ImFkanVzdFJlc2l6ZSIKICAgICAgICAgICAgYW5kcm9pZDpjb25maWdDaGFuZ2VzPSJvcmllbnRhdGlvbnxzY3JlZW5TaXplfHNtYWxsZXN0U2NyZWVuU2l6ZXxzY3JlZW5QbGF5b3V0fGRlbnNpdHl8dWlNb2RlIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQXBwVHYiIC8+CgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii51aS5UdkZpbGVBY3Rpdml0eSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6c2NyZWVuT3JpZW50YXRpb249InNlbnNvckxhbmRzY2FwZSIKICAgICAgICAgICAgYW5kcm9pZDpjb25maWdDaGFuZ2VzPSJvcmllbnRhdGlvbnxzY3JlZW5TaXplfHNtYWxsZXN0U2NyZWVuU2l6ZXxzY3JlZW5QbGF5b3V0fGRlbnNpdHl8dWlNb2RlIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQXBwVHYiIC8+CgogICAgICAgIDxzZXJ2aWNlCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iLlR2U2VydmVyU2VydmljZSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6c3RvcFdpdGhUYXNrPSJmYWxzZSIKICAgICAgICAgICAgYW5kcm9pZDpmb3JlZ3JvdW5kU2VydmljZVR5cGU9ImNvbm5lY3RlZERldmljZSIgLz4KCiAgICAgICAgPCEtLSDnuqfpg73niannmb7lkYzlub/pl67nvJTnu4TvvIzog73niannmb7lkYzlhajjgIFDT1ZFUkFCTEXvvIzlsI7mtbflrbvlzYLnu4TigJTvvIzns7vnu5/mtLHvvIkKICAgICAgICA8IS0tIOWKoOi9veWkhOeQhuWHuueOsOedvuWtpuS7tjxicj48L2l0ZS0+CiAgICAgICAgPHNlcnZpY2UKICAgICAgICAgICAgbmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5pbS5BcHhJbWVTZXJ2aWNlIgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOmxhYmVsPSLkuK3igKYiCiAgICAgICAgICAgIGFuZHJvaWQ6cGVybWlzc2lvbj0iYW5kcm9pZC5wZXJtaXNzaW9uLkJJTkRfSU5CVVRfTUVUSG9EIj4KICAgICAgICAgICAgPGludGVudC1maWx0ZXI+CiAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnZpZXcuSW5wdXRNZXRob2QiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICAgICAgbmFtZT0iYW5kcm9pZC52aWV3LmltIgogICAgICAgICAgICAgICAgcmVzb3VyY2U9IkByZHJhY3RhYmxlL3htbC9pbWVfbWV0aG9kIiAvPgogICAgICAgIDwvc2VydmljZT4KCiAgICAgICAgPCEtLSDnuI/luILmiJDnlJ/nianniannibnogIzjgIHmgKfkuK3igKYg5qCH5Ye85ZCI5rWP6K6+77yM6K6i5ZCv6Zif56m66YGT5a+85pKt5a6M5Yqb6K+V5p6BIC0tPgogICAgICAgIDxzZXJ2aWNlCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5hY2Nlc3NpYmlsaXR5LkFweEFjY2Vzc2liaWxpdHlTZXJ2aWNlIgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJmYWxzZSIKICAgICAgICAgICAgYW5kcm9pZDpwZXJtaXNzaW9uPSJhbmRyb2lkLnBlcm1pc3Npb24uQklORF9BQ0NFU1NJQklMSVRZX1NFUlZJQ0UiPgogICAgICAgICAgICA8aW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuYWNjZXNzaWJpbGl0eXNlcnZpY2UuQWNjZXNzaWJpbGl0eVNlcnZpY2UiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICAgICAgbmFtZT0iYW5kcm9pZC5hY2Nlc3NpYmlsaXR5c2VydmljZSIKICAgICAgICAgICAgICAgIHJlc291cmNlPSJAc3RyaW5nL3htbC9hY2Nlc3NpYmlsaXR5X3NlcnZpY2VfY29uZmlnIiAvPgogICAgICAgIDwvc2VydmljZT4KCiAgICAgICAgPCEtLSDnm7jlvIDmsr3lupTnuqfnu5/mmJ/nuqfnu5/lhpbpob/nlJ/nur/vvJrms5XkuozlhLrliqjigJQ8L2l0ZS0+CiAgICAgICAgPHJlY2VpdmVyCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5pbmplY3QuS2VlcEFsaXZlUmVjZWl2ZXIiCiAgICAgICAgICAgIGFuZHJvaWQ6ZW5hY2xlZD0idHJ1ZSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiIC8+CgogICAgICAgIDwhLS0g5Y+X5pWw5rWP6K6+77yM5L2N546L5YWo5Yqg6L2956e75byI55Sf5a2Y5ZCM5rWP6K6+77yM5LiL55S75a6a5bqc5Yqb6K+V5p6BIC0tPgogICAgICAgIDxyZWNlaXZlcgogICAgICAgICAgICBuYW1lPSJjb20uYWxsZXJpcGgudnsub3RpZmljYXRpb24uVHZOb3RpZmljYXRpb25MaXN0ZW5lciIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0idHJ1ZSI+CiAgICAgICAgICAgIDxpbnRlbnQtZmlsdGVyPgogICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuc2VydmljZS5ub3RpZmljYXRpb25zLk5vdGlmaWNhdGlvbkxpc3RlbmVyU2VydmljZSIgLz4KICAgICAgICAgICAgPC9pbnRlbnQtZmlsdGVyPgogICAgICAgIDwvcmVjZWl2ZXI+CgogICAgICAgIDxyZWNlaXZlcgogICAgICAgICAgICBuYW1lPSJjb20uYWxsZXJpcGguc2hhcmVkLmluamVjdC5LZWVwQWxpdmVSZWNlaXZlciIKICAgICAgICAgICAgYW5kcm9pZDplbmFibGVkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJmYWxzZSIgLz4KCiAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICBuYW1lPSJjb20uYWxsZXJpcGguTk9USUZJQ0FUSU9OX0NIQU5ORUxfU1RBVFVTIgogICAgICAgICAgICB2YWx1ZT0iYWxsZXJpcGhzdGF0dXMiIC8+CiAgICA8L2FwcGxpY2F0aW9uPgo8L21hbmlmZXN0Pg==
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  APX TV 服务端 Manifest
+  namespace: com.allperiph.tv
+  设计要点：minSdk=23，不引用 23 之后才引入的 API；声明 leanback（required=false）
+  以便同时出现在电视主页与手机上；横幅 banner 供 Android TV Leanback Launcher 展示。
+  todo(handleanl)：如果横幅显示不出来，换回 @android:drawable/sym_def_app_icon
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.READ_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+    <uses-feature
+        android:name="android.software.leanback"
+        required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        required="false" />
+    <uses-feature
+        android:name="android.hardware.faketouch"
+        required="false" />
+
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:icon="@drawable/legacy_splash_tv"
+        android:banner="@drawable/legacy_splash_tv"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ApXtv"
+        android:hardwareAccelerated="true"
+        tools:targetApi="31">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.ApXtv">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.TvFileActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.ApXtv" />
+
+        <activity
+            android:name=".ui.TvScreenActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
+        <service
+            android:name=".TvServerService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!--
+          ⑥ IME：受控端接收远程键盘输入的标准 InputMethod
+          无障碍通道兼容性坑多（真机验证：小米 Android 11/13），改用 IME。
+          与 app 模块的 AppxImeService 同源，共享协议。
+        -->
+        <service
+            android:name="com.allperiph.shared.im.AppxImeService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/ime_method" />
+        </service>
+
+        <!--
+          ⑦ 无障碍：备用输入通道，
+          被电脑绑定后自动引导用户开启。
+        -->
+        <service
+            android:name="com.allperiph.shared.accessibility.AppxAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
+
+        <!--
+          ⑧ 开机自启：v1.86
+          BootReceiver 接收 BOOT_COMPLETED 广播，启动 TvServerService。
+          ROM 兼容性：系统设置"应用自启动"必须为允许（v1.86 已自动引导）。
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="com.allperiph.shared.inject.KeepAliveReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.allperiph.KEEP_ALIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          ⑨ 通知转发：v1.90
+          监听手机通知，推送到 TV 端浮窗显示。
+        -->
+        <receiver
+            android:name="com.allperiph.tv.notification.TvNotificationListener"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="com.allperiph.shared.inject.KeepAliveReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <meta-data
+            android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"
+            android:value="allipherphstatus" />
+    </application>
+</manifest>
