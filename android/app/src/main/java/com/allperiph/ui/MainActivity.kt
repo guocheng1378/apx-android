@@ -78,7 +78,7 @@ import com.allperiph.shared.net.FileSender
  * 所有 IO（su、sysfs、设备节点）都在后台线程，本 Activity 只做事件订阅与视图刷新。
  * 主题实现：覆写 [attachBaseContext] 注入 uiMode，深色取值来自 res/values-night/。
  */
-class MainActivity : Activity(), TouchpadFragment.Host {
+class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, StatusFragment.Host {
 
     private val handler = Handler(Looper.getMainLooper())
     private val disposables = ArrayList<EventBus.Disposable>()
@@ -154,6 +154,10 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     /** 触控板页 Fragment（v196 接线）：手势面、液态光标、长按拖拽都由它接管。
      *  平台 Fragment（android.app.Fragment），宿主无需 FragmentActivity。 */
     private var touchpadFragment: TouchpadFragment? = null
+    /** 设置页 Fragment（v196 第 3 步）：模板 / 主题 / 配色 / TV 控制 / 文件 / 键位映射 */
+    private var settingsFragment: SettingsFragment? = null
+    /** 状态页 Fragment（v196 第 4 步） */
+    private var statusFragment: StatusFragment? = null
 
     // 横屏沉浸模式：整条 chrome 隐藏，切页改用四指左右滑
     private lateinit var headerBar: View
@@ -393,6 +397,25 @@ class MainActivity : Activity(), TouchpadFragment.Host {
             ?: TouchpadFragment().also { fp ->
                 fragmentManager.beginTransaction()
                     .add(android.R.id.content, fp, "touchpad")
+                    .commitNow()
+            }
+
+        // 设置页 Fragment（v196 第 3 步）：模板/主题/配色/TV控制/文件/键位映射都由它渲染。
+        // 注意与 FileFragment 的分工：**只接SettingsFragment**，FileFragment 不接 ——
+        // 两者都渲染 fileBox/keymapBox，同时接会互相 removeAllViews 清空对方。
+        settingsFragment = (fragmentManager.findFragmentByTag("settings") as? SettingsFragment)
+            ?: SettingsFragment().also { fp ->
+                fragmentManager.beginTransaction()
+                    .add(android.R.id.content, fp, "settings")
+                    .commitNow()
+            }
+
+        // 状态页 Fragment（v196 第 4 步）：启动开关 / 传输开关 / 模块行 / 链路诊断。
+        // 放在最后挂：它 onViewCreated 里会读 Activity 的 hostState/env，这些要在前两步之后。
+        statusFragment = (fragmentManager.findFragmentByTag("status") as? StatusFragment)
+            ?: StatusFragment().also { fp ->
+                fragmentManager.beginTransaction()
+                    .add(android.R.id.content, fp, "status")
                     .commitNow()
             }
     }
@@ -856,6 +879,114 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     override fun hostChipRow(): LinearLayout = chipRow
     override fun hostTouchArea(): FrameLayout = touchArea as FrameLayout
 
+    // ———— SettingsFragment.Host（v196 第3 步）————
+    // 设置页拆成 Fragment 后由它渲染；宿主提供环境与副作用（主题/背景/文件选择器/重建）。
+
+    override fun getSettingsHandler(): Handler = handler
+
+    override fun recreateActivity() = recreate()
+
+    override fun isControlling(): Boolean = ControlTarget.isControlling()
+
+    override fun getControlTargetLabel(): String = ControlTarget.label
+
+    /** 主题导入的结果处理（从 onActivityResult 的 REQ_IMPORT_THEME 分支抽出，
+     *  Fragment 拿到 uri 后调过来 —— Activity 级回调与 Fragment 共用同一份逻辑。 */
+    override fun handleThemeResult(uri: android.net.Uri) {
+        val text = runCatching {
+            contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+        }.getOrNull()
+        val n = ThemeSkin.importJson(this, text.orEmpty())
+        if (n < 0) {
+            toast(getString(R.string.ui_main_toast_theme_file_export))
+        } else {
+            toast(if (n > 0) getString(R.string.ui_main_text_color_import_done, n) else getString(R.string.ui_main_text_theme_done))
+            recreate()
+        }
+    }
+
+    /** 背景图选择的结果处理（同上，从 REQ_PICK_BG 分支抽出） */
+    override fun handleBgResult(uri: android.net.Uri) {
+        // 申请持久读权限：不申请的话重启后这张图就读不到了
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        ThemeSkin.setBgImage(this, uri.toString())
+        applyBackdrop()
+        renderFx()
+        toast(getString(R.string.ui_main_toast_background_done_settings))
+    }
+
+    // ———— StatusFragment.Host（v196 第 4 步）————
+    // 状态页（启动开关/传输开关/模块行/链路诊断）拆给 StatusFragment，宿主只提供
+    // 环境与服务控制。AgentController 全是静态 API，所以这里都是薄封装。
+
+    override fun getStatusHandler(): Handler = handler
+
+    override fun buildAgentController() {
+        AgentController.build(this)
+    }
+
+    override fun isTransportEnabled(transport: String): Boolean =
+        AgentController.isTransportEnabled(this, transport)
+
+    override fun setTransportEnabled(transport: String, enabled: Boolean) {
+        AgentController.setTransportEnabled(this, transport, enabled)
+        // 与 Activity 原逻辑一致：传输开关变化后模块行与运行摘要都要重算
+        refresh()
+    }
+
+    override fun groupModules(transport: String): List<String> =
+        AgentController.groupModules(transport)
+
+    override fun groupsOf(moduleId: String): List<String> = AgentController.groupsOf(moduleId)
+
+    override fun isModuleEnabled(moduleId: String): Boolean =
+        AgentController.isEnabled(this, moduleId)
+
+    override fun setModuleEnabled(moduleId: String, enabled: Boolean) {
+        AgentController.setModuleEnabled(this, moduleId, enabled)
+        refresh()
+    }
+
+    override fun isExitEnabled(moduleId: String, group: String): Boolean =
+        AgentController.isExitEnabled(moduleId, group)
+
+    override fun setExitEnabled(moduleId: String, group: String, enabled: Boolean) {
+        AgentController.setExitEnabled(this, moduleId, group, enabled)
+    }
+
+    override fun getModuleState(moduleId: String): ModuleState =
+        AgentController.module(moduleId)?.state ?: ModuleState.STOPPED
+
+    override fun getModuleStatusLabel(moduleId: String): String =
+        AgentController.module(moduleId)?.let { AgentController.detailOf(it) } ?: "—"
+
+    override fun startForegroundService() {
+        AgentForegroundService.start(this)
+    }
+
+    override fun stopForegroundService() {
+        AgentController.stopAll()
+        stopService(Intent(this, AgentForegroundService::class.java))
+    }
+
+    override fun getEnvSummary(): String =
+        lastEnv?.summary ?: getString(R.string.common_unknown)
+
+    override fun getLastEnv(): EnvChecks.Env? = lastEnv
+
+    /** 顶栏徽章：状态文案 + 颜色 + 出口提示（v196 由 Fragment 统一驱动，避免两处各写一份） */
+    override fun onStatusBadgeUpdate(stateLabel: String, stateColor: Int, uplinkPath: String) {
+        tvPageSub?.text = stateLabel
+        runCatching { tvPageSub?.setTextColor(stateColor) }
+        renderUplink()
+    }
+
+    override fun isBtConnected(): Boolean = false
+
     override fun renderChips() = hotkeyBoard.render()
 
     /** 设置页的自动排序开关跟随真实状态（拖拽/上下移会把它关掉，开关要跟着变） */
@@ -911,7 +1042,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
 
     /** 设备选择：本机/PC + 已发现设备 + 手动输入 IP（TV 与 PC 都跑 9511）
      *  信标是周期广播的，弹窗打开瞬间往往还没收到 —— 打开期间每秒刷新列表。 */
-    private fun showDevicePicker() {
+    override fun showDevicePicker() {
         TvDiscovery.start()
         val items = ArrayList<CharSequence>()
         val adapter = android.widget.ArrayAdapter<CharSequence>(
@@ -1010,7 +1141,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
      * 真机教训：出口是**多级回落**的（无线目标 → USB HID → 蓝牙 → 无出口），任何一级失效
      * 原先都只是日志里一行字，用户看到的现象统一是"点不动"—— 提示必须放在随手可见处。
      */
-    private fun renderUplink() {
+    override fun renderUplink() {
         if (!::touchHint.isInitialized) return
         // 提示行在滑动开始后会被收起（见 onTouchEvent），这里顺手恢复可见
         touchHint.visibility = android.view.View.VISIBLE
@@ -1030,7 +1161,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
      * 没发送过输入时 [Uplink.current] 还是 `NONE`（它只记录"真实发出去的结果"），此时必须用
      * [Uplink.resolve] 的**预计**出口 —— 否则一进 App 徽章就写"无出口"，又是一处误导。
      */
-    private fun displayUplinkPath(): String {
+    override fun displayUplinkPath(): String {
         if (Uplink.observed) return Uplink.current
         val bt = (AgentController.module(ModuleId.BTHID) as? com.allperiph.bt.BtHidDevice)?.isConnected == true
         return Uplink.resolve(
@@ -1041,11 +1172,11 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 出口的一行文案（未发送过输入时按预计出口描述） */
-    private fun displayUplinkHint(): String =
+    override fun displayUplinkHint(): String =
         if (Uplink.observed) Uplink.hint() else Uplink.describe(displayUplinkPath())
 
     /** 目标变化：更新触摸板提示 + 快捷键条（TV 目标时显示 TV 套） */
-    private fun onTargetChanged() {
+    override fun onTargetChanged() {
         val controlling = ControlTarget.isControlling()
         renderUplink()
         // 仅 TV 类目标进 TV 专属快捷键布局；控 PC 保持鼠标 + 完整键鼠（不切遥控/媒体套）
@@ -1055,90 +1186,15 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         renderTv()
     }
 
-    /** 设置页分段切换：通用 / 外观 / 遥控 / 关于，避免一屏滚太长 */
-    private fun setupSettingsTabs() {
-        val tabs = listOf(
-            findViewById<TextView>(R.id.tabSegGeneral),
-            findViewById<TextView>(R.id.tabSegLook),
-            findViewById<TextView>(R.id.tabSegRemote),
-            findViewById<TextView>(R.id.tabSegAbout),
-        )
-        val groups = listOf(
-            findViewById<LinearLayout>(R.id.groupGeneral),
-            findViewById<LinearLayout>(R.id.groupLook),
-            findViewById<LinearLayout>(R.id.groupRemote),
-            findViewById<LinearLayout>(R.id.groupAbout),
-        )
-        fun select(i: Int) {
-            tabs.forEachIndexed { j, t ->
-                val on = i == j
-                t.setBackgroundResource(if (on) R.drawable.bg_btn_primary else 0)
-                t.setTextColor(
-                    if (on) resources.getColor(R.color.md_on_primary)
-                    else resources.getColor(R.color.md_on_surface_variant)
-                )
-            }
-            groups.forEachIndexed { j, g -> g.visibility = if (i == j) View.VISIBLE else View.GONE }
-        }
-        tabs.forEachIndexed { j, t -> t.setOnClickListener { select(j) } }
-        select(0)
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun setupSettingsTabs() { settingsFragment?.setupSettingsTabs() }
 
     // ————————————————————————— 设置页：TV / PC 控制 —————————————————————————
 
-    /** TV 连接状态 + 连接 / 断开入口 */
-    private fun renderTv() {
-        tvBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
-        tvBox.addView(settingRow(getString(R.string.ui_main_label_device_connect), getString(R.string.ui_main_btn_pick), accent) { showDevicePicker() })
-        if (ControlTarget.isControlling()) {
-            tvBox.addView(settingRow(getString(R.string.ui_main_label_connect_disconnect), getString(R.string.ui_main_btn_to_local_local), accent) { ControlTarget.clear(); onTargetChanged() })
-        }
-        // ★ 遥控器：设置页也有入口（除了触控板页的「遥控器」按钮）
-        tvBox.addView(settingRow(getString(R.string.ui_main_label_remote_power_volume), getString(R.string.ui_common_open), accent) {
-            startActivity(Intent(this, RemoteActivity::class.java))
-        })
-        // ★ 全屏操控面（触控板 / 键盘 / 副屏三页）原先**只能靠"被控通知"打开**，
-        //   而通知要先开被控才出现 —— 鸡生蛋：用户进不去，也就无法在里面关掉被控。
-        tvBox.addView(settingRow(getString(R.string.ui_main_label_screen_touchpad_keyboard_fullscreen), getString(R.string.ui_common_open), accent) {
-            startActivity(Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java))
-        })
-        // ★ 被控状态 / 注入通道自检：手机端原先**只有通知栏一行字**，页面上看不到缺哪一项
-        //   （TV 端首页早有"注入通道"状态行 + 自检对话框，两端不对等）。
-        tvBox.addView(settingRow(getString(R.string.ui_main_label_state_channel_inject), getString(R.string.ui_main_btn_selftest), accent) { showControlledCaps() })
-        // ★ 运行日志：Log 的 512 条环形缓冲一直写着"供 UI 展示"，却**没有任何消费者**
-        tvBox.addView(settingRow(getString(R.string.ui_main_label_log_view), getString(R.string.ui_common_open), accent) { showLogs() })
-        // ★ 最近连接（ConnectHistory）：连过的设备持久化在这里，点一下直接重连 ——
-        //   v196 之前 ConnectHistory 只有写盘没有读盘点，用户每次都要重新选设备。
-        val recent = ConnectHistory.getRecent(this, 3)
-        tvBox.addView(fieldLabel(getString(R.string.ui_main_label_recent_devices)))
-        if (recent.isEmpty()) {
-            tvBox.addView(TextView(this).apply {
-                text = getString(R.string.ui_main_text_no_recent)
-                textSize = 12f
-                setTextColor(resources.getColor(R.color.md_on_surface_variant))
-                setPadding(dp(4), dp(2), dp(4), dp(6))
-            })
-        } else {
-            for (item in recent) {
-                tvBox.addView(settingRow(item.name, "${item.host}:${item.port}", accent) {
-                    connectTarget(item.host, item.port, item.name)
-                })
-            }
-        }
-        tvStatusView = TextView(this).apply {
-            // 出口一并写在设置页：遥控不灵时先在两处看"输入到底发去哪了"（触控板页顶栏徽章 + 这里）
-            text = if (ControlTarget.isControlling()) {
-                "当前控制：${ControlTarget.label} · ${Uplink.hint()}"
-            } else {
-                "未连接（触摸板控本机）· ${Uplink.hint()}"
-            }
-            textSize = 13f
-            setTextColor(resources.getColor(R.color.md_on_surface_variant))
-            setPadding(dp(4), dp(8), dp(4), dp(2))
-        }
-        tvBox.addView(tvStatusView)
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderTv() { settingsFragment?.renderTv() }
 
     /** 被控端注入通道自检（与 TV 端首页自检对话框同一份数据源） */
     private fun showControlledCaps() {
@@ -1176,21 +1232,9 @@ class MainActivity : Activity(), TouchpadFragment.Host {
             .show()
     }
 
-    /** 文件传输：经 9512 发送到对端 */
-    private fun renderFile() {
-        fileBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
-        fileBox.addView(settingRow(getString(R.string.ui_main_label_file_send), getString(R.string.ui_main_btn_file), accent) { pickFileToSend() })
-        fileBox.addView(settingRow(getString(R.string.ui_main_label_file_panel), getString(R.string.ui_main_btn_forward_view), accent) {
-            startActivity(Intent(this, FilePanelActivity::class.java))
-        })
-        fileBox.addView(TextView(this).apply {
-            text = getString(R.string.ui_main_text_file_connect_first)
-            textSize = 12f
-            setTextColor(resources.getColor(R.color.md_on_surface_variant))
-            setPadding(dp(4), dp(8), dp(4), dp(2))
-        })
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderFile() { settingsFragment?.renderFile() }
 
     private fun pickFileToSend() {
         if (ControlTarget.host.isEmpty() || !ControlTarget.isControlling()) {
@@ -1219,27 +1263,9 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         }, "apx-file").start()
     }
 
-    /** 遥控键映射说明（如实标注 Home / 媒体键限制） */
-    private fun renderKeymap() {
-        keymapBox.removeAllViews()
-        // 说人话：不出现 HID / evdev / root 通道 / 注入通道 这些实现词。
-        // 用户只需要知道"按下去会发生什么、什么情况下不生效、为什么"。
-        val lines = listOf(
-            getString(R.string.ui_main_item_hotkey_touchpad_home),
-            getString(R.string.ui_main_item_remote_device_only_cursor),
-            getString(R.string.ui_main_item_perm_no_home),
-            getString(R.string.ui_main_item_remote_keyboard_reboot_poweroff),
-            "切到 TV 目标时，触摸板下方的快捷键条自动切换为「TV 遥控」预设，可长按编辑、改动单独保存",
-        )
-        lines.forEach { t ->
-            keymapBox.addView(TextView(this).apply {
-                text = "· $t"
-                textSize = 13f
-                setTextColor(resources.getColor(R.color.md_on_surface_variant))
-                setPadding(dp(4), dp(6), dp(4), dp(6))
-            })
-        }
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderKeymap() { settingsFragment?.renderKeymap() }
 
     // ————————————————————————— 设置页 —————————————————————————
 
@@ -1277,96 +1303,13 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     /** 用户自建模板（每次渲染重新读盘，避免与其它入口状态不一致） */
     private var customTemplates: MutableList<HotkeyTemplates.Template> = mutableListOf()
 
-    /** 模板列表折叠开关（默认收起，只显示当前挂的那一套） */
-    private fun toggleTemplates() {
-        val show = templatesBox.visibility != View.VISIBLE
-        templatesBox.visibility = if (show) View.VISIBLE else View.GONE
-        btnToggleTemplates.text = if (show) getString(R.string.ui_main_template_collapse) else getString(R.string.ui_main_template_expand)
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun toggleTemplates() { settingsFragment?.toggleTemplates() }
 
-    private fun renderTemplates() {
-        templatesBox.removeAllViews()
-        customTemplates = HotkeyStore.loadCustom(this)
-        val current = HotkeyStore.loadTemplate(this)
-        // 折叠状态下也要一眼看见"现在挂的是哪一套、几条"
-        tvTemplateCurrent.text = HotkeyTemplates.byKey(current)
-            ?.let { "${it.name} · ${hotkeyBoard.shortcuts.size} 项" }
-            ?: getString(R.string.ui_main_template_custom_count, hotkeyBoard.shortcuts.size)
-        (HotkeyTemplates.ALL + customTemplates).forEach { t ->
-            val on = t.key == current
-            val custom = t.key.startsWith(customPrefix)
-            val tc = HotkeyTemplates.tint(this, t.color) // 深色主题下自动提亮，否则墨绿/石墨类看不清
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                isClickable = true
-                isFocusable = true
-                setPadding(dp(12), dp(12), dp(8), dp(12))
-                // 选中：模板色浅底；未选中：中性底（靠左侧色条与彩色标题区分）
-                background = if (on) pill(softTint(tc))
-                else pill(resources.getColor(R.color.md_surface_variant))
-                setOnClickListener { applyTemplate(t) }
-            }
-            // 左侧主题色条
-            row.addView(View(this).apply {
-                background = GradientDrawable().apply {
-                    setColor(tc)
-                    cornerRadius = dp(2).toFloat()
-                }
-            }, LinearLayout.LayoutParams(dp(4), dp(30)).apply { rightMargin = dp(12) })
-
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            col.addView(TextView(this).apply {
-                text = if (custom) getString(R.string.ui_main_template_name_custom, t.name) else t.name
-                textSize = 15f
-                setTextColor(tc)
-                typeface = Typeface.DEFAULT_BOLD
-            })
-            col.addView(TextView(this).apply {
-                text = t.desc
-                textSize = 12f
-                setTextColor(resources.getColor(R.color.md_on_surface_variant))
-            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(3) })
-            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
-
-            row.addView(TextView(this).apply {
-                text = if (on) getString(R.string.ui_main_text_done) else getString(R.string.ui_main_template_combo_count, t.combos.size)
-                textSize = 12f
-                setTextColor(if (on) tc else resources.getColor(R.color.md_on_surface_variant))
-            })
-            // 自建模板多一个删除入口（预置模板不给删）
-            if (custom) {
-                row.addView(TextView(this).apply {
-                    text = getString(R.string.ui_main_text_delete)
-                    textSize = 12f
-                    gravity = Gravity.CENTER
-                    setPadding(dp(12), dp(6), dp(6), dp(6))
-                    setTextColor(resources.getColor(R.color.state_error))
-                    isClickable = true
-                    setOnClickListener { confirmDeleteTemplate(t) }
-                })
-            }
-
-            templatesBox.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        }
-
-        // 底部入口：把当前快捷键条存成自己的模板
-        templatesBox.addView(TextView(this).apply {
-            text = getString(R.string.ui_main_text_hotkey_template)
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(resources.getColor(R.color.md_primary))
-            background = strokeCard(
-                resources.getColor(R.color.md_primary_container),
-                dp(999),
-                (resources.getColor(R.color.md_primary) and 0x00FFFFFF) or (0x40 shl 24),
-            )
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { createTemplateDialog() }
-        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderTemplates() { settingsFragment?.renderTemplates() }
 
     /** 新建模板：名称 + 主题色由用户给，内容取**当前快捷键条** */
     private fun createTemplateDialog() {
@@ -1466,136 +1409,30 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         renderTemplates()
     }
 
-    private fun renderTheme() {
-        themeBox.removeAllViews()
-        val current = ThemePref.get(this)
-        ThemePref.LABELS.forEachIndexed { i, label ->
-            val on = i == current
-            val t = TextView(this).apply {
-                text = label
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(11), 0, dp(11))
-                isClickable = true
-                isFocusable = true
-                background = pill(
-                    resources.getColor(if (on) R.color.md_primary else R.color.md_primary_container)
-                )
-                setTextColor(resources.getColor(if (on) R.color.md_on_primary else R.color.md_primary))
-                typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-                setOnClickListener {
-                    if (i != ThemePref.get(this@MainActivity)) {
-                        ThemePref.set(this@MainActivity, i)
-                        recreate() // 重新走 attachBaseContext → 立刻换肤
-                    }
-                }
-            }
-            themeBox.addView(t, LinearLayout.LayoutParams(0, -2, 1f).apply {
-                setMargins(dp(3), 0, dp(3), 0)
-            })
-        }
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderTheme() { settingsFragment?.renderTheme() }
 
-    private fun buildLinkRows() {
-        rowsLink.removeAllViews()
-        linkRows = StatusRows(rowsLink)
-        rowHandles["root"] = linkRows.addRow(getString(R.string.label_root))
-        rowHandles["speed"] = linkRows.addRow(getString(R.string.label_usb_speed))
-        rowHandles["udc"] = linkRows.addRow(getString(R.string.label_usb_gadget))
-        rowHandles["service"] = linkRows.addRow(getString(R.string.label_service))
-        rowHandles["battery"] = linkRows.addRow(getString(R.string.label_battery))
-    }
+    /** 状态页渲染已移交 StatusFragment（v196 第 4 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun buildLinkRows() { statusFragment?.buildLinkRows() }
 
-    private fun buildModuleRows() {
-        rowsWifi.removeAllViews()
-        rowsBt.removeAllViews()
-        rowsUsb.removeAllViews()
-        moduleRows.clear()
-        val inflater = LayoutInflater.from(this)
-        // 保证 runtime 与模块注册表已建立（不启动任何模块）
-        val rt = AgentController.build(this)
-        for (m in rt.registry.all()) {
-            // 一个模块可能出现在多个分组（触控板：无线 + USB），每组一份独立视图，
-            // 开关状态通过 moduleRows 互相同步
-            val views = mutableListOf<ModuleRow>()
-            for (g in AgentController.groupsOf(m.id)) {
-                val v = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
-                val row = ModuleRow(
-                    root = v,
-                    name = v.findViewById(R.id.tvName),
-                    detail = v.findViewById(R.id.tvDetail),
-                    dot = v.findViewById(R.id.dot),
-                    sw = v.findViewById(R.id.sw),
-                )
-                row.name.text = AgentController.label(m.id)
-                row.detail.text = AgentController.detailOf(m)
-                // 无障碍：Switch 自身没有文字，读屏只会念"开关" —— 把模块名挂上去
-                row.sw.contentDescription = row.name.text
-                if (AgentController.groupsOf(m.id).size > 1) {
-                    // v184：多出口模块（触摸板）组内行开关改为**出口级独立开关** ——
-                    // 只控制"手势是否走该出口"，不再互相联动、也不再直接启停模块
-                    // （模块启停仍由状态页/传输组开关的 enable.touchpad 决定）。
-                    row.sw.isChecked = AgentController.isExitEnabled(m.id, g)
-                    row.sw.setOnCheckedChangeListener { _, checked ->
-                        AgentController.setExitEnabled(this, m.id, g, checked)
-                        refresh()
-                    }
-                } else {
-                    val enabled = AgentController.isEnabled(this, m.id)
-                    row.sw.isChecked = enabled
-                    row.sw.setOnCheckedChangeListener { _, checked ->
-                        AgentController.setModuleEnabled(this, m.id, checked)
-                        // 同组多份视图的状态联动
-                        views.forEach { it.sw.isChecked = checked }
-                        refresh()
-                    }
-                }
-                when (g) {
-                    "bt" -> rowsBt
-                    "usb" -> rowsUsb
-                    else -> rowsWifi
-                }.addView(v)
-                views += row
-            }
-            moduleRows[m.id] = views.first()
-
-            // Wi‑Fi 音频行下挂两个方向子开关（音箱 / 麦克风分开控制）
-            if (m.id == com.allperiph.core.ModuleId.WIFI_AUDIO) {
-                val ctx = this
-                fun subRow(label: String, initial: Boolean, onToggle: (Boolean) -> Unit): android.view.View {
-                    val sub = inflater.inflate(R.layout.item_module_row, rowsWifi, false)
-                    sub.findViewById<TextView>(R.id.tvName).text = label
-                    sub.findViewById<TextView>(R.id.tvDetail).visibility = android.view.View.GONE
-                    sub.findViewById<ImageView>(R.id.dot).visibility = android.view.View.GONE
-                    val sw = sub.findViewById<Switch>(R.id.sw)
-                    sw.isChecked = initial
-                    sw.setOnCheckedChangeListener { _, c -> onToggle(c) }
-                    rowsWifi.addView(sub)
-                    return sub
-                }
-                subRow(getString(R.string.ui_main_label_speaker),
-                    com.allperiph.audio.WirelessAudioModule.isSpeakerOn(this)) { on ->
-                    (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
-                        as? com.allperiph.audio.WirelessAudioModule)?.applySpeaker(ctx, on)
-                }
-                subRow(getString(R.string.ui_main_label_mic),
-                    com.allperiph.audio.WirelessAudioModule.isMicOn(this)) { on ->
-                    (AgentController.module(com.allperiph.core.ModuleId.WIFI_AUDIO)
-                        as? com.allperiph.audio.WirelessAudioModule)?.applyMic(ctx, on)
-                }
-            }
-        }
-    }
+    /** 状态页渲染已移交 StatusFragment（v196 第 4 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun buildModuleRows() { statusFragment?.buildModuleRows() }
 
     private fun bindActions() {
         // 三个传输开关取代单总开关：打开即整组启用该类下的功能并拉起服务；
         // 关闭则整组停用，仅当三类全关才停服务。
-        swWifi.isChecked = AgentController.isTransportEnabled(this, "wifi")
-        swBt.isChecked = AgentController.isTransportEnabled(this, "bt")
-        swUsb.isChecked = AgentController.isTransportEnabled(this, "usb")
-        swWifi.setOnCheckedChangeListener { _, c -> onTransportToggle("wifi", c) }
-        swBt.setOnCheckedChangeListener { _, c -> onTransportToggle("bt", c) }
-        swUsb.setOnCheckedChangeListener { _, c -> onTransportToggle("usb", c) }
+        // v196 第 4 步：三个传输开关的 isChecked 与 setOnCheckedChangeListener **移交 StatusFragment**。
+        // 两侧都绑定会导致「点一次开关触发两个动作」（Activity 切一次、Fragment 又切一次），
+        // 表现为开关闪回、模块行状态错乱。下方 btnBattery / 快捷键编辑 / 手柄 / 遥控 / 副屏
+        // 这些入口仍由 Activity 绑定 —— StatusFragment 不管它们。
+        // 初始状态直接问自己（Host 实现）；StatusFragment.bindActions() 里也会设一次，
+        // 两处同源不会打架 —— 传输开关的**监听**只在 Fragment 侧绑，避免双触发。
+        swWifi.isChecked = isTransportEnabled("wifi")
+        swBt.isChecked = isTransportEnabled("bt")
+        swUsb.isChecked = isTransportEnabled("usb")
         btnBattery.setOnClickListener { requestBatteryWhitelist() }
         // 快捷键「编辑」入口：一屏管理所有快捷键（上移 / 下移 / 改 / 删 / 新建）
         findViewById<TextView>(R.id.btnEditChips).setOnClickListener { hotkeyBoard.managerDialog() }
@@ -1660,76 +1497,16 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         return row
     }
 
-    /** 模块配色三行：作用域 → 当前皮肤名（点开选色） */
-    private fun renderSkins() {
-        skinBox.removeAllViews()
-        ThemeSkin.SCOPES.forEach { (scope, title) ->
-            val skin = ThemeSkin.current(this, scope)
-            skinBox.addView(settingRow(title, skin.name, skin.accent) { pickSkin(scope, title) })
-        }
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderSkins() { settingsFragment?.renderSkins() }
 
-    /** 背景与手感四行 */
-    private fun renderFx() {
-        fxBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
-
-        val bg = ThemeSkin.BG_PRESETS.firstOrNull { it.id == ThemeSkin.bgId(this) } ?: ThemeSkin.BG_PRESETS[0]
-        val img = ThemeSkin.bgImage(this)
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_background), if (!img.isNullOrBlank()) getString(R.string.ui_main_text_image) else bg.name, accent) { pickBg() }
-        )
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_motion), ThemeSkin.MOTION_LABELS[ThemeSkin.motionIndex(this)], accent) {
-                pickChoice(getString(R.string.ui_main_label_motion_2), ThemeSkin.MOTION_LABELS, ThemeSkin.motionIndex(this)) { i ->
-                    ThemeSkin.setMotion(this, i)
-                    renderFx()
-                }
-            }
-        )
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_haptic), ThemeSkin.HAPTIC_LABELS[ThemeSkin.hapticIndex(this)], accent) {
-                pickChoice(getString(R.string.ui_main_label_haptic_2), ThemeSkin.HAPTIC_LABELS, ThemeSkin.hapticIndex(this)) { i ->
-                    ThemeSkin.setHaptic(this, i)
-                    renderFx()
-                }
-            }
-        )
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_sound), ThemeSkin.SOUND_LABELS[ThemeSkin.soundIndex(this)], accent) {
-                pickChoice(getString(R.string.ui_main_label_sound_2), ThemeSkin.SOUND_LABELS, ThemeSkin.soundIndex(this)) { i ->
-                    ThemeSkin.setSound(this, i)
-                    renderFx()
-                }
-            }
-        )
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_keyrow_arrange), KeyPref.LAYOUT_LABELS[KeyPref.layoutIndex(this)], accent) {
-                pickChoice(getString(R.string.ui_main_label_keyrow_arrange), KeyPref.LAYOUT_LABELS, KeyPref.layoutIndex(this)) { i ->
-                    KeyPref.setLayout(this, i)
-                    recreate()
-                }
-            }
-        )
-        fxBox.addView(
-            settingRow(getString(R.string.ui_main_label_keycap_density), KeyPref.DENSITY_LABELS[KeyPref.densityIndex(this)], accent) {
-                pickChoice(getString(R.string.ui_main_label_keycap_density), KeyPref.DENSITY_LABELS, KeyPref.densityIndex(this)) { i ->
-                    KeyPref.setDensity(this, i)
-                    recreate()
-                }
-            }
-        )
-        fxBox.addView(
-            settingRow(
-                getString(R.string.ui_main_label_keyboard), if (KeyPref.customRows(this) == null) getString(R.string.ui_main_text_not_2) else getString(R.string.ui_main_text_done_3), accent
-            ) {
-                CustomKeyboardDialog.show(this) { recreate() }
-            }
-        )
-    }
+    /** 设置页渲染已移交 SettingsFragment（v196 第 3 步）：保留同名方法作为转发点，
+     *  Activity 内部原有调用点无需改动。 */
+    private fun renderFx() { settingsFragment?.renderFx() }
 
     /** 通用单选弹窗 */
-    private fun pickChoice(title: String, labels: List<String>, current: Int, onPick: (Int) -> Unit) {
+    override fun pickChoice(title: String, labels: List<String>, current: Int, onPick: (Int) -> Unit) {
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(title)
             .setSingleChoiceItems(labels.toTypedArray(), current) { d, i ->
@@ -1741,7 +1518,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 背景：预设底色 / 相册图片 / 清除图片 */
-    private fun pickBg() {
+    override fun pickBg() {
         val labels = ThemeSkin.BG_PRESETS.map { it.name } + listOf("从相册选图片…", "清除自定义图片")
         val current = ThemeSkin.BG_PRESETS.indexOfFirst { it.id == ThemeSkin.bgId(this) }.coerceAtLeast(0)
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
@@ -1780,14 +1557,14 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 把当前背景铺到页面根视图（图片 > 预设色 > 资源底色） */
-    private fun applyBackdrop() {
+    override fun applyBackdrop() {
         val root = (findViewById<View>(android.R.id.content) as? android.view.ViewGroup)?.getChildAt(0)
             ?: return
         Backdrop.apply(root, getColor(R.color.md_background))
     }
 
     /** 选配色：跟随主题 + 预设 + 导入进来的自定义；选完重建页面，三个模块一起生效 */
-    private fun pickSkin(scope: String, title: String) {
+    override fun pickSkin(scope: String, title: String) {
         val skins = listOf(ThemeSkin.followTheme(this)) + ThemeSkin.PRESETS + ThemeSkin.customs(this)
         AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
             .setTitle(getString(R.string.ui_main_dialog_color, title))
@@ -1800,7 +1577,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 导出主题文件（走系统文件选择器，可存到下载目录或任意位置） */
-    private fun exportTheme() {
+    override fun exportTheme() {
         val intent = android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(android.content.Intent.CATEGORY_OPENABLE)
             type = "application/json"
@@ -1811,7 +1588,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 导入主题文件 */
-    private fun importTheme() {
+    override fun importTheme() {
         val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(android.content.Intent.CATEGORY_OPENABLE)
             type = "*/*"
@@ -1821,7 +1598,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     }
 
     /** 分享主题文本：可直接发给别人 / 传进聊天工具（不需要文件） */
-    private fun shareTheme() {
+    override fun shareTheme() {
         val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(android.content.Intent.EXTRA_SUBJECT, getString(R.string.ui_main_text_theme))
@@ -1846,30 +1623,8 @@ class MainActivity : Activity(), TouchpadFragment.Host {
                 }.getOrDefault(false)
                 toast(if (ok) getString(R.string.ui_main_text_theme_export_done) else getString(R.string.ui_main_text_export_failed_empty))
             }
-            REQ_IMPORT_THEME -> {
-                val text = runCatching {
-                    contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-                }.getOrNull()
-                val n = ThemeSkin.importJson(this, text.orEmpty())
-                if (n < 0) {
-                    toast(getString(R.string.ui_main_toast_theme_file_export))
-                } else {
-                    toast(if (n > 0) getString(R.string.ui_main_text_color_import_done, n) else getString(R.string.ui_main_text_theme_done))
-                    recreate()
-                }
-            }
-            REQ_PICK_BG -> {
-                // 申请持久读权限：不申请的话重启后这张图就读不到了
-                runCatching {
-                    contentResolver.takePersistableUriPermission(
-                        uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-                ThemeSkin.setBgImage(this, uri.toString())
-                applyBackdrop()
-                renderFx()
-                toast(getString(R.string.ui_main_toast_background_done_settings))
-            }
+            REQ_IMPORT_THEME -> handleThemeResult(uri)
+            REQ_PICK_BG -> handleBgResult(uri)
             REQ_PICK_FILE -> sendFile(uri)
         }
     }
@@ -2193,13 +1948,13 @@ class MainActivity : Activity(), TouchpadFragment.Host {
      * 以下样式工具的实现统一收在 [ApKit] —— 此前每个 Activity 各写一份 GradientDrawable，
      * 「圆角多少、描边几像素」这类样式改动要在多处分别落地。这里保留签名只为不动调用点。
      */
-    private fun card(color: Int, radius: Int): GradientDrawable =
+    override fun card(color: Int, radius: Int): GradientDrawable =
         ApKit.shape(color, radius.toFloat())
 
-    private fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =
+    override fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =
         ApKit.shape(color, radius.toFloat(), strokeColor = stroke, strokePx = ApKit.STROKE_HAIRLINE_PX)
 
-    private fun pill(color: Int): GradientDrawable = card(color, dp(999))
+    override fun pill(color: Int): GradientDrawable = card(color, dp(999))
 
     override fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 

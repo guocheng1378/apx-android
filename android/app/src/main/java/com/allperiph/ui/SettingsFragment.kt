@@ -70,6 +70,14 @@ class SettingsFragment : Fragment() {
 
     private var host: Host? = null
 
+    /**
+     * 设置页视图是否已绑定（v196 真机教训，与 StatusFragment 同一坑）：
+     * Activity 的 onCreate 会调用 renderTemplates() 等方法，而 Fragment 的视图绑定
+     * 未必已经执行 —— 直接访问 lateinit 字段就是 `UninitializedPropertyAccessException`
+     * 闪退（真机 21:46 复现）。所有渲染入口先过 ensureViews()。
+     */
+    private var viewsBound = false
+
     // Settings page views (in page_settings.xml)
     private lateinit var templatesBox: LinearLayout
     private lateinit var tvTemplateCurrent: TextView
@@ -92,6 +100,13 @@ class SettingsFragment : Fragment() {
 
     companion object {
         const val TAG = "SettingsFragment"
+
+        /** 文件选择请求码。
+         *  **必须与 MainActivity 的私有 REQ_PICK_FILE 同值（9002）**：宿主是普通
+         *  android.app.Activity（没有 Fragment 结果分发机制），谁发起 startActivityForResult，
+         *  结果都回到 MainActivity.onActivityResult，由那里的 9002 分支统一 sendFile。
+         *  改这个值要同步改 MainActivity，否则文件选择结果会静默丢失。 */
+        const val REQ_PICK_FILE = 9002
     }
 
     override fun onAttach(activity: Activity?) {
@@ -124,6 +139,8 @@ class SettingsFragment : Fragment() {
             )
             return
         }
+        // 全部容器就位：放开渲染入口的守卫（此后 renderXxx 才真正干活）
+        viewsBound = true
 
         templatesBox = act.findViewById(R.id.templatesBox)
         tvTemplateCurrent = act.findViewById(R.id.tvTemplateCurrent)
@@ -151,7 +168,8 @@ class SettingsFragment : Fragment() {
 
     // ==================== Settings tabs ====================
 
-    private fun setupSettingsTabs() {
+    fun setupSettingsTabs() {
+        if (!viewsBound) return
         val act = activity ?: return
         val tabs = listOf(
             act.findViewById<TextView>(R.id.tabSegGeneral),
@@ -182,13 +200,15 @@ class SettingsFragment : Fragment() {
 
     // ==================== Templates ====================
 
-    private fun toggleTemplates() {
+    fun toggleTemplates() {
+        if (!viewsBound) return
         val show = templatesBox.visibility != View.VISIBLE
         templatesBox.visibility = if (show) View.VISIBLE else View.GONE
         btnToggleTemplates.text = if (show) getString(R.string.ui_main_template_collapse) else getString(R.string.ui_main_template_expand)
     }
 
     fun renderTemplates() {
+        if (!viewsBound) return
         val h = host ?: return
         templatesBox.removeAllViews()
         customTemplates = HotkeyStore.loadCustom(activity)
@@ -370,6 +390,7 @@ class SettingsFragment : Fragment() {
     // ==================== Theme ====================
 
     fun renderTheme() {
+        if (!viewsBound) return
         val h = host ?: return
         themeBox.removeAllViews()
         val current = ThemePref.get(activity)
@@ -404,6 +425,7 @@ class SettingsFragment : Fragment() {
     // ==================== Skins & FX ====================
 
     fun renderSkins() {
+        if (!viewsBound) return
         val h = host ?: return
         skinBox.removeAllViews()
         ThemeSkin.SCOPES.forEach { (scope, title) ->
@@ -413,6 +435,7 @@ class SettingsFragment : Fragment() {
     }
 
     fun renderFx() {
+        if (!viewsBound) return
         val h = host ?: return
         fxBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
@@ -493,6 +516,7 @@ class SettingsFragment : Fragment() {
     // ==================== TV / PC control ====================
 
     fun renderTv() {
+        if (!viewsBound) return
         val h = host ?: return
         tvBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
@@ -557,7 +581,8 @@ class SettingsFragment : Fragment() {
 
     // ==================== File ====================
 
-    private fun renderFile() {
+    fun renderFile() {
+        if (!viewsBound) return
         fileBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
         fileBox.addView(settingRow(getString(R.string.ui_main_label_file_send), getString(R.string.ui_main_btn_file), accent) { pickFileToSend() })
@@ -581,12 +606,13 @@ class SettingsFragment : Fragment() {
             type = "*/*"
             addCategory(Intent.CATEGORY_OPENABLE)
         }
-        startActivityForResult(intent, FileFragment.REQ_PICK_FILE)
+        startActivityForResult(intent, REQ_PICK_FILE)
     }
 
     // ==================== Keymap ====================
 
-    private fun renderKeymap() {
+    fun renderKeymap() {
+        if (!viewsBound) return
         val h = host ?: return
         keymapBox.removeAllViews()
         val lines = listOf(

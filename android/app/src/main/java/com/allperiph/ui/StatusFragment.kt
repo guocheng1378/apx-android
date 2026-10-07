@@ -58,6 +58,48 @@ class StatusFragment : Fragment() {
     }
 
     private var host: Host? = null
+
+    /**
+     * 状态页视图是否已绑定成功。
+     *
+     * v196 真机教训：Fragment 的 onViewCreated 与 Activity 的 onCreate 存在时序耦合 ——
+     * Activity 在 onCreate 里调 statusFragment.buildLinkRows() 时，Fragment 的视图绑定
+     * 可能还没执行（activity 为 null 或布局缺 id），一旦直接访问 lateinit 字段就是
+     * `UninitializedPropertyAccessException` 闪退（与 TouchpadFragment 同款）。
+     * 现在所有入口都先确认绑定状态，失败就安静跳过，绝不碰未初始化的字段。
+     */
+    private var viewsBound = false
+
+    /** 绑定状态页全部视图；任一缺失即返回 false（布局差异、横竖屏差异都会命中）。 */
+    private fun bindViews(): Boolean {
+        val act = activity ?: return false
+        tvOverall = act.findViewById(R.id.tvOverall) ?: return false
+        tvOverallSub = act.findViewById(R.id.tvOverallSub) ?: return false
+        swWifi = act.findViewById(R.id.swWifi) ?: return false
+        swBt = act.findViewById(R.id.swBt) ?: return false
+        swUsb = act.findViewById(R.id.swUsb) ?: return false
+        rowsLink = act.findViewById(R.id.rowsLink) ?: return false
+        tvLinkRtt = act.findViewById(R.id.tvLinkRtt) ?: return false
+        boxRunning = act.findViewById(R.id.boxRunning) ?: return false
+        tvRunningSummary = act.findViewById(R.id.tvRunningSummary) ?: return false
+        tvIdleHint = act.findViewById(R.id.tvIdleHint) ?: return false
+        boxIdleFeatures = act.findViewById(R.id.boxIdleFeatures) ?: return false
+        groupWifi = act.findViewById(R.id.groupWifi) ?: return false
+        groupBt = act.findViewById(R.id.groupBt) ?: return false
+        groupUsb = act.findViewById(R.id.groupUsb) ?: return false
+        rowsWifi = act.findViewById(R.id.rowsWifi) ?: return false
+        rowsBt = act.findViewById(R.id.rowsBt) ?: return false
+        rowsUsb = act.findViewById(R.id.rowsUsb) ?: return false
+        return true
+    }
+
+    /** 入口守卫：确保视图可用；不可用时安静返回 false（调用方直接 return）。 */
+    private fun ensureViews(): Boolean {
+        if (viewsBound) return true
+        viewsBound = bindViews()
+        if (!viewsBound) Log.w(TAG, "宿主布局缺少状态页视图，跳过状态页渲染")
+        return viewsBound
+    }
     private val handler by lazy { host?.getStatusHandler() ?: Handler(Looper.getMainLooper()) }
     private val disposables = ArrayList<EventBus.Disposable>()
 
@@ -176,7 +218,8 @@ class StatusFragment : Fragment() {
 
     // ==================== Link rows ====================
 
-    private fun buildLinkRows() {
+    fun buildLinkRows() {
+        if (!ensureViews()) return
         rowsLink.removeAllViews()
         linkRows = StatusRows(rowsLink)
         rowHandles["root"] = linkRows.addRow(getString(R.string.label_root))
@@ -188,25 +231,30 @@ class StatusFragment : Fragment() {
 
     // ==================== Module rows ====================
 
-    private fun buildModuleRows() {
-        rowsWifi.removeAllViews()
-        rowsBt.removeAllViews()
-        rowsUsb.removeAllViews()
-        moduleRows.clear()
-        val inflater = LayoutInflater.from(activity)
-        val rt = host?.buildAgentController()
-        // AgentController.registry.all() 通过 host 访问
-        // 此处简化：具体实现由 host 的 buildAgentController 完成构建，
-        // 模块行由 Activity 端调用 buildModuleRowsForFragment 填充
-        // （因为 AgentController.runtime 在 Activity 中持有）
+    fun buildModuleRows() {
+        if (!ensureViews()) return
+        val h = host ?: return
+        val act = activity ?: return
+        h.buildAgentController()   // 由宿主确保 runtime 与模块注册表已建立
+        // AgentController 全是静态 API（v196 核实）—— 此前那段"必须由 Activity 填充"的注释
+        // 是误解：Fragment 自己就能取清单。数据通路在此接上，populateModuleRows 一直空转。
+        val rt = AgentController.build(act)
+        populateModuleRows(
+            modules = rt.registry.all().map { it.id to AgentController.label(it.id) },
+            detailOf = { id -> rt.module(id)?.let { AgentController.detailOf(it) } ?: "—" },
+            groupsOf = { id -> AgentController.groupsOf(id) },
+            isExitEnabled = { id, g -> AgentController.isExitEnabled(id, g) },
+            isEnabled = { id -> AgentController.isEnabled(act, id) },
+        )
     }
 
     /**
-     * 由 Activity 调用，填充模块行。
-     * 避免 Fragment 直接访问 AgentController.runtime（它在 Activity 中初始化）。
+     * 填充模块行：模块清单与开关状态由本方法自行向 AgentController 取（静态 API），
+     * 开关动作回调宿主（保持与 Activity 侧同一套生效路径）。
      */
     fun populateModuleRows(
         modules: List<Pair<String, String>>, // (moduleId, label)
+        detailOf: (String) -> String,
         groupsOf: (String) -> List<String>,
         isExitEnabled: (String, String) -> Boolean,
         isEnabled: (String) -> Boolean,
@@ -227,6 +275,7 @@ class StatusFragment : Fragment() {
                     sw = v.findViewById(R.id.sw),
                 )
                 row.name.text = label
+                row.detail.text = detailOf(moduleId)
                 row.sw.contentDescription = label
                 if (groups.size > 1) {
                     row.sw.isChecked = isExitEnabled(moduleId, g)
@@ -289,7 +338,8 @@ class StatusFragment : Fragment() {
 
     // ==================== Actions ====================
 
-    private fun bindActions() {
+    fun bindActions() {
+        if (!ensureViews()) return
         val h = host ?: return
         swWifi.isChecked = h.isTransportEnabled("wifi")
         swBt.isChecked = h.isTransportEnabled("bt")
@@ -357,6 +407,7 @@ class StatusFragment : Fragment() {
 
     /** 每秒刷新状态页所有动态内容 */
     fun refresh() {
+        if (!ensureViews()) return
         val h = host ?: return
         val anyOn = anyTransportOn()
 
