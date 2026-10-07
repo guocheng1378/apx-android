@@ -59,8 +59,12 @@ class TvFileActivity : Activity() {
     private fun buildUi(): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(TvUi.Pal.bg); setPadding(pad, pad / 2, pad, pad / 2) }
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        head.addView(button("← 返回") { finish() })
-        head.addView(TextView(this).apply { text = "文件传输"; setTextColor(TvUi.Pal.text); typeface = Typeface.DEFAULT_BOLD; TvUi.applyTextSize(this, TvUi.Type.DISPLAY); setPadding(gap, 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val backBtn = button("← 返回") { finish() }
+        TvUi.contentDescription(backBtn, "返回")
+        head.addView(backBtn)
+        val titleView = TextView(this).apply { text = "文件传输"; setTextColor(TvUi.Pal.text); typeface = Typeface.DEFAULT_BOLD; TvUi.applyTextSize(this, TvUi.Type.DISPLAY); setPadding(gap, 0, 0, 0) }
+        TvUi.contentDescription(titleView, "文件传输页面")
+        head.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         targetView = TextView(this).apply { isFocusable = true; isClickable = true; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, TvUi.dp(this@TvFileActivity, TvUi.Radius.CONTROL), TvUi.dp(this@TvFileActivity, 2f)); setPadding(gap, gap / 2, gap, gap / 2); setOnClickListener { switchTarget() } }
         head.addView(targetView); root.addView(head, LinearLayout.LayoutParams(-1, -2))
         dirView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.MICRO); setPadding(0, gap / 2, 0, 0) }; root.addView(dirView)
@@ -69,17 +73,21 @@ class TvFileActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(listBox, LinearLayout.LayoutParams(-1, -2)); isFillViewport = false }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, gap / 2, 0, 0) }
-        foot.addView(button("发送本机其它文件…") { pickFromSystem() })
+        val sendBtn = button("发送本机其它文件…") { pickFromSystem() }
+        TvUi.contentDescription(sendBtn, "发送本机其它文件")
+        foot.addView(sendBtn)
         statusView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION); setPadding(gap, 0, 0, 0) }
         foot.addView(statusView, LinearLayout.LayoutParams(0, -2, 1f)); root.addView(foot, LinearLayout.LayoutParams(-1, -2))
         status("点一个文件可以打开，或发回给手机 / 电脑", TvUi.Pal.textDim); return root
     }
     private fun button(text: String, onClick: () -> Unit): TextView = TextView(this).apply { this.text = text; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); gravity = Gravity.CENTER; isFocusable = true; isClickable = true; background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, TvUi.dp(this@TvFileActivity, TvUi.Radius.CONTROL), TvUi.dp(this@TvFileActivity, 2f)); setPadding(gap * 2, gap, gap * 2, gap); setOnClickListener { onClick() } }
-    private fun refreshTargets() { targets = TvFiles.targets(); if (targetIndex >= targets.size) targetIndex = 0; val cur = targets.getOrNull(targetIndex); targetView.text = when { cur == null -> "发给：还没有设备连过本机"; targets.size == 1 -> "发给：$cur"; else -> "发给：$cur · 点这里换设备（${targetIndex + 1}/${targets.size}）" } }
+    private fun refreshTargets() { targets = TvFiles.targets(); if (targetIndex >= targets.size) targetIndex = 0; val cur = targets.getOrNull(targetIndex); targetView.text = when { cur == null -> "发给：还没有设备连过本机"; targets.size == 1 -> "发给：$cur"; else -> "发给：$cur · 点这里换设备（${targetIndex + 1}/${targets.size}）" }; targetView.contentDescription = when { cur == null -> "发送目标：还没有设备连过本机"; targets.size == 1 -> "发送目标：$cur"; else -> "发送目标：$cur，点击切换设备（${targetIndex + 1}/${targets.size}）" } }
     private fun switchTarget() { if (targets.size <= 1) { toast(if (targets.isEmpty()) NO_TARGET_HINT else "只有一台设备连过本机，没有别的可选"); return }; targetIndex = (targetIndex + 1) % targets.size; refreshTargets() }
     private fun currentTarget(): String? = targets.getOrNull(targetIndex)
     private fun refreshList() { val dir = TvFiles.recvDir(this); dirView.text = "存到：${dir.absolutePath}"; val files = TvFiles.listReceived(this); countView.text = "共 ${files.size} 个"; listBox.removeAllViews(); if (files.isEmpty()) { listBox.addView(TextView(this).apply { text = getString(R.string.tv_files_empty); setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, gap, 0, 0) }); return }; files.forEach { f -> listBox.addView(fileRow(f), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = TvUi.dp(this@TvFileActivity, 6f) }) } }
-    private fun fileRow(f: File): View { val radius = TvUi.dp(this, TvUi.Radius.CONTROL); val stroke = TvUi.dp(this, 2f); val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; setPadding(gap * 2, gap, gap * 2, gap); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, radius, stroke); setOnClickListener { showFileActions(f) } }; row.addView(TextView(this).apply { text = f.name; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(TextView(this).apply { text = TvFiles.sizeText(f.length()); setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION) }); row.addView(TextView(this).apply { text = "  打开"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); typeface = Typeface.DEFAULT_BOLD }); return row }
+    private fun fileRow(f: File): View { val radius = TvUi.dp(this, TvUi.Radius.CONTROL); val stroke = TvUi.dp(this, 2f); val icon = TvFiles.fileIcon(f.name); val size = TvFiles.sizeText(f.length()); val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; setPadding(gap * 2, gap, gap * 2, gap); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, radius, stroke); setOnClickListener { showFileActions(f) } }; TvUi.contentDescription(this, "$icon ${f.name}, $size，点击打开")
+        row.addView(TextView(this).apply { text = icon; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, 0, gap, 0) })
+        row.addView(TextView(this).apply { text = f.name; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(TextView(this).apply { text = size; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION) }); row.addView(TextView(this).apply { text = "  打开"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); typeface = Typeface.DEFAULT_BOLD }); return row }
     private fun showFileActions(f: File) { val options = if (currentTarget() != null) arrayOf("打开", "发回给手机 / 电脑") else arrayOf("打开"); AlertDialog.Builder(this).setTitle(f.name).setItems(options) { _, which -> when (which) { 0 -> openFile(f); 1 -> sendFile(f) } }.setNegativeButton("取消", null).show() }
     private fun openFile(f: File) { if (f.name.endsWith(".apk", ignoreCase = true)) installApk(f) else openGeneric(f) }
     private fun installApk(f: File) {
@@ -102,7 +110,6 @@ class TvFileActivity : Activity() {
     override fun onDestroy() { mainHandler.removeCallbacksAndMessages(null); super.onDestroy() }
     companion object {
         private const val REQ_PICK = 9001
-        /** 空态 + 失败态共用的引导：说清"怎么让它不空 / 下一步做什么" */
         private const val NO_TARGET_HINT = "还没有手机 / 电脑连过本机 —— 先让对方连上来，再回来发文件"
         private const val SEND_FAIL_HINT = "发送失败 —— 确认两边还在同一网络，再试一次"
     }
