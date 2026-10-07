@@ -59,9 +59,9 @@
     <application
         android:name=".App"
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@drawable/ic_launcher_app"
         android:label="@string/app_name"
-        android:roundIcon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher_app"
         android:supportsRtl="true"
         android:theme="@style/Theme.AllPeriph">
 
@@ -96,7 +96,7 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen" />
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
         <!--
           ③ 远程输入（键盘+遥控，v1.19）
@@ -110,7 +110,7 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateVisible|adjustResize"
-            android:theme="@style/Theme.AllPeriph.Mini" />
+            android:theme="@style/Theme.AllPeriph.Miuix" />
 
         <!--
           ④ 游戏手柄（双摇杆，v1.19）
@@ -124,7 +124,7 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen" />
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
 
         <!--
           ⑤ 文件传输面板（遥控器友好，v1.19）
@@ -138,7 +138,7 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:theme="@style/Theme.AllPeriph.Mini" />
+            android:theme="@style/Theme.AllPeriph.Miuix" />
 
         <!--
           ⑥ 后台服务（v1.19）：启动前台通知，保留 Binder 保活。
@@ -188,7 +188,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_config" />
+                android:resource="@xml/accessibility_service_config" />
         </service>
 
         <!--
@@ -197,7 +197,7 @@
         <service
             android:name=".ui.AllPeriphTileService"
             android:exported="true"
-            android:icon="@drawable/ic_launcher"
+            android:icon="@drawable/ic_launcher_app"
             android:label="全能外设"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
@@ -216,7 +216,7 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateVisible|adjustResize"
-            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
             android:taskAffinity=".controlled.RemoteInputActivity"
             android:excludeFromRecents="true"
             android:documentLaunchMode="always" />
@@ -245,9 +245,9 @@
 
         <!--
           ⑭ 外部应用启动入口（v1.76）
-          其他 App 可通过 ACTION_SEND 发送文本到全能外设：
-            am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "内容"
-          全能外设收到后，自动将文本转为键盘输入发送到受控设备。
+          其他 App 通过 ACTION_SEND（mimeType text/plain）发文本，
+          全能外设读取 extra「android.intent.extra.TEXT」，自动转为键盘输入发送到受控设备。
+          （示例命令不写在注释里：XML 注释不允许出现双连字符，adb 参数里恰好有）
           适用于：输入法快捷短语、语音识别文本中转等场景。
         -->
         <activity

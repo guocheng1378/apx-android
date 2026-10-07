@@ -39,17 +39,17 @@ class HotkeyBoard(
 
     /** 皮肤：颜色、圆角、间距、网格形状（主页用模板色，操控面用中性色） */
     data class Style(
-        val chipText: Int,
-        val chipBg: Int,
-        val chipStroke: Int,
-        val chipRadiusDp: Int,
-        val padVDp: Int,
-        val perRow: Int,
+        val chipText: Int = 0,
+        val chipBg: Int = 0,
+        val chipStroke: Int = 0,
+        val chipRadiusDp: Int = 0,
+        val padVDp: Int = 0,
+        val perRow: Int = 0,
         val fixedRows: Int = 0,
         val stretchRows: Boolean = false,
-        val accent: Int,
-        val textPrimary: Int,
-        val textSecondary: Int,
+        val accent: Int = 0,
+        val textPrimary: Int = 0,
+        val textSecondary: Int = 0,
     )
 
     /** true 时快捷键条显示/编辑 TV 目标专属的一套（落盘到 items_tv） */

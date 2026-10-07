@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -19,6 +20,8 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
+import com.allperiph.hid.HotkeyStore
+import com.allperiph.hid.HotkeyTemplates
 import com.allperiph.ui.kit.ApKit
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
@@ -232,7 +235,7 @@ class SettingsFragment : Fragment() {
             templatesBox.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = h.dp(8) })
         }
 
-        templatesBox.addView(TextView(act).apply {
+        templatesBox.addView(TextView(activity).apply {
             text = getString(R.string.ui_main_text_hotkey_template)
             textSize = 14f
             gravity = Gravity.CENTER
@@ -560,7 +563,7 @@ class SettingsFragment : Fragment() {
             type = "*/*"
             addCategory(Intent.CATEGORY_OPENABLE)
         }
-        startActivityForResult(intent, MainActivity.REQ_PICK_FILE)
+        startActivityForResult(intent, FileFragment.REQ_PICK_FILE)
     }
 
     // ==================== Keymap ====================

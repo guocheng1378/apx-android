@@ -12,7 +12,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.allperiph.R
-import com.allperiph.core.AgentController
+import com.allperiph.hid.HotkeyTemplates
 import com.allperiph.core.ModuleId
 import com.allperiph.shared.util.Log
 
