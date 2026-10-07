@@ -130,7 +130,7 @@
             android:name="com.allperiph.screen.ScreenActivity"
             android:exported="false"
             android:launchMode="singleTask"
-            android:screenOrientation="sensor"
+            android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
             android:excludeFromRecents="true" />

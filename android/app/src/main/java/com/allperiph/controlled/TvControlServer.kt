@@ -456,6 +456,15 @@ class TvControlServer(
 
     fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
 
+    /**
+     * 发 REQUEST_INPUT（0x25）：请求对端弹输入法帮本机输入（「让对端帮我输入」）。
+     * 与 [com.allperiph.shared.net.ControlServer.sendRequestInput] 同因补齐：0x25 此前只有收没有发。
+     */
+    fun sendRequestInput(hint: String): Boolean {
+        if (!ready) return false
+        return sendControl(ApxFrame.packRequestInput(hint, 0))
+    }
+
     /** v184：特殊键/组合键（0x28）——手机编辑快捷键排 → PC/TV 注入。mod：1=Ctrl 2=Shift 4=Alt */
     fun sendSpecialKey(mod: Int, vk: Int) { sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte())) }
 

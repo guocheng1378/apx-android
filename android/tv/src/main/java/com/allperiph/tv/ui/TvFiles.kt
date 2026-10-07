@@ -48,18 +48,36 @@ object TvFiles {
             name.endsWith(".xlsx", true) || name.endsWith(".ppt", true) ||
             name.endsWith(".pptx", true) || name.endsWith(".txt", true) ||
             name.endsWith(".csv", true) || name.endsWith(".md", true) -> "\uD83D\uDCC4" // 📄
-        name.endsWith(".apk", true) -> "\uD83D\uDCE6" // 📦
-        name.endsWith(".zip", true) || name.endsWith(".rar", true) ||
-            name.endsWith(".7z", true) || name.endsWith(".tar", true) ||
-            name.endsWith(".gz", true) -> "\uD83D\uDCE6" // 📦
+        // 安装包 / 压缩包 / 其它统一用「包」图标（以前 .apk、压缩包、else 三支返回同一个值，是冗余分支）
         else -> "\uD83D\uDCE6" // 📦
     }
 
-    /** 人类可读大小（KB/MB/GB） */
+    /**
+     * 按扩展名猜 MIME：拉起外部应用时用，也是 `ApxFileProvider.getType` 的来源。
+     * 以前 TvFileActivity 与 TvFilePrompt 各写了一份逐字符相同的实现 —— 收到这里。
+     */
+    fun mimeOf(name: String): String? = when {
+        name.endsWith(".apk", true) -> "application/vnd.android.package-archive"
+        name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"
+        name.endsWith(".png", true) -> "image/png"
+        name.endsWith(".gif", true) -> "image/gif"
+        name.endsWith(".webp", true) -> "image/webp"
+        name.endsWith(".bmp", true) -> "image/bmp"
+        name.endsWith(".mp4", true) -> "video/mp4"
+        name.endsWith(".mkv", true) -> "video/x-matroska"
+        name.endsWith(".mp3", true) -> "audio/mpeg"
+        name.endsWith(".wav", true) -> "audio/wav"
+        name.endsWith(".pdf", true) -> "application/pdf"
+        name.endsWith(".zip", true) -> "application/zip"
+        name.endsWith(".txt", true) -> "text/plain"
+        else -> null
+    }
+
+    /** 人类可读大小（KB/MB/GB）。必须钉 Locale：否则阿拉伯语等地区会输出本地化数字 */
     fun sizeText(bytes: Long): String = when {
-        bytes >= 1024L * 1024 * 1024 -> String.format("%.2f GB", bytes / 1024.0 / 1024 / 1024)
-        bytes >= 1024L * 1024 -> String.format("%.1f MB", bytes / 1024.0 / 1024)
-        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
+        bytes >= 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.2f GB", bytes / 1024.0 / 1024 / 1024)
+        bytes >= 1024L * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024)
+        bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
     }
 }

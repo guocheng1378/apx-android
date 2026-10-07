@@ -57,11 +57,14 @@ class TvScreenActivity : Activity(), SurfaceHolder.Callback {
         super.onResume()
         // 用户从首页进来时，服务端可能已经起好媒体通道了；没起的话这里兜一下
         TvServerService.current?.ensureMedia()
+        TvSpeaker.setEnabled(true)
         mainHandler.post(tick)
     }
 
     override fun onPause() {
         mainHandler.removeCallbacks(tick)
+        // 画面已经看不见了，电脑的声音不该继续在电视上响（音箱作为独立功能仍可在别处开启）
+        TvSpeaker.setEnabled(false)
         super.onPause()
     }
 

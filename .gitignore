@@ -7,6 +7,7 @@
 **/build/
 shared/build/
 pc/host/out/
+pc/host/build_host/
 pc/display/out/
 *.obj
 *.tlog

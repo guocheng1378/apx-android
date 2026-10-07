@@ -66,12 +66,20 @@ object TvInjector {
     /** 手柄按钮上一帧状态（用于边沿检测） */
     private var lastGamepadButtons = 0
 
+    /** [init] 是否已跑过（配合 [currentPlatform] 做幂等） */
+    private var initialized = false
+
     fun init(c: Context, platform: InjectorPlatform) {
         val ac = c.applicationContext
         ctx = ac
+        // ⚠️ 幂等：同一个 platform 重复 init 会**再起两条后台线程**并重复探测 root。
+        // TV 端服务 onCreate 与 MainActivity onCreate 各调一次，而用户每次回到主界面
+        // 又会走一次 MainActivity.onCreate —— 反复进出界面会让 apx-tv-evdev /
+        // apx-tv-uinput 线程不断累积（没有句柄，既不能复用也无法停止）。
+        if (initialized && this.platform === platform) return
         this.platform = platform
         platform.overlay.init(ac)
-        refreshScreen()
+        refreshScreen(force = true)
         // 通道按"能拿到多少能力"排序，全部 fire-and-forget：
         //  ① evdev 内核注入（免 root，任意按键）—— 多数手机会因 /dev/input 权限不可用而自动跳过
         //  ② root `input`（全键鼠）
@@ -80,11 +88,13 @@ object TvInjector {
         //  ④ uinput 虚拟手柄：手柄**摇杆**只有它能注入（见 gamepad()）
         Thread({ runCatching { UinputGamepad.tryStart() } }, "${platform.threadPrefix}-uinput").start()
         RootInput.tryStart()
+        initialized = true
     }
 
     fun onDestroy() {
         platform?.overlay?.destroy()
         ctx = null
+        initialized = false
     }
 
     fun systemReady(): Boolean = ApxAccessibilityService.isReady()
@@ -134,7 +144,14 @@ object TvInjector {
     /** 在被控端屏幕上弹提示（委托给平台；TV 端有实现）。[init] 前为 no-op。 */
     fun toast(msg: String) { platform?.toast(msg) }
 
-    private fun refreshScreen() {
+    /** 屏幕尺寸刷新间隔：鼠标帧每秒几十次，没必要每帧都查一遍（含 getSystemService + new DisplayMetrics） */
+    private const val SCREEN_REFRESH_MS = 1_000L
+    private var lastScreenRefreshMs = 0L
+
+    private fun refreshScreen(force: Boolean = false) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!force && screenW > 0 && screenH > 0 && now - lastScreenRefreshMs < SCREEN_REFRESH_MS) return
+        lastScreenRefreshMs = now
         val wm = ctx?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         wm?.defaultDisplay?.let { d ->
             val m = android.util.DisplayMetrics()
@@ -153,7 +170,8 @@ object TvInjector {
         // TV 端不需要切线程（needsMainThreadSwitch=false）。
         val p = platform ?: return
         val block: () -> Unit = {
-            refreshScreen()
+            // 刚连上：立刻取一次真实尺寸（不能沿用节流里的旧值，横竖屏切换后它们会过期）
+            refreshScreen(force = true)
             if (on) overlay?.move(cursorX, cursorY) else overlay?.hide()
         }
         if (p.needsMainThreadSwitch) p.runOnMain(block) else block()

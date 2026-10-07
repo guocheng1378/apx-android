@@ -222,8 +222,16 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         buildSettingsPanels()
         ensureNotificationPermission()
         subscribe()
-        // 旋屏会重建 Activity（标准做法，用于切换 layout-land），恢复重建前的页签
-        savedInstanceState?.getInt(KEY_PAGE)?.let { if (it in PAGE_TITLES.indices) showPage(it) }
+        // ⚠️ 事实与旧注释相反：AndroidManifest 里本 Activity 的 configChanges **含 orientation**，
+        // 所以旋屏**不会**重建 Activity（也就不会去加载 layout-land），横屏走的是
+        // applyOrientationLayout() 那套运行时切换。这里只在真的被重建时（如内存不足回收）
+        // 恢复页签。另：Bundle.getInt() 返回非空 Int（缺省 0），`?.let` 恒执行 ——
+        // 所以必须再判一次范围，且只接受确实存过的值，否则会把 buildTabs() 按物理朝向
+        // 选好的初始页（横屏冷启动应是沉浸操控面）强行切回第 0 页。
+        if (savedInstanceState?.containsKey(KEY_PAGE) == true) {
+            val page = savedInstanceState.getInt(KEY_PAGE)
+            if (page in PAGE_TITLES.indices) showPage(page)
+        }
         AgentController.refreshEnv(this) { env ->
             lastEnv = env
             renderEnv(env)
@@ -283,6 +291,11 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         // 且回调还会继续往已销毁的界面推字。注意只清回调，**不断开连接**
         // （用户可能只是切页面，控制链路要保持）。
         ControlTarget.controlClient?.onReverseClipboard = null
+        // ⚠️ orientPoll 每秒自我重排，而此前**全文件没有任何取消点**：Activity 销毁后
+        // 它仍会每秒读 resources.configuration、写 requestedOrientation —— 整棵视图树
+        // 与所有 Fragment 都无法回收。其余延时回调（如电池白名单那 1.5s 复核）同理。
+        handler.removeCallbacks(orientPoll)
+        handler.removeCallbacksAndMessages(null)
         // v184：发现服务此前只 start 不 stop —— 退出 App 后它仍占着 9501 端口与
         // 发现线程（且会持续收到广播）。TvDiscovery.stop() 早就实现了，只是没人调用。
         runCatching { TvDiscovery.stop() }
@@ -1018,7 +1031,16 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             val c = TvControllerClient(ip, port)
             val ok = c.connect()
             runOnUiThread {
+                // connect() 最长阻塞 5s，期间用户可能已经退出页面
+                if (isFinishing || isDestroyed) {
+                    c.disconnect()
+                    return@runOnUiThread
+                }
                 if (ok) {
+                    // ⚠️ 必须先断开旧连接：旧实例仍是 running，它的 readerLoop 会
+                    // 每 2s 无限重连**旧 IP**，并一直留着 socket + tx/ping 三条线程。
+                    // 以前这里直接覆盖，于是每换一次受控设备就永久多留一套。
+                    ControlTarget.controlClient?.takeIf { it !== c }?.disconnect()
                     ControlTarget.controlClient = c
                     ControlTarget.host = ip
                     ControlTarget.label = name

@@ -1,5 +1,6 @@
 package com.allperiph.ui
 
+import android.content.Context
 import android.media.AudioManager
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -25,17 +26,28 @@ object Feedback {
     }
 
     /** 只震动（长按连发等场景避免声音刷屏） */
-    fun haptic(v: View) {
+    fun haptic(v: View) = haptic(v.context)
+
+    /**
+     * 只震动 —— **没有 View 的场景**（模块层，如触控板手势）走这个重载。
+     *
+     * ★ 全项目只有这一处真正调 Vibrator，别处不要再自己拿 Vibrator：
+     * 此前触控板长按走的是 `createPredefined(EFFECT_CLICK)` 的旁路，两个后果 ——
+     *   1. 预置效果各 ROM 支持不一，不少机型直接没反应（用户报"长按没震动"）；
+     *   2. 它绕开了 [ThemeSkin.hapticIndex] 档位，设置里选了"关"照样震。
+     * 统一走这里：振幅/时长自己给（不受 ROM 效果表影响），且尊重用户的档位设置。
+     */
+    fun haptic(context: Context) {
         // (时长 ms, 振幅 1..255)：轻 / 标准 / 强；"关"直接返回
         val ms: Long
         val amp: Int
-        when (ThemeSkin.hapticIndex(v.context)) {
+        when (ThemeSkin.hapticIndex(context)) {
             1 -> { ms = 12L; amp = 70 }
             2 -> { ms = 18L; amp = 150 }
             3 -> { ms = 28L; amp = 255 }
             else -> return
         }
-        val vib = v.context.getSystemService(Vibrator::class.java) ?: return
+        val vib = context.getSystemService(Vibrator::class.java) ?: return
         if (!vib.hasVibrator()) return
         // 防御：按键反馈属非关键路径，个别 ROM 即便声明了 VIBRATE 仍可能抛
         // SecurityException，绝不能让它把整个页面带崩（曾实测点页签闪退）。

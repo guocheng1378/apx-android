@@ -29,13 +29,6 @@ class ApxAccessibilityService : AccessibilityService() {
 
     private var mainHandler: Handler? = null
 
-    /** 焦点检测回调：本机 EditText 获焦时触发，参数为提示文字 */
-    var onFocusDetected: ((String) -> Unit)? = null
-
-    /** 防环标记：远程输入模式下不触发焦点检测 */
-    @Volatile
-    var remoteInputMode = false
-
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -174,6 +167,22 @@ class ApxAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile
         var instance: ApxAccessibilityService? = null
+
+        /**
+         * 焦点检测回调：本机 EditText 获焦时触发（参数是输入框的提示文字）。
+         *
+         * ⚠️ 必须是**静态**的：无障碍服务由系统拉起，实例随时会被系统重建，
+         * 回调挂在实例上会在重建后丢失 —— 这也是它长期零注册的原因之一（没人能可靠注册它）。
+         */
+        @Volatile
+        var onFocusDetected: ((String) -> Unit)? = null
+
+        /**
+         * 防环：本机正在替对端做远程输入（RemoteInputActivity / RemoteInputOverlay 显示中）时置 true。
+         * 此时本机输入框获焦**不能**再发 0x25 请求对端 —— 否则两边来回弹输入法。
+         */
+        @Volatile
+        var remoteInputMode = false
 
         fun isReady(): Boolean = instance != null
     }

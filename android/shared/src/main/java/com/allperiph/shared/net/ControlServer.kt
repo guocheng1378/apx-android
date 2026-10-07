@@ -416,6 +416,21 @@ class ControlServer(
 
     fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
 
+    /**
+     * 发 REQUEST_INPUT（0x25）：请求对端弹输入法帮本机输入，即「让对端帮我输入」。
+     *
+     * ⚠️ 这个方法此前**根本不存在**：0x25 只有收（`onRequestInput`）没有发，
+     * `ApxAccessibilityService` 检测到输入框获焦后 `onFocusDetected` 又没有任何注册点，
+     * 于是「本机输入框获焦 → 对端自动弹输入法」从 A 端就断了（PC 端是在
+     * `Ctrl9511Client::sendRequestInput` 自己组帧，所以只有 PC→手机这一个方向能用）。
+     *
+     * 组帧走 [ApxFrame.packRequestInput]（已对齐线上布局）；sourceId 未上线，传 0。
+     */
+    fun sendRequestInput(hint: String): Boolean {
+        if (!ready) return false
+        return sendControl(ApxFrame.packRequestInput(hint, 0))
+    }
+
     fun sendSpecialKey(mod: Int, vk: Int) { sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte())) }
 
     private fun readU32Le(ins: InputStream): Int {

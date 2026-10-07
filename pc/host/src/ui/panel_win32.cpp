@@ -59,6 +59,7 @@
 #include "apxpc/media/touch_target.hpp"   // 推流屏矩形（诊断包里要报触摸映射目标）
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/ui/file_panel_win32.hpp"      // 文件传输窗口（收到的 / 发出去的）
+#include "apxpc/ui/remote_input_win32.hpp"    // 「对端请你输入」窗口（接 0x25，三端对等）
 #include "apxpc/ui/settings_win32.hpp"        // 「设置…」二级窗口（v118）
 #include "apxpc/wireless/file_receiver.hpp"   // 9512 文件接收（手机 → 电脑）
 #include "apxpc/wireless/file_sender.hpp"     // 9512 文件发送（电脑 → 手机）
@@ -83,6 +84,7 @@
 #include <atomic>
 #include <cstdio>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -162,6 +164,11 @@ constexpr long long kCtrlGraceMs = 3000;   // v184：控制面断连宽限（见
 constexpr UINT kMsgTrayQuit = WM_APP + 1;
 /// 托盘「文件传输…」：窗口必须在**面板线程**创建，所以只发消息过来，不在托盘线程建 UI
 constexpr UINT kMsgTrayFilePanel = WM_APP + 2;
+/// 收到 0x25（对端请**本机**输入）：回调在 9511 reader 线程，同样只发消息、不跨线程建窗。
+/// hint 字符串没法塞进 PostMessage 的参数，先用带锁的全局转存，UI 线程再取。
+constexpr UINT kMsgRemoteInput = WM_APP + 3;
+std::mutex gHintMu;
+std::string gPendingHint;
 
 struct Rect {
     int x = 0, y = 0, w = 0, h = 0;
@@ -2438,6 +2445,25 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
 
+        // 对端（手机 / TV）请求**本机**输入（0x25）→ 弹「对端请你输入」窗口。
+        // 电脑端此前只有「让手机帮我输入」这一个方向，反向完全没接 —— 三端不对等。
+        case kMsgRemoteInput: {
+            std::string hint;
+            { std::lock_guard<std::mutex> lk(gHintMu); hint.swap(gPendingHint); }
+            if (!p || !p->session) return 0;
+            Panel* pp = p;
+            apxpc::ui::RemoteInput::show(
+                hwnd, hint,
+                [pp](const std::string& text, uint8_t flags) -> bool {
+                    return pp->session && pp->session->sendInputText(text, flags);
+                },
+                [pp]() -> bool { return pp->session && pp->session->sendInputDone(); },
+                [pp](const std::string& t, const std::string& x) {
+                    if (pp->tray) pp->tray->notify(t, x);
+                });
+            return 0;
+        }
+
         case WM_DESTROY:
             KillTimer(hwnd, kRefreshTimer);
             if (p) {
@@ -2618,6 +2644,13 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         panel.tray->notify(ok ? "已请手机输入" : "发送失败",
                            ok ? "在手机上打字，文字会直接进电脑光标处"
                               : "还没连上，稍后再试");
+    });
+    // 反向：手机 / TV 反过来请**电脑**输入（0x25）→ 弹输入窗口（见 kMsgRemoteInput）。
+    // 此前 client_.onRequestInput 从未注册：对端喊电脑打字时电脑毫无反应，三端不对等。
+    // 回调跑在 reader 线程，这里只转存 hint 并发消息，建窗留给面板线程。
+    panel.session->setOnRequestInput([hwnd](const std::string& hint) {
+        { std::lock_guard<std::mutex> lk(gHintMu); gPendingHint = hint; }
+        PostMessageW(hwnd, kMsgRemoteInput, 0, 0);
     });
     // 托盘右键 →「连接诊断…」：把这几轮排障时人肉做的检查（链路各环状态 + 该查哪里）
     // 固化成一次点击。诊断本身只读状态、不产生副作用，直接在托盘线程弹窗即可

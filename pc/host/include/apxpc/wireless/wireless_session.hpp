@@ -7,6 +7,7 @@
 // 所有 socket I/O 在 worker 线程完成，绝不阻塞 UI。
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -104,6 +105,23 @@ public:
     /// 对方回传的文本（0x26）由本类在回调里直接注入本机光标处。
     bool requestInput(const std::string& hint);
 
+    // ————— 反向：对端请求**本机**输入（三端对等） —————
+    // 手机端有 RemoteInputActivity、TV 端有 RemoteInputOverlay 来接 0x25；
+    // 电脑端此前**只有发没有收** —— client_.onRequestInput 从未被注册，
+    // 手机/TV 请电脑打字时电脑毫无反应。这两个方法 + 下面的回调把这一半补上。
+
+    /// 对端（手机 / TV）请求本机输入文本时触发（hint = 对方的提示语，如 "搜索"）。
+    /// 线程：跑在 9511 reader 线程 —— UI 层**必须**自行 Post 到 UI 线程再建窗口。
+    /// 用 setter 而非公开成员，是为了和 reader 线程之间有一把锁（避免赋值与调用竞争）。
+    void setOnRequestInput(std::function<void(const std::string&)> cb);
+
+    /// 把本机敲的字回传给请求方（0x26）。flags 见 PROTOCOL：
+    /// 0x01=增量 0x02=退格 0x04=完整 0x08=取消。未连接返回 false。
+    bool sendInputText(const std::string& text, uint8_t flags);
+
+    /// 通知对端输入完成（0x27），对方据此收起浮层 / 落定文本。
+    bool sendInputDone();
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
@@ -135,6 +153,10 @@ private:
     std::thread beaconThread_;
     int64_t connectStartMs_ = 0;
     std::string connectedPeer_;   // 已连上对端地址（host:port），供 snapshot 展示
+
+    // 反向远程输入回调：UI 线程写（setter）、reader 线程读（转发），故用锁保护。
+    std::function<void(const std::string&)> onRequestInput_;
+    mutable std::mutex cbMu_;
 };
 
 }  // namespace apxpc::wireless

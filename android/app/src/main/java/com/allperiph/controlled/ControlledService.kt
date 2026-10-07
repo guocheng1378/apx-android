@@ -91,9 +91,20 @@ class ControlledService : Service() {
             Log.i("ControlledService", "远程输入请求: from=$fromDevice, hint=$hint")
             RemoteInputActivity.start(this, fromDevice, hint)
         }
-        server?.onRemoteInputText = { text, flags ->
-            // 文本由 RemoteInputActivity 直接通过 server 发送，这里不重复
+        // 「让对端帮我输入」的**发起端**：本机输入框获焦 → 请对端弹输入法。
+        // 与 TV 端同一处断链：onFocusDetected 此前零注册，且 0x25 有收无发。
+        com.allperiph.shared.accessibility.ApxAccessibilityService.onFocusDetected = { hint ->
+            val s = server
+            if (awaitingRemoteInput) {
+                Log.i("ControlledService", "上一轮远程输入还没回传 —— 不重复请求")
+            } else if (s != null && s.ready) {
+                Log.i("ControlledService", "输入框获焦 → 请求对端输入: hint=$hint")
+                awaitingRemoteInput = true
+                s.sendRequestInput(hint)
+            }
         }
+        server?.onRemoteInputText = { text, flags -> injectRemoteText(text, flags) }
+        server?.onRemoteInputDone = { awaitingRemoteInput = false }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         FileReceiver.start(applicationContext)
         val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
@@ -126,12 +137,38 @@ class ControlledService : Service() {
         return START_STICKY
     }
 
+    /** 已发出 0x25、还在等对端回传 —— 防「注入文本 → 输入框再获焦 → 又发一次请求」的回环 */
+    @Volatile private var awaitingRemoteInput = false
+
+    /**
+     * 把对端敲的字落到本机当前聚焦的输入框（手机**请对端帮我输入**时的回传落地）。
+     * 此前这里是空实现（注释写着"由 RemoteInputActivity 发送，这里不重复"）—— 那是
+     * 手机**帮别人**输入的方向；本机**请别人**输入时收到的 0x26 必须注入，否则等于白喊。
+     *
+     * 语义按 [com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_*]：增量=追加、退格=删一字。
+     * COMMIT(0x04) 与增量并存就是 340856f 修的「文字重复两次」，故不按追加处理。
+     */
+    private fun injectRemoteText(text: String, flags: Int) {
+        awaitingRemoteInput = false          // 字回来了，本轮请求结束
+        val svc = com.allperiph.shared.accessibility.ApxAccessibilityService.instance
+        if (svc == null) { Log.w(TAG, "远程输入没落地：无障碍服务未就绪"); return }
+        when {
+            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_BACKSPACE != 0 -> svc.deleteChar()
+            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_CANCEL != 0 -> Unit
+            else -> if (text.isNotEmpty() && !svc.typeText(text) && !svc.paste(text)) {
+                Log.w(TAG, "远程输入注入失败（输入框没聚焦？）")
+            }
+        }
+    }
+
     override fun onDestroy() {
         running = false; Companion.server = null
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
         clipListenerRegistered = false   // v184：服务重建时重新注册
         server?.stop(); server = null; beacon?.stop(); beacon = null
+        // 焦点检测回调是静态的且闭包捕获了本 Service，停机不解绑会挂到下次启动
+        com.allperiph.shared.accessibility.ApxAccessibilityService.onFocusDetected = null
         FileReceiver.stop(); TvInjector.onDestroy(); super.onDestroy()
     }
 

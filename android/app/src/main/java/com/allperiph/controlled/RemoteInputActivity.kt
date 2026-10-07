@@ -30,6 +30,9 @@ class RemoteInputActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 本机正在替对端输入：此时本机的输入框获焦**不能**再反向请求对端，
+        // 否则两边互相 0x25 来回弹输入法（remoteInputMode 此前是个零赋值的死标记）
+        com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = true
         sourceDevice = intent.getStringExtra(EXTRA_SOURCE) ?: ""
         hintText = intent.getStringExtra(EXTRA_HINT) ?: ""
         setContentView(buildUi())
@@ -228,6 +231,8 @@ class RemoteInputActivity : Activity() {
     }
 
     override fun onDestroy() {
+        // 本机不再替对端输入：解除防环标记（不解除的话，之后本机输入框获焦不会再请求对端）
+        com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = false
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(window?.decorView?.windowToken, 0)
         super.onDestroy()

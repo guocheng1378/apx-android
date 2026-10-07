@@ -34,6 +34,8 @@ class TvFileActivity : Activity() {
     private lateinit var progressBar: ProgressBar
     private val mainHandler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
+    /** 当前弹窗：Activity 销毁时要 dismiss，否则 WindowLeaked */
+    private var dialog: AlertDialog? = null
     private var targets: List<String> = emptyList()
     private var targetIndex = 0
     private val pad get() = TvUi.safeInset(this)
@@ -42,9 +44,9 @@ class TvFileActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TvUi.bindColors(this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            StrictMode.VmPolicy.Builder().build().let { StrictMode.setVmPolicy(it) }
-        }
+        // 以前这里清空 StrictMode.VmPolicy 来允许跨应用传 file://，那是**进程级且不可逆**的
+        // （没有任何地方恢复），之后全 App 的 file:// 暴露 / SQLite 泄漏检测都失效了。
+        // 现在改走 ApxFileProvider 的 content:// + 一次性读授权。
         window.setBackgroundDrawableResource(android.R.color.black)
         setContentView(buildUi()); refreshTargets(); refreshList()
     }
@@ -86,7 +88,7 @@ class TvFileActivity : Activity() {
     private fun fileRow(f: File): View { val radius = TvUi.dp(this, TvUi.Radius.CONTROL); val stroke = TvUi.dp(this, 2f); val icon = TvFiles.fileIcon(f.name); val size = TvFiles.sizeText(f.length()); val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; setPadding(gap * 2, gap, gap * 2, gap); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, radius, stroke); setOnClickListener { showFileActions(f) } }; TvUi.contentDescription(row, "$icon ${f.name}, $size，点击打开")
         row.addView(TextView(this).apply { text = icon; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, 0, gap, 0) })
         row.addView(TextView(this).apply { text = f.name; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(TextView(this).apply { text = size; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION) }); row.addView(TextView(this).apply { text = "  打开"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); typeface = Typeface.DEFAULT_BOLD }); return row }
-    private fun showFileActions(f: File) { val options = if (currentTarget() != null) arrayOf("打开", "发回给手机 / 电脑") else arrayOf("打开"); AlertDialog.Builder(this).setTitle(f.name).setItems(options) { _, which -> when (which) { 0 -> openFile(f); 1 -> sendFile(f) } }.setNegativeButton("取消", null).show() }
+    private fun showFileActions(f: File) { val options = if (currentTarget() != null) arrayOf("打开", "发回给手机 / 电脑") else arrayOf("打开"); dialog = AlertDialog.Builder(this).setTitle(f.name).setItems(options) { _, which -> when (which) { 0 -> openFile(f); 1 -> sendFile(f) } }.setNegativeButton("取消", null).show() }
     private fun openFile(f: File) { if (f.name.endsWith(".apk", ignoreCase = true)) installApk(f) else openGeneric(f) }
     private fun installApk(f: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
@@ -94,11 +96,14 @@ class TvFileActivity : Activity() {
             try { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } catch (_: ActivityNotFoundException) {}
             return
         }
-        val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), "application/vnd.android.package-archive"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(ApxFileProvider.uriFor(this@TvFileActivity, f), "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (e: ActivityNotFoundException) { status("这台电视没有安装程序，打不开这个安装包", TvUi.Pal.warn) }
     }
-    private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), guessMime(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }; try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
-    private fun guessMime(name: String): String? = when { name.endsWith(".apk", true) -> "application/vnd.android.package-archive"; name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"; name.endsWith(".png", true) -> "image/png"; name.endsWith(".gif", true) -> "image/gif"; name.endsWith(".mp4", true) -> "video/mp4"; name.endsWith(".mkv", true) -> "video/x-matroska"; name.endsWith(".mp3", true) -> "audio/mpeg"; name.endsWith(".txt", true) -> "text/plain"; name.endsWith(".pdf", true) -> "application/pdf"; name.endsWith(".zip", true) -> "application/zip"; else -> null }
+    private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(ApxFileProvider.uriFor(this@TvFileActivity, f), TvFiles.mimeOf(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }; try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
     private fun showProgress(p: Int) { progressBar.progress = p; progressBar.visibility = if (p in 1..99) View.VISIBLE else View.GONE }
     private fun sendFile(f: File) { val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) { status("正在发送上一个文件，等它发完", TvUi.Pal.warn); return }; status("正在发送 ${f.name}", TvUi.Pal.accent); showProgress(0); Thread({ val ok = FileSender.send(target, f) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-send").start() }
     private fun pickFromSystem() { if (currentTarget() == null) { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }, REQ_PICK) } catch (_: ActivityNotFoundException) { status("这台电视没有文件选择器，可以改从手机 / 电脑发过来", TvUi.Pal.warn) } }
@@ -106,7 +111,7 @@ class TvFileActivity : Activity() {
     private fun queryNameSize(uri: Uri): Pair<String, Long> { var name = "file.bin"; var size = -1L; runCatching { contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst()) { c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }; c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !c.isNull(it) }?.let { size = c.getLong(it) } } } }; return name to size }
     private fun status(text: String, color: Int) { statusView.text = text; statusView.setTextColor(color) }
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
-    override fun onDestroy() { mainHandler.removeCallbacksAndMessages(null); super.onDestroy() }
+    override fun onDestroy() { mainHandler.removeCallbacksAndMessages(null); dialog?.dismiss(); dialog = null; super.onDestroy() }
     companion object {
         private const val REQ_PICK = 9001
         private const val NO_TARGET_HINT = "还没有手机 / 电脑连过本机 —— 先让对方连上来，再回来发文件"

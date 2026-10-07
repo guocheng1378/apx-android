@@ -7,7 +7,6 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
-import android.os.StrictMode
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -30,8 +29,13 @@ import java.io.File
  */
 object TvFilePrompt {
 
+    /** 这个卡片要抢焦点（得用遥控器按「打开 / 删除」），所以不能无限期挂着 —— 超时自动收 */
+    private const val AUTO_DISMISS_MS = 60_000L
+
     private var wm: WindowManager? = null
     private var view: View? = null
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val dismissRunnable = Runnable { dismiss() }
 
     /** 收到文件时调用（主线程）。重复到来会先关掉上一个，只保留最新一个。 */
     fun show(ctx: Context, f: File) {
@@ -56,13 +60,18 @@ object TvFilePrompt {
             manager.addView(ui, params)
             wm = manager
             view = ui
+            // 用户可能正看电视没理它：不能让一个抢焦点的窗口无限期挂在最上层
+            handler.removeCallbacks(dismissRunnable)
+            handler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
         } catch (t: Throwable) {
             Log.w("收到文件浮窗创建失败（需「显示在其他应用上层」权限）：${t.message}")
             runCatching { Toast.makeText(app, "已接收文件：${f.name}", Toast.LENGTH_SHORT).show() }
         }
     }
 
-    private fun dismiss() {
+    /** 收起浮窗。对外可见：服务停止时必须能把它关掉，否则窗口会一直挂在电视上 */
+    fun dismiss() {
+        handler.removeCallbacks(dismissRunnable)
         view?.let { runCatching { wm?.removeView(it) } }
         view = null
         wm = null
@@ -158,18 +167,18 @@ object TvFilePrompt {
             launch(ctx, f, "application/vnd.android.package-archive", "这台电视没有安装程序，打不开这个安装包")
             return
         }
-        launch(ctx, f, guessMime(f.name), "这台电视没有能打开它的应用（可以先发回给手机打开）")
+        launch(ctx, f, TvFiles.mimeOf(f.name), "这台电视没有能打开它的应用（可以先发回给手机打开）")
     }
 
     private fun launch(ctx: Context, f: File, mime: String?, failHint: String) {
-        // 与 TvFileActivity 同样的处理：清掉 VmPolicy 的 file:// 暴露检测，
-        // 否则用 Uri.fromFile 拉起外部应用会抛 FileUriExposedException。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            runCatching { StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build()) }
-        }
+        // 走 ApxFileProvider 的 content:// + 一次性读授权。
+        // 旧做法（Uri.fromFile + 清空 StrictMode VmPolicy）有两个问题：
+        // ① 清空是进程级且不可逆，之后全 App 的 file:// 暴露 / SQLite 泄漏检测全废；
+        // ② 就算绕过异常，外部应用对私有目录的文件**没有读权限**，照样打不开。
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.fromFile(f), mime)
+            setDataAndType(ApxFileProvider.uriFor(ctx, f), mime)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { ctx.startActivity(intent) }
             .onFailure { if (it is ActivityNotFoundException) toast(ctx, failHint) else Log.w("打开文件失败：${it.message}") }
@@ -178,20 +187,6 @@ object TvFilePrompt {
     private fun delete(ctx: Context, f: File) {
         val ok = runCatching { f.delete() }.getOrDefault(false)
         toast(ctx, if (ok) "已删除：${f.name}" else "删除失败：${f.name}")
-    }
-
-    private fun guessMime(name: String): String? = when {
-        name.endsWith(".apk", true) -> "application/vnd.android.package-archive"
-        name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"
-        name.endsWith(".png", true) -> "image/png"
-        name.endsWith(".gif", true) -> "image/gif"
-        name.endsWith(".mp4", true) -> "video/mp4"
-        name.endsWith(".mkv", true) -> "video/x-matroska"
-        name.endsWith(".mp3", true) -> "audio/mpeg"
-        name.endsWith(".txt", true) -> "text/plain"
-        name.endsWith(".pdf", true) -> "application/pdf"
-        name.endsWith(".zip", true) -> "application/zip"
-        else -> null
     }
 
     private fun toast(ctx: Context, msg: String) {

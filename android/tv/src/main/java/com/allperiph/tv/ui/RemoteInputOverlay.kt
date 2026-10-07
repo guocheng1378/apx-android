@@ -30,10 +30,16 @@ class RemoteInputOverlay(
     fun show(fromDevice: String, hint: String) {
         if (isShowing) return
         isShowing = true
+        // 本机正在替对端输入：此时本机输入框获焦不能再反向请求对端（否则两边来回弹输入法）
+        com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = true
         // 浮层可能由任意 Activity / Service 拉起，这里补一次色板绑定，确保所有入口都取到资源色
         TvUi.bindColors(activity)
         val dp = { v: Float -> (v * activity.resources.displayMetrics.density + 0.5f).toInt() }
-        val mask = View(activity).apply { setBackgroundColor(TvUi.Pal.mask) }
+        // 遮罩必须可点击：否则触摸事件会穿透到下层主界面，遥控器焦点也能跑到后面的按钮上
+        val mask = View(activity).apply {
+            setBackgroundColor(TvUi.Pal.mask)
+            isClickable = true
+        }
         val panel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(TvUi.Pal.card)
@@ -79,8 +85,25 @@ class RemoteInputOverlay(
         input.post { val imm = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager; imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT) }
     }
 
-    fun hide() { if (!isShowing) return; isShowing = false; overlay?.let { rootLayout.removeView(it) }; overlay = null; mEditText = null; val imm = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager; imm.hideSoftInputFromWindow(rootLayout.windowToken, 0) }
+    fun hide() {
+        com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = false
+        if (!isShowing) return; isShowing = false; overlay?.let { rootLayout.removeView(it) }; overlay = null; mEditText = null; val imm = activity.getSystemService(Activity.INPUT_METHOD_SERVICE) as InputMethodManager; imm.hideSoftInputFromWindow(rootLayout.windowToken, 0)
+    }
     fun isActive(): Boolean = isShowing
+
+    /**
+     * 遥控器按「返回」时的收尾（由 Activity 的 onBackPressed 转过来）。
+     *
+     * 以前浮层没有接管返回键：电视上按返回会直接 finish 掉 Activity，浮层被连带销毁，
+     * [onCancel]（也就是服务端的 `sendInputDone`）**永远发不出去** —— 手机/PC 那边的
+     * 输入态一直挂着。这里走与「取消」按钮完全相同的收尾。
+     */
+    fun cancelFromBack() {
+        if (!isShowing) return
+        onTextChanged("", 0x08)
+        onCancel()
+        hide()
+    }
 
     /**
      * 取消 / 发送按钮（v1.33）：补齐最小触控尺寸、可聚焦与无障碍描述。

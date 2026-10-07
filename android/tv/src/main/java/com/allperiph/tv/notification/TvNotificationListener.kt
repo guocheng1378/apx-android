@@ -28,7 +28,13 @@ class TvNotificationListener : NotificationListenerService() {
         // 过滤低优先级通知（如 ongoing 系统通知）
         if (sbn.isOngoing) return
 
-        val data = NotificationData.from(sbn) ?: return
+        // 解析失败绝不能让 binder 回调崩掉：通知监听服务一崩，用户得重新去系统里授权
+        val data = try {
+            NotificationData.from(sbn)
+        } catch (t: Throwable) {
+            Log.w(TAG, "通知解析失败：${t.message}")
+            null
+        } ?: return
         NotificationQueue.offer(data)
         Log.i(TAG, "通知已入队: ${data.packageName} - ${data.title}（${data.text.take(30)}）")
     }

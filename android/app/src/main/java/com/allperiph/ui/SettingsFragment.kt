@@ -120,15 +120,23 @@ class SettingsFragment : Fragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? = null
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        val h = host ?: return
-        val act = activity ?: return
+    /**
+     * 绑定并校验设置页容器（**懒绑定，可重试**，与 StatusFragment.ensureViews() 同款）。
+     *
+     * ⚠️ 绑定**不能只放在 onViewCreated 里**：本 Fragment 的 [onCreateView] 返回 null（复用宿主
+     * Activity 的视图层级，不独立 inflate），而平台 android.app.Fragment 在 view == null 时
+     * **根本不会调用 onViewCreated**（FragmentManagerImpl 里 `if (f.mView != null)` 才调）。
+     * 实测真机后果：设置页除「功能开关」（由 StatusFragment 代渲染）外**全部空白** ——
+     * 模板显示"—"、主题/配色/背景/TV控制/文件/键位映射全空、四个分段点了没反应，
+     * 因为每个渲染入口的 `if (!viewsBound) return` 都被吞掉，且此后没有任何重试机会。
+     * 改成懒绑定后，任一渲染入口进来都能补绑一次，横屏/竖屏都不再依赖生命周期时机。
+     */
+    private fun ensureViews(): Boolean {
+        if (viewsBound) return true
+        if (host == null) return false
+        val act = activity ?: return false
 
-        // ⚠️ 横屏布局（layout-land/activity_main.xml）里**没有**下面这些容器（只有触控板/键盘页的 id）。
-        // v196 之前是把可能为 null 的 findViewById 结果直接赋给 lateinit var —— 之后任意访问
-        // 都抛 UninitializedPropertyAccessException，横屏启动必崩。现在统一探测：
-        // 缺任一容器就整体不渲染（Activity 自己那套渲染逻辑仍然可用，横屏不至于崩）。
+        // 缺任一容器就整体不渲染（宿主布局不同朝向可能有差异，宁可不画也不要崩）
         val requiredIds = listOf(
             R.id.templatesBox, R.id.tvTemplateCurrent, R.id.btnToggleTemplates,
             R.id.themeBox, R.id.skinBox, R.id.fxBox, R.id.tvBox,
@@ -138,12 +146,10 @@ class SettingsFragment : Fragment() {
         if (missing.isNotEmpty()) {
             com.allperiph.shared.util.Log.w(
                 TAG,
-                "宿主布局缺少 ${missing.size}/${requiredIds.size} 个设置页容器（横屏布局？），本次跳过渲染",
+                "宿主布局缺少 ${missing.size}/${requiredIds.size} 个设置页容器，本次跳过渲染",
             )
-            return
+            return false
         }
-        // 全部容器就位：放开渲染入口的守卫（此后 renderXxx 才真正干活）
-        viewsBound = true
 
         templatesBox = act.findViewById(R.id.templatesBox)
         tvTemplateCurrent = act.findViewById(R.id.tvTemplateCurrent)
@@ -159,9 +165,17 @@ class SettingsFragment : Fragment() {
         act.findViewById<View>(R.id.rowTemplateCurrent).setOnClickListener { toggleTemplates() }
         btnToggleTemplates.setOnClickListener { toggleTemplates() }
 
+        // 先置位再渲染：下面这几个方法自身也会过 ensureViews()，避免递归重入
+        viewsBound = true
         setupSettingsTabs()
         renderFile()
         renderKeymap()
+        return true
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        ensureViews()
     }
 
     override fun onDetach() {
@@ -172,7 +186,7 @@ class SettingsFragment : Fragment() {
     // ==================== Settings tabs ====================
 
     fun setupSettingsTabs() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val act = activity ?: return
         val tabs = listOf(
             act.findViewById<TextView>(R.id.tabSegGeneral),
@@ -204,14 +218,14 @@ class SettingsFragment : Fragment() {
     // ==================== Templates ====================
 
     fun toggleTemplates() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val show = templatesBox.visibility != View.VISIBLE
         templatesBox.visibility = if (show) View.VISIBLE else View.GONE
         btnToggleTemplates.text = if (show) getString(R.string.ui_main_template_collapse) else getString(R.string.ui_main_template_expand)
     }
 
     fun renderTemplates() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         templatesBox.removeAllViews()
         customTemplates = HotkeyStore.loadCustom(activity)
@@ -393,7 +407,7 @@ class SettingsFragment : Fragment() {
     // ==================== Theme ====================
 
     fun renderTheme() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         themeBox.removeAllViews()
         val current = ThemePref.get(activity)
@@ -428,7 +442,7 @@ class SettingsFragment : Fragment() {
     // ==================== Skins & FX ====================
 
     fun renderSkins() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         skinBox.removeAllViews()
         ThemeSkin.SCOPES.forEach { (scope, title) ->
@@ -438,7 +452,7 @@ class SettingsFragment : Fragment() {
     }
 
     fun renderFx() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         fxBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
@@ -519,7 +533,7 @@ class SettingsFragment : Fragment() {
     // ==================== TV / PC control ====================
 
     fun renderTv() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         tvBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
@@ -607,7 +621,7 @@ class SettingsFragment : Fragment() {
     // ==================== File ====================
 
     fun renderFile() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         fileBox.removeAllViews()
         val accent = resources.getColor(R.color.md_primary)
         fileBox.addView(settingRow(getString(R.string.ui_main_label_file_send), getString(R.string.ui_main_btn_file), accent) { pickFileToSend() })
@@ -637,7 +651,7 @@ class SettingsFragment : Fragment() {
     // ==================== Keymap ====================
 
     fun renderKeymap() {
-        if (!viewsBound) return
+        if (!ensureViews()) return
         val h = host ?: return
         keymapBox.removeAllViews()
         val lines = listOf(
@@ -660,6 +674,7 @@ class SettingsFragment : Fragment() {
     // ==================== Hotkey sort ====================
 
     fun bindHotkeySort() {
+        if (!ensureViews()) return
         val h = host ?: return
         swHotkeySort.isChecked = HotkeyStore.isAutoSort(activity)
         swHotkeySort.setOnCheckedChangeListener { _, on ->
@@ -669,6 +684,7 @@ class SettingsFragment : Fragment() {
     }
 
     fun syncSortSwitch() {
+        if (!ensureViews()) return
         val on = HotkeyStore.isAutoSort(activity)
         if (swHotkeySort.isChecked != on) swHotkeySort.isChecked = on
     }

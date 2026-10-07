@@ -115,6 +115,19 @@ WirelessSession::WirelessSession() {
                       static_cast<unsigned>(text.size()));
     };
 
+    // 反向远程输入（0x25）：对端（手机 / TV）请**本机**输入 —— 三端对等的另一半。
+    // 此前 client_.onRequestInput 从未注册：手机 / TV 喊电脑打字时，电脑完全没反应。
+    // 回调同样跑在 reader 线程，这里只做一次带锁转发；**建窗口必须由 UI 层自己 Post**
+    // （跨线程 CreateWindow 会消息泵错乱）。
+    client_.onRequestInput = [this](const std::string& hint) {
+        std::function<void(const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onRequestInput_;
+        }
+        if (cb) cb(hint);
+    };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -302,6 +315,21 @@ bool WirelessSession::connected() const { return client_.ready(); }
 bool WirelessSession::requestInput(const std::string& hint) {
     if (!client_.ready()) return false;
     return client_.sendRequestInput(hint);
+}
+
+void WirelessSession::setOnRequestInput(std::function<void(const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onRequestInput_ = std::move(cb);
+}
+
+bool WirelessSession::sendInputText(const std::string& text, uint8_t flags) {
+    if (!client_.ready()) return false;
+    return client_.sendInputText(text, flags);
+}
+
+bool WirelessSession::sendInputDone() {
+    if (!client_.ready()) return false;
+    return client_.sendInputDone();
 }
 
 #if defined(_WIN32)

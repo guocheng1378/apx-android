@@ -59,7 +59,31 @@ class TouchpadFragment : Fragment() {
     private var lastShown = 0L
 
     private val dragTask = Runnable {
-        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.armDrag()
+        val m = AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule
+        // 锁定成功才提示：手指移动过多 / 多指时锁不上，这时候弹提示是误导
+        if (m?.armDrag() == true) showDragHint()
+    }
+
+    /**
+     * 长按锁定拖拽的**可见**提示 —— 光震动不够：手指此刻正压在屏幕上、液态光标被手挡住，
+     * 而设置页的震动档位是可以关掉的（关掉后长按就完全没有反馈了）。
+     * 所以补一行文字，1.6s 后自行收起，不占用常态布局。
+     */
+    private fun showDragHint() {
+        if (!::touchHint.isInitialized) return
+        touchHint.setText(R.string.ui_touchpad_text_drag_locked)
+        touchHint.visibility = View.VISIBLE
+        handler.removeCallbacks(hideHintTask)
+        handler.postDelayed(hideHintTask, 1600)
+    }
+
+    private val hideHintTask = Runnable {
+        if (::touchHint.isInitialized) touchHint.visibility = View.INVISIBLE
+    }
+
+    /** 双指长按 → 右键拖拽（与左键拖拽对称；armRightDrag 此前全仓库零调用） */
+    private val rightDragTask = Runnable {
+        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.armRightDrag()
     }
 
     companion object {
@@ -95,6 +119,8 @@ class TouchpadFragment : Fragment() {
 
     override fun onDetach() {
         handler.removeCallbacks(dragTask)
+        handler.removeCallbacks(rightDragTask)
+        handler.removeCallbacks(hideHintTask)
         host = null
         super.onDetach()
     }
@@ -115,7 +141,11 @@ class TouchpadFragment : Fragment() {
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> handler.postDelayed(dragTask, 550)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> handler.removeCallbacks(dragTask)
+            MotionEvent.ACTION_POINTER_DOWN -> if (ev.pointerCount == 2) handler.postDelayed(rightDragTask, 550)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                handler.removeCallbacks(dragTask)
+                handler.removeCallbacks(rightDragTask)
+            }
         }
         h.feedGesture(ev)
 

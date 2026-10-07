@@ -277,6 +277,9 @@ endif()
 set(APXPC_UI_SRC
   "${APXPC_ROOT}/src/ui/panel_win32.cpp"
   "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
+  # 「对端请你输入」窗口：接 0x25（手机 / TV 反过来请电脑打字）。与手机端
+  # RemoteInputActivity、TV 端 RemoteInputOverlay 对齐，补上电脑端"只发不收"的缺口。
+  "${APXPC_ROOT}/src/ui/remote_input_win32.cpp"
   # 「设置…」二级窗口：承载原 Web 面板里**真有实现**的那些设置（自适应码率 / 日志级别 /
   # 诊断导出 / 重新扫描 / 编码器信息 / 热键重置）。放二级窗口是为了不动主面板的自绘布局。
   "${APXPC_ROOT}/src/ui/settings_win32.cpp"

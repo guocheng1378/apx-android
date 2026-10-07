@@ -41,11 +41,15 @@ class MainActivity : android.app.Activity() {
     private lateinit var overlay: RemoteInputOverlay
     private lateinit var statusTv: TextView
     private lateinit var injectTv: TextView
+    /** 对端正在操作时的实时提示（由 TvInputDispatcher 驱动） */
+    private lateinit var liveTv: TextView
     private lateinit var toggleService: TextView
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
         override fun run() { refreshUI(); handler.postDelayed(this, 2000) }
     }
+    /** 当前弹窗：Activity 销毁时必须 dismiss，否则 WindowLeaked */
+    private var dialog: android.app.AlertDialog? = null
 
     private val remoteInputReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -60,6 +64,47 @@ class MainActivity : android.app.Activity() {
 
     private val pad get() = TvUi.safeInset(this)
     private val gap get() = TvUi.dp(this, 10f)
+
+    /**
+     * 对端操作的实时反馈。
+     *
+     * 服务在每一个输入帧上都调 `TvInputDispatcher.xxx()`，但**全仓库没有任何一处给
+     * [TvInputDispatcher.listener] 赋值** —— 那整条链路一直是空转的死代码。这里把它接上：
+     * 光标位置由 TvOverlay 直接画出来（且是高频），所以只反馈"点按/按键/打字/手柄"这类
+     * 离散动作，让用户知道手机确实在控制这台电视。
+     *
+     * ⚠️ 回调来自 apx-inject 后台线程（`ControlServer` 的派发线程），操作 View 必须先切回主线程。
+     */
+    private val inputListener = object : TvInputDispatcher.Listener {
+        override fun onCursorMove(x: Float, y: Float, absolute: Boolean) {
+            // 每秒几十次：交给光标浮层画，这里不刷新界面
+        }
+        override fun onCursorClick() { noteInput("点按") }
+        override fun onKey(keyCode: Int, down: Boolean) { if (down) noteInput("按键") }
+        override fun onText(ch: Char) { noteInput("打字") }
+        override fun onGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) { noteInput("手柄") }
+        override fun onPeer(connected: Boolean, peer: String) {
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                liveTv.text = if (connected && peer.isNotBlank()) "已连入：$peer" else ""
+            }
+        }
+    }
+
+    private var lastInputNoteMs = 0L
+    private val clearLive = Runnable { if (::liveTv.isInitialized) liveTv.text = "" }
+
+    private fun noteInput(what: String) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastInputNoteMs < 400) return   // 打字/移动会连发，别每帧都刷界面
+        lastInputNoteMs = now
+        runOnUiThread {
+            if (isFinishing || !::liveTv.isInitialized) return@runOnUiThread
+            liveTv.text = "对方正在$what"
+            handler.removeCallbacks(clearLive)
+            handler.postDelayed(clearLive, 1500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,9 +134,38 @@ class MainActivity : android.app.Activity() {
         }, 2500)
     }
 
-    override fun onResume() { super.onResume(); handler.post(refreshRunnable) }
-    override fun onPause() { handler.removeCallbacks(refreshRunnable); super.onPause() }
-    override fun onDestroy() { try { unregisterReceiver(remoteInputReceiver) } catch (_: Exception) {}; super.onDestroy() }
+    override fun onBackPressed() {
+        // 浮层开着时按返回 = 取消远程输入。以前没接管：电视上按返回会直接 finish 掉本页，
+        // 浮层被连带销毁，onCancel（服务端的 sendInputDone）永远发不出去 —— 对端输入态悬挂。
+        if (::overlay.isInitialized && overlay.isActive()) {
+            overlay.cancelFromBack()
+            return
+        }
+        super.onBackPressed()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 只有界面在前台时才需要对端操作反馈（后台时服务照常工作，只是没人看）
+        TvInputDispatcher.listener = inputListener
+        handler.post(refreshRunnable)
+    }
+
+    override fun onPause() {
+        TvInputDispatcher.listener = null
+        handler.removeCallbacks(refreshRunnable)
+        super.onPause()
+    }
+    override fun onDestroy() {
+        // 这两件事以前都没做：① 未取消的 postDelayed 会在 Activity 销毁后照样执行 ——
+        // 「开启无障碍」那条会在用户已经退出后**强行拉起系统设置页**；
+        // ② 弹窗不 dismiss → Activity 销毁时报 WindowLeaked。
+        handler.removeCallbacksAndMessages(null)
+        dialog?.dismiss()
+        dialog = null
+        try { unregisterReceiver(remoteInputReceiver) } catch (_: Exception) {}
+        super.onDestroy()
+    }
 
     // ————————————————————————————— 界面 —————————————————————————————
 
@@ -113,12 +187,11 @@ class MainActivity : android.app.Activity() {
         statusTv = mkText("", TvUi.Type.TITLE, TvUi.Pal.text)
         col.addView(statusTv)
 
-        // ---- 本机地址 + 连法：只有真有个地址可报时才显示 ----
-        val addr = ControlServer.localIpv4()
-        if (addr != null) {
-            col.addView(mkText(getString(R.string.tv_addr, addr), TvUi.Type.CAPTION, TvUi.Pal.textDim))
-            col.addView(mkText(getString(R.string.tv_addr_hint), TvUi.Type.MICRO, TvUi.Pal.textWeak))
-        }
+        // ---- 本机地址 + 连法：只有真有个地址可报时才显示（后台取，见 loadAsync） ----
+        val addrTv = mkText("", TvUi.Type.CAPTION, TvUi.Pal.textDim).apply { visibility = View.GONE }
+        val addrHintTv = mkText("", TvUi.Type.MICRO, TvUi.Pal.textWeak).apply { visibility = View.GONE }
+        col.addView(addrTv)
+        col.addView(addrHintTv)
 
         // ---- 这台电视现在能被怎么控制（注入通道能力，说人话） ----
         injectTv = TextView(this).apply {
@@ -128,6 +201,12 @@ class MainActivity : android.app.Activity() {
             setPadding(0, gap / 2, 0, 0)
         }
         col.addView(injectTv)
+        liveTv = TextView(this).apply {
+            setTextColor(TvUi.Pal.accent)
+            TvUi.applyTextSize(this, TvUi.Type.CAPTION)
+            setPadding(0, gap / 4, 0, 0)
+        }
+        col.addView(liveTv)
         col.addView(spacer(gap.toFloat()))
 
         // ---- 动作按钮 ----
@@ -148,21 +227,47 @@ class MainActivity : android.app.Activity() {
         // ---- 收到的文件（空态告诉用户怎么让它不空） ----
         col.addView(mkText(getString(R.string.tv_files_title), TvUi.Type.TITLE, TvUi.Pal.text, Typeface.DEFAULT_BOLD))
         col.addView(spacer(4f))
-        val received = TvFiles.listReceived(this).take(10)
-        if (received.isNotEmpty()) {
-            for (f in received) {
-                col.addView(mkText("  ${f.name}（${TvFiles.sizeText(f.length())}）", TvUi.Type.MICRO, TvUi.Pal.textDim))
-            }
-        } else {
-            col.addView(mkText(getString(R.string.tv_files_empty), TvUi.Type.MICRO, TvUi.Pal.textDim))
-        }
+        // 内容由 loadAsync 后台填（读磁盘目录不能堵主线程）
+        val filesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(filesBox)
 
         col.addView(spacer(gap.toFloat()))
         col.addView(mkText(getString(R.string.tv_ime_hint), TvUi.Type.MICRO, TvUi.Pal.textWeak))
 
-        setContentView(root)
+        loadAsync(addrTv, addrHintTv, filesBox)
         refreshUI()
+        // 由 onCreate 的 setContentView(buildUi()) 挂载 —— 这里不要再 setContentView 一次
         return root
+    }
+
+    /**
+     * 地址与文件清单都要碰系统（遍历网卡 / 读目录），电视的存储在同类设备里偏慢，
+     * 放在主线程会明显拖慢启动。这里后台取，回来填进占位 View。
+     */
+    private fun loadAsync(addrTv: TextView, addrHintTv: TextView, filesBox: LinearLayout) {
+        Thread({
+            val addr = ControlServer.localIpv4()
+            val files = TvFiles.listReceived(this).take(10)
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                if (addr != null) {
+                    addrTv.text = getString(R.string.tv_addr, addr)
+                    addrTv.visibility = View.VISIBLE
+                    addrHintTv.text = getString(R.string.tv_addr_hint)
+                    addrHintTv.visibility = View.VISIBLE
+                }
+                filesBox.removeAllViews()
+                if (files.isEmpty()) {
+                    filesBox.addView(mkText(getString(R.string.tv_files_empty), TvUi.Type.MICRO, TvUi.Pal.textDim))
+                } else {
+                    for (f in files) {
+                        filesBox.addView(
+                            mkText("  ${f.name}（${TvFiles.sizeText(f.length())}）", TvUi.Type.MICRO, TvUi.Pal.textDim)
+                        )
+                    }
+                }
+            }
+        }, "apx-tv-ui-io").apply { isDaemon = true; start() }
     }
 
     private fun refreshUI() {
@@ -211,7 +316,7 @@ class MainActivity : android.app.Activity() {
     /** 「停止接受控制」会立刻断开所有控制端，先确认再执行 */
     private fun confirmToggleService() {
         val enabling = !TvServerService.isEnabled(this)
-        AlertDialog.Builder(this)
+        dialog = AlertDialog.Builder(this)
             .setTitle(getString(if (enabling) R.string.tv_confirm_start_title else R.string.tv_confirm_stop_title))
             .setMessage(getString(if (enabling) R.string.tv_confirm_start_body else R.string.tv_confirm_stop_body))
             .setPositiveButton(getString(if (enabling) R.string.tv_confirm_start_ok else R.string.tv_confirm_stop_ok)) { _, _ ->

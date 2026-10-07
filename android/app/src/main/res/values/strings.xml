@@ -148,6 +148,7 @@
     <string name="ui_touchpad_text_file">文件</string>
     <string name="ui_touchpad_text_clipboard">剪贴板</string>
     <string name="ui_touchpad_text_cursor_swipe">在此区域滑动控制光标</string>
+    <string name="ui_touchpad_text_drag_locked">已锁定拖拽 —— 移动手指即可拖动</string>
     <string name="ui_touchpad_text_hotkey">常用快捷键</string>
     <string name="ui_common_edit">编辑</string>
     <string name="ui_touchpad_toast_device_connect_not">还没连上手机</string>

@@ -144,9 +144,11 @@ class TouchpadModule : Module {
     override fun start(ctx: ModuleContext) {
         state = ModuleState.STARTING
         ctxRef = ctx
-        engineRef.set(GestureEngine(object : TouchpadSink {
+        val eng = GestureEngine(object : TouchpadSink {
             override fun send(f: TouchpadFrame) { dispatch(ctx, f) }
-        }))
+        })
+        eng.onFeedback = { kind -> onGestureFeedback(kind) }
+        engineRef.set(eng)
         state = ModuleState.RUNNING
         Log.i(TAG, "触控板模块已启动")
     }
@@ -202,32 +204,34 @@ class TouchpadModule : Module {
         }
     }
 
-    /** Drag support */
-    fun armDrag() {
-        val eng = engineRef.get() ?: return
-        val locked = eng.armDrag()
-        val now = System.currentTimeMillis()
-        if (!locked || now - lastBuzzAt < 900) return
-        lastBuzzAt = now
-        val app = ctxRef?.appContext ?: return
-        val vib = if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val vm = app.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
-            vm?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            app.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-        }
-        // v196：震动只是"长按已锁定"的提示，而这个调用点在 handler 线程里 ——
-        // 缺 VIBRATE 权限或厂商 ROM 限制时 vibrate() 抛 SecurityException 就是一次闪退。
-        // 失败只记日志，绝不影响拖拽功能本身。
-        runCatching {
-            vib?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
-        }.onFailure {
-            com.allperiph.shared.util.Log.w("TouchpadModule", "震动反馈失败：${it.message}")
-        }
-    }
+    /**
+     * Drag support：长按 550ms 锁定拖拽。
+     * @return 是否真的锁定（手指移动过多 / 多指时锁不上，调用方据此决定要不要给提示）
+     */
+    fun armDrag(): Boolean = engineRef.get()?.armDrag() ?: false
 
     @Volatile private var lastBuzzAt = 0L
+    @Volatile private var lastBuzzKind: GestureFeedback? = null
+
+    /**
+     * 手势里程碑反馈。只在这些"状态切换点"震一下，滑动过程中的每一帧都不震。
+     *
+     * ★ 统一走 [com.allperiph.ui.Feedback]，不再自己拿 Vibrator：
+     *   1. 此前用 `createPredefined(EFFECT_CLICK)`，各 ROM 对预置效果支持不一，
+     *      不少机型直接没反应 —— 就是用户报的"长按没震动"；
+     *   2. 那条路还绕开了 [com.allperiph.ui.ThemeSkin.hapticIndex] 档位，
+     *      设置里选了"关"照样震。
+     * 现在振幅/时长自己给，且尊重用户的档位设置。
+     */
+    private fun onGestureFeedback(kind: GestureFeedback) {
+        val app = ctxRef?.appContext ?: return
+        val now = System.currentTimeMillis()
+        // 节流：捏合会连续跨阈值，同一里程碑 250ms 内只认一次
+        if (now - lastBuzzAt < 250 && lastBuzzKind == kind) return
+        lastBuzzAt = now
+        lastBuzzKind = kind
+        com.allperiph.ui.Feedback.haptic(app)
+    }
 
     /** Right-click drag */
     fun armRightDrag() {

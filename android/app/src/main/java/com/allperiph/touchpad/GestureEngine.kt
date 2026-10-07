@@ -19,6 +19,19 @@ data class TouchpadFrame(
 interface TouchpadSink { fun send(f: TouchpadFrame) }
 
 /**
+ * 手势里程碑：**只在这些状态切换点**给一次震动反馈。
+ * 滑动过程中的每一帧都不算里程碑 —— 逐帧震会变成持续嗡嗡声，也很费电。
+ */
+enum class GestureFeedback {
+    DRAG_LOCK,      // 长按锁定拖拽（现在可以拖了）
+    SCROLL_ENTER,   // 双指滑动进入滚动
+    ZOOM,           // 捏合跨过缩放阈值
+    RIGHT_TAP,      // 双指点按 → 右键
+    RIGHT_DRAG,     // 双指长按 → 右键拖拽
+    MIDDLE,         // 三指按下 → 中键
+}
+
+/**
  * 手势识别：单指移动/点按、双指滚动、双指右键、三指中键。
  * 只产出相对增量，保证跟手（手势在手机端识别，架构 §4）。
  *
@@ -27,6 +40,9 @@ interface TouchpadSink { fun send(f: TouchpadFrame) }
  * 优化 #9：centroid + fingerDist 合并为 singlePassCentroidDist。
  */
 class GestureEngine(private val sink: TouchpadSink) {
+    /** 手势里程碑回调（震动 / 声音）。引擎层不碰 Android API，由外层注入实现。 */
+    var onFeedback: ((GestureFeedback) -> Unit)? = null
+
     var sensitivity = 1.0f
     var scrollStep = 1
     var acceleration = 0.4f
@@ -89,6 +105,7 @@ class GestureEngine(private val sink: TouchpadSink) {
     private var twoFingerCy = 0f
     private var twoFingerDownTime = 0L
     private var twoFingerBaseDist = 0f
+    private var scrollEntered = false      // 本轮双指滑动是否已给过"进入滚动"反馈
     @Volatile private var lastTwoTapSent = 0L
     private var dragArmed = false
     private var dragSent = false
@@ -109,6 +126,9 @@ class GestureEngine(private val sink: TouchpadSink) {
             return false
         }
         dragArmed = true
+        // ★ 锁定这一刻给一次反馈：用户手指没离开屏幕，看不到任何视觉变化，
+        //   不震一下就完全不知道"已经可以拖了"。
+        onFeedback?.invoke(GestureFeedback.DRAG_LOCK)
         com.allperiph.shared.util.Log.i("GestureEngine", "armDrag LOCKED")
         return true
     }
@@ -116,6 +136,7 @@ class GestureEngine(private val sink: TouchpadSink) {
     fun armRightDrag() {
         if (activePointers < 2) return
         pendingButtons = pendingButtons or 0x02  // bit1 = right click
+        onFeedback?.invoke(GestureFeedback.RIGHT_DRAG)
         com.allperiph.shared.util.Log.i("GestureEngine", "armRightDrag: buttons=$pendingButtons")
     }
 
@@ -125,6 +146,8 @@ class GestureEngine(private val sink: TouchpadSink) {
                 lastX = ev.x; lastY = ev.y; downX = ev.x; downY = ev.y
                 downTime = ev.eventTime; activePointers = 1; pendingButtons = 0
                 dragArmed = false; dragSent = false
+                scrollEntered = false
+                twoFingerBaseDist = 0f      // 新的一次触摸：捏合基线重新量
                 stopInertia()
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -133,7 +156,12 @@ class GestureEngine(private val sink: TouchpadSink) {
                     twoFingerDownTime = ev.eventTime
                     val (cx, cy) = centroid(ev)
                     twoFingerCx = cx; twoFingerCy = cy
+                    // ★ 捏合基线：这个字段此前**从来没有赋过值**，恒为 0，于是下面
+                    //   `if (twoFingerBaseDist > 0f)` 永远进不去 —— 双指捏合缩放（Consumer
+                    //   Report 的缩放位）等于完全失效，用户怎么捏都没反应。
+                    twoFingerBaseDist = fingerDist(ev)
                 }
+                scrollEntered = false
                 dragArmed = false
                 if (dragSent) { sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L)); dragSent = false }
             }
@@ -149,6 +177,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                             lastTwoTapSent = now
                             sink.send(TouchpadFrame(0, 0, 0x02, tsNs = now * 1_000_000L))
                             sink.send(TouchpadFrame(0, 0, 0x00, tsNs = now * 1_000_000L))
+                            onFeedback?.invoke(GestureFeedback.RIGHT_TAP)
                         }
                     }
                     twoFingerDownTime = 0L
@@ -218,6 +247,8 @@ class GestureEngine(private val sink: TouchpadSink) {
                         val zoomBit = if (scale > 1f) 0x0080 else 0x0100
                         sink.send(TouchpadFrame(0, 0, 0, consumer = zoomBit, tsNs = ev.eventTime * 1_000_000L))
                         sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L))
+                        // 缩放是离散的"咔哒"（每跨一次阈值发一帧），逐次震是对的
+                        onFeedback?.invoke(GestureFeedback.ZOOM)
                         lastX = ev.x; lastY = ev.y
                         return
                     }
@@ -228,6 +259,12 @@ class GestureEngine(private val sink: TouchpadSink) {
                 lastX = cx; lastY = cy
                 val w = -(dy * scrollStep).toInt()
                 val p = (dx * scrollStep).toInt()
+                // ★ 双指滑动**进入**滚动这一刻震一下：区分"移动光标"和"滚动页面"。
+                //   之后每帧都不震 —— 那会变成持续嗡嗡声。抬起再落下是新的一轮，会再震。
+                if (!scrollEntered && (w != 0 || p != 0)) {
+                    scrollEntered = true
+                    onFeedback?.invoke(GestureFeedback.SCROLL_ENTER)
+                }
                 kickInertia(w, p, System.currentTimeMillis())
                 sink.send(TouchpadFrame(0, 0, pendingButtons, wheel = w, pan = p, tsNs = ev.eventTime * 1_000_000L))
             }
@@ -235,6 +272,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                 if (pendingButtons and 0x04 == 0) {
                     pendingButtons = pendingButtons or 0x04
                     sink.send(TouchpadFrame(0, 0, pendingButtons, tsNs = ev.eventTime * 1_000_000L))
+                    onFeedback?.invoke(GestureFeedback.MIDDLE)
                 }
             }
         }

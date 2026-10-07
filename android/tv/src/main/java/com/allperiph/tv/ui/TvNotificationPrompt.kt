@@ -7,7 +7,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.LinearLayout
@@ -41,11 +40,14 @@ object TvNotificationPrompt {
         } else {
             WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
         }
+        // ⚠️ 这是**纯展示**卡片（只有三行文字，没有任何按钮），绝不能抢遥控器焦点：
+        // 以前 flags=0 + isFocusable=true，那 5 秒里用户正在看的内容收不到方向键/确认键，
+        // 返回键也被这张卡吃掉。改成不可聚焦，且不吞掉窗口之外的触摸。
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             type,
-            0,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = TvUi.dp(app, 48f) }
         try {
@@ -73,12 +75,7 @@ object TvNotificationPrompt {
             orientation = LinearLayout.VERTICAL
             setPadding(gap * 2, gap * 2, gap * 2, gap * 2)
             background = TvUi.solidBg(TvUi.Pal.card, TvUi.dp(ctx, TvUi.Radius.CARD))
-            isFocusable = true
-            setOnKeyListener { _, keyCode, ev ->
-                if (ev?.action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_BACK) {
-                    dismiss(); true
-                } else false
-            }
+            // 不可聚焦（见 show() 里 flags 的说明）：4 秒后自动消失，期间不干扰遥控器
         }
 
         // 来源 App 标签

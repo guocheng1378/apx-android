@@ -139,6 +139,12 @@ class TouchpadActivity : Activity() {
         (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armDrag()
     }
 
+    // 右键拖拽：**此前 armRightDrag() 全仓库零调用**，双指长按没有任何入口 ——
+    // 与上面的左键拖拽对称：双指落下后 550ms 锁定右键拖拽。
+    private val rightDragTask = Runnable {
+        (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armRightDrag()
+    }
+
     // 媒体音量按住连发
     private var volRepeat: Runnable? = null
 
@@ -864,6 +870,7 @@ class TouchpadActivity : Activity() {
     private fun showPage(i: Int) {
         if (i !in pages.indices) return
         handler.removeCallbacks(dragTask)
+        handler.removeCallbacks(rightDragTask)
         flipper.displayedChild = i
         titleView?.text = pages[i].title
         subView?.text = pages[i].sub
@@ -963,6 +970,10 @@ class TouchpadActivity : Activity() {
                 ) ev.x else -1f
                 if (edgeStartX < 0f) handler.postDelayed(dragTask, 550)
             }
+            // 第二指落下 = 双指长按的起点（右键拖拽）；边缘手势期间不抢
+            MotionEvent.ACTION_POINTER_DOWN -> if (ev.pointerCount == 2 && edgeStartX < 0f) {
+                handler.postDelayed(rightDragTask, 550)
+            }
             MotionEvent.ACTION_MOVE -> if (edgeStartX >= 0f && !edgeSwiped) {
                 val dx = ev.x - edgeStartX
                 if (abs(dx) > dp(80)) {
@@ -973,6 +984,7 @@ class TouchpadActivity : Activity() {
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(dragTask)
+                handler.removeCallbacks(rightDragTask)
                 edgeStartX = -1f
             }
         }
@@ -1139,7 +1151,15 @@ class TouchpadActivity : Activity() {
             val c = TvControllerClient(ip, port)
             val ok = c.connect()
             runOnUiThread {
+                // connect() 最长阻塞 5s，期间用户可能已经退出页面
+                if (isFinishing || isDestroyed) {
+                    c.disconnect()
+                    return@runOnUiThread
+                }
                 if (ok) {
+                    // 先断开旧连接：否则旧实例仍在 running，readerLoop 会每 2s 无限重连旧 IP，
+                    // 并留下 socket + tx/ping/reconn 线程（与 MainActivity 同一处修复）
+                    ControlTarget.controlClient?.takeIf { it !== c }?.disconnect()
                     ControlTarget.controlClient = c
                     ControlTarget.host = ip
                     ControlTarget.label = name
