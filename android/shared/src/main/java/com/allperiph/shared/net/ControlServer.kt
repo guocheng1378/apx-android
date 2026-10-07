@@ -88,17 +88,10 @@ class ControlServer(
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
-    // v184：pressedKeys 会被**握手线程**（activate 里 clear）与**主线程**
-    // （onKeyboard 里遍历/改写）同时访问，裸 HashSet 竞态会导致漏释放（按键卡住）
-    // 甚至遍历时抛 ConcurrentModificationException。所有访问纳入同一把锁。
     private val keysLock = Any()
     private val pressedKeys = HashSet<Int>()
-    // 与 pressedKeys 共用 keysLock：所有读写必须在 synchronized(keysLock) 内
     private var lastButtons = 0
 
-    // v184：注入动作的执行线程 —— actions 里的注入路径会调用 RootInput.run
-    // （往 su 管道写命令，管道满或 su 卡住时**阻塞**）以及无障碍手势 API，
-    // 放在主线程执行就是一次 ANR 隐患。单线程队列保证按键/滑动/点击的先后顺序不变。
     private val injectThread = android.os.HandlerThread("apx-inject").apply { start() }
     private val injectHandler = Handler(injectThread.looper)
 
@@ -120,10 +113,8 @@ class ControlServer(
 
     fun stop() {
         running.set(false); outQueue.clear()
-        // v1.7：先把"抬起所有按键"排进注入队列，**再** quitSafely ——
-        // quitSafely 会先把已入队的任务跑完再退出，顺序反过来这次释放就丢了。
         runCatching { injectHandler.post { releaseAllInputs() } }
-        runCatching { injectThread.quitSafely() }   // v184：收掉注入线程
+        runCatching { injectThread.quitSafely() }
         runCatching { client?.close() }; runCatching { server?.close() }
         server = null; client = null; out = null; peerText = ""; ready = false
         acceptThread = null; readerThread = null; writerThread = null
@@ -161,15 +152,7 @@ class ControlServer(
     }
 
     private fun activate(sock: Socket) {
-        // v184：挂起期间**仍然接受连接**。旧实现在这里直接 close + return ——
-        // PC 一旦断线重连就被拒，而"恢复"只能经这条连接送达（0x10 on），
-        // 于是形成"PC 拨 OFF 之后手机再也连不上"的单程门
-        // （真机症状：面板开关拨回去没反应，副屏也连不上）。
-        // 挂起语义改为「连接保持、忽略输入类命令」，过滤见 pump()。
         if (suspended) Log.i("控制面", "控制面处于挂起态：保持连接，不执行输入 ${peerTextOf(sock)}")
-        // v184：接管时显式关掉旧连接 —— 旧实现只是覆盖 client，旧 socket 一直挂着
-        // （fd 泄漏，且 PC 端那条死连接不会自愈）。旧 reader 会因 socket 关闭而退出，
-        // readerLoop 的 client === sock 身份判断是第二道保险。
         val ip = sock.inetAddress?.hostAddress ?: ""
         if (onAuthorizePeer?.invoke(ip) == false) { Log.w("控制面", "拒绝未授权设备 $ip"); runCatching { sock.close() }; return }
         val prev = client
@@ -186,14 +169,6 @@ class ControlServer(
 
     private fun readerLoop(sock: Socket) {
         val ins = sock.getInputStream(); val buf = ByteArray(4096)
-        // v184：循环条件加上 **client === sock** 身份判断 —— 旧连接被新连接接管后
-        // 它自己的读线程必须退出。否则两条连接（握手窗口内并发到达时）会各起一个
-        // reader，共用同一份 rxBuf/rxLen，后果是输入被重复注入（点一下变两下、
-        // 按键连发）以及缓冲互相踩踏。
-        // v184：读超时不能无限 continue —— 对端半开（WiFi 瞬断 / 被强杀，没有 FIN）时
-        // 这里会永远"活着"，PC 发来的输入全进黑洞且不触发上层重连。
-        // 连续 8 次超时（≈ 8×读超时）即判定链路已死；其它异常也直接退出
-        // （旧实现 catch 后 continue，持续异常时会空转烧 CPU）。
         var idleTimeouts = 0
         while (running.get() && !sock.isClosed && client === sock) {
             val n = try {
@@ -229,8 +204,6 @@ class ControlServer(
         if (client === sock) {
             ready = false; client = null; out = null; peerText = ""; outQueue.clear()
             mainHandler.post { endpoint.onPeerStateChanged(false, ""); onPeerChanged?.invoke(false, "") }
-            // v1.7：断链即归位输入状态（抬起仍按着的键 + 清按键集合）。
-            // 不做的后果见 releaseAllInputs 注释：残留按键 / 重连后第一次按键不生效。
             runCatching { injectHandler.post { releaseAllInputs() } }
         }
         runCatching { sock.close() }
@@ -238,9 +211,6 @@ class ControlServer(
 
     private fun feed(data: ByteArray, n: Int) {
         synchronized(rxLock) {
-            // v1.7：给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
-            // 导致 rxBuf 无限扩容 → OOM 崩溃。正常 APX 帧最大 ~4MB，8MB 足够容纳
-            // 粘包场景下的多帧拼接。
             val need = rxLen + n
             if (need > MAX_RX_BUF) {
                 throw IllegalStateException("接收缓冲溢出（${need}B > ${MAX_RX_BUF}B）")
@@ -260,8 +230,6 @@ class ControlServer(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                // v184：magic / 长度异常改为**逐字节重同步** —— 原来的 off = rxLen 会因
-                // 一次错位把后续全部合法帧一起丢掉；并补上尾部 CRC32 校验（对齐 PC 侧）。
                 if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
                 if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
@@ -272,8 +240,6 @@ class ControlServer(
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null && body.isNotEmpty()) {
                         val cmd = body[0].toInt() and 0xFF
-                        // v184：挂起期间只回 ping、只处理模块开关(0x10)，输入类命令一律丢弃。
-                        // 连接保持（见 activate），因此 PC 随时能把挂起拨回来。
                         if (suspended && cmd != 'p'.code && cmd != 0x10) {
                             // 控制面已挂起：忽略鼠标/键盘/触摸等输入
                         } else when (cmd) {
@@ -283,7 +249,7 @@ class ControlServer(
                             0x03 -> if (body.size >= 3) actions.add { onKeyboard(body) }
                             0x04 -> if (body.size >= 9) actions.add { onTouch(body) }
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
-                            0x20 -> if (body.size >= 4) actions.add { onClipboard(body) }
+                            CLIPBOARD -> if (body.size >= 4) actions.add { onClipboard(body) }
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
                             0x21 -> Log.i("控制面", "收到反向剪贴板帧（忽略）")
                             0x05 -> actions.add { onOpenScreen() }
@@ -307,9 +273,6 @@ class ControlServer(
         val dy = body[3].toInt().toByte().toInt()
         val wheel = if (body.size >= 5) body[4].toInt().toByte().toInt() else 0
         endpoint.cursorMove(dx.toFloat(), dy.toFloat(), absolute = false)
-        // v1.7：lastButtons 与 pressedKeys 共用 keysLock，避免 readerLoop 与
-        // releaseAllInputs（注入线程）并发读写导致左键卡死。
-        // 锁内取快照 + 更新状态，锁外执行注入（避免阻塞注入路径卡住收流线程）。
         val prev = synchronized(keysLock) { lastButtons }
         val needDown = (buttons and 1) != 0 && (prev and 1) == 0
         val needUp = (buttons and 1) == 0 && (prev and 1) == 1
@@ -335,7 +298,6 @@ class ControlServer(
             endpoint.key(kc, true); endpoint.key(kc, false) }
     }
 
-    /** 0x10 模块开关帧：[0x10, idLen, id..., on(0/1)]（v184） */
     private fun onModuleToggle(body: ByteArray) {
         val idLen = body[1].toInt() and 0xFF
         if (body.size < 2 + idLen + 1) return
@@ -364,26 +326,12 @@ class ControlServer(
             return
         }
         for (bit in 0 until 8) { if (mod and (1 shl bit) != 0) now.add(0xE0 + bit) }
-        // v184：先取快照再比较、最后整体写回 —— 避免在锁内执行注入（hidUp/hidDown 会走
-        // 系统调用），也避免遍历过程中集合被另一个线程改掉。
         val prev = synchronized(keysLock) { HashSet(pressedKeys) }
         for (u in prev) { if (u !in now) hidUp(u) }
         for (u in now) { if (u !in prev) hidDown(u) }
         synchronized(keysLock) { pressedKeys.clear(); pressedKeys.addAll(now) }
     }
 
-    /**
-     * v1.7：**断链统一归位输入状态**（与 PC 侧 `Ctrl9511Server::releaseAllInputs` 对应）。
-     *
-     * 不做这一步会留下两类残留：
-     *   1) 按住某键时链路断了 —— 被控端那个键的注入状态一直是"按下"，不会自己抬起；
-     *   2) `pressedKeys` 与真实状态脱节 —— 重连后第一帧键盘按下会跟旧集合做差，
-     *      被判成"本来就是按下"，于是**第一次按键不生效**（要按两次）。
-     * 鼠标同理：左键停在按下会让被控端光标"粘住"。
-     *
-     * 注意：本函数走注入通道（root / 无障碍可能阻塞），必须在**注入线程**上执行，
-     * 所以调用方一律 `injectHandler.post { releaseAllInputs() }`。
-     */
     private fun releaseAllInputs() {
         val held = synchronized(keysLock) { HashSet(pressedKeys) }
         val hadLeftBtn = synchronized(keysLock) { (lastButtons and 0x01) != 0 }
@@ -420,10 +368,6 @@ class ControlServer(
         endpoint.gamepad(buttons, x, y, rx, ry)
     }
 
-    /**
-     * 远程输入请求帧格式：[0x25, hintLen, hint...]
-     * 与 TvControllerClient.requestInput() 发送格式一致。
-     */
     private fun onRequestInput(body: ByteArray) {
         if (body.size < 2) return
         val hintLen = body[1].toInt() and 0xFF
@@ -451,9 +395,6 @@ class ControlServer(
     fun sendControl(body: ByteArray): Boolean {
         if (!ready) return false
         val frame = synchronized(writeLock) { seq = (seq + 1) and 0x7FFFFFFF; ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq) }
-        // v1.7：控制面队列改为"丢新不丢旧"——队列满时返回 false，不丢弃队头帧。
-        // 队头可能是按键抬起/鼠标抬起等状态变更帧，丢弃会导致按键永久卡住。
-        // 调用方（pong 回复、主动帧发送）需自行处理发送失败。
         return outQueue.offer(frame)
     }
 
@@ -475,7 +416,6 @@ class ControlServer(
 
     fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
 
-    /** v184：特殊键/组合键（0x28）——手机编辑快捷键排 → PC/TV 注入。mod：1=Ctrl 2=Shift 4=Alt */
     fun sendSpecialKey(mod: Int, vk: Int) { sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte())) }
 
     private fun readU32Le(ins: InputStream): Int {
@@ -496,8 +436,9 @@ class ControlServer(
         private const val QUEUE_CAP = 256
         private const val WRITER_IDLE_MS = 200L
         private const val READ_TIMEOUT_MS = 3_000
-        // 接收缓冲上限：APX 单帧最大 ~4MB，8MB 足够容纳粘包的多帧拼接，同时防止 OOM
         private const val MAX_RX_BUF = 8 * 1024 * 1024
+        /** 剪贴板同步命令号（手机复制→PC粘贴），协议帧 body[0] */
+        private const val CLIPBOARD = 0x20
         private val PONG = "pong".toByteArray(Charsets.UTF_8)
         private fun peerTextOf(sock: Socket): String = sock.inetAddress?.hostAddress?.let { "$it:${sock.port}" } ?: "?"
         fun localIpv4(): String? = try {
@@ -521,40 +462,21 @@ class ControlServer(
 
 /**
  * 控制面端点：由各端（手机被控 / TV）实现，封装该端特有的输入注入路径
- * （手机的 `TvInjector` + `TvInputDispatcher` + 无障碍服务、TV 的 `TvInjector` + `TvInputDispatcher`）。
- *
- * shared 模块只面向此接口编程，不反向依赖两端实现类。同一逻辑操作（如移动光标），
- * 端实现可同时调起该端的 `TvInputDispatcher` 与 `TvInjector`（与原两端实现一致）。
  */
 interface ControlEndpoint {
-    /** 对端连入/断开（等价于 TvInputDispatcher.peer + TvInjector.setConnected） */
     fun onPeerStateChanged(connected: Boolean, peerText: String)
-    /** 鼠标移动（等价于 TvInputDispatcher.cursorMove + TvInjector.cursorMove） */
     fun cursorMove(x: Float, y: Float, absolute: Boolean)
-    /** 鼠标点击（等价于 TvInputDispatcher.cursorClick） */
     fun cursorClick()
-    /** 键盘事件（等价于 TvInputDispatcher.key + TvInjector.key） */
     fun key(keyCode: Int, down: Boolean)
-    /** 文本输入（等价于 TvInputDispatcher.text + TvInjector.text） */
     fun text(ch: Char)
-    /** 鼠标按下（等价于 TvInjector.pressDown） */
     fun pressDown()
-    /** 鼠标抬起（等价于 TvInjector.pressUp） */
     fun pressUp()
-    /** 滚轮（等价于 TvInjector.scroll） */
     fun scroll(wheel: Int)
-    /** 触摸按下（等价于 TvInjector.touchDown） */
     fun touchDown(x: Float, y: Float)
-    /** 触摸抬起（等价于 TvInjector.touchUp） */
     fun touchUp(x: Float, y: Float)
-    /** Consumer 键（等价于 TvInjector.consumer） */
     fun consumer(bitmap: Int)
-    /** 电源动作（等价于 TvInjector.powerAction） */
     fun powerAction(action: Int)
-    /** 剪贴板（等价于 TvInjector.clipboard） */
     fun clipboard(text: String)
-    /** 手柄（等价于 TvInputDispatcher.onGamepad + TvInjector.gamepad） */
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int)
-    /** 锁屏 fallback（RootInput 不可用时调用；手机端走无障碍 lockScreen，TV 端走 RootInput） */
     fun lockScreen()
 }
