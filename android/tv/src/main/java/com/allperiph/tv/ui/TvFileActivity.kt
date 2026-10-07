@@ -15,6 +15,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -24,20 +25,13 @@ import com.allperiph.shared.net.FileSender
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * TV 文件传输面板（遥控器友好、尺寸自适应）。
- *
- * 文案原则（三端统一词汇表）：
- *  · 「对端」不再出现，一律说「手机 / 电脑」；
- *  · 空态要说清「怎么让它不空」，失败句统一「现在什么情况 + 为什么 + 下一步」；
- *  · 字号走 [TvUi.Type]、圆角走 [TvUi.Radius]，不写魔法数字。
- */
 class TvFileActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var listBox: LinearLayout
     private lateinit var targetView: TextView
     private lateinit var countView: TextView
     private lateinit var dirView: TextView
+    private lateinit var progressBar: ProgressBar
     private val mainHandler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
     private var targets: List<String> = emptyList()
@@ -69,6 +63,14 @@ class TvFileActivity : Activity() {
         head.addView(targetView); root.addView(head, LinearLayout.LayoutParams(-1, -2))
         dirView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.MICRO); setPadding(0, gap / 2, 0, 0) }; root.addView(dirView)
         countView = TextView(this).apply { setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, gap / 3, 0, gap / 3) }; root.addView(countView)
+        // 进度条
+        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            visibility = View.GONE
+            setPadding(0, gap / 2, 0, gap / 2)
+        }
+        root.addView(progressBar, LinearLayout.LayoutParams(-1, TvUi.dp(this, 8)))
         listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(listBox, LinearLayout.LayoutParams(-1, -2)); isFillViewport = false }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -101,9 +103,13 @@ class TvFileActivity : Activity() {
     }
     private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(Uri.fromFile(f), guessMime(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }; try { startActivity(intent) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
     private fun guessMime(name: String): String? = when { name.endsWith(".apk", true) -> "application/vnd.android.package-archive"; name.endsWith(".jpg", true) || name.endsWith(".jpeg", true) -> "image/jpeg"; name.endsWith(".png", true) -> "image/png"; name.endsWith(".gif", true) -> "image/gif"; name.endsWith(".mp4", true) -> "video/mp4"; name.endsWith(".mkv", true) -> "video/x-matroska"; name.endsWith(".mp3", true) -> "audio/mpeg"; name.endsWith(".txt", true) -> "text/plain"; name.endsWith(".pdf", true) -> "application/pdf"; name.endsWith(".zip", true) -> "application/zip"; else -> null }
-    private fun sendFile(f: File) { val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) { status("正在发送上一个文件，等它发完", TvUi.Pal.warn); return }; status("正在发送 ${f.name}", TvUi.Pal.accent); Thread({ val ok = FileSender.send(target, f) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent) } }; mainHandler.post { busy.set(false); status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn) } }, "apxtv-file-send").start() }
+    private fun showProgress(p: Int) {
+        progressBar.progress = p
+        progressBar.visibility = if (p in 1..99) View.VISIBLE else View.GONE
+    }
+    private fun sendFile(f: File) { val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) { status("正在发送上一个文件，等它发完", TvUi.Pal.warn); return }; status("正在发送 ${f.name}", TvUi.Pal.accent); showProgress(0); Thread({ val ok = FileSender.send(target, f) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-send").start() }
     private fun pickFromSystem() { if (currentTarget() == null) { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }, REQ_PICK) } catch (_: ActivityNotFoundException) { status("这台电视没有文件选择器，可以改从手机 / 电脑发过来", TvUi.Pal.warn) } }
-    @Deprecated("电视端沿用传统回调") override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode != REQ_PICK || resultCode != RESULT_OK) return; val uri: Uri = data?.data ?: return; val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) return; val (name, size) = queryNameSize(uri); status("正在发送 $name", TvUi.Pal.accent); Thread({ val ok = try { contentResolver.openInputStream(uri)?.use { ins -> FileSender.send(target, name, size, ins) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent) } } } ?: false } catch (t: Throwable) { Log.e("发送失败：${t.message}"); false }; mainHandler.post { busy.set(false); status(if (ok) "已发送：$name" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn) } }, "apxtv-file-pick").start() }
+    @Deprecated("电视端沿用传统回调") override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode != REQ_PICK || resultCode != RESULT_OK) return; val uri: Uri = data?.data ?: return; val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) return; val (name, size) = queryNameSize(uri); status("正在发送 $name", TvUi.Pal.accent); showProgress(0); Thread({ val ok = try { contentResolver.openInputStream(uri)?.use { ins -> FileSender.send(target, name, size, ins) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } } } ?: false } catch (t: Throwable) { Log.e("发送失败：${t.message}"); false }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：$name" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-pick").start() }
     private fun queryNameSize(uri: Uri): Pair<String, Long> { var name = "file.bin"; var size = -1L; runCatching { contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst()) { c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }; c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !c.isNull(it) }?.let { size = c.getLong(it) } } } }; return name to size }
     private fun status(text: String, color: Int) { statusView.text = text; statusView.setTextColor(color) }
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
