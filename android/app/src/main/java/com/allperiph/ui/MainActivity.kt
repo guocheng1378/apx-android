@@ -149,9 +149,11 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     private lateinit var navGlass: NavBarDrawable
     private var indicatorAnimator: ValueAnimator? = null
 
-    // 触控板液态光标
+    // 触控板液态光标（v196：光标本体已移交 TouchpadFragment 创建与驱动）
     private lateinit var touchArea: View
-    private lateinit var touchCursor: TouchCursorView
+    /** 触控板页 Fragment（v196 接线）：手势面、液态光标、长按拖拽都由它接管。
+     *  平台 Fragment（android.app.Fragment），宿主无需 FragmentActivity。 */
+    private var touchpadFragment: TouchpadFragment? = null
 
     // 横屏沉浸模式：整条 chrome 隐藏，切页改用四指左右滑
     private lateinit var headerBar: View
@@ -172,8 +174,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     // 快捷键网格：行为全在 ui/HotkeyBoard（主页与操控面共用一份实现）
     private lateinit var hotkeyBoard: HotkeyBoard
 
-    private var frameCount = 0L
-    private var lastShown = 0L
+    // frameCount / lastShown / dragTask 已随触控板页一起搬进 TouchpadFragment（v196）
 
     private class ModuleRow(
         val root: View,
@@ -186,10 +187,7 @@ class MainActivity : Activity(), TouchpadFragment.Host {
     @Volatile
     private var lastEnv: EnvChecks.Env? = null
 
-    // 长按拖动：DOWN 后 550ms 触发 armDrag（手指静止无 MOVE 也生效）
-    private val dragTask = Runnable {
-        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.armDrag()
-    }
+    // 长按拖动（armDrag）与手势分发均已搬进 TouchpadFragment（v196）
 
     // 必须显式声明 Runnable 类型：在初始化表达式中引用自身会让 Kotlin 类型推断递归。
     private val ticker: Runnable = Runnable { refresh(); handler.postDelayed(ticker, TICK_MS) }
@@ -374,10 +372,9 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         pageTouchpadView = findViewById(R.id.pageTouchpad)
         pageKeyboardView = findViewById(R.id.pageKeyboard)
 
-        // 触控板液态光标：叠在手势面上（不可点击，不抢手势事件）
+        // 触控板液态光标：改由 TouchpadFragment 创建并叠加在手势面上
+        // （v196：原先这里 addView 了一份，Fragment 又会add 一份 —— 不删就会出现两个光标）
         touchArea = findViewById(R.id.touchArea)
-        touchCursor = TouchCursorView(this)
-        (touchArea as FrameLayout).addView(touchCursor, FrameLayout.LayoutParams(-1, -1))
 
         // 切页动效：淡入上浮（液体流入 / 流出）
         pager.setInAnimation(this, R.anim.liquid_in)
@@ -385,6 +382,19 @@ class MainActivity : Activity(), TouchpadFragment.Host {
 
         setupGlass()
         applyBackdrop() // 背景：预设底色 / 相册图
+
+        // 触控板页 Fragment（v196 接线第2 步）：手势面/ 液态光标 / 长按拖拽交给它。
+        // 用 android.R.id.content 作容器 —— Fragment 的 onCreateView 返回 null（寄生式，
+        // 直接抓宿主视图），只要挂进 FragmentManager 即可。
+        // 「先按 tag 找、找不到才新建」而不是判savedInstanceState：进程被回收后重建时
+        // FragmentManager 会自动恢复旧 Fragment，再 add 一次就会出现两个触控板页。
+        // commitNow 而非 commit：同步执行完事务，保证随后的 onTouchEvent 转发时已就绪。
+        touchpadFragment = (fragmentManager.findFragmentByTag("touchpad") as? TouchpadFragment)
+            ?: TouchpadFragment().also { fp ->
+                fragmentManager.beginTransaction()
+                    .add(android.R.id.content, fp, "touchpad")
+                    .commitNow()
+            }
     }
 
     // ————————————————————————— 横竖屏 —————————————————————————
@@ -788,24 +798,9 @@ class MainActivity : Activity(), TouchpadFragment.Host {
         if (!::pager.isInitialized || pager.displayedChild != PAGE_TOUCHPAD) {
             return super.onTouchEvent(ev)
         }
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> handler.postDelayed(dragTask, 550)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> handler.removeCallbacks(dragTask)
-        }
-        (AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule)?.feed(ev)
-        // 液态光标：把窗口坐标换算到手势面坐标后喂给光标视图
-        if (::touchCursor.isInitialized && ::touchArea.isInitialized) {
-            val loc = IntArray(2)
-            touchArea.getLocationInWindow(loc)
-            touchCursor.onGesture(ev, loc[0].toFloat(), loc[1].toFloat())
-        }
-        frameCount++
-        val now = System.currentTimeMillis()
-        if (now - lastShown > 250) { // 4Hz 刷新，避免 UI 抖动
-            lastShown = now
-            if (frameCount <= 3) touchHint.visibility = View.INVISIBLE // 手指落下后收起提示文字
-        }
-        return true
+        // 触控板页的手势分发 / 液态光标 / 长按拖拽已由 TouchpadFragment 接管（v196）。
+        // 这里只做"当前是不是触控板页"的判定与转发。
+        return touchpadFragment?.onTouchEvent(ev) ?: true
     }
 
     // ————————————————————————— 快捷键网格（实现见 ui/HotkeyBoard） —————————————————————————

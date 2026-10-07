@@ -85,9 +85,11 @@ class TouchpadFragment : Fragment() {
 
     // ==================== Touch gesture ====================
 
-    fun onTouchEvent(ev: MotionEvent) {
-        val h = host ?: return
-        if (!h.isTouchpadPage()) return
+    /** 宿主把 Activity.onTouchEvent 转给本方法（平台 Fragment 收不到 Activity 的触摸事件）。
+     *  @return true 表示已消费（触控板页手势一律消费）。 */
+    fun onTouchEvent(ev: MotionEvent): Boolean {
+        val h = host ?: return false
+        if (!h.isTouchpadPage()) return false
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> handler.postDelayed(dragTask, 550)
@@ -102,10 +104,11 @@ class TouchpadFragment : Fragment() {
         }
         frameCount++
         val now = System.currentTimeMillis()
-        if (now - lastShown > 250) {
+        if (now - lastShown > 250) { // 4Hz 刷新，避免 UI 抖动
             lastShown = now
-            if (frameCount <= 3) touchHint.visibility = View.INVISIBLE
+            if (frameCount <= 3) touchHint.visibility = View.INVISIBLE // 手指落下后收起提示文字
         }
+        return true
     }
 
     // ==================== Hotkey grid ====================
