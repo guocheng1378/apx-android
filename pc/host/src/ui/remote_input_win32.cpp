@@ -196,7 +196,12 @@ void RemoteInput::show(HWND owner,
                        std::function<bool()> sendDone,
                        std::function<void(const std::string&, const std::string&)> notify) {
     const HINSTANCE inst = ::GetModuleHandleW(nullptr);
-    if (!registerCls(inst)) return;
+    // 失败一律**出声**：面板是 GUI，静默 return 的表现就是"对端喊了、本机毫无反应"，
+    // 没人知道是注册失败还是建窗失败。托盘气泡是这里唯一能被看见的出口。
+    if (!registerCls(inst)) {
+        if (notify) notify("弹不出输入框", "窗口类注册失败");
+        return;
+    }
 
     if (HDC hdc = ::GetDC(nullptr)) {
         const int dpi = ::GetDeviceCaps(hdc, LOGPIXELSY);
@@ -223,7 +228,10 @@ void RemoteInput::show(HWND owner,
                               WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
                               CW_USEDEFAULT, CW_USEDEFAULT, w, h,
                               owner, nullptr, inst, nullptr);
-    if (!gHwnd) return;
+    if (!gHwnd) {
+        if (gNotify) gNotify("弹不出输入框", "窗口创建失败");
+        return;
+    }
     if (gTip) ::SetWindowTextW(gTip, tipText(hint).c_str());
     layout(w, h);
     if (gEdit) ::SetFocus(gEdit);

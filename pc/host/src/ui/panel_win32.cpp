@@ -2450,7 +2450,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case kMsgRemoteInput: {
             std::string hint;
             { std::lock_guard<std::mutex> lk(gHintMu); hint.swap(gPendingHint); }
-            if (!p || !p->session) return 0;
+            // 只判 p：**不要求已连接**。弹输入框是"接活"，发送时才需要会话 —— 且下面两个
+            // lambda 内部已各自判空。原先多判一个 !p->session，等于未连接时连窗口都不弹，
+            // 对端喊了电脑打字、电脑却毫无反应（正是这个版本要补的缺口），且失败完全静默。
+            if (!p) return 0;
             Panel* pp = p;
             apxpc::ui::RemoteInput::show(
                 hwnd, hint,
