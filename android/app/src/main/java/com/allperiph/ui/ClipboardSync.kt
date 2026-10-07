@@ -22,6 +22,7 @@ object ClipboardSync {
     fun markProgrammaticWrite() { lastProgrammaticWriteMs = SystemClock.uptimeMillis() }
 
     private var registered = false
+    private var appContext: Context? = null
 
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {
         // 抑制程序性写入引起的回传
@@ -39,6 +40,7 @@ object ClipboardSync {
     /** 在 Activity onStart 中调用 */
     fun register(ctx: Context) {
         if (registered) return
+        appContext = ctx.applicationContext
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         runCatching { cm.removePrimaryClipChangedListener(listener) }  // 保险
         cm.addPrimaryClipChangedListener(listener)
@@ -56,11 +58,8 @@ object ClipboardSync {
     }
 
     private fun currentClipboardText(): String? {
-        // 在主线程调用，需要在后台线程读取
         return try {
-            val cm = androidx.core.content.ContextCompat.getSystemService(
-                android.app.Activity(), ClipboardManager::class.java
-            )
+            val cm = appContext?.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             cm?.primaryClip?.getItemAt(0)?.text?.toString()
         } catch (t: Throwable) { null }
     }
