@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
@@ -148,11 +149,61 @@ class HotkeyBoard(
         isFocusable = true
         tag = index // 真实下标：显示顺序受自动排序影响，编辑与拖拽都靠它定位
         contentDescription = "${c.label}，${HidKeys.comboText(c)}"
+        
+        // 添加按下反馈效果
+        setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    // 按下时：背景色变深 + 缩小效果
+                    v.animate()
+                        .scaleX(0.92f)
+                        .scaleY(0.92f)
+                        .setDuration(100)
+                        .start()
+                    // 更新背景色为按下状态
+                    background = rounded(
+                        darkenColor(s.chipBg, 0.8f),
+                        dp(s.chipRadiusDp),
+                        s.chipStroke
+                    )
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // 释放时：恢复原始状态
+                    v.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .setDuration(100)
+                        .start()
+                    // 恢复原始背景色
+                    background = rounded(s.chipBg, dp(s.chipRadiusDp), s.chipStroke)
+                    // 如果是 UP 事件，触发点击
+                    if (event.action == MotionEvent.ACTION_UP) {
+                        v.performClick()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+        
         ComboChip.attach(
             this, c,
             onSent = { HotkeyStore.bump(act, c) },
             onReorder = { from, dropCenterX -> reorder(from, dropCenterX) },
         )
+    }
+
+    /** 颜色变暗：将颜色值按比例调暗 */
+    private fun darkenColor(color: Int, factor: Float): Int {
+        val alpha = (color shr 24) and 0xFF
+        val red = ((color shr 16) and 0xFF) * factor
+        val green = ((color shr 8) and 0xFF) * factor
+        val blue = (color and 0xFF) * factor
+        return (alpha shl 24) or
+                (red.toInt() shl 16) or
+                (green.toInt() shl 8) or
+                blue.toInt()
     }
 
     private fun LinearLayout.LayoutParams.cellMargins(): LinearLayout.LayoutParams = apply {
