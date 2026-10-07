@@ -33,27 +33,24 @@
     -->
 
     <!--
-      HID 需要 BLUETOOTH_CONNECT（API 31+）和 ACCESS_FINE_LOCATION（扫描）。
-      AndroidManifest 声明即可，运行时权限在 BtHidDevice.start() 中检查。
+      蓝牙 HID：
+      · BLUETOOTH_CONNECT —— API 31+ 必需，BtHidDevice.start() 里 checkSelfPermission 判定
+      · ACCESS_FINE_LOCATION —— 经典蓝牙扫描（Android 10+ 同时要求）
+      ⚠️ v196 之前这里**只有注释、没有声明语句**：checkSelfPermission 对未声明权限恒为 DENIED，
+      蓝牙 HID 在所有 Android 12+ 设备上直接降级不可用（最难排查的一类静默失效）。
     -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!--
+      麦克风上行（手机麦克风 → PC 的麦克风）。
+      ⚠️ v196 之前同样只有注释没有声明 —— MainActivity.ensureNotificationPermission() 会申请它，
+      但未声明的权限申请会立即回调 denied，录音功能永远不可用。
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
       Wi-Fi 控制：读/写系统设置（锁定/解锁 AP 限制）
-    -->
-
-    <!--
-      Wi-Fi 控制：需要 ACCESS_FINE_LOCATION + ACCESS_WIFI_STATE
-      （Android 10+ 的 Location Services 要求同时声明）
-    -->
-
-    <!--
-      HID 需要 BLUETOOTH_CONNECT（API 31+）；
-      ACCESS_FINE_LOCATION 用于经典蓝牙扫描。
-    -->
-
-    <!--
-      Wi-Fi 控制（设置固定 AP 限制）：
-      ACCESS_WIFI_STATE + WRITE_SETTINGS + CHANGE_WIFI_STATE
     -->
 
     <application
@@ -204,6 +201,23 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <!--
+          ⑩之二 桌面小组件：显示连接状态。
+          ⚠️ v196 之前 AllPeriphWidget 类写好了却**没注册**（也没有 xml/widget_all_periph_info.xml），
+          启动器里根本找不到它 —— 小组件功能等于不存在。
+        -->
+        <receiver
+            android:name=".ui.AllPeriphWidget"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_all_periph_info" />
+        </receiver>
 
         <!--
           ⑪ 遥控输入：全屏 Activity（覆盖在其他应用之上）

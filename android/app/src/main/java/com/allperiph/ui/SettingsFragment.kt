@@ -107,6 +107,24 @@ class SettingsFragment : Fragment() {
         val h = host ?: return
         val act = activity ?: return
 
+        // ⚠️ 横屏布局（layout-land/activity_main.xml）里**没有**下面这些容器（只有触控板/键盘页的 id）。
+        // v196 之前是把可能为 null 的 findViewById 结果直接赋给 lateinit var —— 之后任意访问
+        // 都抛 UninitializedPropertyAccessException，横屏启动必崩。现在统一探测：
+        // 缺任一容器就整体不渲染（Activity 自己那套渲染逻辑仍然可用，横屏不至于崩）。
+        val requiredIds = listOf(
+            R.id.templatesBox, R.id.tvTemplateCurrent, R.id.btnToggleTemplates,
+            R.id.themeBox, R.id.skinBox, R.id.fxBox, R.id.tvBox,
+            R.id.fileBox, R.id.keymapBox, R.id.swHotkeySort, R.id.rowTemplateCurrent,
+        )
+        val missing = requiredIds.filter { act.findViewById<View>(it) == null }
+        if (missing.isNotEmpty()) {
+            com.allperiph.shared.util.Log.w(
+                TAG,
+                "宿主布局缺少 ${missing.size}/${requiredIds.size} 个设置页容器（横屏布局？），本次跳过渲染",
+            )
+            return
+        }
+
         templatesBox = act.findViewById(R.id.templatesBox)
         tvTemplateCurrent = act.findViewById(R.id.tvTemplateCurrent)
         btnToggleTemplates = act.findViewById(R.id.btnToggleTemplates)

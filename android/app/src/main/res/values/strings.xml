@@ -109,6 +109,8 @@
     <string name="ui_main_label_state_channel_inject">被控状态与权限</string>
     <string name="ui_main_btn_selftest">自检</string>
     <string name="ui_main_label_log_view">查看运行日志</string>
+    <string name="ui_main_label_recent_devices">最近连过的设备</string>
+    <string name="ui_main_text_no_recent">还没有记录 —— 连上一次就会出现在这里</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
     <string name="ui_common_close">关闭</string>
     <string name="ui_main_label_file_send">发送文件到手机</string>

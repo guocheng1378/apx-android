@@ -33,6 +33,13 @@ class FileFragment : Fragment() {
 
     companion object {
         const val TAG = "FileFragment"
+        /** 与 MainActivity 的私有同名常量**故意同值**（都是 9002）。
+         *
+         *  这不是冲突而是约定：宿主 MainActivity 是 android.app.Activity（不是 FragmentActivity），
+         *  没有 Fragment 结果分发机制 —— 无论谁发起 startActivityForResult，结果都原样回到
+         *  MainActivity.onActivityResult，由那里的 `REQ_PICK_FILE -> sendFile(uri)` 统一处理。
+         *  ⚠️ 因此改这个值必须**同时**改 MainActivity 里的 9002，否则文件选择结果会静默丢失。
+         */
         const val REQ_PICK_FILE = 9002
     }
 
@@ -47,8 +54,19 @@ class FileFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val act = activity ?: return
-        fileBox = act.findViewById(R.id.fileBox)
-        keymapBox = act.findViewById(R.id.keymapBox)
+        // 横屏布局没有 fileBox / keymapBox（见 SettingsFragment 同处注释）：
+        // 直接赋给 lateinit var 会在后续访问时崩，这里缺容器就整体不渲染。
+        val fileBoxView = act.findViewById<LinearLayout>(R.id.fileBox)
+        val keymapBoxView = act.findViewById<LinearLayout>(R.id.keymapBox)
+        if (fileBoxView == null || keymapBoxView == null) {
+            com.allperiph.shared.util.Log.w(
+                "FileFragment",
+                "宿主布局缺少 fileBox / keymapBox（横屏布局？），本次跳过渲染",
+            )
+            return
+        }
+        fileBox = fileBoxView
+        keymapBox = keymapBoxView
         renderFile()
         renderKeymap()
     }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件配置（显示连接状态）。
+  ⚠️ v196 之前这个文件根本不存在：AllPeriphWidget 类写好了，但既没在 manifest 注册
+  receiver，也没有 provider info —— 启动器里压根找不到这个小组件。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_all_periph"
+    android:previewLayout="@layout/widget_all_periph"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen" />

@@ -261,11 +261,15 @@ class MainActivity : Activity() {
         // 物理朝向检测启动：竖持=触控板 横持=键盘（无视系统方向锁）
         setupOrientListener()
         orientListener?.enable()
+        // 剪贴板同步：前台才监听（v196 接线 —— 此前 ClipboardSync 从未被注册，
+        // 「手机复制 → 电脑粘贴」功能等于不存在）。onPause 注销。
+        ClipboardSync.register(this)
     }
 
     override fun onPause() {
         handler.removeCallbacks(ticker)
         orientListener?.disable()
+        ClipboardSync.unregister(this)
         super.onPause()
     }
 
@@ -865,6 +869,9 @@ class MainActivity : Activity() {
                     ControlTarget.host = ip
                     ControlTarget.label = name
                     ControlTarget.type = type
+                    // 连接历史：连上就记一笔（v196 接线 —— ConnectHistory 此前零调用点，
+                    // 「最近连过哪些设备」持久化功能等于不存在）。
+                    ConnectHistory.add(this, name, ip, port)
                     c.onReverseClipboard = { text -> runOnUiThread { recvReverseClipboard(text) } }
                     onTargetChanged()
                     Toast.makeText(this, getString(R.string.ui_main_toast_done, name), Toast.LENGTH_SHORT).show()
@@ -1081,6 +1088,24 @@ class MainActivity : Activity() {
         tvBox.addView(settingRow(getString(R.string.ui_main_label_state_channel_inject), getString(R.string.ui_main_btn_selftest), accent) { showControlledCaps() })
         // ★ 运行日志：Log 的 512 条环形缓冲一直写着"供 UI 展示"，却**没有任何消费者**
         tvBox.addView(settingRow(getString(R.string.ui_main_label_log_view), getString(R.string.ui_common_open), accent) { showLogs() })
+        // ★ 最近连接（ConnectHistory）：连过的设备持久化在这里，点一下直接重连 ——
+        //   v196 之前 ConnectHistory 只有写盘没有读盘点，用户每次都要重新选设备。
+        val recent = ConnectHistory.getRecent(this, 3)
+        tvBox.addView(fieldLabel(getString(R.string.ui_main_label_recent_devices)))
+        if (recent.isEmpty()) {
+            tvBox.addView(TextView(this).apply {
+                text = getString(R.string.ui_main_text_no_recent)
+                textSize = 12f
+                setTextColor(resources.getColor(R.color.md_on_surface_variant))
+                setPadding(dp(4), dp(2), dp(4), dp(6))
+            })
+        } else {
+            for (item in recent) {
+                tvBox.addView(settingRow(item.name, "${item.host}:${item.port}", accent) {
+                    connectTarget(item.host, item.port, item.name)
+                })
+            }
+        }
         tvStatusView = TextView(this).apply {
             // 出口一并写在设置页：遥控不灵时先在两处看"输入到底发去哪了"（触控板页顶栏徽章 + 这里）
             text = if (ControlTarget.isControlling()) {
@@ -1916,7 +1941,18 @@ class MainActivity : Activity() {
             AgentController.isTransportEnabled(this, "bt") ||
             AgentController.isTransportEnabled(this, "usb")
 
+    /** 桌面小组件上次刷新的状态指纹（"是否连接|设备名"）。
+     *  refresh() 是秒级轮询，无脑刷小组件会浪费 IPC —— 只在状态真变了才刷。 */
+    private var lastWidgetSig: String? = null
+
     private fun refresh() {
+        // 桌面小组件：连接状态变化时主动刷新（v196 接线 —— 此前 refreshAll 零调用点，
+        // 小组件即使被添加到桌面也永远停留在添加那一刻的快照）。
+        val widgetSig = "${ControlTarget.isControlling()}|${ControlTarget.label}"
+        if (widgetSig != lastWidgetSig) {
+            lastWidgetSig = widgetSig
+            AllPeriphWidget.refreshAll(this)
+        }
         // 大号启动开关（原单总开关）→ 任一类传输开关打开即视为已启用
         val serviceRunning = AgentForegroundService.running || AgentController.running
         val anyOn = anyTransportOn()
@@ -2116,6 +2152,10 @@ class MainActivity : Activity() {
      */
     private fun recvReverseClipboard(text: String) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        // ⚠️ 必须先打抑制标记：本函数写的是「来自 PC 的剪贴板」，而 ClipboardSync 监听的是
+        // 「本机剪贴板变化 → 发给 PC」。不打标记就会立刻原样回传，形成死循环
+        // （剪贴板同步 v196 接线时补上）。
+        ClipboardSync.markProgrammaticWrite()
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
         val preview = if (text.length > 24) text.take(24) + "…" else text
         Toast.makeText(this, getString(R.string.ui_main_toast_clipboard_done, preview), Toast.LENGTH_SHORT).show()
