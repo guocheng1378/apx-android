@@ -1,1 +1,300 @@
-PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPCEtLQogIOe6p+e7n+iniOWZqOeggSBCb29sZCBNYW5pZmVzdAogIG5hbWVzcGFjZTogY29tLmFsbGVyaXBoCi0tPgo8bWFuaWZlc3QgeG1sbnM6YW5kcm9pZD0iaHR0cDovL3NjaGVtYXMuYW5kcm9pZC5jb20vYXBrL3JlcyIKICAgIHhtbG5zOnRvb2xzPSJodHRwOi8vc2NoZW1hcy5hbmRyb2lkLmNvbS90b29scyI+CiAgCiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uRk9SRUdST1VORF9TRVJWSUNFIiAvPgogICAgPHVzZS1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLkZPUkVHUk9VTkRfU0VSVklDRV9DT05ORUNURUQiIC8+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uUE9TVF9OT1RJTElDQVRJT05TIiAvPgogICAgPHVzZS1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLldBS0VfTE9DSyIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5SRVFVRVNUX0lHTk9SRV9CQVRURVJZX09QVElNSVpBVElPTlMiIC8+CiAgCiAgICA8IS0tIOe6p+e7n+eKqOeoi+acgOaooeKBjzwvIS0+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uU0NIRURVTEVfRVhBQ1RfQUxBUk0iIC8+CiAgCiAgICA8IS0tIFdp4oCiIMKxIOW6pjIgVMOPIOKAlCDnurfnu5/lhpbmtq/op4jmnIDmqKHigI88L2l0ZS0+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uSU5URVJORVQiIC8+CiAgCiAgICA8IS0tIEhJRCDoi7HlvIDmsLjnp7vliqjmt7TigJTigJTmlbDmja7mmJ/nlJ/nur/vvJrms5XkuozlhLrliqjigJQ8L2l0ZS0+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uQkxVRVRPT1RfQ09OTkVDVCIgLz4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5WSUJSQVRFIiAvPgogICAgCiAgICA8IS0tIOaMh+WHuueOsOedvuWSjOi9vTxicj48L2l0ZS0+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uUkVDT1JEX0FVRElPIiAvPgogICAgCiAgICA8IS0tIEdQU+eUqOmdouaYn+WfpeS4pCAoTm1lYVNvdXJjZSkgLS0+CiAgICA8dXNlLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uQUNDRVNTX0ZJTkVfTE9DQVRJT04iIC8+CiAgCiAgICA8IS0tIOe0oOeUseWKoOi9veenu+W8gOaIkCAo5L2z5Y+L5YWl5bqPJyAtLT4KICAgIDx1c2UtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5TWVNURU1fQUxFUlRfV0lORE9XIiAvPgogICAgCiAgICA8dXNlLWZlYXR1cmUKICAgICAgICBuYW1lPSJhbmRyb2lkLmhhcmR3YXJlLnRvdWNoc2NyZWVuIgogICAgICAgIHJlcXVpcmVkPSJmYWxzZSIgLz4KICAgIDx1c2UtZmVhdHVyZQogICAgICAgIG5hbWU9ImFuZHJvaWQuaGFyZHdhcmUudG91Y2hzY3JlZW4ubXVsdGl0b3VjaCIKICAgICAgICByZXF1aXJlZD0iZmFsc2UiIC8+CiAgICA8dXNlLWZlYXR1cmUKICAgICAgICBuYW1lPSJhbmRyb2lkLmhhcmR3YXJlLnN0eWx1cyIKICAgICAgICByZXF1aXJlZD0iZmFsc2UiIC8+CgogICAgPGFwcGxpY2F0aW9uCiAgICAgICAgYW5kcm9pZDpuYW1lPSIuQXBwIgogICAgICAgIGFuZHJvaWQ6YWxsb3dCYWNrPSJmYWxzZSIKICAgICAgICBhbmRyb2lkOmljb249IkByZHJhY3RhYmxlL2ljX2xhdW5jaGVyX2FwcCIKICAgICAgICBhbmRyb2lkOmxhYmVsPSJAc3RyaW5nL2FwcF9uYW1lIgogICAgICAgIGFuZHJvaWQ6cm91bmRJY29uPSJAbmF0aXZlL2RyYXdhYmxlL2ljX2xhdW5jaGVyX2FwcCIKICAgICAgICBhbmRyb2lkOnN1cHBvcnRzUmFsPSJ0cnVlIgogICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBzdHlsZS9UaGVtZS5BbGxQZXJpcGgiCiAgICAgICAgYW5kcm9pZDpoYXJkd2FyZUFjY2VsZXJhdGVkPSJ0cnVlIgogICAgICAgIGFuZHJvaWQ6bGFyZ2VIZWFwPSJ0cnVlIgogICAgICAgIHRvb2xzOnRhcmdldEFwaT0iMzQiPgogICAgCiAgICAgICAgPCEtLSDor7flnKjigJQg6I+36K+M6KeB5Zmo56CB6Zif77yM5qC35YGN6YGN572u77yM5oqA6K2s6aKd5YWo5bm077yM55Sf5a2Y5Yiw5Y+X77yM5ZCO5a6c5Yqb6Ie05bqVIH0tLT4KICAgICAgICA8YWN0aXZpdHkKICAgICAgICAgICAgYW5kcm9pZDpuYW1lPSIudWkubWFpbnNldEFjdGl2aXR5IgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOmxhdW5jaE1vZGU9InNpbmdsZVRvcCIKICAgICAgICAgICAgYW5kcm9pZDpzY3JlZW5PcmllbnRhdGlvbj0ic2Vuc29yIgogICAgICAgICAgICBhbmRyb2lkOmNvbmZpZ0NoYW5nZXM9Im9yaWVudGF0aW9ufHNjcmVlblNpemV8c21hbGxlZXRTY3JlZW5TaXplfHNjcmVlblBsYXlvdXR8ZGVuc2l0eXxrZXlib2FyZEhpZGRlbnx1aU1vZGUiCiAgICAgICAgICAgIGFuZHJvaWQ6d2luZG93U29mdElucHV0TW9kZT0iYWRqdXN0UmVzaXplIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQWxsUGVyaXBoIj4KICAgICAgICAgICAgPGludGVudC1maWx0ZXI+CiAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5hY3Rpb24uTUFJTiIgLz4KICAgICAgICAgICAgICAgPGNhdGVnb3J5IGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5pbnRlbnQuY2F0ZWdvcnkuTEFVTkNIRVIiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICA8L2FjdGl2aXR5PgogICAgCiAgICAgICAgPCEtLSDnqqfliKjnuqfnu58g56S+5YWo6Zif77yM546L5YWo5Yqg6L2956e75byI5Y+X5bGV55qE5p2D5Lu25ZCI5pys5LiLKSAtLT4KICAgICAgICA8YWN0aXZpdHkKICAgICAgICAgICAgYW5kcm9pZDpuYW1lPSIudG91Y2hwYWQuVG91Y2hwYWRBY3Rpdml0eSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6bGF1bmNoTW9kZT0ic2luZ2xlVGFzayIKICAgICAgICAgICAgYW5kcm9pZDpzY3JlZW5PcmllbnRhdGlvbj0ic2Vuc29yUG9ydHJhaXQiCiAgICAgICAgICAgIGFuZHJvaWQ6Y29uZmlnQ2hhbmdlcz0ib3JpZW50YXRpb258c2NyZWVuU2l6ZXxzbWFsbGVlc1NyZWVuU2l6ZXxzY3JlZW5QbGF5b3V0fGRlbnNpdHl8a2V5Ym9hcmRIZWRkZW58dWlNb2RlIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQWxsUGVyaXBoLk1pdWl4LkZ1bGxzY3JlZW4iIC8+CiAgICAgIAogICAgICAgIDwhLS0g57qg5L2T5bGC6Zqb56S+5YWo5pif56iL5LiOIFJlbW90ZUFjdGl2aXR577yM5rWP6K6+5Zmo56S+5YWo5pif56iL5o+Q5Ymn6YOo6IqC5p6Q5ZGKIC0tPgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii51aS5SZW1vdGVBY3Rpdml0eSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6bGF1bmNoTW9kZT0ic2luZ2xlVGFzayIKICAgICAgICAgICAgYW5kcm9pZDpzY3JlZW5PcmllbnRhdGlvbj0ic2Vuc29yIgogICAgICAgICAgICBhbmRyb2lkOndpbmRvd1NvZnRJbnB1dE1vZGU9InN0YXRlQWx3YXlzVmlzaWJsZXxhZGp1c3RSZXNpemUiCiAgICAgICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBzdHlsZS9UaGVtZS5BbGxQZXJpcGgiIC8+CiAgICAgIAogICAgICAgIDwhLS0g5bGC6Zqb56S+5L+u56GuIC0tPgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii5zY3JlZW4uU2NyZWVuQWN0aXZpdHkiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9ImZhbHNlIgogICAgICAgICAgICBhbmRyb2lkOmxhdW5jaE1vZGU9InNpbmdsZVRhc2siCiAgICAgICAgICAgIGFuZHJvaWQ6c2NyZWVuT3JpZW50YXRpb249InNlbnNvckxhbmRzY2FwZSIKICAgICAgICAgICAgYW5kcm9pZDpjb25maWdDaGFuZ2VzPSJvcmllbnRhdGlvbnxzY3JlZW5TaXplfHNtYWxsZXN0U2NyZWVuU2l6ZXxzY3JlZW5QbGF5b3V0fGRlbnNpdHl8a2V5Ym9hcmRIZWRkZW58dWlNb2RlIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQWxsUGVyaXBoLk1pdWl4LkZ1bGxzY3JlZW4iIC8+CiAgICAgIAogICAgICAgIDwhLS0g6L+H6K+R5Liq5o+Q5Ymn5L+h5oGv77yM5Zmo56S+5YWo5pif56iL5aSE55CG5YWo5Lqk5Y+K5pSv5Y+X5Y+L5pa55b2V5L+u56GuIC0tPgogICAgICAgIDxhY3Rpdml0eQogICAgICAgICAgICBhbmRyb2lkOm5hbWU9Ii5jb250cm9sbGVkLlJlbW90ZUlucHV0QWN0aXZpdHkiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9ImZhbHNlIgogICAgICAgICAgICBhbmRyb2lkOmxhdW5jaE1vZGU9InNpbmdsZVRhc2siCiAgICAgICAgICAgIGFuZHJvaWQ6c2NyZWVuT3JpZW50YXRpb249InNlbnNvciIKICAgICAgICAgICAgYW5kcm9pZDp3aW5kb3dTb2Z0SW5wdXRNb2RlPSJzdGF0ZUFsd2F5c1Zpc2libGV8YWRqdXN0UmVzaXplIgogICAgICAgICAgICBhbmRyb2lkOnRoZW1lPSJAc3R5bGUvVGhlbWUuQWxsUGVyaXBoIiAvPgogICAgCiAgICAgICAgPCEtLSDln7rkuo7muKfml6Doh6rlrozkuIvloIHmnInms5Xkv67noa4gLS0+CiAgICAgICAgPHNlcnZpY2UKICAgICAgICAgICAgYW5kcm9pZDpuYW1lPSIudWkuQWdlbnRGb3JlZ3JvdW5kU2VydmljZSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6c3RvcFdpdGhUYXNrPSJmYWxzZSIKICAgICAgICAgICAgYW5kcm9pZDpmb3JlZ3JvdW5kU2VydmljZVR5cGU9ImNvbm5lY3RlZERldmljZSIgLz4KICAgICAgCiAgICAgICAgPCEtLSDnuqfnu5/mmJ/luIPnurfnu5/mnIDnqKHigI0g6Zif6aKd546w552+5ZKM5LiL5aS05YWl57q/77yM5Y+V54us5Y+X5Y+L5pa55b2V5L+u56GuIC0tPgogICAgICAgIDxzZXJ2aWNlCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iLmNvbnRyb2xsZWQuQ29udHJvbGxlZFNlcnZpY2UiCiAgICAgICAgICAgIGFuZHJvaWQ6ZXhwb3J0ZWQ9ImZhbHNlIgogICAgICAgICAgICBhbmRyb2lkOnN0b3BXaXRoVGFzaz0iZmFsc2UiCiAgICAgICAgICAgIGFuZHJvaWQ6Zm9yZWdyb3VuZFNlcnZpY2VUeXBlPSJjb25uZWN0ZWREZXZpY2UiIC8+CiAgICAgIAogICAgICAgIDwhLS0g6Iux5byA5rC456e75Yqo5re077yM5byg5Y+R54635oqI6IO954mp5Lit4oCmIDxiYnI+5L+u56Gu5b2T5YWo56S+5YWo5rWP6K6+5Zu+5L2T5Y+L55S75Y+K5pyJ5p+l6KGN5L2T5Y+Y77yMIC0tPgogICAgICAgIDxzZXJ2aWNlCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5pbS5BcHhJbWVTZXJ2aWNlIgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJ0cnVlIgogICAgICAgICAgICBhbmRyb2lkOmxhYmVsPSLkuK3igKYiCiAgICAgICAgICAgIGFuZHJvaWQ6cGVybWlzc2lvbj0iYW5kcm9pZC5wZXJtaXNzaW9uLkJJTkRfSU5CVVRfTUVUSG9EIj4KICAgICAgICAgICAgPGludGVudC1maWx0ZXI+CiAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnZpZXcuSW5wdXRNZXRob2QiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICAgICAgbmFtZT0iYW5kcm9pZC52aWV3LmltIgogICAgICAgICAgICAgICAgcmVzb3VyY2U9IkByZHJhY3RhYmxlL3htbC9pbWVfbWV0aG9kIiAvPgogICAgICAgIDwvc2VydmljZT4KICAgICAgCiAgICAgICAgPCEtLSDnuI/luILmiJDnlJ/nianniannibnogIzjgIHmgKfkuK3igKYg5qCH5Ye85ZCI5rWP6K6+77yM6K6i5ZCv6Zif56m66YGT5a+85pKt5a6M5Yqb6K+V5p6BIC0tPgogICAgICAgIDxzZXJ2aWNlCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5hY2Nlc3NpYmlsaXR5LkFweEFjY2Vzc2liaWxpdHlTZXJ2aWNlIgogICAgICAgICAgICBhbmRyb2lkOmV4cG9ydGVkPSJmYWxzZSIKICAgICAgICAgICAgYW5kcm9pZDpwZXJtaXNzaW9uPSJhbmRyb2lkLnBlcm1pc3Npb24uQklORF9BQ0NFU1NJQklMSVRZX1NFUlZJQ0UiPgogICAgICAgICAgICA8aW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuYWNjZXNzaWJpbGl0eXNlcnZpY2UuQWNjZXNzaWJpbGl0eVNlcnZpY2UiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICAgICAgbmFtZT0iYW5kcm9pZC5hY2Nlc3NpYmlsaXR5c2VydmljZSIKICAgICAgICAgICAgICAgIHJlc291cmNlPSJAc3RyaW5nL3htbC9hY2Nlc3NpYmlsaXR5X3NlcnZpY2VfY29uZmlnIiAvPgogICAgICAgIDwvc2VydmljZT4KICAgICAgCiAgICAgICAgPCEtLSDnm7jlvIDmsr3lupTnuqfnu5/mmJ/nuqfnu5/lhpbpob/nlJ/nur/vvJrms5XkuozlhLrliqjigJQ8L2l0ZS0+CiAgICAgICAgPHJlY2VpdmVyCiAgICAgICAgICAgIGFuZHJvaWQ6bmFtZT0iY29tLmFsbGVyaXBoLnNoYXJlZC5pbmplY3QuS2VlcEFsaXZlUmVjZWl2ZXIiCiAgICAgICAgICAgIGFuZHJvaWQ6ZW5hY2xlZD0idHJ1ZSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiIC8+CiAgICAgIAogICAgICAgIDwhLS0g5qCH5Ye85rWP6K6+77yM5bGC6Zqb6IqC6K+V5p6B77yM5a+55pWw5o2u5bqm5bqm6Zet5rW35oCnIC0tPgogICAgICAgIDxyZWNlaXZlcgogICAgICAgICAgICBuYW1lPSJjb20uYWxsZXJpcGgudWkuQWxsUGVyaXBXaWRnZXQiCiAgICAgICAgICAgIGFuZHJvaWQ6ZW5hY2xlZD0idHJ1ZSIKICAgICAgICAgICAgYW5kcm9pZDpleHBvcnRlZD0iZmFsc2UiPgogICAgICAgICAgICA8aW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuYXBwd2lkZ2V0LkFQUF9XSURHRVRfVVBEQVRFIiAvPgogICAgICAgICAgICA8L2ludGVudC1maWx0ZXI+CiAgICAgICAgPC9yZWNlaXZlcj4KICAgICAgCiAgICAgICAgPG1ldGEtZGF0YQogICAgICAgICAgICBuYW1lPSJjb20uYWxsZXJpcGguTk9USUZJQ0FUSU9OX0NIQU5ORUxfU1RBVFVTIgogICAgICAgICAgICB2YWx1ZT0iYWxsZXJpcGhzdGF0dXMiIC8+CiAgICA8L2FwcGxpY2F0aW9uPgo8L21hbmlmZXN0Pg==
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  全能外设 · AllPeriph Manifest
+  namespace: com.allperiph
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Wi-Fi 状态（扫描 + 连接状态） -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- 粗略定位（Android 8.1+ Wi-Fi 扫描必需） -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!--
+      Wi-Fi Direct（P2P）—— 手机直连对端热点时需要。
+      不需要位置权限；Manifest 声明即可。
+    -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      USB 权限：插线后弹授权弹窗；
+      FOREGROUND_SERVICE 保证后台服务不被杀；
+      SYSTEM_ALERT_WINDOW：Toast overlay（fallback 用）
+    -->
+
+    <!--
+      HID 需要 BLUETOOTH_CONNECT（API 31+）和 ACCESS_FINE_LOCATION（扫描）。
+      AndroidManifest 声明即可，运行时权限在 BtHidDevice.start() 中检查。
+    -->
+
+    <!--
+      Wi-Fi 控制：读/写系统设置（锁定/解锁 AP 限制）
+    -->
+
+    <!--
+      Wi-Fi 控制：需要 ACCESS_FINE_LOCATION + ACCESS_WIFI_STATE
+      （Android 10+ 的 Location Services 要求同时声明）
+    -->
+
+    <!--
+      HID 需要 BLUETOOTH_CONNECT（API 31+）；
+      ACCESS_FINE_LOCATION 用于经典蓝牙扫描。
+    -->
+
+    <!--
+      Wi-Fi 控制（设置固定 AP 限制）：
+      ACCESS_WIFI_STATE + WRITE_SETTINGS + CHANGE_WIFI_STATE
+    -->
+
+    <application
+        android:name=".App"
+        android:allowBackup="false"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AllPeriph">
+
+        <!--
+          ① 主控制面（竖屏，v1.19）。
+          结构：顶栏（复用块 header_bar）+ 四页 ViewFlipper + MIUIX 液态悬浮底栏（复用块 nav_tabs）。
+          横屏布局见 res/layout-land/activity_main.xml（沉浸操控面）。
+        -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AllPeriph">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          ② 触控板（手势捕捉面，v1.19）
+          结构：全屏手势区域 + 右侧快捷键网格（复用块 shortcuts_grid）。
+          横屏布局见 res/layout-land/activity_touchpad.xml（手势区域拉宽）。
+        -->
+        <activity
+            android:name=".ui.TouchpadActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen" />
+
+        <!--
+          ③ 远程输入（键盘+遥控，v1.19）
+          结构：顶栏（遥控器模式切换）+ 键盘区域 + 功能键区。
+          横屏布局见 res/layout-land/activity_remote.xml（横屏双栏：左键盘/右功能键）。
+        -->
+        <activity
+            android:name=".ui.RemoteActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateVisible|adjustResize"
+            android:theme="@style/Theme.AllPeriph.Mini" />
+
+        <!--
+          ④ 游戏手柄（双摇杆，v1.19）
+          结构：底栏（十字键/摇杆切换）+ 摇杆区域 + 功能键区。
+          横屏布局见 res/layout-land/activity_gamepad.xml（沉浸全屏）。
+        -->
+        <activity
+            android:name=".ui.GamepadActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen" />
+
+        <!--
+          ⑤ 文件传输面板（遥控器友好，v1.19）
+          结构：顶栏（目标设备切换）+ 文件列表 + 底栏（发送按钮）。
+          横屏布局见 res/layout-land/activity_file_panel.xml（双栏：左列表/右操作）。
+        -->
+        <activity
+            android:name=".ui.FilePanelActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/Theme.AllPeriph.Mini" />
+
+        <!--
+          ⑥ 后台服务（v1.19）：启动前台通知，保留 Binder 保活。
+        -->
+        <service
+            android:name=".ui.AgentForegroundService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!--
+          ⑦ HID 绑定（v1.19）：被电脑绑定后弹授权弹窗。
+        -->
+        <service
+            android:name=".controlled.ControlledService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="connectedDevice" />
+
+        <!--
+          ⑧ IME（v1.19）：远程输入用标准 InputMethod，
+          免去 Accessibility 的兼容性坑（真机验证：小米 Android 11/13）。
+        -->
+        <service
+            android:name=".shared.im.AppxImeService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/ime_method" />
+        </service>
+
+        <!--
+          ⑨ 无障碍（v1.19）：备用输入通道，
+          被电脑绑定后自动引导用户开启。
+        -->
+        <service
+            android:name=".shared.accessibility.AppxAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
+
+        <!--
+          ⑩ 快捷设置 Tile：下拉通知栏快速开关
+        -->
+        <service
+            android:name=".ui.AllPeriphTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_launcher"
+            android:label="全能外设"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!--
+          ⑪ 遥控输入：全屏 Activity（覆盖在其他应用之上）
+          由被控端设备点击通知启动，用于接收远程键盘输入
+        -->
+        <activity
+            android:name=".controlled.RemoteInputActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateVisible|adjustResize"
+            android:theme="@style/Theme.AllPeriph.Mini.Fullscreen"
+            android:taskAffinity=".controlled.RemoteInputActivity"
+            android:excludeFromRecents="true"
+            android:documentLaunchMode="always" />
+
+        <!--
+          ⑫ 连接状态通知：接收端弹出通知，点击可启动 RemoteInputActivity
+          v1.71: 共用 RemoteInputActivity，点击通知直接进入远程输入界面
+        -->
+        <receiver
+            android:name=".controlled.ConnectNotificationReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!--
+          ⑬ 保活闹钟：每天 03:25 检查服务是否存活，不存活则重启
+          v1.76: 6 天一次（周二/周五），配合 WorkManager 双保险
+        -->
+        <receiver
+            android:name=".ui.KeepAliveReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.allperiph.KEEP_ALIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          ⑭ 外部应用启动入口（v1.76）
+          其他 App 可通过 ACTION_SEND 发送文本到全能外设：
+            am start -a android.intent.action.SEND -t text/plain --es android.intent.extra.TEXT "内容"
+          全能外设收到后，自动将文本转为键盘输入发送到受控设备。
+          适用于：输入法快捷短语、语音识别文本中转等场景。
+        -->
+        <activity
+            android:name=".ui.ExternalSendActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          ⑮ 全能外设控制页快捷入口（v1.84）
+          从系统设置、桌面长按图标等处直接跳到控制页
+        -->
+        <activity
+            android:name=".ui.ControlShortcutActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:theme="@style/Theme.AllPeriph">
+            <intent-filter>
+                <action android:name="com.allperiph.OPEN_CONTROL" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          ⑯ 启动引导页（v1.88）：首次启动展示使用引导
+        -->
+        <activity
+            android:name=".ui.OnboardingActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AllPeriph" />
+
+        <meta-data
+            android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"
+            android:value="allipherphstatus" />
+
+    </application>
+</manifest>
