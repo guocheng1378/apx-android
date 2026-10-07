@@ -6,6 +6,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
+import android.view.View
 import android.widget.TextView
 import com.allperiph.tv.R
 
@@ -83,6 +84,11 @@ object TvUi {
     fun solidBg(color: Int, radiusPx: Int): Drawable = GradientDrawable().apply {
         setColor(color)
         cornerRadius = radiusPx.toFloat()
+    }
+
+    /** 无障碍：为控件设置 contentDescription（遥控器读屏使用） */
+    fun contentDescription(view: View, text: String) {
+        view.contentDescription = text
     }
 
     // ————————————————————————— 字号 / 圆角档位 —————————————————————————
