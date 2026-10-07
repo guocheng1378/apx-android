@@ -443,6 +443,10 @@ bool injectSystemText(const std::string& text) {
     // 中文 / 多行 / 长文本：剪贴板 + Ctrl+V 保真，用完把用户原来的剪贴板还回去。
     // 不还原的话，用户复制的东西会被我们悄悄覆盖 —— 这种"顺手毁掉剪贴板"的行为最招骂。
     const std::string backup = readClipboardUtf8();
+    // ★ 抑制窗口必须覆盖「写入 → Ctrl+V → 还原」全程：这段会两次改写剪贴板，而
+    //   ClipboardWatcher 每 500ms 轮询一次，不抑制的话中间态会经 0x21 回传给对端，
+    //   对端剪贴板被刷成一串乱值（setSystemClipboard 早就有这层保护，这条路径漏了）。
+    clipSuppressFor(1500);
     if (!writeClipboardUtf8(text)) return false;
     sendCtrlV();
     // 等目标窗口真的完成粘贴再还原：立即还原会粘回旧内容。

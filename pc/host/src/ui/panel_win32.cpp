@@ -2237,20 +2237,23 @@ void tick(Panel* p) {
             // 心跳迟到会让 phase 瞬间离开 Connected；旧逻辑立即拆掉副屏+音箱+媒体，
             // 用户看到的就是"剪贴板一用副屏就断"。现在持续断满 3s 才动手，
             // 瞬断期间什么都不做（media 会话自己还活着，恢复后无缝继续）。
+            // ★ 原来宽限期内直接 `return`：把整个 tick 掐断，后面的设备指纹检查与
+            //   repaintKey 比对/重绘全被跳过 —— 控制面抖动这 3 秒里面板完全不刷新、
+            //   设备下拉也不更新，抖得频繁时看着像"假死"。改成只在超期时才动手拆。
             if (p->ctrlDownSinceMs == 0) {
                 p->ctrlDownSinceMs = nowMsLocal();
                 panelLog("panel: ctrl phase left Connected, grace 3s");
-            } else if (nowMsLocal() - p->ctrlDownSinceMs < kCtrlGraceMs) {
-                return;   // 宽限期内：不拆、不清、等它自己回来
+            } else if (nowMsLocal() - p->ctrlDownSinceMs >= kCtrlGraceMs) {
+                // 宽限期满才算真断：不拆、不清、等它自己回来那段时间照常刷新面板
+                p->ctrlDownSinceMs = 0;
+                panelLog("panel: ctrl down persisted, stopping media");
+                if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
+                // 音箱同理：连接没了就停采集，别让它在后台空转
+                if (p->audio && p->audio->running()) p->audio->stop();
+                if (p->mediaThread.joinable()) p->mediaThread.join();
+                p->media->disconnect();
+                p->autoRestoreDone = false;   // 断连：下次连上重新走一遍恢复
             }
-            p->ctrlDownSinceMs = 0;
-            panelLog("panel: ctrl down persisted, stopping media");
-            if (p->screenPush && p->screenPush->running()) p->screenPush->stop();
-            // 音箱同理：连接没了就停采集，别让它在后台空转
-            if (p->audio && p->audio->running()) p->audio->stop();
-            if (p->mediaThread.joinable()) p->mediaThread.join();
-            p->media->disconnect();
-            p->autoRestoreDone = false;   // 断连：下次连上重新走一遍恢复
         }
     }
 

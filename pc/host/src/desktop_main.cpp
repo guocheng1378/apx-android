@@ -400,6 +400,25 @@ int main(int /*argc*/, char** /*argv*/) {
         char host[64] = {0};
         DWORD hn = sizeof(host);
         if (!::GetComputerNameA(host, &hn) || host[0] == '\0') std::snprintf(host, sizeof(host), "PC");
+        // ★ PC 作**被控端**时的远程输入：这三个回调此前一个都没注册（start() 前空着），
+        //   于是手机在输入法里敲的字经 0x26 发来后，PC 既没注入也没日志 —— 三端不对等
+        //   （手机控 PC 时手机上打字，PC 上毫无反应）。语义与控制端那条链路
+        //   （WirelessSession 构造函数里注册的 onRemoteInputText）完全一致。
+        g_ctrlServer.setOnRequestInput([](const std::string& hint) {
+            // 0x25 = 「本机有输入框获焦，请对端代输」。PC 端不做输入框焦点检测，只记录。
+            APX_LOGI("对端请本机输入（hint={}）：PC 端无输入框焦点检测，不弹窗", hint.c_str());
+        });
+        g_ctrlServer.setOnRemoteInputText([](const std::string& text, uint8_t flags) {
+            // 回调跑在受控端 reader 线程；injectSystemText / injectSpecialKey 内部是
+            // SendInput 与剪贴板操作，线程安全 —— 与 WirelessSession 同口径，不绕 UI 线程。
+            if (flags & 0x02) {   // INPUT_FLAG_BACKSPACE（ApxFrame.kt 定义）
+                apxpc::wireless::injectSpecialKey(0, VK_BACK);
+                return;
+            }
+            if (!text.empty() && !apxpc::wireless::injectSystemText(text))
+                APX_LOGW("远程输入注入失败（{} 字节）", static_cast<unsigned>(text.size()));
+        });
+        g_ctrlServer.setOnRemoteInputDone([] { APX_LOGI("远程输入完成（对端 0x27）"); });
         if (!g_ctrlServer.start(9511, "", host))
             APX_LOGW("9511 受控端启动失败（端口可能已被 apxhost 占用）；手机控不到本机时请只保留一个");
         else

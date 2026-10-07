@@ -138,8 +138,13 @@ void WirelessSession::stop() {
     if (!running_.exchange(false)) return;
     beaconRun_.store(false);
     client_.disconnect();
-    if (beaconThread_.joinable()) beaconThread_.join();
+    // ★ 顺序不能反：worker 线程内部也会 join / 重建 beaconThread_（Idle、Manual、Auto
+    //   三个分支都有），若这里先 join(beacon)，就会与 worker **并发 join 同一个
+    //   std::thread**（未定义行为，实践中表现为退出时偶发 terminate / 卡死）；而 worker
+    //   重建时对仍 joinable 的 thread 赋值同样会 terminate。现在只 join worker（由它收
+    //   beacon），这里仅兜底，避免 beaconThread_ 析构时仍 joinable 触发 terminate。
     if (worker_.joinable()) worker_.join();
+    if (beaconThread_.joinable()) beaconThread_.join();
 }
 
 void WirelessSession::startAuto() {

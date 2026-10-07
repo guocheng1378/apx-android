@@ -250,6 +250,13 @@ struct Ctrl9511Server::Impl {
             st.connected = true;
             st.peer = "(peer)";
         }
+        // ★ 新会话必须清空发送队列：没有对端时 onClipboardChanged() 每变一次剪贴板就
+        //   enqueue 一帧反向剪贴板(0x21)，只增不减；不清的话手机一连上就被灌一串历史
+        //   旧内容、剪贴板被刷乱。（媒体层 media_session.cpp 同场景已有 outQ_.clear()）
+        {
+            std::lock_guard<std::mutex> lk(writeMu);
+            outQueue.clear();
+        }
         readerThread = std::thread([this, s] { readerLoop(s); });
         writerThread = std::thread([this, s] { writerLoop(s); });
     }
@@ -778,7 +785,15 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
             }
             if (off > 0) acc.erase(acc.begin(), acc.begin() + static_cast<long>(off));
         }
-        closeSock(im->sock);
+        // ★ 以前这里**无锁关闭且不置 kBadSock**：心跳判定链路失效后上层会立刻重连，
+        //   而旧 reader 线程延迟执行 closeSock(sock) —— Windows 的 SOCKET 值已被新建
+        //   连接复用，于是"刚连上就被旧线程关掉"，表现为反复重连 / 刚连即断；
+        //   disconnect() 随后还会对同一个句柄再关一次（double close，同样可能误伤
+        //   被复用的新句柄）。现在两处收尾统一在锁内关闭并置空，不会互相踩。
+        {
+            std::lock_guard<std::mutex> lk(im->mu);
+            if (im->sock != kBadSock) { closeSock(im->sock); im->sock = kBadSock; }
+        }
         im->running.store(false);
     });
 
@@ -895,8 +910,10 @@ bool Ctrl9511Client::sendRequestInput(const std::string& hint) {
     if (!impl_) return false;
     const auto bytes = std::vector<uint8_t>(hint.begin(), hint.end());
     if (bytes.size() > 255) return false;
-    uint8_t b[1 + 255];
-    b[0] = 0x25;
+    // ★ 原来是 uint8_t b[1 + 255]（256 字节），而 memcpy(b + 2, ..., 255) 会写到 b[256]
+    //   —— 越界整整一个字节（hint 被对端截断到 255 字节时必然踩中），sendCmd 也从 b[256]
+    //   越界读。b[0] = 0x25 那行同样是无效写入（sendCmd 从 b + 1 取数据）。
+    uint8_t b[2 + 255] = {0};
     b[1] = static_cast<uint8_t>(bytes.size());
     std::memcpy(b + 2, bytes.data(), bytes.size());
     impl_->sendCmd(0x25, b + 1, 1 + bytes.size());
@@ -904,7 +921,13 @@ bool Ctrl9511Client::sendRequestInput(const std::string& hint) {
 }
 
 bool Ctrl9511Client::sendInputText(const std::string& text, uint8_t flags) {
-    if (!impl_ || text.empty()) return false;
+    if (!impl_) return false;
+    // ★ 空文本**不能一律拒**：0x02（退格）帧的语义就是「文本为空，删掉一个字」——
+    //   remote_input_win32.cpp 正是用 sendFrame(std::string(), 0x02) 表达退格，
+    //   接收侧 wireless_session.cpp 也明确支持 flags & 0x02 的空文本帧。
+    //   以前这里把退格帧整条吞掉：PC 上每按一次退格都返回 false 并弹"没发出去"，
+    //   对端一个字也删不掉。
+    if (text.empty() && !(flags & 0x02)) return false;
     const auto bytes = std::vector<uint8_t>(text.begin(), text.end());
     if (bytes.size() > 0xFFFF) return false;
     // v184：栈上 64KB 缓冲 → 按需堆分配

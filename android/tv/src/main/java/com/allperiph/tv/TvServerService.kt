@@ -77,6 +77,14 @@ class TvServerService : Service() {
         s.onRemoteInputRequest = { fromDevice, hint -> Log.i("远程输入请求: from=$fromDevice hint=$hint"); val i = Intent(ACTION_REMOTE_INPUT); i.putExtra(EXTRA_SOURCE, fromDevice); i.putExtra(EXTRA_HINT, hint); i.setPackage(packageName); sendBroadcast(i) }
         s.onRemoteInputText = { text, flags -> injectRemoteText(text, flags) }
         s.onRemoteInputDone = { Log.i("远程输入完成回传"); awaitingRemoteInput = false }
+        // ★ 0x10 模块开关：TV 端此前**从未注册**这个回调，PC 面板拨「无线」开关时 TV 只打
+        //   一行日志就结束 —— suspendAccept()/resumeAccept() 永不调用。PC 关掉无线后 TV
+        //   仍在接受并注入输入，PC 侧却以为已挂起（手机端 ControlledService 早就注册了）。
+        s.onModuleToggle = { id, on ->
+            Log.i("模块开关：$id -> $on")
+            if (id == "wireless") { if (on) s.resumeAccept() else s.suspendAccept() }
+            refreshNotification()
+        }
         // 「让对端帮我输入」的**发起端**：本机（电视）输入框获焦 → 请对端弹输入法。
         // 这条线以前完全没接（ApxAccessibilityService.onFocusDetected 全仓库零注册点），
         // 无障碍服务检测到的焦点事件被丢掉了，所以手机输入法再也不会被自动唤起。
@@ -206,7 +214,18 @@ class TvServerService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     fun status(): String = server?.statusText() ?: "未启动"
     /** 媒体口是 9502（副屏画面 / 电脑声音）；9512 是文件口 —— 以前这里日志写错，排障时会误导 */
-    fun ensureMedia() { if (media != null) return; media = MediaChannel(onFrame = { streamId, _, _, body -> when (streamId) { ApxFrame.STREAM_VIDEO -> Renderer.submit(body); ApxFrame.STREAM_AUDIO -> TvSpeaker.submit(body); else -> {} } }).also { if (!it.start()) Log.w("9502 未启动") } }
+    /**
+     * ★ 以前 start() 失败时 media 仍被赋成非 null 实例：之后每次 ensureMedia()
+     *   （KeepAlive 每 60s 一次）都在第一行 return，9502 **再也不会重试** —— 开机自启时
+     *   Wi-Fi 可能尚未就绪，一次失败就导致副屏永久黑屏、电脑声音永久不出，只能重启进程。
+     *   现在失败不落 media，下次调用自然重试。
+     */
+    fun ensureMedia() {
+        if (media != null) return
+        val ch = MediaChannel(onFrame = { streamId, _, _, body -> when (streamId) { ApxFrame.STREAM_VIDEO -> Renderer.submit(body); ApxFrame.STREAM_AUDIO -> TvSpeaker.submit(body); else -> {} } })
+        if (!ch.start()) { Log.w("9502 未启动（等网络就绪后自动重试）"); return }
+        media = ch
+    }
     fun mediaStatus(): String = media?.statusText() ?: "还没收到电脑画面"
     fun sendTargets(): List<String> { val out = ArrayList<String>(4); server?.currentPeerHost()?.let { out.add(it) }; out.addAll(knownPeers()); return out.distinct() }
     fun currentPeer(): String? = server?.currentPeerHost()

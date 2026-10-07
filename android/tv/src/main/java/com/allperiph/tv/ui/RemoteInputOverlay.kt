@@ -69,7 +69,7 @@ class RemoteInputOverlay(
         mEditText = input
         panel.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
         val btnRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-        btnRow.addView(makeButton("取消", TvUi.Pal.neutral) { onTextChanged("", 0x08); onCancel(); hide() })
+        btnRow.addView(makeButton("取消", TvUi.Pal.neutral) { undoOnPeer(); onCancel(); hide() })
         // 发送**不再整段重发**（0x04 COMMIT）：打字时上面的 TextWatcher 已把每个字符
         // 以 0x01 增量送到 PC 并即时上屏，再发 0x04 会被 PC 整段再粘一遍 ——
         // 用户报的“发送后文字重复两次”（与手机端 RemoteInputActivity 同一根因）。
@@ -100,9 +100,23 @@ class RemoteInputOverlay(
      */
     fun cancelFromBack() {
         if (!isShowing) return
-        onTextChanged("", 0x08)
+        undoOnPeer()
         onCancel()
         hide()
+    }
+
+    /**
+     * 撤销对端已上屏的字。
+     *
+     * ★ INPUT_FLAG_CANCEL(0x08) **三端接收侧全是空实现**（常量定义了、TV 与手机也都在发，
+     *   但收到后什么都不做）—— 只发一帧 0x08，对端输入框里的字一个都不会消失，用户点
+     *   「取消」/按返回键等于白点。这里与 PC 端 remote_input_win32 同口径：按当前净上屏
+     *   字数逐个发 0x02（退格）。TextWatcher 已把用户自己的删除也发成 0x02 了，所以
+     *   输入框里剩下的长度恰好就是对端还留着的字数。
+     */
+    private fun undoOnPeer() {
+        val n = mEditText?.text?.length ?: 0
+        repeat(n) { onTextChanged("", 0x02) }
     }
 
     /**

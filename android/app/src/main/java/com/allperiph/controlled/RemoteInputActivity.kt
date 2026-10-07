@@ -200,7 +200,16 @@ class RemoteInputActivity : Activity() {
             text = "取消"; setTextColor(Color.WHITE); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER; setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
             setBackgroundColor(Color.parseColor("#FF666666"))
-            setOnClickListener { ControlledService.server?.sendInputText("", ApxFrame.INPUT_FLAG_CANCEL); finish() }
+            setOnClickListener {
+                // ★ 0x08（CANCEL）三端接收侧全是空实现（ControlledService / TvServerService
+                //   里都写着 `-> Unit`），光发这一帧不会删掉对端已上屏的字 —— 点「取消」
+                //   等于白点。与 PC / TV 同口径：按剩余字数逐个发 0x02 退格（TV 端 undoOnPeer）。
+                val n = editText?.text?.length ?: 0
+                repeat(n) { ControlledService.server?.sendInputText("", ApxFrame.INPUT_FLAG_BACKSPACE) }
+                // 0x08 仍照发：语义保留，将来三端若实现「整段撤销」，这一帧就是信号
+                ControlledService.server?.sendInputText("", ApxFrame.INPUT_FLAG_CANCEL)
+                finish()
+            }
         }.also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } })
         btnRow.addView(TextView(this).apply {
             text = "发送"; setTextColor(Color.WHITE); textSize = 14f; typeface = Typeface.DEFAULT_BOLD

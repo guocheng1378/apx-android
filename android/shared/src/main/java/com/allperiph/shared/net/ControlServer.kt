@@ -293,9 +293,13 @@ class ControlServer(
 
     private fun onConsumer(body: ByteArray) {
         val bitmap = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
+        // ★ 下面这圈 CONSUMER_MAP 是**重复注入**，已删除：
+        //   endpoint.consumer() 已经把 bit0~bit6 全处理了（音量走 AudioManager、
+        //   bit3 电源、bit4/5/6 走 sendMediaKey，见 TvInjector.consumer），这里再按位
+        //   补一次按键，等于每个动作都做两遍 —— 点一次「播放/暂停」来回切两次、
+        //   看起来毫无反应，按「电源」连发两次，有 root 时音量一次跳两档。
+        //   （两个被控端 TV / 手机的 endpoint.consumer 都是 TvInjector.consumer，删掉不丢功能。）
         endpoint.consumer(bitmap)
-        for (bit in 0 until 16) { if ((bitmap ushr bit) and 1 == 0) continue; val kc = CONSUMER_MAP[bit] ?: continue
-            endpoint.key(kc, true); endpoint.key(kc, false) }
     }
 
     private fun onModuleToggle(body: ByteArray) {

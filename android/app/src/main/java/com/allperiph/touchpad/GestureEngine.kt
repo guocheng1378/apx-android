@@ -221,6 +221,13 @@ class GestureEngine(private val sink: TouchpadSink) {
                 val dur = ev.eventTime - downTime
                 if (!dragArmed && !dragSent && moved < TAP_SLOP && dur > LONG_PRESS_MS) {
                     dragArmed = true
+                    // ★ 这条路径**也必须震**，否则长按等于没反馈：
+                    //   手指只要有一丁点抖动，MOVE 就会在定时器之前把 dragArmed 置上，
+                    //   随后 550ms 定时器调用 armDrag() 时撞上 "already armed" 分支直接
+                    //   return true —— 一声都不震，而界面还照样显示"已锁定拖拽"。
+                    //   人手按住不可能绝对静止，所以实测多数长按走的正是这条静默路径。
+                    //   两处都震：外层的 onGestureFeedback 有 250ms 同类型节流，不会连震两下。
+                    onFeedback?.invoke(GestureFeedback.DRAG_LOCK)
                 }
                 if (dragArmed && !dragSent && moved >= TAP_SLOP) {
                     dragSent = true
