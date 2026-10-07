@@ -116,7 +116,9 @@ class BtHidDevice(private val appContext: Context) : Module {
 
     fun reportMouse(buttons: Int, dx: Int, dy: Int, wheel: Int, pan: Int) {
         if (!isConnected || !hasConnect()) return
-        val r = byteArrayOf(0x01, buttons.toByte(), dx.toByte(), dy.toByte(), wheel.toByte(), pan.toByte())
+        // v186 修复：sendReport(reportId, data) 的 reportId 已由第二个参数负责，
+        // data 只需纯载荷，不再包含 Report ID 字节。
+        val r = byteArrayOf(buttons.toByte(), dx.toByte(), dy.toByte(), wheel.toByte(), pan.toByte())
         runCatching { hidDevice?.sendReport(null, 0x01, r) }
     }
 
@@ -127,13 +129,13 @@ class BtHidDevice(private val appContext: Context) : Module {
      */
     fun reportKeyboard(mod: Int, keys: ByteArray) {
         if (!isConnected || !hasConnect()) return
-        // v184：报告必须是 9 字节 —— reportId(1) + modifier(1) + reserved(1) + 6 个按键码。
-        // 旧实现用 ByteArray(8)，当 keys 满 6 个时 i=5 会写 r[8]，直接数组越界崩溃。
-        val r = ByteArray(9)
-        r[0] = 0x02
-        r[1] = mod.toByte()
+        // v184：报告必须是 8 字节 —— modifier(1) + reserved(1) + 6 个按键码。
+        // v186 修复：sendReport 的 reportId=0x02 已负责 Report ID，
+        // data 不再包含 Report ID 字节（旧 r[0]=0x02 会重复）。
+        val r = ByteArray(8)
+        r[0] = mod.toByte()
         for (i in 0 until minOf(keys.size, 6)) {
-            r[3 + i] = keys[i]
+            r[2 + i] = keys[i]
         }
         runCatching { hidDevice?.sendReport(null, 0x02, r) }
             .onFailure { Log.w(TAG, "reportKeyboard failed: ${it.message}") }
@@ -156,9 +158,8 @@ class BtHidDevice(private val appContext: Context) : Module {
      */
     fun reportGamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
         if (!isConnected || !hasConnect()) return
-        // 格式：[ReportID=0x04, buttons_lo, buttons_hi, x, y, rx, ry] = 7 bytes
+        // 格式：[buttons_lo, buttons_hi, x, y, rx, ry] = 6 bytes（Report ID 由 sendReport 负责）
         val r = byteArrayOf(
-            0x04,  // Report ID
             (buttons and 0xFF).toByte(),
             ((buttons shr 8) and 0xFF).toByte(),
             x.coerceIn(-127, 127).toByte(),
@@ -191,25 +192,30 @@ class BtHidDevice(private val appContext: Context) : Module {
  * 仅当 ApxNative 不可用（libapx.so 未加载）时使用；
  * native 版描述符通过 [ApxNative.btReportDescriptor] 获取，保证与 shared/ 协议库一致。
  * 含四个 TLC：Mouse(rid=1) + Keyboard(rid=2) + Consumer(rid=3) + Gamepad(rid=4)。
+ *
+ * v186 修复：当存在多个 Report 时，HID 规范要求每个 TLC 必须声明 Report ID。
+ * 旧版 Mouse/Keyboard/Consumer 缺少 0x85,0x0N，fallback 路径下 PC 无法正确解析。
  */
 object BtHidDescriptor {
     val bytes: ByteArray = byteArrayOf(
         // ---- TLC 1: Mouse (rid=1) ----
-        0x05, 0x01, 0x09, 0x02, 0xA1.toByte(), 0x01, 0x09, 0x01, 0xA1.toByte(), 0x00,
+        0x05, 0x01, 0x09, 0x02, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x01,
+        0x09, 0x01, 0xA1.toByte(), 0x00,
         0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01, 0x95.toByte(), 0x03, 0x75, 0x01, 0x81.toByte(), 0x02,
         0x95.toByte(), 0x01, 0x75, 0x05, 0x81.toByte(), 0x03,
         0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38, 0x15, 0x81.toByte(), 0x25, 0x7F, 0x75, 0x08, 0x95.toByte(), 0x03, 0x81.toByte(), 0x06,
         0xC0.toByte(), 0xC0.toByte(),
         // ---- TLC 2: Keyboard (rid=2) ----
-        0x05, 0x01, 0x09, 0x06, 0xA1.toByte(), 0x01, 0x05, 0x07, 0x19, 0xE0.toByte(), 0x29, 0xE7.toByte(), 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95.toByte(), 0x08, 0x81.toByte(), 0x02,
+        0x05, 0x01, 0x09, 0x06, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x02,
+        0x05, 0x07, 0x19, 0xE0.toByte(), 0x29, 0xE7.toByte(), 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95.toByte(), 0x08, 0x81.toByte(), 0x02,
         0x95.toByte(), 0x01, 0x75, 0x08, 0x81.toByte(), 0x03,
         0x05, 0x07, 0x19, 0x01, 0x29, 0x65, 0x15, 0x00, 0x25, 0x65, 0x75, 0x08, 0x95.toByte(), 0x06, 0x81.toByte(), 0x00,
         0xC0.toByte(),
         // ---- TLC 3: Consumer (rid=3) ----
-        0x05, 0x0C, 0x09, 0x01, 0xA1.toByte(), 0x01, 0x19, 0x00, 0x2A, 0x9C.toByte(), 0x02, 0x15, 0x01, 0x26, 0x9C.toByte(), 0x02, 0x95.toByte(), 0x01, 0x75, 0x10, 0x81.toByte(), 0x00,
+        0x05, 0x0C, 0x09, 0x01, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x03,
+        0x19, 0x00, 0x2A, 0x9C.toByte(), 0x02, 0x15, 0x01, 0x26, 0x9C.toByte(), 0x02, 0x95.toByte(), 0x01, 0x75, 0x10, 0x81.toByte(), 0x00,
         0xC0.toByte(),
         // ---- TLC 4: Gamepad (rid=4) ----
-        // 16 buttons (Button Page 1..16) + 4 axes X/Y/Rx/Ry (signed 8bit)
         0x05, 0x01, 0x09, 0x05, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x04,
         0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95.toByte(), 0x10, 0x81.toByte(), 0x02,
         0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x33, 0x09, 0x34, 0x15, 0x81.toByte(), 0x25, 0x7F, 0x75, 0x08, 0x95.toByte(), 0x04, 0x81.toByte(), 0x02,
