@@ -158,9 +158,11 @@
         <!--
           ⑧ IME（v1.19）：远程输入用标准 InputMethod，
           免去 Accessibility 的兼容性坑（真机验证：小米 Android 11/13）。
+          ⚠️ v196 之前这里写的是 `.shared.im.AppxImeService` —— 包名少个e、类名多一个 p，
+          系统找不到该类：**输入法根本不会被注册**（远程输入中文上不了屏）。
         -->
         <service
-            android:name=".shared.im.AppxImeService"
+            android:name=".shared.ime.ApxImeService"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_INPUT_METHOD">
@@ -175,9 +177,10 @@
         <!--
           ⑨ 无障碍（v1.19）：备用输入通道，
           被电脑绑定后自动引导用户开启。
+          ⚠️ 同上：原类名写成 AppxAccessibilityService（多一个 p），服务不会被加载。
         -->
         <service
-            android:name=".shared.accessibility.AppxAccessibilityService"
+            android:name=".shared.accessibility.ApxAccessibilityService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -236,13 +239,11 @@
             android:documentLaunchMode="always" />
 
         <!--
-          ⑫ 连接状态通知：接收端弹出通知，点击可启动 RemoteInputActivity
-          v1.71: 共用 RemoteInputActivity，点击通知直接进入远程输入界面
+          ⑫ 连接状态通知点击 → RemoteInputActivity
+          v196 起改为由ControlledService 直接发 RemoteInputActivity 的 PendingIntent，
+          原 .controlled.ConnectNotificationReceiver 这个类**并不存在**（注册是悬空的），
+          故不再注册。需要"点通知进输入页"时用 PendingIntent 指向 RemoteInputActivity 即可。
         -->
-        <receiver
-            android:name=".controlled.ConnectNotificationReceiver"
-            android:enabled="true"
-            android:exported="false" />
 
         <!--
           ⑬ 保活闹钟：每天 03:25 检查服务是否存活，不存活则重启
@@ -258,29 +259,16 @@
         </receiver>
 
         <!--
-          ⑭ 外部应用启动入口（v1.76）
-          其他 App 通过 ACTION_SEND（mimeType text/plain）发文本，
-          全能外设读取 extra「android.intent.extra.TEXT」，自动转为键盘输入发送到受控设备。
-          （示例命令不写在注释里：XML 注释不允许出现双连字符，adb 参数里恰好有）
-          适用于：输入法快捷短语、语音识别文本中转等场景。
+          ⑭ 外部应用启动入口（v1.76）：⚠️ 已暂停注册。
+          原本注册了 .ui.ExternalSendActivity（接收 ACTION_SEND 文本并转发到被控设备），
+          但**该类从未实现** —— 注册悬空会让外部 intent 抛 ActivityNotFound。
+          实现计划：读 extra「android.intent.extra.TEXT」→ 若已连接则走
+          ControlTarget.sendText（与 TvControlServer 的输入通道一致）→ 结束自身。
         -->
-        <activity
-            android:name=".ui.ExternalSendActivity"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:excludeFromRecents="true"
-            android:noHistory="true">
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
-        </activity>
 
         <!--
-          ⑮ 全能外设控制页快捷入口（v1.84）
-          从系统设置、桌面长按图标等处直接跳到控制页
+          ⑮ 全能外设控制页快捷入口（v1.84，v196 补实现）
+          Tile 点击 / 外部 OPEN_CONTROL intent 都经这里转到 MainActivity（自身立即 finish）
         -->
         <activity
             android:name=".ui.ControlShortcutActivity"
@@ -297,14 +285,10 @@
         </activity>
 
         <!--
-          ⑯ 启动引导页（v1.88）：首次启动展示使用引导
+          ⑯ 启动引导页（v1.88）：⚠️ 已暂停注册 ——
+          OnboardingActivity 这个类并不存在（v196 之前是悬空注册）。
+          真要做首次启动引导时再实现并注册；在此之前宁可不注册。
         -->
-        <activity
-            android:name=".ui.OnboardingActivity"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.AllPeriph" />
 
         <meta-data
             android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"
