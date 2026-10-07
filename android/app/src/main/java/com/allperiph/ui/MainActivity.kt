@@ -851,6 +851,11 @@ class MainActivity : Activity(), TouchpadFragment.Host {
 
     override fun getHotkeyBoard(): HotkeyBoard = hotkeyBoard
 
+    // 触控板页三个视图交给 Fragment（Activity 侧已 findViewById 完毕，字段必然非空）
+    override fun hostTouchHint(): TextView = touchHint
+    override fun hostChipRow(): LinearLayout = chipRow
+    override fun hostTouchArea(): FrameLayout = touchArea as FrameLayout
+
     override fun renderChips() = hotkeyBoard.render()
 
     /** 设置页的自动排序开关跟随真实状态（拖拽/上下移会把它关掉，开关要跟着变） */

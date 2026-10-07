@@ -35,6 +35,15 @@ class TouchpadFragment : Fragment() {
         fun templateColor(): Int
         fun softTint(color: Int): Int
         fun dp(v: Int): Int
+
+        // 三个视图由宿主直接交过来（v196 第 2 步实测踩坑）：
+        // Fragment 自己 findViewById 时，onViewCreated 的执行时机与 Activity 的
+        // setupViews() 顺序耦合，一旦它提前返回，lateinit 字段就没赋值，
+        // 用户点触控板立刻 UninitializedPropertyAccessException 闪退（真机 21:03 复现）。
+        // Activity 侧这几个字段在 add Fragment 之前就已findViewById 完毕，直接复用最稳。
+        fun hostTouchHint(): TextView
+        fun hostChipRow(): LinearLayout
+        fun hostTouchArea(): FrameLayout
     }
 
     private var host: Host? = null
@@ -68,14 +77,21 @@ class TouchpadFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         val h = host ?: return
-        val act = activity ?: return
-
-        touchHint = act.findViewById(R.id.tvTouchHint)
-        chipRow = act.findViewById(R.id.chipRow)
-        touchArea = act.findViewById(R.id.touchArea)
-        touchCursor = TouchCursorView(act)
-        touchArea.addView(touchCursor, FrameLayout.LayoutParams(-1, -1))
+        // 视图由宿主交过来（见 Host 注释：自己 findViewById 会因时序拿不到， lateinit 闪退）
+        touchHint = h.hostTouchHint()
+        chipRow = h.hostChipRow()
+        touchArea = h.hostTouchArea()
+        touchCursor = TouchCursorView(h.hostTouchArea().context)
+        // 幂等：宿主视图可能已挂过光标（横竖屏切换或重建），先摘掉自己那份再挂，避免叠加
+        (touchArea as? FrameLayout)?.let { area ->
+            area.removeView(touchCursor)
+            area.addView(touchCursor, FrameLayout.LayoutParams(-1, -1))
+        }
     }
+
+    /** 视图是否已就绪 —— 未就绪时触摸事件直接忽略（绝不碰 lateinit 字段）。 */
+    private val viewsReady: Boolean
+        get() = ::touchHint.isInitialized && ::touchArea.isInitialized && ::touchCursor.isInitialized
 
     override fun onDetach() {
         handler.removeCallbacks(dragTask)
@@ -90,6 +106,12 @@ class TouchpadFragment : Fragment() {
     fun onTouchEvent(ev: MotionEvent): Boolean {
         val h = host ?: return false
         if (!h.isTouchpadPage()) return false
+        // 视图未就绪就只把手势喂给模块，不碰光标/提示文字 —— 修复「点触控板闪退」：
+        // UninitializedPropertyAccessException: lateinit property touchHint
+        if (!viewsReady) {
+            h.feedGesture(ev)
+            return true
+        }
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> handler.postDelayed(dragTask, 550)

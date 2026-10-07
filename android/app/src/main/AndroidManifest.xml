@@ -11,6 +11,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      震动反馈：触控板长按锁定拖拽时的触觉提示、副屏交互反馈都用到。
+      ⚠️ v196 之前没声明 —— Vibrator.vibrate() 是普通权限但**必须声明**才可用，
+      缺失时调用抛 SecurityException（真机：长按拖拽没有震动反馈）。
+    -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Wi-Fi 状态（扫描 + 连接状态） -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -87,13 +94,29 @@
           横屏布局见 res/layout-land/activity_touchpad.xml（手势区域拉宽）。
         -->
         <activity
-            android:name=".ui.TouchpadActivity"
+            android:name="com.allperiph.touchpad.TouchpadActivity"
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen" />
+
+        <!--
+          ②之二 副屏（PC 画面推到手机）：v196 补注册。
+          ⚠️ 之前 manifest 完全没有这个 Activity —— 类是存在的，但没注册就不能被
+          startActivity 启动（与混淆无关，minify 关着也一样）。后果：点「副屏」=
+          ActivityNotFoundException 直接闪退（真机 21:11 复现）；前台通知的
+          「副屏」动作按钮同理。
+        -->
+        <activity
+            android:name="com.allperiph.screen.ScreenActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
+            android:excludeFromRecents="true" />
 
         <!--
           ③ 远程输入（键盘+遥控，v1.19）
@@ -248,9 +271,12 @@
         <!--
           ⑬ 保活闹钟：每天 03:25 检查服务是否存活，不存活则重启
           v1.76: 6 天一次（周二/周五），配合 WorkManager 双保险
+          ⚠️ v196 之前这里写的是 `.ui.KeepAliveReceiver` —— 真类在 shared.inject 包
+          （com.allperiph.shared.inject.KeepAliveReceiver，shared 模块抽取时挪的包）。
+          注册名指向不存在的类 → 闹钟广播被系统静默丢弃，**保活闭环完全失效**（不崩但拉不回服务）。
         -->
         <receiver
-            android:name=".ui.KeepAliveReceiver"
+            android:name=".shared.inject.KeepAliveReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>

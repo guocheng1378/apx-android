@@ -217,7 +217,14 @@ class TouchpadModule : Module {
             @Suppress("DEPRECATION")
             app.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
         }
-        vib?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+        // v196：震动只是"长按已锁定"的提示，而这个调用点在 handler 线程里 ——
+        // 缺 VIBRATE 权限或厂商 ROM 限制时 vibrate() 抛 SecurityException 就是一次闪退。
+        // 失败只记日志，绝不影响拖拽功能本身。
+        runCatching {
+            vib?.vibrate(android.os.VibrationEffect.createPredefined(android.os.VibrationEffect.EFFECT_CLICK))
+        }.onFailure {
+            com.allperiph.shared.util.Log.w("TouchpadModule", "震动反馈失败：${it.message}")
+        }
     }
 
     @Volatile private var lastBuzzAt = 0L
