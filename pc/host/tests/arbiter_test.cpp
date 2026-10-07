@@ -34,13 +34,14 @@ static void testOverBudgetWireless() {
     auto r = a.compute();
     CHECK(r.totalMbps == 20);
     CHECK(r.usedMbps <= 20.0 + 1e-9);
-    // 顺序按优先级：touch, hid, video, audio, cam
+    // 顺序按优先级：touch, hid, video, audio
+    // 注意：本用例只注册了 4 路 demand，且 Prio 里已无 cam 档位 ——
+    // 原第 43 行断言 items[4]=="cam" 是越界（items 只有 4 个），v196 修正。
     CHECK(r.items.size() == 4);
     CHECK(r.items[0].name == "touch" && !r.items[0].degraded);
     CHECK(r.items[1].name == "hid" && !r.items[1].degraded);
     CHECK(r.items[2].name == "video" && !r.items[2].degraded);
     CHECK(r.items[3].name == "audio" && r.items[3].degraded);
-    CHECK(r.items[4].name == "cam" && r.items[4].degraded && r.items[4].mbps == 0);
 }
 
 static void testInactiveIgnored() {
