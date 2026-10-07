@@ -1,12 +1,9 @@
 package com.allperiph.ui
 
-import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
-import com.allperiph.core.ApxNative
-import com.allperiph.shared.net.ControlTarget
-import com.allperiph.shared.net.TcpClient
+import com.allperiph.wireless.ControlTarget
 
 /**
  * 快捷设置 Tile：下拉通知栏一键开关触控板模式。
@@ -21,13 +18,12 @@ class AllPeriphTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
-        // 点击时刷新状态
         updateTile()
     }
 
     private fun updateTile() {
         val tile = qsTile ?: return
-        val connected = ControlTarget.isConnected()
+        val connected = ControlTarget.isControlling()
         tile.state = if (connected) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = if (connected) "全能外设·已连接" else "全能外设·未连接"
         tile.subtitle = if (connected) "触控板可用" else "点击刷新状态"
