@@ -2,9 +2,6 @@
 <!--
   APX TV 服务端 Manifest
   namespace: com.allperiph.tv
-  设计要点：minSdk=23，不引用 23 之后才引入的 API；声明 leanback（required=false）
-  以便同时出现在电视主页与手机上；横幅 banner 供 Android TV Leanback Launcher 展示。
-  todo(handleanl)：如果横幅显示不出来，换回 @android:drawable/sym_def_app_icon
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -22,15 +19,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
-    <uses-feature
-        android:name="android.software.leanback"
-        required="false" />
-    <uses-feature
-        android:name="android.hardware.touchscreen"
-        required="false" />
-    <uses-feature
-        android:name="android.hardware.faketouch"
-        required="false" />
+    <uses-feature android:name="android.software.leanback" required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" required="false" />
+    <uses-feature android:name="android.hardware.faketouch" required="false" />
 
     <application
         android:name=".App"
@@ -78,11 +69,6 @@
             android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice" />
 
-        <!--
-          ⑥ IME：受控端接收远程键盘输入的标准 InputMethod
-          无障碍通道兼容性坑多（真机验证：小米 Android 11/13），改用 IME。
-          与 app 模块的 AppxImeService 同源，共享协议。
-        -->
         <service
             android:name="com.allperiph.shared.im.AppxImeService"
             android:exported="true"
@@ -96,10 +82,6 @@
                 android:resource="@xml/ime_method" />
         </service>
 
-        <!--
-          ⑦ 无障碍：备用输入通道，
-          被电脑绑定后自动引导用户开启。
-        -->
         <service
             android:name="com.allperiph.shared.accessibility.AppxAccessibilityService"
             android:exported="false"
@@ -112,11 +94,6 @@
                 android:resource="@xml/accessibility_config" />
         </service>
 
-        <!--
-          ⑧ 开机自启：v1.86
-          BootReceiver 接收 BOOT_COMPLETED 广播，启动 TvServerService。
-          ROM 兼容性：系统设置"应用自启动"必须为允许（v1.86 已自动引导）。
-        -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
@@ -131,28 +108,22 @@
 
         <receiver
             android:name="com.allperiph.shared.inject.KeepAliveReceiver"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="com.allperiph.KEEP_ALIVE" />
             </intent-filter>
         </receiver>
 
-        <!--
-          ⑨ 通知转发：v1.90
-          监听手机通知，推送到 TV 端浮窗显示。
-        -->
-        <receiver
+        <!-- 通知转发服务 -->
+        <service
             android:name="com.allperiph.tv.notification.TvNotificationListener"
-            android:exported="true">
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-        </receiver>
-
-        <receiver
-            android:name="com.allperiph.shared.inject.KeepAliveReceiver"
-            android:enabled="true"
-            android:exported="false" />
+        </service>
 
         <meta-data
             android:name="com.allperiph.NOTIFICATION_CHANNEL_STATUS"
