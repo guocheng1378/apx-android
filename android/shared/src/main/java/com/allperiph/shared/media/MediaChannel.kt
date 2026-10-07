@@ -251,11 +251,17 @@ class MediaChannel(
                 -1
             }
             if (n <= 0) break
-            feed(buf, n)
-            // 关键：解析在锁内、**分发在锁外** —— 解码/播放回调可能较慢，
-            // 不能握着 rxLock 做，否则整条连接的收流都被拖住。
-            val frames = pump()
-            for (f in frames) onFrame(f.streamId, f.flags, f.seq, f.body)
+            try {
+                feed(buf, n)
+                // 关键：解析在锁内、**分发在锁外** —— 解码/播放回调可能较慢，
+                // 不能握着 rxLock 做，否则整条连接的收流都被拖住。
+                val frames = pump()
+                for (f in frames) onFrame(f.streamId, f.flags, f.seq, f.body)
+            } catch (t: Throwable) {
+                // feed/pump 理论上不该抛，但缓冲溢出或协议异常时安全降级 —— 断链重连
+                Log.w(TAG, "媒体收流解析异常：${t.message}")
+                break
+            }
         }
         Log.i(TAG, "PC 媒体连接已断开：$peerText")
         teardown(sock)

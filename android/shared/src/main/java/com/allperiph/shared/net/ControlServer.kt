@@ -184,9 +184,16 @@ class ControlServer(
                 break
             }
             idleTimeouts = 0
-            if (n <= 0) break; feed(buf, n)
-            val actions = pump()
-            if (actions.isNotEmpty()) { injectHandler.post { for (a in actions) a() } }
+            if (n <= 0) break
+            try {
+                feed(buf, n)
+                val actions = pump()
+                if (actions.isNotEmpty()) { injectHandler.post { for (a in actions) a() } }
+            } catch (t: Throwable) {
+                // feed/pump 理论上不该抛，但缓冲溢出或协议异常时安全降级 —— 断链重连
+                Log.w("控制面", "收流解析异常（缓冲溢出或协议错位）：${t.message}")
+                break
+            }
         }
         Log.i("控制面", "对端连接已断开：$peerText"); teardown(sock)
     }

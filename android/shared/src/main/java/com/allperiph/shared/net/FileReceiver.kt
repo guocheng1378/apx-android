@@ -27,6 +27,12 @@ import kotlin.math.min
 object FileReceiver {
     const val PORT = 9512
 
+    /**
+     * 单文件接收上限（2GB）。Android 应用私有目录不可能放超过这个的文件；
+     * 超上限一定是恶意声明（ULLONG_MAX DoS），直接丢弃不落盘。
+     */
+    private const val MAX_FILE_SIZE_BYTES = 2L * 1024L * 1024L * 1024L
+
     private val running = AtomicBoolean(false)
     private var server: ServerSocket? = null
     private var thread: Thread? = null
@@ -87,11 +93,27 @@ object FileReceiver {
                 val name = String(nameBuf, Charsets.UTF_8)
                     .replace('/', '_').replace('\\', '_').replace("..", "")
                 val size = readU64(ins)
+                // —— 安全/健壮性：readU64 读失败返回 -1L；size 超上限（2GB）视为恶意数据直接丢弃 ——
+                if (size < 0L) { Log.w("文件接收", "文件头读失败，丢弃"); return }
+                if (size > MAX_FILE_SIZE_BYTES) {
+                    Log.w("文件接收", "文件声明大小 ${size}B 超过上限 ${MAX_FILE_SIZE_BYTES}B，丢弃"); return
+                }
                 val base = ctx?.getExternalFilesDir(null) ?: return
                 val dir = File(base, "APX").apply { mkdirs() }
+                val candidate = File(dir, name)
+                // —— 文件名校验：处理后为空、"." 或解析后逃出 dir 视为非法 ——
+                val resolved = candidate.canonicalFile
+                val dirCanonical = dir.canonicalFile
+                if (name.isBlank() || name == "." || name == "..") {
+                    Log.w("文件接收", "文件名为 '$name'，非法，丢弃"); return
+                }
+                if (resolved.parentFile != dirCanonical && resolved != dirCanonical) {
+                    Log.w("文件接收", "文件名疑似路径穿越：$name → 解析到 ${resolved.path}，丢弃"); return
+                }
                 val out = File(dir, name)
                 Log.i("文件接收", "接收文件 $name (${size}B) → $out")
                 var left = size
+                var written = 0L
                 val buf = ByteArray(32 * 1024)
                 FileOutputStream(out).use { fos ->
                     while (left > 0) {
@@ -99,10 +121,11 @@ object FileReceiver {
                         val n = ins.read(buf, 0, toRead)
                         if (n <= 0) break
                         fos.write(buf, 0, n)
-                        left -= n
+                        left -= n; written += n
                     }
                 }
-                Log.i("文件接收", "文件已存：$out")
+                if (written == size) Log.i("文件接收", "文件已存：$out")
+                else Log.w("文件接收", "文件接收不完整：期望 ${size}B，实际 ${written}B → 已删除"); runCatching { out.delete() }
                 val c = ctx
                 if (c != null) {
                     Handler(Looper.getMainLooper()).post {
