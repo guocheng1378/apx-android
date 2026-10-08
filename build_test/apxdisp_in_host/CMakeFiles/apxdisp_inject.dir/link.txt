@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxdisp_inject.a CMakeFiles/apxdisp_inject.dir/inject/inject_factory.cpp.o CMakeFiles/apxdisp_inject.dir/inject/touch_frame.cpp.o
+/usr/bin/ranlib libapxdisp_inject.a

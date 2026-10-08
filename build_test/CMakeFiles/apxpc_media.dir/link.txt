@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_media.a CMakeFiles/apxpc_media.dir/src/media/media_session.cpp.o CMakeFiles/apxpc_media.dir/src/media/audio_capture.cpp.o CMakeFiles/apxpc_media.dir/src/media/mic_bridge.cpp.o CMakeFiles/apxpc_media.dir/src/media/touch_inject.cpp.o
+/usr/bin/ranlib libapxpc_media.a

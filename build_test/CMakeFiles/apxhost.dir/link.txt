@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/apxhost.dir/src/host_main.cpp.o -o apxhost  libapxpc_core.a libapxpc_discovery.a libapxpc_sensors.a libapxpc_service.a libapxpc_wireless.a libapxpc_media.a libapxpc_discovery.a libapxpc_sensors.a libapxpc_core.a libapx_shared.a -lpthread 

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapx_shared.a CMakeFiles/apx_shared.dir/workspace/shared/src/clock.cpp.o CMakeFiles/apx_shared.dir/workspace/shared/src/frame.cpp.o CMakeFiles/apx_shared.dir/workspace/shared/src/hid_descriptor.cpp.o CMakeFiles/apx_shared.dir/workspace/shared/src/hid_layout.cpp.o CMakeFiles/apx_shared.dir/workspace/shared/src/sensors_id.cpp.o CMakeFiles/apx_shared.dir/workspace/shared/src/units.cpp.o
+/usr/bin/ranlib libapx_shared.a

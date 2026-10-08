@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_screen.a CMakeFiles/apxpc_screen.dir/src/media/screen_push.cpp.o
+/usr/bin/ranlib libapxpc_screen.a

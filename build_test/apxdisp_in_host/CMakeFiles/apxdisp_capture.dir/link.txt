@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxdisp_capture.a CMakeFiles/apxdisp_capture.dir/capture/capture_factory.cpp.o CMakeFiles/apxdisp_capture.dir/capture/null_capture.cpp.o
+/usr/bin/ranlib libapxdisp_capture.a

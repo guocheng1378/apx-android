@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_wireless.a CMakeFiles/apxpc_wireless.dir/src/wireless/wireless_session.cpp.o CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o CMakeFiles/apxpc_wireless.dir/src/wireless/file_receiver.cpp.o CMakeFiles/apxpc_wireless.dir/src/wireless/file_sender.cpp.o CMakeFiles/apxpc_wireless.dir/src/wireless/input_injector_lin.cpp.o CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_lin.cpp.o
+/usr/bin/ranlib libapxpc_wireless.a

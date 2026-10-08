@@ -231,8 +231,18 @@ void WirelessSession::worker() {
             } else {
                 if (!beaconRun_.load()) {
                     if (beaconThread_.joinable()) beaconThread_.join();
-                    beaconRun_.store(true);
-                    beaconThread_ = std::thread(&WirelessSession::beaconLoop, this);
+                    // ★ shutdown 期间不能再起新 beacon：stop() 把 beaconRun_ 置 false、
+                    //   旧线程退出后再 join 完，理论上本分支应该收摊；但若 worker 此时正
+                    //   在这一步（stop 与 worker 在「beaconRun_ 拉 false → worker 进入
+                    //   内层块」这条临界区交汇），下面 store(true) 会把 beaconRun_ 再拉起、
+                    //   新建出来的 beacon 线程在 recvfrom 上挂着，stop() 末尾的
+                    //   beaconThread_.join() 永远收不回 —— 进程无法正常退出（必须 kill）。
+                    //   收完旧线程后再核一次 running_：已停就不重建，让本次迭代走完即退出。
+                    if (!running_.load()) { publish(LinkPhase::Idle, mode); }
+                    else {
+                        beaconRun_.store(true);
+                        beaconThread_ = std::thread(&WirelessSession::beaconLoop, this);
+                    }
                 }
                 std::string bhost;
                 uint16_t bport = 0;

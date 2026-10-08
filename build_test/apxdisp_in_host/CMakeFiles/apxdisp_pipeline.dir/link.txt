@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxdisp_pipeline.a CMakeFiles/apxdisp_pipeline.dir/pipeline/pipeline.cpp.o
+/usr/bin/ranlib libapxdisp_pipeline.a

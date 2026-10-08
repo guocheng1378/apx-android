@@ -364,6 +364,16 @@ if(APXPC_BUILD_TESTS)
     target_link_libraries(ctrl_frame_test PRIVATE ws2_32 hid setupapi cfgmgr32)
   endif()
   add_test(NAME ctrl_frame_test COMMAND ctrl_frame_test)
+
+  # v198：startAuto()/stop() 在临界区交汇时的死锁回归测试。
+  # 200 轮 startAuto → 50ms → stop，stop() 超时即认定死锁回归。
+  add_executable(wireless_session_lifecycle_test
+                  "${APXPC_ROOT}/tests/wireless_session_lifecycle_test.cpp")
+  target_link_libraries(wireless_session_lifecycle_test PRIVATE apxpc_wireless)
+  if(WIN32)
+    target_link_libraries(wireless_session_lifecycle_test PRIVATE ws2_32 Iphlpapi)
+  endif()
+  add_test(NAME wireless_session_lifecycle_test COMMAND wireless_session_lifecycle_test)
 endif()
 
 # ---------------------------------------------------------------- 安装

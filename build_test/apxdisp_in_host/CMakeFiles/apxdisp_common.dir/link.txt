@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxdisp_common.a CMakeFiles/apxdisp_common.dir/common/log.cpp.o CMakeFiles/apxdisp_common.dir/common/clock.cpp.o CMakeFiles/apxdisp_common.dir/common/crc32.cpp.o
+/usr/bin/ranlib libapxdisp_common.a

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_ctrl.a CMakeFiles/apxpc_ctrl.dir/src/ctrl/ctrl_frame.cpp.o CMakeFiles/apxpc_ctrl.dir/src/ctrl/ctrl_client.cpp.o CMakeFiles/apxpc_ctrl.dir/src/ctrl/hid_transport_hidraw.cpp.o
+/usr/bin/ranlib libapxpc_ctrl.a

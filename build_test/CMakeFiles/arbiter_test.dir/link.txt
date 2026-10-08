@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/arbiter_test.dir/tests/arbiter_test.cpp.o -o arbiter_test  libapxpc_service.a libapxpc_discovery.a libapxpc_sensors.a libapxpc_core.a libapx_shared.a -lpthread 

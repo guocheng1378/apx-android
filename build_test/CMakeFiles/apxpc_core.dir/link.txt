@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_core.a CMakeFiles/apxpc_core.dir/src/log/log.cpp.o CMakeFiles/apxpc_core.dir/src/platform/clock.cpp.o CMakeFiles/apxpc_core.dir/src/util/crc32.cpp.o
+/usr/bin/ranlib libapxpc_core.a

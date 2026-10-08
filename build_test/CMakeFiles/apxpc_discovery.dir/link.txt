@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_discovery.a CMakeFiles/apxpc_discovery.dir/src/discovery/descriptor_parse.cpp.o CMakeFiles/apxpc_discovery.dir/src/discovery/monitor.cpp.o CMakeFiles/apxpc_discovery.dir/src/discovery/usb_enum_sysfs.cpp.o
+/usr/bin/ranlib libapxpc_discovery.a

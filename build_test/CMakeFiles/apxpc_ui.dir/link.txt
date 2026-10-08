@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_ui.a CMakeFiles/apxpc_ui.dir/src/ui/panel_win32.cpp.o CMakeFiles/apxpc_ui.dir/src/ui/file_panel_win32.cpp.o CMakeFiles/apxpc_ui.dir/src/ui/remote_input_win32.cpp.o CMakeFiles/apxpc_ui.dir/src/ui/settings_win32.cpp.o
+/usr/bin/ranlib libapxpc_ui.a

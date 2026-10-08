@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxdisp_transport.a CMakeFiles/apxdisp_transport.dir/transport/frame_writer.cpp.o CMakeFiles/apxdisp_transport.dir/transport/loopback_transport.cpp.o CMakeFiles/apxdisp_transport.dir/transport/ctrl_channel.cpp.o CMakeFiles/apxdisp_transport.dir/transport/link_monitor.cpp.o CMakeFiles/apxdisp_transport.dir/transport/transport_factory.cpp.o
+/usr/bin/ranlib libapxdisp_transport.a

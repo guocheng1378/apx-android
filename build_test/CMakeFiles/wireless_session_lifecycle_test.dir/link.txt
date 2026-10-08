@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG CMakeFiles/wireless_session_lifecycle_test.dir/tests/wireless_session_lifecycle_test.cpp.o -o wireless_session_lifecycle_test  libapxpc_wireless.a libapxpc_media.a libapxpc_core.a libapx_shared.a -lpthread 

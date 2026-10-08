@@ -1,0 +1,2 @@
+/usr/bin/ar qc libapxpc_sensors.a CMakeFiles/apxpc_sensors.dir/src/sensors/sensor_reader_factory.cpp.o CMakeFiles/apxpc_sensors.dir/src/sensors/sensor_reader_iio.cpp.o
+/usr/bin/ranlib libapxpc_sensors.a
