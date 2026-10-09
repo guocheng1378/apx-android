@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/api/bridge.ts","./src/components/ChipGroup.tsx","./src/components/ConnectionCard.tsx","./src/components/Footer.tsx","./src/components/MicCard.tsx","./src/components/ScreenCard.tsx","./src/components/SpeakerCard.tsx","./src/components/StatusBadge.tsx","./src/components/Switch.tsx","./src/utils/status.ts"],"version":"5.9.3"}
