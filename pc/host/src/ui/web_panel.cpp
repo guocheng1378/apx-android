@@ -62,33 +62,47 @@ using apxpc::wireless::LinkPhase;
 using apxpc::wireless::SessionSnapshot;
 
 // ———————————————— COM 回调适配器（WebView2 SDK 没有 Callback<T> 模板） ———————————————
-// 用 lambda 实现 WebView2 的 COM 回调接口（QueryInterface/AddRef/Release 走标准实现，
-// Invoke 里转发给构造时传入的 callable）。
-template <typename T, typename Fn>
-class ComCallback : public T {
+// 每个 WebView2 回调接口的 Invoke 签名不同，需要各自实现。
+// 下面 3 个类共享 IUnknown 样板（宏展开），仅 Invoke 签名不同。
+#define COM_CALLBACK_BASE(IFACE, UUID) \
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refs); } \
+    ULONG STDMETHODCALLTYPE Release() override { ULONG r = InterlockedDecrement(&m_refs); if (r == 0) delete this; return r; } \
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override { \
+        if (riid == __uuidof(IFACE) || riid == IID_IUnknown) { *ppv = static_cast<IFACE*>(this); AddRef(); return S_OK; } \
+        return E_NOINTERFACE; \
+    }
+
+template <typename Fn>
+class EnvCompletedHandler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler {
 public:
-    explicit ComCallback(Fn fn) : m_fn(std::move(fn)) {}
-    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refs); }
-    ULONG STDMETHODCALLTYPE Release() override {
-        ULONG r = InterlockedDecrement(&m_refs);
-        if (r == 0) delete this;
-        return r;
-    }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-        if (riid == __uuidof(T) || riid == IID_IUnknown) {
-            *ppv = static_cast<T*>(this);
-            AddRef();
-            return S_OK;
-        }
-        return E_NOINTERFACE;
-    }
-protected:
-    Fn m_fn;
-    long m_refs{1};
+    explicit EnvCompletedHandler(Fn fn) : m_fn(std::move(fn)) {}
+    COM_CALLBACK_BASE(ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler, 0)
+    HRESULT STDMETHODCALLTYPE Invoke(HRESULT hr, ICoreWebView2Environment* env) override { return m_fn(hr, env); }
+protected: Fn m_fn; long m_refs{1};
 };
 
-template <typename T, typename Fn>
-T* makeCallback(Fn fn) { return new ComCallback<T, Fn>(std::move(fn)); }
+template <typename Fn>
+class CtrlCompletedHandler : public ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
+public:
+    explicit CtrlCompletedHandler(Fn fn) : m_fn(std::move(fn)) {}
+    COM_CALLBACK_BASE(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler, 0)
+    HRESULT STDMETHODCALLTYPE Invoke(HRESULT hr, ICoreWebView2Controller* ctrl) override { return m_fn(hr, ctrl); }
+protected: Fn m_fn; long m_refs{1};
+};
+
+template <typename Fn>
+class WebMsgReceivedHandler : public ICoreWebView2WebMessageReceivedEventHandler {
+public:
+    explicit WebMsgReceivedHandler(Fn fn) : m_fn(std::move(fn)) {}
+    COM_CALLBACK_BASE(ICoreWebView2WebMessageReceivedEventHandler, 0)
+    HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2* sender, ICoreWebView2WebMessageReceivedEventArgs* args) override { return m_fn(sender, args); }
+protected: Fn m_fn; long m_refs{1};
+};
+
+// 工厂：创建各类型 handler（注意返回类型是对应的 IFACE*，COM 会接管 AddRef/Release）
+template <typename Fn> ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler* mkEnvCb(Fn fn) { return new EnvCompletedHandler<Fn>(std::move(fn)); }
+template <typename Fn> ICoreWebView2CreateCoreWebView2ControllerCompletedHandler*    mkCtrlCb(Fn fn) { return new CtrlCompletedHandler<Fn>(std::move(fn)); }
+template <typename Fn> ICoreWebView2WebMessageReceivedEventHandler*                 mkMsgCb(Fn fn) { return new WebMsgReceivedHandler<Fn>(std::move(fn)); }
 
 constexpr UINT_PTR kStateTimer = 1;     // 状态推流定时器（400ms）
 constexpr UINT kMsgPostQuitCustom = WM_APP + 10;
@@ -460,7 +474,7 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         std::wstring wdir(exeDir);    wdir += L"\\web\\index.html";
         if (*exeDir == L'\0') { wdir = L".\\web\\index.html"; }
 
-        auto* envCb = makeCallback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+        auto* envCb = mkEnvCb(
             [p, exeDir, dataDir, wdir](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(hr)) {
                     APX_LOGE("WebView2 环境创建失败: HRESULT=0x{:08X}", static_cast<unsigned>(hr));
@@ -474,7 +488,7 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return S_OK;
                 }
                 p->env = env;
-                auto* ctrlCb = makeCallback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                auto* ctrlCb = mkCtrlCb(
                     [p, wdir](HRESULT hr3, ICoreWebView2Controller* controller) -> HRESULT {
                         if (FAILED(hr3) || !controller) {
                             APX_LOGE("CreateCoreWebView2Controller 失败: 0x{:08X}", static_cast<unsigned>(hr3));
@@ -496,7 +510,7 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         }
                         // 注册消息接收
                         wv->add_WebMessageReceived(
-                            makeCallback<ICoreWebView2WebMessageReceivedEventHandler>(
+                            mkMsgCb(
                                 [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
                                     onWebMessageReceived(nullptr, args);
                                     return S_OK;
@@ -569,7 +583,7 @@ bool webPanelAvailable() {
     HANDLE doneEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!doneEvent) return false;
     HRESULT waitHResult = E_FAIL;
-    auto* cb = makeCallback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+    auto* cb = mkEnvCb(
         [&](HRESULT h, ICoreWebView2Environment* e) -> HRESULT {
             waitHResult = h;
             if (SUCCEEDED(h) && e) env = e;
