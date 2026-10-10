@@ -350,7 +350,7 @@ if(WIN32 AND APXPC_BUILD_UI)
         set(WV2_LIB_DIR "${WEBVIEW2_SDK_DIR}/build/native/arm64")
       endif()
       target_link_directories(apxpc_webpanel PUBLIC "${WV2_LIB_DIR}")
-      target_link_libraries(apxpc_webpanel PUBLIC WebView2Loader.lib)
+      target_link_libraries(apxpc_webpanel PUBLIC WebView2Loader.dll.lib)
     endif()
     # wil —— com_ptr 等 Windows 友好 RAII 封装
     if(TARGET wil::headers)
