@@ -72,19 +72,21 @@ begin
 end;
 
 // WebView2 Runtime 自动装（边缘场景：老 Win10 或 Runtime 损坏）
+// DownloadTemporaryFile(Url) —— 1 个参数，Inno 6 自带，自动存到 {tmp} 下
 procedure EnsureWebView2Runtime;
-var EdgePV, DlPath: string; RC: Integer;
+var EdgePV: string; RC: Integer;
+const
+  // {tmp} 会在运行时展开为临时解压目录
+  InstallerPath = '{tmp}\WebView2RuntimeInstallerX64.exe';
 begin
   try
     if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
                            'pv', EdgePV) and (EdgePV <> '') then Exit;
   except end;
   Log('WebView2 Runtime 未检测到，静默安装…');
-  DlPath := ExpandConstant('{tmp}\WebView2RuntimeInstallerX64.exe');
   if DownloadTemporaryFile(
-      'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/7c7c0e6f-8cb5-406a-8e51-df0c62011e55/MicrosoftEdgeWebView2RuntimeInstallerX64.exe',
-      DlPath) then begin
-    Exec(DlPath, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, RC);
+      'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/7c7c0e6f-8cb5-406a-8e51-df0c62011e55/MicrosoftEdgeWebView2RuntimeInstallerX64.exe') then begin
+    Exec(InstallerPath, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, RC);
     Log('Runtime install exit=' + IntToStr(RC));
   end;
 end;
