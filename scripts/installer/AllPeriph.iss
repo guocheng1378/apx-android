@@ -61,36 +61,3 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
   ValueName: "{#MyAppName}"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autostart
-
-[Code]
-function StopExistingApp: Boolean;
-var RC: Integer;
-begin
-  Exec('taskkill', '/F /IM apxdesktop.exe /IM apxhost.exe', '', SW_HIDE, ewWaitUntilTerminated, RC);
-  Sleep(300);
-end;
-
-procedure EnsureWebView2Runtime;
-var
-  EdgePV: string;
-  RC: Integer;
-  InstallerPath: string;
-begin
-  try
-    if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
-                           'pv', EdgePV) and (EdgePV <> '') then Exit;
-  except end;
-  Log('WebView2 Runtime missing — installing...');
-  InstallerPath := ExpandConstant('{tmp}') + '\WebView2RuntimeInstallerX64.exe';
-  if DownloadTemporaryFile(
-      'https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/7c7c0e6f-8cb5-406a-8e51-df0c62011e55/MicrosoftEdgeWebView2RuntimeInstallerX64.exe') then begin
-    Exec(InstallerPath, '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, RC);
-    Log('Runtime install exit=' + IntToStr(RC));
-  end;
-end;
-
-function InitializeSetup: Boolean;
-begin StopExistingApp; Result := True; end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin if CurStep = ssInstall then EnsureWebView2Runtime; end;
