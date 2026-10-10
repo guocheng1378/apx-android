@@ -290,38 +290,57 @@ jobs:
         run: python3 scripts/check_protocol.py
 
   # ------------------------------------------------ Release（仅 tag v*）
+  # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [pc]
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      - name: Download all artifacts
+      - name: Checkout (脚本 + 图标)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            pc/host/res/apx.ico
+            scripts/installer/AllPeriph.iss
+
+      - name: Download PC artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
 
-      - name: Rename artifacts with version
+      # —— Inno Setup：runner 上第一次装，之后缓存 ——
+      - name: Install Inno Setup
         run: |
-          VER="${GITHUB_REF_NAME}"
-          mkdir -p out portable installer
-          # 便携版三件套（直接双击 apxdesktop.exe 运行，旁放 Loader + web/）
-          cp dist/pc-exes-webview2/apxdesktop.exe     "portable/apxdesktop.exe"
-          cp dist/pc-exes-webview2/apxhost.exe         "portable/apxhost.exe"
-          cp dist/pc-exes-webview2/WebView2Loader.dll  "portable/WebView2Loader.dll"
-          cp -r dist/pc-exes-webview2/web              "portable/web"
-          # 独立 exe（开发调试用）
-          cp dist/pc-exes-webview2/apxdesktop.exe       "out/AllPeriph-${VER}-apxdesktop.exe"
-          cp dist/pc-exes-webview2/apxhost.exe          "out/AllPeriph-${VER}-apxhost.exe"
-          # 安装包 zip：setup.exe + 同目录的 Loader + web —— 解压后双击 setup 安装
-          cp dist/pc-exes-webview2/apxsetup.exe          "installer/apxsetup.exe"
-          cp dist/pc-exes-webview2/WebView2Loader.dll    "installer/WebView2Loader.dll"
-          cp -r dist/pc-exes-webview2/web                "installer/web"
-          cd installer && zip -r "../out/AllPeriph-${VER}-setup.zip" . && cd -
-          cd portable  && zip -r "../out/AllPeriph-${VER}-portable.zip" . && cd -
-          ls -la out/
-        shell: bash
+          choco install innosetup -y --no-progress || winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements
+        shell: pwsh
 
-      - name: Create GitHub Release
+      - name: Build single-EXE Setup with Inno
+        run: |
+          $iscc = & { Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction Stop }
+          $iscc = $iscc.FullName
+          Write-Host "ISCC=$iscc"
+          & $iscc "scripts/installer/AllPeriph.iss" `
+            "/DMyAppVersion=${env:GITHUB_REF_NAME}" `
+            "/DArtifactsDir=dist\pc-exes-webview2" `
+            "/DIconDir=pc\host\res" `
+            "/DOutputDir=out"
+          if ($LASTEXITCODE -ne 0) { Write-Host 'iscc FAILED' -ForegroundColor Red; exit 1 }
+          Get-ChildItem out/
+        shell: pwsh
+
+      - name: Build portable zip
+        run: |
+          $VER = $env:GITHUB_REF_NAME
+          New-Item -ItemType Directory -Force portable | Out-Null
+          Copy-Item dist/pc-exes-webview2/apxdesktop.exe portable/
+          Copy-Item dist/pc-exes-webview2/apxhost.exe portable/
+          Copy-Item dist/pc-exes-webview2/WebView2Loader.dll portable/
+          Copy-Item -Recurse dist/pc-exes-webview2/web portable/
+          Compress-Archive -Path portable/* -DestinationPath "out/AllPeriph-${VER}-portable.zip" -Force
+          Get-ChildItem out/
+        shell: pwsh
+
+      - name: Upload Release
         uses: softprops/action-gh-release@v2
         with:
           name: 全能外设 ${{ github.ref_name }}
@@ -331,17 +350,13 @@ jobs:
           body: |
             ## 全能外设 ${{ github.ref_name }}
 
-            ### 推荐：安装包（setup.zip）
-            下载 **AllPeriph-${VER}-setup.zip**，解压后双击里面的 apxsetup.exe 即可安装到
-            `%LOCALAPPDATA%\Programs\AllPeriph`，自动创建开始菜单快捷方式。
+            ### 推荐：单文件安装包
+            下载 **AllPeriph-${{ github.ref_name }}-Setup.exe**（一个 exe 搞定一切）：
+            - 双击即可进入现代 Windows 安装向导
+            - 默认安装到 `%LOCALAPPDATA%\Programs\AllPeriph`（免管理员）
+            - 向导里可勾选「创建桌面图标」「开机自启」
+            - 自动检测 WebView2 Runtime，缺失时后台静默装（Win10 旧版）
+            - 卸载自动进「应用和功能」
 
-            安装器会：
-            - 自动释放 WebView2Loader.dll + web/ 前端资源到安装目录
-            - 自动检测 WebView2 Runtime，缺失时从微软官方源下载安装（Win10 旧版）
-
-            ### 便携版（portable.zip）
+            ### 便携版（zip）
             解压到任意目录直接双击 apxdesktop.exe 运行，绿色免安装。
-
-            ### 单 exe 文件
-            - **apxdesktop.exe** —— 桌面控制面板（需要同目录的 WebView2Loader.dll + web/）
-            - **apxhost.exe** —— 仅宿主服务（无 GUI）
