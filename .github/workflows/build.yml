@@ -296,40 +296,36 @@ jobs:
     needs: [pc]
     runs-on: windows-latest
     steps:
-      - name: Checkout (脚本 + 图标)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            pc/host/res/apx.ico
-            scripts/installer/AllPeriph.iss
+          fetch-depth: 1
 
       - name: Download PC artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
 
-      # —— Inno Setup：runner 上第一次装，之后缓存 ——
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup -y --no-progress || winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements
-        shell: pwsh
-
       - name: Build single-EXE Setup with Inno
         run: |
-          $iscc = & { Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction Stop }
-          $iscc = $iscc.FullName
+          Set-Location $env:GITHUB_WORKSPACE
+          $iscc = (Get-ChildItem 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' -ErrorAction Stop).FullName
           Write-Host "ISCC=$iscc"
+          $art = (Resolve-Path 'dist\pc-exes-webview2').Path
+          $ico = (Resolve-Path 'pc\host\res').Path
+          New-Item -ItemType Directory -Force out | Out-Null
+          $out = (Resolve-Path out).Path
           & $iscc "scripts/installer/AllPeriph.iss" `
             "/DMyAppVersion=${env:GITHUB_REF_NAME}" `
-            "/DArtifactsDir=dist\pc-exes-webview2" `
-            "/DIconDir=pc\host\res" `
-            "/DOutputDir=out"
+            "/DArtifactsDir=$art" `
+            "/DIconDir=$ico" `
+            "/DOutputDir=$out"
           if ($LASTEXITCODE -ne 0) { Write-Host 'iscc FAILED' -ForegroundColor Red; exit 1 }
           Get-ChildItem out/
         shell: pwsh
 
       - name: Build portable zip
         run: |
+          Set-Location $env:GITHUB_WORKSPACE
           $VER = $env:GITHUB_REF_NAME
           New-Item -ItemType Directory -Force portable | Out-Null
           Copy-Item dist/pc-exes-webview2/apxdesktop.exe portable/
@@ -351,12 +347,13 @@ jobs:
             ## 全能外设 ${{ github.ref_name }}
 
             ### 推荐：单文件安装包
-            下载 **AllPeriph-${{ github.ref_name }}-Setup.exe**（一个 exe 搞定一切）：
-            - 双击即可进入现代 Windows 安装向导
-            - 默认安装到 `%LOCALAPPDATA%\Programs\AllPeriph`（免管理员）
+            下载 **AllPeriph-${{ github.ref_name }}-Setup.exe** —— 一个 exe 搞定一切：
+            - 双击进入现代 Windows 安装向导（欢迎 → 功能勾选 → 进度 → 完成）
+            - 默认装到 `%LOCALAPPDATA%\Programs\AllPeriph`（免管理员）
             - 向导里可勾选「创建桌面图标」「开机自启」
-            - 自动检测 WebView2 Runtime，缺失时后台静默装（Win10 旧版）
+            - 自动检测 WebView2 Runtime，缺失时后台静默装（Win10 旧版无感知）
             - 卸载自动进「应用和功能」
+            - 安装包自动压缩了 apxdesktop + apxhost + WebView2Loader + web/* 全部资源
 
             ### 便携版（zip）
             解压到任意目录直接双击 apxdesktop.exe 运行，绿色免安装。
