@@ -21,7 +21,7 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
   # wil (Windows Implementation Library) —— com_ptr 等 RAII 封装，WebView2 cpp-api 必需
   FetchContent_Declare(wil
     GIT_REPOSITORY https://github.com/microsoft/wil.git
-    GIT_TAG        v1.0.240301
+    GIT_TAG        v1.0.240803.1
     GIT_SHALLOW    TRUE
   )
   FetchContent_MakeAvailable(wil)
