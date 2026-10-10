@@ -254,7 +254,7 @@ int main(int /*argc*/, char** /*argv*/) {
 #if defined(_WIN32)
     wchar_t hostW[64] = {};
     DWORD hn = sizeof(hostW);
-    if (!::GetComputerNameW(hostW, &hn) || hostW[0] == L'\0') std::wcscpy_s(hostW, L"PC");
+    if (!::GetComputerNameW(hostW, &hn) || hostW[0] == L'\0') wcscpy_s(hostW, (size_t)sizeof(hostW)/sizeof(hostW[0]), L"PC");
     std::string hostUtf8;
     {
         const int n = ::WideCharToMultiByte(CP_UTF8, 0, hostW, -1, nullptr, 0, nullptr, nullptr);
@@ -300,7 +300,7 @@ int main(int /*argc*/, char** /*argv*/) {
 
     // FileReceiver 后台监听（9512 端口）—— 收到文件托盘气泡提示
 #if defined(_WIN32)
-    fileRecv->start(nullptr);  // 桌面端无接收回调，仅记录 + 写日志
+    fileRecv->start(9512, std::string{}, nullptr);  // 桌面端无接收回调，仅记录 + 写日志
 #endif
 
     // 打包进 HostBundle
