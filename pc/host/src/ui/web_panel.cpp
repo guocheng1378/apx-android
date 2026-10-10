@@ -33,6 +33,7 @@
 #endif
 
 #include "apxpc/ui/web_panel.hpp"
+#include "apxpc/ui/webview2_runtime.hpp"
 #include "apxpc/log.hpp"
 #include "apxpc/net/json.hpp"
 #include "apxpc/wireless/wireless_session.hpp"
@@ -106,6 +107,7 @@ template <typename Fn> ICoreWebView2WebMessageReceivedEventHandler*             
 
 constexpr UINT_PTR kStateTimer = 1;     // 状态推流定时器（400ms）
 constexpr UINT kMsgPostQuitCustom = WM_APP + 10;
+constexpr UINT kMsgWv2Ready = WM_APP + 11;   // WebView2 自动安装完成 → 重试创建环境
 
 LPCWSTR kClassName = L"AllPeriphWebPanel";
 LPCWSTR kWindowTitle = L"全能外设";
@@ -456,35 +458,65 @@ void onWebMessageReceived(ICoreWebView2*, ICoreWebView2WebMessageReceivedEventAr
     }
 }
 
-// ———————————————— 窗口过程 ———————————————
-LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    if (msg == WM_CREATE) {
-        CREATESTRUCT* cs = reinterpret_cast<CREATESTRUCT*>(lp);
-        Panel* p = reinterpret_cast<Panel*>(cs->lpCreateParams);
-        p->hwnd = hwnd;
-        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(p));
-
-        // —— 定位 exe 目录（后续 web/index.html 导航、dataDir 都要用）——
-        wchar_t exeDir[MAX_PATH] = {};
-        if (::GetModuleFileNameW(nullptr, exeDir, MAX_PATH) > 0) {
-            wchar_t* slash = wcsrchr(exeDir, L'\\');
-            if (slash) *slash = L'\0';
+// ———————————————— WebView2 环境创建（Runtime 缺失时自动安装并重试） ———————————————
+// 环境创建失败分两种：
+//   · Runtime 没装（老版 Win10）→ 提示后自动下载安装，装完 Post 消息回来重试
+//   · Runtime 已装仍失败        → 如实报错退出（问题在别处，如 WebView2Loader.dll 缺失）
+void onWebView2EnvFailed(Panel* p, unsigned hresult) {
+    APX_LOGE("WebView2 环境创建失败: HRESULT=0x{:08X}", hresult);
+    if (isWebView2RuntimeInstalled()) {
+        MessageBoxW(p->hwnd,
+            L"WebView2 初始化失败（运行组件已安装仍无法创建环境）。\n"
+            L"详细错误码见日志。",
+            L"全能外设", MB_OK | MB_ICONERROR);
+        p->running.store(false);
+        ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
+        return;
+    }
+    const INT r = MessageBoxW(p->hwnd,
+        L"未检测到 WebView2 运行组件（本界面必需）。\n\n"
+        L"确定后将自动下载安装（来自微软官方源），\n"
+        L"安装完成后本窗口会自动打开界面。",
+        L"全能外设", MB_OKCANCEL | MB_ICONINFORMATION);
+    if (r != IDOK) {
+        p->running.store(false);
+        ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
+        return;
+    }
+    ::SetWindowTextW(p->hwnd, L"全能外设 — 正在下载安装 WebView2 运行组件…");
+    // 下载+安装放后台线程（可能要几分钟）；线程只持 HWND 副本，不持有 Panel*，
+    // 主窗口提前关闭也不会悬空。
+    const HWND hw = p->hwnd;
+    std::thread([hw] {
+        std::wstring werr;
+        if (ensureWebView2Runtime(werr, /*silent=*/false)) {
+            ::PostMessageW(hw, kMsgWv2Ready, 0, 0);
+        } else {
+            MessageBoxW(nullptr,
+                (L"WebView2 运行组件自动安装失败：\n" + werr +
+                 L"\n\n可手动下载安装：https://aka.ms/webviewruntime").c_str(),
+                L"全能外设", MB_OK | MB_ICONERROR);
+            ::PostMessageW(hw, WM_CLOSE, 0, 0);
         }
-        std::wstring dataDir(exeDir); dataDir += L"\\apxwebview2-data";
-        std::wstring wdir(exeDir);    wdir += L"\\web\\index.html";
-        if (*exeDir == L'\0') { wdir = L".\\web\\index.html"; }
+    }).detach();
+}
+
+// 创建 WebView2 环境。WM_CREATE 与「自动安装完成」重试（kMsgWv2Ready）共用此入口。
+void startWebView2Env(Panel* p) {
+    // —— 定位 exe 目录（后续 web/index.html 导航、dataDir 都要用）——
+    wchar_t exeDir[MAX_PATH] = {};
+    if (::GetModuleFileNameW(nullptr, exeDir, MAX_PATH) > 0) {
+        wchar_t* slash = wcsrchr(exeDir, L'\\');
+        if (slash) *slash = L'\0';
+    }
+    std::wstring dataDir(exeDir); dataDir += L"\\apxwebview2-data";
+    std::wstring wdir(exeDir);    wdir += L"\\web\\index.html";
+    if (*exeDir == L'\0') { wdir = L".\\web\\index.html"; }
 
         auto* envCb = mkEnvCb(
             [p, exeDir, dataDir, wdir](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
                 if (FAILED(hr)) {
-                    APX_LOGE("WebView2 环境创建失败: HRESULT=0x{:08X}", static_cast<unsigned>(hr));
-                    MessageBoxW(p->hwnd,
-                        L"WebView2 初始化失败。\n\n"
-                        L"请安装 WebView2 Runtime（Win10 2004+ 与 Win11 已自带；"
-                        L"Win10 旧版请访问 https://aka.ms/webviewruntime 下载）。",
-                        L"全能外设", MB_OK | MB_ICONERROR);
-                    p->running.store(false);
-                    ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
+                    onWebView2EnvFailed(p, static_cast<unsigned>(hr));
                     return S_OK;
                 }
                 p->env = env;
@@ -540,12 +572,24 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // nullptr → 使用系统默认 WebView2 Runtime 路径
         HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
             nullptr, dataDir.empty() ? nullptr : dataDir.c_str(), nullptr, envCb);
-        if (FAILED(hr)) {
-            APX_LOGE("CreateCoreWebView2EnvironmentWithOptions 失败: 0x{:08X}", static_cast<unsigned>(hr));
-            MessageBoxW(hwnd, L"无法初始化 WebView2（CreateCoreWebView2Environment 调用失败）",
-                L"全能外设", MB_OK | MB_ICONERROR);
-            ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
-        }
+        if (FAILED(hr)) onWebView2EnvFailed(p, static_cast<unsigned>(hr));
+    }
+
+// ———————————————— 窗口过程 ———————————————
+LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_CREATE) {
+        CREATESTRUCT* cs = reinterpret_cast<CREATESTRUCT*>(lp);
+        Panel* p = reinterpret_cast<Panel*>(cs->lpCreateParams);
+        p->hwnd = hwnd;
+        ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(p));
+        startWebView2Env(p);
+        return 0;
+    }
+    if (msg == kMsgWv2Ready) {
+        // WebView2 自动安装完成 → 恢复标题并重新创建环境
+        ::SetWindowTextW(hwnd, kWindowTitle);
+        Panel* p = reinterpret_cast<Panel*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (p) startWebView2Env(p);
         return 0;
     }
     if (msg == WM_TIMER && wp == kStateTimer) {

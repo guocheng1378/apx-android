@@ -331,7 +331,10 @@ if(WIN32 AND APXPC_BUILD_UI)
   if(APXPC_BUILD_UI_WEBVIEW2)
     # —— 新 WebView2 面板 ——
     # web_panel.cpp 包含在 apxpc_wireless 同级的 apxpc_webpanel 静态库中（只引用 core/wireless/media/service）
-    set(APXPC_WEBPANEL_SRC "${APXPC_ROOT}/src/ui/web_panel.cpp")
+    # webview2_runtime.cpp：WebView2 Runtime 缺失自检测 + 自动下载安装（apxsetup 也复用）
+    set(APXPC_WEBPANEL_SRC
+      "${APXPC_ROOT}/src/ui/web_panel.cpp"
+      "${APXPC_ROOT}/src/ui/webview2_runtime.cpp")
     add_library(apxpc_webpanel STATIC ${APXPC_WEBPANEL_SRC})
     target_include_directories(apxpc_webpanel PUBLIC "${APXPC_ROOT}/include")
     target_link_libraries(apxpc_webpanel PUBLIC apxpc_core apxpc_wireless apxpc_media apxpc_screen apxpc_service)
@@ -359,8 +362,8 @@ if(WIN32 AND APXPC_BUILD_UI)
       target_include_directories(apxpc_webpanel PUBLIC "${wil_SOURCE_DIR}/include")
     endif()
 
-    # WebView2 面板需要 user32/shell32 等 Win32 系统库
-    target_link_libraries(apxpc_webpanel PUBLIC user32 shell32 ole32 shlwapi)
+    # WebView2 面板需要 user32/shell32 等 Win32 系统库；winhttp 给 WebView2 Runtime 自动下载
+    target_link_libraries(apxpc_webpanel PUBLIC user32 shell32 ole32 shlwapi winhttp)
   else()
     # —— 旧 Win32 GDI+ 面板（保留作回退）——
     set(APXPC_UI_SRC
@@ -471,13 +474,29 @@ if(WIN32)
   # 作为 RCDATA 打进 apxsetup.exe，运行时释放到 %LOCALAPPDATA%\AllPeriph。
   add_executable(apxsetup
     "${APXPC_ROOT}/src/setup_main.cpp"
+    "${APXPC_ROOT}/src/ui/webview2_runtime.cpp"
     "${CMAKE_BINARY_DIR}/setup_payload.rc")
   target_include_directories(apxsetup PRIVATE "${APXPC_ROOT}/include")
-  target_link_libraries(apxsetup PRIVATE shell32 ole32 shlwapi user32 advapi32)
+  # winhttp：安装期检测缺失时自动下载 WebView2 Runtime
+  target_link_libraries(apxsetup PRIVATE shell32 ole32 shlwapi user32 advapi32 winhttp)
   set_target_properties(apxsetup PROPERTIES WIN32_EXECUTABLE TRUE)
   target_link_options(apxsetup PRIVATE "/ENTRY:mainCRTStartup")
   # 必须先完成 apxdesktop（含其 POST_BUILD 载荷暂存），资源才能找到载荷文件
   add_dependencies(apxsetup apxdesktop)
+
+  # apxsetup 的"伴随文件"：让它自己运行时同目录就有 WebView2Loader.dll 和 web/。
+  # setup_main.cpp 释放完 apxdesktop.exe 后，从自身 EXE 目录找这俩文件再拷到安装目录。
+  # 这样 CI 产物目录 build_host/Release/ 里，apxsetup.exe 是自包含的（独立拷给用户也能用）。
+  add_custom_command(TARGET apxsetup POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE_DIR:apxdesktop>/WebView2Loader.dll"
+      "$<TARGET_FILE_DIR:apxsetup>/WebView2Loader.dll"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:apxsetup>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "$<TARGET_FILE_DIR:apxdesktop>/web"
+      "$<TARGET_FILE_DIR:apxsetup>/web"
+    COMMENT "[host] 为 apxsetup 附带 WebView2Loader.dll + web/ 伴随文件"
+    VERBATIM)
 endif()
 
 # ---------------------------------------------------------------- 示例

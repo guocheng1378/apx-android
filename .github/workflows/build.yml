@@ -303,12 +303,21 @@ jobs:
       - name: Rename artifacts with version
         run: |
           VER="${GITHUB_REF_NAME}"
-          mkdir -p out
-          cp dist/pc-exes-webview2/apxhost.exe               "out/AllPeriph-${VER}-apxhost.exe"
-          cp dist/pc-exes-webview2/apxdesktop.exe            "out/AllPeriph-${VER}-apxdesktop.exe"
-          cp dist/pc-exes-webview2/apxsetup.exe              "out/AllPeriph-${VER}-apxsetup.exe"
-          cp dist/pc-exes-webview2/WebView2Loader.dll        "out/WebView2Loader.dll"
-          cd dist/pc-exes-webview2 && zip -r "../../out/web-frontend.zip" web/ && cd -
+          mkdir -p out portable installer
+          # 便携版三件套（直接双击 apxdesktop.exe 运行，旁放 Loader + web/）
+          cp dist/pc-exes-webview2/apxdesktop.exe     "portable/apxdesktop.exe"
+          cp dist/pc-exes-webview2/apxhost.exe         "portable/apxhost.exe"
+          cp dist/pc-exes-webview2/WebView2Loader.dll  "portable/WebView2Loader.dll"
+          cp -r dist/pc-exes-webview2/web              "portable/web"
+          # 独立 exe（开发调试用）
+          cp dist/pc-exes-webview2/apxdesktop.exe       "out/AllPeriph-${VER}-apxdesktop.exe"
+          cp dist/pc-exes-webview2/apxhost.exe          "out/AllPeriph-${VER}-apxhost.exe"
+          # 安装包 zip：setup.exe + 同目录的 Loader + web —— 解压后双击 setup 安装
+          cp dist/pc-exes-webview2/apxsetup.exe          "installer/apxsetup.exe"
+          cp dist/pc-exes-webview2/WebView2Loader.dll    "installer/WebView2Loader.dll"
+          cp -r dist/pc-exes-webview2/web                "installer/web"
+          cd installer && zip -r "../out/AllPeriph-${VER}-setup.zip" . && cd -
+          cd portable  && zip -r "../out/AllPeriph-${VER}-portable.zip" . && cd -
           ls -la out/
         shell: bash
 
@@ -322,11 +331,17 @@ jobs:
           body: |
             ## 全能外设 ${{ github.ref_name }}
 
-            ### PC 端（WebView2 新面板）
-            - **apxdesktop.exe** —— 桌面控制面板（内嵌 React + Tailwind UI）
-            - **apxhost.exe** —— 仅宿主服务（无 GUI）
-            - **apxsetup.exe** —— 安装包
-            - **WebView2Loader.dll** —— 与 apxdesktop.exe 同目录（便携场景需要）
-            - **web-frontend.zip** —— 前端 dist/（解压到 apxdesktop.exe/web/）
+            ### 推荐：安装包（setup.zip）
+            下载 **AllPeriph-${VER}-setup.zip**，解压后双击里面的 apxsetup.exe 即可安装到
+            `%LOCALAPPDATA%\Programs\AllPeriph`，自动创建开始菜单快捷方式。
 
-            > Win10 2004+ 与 Win11 已自带 WebView2 Runtime；旧版 Win10 需从 https://aka.ms/webviewruntime 下载安装。
+            安装器会：
+            - 自动释放 WebView2Loader.dll + web/ 前端资源到安装目录
+            - 自动检测 WebView2 Runtime，缺失时从微软官方源下载安装（Win10 旧版）
+
+            ### 便携版（portable.zip）
+            解压到任意目录直接双击 apxdesktop.exe 运行，绿色免安装。
+
+            ### 单 exe 文件
+            - **apxdesktop.exe** —— 桌面控制面板（需要同目录的 WebView2Loader.dll + web/）
+            - **apxhost.exe** —— 仅宿主服务（无 GUI）

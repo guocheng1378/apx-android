@@ -19,7 +19,9 @@
 #include <tlhelp32.h>
 
 #include <apxpc/version.hpp>
+#include <apxpc/ui/webview2_runtime.hpp>
 
+#include <functional>
 #include <string>
 
 #pragma comment(lib, "shell32")
@@ -297,6 +299,47 @@ bool doInstall(bool silent, std::wstring& err) {
         return false;
     }
 
+    // 伴随文件：apxdesktop.exe 运行需要同目录的 WebView2Loader.dll 和 web/。
+    // apxsetup.exe 的 POST_BUILD（CMake）会把这俩文件拷到它自己的同目录，
+    // 安装时从 setup 旁边带过来。找不到（如用户单独拷了 apxsetup.exe 运行）
+    // 也不阻断安装——桌面端启动时会弹友好提示。
+    const std::wstring setupDir = dirOf(modulePath());
+    const std::wstring dllName = L"WebView2Loader.dll";
+    const std::wstring dllSrc = setupDir + L"\\" + dllName;
+    if (pathExists(dllSrc)) {
+        CopyFileW(dllSrc.c_str(), (dir + L"\\" + dllName).c_str(), FALSE);
+    }
+    const std::wstring webSrc = setupDir + L"\\web";
+    if (dirExists(webSrc)) {
+        const std::wstring webDst = dir + L"\\web";
+        if (dirExists(webDst)) SHCreateDirectoryExW(nullptr, webDst.c_str(), nullptr);
+        // 递归复制 web/*（Windows 无内置 CopyDirectoryW 对应，简单用 FindFirst/Next）
+        std::function<bool(const std::wstring&, const std::wstring&)> copyTree;
+        copyTree = [&copyTree](const std::wstring& src, const std::wstring& dst) -> bool {
+            WIN32_FIND_DATAW fd{};
+            HANDLE h = FindFirstFileW((src + L"\\*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) return false;
+            bool ok = true;
+            do {
+                const std::wstring name = fd.cFileName;
+                if (name == L"." || name == L"..") continue;
+                const std::wstring sp = src + L"\\" + name;
+                const std::wstring dp = dst + L"\\" + name;
+                if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                    if (!dirExists(dp)) SHCreateDirectoryExW(nullptr, dp.c_str(), nullptr);
+                    if (!copyTree(sp, dp)) ok = false;
+                } else {
+                    SetFileAttributesW(dp.c_str(), FILE_ATTRIBUTE_NORMAL);
+                    if (!CopyFileW(sp.c_str(), dp.c_str(), FALSE)) ok = false;
+                }
+            } while (ok && FindNextFileW(h, &fd));
+            FindClose(h);
+            return ok;
+        };
+        SHCreateDirectoryExW(nullptr, webDst.c_str(), nullptr);
+        copyTree(webSrc, webDst);
+    }
+
     // 开始菜单快捷方式
     if (!createShortcut(startMenuLnk(), appExe, dir)) {
         err = L"创建开始菜单快捷方式失败";
@@ -325,9 +368,28 @@ bool doInstall(bool silent, std::wstring& err) {
     regSetDword(HKEY_CURRENT_USER, key, L"NoRepair", 1);
     regSetDword(HKEY_CURRENT_USER, key, L"EstimatedSize", 1024);   // KB
 
+    // WebView2 Runtime：桌面界面依赖它，缺失就趁安装期自动补上，
+    // 用户不用再手动去官网下载（老 Win10 常见卡点）。失败不阻断安装，
+    // 桌面端启动时还会再试一次。
+    std::wstring wv2Note;
+    if (!apxpc::ui::isWebView2RuntimeInstalled()) {
+        if (!silent) {
+            MessageBoxW(nullptr,
+                L"本机缺少 WebView2 运行组件（桌面界面必需）。\n\n"
+                L"正在自动下载安装（来自微软官方源），请稍候…",
+                kAppName, MB_OK | MB_ICONINFORMATION);
+        }
+        std::wstring werr;
+        if (!apxpc::ui::ensureWebView2Runtime(werr, silent)) {
+            wv2Note = L"\n\n注意：未能自动安装 WebView2 运行组件：\n" + werr +
+                      L"\n桌面端首次启动时会再试一次，也可手动安装：\n"
+                      L"https://aka.ms/webviewruntime";
+        }
+    }
+
     if (!silent) {
         const std::wstring msg = L"「" + std::wstring(kAppName) + L"」已安装到：\n" + dir +
-                                 L"\n\n开始菜单里可直接启动；托盘常驻，关窗口不退出。";
+                                 L"\n\n开始菜单里可直接启动；托盘常驻，关窗口不退出。" + wv2Note;
         MessageBoxW(nullptr, msg.c_str(), kAppName, MB_OK | MB_ICONINFORMATION);
         if (MessageBoxW(nullptr, L"现在启动吗？", kAppName,
                         MB_YESNO | MB_ICONQUESTION) == IDYES) {

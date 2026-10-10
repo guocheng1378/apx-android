@@ -48,6 +48,9 @@ android/.kotlin/
 /*.png
 /_edgeprofile/
 
+# 发布产物本地存放（大文件不进 git：GitHub 单文件 100MB 上限）
+/release/v*/
+
 # root probe / dump artifacts
 /*.exe
 /*.h264
