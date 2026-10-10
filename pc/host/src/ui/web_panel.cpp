@@ -188,8 +188,8 @@ void buildState(const HostBundle& b, Json& out) {
         a["running"] = s.running;
         a["peak"] = s.peak;
         a["device"] = s.device;
-        a["sampleRate"] = s.sampleRate;
-        a["channels"] = s.channels;
+        a["sampleRate"] = static_cast<double>(s.sampleRate);
+        a["channels"] = static_cast<double>(s.channels);
         a["framesSent"] = static_cast<double>(s.framesSent);
         a["error"] = s.error;
         media["audio"] = a;
