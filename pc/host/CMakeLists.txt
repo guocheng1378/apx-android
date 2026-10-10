@@ -3,7 +3,7 @@ project(allperiph_host VERSION 0.1.0 LANGUAGES CXX)
 
 # ---------------------------------------------------------------- WebView2 SDK（仅 Windows + 开启 WebView2 面板）
 if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
-  find_package(FetchContent REQUIRED)
+  include(FetchContent)
   set(FETCHCONTENT_QUIET OFF)
 
   # WebView2 C++ SDK —— 从 nuget v3-flatcontainer 拉 nupkg（本质是 zip）
