@@ -59,6 +59,35 @@ using apxpc::net::Json;
 using apxpc::wireless::LinkPhase;
 using apxpc::wireless::SessionSnapshot;
 
+// ———————————————— COM 回调适配器（WebView2 SDK 没有 Callback<T> 模板） ———————————————
+// 用 lambda 实现 WebView2 的 COM 回调接口（QueryInterface/AddRef/Release 走标准实现，
+// Invoke 里转发给构造时传入的 callable）。
+template <typename T, typename Fn>
+class ComCallback : public T {
+public:
+    explicit ComCallback(Fn fn) : m_fn(std::move(fn)) {}
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&m_refs); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG r = InterlockedDecrement(&m_refs);
+        if (r == 0) delete this;
+        return r;
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (riid == __uuidof(T) || riid == IID_IUnknown) {
+            *ppv = static_cast<T*>(this);
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+protected:
+    Fn m_fn;
+    long m_refs{1};
+};
+
+template <typename T, typename Fn>
+T* makeCallback(Fn fn) { return new ComCallback<T, Fn>(std::move(fn)); }
+
 constexpr UINT_PTR kStateTimer = 1;     // 状态推流定时器（400ms）
 constexpr UINT kMsgPostQuitCustom = WM_APP + 10;
 
@@ -68,8 +97,9 @@ LPCWSTR kWindowTitle = L"全能外设";
 struct Panel {
     HWND hwnd = nullptr;
     HostBundle bundle;
-    wil::com_ptr<ICoreWebView2> webview;
     wil::com_ptr<ICoreWebView2Environment> env;
+    wil::com_ptr<ICoreWebView2Controller> controller;
+    wil::com_ptr<ICoreWebView2> webview;
     std::atomic<bool> running{false};
     std::wstring lastRepaintKey;    // 状态指纹：没变就不推
 };
@@ -232,7 +262,7 @@ void postEvent(Panel* p, const std::string& name, Json data = Json::makeObject()
 }
 
 // ———————————————— 动作分发（前端 act 请求） ———————————————
-void handleAct(Panel* p, const std::string& id, const std::string& name, Json& payload) {
+void handleAct(Panel* p, const std::string& id, const std::string& name, const Json& payload) {
     const HostBundle& b = p->bundle;
 
     // —— 连接控制 ——
@@ -418,95 +448,82 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         p->hwnd = hwnd;
         ::SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(p));
 
-        // 创建 WebView2 —— 用 CreateCoreWebView2EnvironmentWithOptions 支持指定 WebView2 Runtime 路径
-        //（便携场景：WebView2Loader.dll 在 exe 同目录，Runtime 也一起打包）。
-        std::wstring dataDir;
+        // —— 定位 exe 目录（后续 web/index.html 导航、dataDir 都要用）——
         wchar_t exeDir[MAX_PATH] = {};
         if (::GetModuleFileNameW(nullptr, exeDir, MAX_PATH) > 0) {
             wchar_t* slash = wcsrchr(exeDir, L'\\');
             if (slash) *slash = L'\0';
-            dataDir = std::wstring(exeDir) + L"\\apxwebview2-data";
         }
+        std::wstring dataDir(exeDir); dataDir += L"\\apxwebview2-data";
+        std::wstring wdir(exeDir);    wdir += L"\\web\\index.html";
+        if (*exeDir == L'\0') { wdir = L".\\web\\index.html"; }
 
-        auto envCallback = [p, exeDir, dataDir](HRESULT hr, ICoreWebView2Environment* env) {
-            if (FAILED(hr)) {
-                APX_LOGE("WebView2 环境创建失败: HRESULT=0x{:08X}", static_cast<unsigned>(hr));
-                MessageBoxW(p->hwnd,
-                    L"WebView2 初始化失败。\n\n"
-                    L"请安装 WebView2 Runtime（Win10 2004+ 与 Win11 已自带；"
-                    L"Win10 旧版请访问 https://aka.ms/webviewruntime 下载）。",
-                    L"全能外设", MB_OK | MB_ICONERROR);
-                p->running.store(false);
-                ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
-                return;
-            }
-            p->env = env;
-            auto createCb = [p](HRESULT hr2, ICoreWebView2* wv) {
-                if (FAILED(hr2)) {
-                    APX_LOGE("WebView2 创建失败: HRESULT=0x{:08X}", static_cast<unsigned>(hr2));
-                    return;
-                }
-                p->webview = wv;
-                // 设置：启用 dev tools（开发期方便调试；release 可关）
-                wil::com_ptr<ICoreWebView2Settings> settings;
-                if (SUCCEEDED(wv->get_Settings(&settings))) {
-                    settings->put_AreDevToolsEnabled(TRUE);
-                    settings->put_AreDefaultContextMenusEnabled(FALSE);
-                }
-                // 注册消息接收
-                wv->add_WebMessageReceived(
-                    Callback<ICoreWebView2WebMessageReceivedEventHandler>(
-                        [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                            onWebMessageReceived(nullptr, args);
-                            return S_OK;
-                        }).Get(), nullptr);
-
-                // 加载前端 dist/index.html
-                std::wstring wdir;
-                if (GetModuleFileNameW(nullptr, exeDir, MAX_PATH) > 0) {
-                    wchar_t* sl = wcsrchr(exeDir, L'\\');
-                    if (sl) *sl = L'\0';
-                    wdir = std::wstring(exeDir) + L"\\web\\index.html";
-                } else {
-                    wdir = L".\\web\\index.html";
-                }
-                APX_LOGI("WebView2 加载: {}", std::string(wdir.begin(), wdir.end()).c_str());
-                wv->Navigate(wdir.c_str());
-
-                // 事件回调：对端（手机/TV）请求本机输入 → 前端弹远程输入浮层
-                // 回调跑在 9511 reader 线程；PostWebMessageAsJson 线程安全，直接调即可
-                if (p->bundle.session) {
-                    p->bundle.session->setOnRequestInput([p](const std::string& hint) {
-                        Json d = Json::makeObject();
-                        d["hint"] = hint;
-                        postEvent(p, std::string("on-remote-input-request"), d);
-                    });
-                }
-
-                // 启动状态推流定时器（400ms）
-                ::SetTimer(p->hwnd, kStateTimer, 400, nullptr);
-                APX_LOGI("WebView2 面板就绪");
-            };
-            env->CreateCoreWebView2Controller(p->hwnd, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                [p, createCb](HRESULT hr3, ICoreWebView2Controller* controller) -> HRESULT {
-                    if (FAILED(hr3) || !controller) {
-                        APX_LOGE("CreateCoreWebView2Controller 失败: 0x{:08X}", static_cast<unsigned>(hr3));
-                        return S_OK;
-                    }
-                    wil::com_ptr<ICoreWebView2> wv;
-                    if (SUCCEEDED(controller->get_CoreWebView2(&wv)))
-                        createCb(S_OK, wv.get());
+        auto* envCb = makeCallback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+            [p, exeDir, dataDir, wdir](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
+                if (FAILED(hr)) {
+                    APX_LOGE("WebView2 环境创建失败: HRESULT=0x{:08X}", static_cast<unsigned>(hr));
+                    MessageBoxW(p->hwnd,
+                        L"WebView2 初始化失败。\n\n"
+                        L"请安装 WebView2 Runtime（Win10 2004+ 与 Win11 已自带；"
+                        L"Win10 旧版请访问 https://aka.ms/webviewruntime 下载）。",
+                        L"全能外设", MB_OK | MB_ICONERROR);
+                    p->running.store(false);
+                    ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
                     return S_OK;
-                }).Get(), nullptr);
-        };
+                }
+                p->env = env;
+                auto* ctrlCb = makeCallback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+                    [p, wdir](HRESULT hr3, ICoreWebView2Controller* controller) -> HRESULT {
+                        if (FAILED(hr3) || !controller) {
+                            APX_LOGE("CreateCoreWebView2Controller 失败: 0x{:08X}", static_cast<unsigned>(hr3));
+                            return S_OK;
+                        }
+                        p->controller = controller;
+                        wil::com_ptr<ICoreWebView2> wv;
+                        if (!SUCCEEDED(controller->get_CoreWebView2(&wv))) {
+                            APX_LOGE("controller->get_CoreWebView2 失败");
+                            return S_OK;
+                        }
+                        p->webview = wv;
+
+                        // 设置：启用 dev tools（开发期方便调试；release 可关）
+                        wil::com_ptr<ICoreWebView2Settings> settings;
+                        if (SUCCEEDED(wv->get_Settings(&settings))) {
+                            settings->put_AreDevToolsEnabled(TRUE);
+                            settings->put_AreDefaultContextMenusEnabled(FALSE);
+                        }
+                        // 注册消息接收
+                        wv->add_WebMessageReceived(
+                            makeCallback<ICoreWebView2WebMessageReceivedEventHandler>(
+                                [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                    onWebMessageReceived(nullptr, args);
+                                    return S_OK;
+                                }), nullptr);
+
+                        // 加载前端 dist/index.html
+                        APX_LOGI("WebView2 加载: {}", std::string(wdir.begin(), wdir.end()).c_str());
+                        wv->Navigate(wdir.c_str());
+
+                        // 事件回调：对端（手机/TV）请求本机输入 → 前端弹远程输入浮层
+                        if (p->bundle.session) {
+                            p->bundle.session->setOnRequestInput([p](const std::string& hint) {
+                                Json d = Json::makeObject();
+                                d["hint"] = hint;
+                                postEvent(p, std::string("on-remote-input-request"), d);
+                            });
+                        }
+
+                        // 启动状态推流定时器（400ms）
+                        ::SetTimer(p->hwnd, kStateTimer, 400, nullptr);
+                        APX_LOGI("WebView2 面板就绪");
+                        return S_OK;
+                    });
+                env->CreateCoreWebView2Controller(p->hwnd, ctrlCb);
+                return S_OK;
+            });
         // nullptr → 使用系统默认 WebView2 Runtime 路径
         HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-            nullptr, dataDir.empty() ? nullptr : dataDir.c_str(), nullptr,
-            Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-                [p, envCallback](HRESULT h, ICoreWebView2Environment* e) -> HRESULT {
-                    envCallback(h, e);
-                    return S_OK;
-                }).Get());
+            nullptr, dataDir.empty() ? nullptr : dataDir.c_str(), nullptr, envCb);
         if (FAILED(hr)) {
             APX_LOGE("CreateCoreWebView2EnvironmentWithOptions 失败: 0x{:08X}", static_cast<unsigned>(hr));
             MessageBoxW(hwnd, L"无法初始化 WebView2（CreateCoreWebView2Environment 调用失败）",
@@ -522,12 +539,9 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_SIZE) {
         Panel* p = reinterpret_cast<Panel*>(::GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        if (p && p->webview) {
-            wil::com_ptr<ICoreWebView2Controller> ctrl;
-            if (SUCCEEDED(p->webview->get_Controller(&ctrl))) {
-                RECT rc; ::GetClientRect(hwnd, &rc);
-                ctrl->put_Bounds({0, 0, rc.right, rc.bottom});
-            }
+        if (p && p->controller) {
+            RECT rc; ::GetClientRect(hwnd, &rc);
+            p->controller->put_Bounds({0, 0, rc.right, rc.bottom});
         }
         return 0;
     }
@@ -548,17 +562,26 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 bool webPanelAvailable() {
 #if defined(_WIN32)
-    // CreateCoreWebView2EnvironmentWithOptions 在无 WebView2 Runtime 时会同步失败
-    // —— 简单探测：用系统默认路径创建临时环境，成功就算可用
+    // CreateCoreWebView2EnvironmentWithOptions 是异步的：用事件对象等待回调，超时就算不可用
     wil::com_ptr<ICoreWebView2Environment> env;
-    const HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
-        nullptr, nullptr, nullptr,
-        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-            [&env](HRESULT h, ICoreWebView2Environment* e) -> HRESULT {
-                if (SUCCEEDED(h) && e) env = e;
-                return S_OK;
-            }).Get());
-    return SUCCEEDED(hr) && env;
+    HANDLE doneEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!doneEvent) return false;
+    HRESULT waitHResult = E_FAIL;
+    auto* cb = makeCallback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
+        [&](HRESULT h, ICoreWebView2Environment* e) -> HRESULT {
+            waitHResult = h;
+            if (SUCCEEDED(h) && e) env = e;
+            ::SetEvent(doneEvent);
+            return S_OK;
+        });
+    HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(nullptr, nullptr, nullptr, cb);
+    bool ok = false;
+    if (SUCCEEDED(hr)) {
+        ok = (::WaitForSingleObject(doneEvent, 15000) == WAIT_OBJECT_0)
+          && SUCCEEDED(waitHResult) && env;
+    }
+    ::CloseHandle(doneEvent);
+    return ok;
 #else
     return false;
 #endif
