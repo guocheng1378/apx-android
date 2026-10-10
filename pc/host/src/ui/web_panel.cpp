@@ -218,6 +218,19 @@ void postResponse(Panel* p, const std::string& id, Json resp) {
     p->webview->PostWebMessageAsJson(w.c_str());
 }
 
+// ———————————————— 推送事件给前端（非请求-响应型，如对端请求输入 / 收到文件）——
+// WebView2 的 PostWebMessageAsJson 线程安全 —— 9511 reader 线程 / FileReceiver 线程
+// 直接调即可，不需要 Post 回 UI 线程。
+void postEvent(Panel* p, const std::string& name, Json data = Json::makeObject()) {
+    Json push = Json::makeObject();
+    push["kind"] = std::string("event");
+    push["name"] = name;
+    push["data"] = data;
+    std::string s = push.dump();
+    std::wstring w(s.begin(), s.end());
+    p->webview->PostWebMessageAsJson(w.c_str());
+}
+
 // ———————————————— 动作分发（前端 act 请求） ———————————————
 void handleAct(Panel* p, const std::string& id, const std::string& name, Json& payload) {
     const HostBundle& b = p->bundle;
@@ -236,6 +249,18 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, Json& p
     if (name == "session.disconnect" && b.session) {
         b.session->disconnect();
         return postResponse(p, id, okResp());
+    }
+
+    // —— 远程输入：对端请求本机代输 → 前端 RemoteInputModal 回传至此 ——
+    if (name == "session.sendInputText" && b.session) {
+        std::string text = payload.find("text") ? payload.find("text")->asString() : "";
+        uint8_t flags = static_cast<uint8_t>(payload.find("flags") ? payload.find("flags")->asInt(0x04) : 0x04);
+        const bool ok = b.session->sendInputText(text, flags);
+        return postResponse(p, id, ok ? okResp() : failResp("发送输入失败（未连接）"));
+    }
+    if (name == "session.sendInputDone" && b.session) {
+        const bool ok = b.session->sendInputDone();
+        return postResponse(p, id, ok ? okResp() : failResp("发送完成通知失败"));
     }
 
     // —— 副屏 ——
@@ -260,9 +285,34 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, Json& p
         if (!b.media || !b.media->status().connected)
             return postResponse(p, id, failResp("媒体通道未连接"));
         apxpc::media::AudioCaptureOptions opt;
+        auto* devId = payload.find("deviceId");
+        if (devId) opt.deviceId = devId->asString();
         std::string err;
         const bool ok = b.audio->start(b.media.get(), opt, &err);
         return postResponse(p, id, ok ? okResp() : failResp(err));
+    }
+
+    // —— 麦克风桥（手机麦 → 本机播放设备）——
+    if (name == "mic.toggle" && b.micBridge) {
+        if (b.micBridge->running()) { b.micBridge->stop(); return postResponse(p, id, okResp()); }
+        std::string devId = payload.find("deviceId") ? payload.find("deviceId")->asString() : "";
+        std::string err;
+        const bool ok = b.micBridge->start(devId, &err);
+        return postResponse(p, id, ok ? okResp() : failResp(err));
+    }
+
+    // —— 设置项 ——
+    if (name == "config.setAdaptive" && b.cfg) {
+        auto* v = payload.find("on");
+        b.cfg->displayAdaptive = v ? v->asBool(b.cfg->displayAdaptive) : !b.cfg->displayAdaptive;
+        if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
+        return postResponse(p, id, okResp({{"adaptive", b.cfg->displayAdaptive}}));
+    }
+    if (name == "config.setBitrate" && b.cfg) {
+        auto* v = payload.find("mbps");
+        if (v) b.cfg->displayBitrateMbps = static_cast<uint32_t>(v->asInt(b.cfg->displayBitrateMbps));
+        if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
+        return postResponse(p, id, okResp({{"bitrateMbps", static_cast<double>(b.cfg->displayBitrateMbps)}}));
     }
 
     // —— 退出 / 隐藏 ——
@@ -422,6 +472,16 @@ LRESULT CALLBACK webWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 APX_LOGI("WebView2 加载: {}", std::string(wdir.begin(), wdir.end()).c_str());
                 wv->Navigate(wdir.c_str());
+
+                // 事件回调：对端（手机/TV）请求本机输入 → 前端弹远程输入浮层
+                // 回调跑在 9511 reader 线程；PostWebMessageAsJson 线程安全，直接调即可
+                if (p->bundle.session) {
+                    p->bundle.session->setOnRequestInput([p](const std::string& hint) {
+                        Json d = Json::makeObject();
+                        d["hint"] = hint;
+                        postEvent(p, std::string("on-remote-input-request"), d);
+                    });
+                }
 
                 // 启动状态推流定时器（400ms）
                 ::SetTimer(p->hwnd, kStateTimer, 400, nullptr);
