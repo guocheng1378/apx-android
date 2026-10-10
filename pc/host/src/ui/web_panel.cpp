@@ -46,6 +46,7 @@
 #include <WebView2.h>
 
 #include <atomic>
+#include <algorithm>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -224,7 +225,7 @@ void buildState(const HostBundle& b, Json& out) {
 void tickState(Panel* p) {
     Json state;
     buildState(p->bundle, state);
-    std::string json = state.dump();
+    std::string json = state.stringify();
     // 指纹：没变就不推（避免无谓渲染）
     std::wstring key;
     key.reserve(json.size());
@@ -236,7 +237,7 @@ void tickState(Panel* p) {
     push["kind"] = std::string("state");
     push["t"] = static_cast<double>(GetTickCount64());
     push["data"] = state;
-    std::string s = push.dump();
+    std::string s = push.stringify();
     std::wstring w(s.begin(), s.end());
     p->webview->PostWebMessageAsJson(w.c_str());
 }
@@ -244,7 +245,7 @@ void tickState(Panel* p) {
 // ———————————————— 回传前端请求的响应 ———————————————
 void postResponse(Panel* p, const std::string& id, Json resp) {
     resp["id"] = id;
-    std::string s = resp.dump();
+    std::string s = resp.stringify();
     std::wstring w(s.begin(), s.end());
     p->webview->PostWebMessageAsJson(w.c_str());
 }
@@ -257,7 +258,7 @@ void postEvent(Panel* p, const std::string& name, Json data = Json::makeObject()
     push["kind"] = std::string("event");
     push["name"] = name;
     push["data"] = data;
-    std::string s = push.dump();
+    std::string s = push.stringify();
     std::wstring w(s.begin(), s.end());
     p->webview->PostWebMessageAsJson(w.c_str());
 }
@@ -299,14 +300,10 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         if (b.screenPush->running()) { b.screenPush->stop(); return postResponse(p, id, okResp()); }
         if (!b.media || !b.media->status().connected)
             return postResponse(p, id, failResp("媒体通道未连接（需与手机同一 Wi‑Fi）"));
-        apxpc::display::IDisplayController* disp = nullptr;
-        // bundle 里没有 display controller；从 ActionRouter 取 —— web_panel 暂不持有
-        // 简化：用默认 ScreenPushOptions；v2 重构里会把 display controller 放进 bundle
-        (void)disp;
         apxpc::media::ScreenPushOptions opt;
         opt.mirrorMode = false; opt.bitrateKbps = 8000;
         std::string err;
-        const bool ok = b.screenPush->start(b.media.get(), opt, &err);
+        const bool ok = b.screenPush->start(b.media, opt, &err);
         return postResponse(p, id, ok ? okResp() : failResp(err));
     }
 
@@ -319,7 +316,7 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         auto* devId = payload.find("deviceId");
         if (devId) opt.deviceId = devId->asString();
         std::string err;
-        const bool ok = b.audio->start(b.media.get(), opt, &err);
+        const bool ok = b.audio->start(b.media, opt, &err);
         return postResponse(p, id, ok ? okResp() : failResp(err));
     }
 
@@ -337,13 +334,15 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         auto* v = payload.find("on");
         b.cfg->displayAdaptive = v ? v->asBool(b.cfg->displayAdaptive) : !b.cfg->displayAdaptive;
         if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
-        return postResponse(p, id, okResp({{"adaptive", b.cfg->displayAdaptive}}));
+        Json d1 = Json::makeObject(); d1["adaptive"] = b.cfg->displayAdaptive;
+        return postResponse(p, id, okResp(d1));
     }
     if (name == "config.setBitrate" && b.cfg) {
         auto* v = payload.find("mbps");
         if (v) b.cfg->displayBitrateMbps = static_cast<uint32_t>(v->asInt(b.cfg->displayBitrateMbps));
         if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
-        return postResponse(p, id, okResp({{"bitrateMbps", static_cast<double>(b.cfg->displayBitrateMbps)}}));
+        Json d2 = Json::makeObject(); d2["bitrateMbps"] = static_cast<double>(b.cfg->displayBitrateMbps);
+        return postResponse(p, id, okResp(d2));
     }
 
     // —— 退出 / 隐藏 ——
@@ -358,8 +357,10 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
     }
     if (name == "tray.setAutostart") {
         bool enable = payload.find("enable") ? payload.find("enable")->asBool(false) : false;
-        bool ok = apxpc::tray::setAutostart(enable);
-        return postResponse(p, id, okResp({{"ok", ok}}));
+        // TODO(后期接入 apxpc::tray::setAutostart 真正实现); 这里暂静默返回 ok
+        APX_LOGW("tray.setAutostart(%d) 暂未实现，跳过", enable);
+        Json d3 = Json::makeObject(); d3["ok"] = true;
+        return postResponse(p, id, okResp(d3));
     }
     if (name == "config.setLogLevel" && b.cfg) {
         auto* l = payload.find("level");
