@@ -152,7 +152,7 @@ jobs:
       - name: Configure (CMake + WebView2 SDK + wil via FetchContent)
         shell: pwsh
         run: |
-          cmake -S pc/host -B build_host -G Visual Studio 17 2022 -A x64 `
+          cmake -S pc/host -B build_host -G Visual Studio 18 2026 -A x64 `
             -DAPXPC_BUILD_SDK=OFF `
             -DAPXPC_BUILD_EXAMPLES=OFF `
             -DAPXPC_BUILD_UI=ON `
@@ -222,7 +222,7 @@ jobs:
         with:
           submodules: recursive
 
-      # Ninja 必须：VS 默认生成器（Visual Studio 17 2022）不导出 compile_commands.json
+      # Ninja 必须：VS 默认生成器（Visual Studio 18 2026）不导出 compile_commands.json
       - name: Generate compile_commands.json
         continue-on-error: true
         shell: pwsh
@@ -243,14 +243,24 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $vs = Get-ChildItem "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin" -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($vs) {
-            Write-Host "found bundled clang-tidy: $($vs.FullName)"
-            $vs.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-          } else {
-            Write-Host "not found -> installing LLVM"
-            choco install llvm -y --no-progress
+          # VS 18 (2026) / VS 17 (2022) 路径都试一下
+          $vsLlvm = @(
+            "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin",
+            "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin",
+            "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\Llvm\x64\bin",
+            "C:\Program Files (x86)\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($vsLlvm) {
+            $clangTidy = Get-ChildItem $vsLlvm -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($clangTidy) {
+              Write-Host "found clang-tidy: $($clangTidy.FullName)"
+              $clangTidy.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+              exit 0
+            }
           }
+          Write-Host "not bundled -> installing LLVM via choco"
+          choco install llvm -y --no-progress
 
       - name: clang-tidy (core modules)
         continue-on-error: true
