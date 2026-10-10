@@ -24,7 +24,14 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
     GIT_TAG        v1.0.240803.1
     GIT_SHALLOW    TRUE
   )
-  FetchContent_MakeAvailable(wil)
+  FetchContent_Populate(wil)
+  # wil 是 header-only 库，手动建 INTERFACE target 避免 add_subdirectory 触发它的 tests/
+  if(NOT TARGET wil::headers)
+    add_library(wil::headers INTERFACE IMPORTED)
+    set_target_properties(wil::headers PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${wil_SOURCE_DIR}/include"
+    )
+  endif()
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
