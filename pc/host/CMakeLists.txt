@@ -4,31 +4,25 @@ project(allperiph_host VERSION 0.1.0 LANGUAGES CXX)
 # ---------------------------------------------------------------- WebView2 SDK（仅 Windows + 开启 WebView2 面板）
 if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
   find_package(FetchContent REQUIRED)
+  set(FETCHCONTENT_QUIET OFF)
 
-  # WebView2 SDK（含 WebView2.h + WebView2Loader.dll）
-  # 直接从官方 GitHub Release 拉 C++ SDK 压缩包，避开 nuget 依赖
+  # WebView2 C++ SDK —— 从 nuget v3-flatcontainer 拉 nupkg（本质是 zip）
+  # nupkg 内部结构：build/native/include/{WebView2.h,...} + build/native/{x64,x86,arm64}/{WebView2Loader.dll,.lib}
+  # 比 GitHub Release 更稳定可达；版本号格式：1.0.X.Y（4 段式），从
+  #   https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/index.json 查
+  set(WEBVIEW2_NUGET_VERSION "1.0.4129.50")
   FetchContent_Declare(WebView2SDK
-    URL      https://github.com/microsoft/WebView2/blob/main/Microsoft.Web.WebView2.SDK/README.md
-    DOWNLOAD_COMMAND ""
-  )
-  # --- 手动下载 WebView2 C++ SDK ---
-  # WebView2 的 C++ SDK 不是 nuget 就是直接 GitHub Release 的 zip
-  # 我们用 cmake -S FetchContent + URL_DOWNLOAD 拉：
-  set(WEBVIEW2_SDK_VERSION "1.0.2584249")
-  FetchContent_Declare(WebView2SDKZip
-    URL https://github.com/microsoft/WebView2/releases/download/v${WEBVIEW2_SDK_VERSION}/Microsoft.Web.WebView2.SDK.${WEBVIEW2_SDK_VERSION}.zip
-    URL_MD5 ""
+    URL      https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${WEBVIEW2_NUGET_VERSION}/microsoft.web.webview2.${WEBVIEW2_NUGET_VERSION}.nupkg
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
-  set(FETCHCONTENT_QUIET OFF)
-  FetchContent_MakeAvailable(WebView2SDKZip)
-  set(WEBVIEW2_SDK_DIR "${WebView2SDKZip_SOURCE_DIR}")
+  FetchContent_MakeAvailable(WebView2SDK)
+  set(WEBVIEW2_SDK_DIR "${WebView2SDK_SOURCE_DIR}")
 
-  # wil (Windows Implementation Library) —— WebView2 cpp-api 用它的 com_ptr
+  # wil (Windows Implementation Library) —— com_ptr 等 RAII 封装，WebView2 cpp-api 必需
   FetchContent_Declare(wil
     GIT_REPOSITORY https://github.com/microsoft/wil.git
-    GIT_TAG v1.0.240301
-    GIT_SHALLOW TRUE
+    GIT_TAG        v1.0.240301
+    GIT_SHALLOW    TRUE
   )
   FetchContent_MakeAvailable(wil)
 endif()

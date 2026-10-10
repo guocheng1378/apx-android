@@ -62,3 +62,8 @@ android/.kotlin/
 /.codebuddy/
 /.salesforce-ui-script-recorder/
 dls/ 
+
+# pc/web/ 前端构建产物 + 依赖（CI 里 npm install + npm run build 会重新生成）
+pc/web/node_modules/
+pc/web/dist/
+pc/web/.vite/

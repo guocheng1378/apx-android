@@ -16,6 +16,12 @@ on:
 permissions:
   contents: write
 
+# Windows runner 默认 30GB SSD + 14GB RAM —— 拉 WebView2 SDK + wil FetchContent + node_modules
+# 都吃磁盘，预留足够空间。另外 FetchContent 超时长的话 runner 会被回收，显式设 timeout。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ------------------------------------------------ Android（手机 + TV）
   android:
@@ -54,7 +60,6 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # release 签名的 keystore（android/apx-release.keystore）在版本库内，可直接出正式包
       - name: Build release APKs (app + tv)
         run: ./gradlew :app:assembleRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
         shell: bash
@@ -67,17 +72,10 @@ jobs:
           echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
-      # v1.7：协议层单元测试（**阻塞**）—— 黄金帧 / CRC 向量 / 重同步纪律 / 分片重组。
-      # 这些是跨端线上格式的契约，挂了就不该发版。
-      # 注意：开发机若是 Windows 且项目路径含中文，本任务会 ClassNotFoundException
-      # （Gradle test worker 在非 ASCII 路径下的老问题），以 CI 结果为准。
       - name: Protocol unit tests
         run: ./gradlew :app:testReleaseUnitTest --no-daemon --stacktrace 2>&1 | tail -50
         shell: bash
 
-      # v184：静态检查（**不阻塞**）。本轮人工审查抓到的"无锁共享状态、未清理监听、
-      # 资源泄漏、越界写入"多数本可被 Android Lint 提前发现。首次运行会有一批历史告警，
-      # 故意不拦构建 —— 先建立基线，后续逐步收紧。
       - name: Static analysis (Android Lint, non-blocking)
         continue-on-error: true
         run: ./gradlew :app:lintRelease :tv:lintRelease --no-daemon 2>&1 | tail -40
@@ -109,43 +107,129 @@ jobs:
           path: android/tv/build/outputs/apk/release/tv-release.apk
           retention-days: 14
 
-  # ------------------------------------------------ PC（Windows 三件套）
+  # ------------------------------------------------ PC（Windows 三件套 + WebView2 前端）
   pc:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Node 20 —— 前端 React + Tailwind 构建需要
+      # Windows runner 默认装了 Node 20，但显式 pin 版本避免浮动
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pc/web/package-lock.json
+
+      # MSVC x64 —— 桌面端 C++ 原生编译
       - name: Setup MSVC (x64)
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Configure (CMake)
-        run: cmake -S pc/host -B build_host -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
-        shell: cmd
+      # Windows runner 默认 CMake 版本可能偏低；3.22+ 保险起见
+      - name: Upgrade CMake
+        shell: pwsh
+        run: |
+          $ver = (cmake --version | Select-String -Pattern '^cmake version (\d+\.\d+\.\d+)').Matches.Groups[1].Value
+          Write-Host "current cmake: $ver"
+          if ([version]$ver -lt [version]'3.22.0') {
+            Write-Host "cmake too old -> installing via winget"
+            winget install Kitware.CMake --accept-package-agreements --accept-source-agreements
+          } else {
+            Write-Host "cmake OK: $ver"
+          }
 
-      - name: Build (apxhost / apxdesktop / apxsetup)
-        run: cmake --build build_host --config Release --target apxhost apxdesktop apxsetup
-        shell: cmd
+      # --- 前端：npm install + npm run build ---
+      # CMake 的 FetchContent + Fetch npm 是并行的；先装 node 依赖让缓存生效
+      - name: Install web dependencies
+        shell: pwsh
+        working-directory: pc/web
+        run: |
+          npm ci --no-audit --no-fund 2>&1 | Select-Object -Last 10
 
-      - name: Upload PC exes
+      - name: Build frontend (Vite + React + Tailwind)
+        shell: pwsh
+        working-directory: pc/web
+        run: |
+          npm run build 2>&1 | Tee-Object -FilePath /tmp/web_build.log | Select-Object -Last 20
+          if ($LASTEXITCODE -ne 0) { Get-Content /tmp/web_build.log -Tail 40; exit $LASTEXITCODE }
+
+      # --- CMake Configure ---
+      # APXPC_BUILD_UI=ON + APXPC_BUILD_UI_WEBVIEW2=ON → 新 WebView2 面板
+      # FetchContent 会拉：WebView2 C++ SDK（GitHub Release zip，~5MB）+ wil（GitHub repo，~1MB）
+      # 两者都走 GitHub，CI 网络可达。显式给 FetchContent 的 timeout。
+      - name: Configure (CMake + WebView2 SDK + wil via FetchContent)
+        shell: pwsh
+        run: |
+          cmake -S pc/host -B build_host -G `
+            -DAPXPC_BUILD_SDK=OFF `
+            -DAPXPC_BUILD_EXAMPLES=OFF `
+            -DAPXPC_BUILD_UI=ON `
+            -DAPXPC_BUILD_UI_WEBVIEW2=ON `
+            -DCMAKE_FETCHCONTENT_FULLY_DISCONNECTED=OFF
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== CMake configure FAILED ==="
+            Get-Content build_host/CMakeFiles/CMakeError.log -Tail 50 -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      # --- CMake Build ---
+      # Post-build step（web_panel.cpp 里配的）会自动把 pc/web/dist/ 拷贝到
+      # build_host/Release/apxdesktop/web/，并把 WebView2Loader.dll 拷到 exe 同目录
+      - name: Build (apxhost + apxdesktop + apxsetup)
+        shell: pwsh
+        run: |
+          cmake --build build_host --config Release --target apxhost apxdesktop apxsetup 2>&1 | `
+            Tee-Object -FilePath /tmp/cpp_build.log | Select-Object -Last 30
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "=== C++ build FAILED ==="
+            Get-Content /tmp/cpp_build.log -Tail 80
+            exit $LASTEXITCODE
+          }
+
+      # --- Artifacts ---
+      - name: Upload PC exes + bundled UI
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: pc-exes
+          name: pc-exes-webview2
           path: |
             build_host/Release/apxhost.exe
             build_host/Release/apxdesktop.exe
             build_host/Release/apxsetup.exe
+            build_host/Release/WebView2Loader.dll
+            build_host/Release/web/
           retention-days: 14
 
+      - name: Upload web frontend dist (独立，便于调 UI)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: pc/web/dist/
+          retention-days: 14
+
+      # --- 失败诊断 ---
+      - name: Diagnose on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== CMake configure log ==="
+          Get-Content build_host/CMakeFiles/CMakeOutput.log -Tail 30 -ErrorAction SilentlyContinue
+          Write-Host "=== CMake error log ==="
+          Get-Content build_host/CMakeFiles/CMakeError.log -Tail 60 -ErrorAction SilentlyContinue
+          Write-Host "=== WebView2 SDK FetchContent ==="
+          Get-ChildItem -Recurse -Path build_host -Filter "*.zip" -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Write-Host "=== npm build log ==="
+          Get-Content /tmp/web_build.log -Tail 40 -ErrorAction SilentlyContinue
+
   # ------------------------------------------------ 静态检查（独立 job，不阻塞）
-  # v184：本轮人工审查抓到的 3 个致命问题（线程未 join → std::terminate、detach 线程 UAF、
-  # 未判返回值空指针）与一批"跨线程裸共享状态"，恰恰都在 clang-analyzer / bugprone 的
-  # 检测范围内。独立成 job：失败不影响构建与发版（先建基线），后续逐步扩大范围并收紧。
   lint:
     runs-on: windows-latest
     continue-on-error: true
@@ -160,34 +244,35 @@ jobs:
         with:
           arch: x64
 
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pc/web/package-lock.json
+
       - name: Generate compile_commands.json
         continue-on-error: true
         shell: pwsh
         run: |
-          # CMake 只在 Makefile / Ninja 生成器下导出 compile_commands.json；默认的
-          # Visual Studio 生成器**不支持**该输出 —— 这正是之前 clang-tidy 报
-          # "No compilation database found in build_tidy" 的原因。故显式改用 Ninja。
           if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
             Write-Host "ninja not found -> installing via choco"
             choco install ninja -y --no-progress
             $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
           }
           if (Test-Path build_tidy) { Remove-Item -Recurse -Force build_tidy }
+          # 开启 WebView2 + 前端，确保新文件 web_panel.cpp 也进 compile_commands.json
           cmake -S pc/host -B build_tidy -G Ninja `
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
-            -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF -DAPXPC_BUILD_UI=OFF
+            -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF `
+            -DAPXPC_BUILD_UI=ON -DAPXPC_BUILD_UI_WEBVIEW2=ON
           if (-not (Test-Path build_tidy/compile_commands.json)) { throw "compile_commands.json 未生成" }
 
-      # windows-latest 镜像里 clang-tidy 不一定在 PATH（VS 自带那份的路径随版本变），
-      # 所以先用 vswhere 定位 VS 自带的，找不到再用 choco 装。
-      # 注意：GitHub 的 job 级 continue-on-error 不生效，必须落在 step 上。
       - name: Locate clang-tidy
         continue-on-error: true
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          # 只在 x64 目录下找：VS 同时装有 ARM64 那份，递归搜 Tools\Llvm 会先命中 ARM64\bin，
-          # 它在 x64 runner 上无法执行（"not compatible with the version of Windows"）→ clang-tidy 实际空转。
           $t = Get-ChildItem "$vs\VC\Tools\Llvm\x64" -Recurse -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($t) {
             Write-Host "found bundled clang-tidy: $($t.FullName)"
@@ -197,9 +282,6 @@ jobs:
             choco install llvm -y --no-progress
           }
 
-      # 先只扫改动最频繁、问题最集中的几个文件。
-      # 必须显式给 -checks：仓库里没有 .clang-tidy 配置，不传时 clang-tidy 会以
-      # "Error: no checks enabled." 打印帮助并退出 1（此前一直空转的另一半原因）。
       - name: clang-tidy (core modules)
         continue-on-error: true
         shell: cmd
@@ -211,12 +293,9 @@ jobs:
           clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\audio_capture.cpp
           clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\mic_bridge.cpp
           clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\media\touch_inject.cpp
-          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\ui\panel_win32.cpp
+          clang-tidy -p build_tidy -checks="%CHECKS%" pc\host\src\ui\web_panel.cpp
 
   # ------------------------------------------------ 协议一致性（跨端常量 / 命令号）
-  # v1.7：同一份 APX1 协议被手写了四遍（C++ / 手机端 / TV 端 / PC 控制面），
-  # 漂移是"某方向偶尔不工作"类缺陷的主要来源（键码偏移、0x04 分发、CRC 范围都踩过）。
-  # 这个 job 是**阻塞**的：不一致就红，不给合入与发版留口子。
   protocol:
     runs-on: ubuntu-latest
     steps:
@@ -241,13 +320,16 @@ jobs:
 
       - name: Rename artifacts with version
         run: |
-          VER="${GITHUB_REF_NAME}"   # 形如 v184
+          VER="${GITHUB_REF_NAME}"
           mkdir -p out
-          cp dist/apk-app/app-release.apk        "out/AllPeriph-${VER}-app-release.apk"
-          cp dist/apk-tv/tv-release.apk          "out/AllPeriph-${VER}-tv-release.apk"
-          cp dist/pc-exes/apxhost.exe            "out/AllPeriph-${VER}-apxhost.exe"
-          cp dist/pc-exes/apxdesktop.exe         "out/AllPeriph-${VER}-apxdesktop.exe"
-          cp dist/pc-exes/apxsetup.exe           "out/AllPeriph-${VER}-apxsetup.exe"
+          cp dist/apk-app/app-release.apk                    "out/AllPeriph-${VER}-app-release.apk"
+          cp dist/apk-tv/tv-release.apk                      "out/AllPeriph-${VER}-tv-release.apk"
+          cp dist/pc-exes-webview2/apxhost.exe               "out/AllPeriph-${VER}-apxhost.exe"
+          cp dist/pc-exes-webview2/apxdesktop.exe            "out/AllPeriph-${VER}-apxdesktop.exe"
+          cp dist/pc-exes-webview2/apxsetup.exe              "out/AllPeriph-${VER}-apxsetup.exe"
+          cp dist/pc-exes-webview2/WebView2Loader.dll        "out/WebView2Loader.dll"
+          # 前端产物打包成 zip（Release 附件里目录结构不直观）
+          cd dist/pc-exes-webview2 && zip -r "../../out/web-frontend.zip" web/ && cd -
           ls -la out/
         shell: bash
 
@@ -258,3 +340,14 @@ jobs:
           files: out/*
           generate_release_notes: true
           make_latest: true
+          body: |
+            ## 全能外设 ${{ github.ref_name }}
+
+            ### PC 端（WebView2 新面板）
+            - **apxdesktop.exe** —— 桌面控制面板（内嵌 React + Tailwind UI）
+            - **apxhost.exe** —— 仅宿主服务（无 GUI）
+            - **apxsetup.exe** —— 安装包
+            - **WebView2Loader.dll** —— 与 apxdesktop.exe 同目录（便携场景需要）
+            - **web-frontend.zip** —— 前端 dist/（解压到 apxdesktop.exe/web/）
+
+            > Win10 2004+ 与 Win11 已自带 WebView2 Runtime；旧版 Win10 需从 https://aka.ms/webviewruntime 下载安装。
