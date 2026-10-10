@@ -152,7 +152,7 @@ jobs:
       - name: Configure (CMake + WebView2 SDK + wil via FetchContent)
         shell: pwsh
         run: |
-          cmake -S pc/host -B build_host -G Visual Studio 18 2026 -A x64 `
+          cmake -S pc/host -B build_host -G "Visual Studio 18 2026" -A x64 `
             -DAPXPC_BUILD_SDK=OFF `
             -DAPXPC_BUILD_EXAMPLES=OFF `
             -DAPXPC_BUILD_UI=ON `
