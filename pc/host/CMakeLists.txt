@@ -1,7 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
 project(allperiph_host VERSION 0.1.0 LANGUAGES CXX)
 
-# ---------------------------------------------------------------- 基本设置
+# ---------------------------------------------------------------- WebView2 SDK（仅 Windows + 开启 WebView2 面板）
+if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
+  find_package(FetchContent REQUIRED)
+  set(FETCHCONTENT_QUIET OFF)
+
+  # WebView2 C++ SDK —— 从 nuget v3-flatcontainer 拉 nupkg（本质是 zip）
+  # nupkg 内部结构：build/native/include/{WebView2.h,...} + build/native/{x64,x86,arm64}/{WebView2Loader.dll,.lib}
+  # 比 GitHub Release 更稳定可达；版本号格式：1.0.X.Y（4 段式），从
+  #   https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/index.json 查
+  set(WEBVIEW2_NUGET_VERSION "1.0.4129.50")
+  FetchContent_Declare(WebView2SDK
+    URL      https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${WEBVIEW2_NUGET_VERSION}/microsoft.web.webview2.${WEBVIEW2_NUGET_VERSION}.nupkg
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+  )
+  FetchContent_MakeAvailable(WebView2SDK)
+  set(WEBVIEW2_SDK_DIR "${WebView2SDK_SOURCE_DIR}")
+
+  # wil (Windows Implementation Library) —— com_ptr 等 RAII 封装，WebView2 cpp-api 必需
+  FetchContent_Declare(wil
+    GIT_REPOSITORY https://github.com/microsoft/wil.git
+    GIT_TAG        v1.0.240301
+    GIT_SHALLOW    TRUE
+  )
+  FetchContent_MakeAvailable(wil)
+endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -11,7 +35,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "构建类型" FORCE)
 endif()
 
-option(APXPC_BUILD_UI             "构建 Win32 控制面板（仅 Windows）"        "${WIN32}")
+option(APXPC_BUILD_UI             "构建桌面控制面板（仅 Windows）"        "${WIN32}")
+option(APXPC_BUILD_UI_WEBVIEW2    "使用 WebView2 面板（替代旧 Win32 GDI+ 自绘）" ON)
 option(APXPC_BUILD_SDK            "构建第三方 SDK 静态库"                    OFF)
 option(APXPC_BUILD_EXAMPLES       "构建 SDK 示例程序"                        OFF)
 option(APXPC_BUILD_TOOLS          "由 pc/tools 的 CMake 调用时置 ON"         OFF)
@@ -273,38 +298,134 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------- 目标：桌面端面板
-# 纯 Win32 + common controls（不引 Qt/wx），兑现 apxpc/ui/panel.hpp 的 runPanel。
-set(APXPC_UI_SRC
-  "${APXPC_ROOT}/src/ui/panel_win32.cpp"
-  "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
-  # 「对端请你输入」窗口：接 0x25（手机 / TV 反过来请电脑打字）。与手机端
-  # RemoteInputActivity、TV 端 RemoteInputOverlay 对齐，补上电脑端"只发不收"的缺口。
-  "${APXPC_ROOT}/src/ui/remote_input_win32.cpp"
-  # 「设置…」二级窗口：承载原 Web 面板里**真有实现**的那些设置（自适应码率 / 日志级别 /
-  # 诊断导出 / 重新扫描 / 编码器信息 / 热键重置）。放二级窗口是为了不动主面板的自绘布局。
-  "${APXPC_ROOT}/src/ui/settings_win32.cpp"
-)
-add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
-target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")
-target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service apxpc_media apxpc_screen)
-if(WIN32)
-  # gdiplus：面板自绘（Windows 自带组件，不算第三方依赖）
-  target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32 gdiplus)
+# 双轨并存：
+#   APXPC_BUILD_UI_WEBVIEW2 = ON  → 新 WebView2 面板（pc/web/ 前端 + C++ IPC 桥 web_panel.cpp）
+#   APXPC_BUILD_UI_WEBVIEW2 = OFF → 旧 Win32 GDI+ 自绘面板（panel_win32.cpp + file_panel_win32.cpp + …）
+# 两套面板对 apxdesktop 入口透明 —— desktop_main.cpp 里只根据开关决定 runPanel() vs runWebPanel()。
+if(WIN32 AND APXPC_BUILD_UI)
+  if(APXPC_BUILD_UI_WEBVIEW2)
+    # —— 新 WebView2 面板 ——
+    # web_panel.cpp 包含在 apxpc_wireless 同级的 apxpc_webpanel 静态库中（只引用 core/wireless/media/service）
+    set(APXPC_WEBPANEL_SRC "${APXPC_ROOT}/src/ui/web_panel.cpp")
+    add_library(apxpc_webpanel STATIC ${APXPC_WEBPANEL_SRC})
+    target_include_directories(apxpc_webpanel PUBLIC "${APXPC_ROOT}/include")
+    target_link_libraries(apxpc_webpanel PUBLIC apxpc_core apxpc_wireless apxpc_media apxpc_screen apxpc_service)
+
+    # WebView2 SDK 头文件 + WebView2Loader 库路径
+    if(DEFINED WEBVIEW2_SDK_DIR)
+      target_include_directories(apxpc_webpanel PUBLIC
+        "${WEBVIEW2_SDK_DIR}/build/native/include"
+      )
+      # WebView2Loader.lib 位置（x64 / x86 / arm64 三选一，按当前构建架构）
+      if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(WV2_LIB_DIR "${WEBVIEW2_SDK_DIR}/build/native/x64")
+      elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(WV2_LIB_DIR "${WEBVIEW2_SDK_DIR}/build/native/x86")
+      else()
+        set(WV2_LIB_DIR "${WEBVIEW2_SDK_DIR}/build/native/arm64")
+      endif()
+      target_link_directories(apxpc_webpanel PUBLIC "${WV2_LIB_DIR}")
+      target_link_libraries(apxpc_webpanel PUBLIC WebView2Loader.lib)
+    endif()
+    # wil —— com_ptr 等 Windows 友好 RAII 封装
+    if(TARGET wil::headers)
+      target_link_libraries(apxpc_webpanel PUBLIC wil::headers)
+    elseif(EXISTS "${wil_SOURCE_DIR}/include")
+      target_include_directories(apxpc_webpanel PUBLIC "${wil_SOURCE_DIR}/include")
+    endif()
+
+    # WebView2 面板需要 user32/shell32 等 Win32 系统库
+    target_link_libraries(apxpc_webpanel PUBLIC user32 shell32 ole32 shlwapi)
+  else()
+    # —— 旧 Win32 GDI+ 面板（保留作回退）——
+    set(APXPC_UI_SRC
+      "${APXPC_ROOT}/src/ui/panel_win32.cpp"
+      "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
+      "${APXPC_ROOT}/src/ui/remote_input_win32.cpp"
+      "${APXPC_ROOT}/src/ui/settings_win32.cpp"
+    )
+    add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
+    target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")
+    target_link_libraries(apxpc_ui PUBLIC apxpc_core apxpc_wireless apxpc_service apxpc_media apxpc_screen)
+    if(WIN32)
+      target_link_libraries(apxpc_ui PUBLIC comctl32 user32 shell32 gdi32 gdiplus)
+    endif()
+  endif()
 endif()
 
-# 桌面端可执行：GUI 子系统（双击无控制台）。入口仍是 main()，用 /ENTRY 绕开
-# MSVC 对 WinMain 的强制要求。图标资源（res/apx.rc → apx.ico）打进 exe，
-# 窗口与托盘共用同一枚。
+# 桌面端可执行：GUI 子系统（双击无控制台）。入口仍是 main()，用 /ENTRY 绕开 MSVC 对 WinMain 的强制要求。
 set(APXDESKTOP_SRC "${APXPC_ROOT}/src/desktop_main.cpp")
 if(WIN32)
   list(APPEND APXDESKTOP_SRC "${APXPC_ROOT}/res/apx.rc")
 endif()
 add_executable(apxdesktop ${APXDESKTOP_SRC})
-target_link_libraries(apxdesktop PRIVATE apxpc_ui apxpc_wireless apxpc_core)
+
+if(APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2 AND WIN32)
+  # WebView2 面板：desktop_main 持有完整宿主栈 → 链接全栈
+  target_link_libraries(apxdesktop PRIVATE apxpc_webpanel apxpc_wireless apxpc_media apxpc_screen apxpc_service apxpc_core)
+elseif(APXPC_BUILD_UI AND WIN32)
+  # 旧面板：链接 apxpc_ui 静态库
+  target_link_libraries(apxdesktop PRIVATE apxpc_ui apxpc_wireless apxpc_core)
+else()
+  target_link_libraries(apxdesktop PRIVATE apxpc_core)
+endif()
+
 if(WIN32)
   set_target_properties(apxdesktop PROPERTIES WIN32_EXECUTABLE TRUE)
   target_link_options(apxdesktop PRIVATE "/ENTRY:mainCRTStartup")
   target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 gdiplus setupapi cfgmgr32)
+
+  # ------------------------------------------------------------ WebView2 前端（若启用）——
+  # 前端源码在 pc/web/，Vite + React + Tailwind。构建后 dist/ 拷贝到 apxdesktop.exe
+  # 同目录的 web/ 子目录 —— web_panel.cpp 里的 Navigate 路径就是 `<exe_dir>\web\index.html`。
+  #
+  # 构建策略：优先用系统 node/npm，若不存在则跳过构建（给出 warning，面板启动会
+  # 报"找不到 web/index.html"）。CI 里需预装 node。
+  if(APXPC_BUILD_UI_WEBVIEW2)
+    find_program(APXPC_NODE_EXE NAMES node node.exe)
+    find_program(APXPC_NPM_EXE NAMES npm npm.cmd)
+
+    set(APXPC_WEB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../web")
+    set(APXPC_WEB_DIST "${APXPC_WEB_DIR}/dist")
+    set(APXPC_WEB_OUT_DIR "$<TARGET_FILE_DIR:apxdesktop>/web")
+
+    if(APXPC_NODE_EXE AND APXPC_NPM_EXE AND EXISTS "${APXPC_WEB_DIR}/package.json")
+      add_custom_command(TARGET apxdesktop PRE_BUILD
+        COMMAND "${APXPC_NPM_EXE}" run build
+        WORKING_DIRECTORY "${APXPC_WEB_DIR}"
+        COMMENT "[host] 构建 WebView2 前端（Vite + React）"
+        VERBATIM
+      )
+      add_custom_command(TARGET apxdesktop POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${APXPC_WEB_OUT_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${APXPC_WEB_DIST}" "${APXPC_WEB_OUT_DIR}"
+        COMMENT "[host] 拷贝前端 dist → apxdesktop/web/"
+        VERBATIM
+      )
+    else()
+      message(WARNING "[host] WebView2 前端未构建（node/npm 未找到或 web 目录不存在）：
+        运行 npm --prefix \"${APXPC_WEB_DIR}\" install && npm --prefix \"${APXPC_WEB_DIR}\" run build")
+      # 没有 node 时，至少让构建通过 —— web_panel.cpp 的 Navigate 会失败并弹 MessageBox
+    endif()
+
+    # WebView2Loader.dll 拷贝（x64 / x86 / arm64 三选一）
+    if(DEFINED WEBVIEW2_SDK_DIR AND EXISTS "${WEBVIEW2_SDK_DIR}/build/native")
+      if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(WV2_DLL_DIR "${WEBVIEW2_SDK_DIR}/build/native/x64")
+      elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(WV2_DLL_DIR "${WEBVIEW2_SDK_DIR}/build/native/x86")
+      else()
+        set(WV2_DLL_DIR "${WEBVIEW2_SDK_DIR}/build/native/arm64")
+      endif()
+      add_custom_command(TARGET apxdesktop POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${WV2_DLL_DIR}/WebView2Loader.dll"
+          "$<TARGET_FILE_DIR:apxdesktop>/WebView2Loader.dll"
+        COMMENT "[host] 拷贝 WebView2Loader.dll"
+        VERBATIM
+      )
+    endif()
+  endif()
 
   # 安装包要内嵌桌面端可执行文件。用固定路径的副本做载荷，好处是 .rc 的路径在
   # **配置阶段**就完全确定 —— 换成 $<CONFIG> 的话，多配置生成器会让 file(GENERATE)

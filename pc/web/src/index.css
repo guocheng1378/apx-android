@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* —— 全局重置（impeccable anti-pattern: 不要浏览器默认 ugly UI）—— */
+@layer base {
+  html {
+    font-family: 'Instrument Sans', system-ui, sans-serif;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    margin: 0;
+    padding: 0;
+    background: #F5F6F8;
+    color: #1A1D21;
+    overflow: hidden;
+    user-select: none;
+    /* 字体加载前隐藏 —— 防止 FOIT */
+  }
+  .fonts-loading { visibility: hidden; }
+  .fonts-ready   { visibility: visible; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #D4D7DD;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #A1A8B3; }
+}
+
+/* —— 组件层（无 glassmorphism / 无装饰性 sparkline）—— */
+@layer components {
+  .card {
+    @apply bg-surface rounded-card border border-stroke shadow-card;
+  }
+  .card-inner {
+    @apply p-4;
+  }
+  .section-title {
+    @apply text-[13px] font-medium tracking-[-0.01em] text-primary uppercase;
+  }
+  .body-text {
+    @apply text-[14px] leading-[1.5] text-on-surface;
+  }
+  .caption-text {
+    @apply text-[12px] leading-[1.5] text-on-variant font-mono tracking-[0.02em];
+  }
+  .data-text {
+    @apply text-[12px] font-mono text-on-tertiary tracking-[0.04em];
+  }
+
+  /* —— 按钮（impeccable anti-pattern: primary button text 必须纯白）—— */
+  .btn-primary {
+    @apply bg-primary text-white font-medium rounded-btn px-4 py-2.5 text-[14px]
+           shadow-btn-primary transition-all duration-150 ease-out;
+  }
+  .btn-primary:hover { @apply bg-primary-hover; }
+  .btn-primary:active { @apply bg-primary-pressed translate-y-[1px] shadow-none; }
+  .btn-primary:disabled { @apply bg-stroke text-on-tertiary cursor-not-allowed shadow-none; }
+
+  .btn-ghost {
+    @apply bg-transparent text-on-surface font-medium rounded-btn px-4 py-2.5 text-[14px]
+           border border-stroke transition-all duration-150 ease-out;
+  }
+  .btn-ghost:hover { @apply bg-primary-soft border-primary text-primary; }
+  .btn-ghost:active { @apply translate-y-[1px]; }
+
+  /* —— Switch（iOS 风格 MIUI 开关，和 Android 端一致）—— */
+  .switch {
+    @apply relative inline-flex items-center w-[46px] h-[24px] rounded-full
+           bg-stroke transition-colors duration-200 ease-out cursor-pointer;
+  }
+  .switch[data-on="true"] { @apply bg-primary; }
+  .switch[data-on="false"] { @apply bg-stroke; }
+  .switch-thumb {
+    @apply absolute top-[2px] left-[2px] w-[20px] h-[20px] rounded-full bg-white
+           shadow-sm transition-transform duration-200 ease-out;
+  }
+  .switch[data-on="true"] .switch-thumb { transform: translateX(22px); }
+
+  /* —— Chip（分段选择器）—— */
+  .chip-group {
+    @apply inline-flex rounded-chip bg-bg p-[3px] border border-stroke;
+  }
+  .chip {
+    @apply px-3 py-[6px] text-[12px] font-medium text-on-variant rounded-[6px]
+           transition-all duration-150 ease-out cursor-pointer;
+  }
+  .chip[data-active="true"] {
+    @apply bg-surface text-on-surface shadow-sm;
+  }
+
+  /* —— Status Badge —— */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-[4px] rounded-badge text-[12px] font-medium;
+  }
+  .badge[data-state="ok"]    { @apply bg-emerald-50 text-state-ok; }
+  .badge[data-state="warn"]  { @apply bg-amber-50 text-state-warn; }
+  .badge[data-state="error"] { @apply bg-red-50 text-state-error; }
+  .badge[data-state="idle"]  { @apply bg-slate-50 text-state-idle; }
+
+  /* —— 输入框（原生）—— */
+  .input-field {
+    @apply bg-bg border border-stroke rounded-btn px-3 py-2 text-[14px] text-on-surface
+           outline-none transition-all duration-150;
+  }
+  .input-field:focus { @apply border-primary ring-2 ring-primary/20; }
+}
+
+/* —— 动画层（统一 ease-out-expo，不用 bounce/elastic —— impeccable anti-pattern）—— */
+@layer utilities {
+  .ease-out-expo { transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+}

@@ -1,3 +1,9 @@
+// ⚠️ DEPRECATED —— 旧 Win32 + GDI+ 自绘面板（v1.x）。
+// 新架构已迁移到 WebView2 + React + Tailwind（见 web_panel.* + pc/web/）。
+// 保留仅作回退：构建时 CMake 开关 APXPC_BUILD_UI_WEBVIEW2=OFF 才会编译。
+// 不要在本文件上加新功能；所有新功能写在 pc/web/ React 组件里，
+// 动作分发在 web_panel.cpp 的 handleAct() 里加一行即可。
+
 // 「设置…」二级窗口 —— 见 settings_win32.hpp 顶部注释（为什么单独开窗、怎么与面板连接）。
 //
 // 用**原生控件**而不是自绘：主面板本来就已经混用了原生 EDIT / COMBOBOX，风格一致；

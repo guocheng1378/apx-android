@@ -1,3 +1,9 @@
+// ⚠️ DEPRECATED —— 旧 Win32 + GDI+ 自绘面板（v1.x）。
+// 新架构已迁移到 WebView2 + React + Tailwind（见 web_panel.* + pc/web/）。
+// 保留仅作回退：构建时 CMake 开关 APXPC_BUILD_UI_WEBVIEW2=OFF 才会编译。
+// 不要在本文件上加新功能；所有新功能写在 pc/web/ React 组件里，
+// 动作分发在 web_panel.cpp 的 handleAct() 里加一行即可。
+
 // 桌面端控制面板（Windows）：纯 Win32 + GDI+ 自绘。
 //
 // 视觉**严格对齐手机端** —— 色值、圆角、字级全部取自

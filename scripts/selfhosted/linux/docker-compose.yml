@@ -1,0 +1,78 @@
+# AllPeriph Linux Self-Hosted Runner —— 飞牛 NAS docker-compose
+#
+# 前置：
+#   1. 把本目录（scripts/selfhosted/linux/）整个拷到 NAS 的某个持久化目录，比如
+#      /volume1/docker/apxpc-runner/
+#   2. 进入飞牛容器管理 → 命令行 → cd /volume1/docker/apxpc-runner/
+#   3. 构建镜像：
+#         docker build -t apxpc-linux-runner .
+#   4. 填好 .env（见 .env.example 复制一份）：
+#         cp .env.example .env
+#         vim .env     # REPO_URL = https://github.com/<你>/allperiph
+#                      # RUNNER_TOKEN 先用网页手动拿；长期用 refresh_token.py 刷
+#   5. 起容器：
+#         docker compose up -d
+#      （restart: unless-stopped —— NAS 重启后自动起）
+#   6. 去 GitHub 仓库 Settings → Actions → Runners，应该能看到一台 Online 的 Linux runner
+#      labels 包含 apxpc-linux, x64, linux
+
+services:
+  apxpc-linux-runner:
+    image: apxpc-linux-runner:latest
+    container_name: apxpc-linux-runner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      RUNNER_NAME: "apxpc-linux-$(hostname)"
+      RUNNER_LABELS: "apxpc-linux,x64,linux"
+      RUNNER_WORK: "/home/runner/work"
+      TZ: "Asia/Shanghai"
+    volumes:
+      # Runner work 目录 + Gradle / npm 缓存持久化（NAS 重启不丢，二次构建秒起）
+      - /volume1/apxpc/runner-work:/home/runner/work
+      - /volume1/apxpc/gradle-cache:/home/runner/.gradle
+      - /volume1/apxpc/npm-cache:/home/runner/.npm-cache
+      # Android SDK 也持久化（~6GB，每次容器重建重新 sdkmanager 巨慢）
+      - /volume1/apxpc/android-sdk:/opt/android-sdk
+      # 挂宿主机 Docker socket —— 以后想在 runner 里跑 docker build / docker compose
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # 不需要端口映射（runner 主动连 GitHub，不需要入站）
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # 资源限制（NAS 上别让它把系统吃死）
+    mem_limit: "4g"
+    cpus: "3.0"
+    security_opt:
+      - seccomp:unconfined
+    # entrypoint.sh 会读 env 并注册 runner；如果 token 过期会 exit 1，
+    # 配合 restart: unless-stopped 会持续重试（但 GitHub 那边会显示多台僵尸 runner）。
+    # 建议：token 过期前用 refresh_token.py 刷。
+
+# 可选：定期自动刷新 token 的 sidecar 容器
+# （需要 GitHub PAT 权限，长期跑比手动刷新省心）
+# ---
+#  apxpc-linux-runner-token-refresh:
+#    image: alpine:3.20
+#    container_name: apxpc-linux-runner-refresh
+#    restart: unless-stopped
+#    env_file: .env
+#    command: >
+#      sh -c "
+#        apk add --no-cache python3 &&
+#        while true; do
+#          TOKEN=$(python3 /opt/actions-runner/refresh_token.py \
+#            --owner ${APXPC_GITHUB_OWNER} \
+#            --repo allperiph \
+#            --pat ${GITHUB_PAT})
+#          echo \"RUNNER_TOKEN=$TOKEN\" > /runner-token.env
+#          docker kill -s HUP apxpc-linux-runner || true
+#          sleep 3600
+#        done"
+#    volumes:
+#      - /var/run/docker.sock:/var/run/docker.sock
+#      - ./refresh_token.py:/opt/actions-runner/refresh_token.py:ro
+#      - ./runner-token.env:/runner-token.env
