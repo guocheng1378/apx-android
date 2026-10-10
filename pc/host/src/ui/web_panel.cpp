@@ -430,7 +430,7 @@ void onWebMessageReceived(ICoreWebView2*, ICoreWebView2WebMessageReceivedEventAr
     if (FAILED(args->TryGetWebMessageAsString(&rawJson)) || !rawJson) return;
     std::wstring w(rawJson);
     ::CoTaskMemFree(rawJson);
-    std::string s(w.begin(), w.end());
+    std::string s; s.reserve(w.size()); for (wchar_t c : w) s.push_back(static_cast<char>(c)); // VS 2026 规避 wchar_t→char C4244
 
     std::string err;
     auto j = Json::parse(s, &err);
@@ -549,7 +549,8 @@ void startWebView2Env(Panel* p) {
                                 }), nullptr);
 
                         // 加载前端 dist/index.html
-                        APX_LOGI("WebView2 加载: {}", std::string(wdir.begin(), wdir.end()).c_str());
+                        { std::string wdirA; wdirA.reserve(wdir.size()); for (wchar_t c : wdir) wdirA.push_back(static_cast<char>(c)); // VS 2026 规避 wchar_t→char C4244
+                        APX_LOGI("WebView2 加载: {}", wdirA.c_str()); }
                         wv->Navigate(wdir.c_str());
 
                         // 事件回调：对端（手机/TV）请求本机输入 → 前端弹远程输入浮层

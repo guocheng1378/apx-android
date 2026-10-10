@@ -1,13 +1,12 @@
-// 桌面端资源：应用图标 + manifest（DPI 感知 + common-controls v6）。
+// 桌面端资源：应用图标。
 //
 // IDI_APPICON 与 src/ui/panel_win32.cpp 里的 kAppIconId 必须保持一致。
 // apx.ico 由 scripts/make_icon.ps1 从手机端矢量图标生成，勿手工替换
 // （要改图标请先改 android .../drawable/ic_launcher_app.xml，再重跑脚本）。
 //
-// 24 RT_MANIFEST：进程 DPI 感知声明（PerMonitorV2）+ common-controls v6。
-// 放 rc 里比用 /MANIFESTINPUT 更可靠——不会和 MSVC 默认 manifest 打架。
+// 进程 manifest（PerMonitorV2 DPI 感知 + common-controls v6）通过
+// CMake 的 target_link_options 给 MSVC 加 /MANIFESTINPUT 进来，
+// 比 rc 里写 "24 1 manifest" 更兼容 VS 2026（rc.exe 会报 RC2169）。
 #define IDI_APPICON 101
 
 IDI_APPICON ICON "apx.ico"
-
-24 1 "apx.manifest"

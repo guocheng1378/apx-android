@@ -400,7 +400,12 @@ endif()
 
 if(WIN32)
   set_target_properties(apxdesktop PROPERTIES WIN32_EXECUTABLE TRUE)
-  target_link_options(apxdesktop PRIVATE "/ENTRY:mainCRTStartup")
+  target_link_options(apxdesktop PRIVATE
+    "/ENTRY:mainCRTStartup"
+    # —— embed 自定义 manifest（PerMonitorV2 DPI + common-controls v6）——
+    # VS 2026 的 rc.exe 不能直接解析 .manifest 为 24 号资源，这里走链接器。
+    "/MANIFEST:EMBED,ID=1"
+    "/MANIFESTINPUT:${APXPC_ROOT}/res/apx.manifest")
   target_link_libraries(apxdesktop PRIVATE ws2_32 shell32 user32 comctl32 gdi32 gdiplus setupapi cfgmgr32)
 
   # ------------------------------------------------------------ WebView2 前端（若启用）——
@@ -480,7 +485,10 @@ if(WIN32)
   # winhttp：安装期检测缺失时自动下载 WebView2 Runtime
   target_link_libraries(apxsetup PRIVATE shell32 ole32 shlwapi user32 advapi32 winhttp)
   set_target_properties(apxsetup PROPERTIES WIN32_EXECUTABLE TRUE)
-  target_link_options(apxsetup PRIVATE "/ENTRY:mainCRTStartup")
+  target_link_options(apxsetup PRIVATE
+    "/ENTRY:mainCRTStartup"
+    "/MANIFEST:EMBED,ID=1"
+    "/MANIFESTINPUT:${APXPC_ROOT}/res/apx.manifest")
   # 必须先完成 apxdesktop（含其 POST_BUILD 载荷暂存），资源才能找到载荷文件
   add_dependencies(apxsetup apxdesktop)
 
