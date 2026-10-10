@@ -157,10 +157,11 @@ jobs:
             -DAPXPC_BUILD_EXAMPLES=OFF `
             -DAPXPC_BUILD_UI=ON `
             -DAPXPC_BUILD_UI_WEBVIEW2=ON
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "=== CMake configure FAILED ==="
+          $cmakeExit = $LASTEXITCODE
+          if ($cmakeExit -ne 0) {
+            Write-Host "=== CMake configure FAILED (exit=$cmakeExit) ==="
             Get-Content build_host/CMakeFiles/CMakeError.log -Tail 60 -ErrorAction SilentlyContinue
-            exit 1
+            exit $cmakeExit
           }
 
       # --- CMake Build ---
