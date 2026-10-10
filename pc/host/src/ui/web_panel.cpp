@@ -25,6 +25,7 @@
 #define _UNICODE
 #endif
 #include <windows.h>
+#include <objbase.h>
 #include <windowsx.h>
 #include <commdlg.h>
 #include <shellapi.h>
@@ -408,10 +409,10 @@ void handleOpenFile(Panel* p, const std::string& id, const std::string& filter) 
 
 // ———————————————— 处理 WebView2 的 WebMessageReceived ———————————————
 void onWebMessageReceived(ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) {
-    wil::unique_cotaskmem jsonPtr;
-    args->TryGetWebMessageAsString(&jsonPtr);
-    if (!jsonPtr) return;
-    std::wstring w(jsonPtr.get());
+    LPWSTR rawJson = nullptr;
+    if (FAILED(args->TryGetWebMessageAsString(&rawJson)) || !rawJson) return;
+    std::wstring w(rawJson);
+    ::CoTaskMemFree(rawJson);
     std::string s(w.begin(), w.end());
 
     std::string err;
