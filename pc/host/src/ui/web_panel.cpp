@@ -115,13 +115,13 @@ Json failResp(const std::string& msg, int code = 1) {
     Json r = Json::makeObject(); r["ok"] = false; r["code"] = code; r["message"] = msg; return r;
 }
 
-std::wstring phaseName(LinkPhase p) {
+std::string phaseName(LinkPhase p) {
     switch (p) {
-        case LinkPhase::Connected:   return L"connected";
-        case LinkPhase::Connecting:  return L"connecting";
-        case LinkPhase::Discovering: return L"discovering";
-        case LinkPhase::Failed:      return L"failed";
-        default:                     return L"idle";
+        case LinkPhase::Connected:   return "connected";
+        case LinkPhase::Connecting:  return "connecting";
+        case LinkPhase::Discovering: return "discovering";
+        case LinkPhase::Failed:      return "failed";
+        default:                     return "idle";
     }
 }
 
