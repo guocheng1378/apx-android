@@ -16,20 +16,25 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   FetchContent_MakeAvailable(WebView2SDK)
-  set(WEBVIEW2_SDK_DIR "${WebView2SDK_SOURCE_DIR}")
-  file(GLOB WV2_H_CHECK "${WEBVIEW2_SDK_DIR}/build/native/include/WebView2.h")
-  message(STATUS "[host] WebView2SDK_SOURCE_DIR=${WebView2SDK_SOURCE_DIR}")
-  message(STATUS "[host] WEBVIEW2_SDK_DIR=${WEBVIEW2_SDK_DIR}")
-  message(STATUS "[host] WebView2.h found? ${WV2_H_CHECK}")
-  if(NOT WV2_H_CHECK)
-    file(GLOB_RECURSE WV2_H_FALLBACK "${WEBVIEW2_SDK_DIR}/*/WebView2.h")
-    message(STATUS "[host] WebView2.h fallback search: ${WV2_H_FALLBACK}")
-    if(WV2_H_FALLBACK)
-      get_filename_component(WV2_H_DIR "${WV2_H_FALLBACK}" DIRECTORY)
-      set(WEBVIEW2_SDK_DIR "${WV2_H_DIR}/../..")
-      message(STATUS "[host] Adjusted WEBVIEW2_SDK_DIR=${WEBVIEW2_SDK_DIR}")
+  # FetchContent 内部对 URL 下载包的 SOURCE_DIR 变量名可能被转小写
+  foreach(_wv2_var WebView2SDK_SOURCE_DIR webview2sdk_SOURCE_DIR WEBVIEW2SDK_SOURCE_DIR)
+    if(DEFINED ${_wv2_var} AND NOT "${${_wv2_var}}" STREQUAL "")
+      set(WEBVIEW2_SDK_DIR "${${_wv2_var}}")
+      break()
+    endif()
+  endforeach()
+  # 保底：Glob 查 WebView2.h，反推 SDK 根目录
+  if(NOT DEFINED WEBVIEW2_SDK_DIR OR "${WEBVIEW2_SDK_DIR}" STREQUAL "")
+    file(GLOB_RECURSE WV2_H_PATH "${CMAKE_BINARY_DIR}/_deps/*/WebView2.h"
+         "${CMAKE_SOURCE_DIR}/_deps/*/WebView2.h")
+    if(WV2_H_PATH)
+      get_filename_component(WV2_H_DIR "${WV2_H_PATH}" DIRECTORY)  # .../build/native/include
+      get_filename_component(WEBVIEW2_SDK_DIR "${WV2_H_DIR}" DIRECTORY)  # .../build/native
+      get_filename_component(WEBVIEW2_SDK_DIR "${WEBVIEW2_SDK_DIR}" DIRECTORY)  # .../build
+      get_filename_component(WEBVIEW2_SDK_DIR "${WEBVIEW2_SDK_DIR}" DIRECTORY)  # .../  (SDK root)
     endif()
   endif()
+  message(STATUS "[host] WEBVIEW2_SDK_DIR=${WEBVIEW2_SDK_DIR}")
 
   # wil (Windows Implementation Library) —— com_ptr 等 RAII 封装，WebView2 cpp-api 必需
   FetchContent_Declare(wil
