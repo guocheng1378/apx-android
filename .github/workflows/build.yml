@@ -292,7 +292,7 @@ jobs:
   # ------------------------------------------------ Release（仅 tag v*）
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [android, pc]
+    needs: [pc]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -304,8 +304,6 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME}"
           mkdir -p out
-          cp dist/apk-app/app-release.apk                    "out/AllPeriph-${VER}-app-release.apk"
-          cp dist/apk-tv/tv-release.apk                      "out/AllPeriph-${VER}-tv-release.apk"
           cp dist/pc-exes-webview2/apxhost.exe               "out/AllPeriph-${VER}-apxhost.exe"
           cp dist/pc-exes-webview2/apxdesktop.exe            "out/AllPeriph-${VER}-apxdesktop.exe"
           cp dist/pc-exes-webview2/apxsetup.exe              "out/AllPeriph-${VER}-apxsetup.exe"
