@@ -38,9 +38,6 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 
-[Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
-
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "创建图标"; Flags: unchecked
 Name: "autostart";   Description: "开机自启（后台常驻托盘）"; GroupDescription: "启动选项"; Flags: unchecked
