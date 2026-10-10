@@ -667,10 +667,21 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     wc.lpszClassName = kClassName;
     RegisterClassExW(&wc);
 
-    // 创建窗口
-    HWND hwnd = CreateWindowExW(0, kClassName, kWindowTitle,
+    // —— 按当前显示器 DPI 计算物理像素尺寸（CSS 基准 960×808）——
+    // DPI-aware 进程下 CreateWindowExW 的 cx/cy 被解释为物理像素；
+    // 再用 AdjustWindowRectEx 把客户区尺寸（WebView2 大小）换算成含标题栏/边框的外框。
+    const int kDefaultCssW = 960;
+    const int kDefaultCssH = 808;
+    const int sysDpi = ::GetDpiForSystem();
+    const int cx = sysDpi * kDefaultCssW / 96;
+    const int cy = sysDpi * kDefaultCssH / 96;
+    RECT frame{0, 0, cx, cy};
+    ::AdjustWindowRectEx(&frame, WS_OVERLAPPEDWINDOW | WS_SIZEBOX, FALSE, 0);
+
+    HWND hwnd = ::CreateWindowExW(0, kClassName, kWindowTitle,
         WS_OVERLAPPEDWINDOW | WS_SIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 960, 808,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        frame.right - frame.left, frame.bottom - frame.top,
         nullptr, nullptr, GetModuleHandleW(nullptr), &panel);
     if (!hwnd) { APX_LOGE("Web 窗口创建失败: GetLastError={}", ::GetLastError()); return -1; }
     panel.hwnd = hwnd;

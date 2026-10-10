@@ -235,6 +235,16 @@ void crashForensicsSelfCheck() {
 
 int main(int /*argc*/, char** /*argv*/) {
 #if defined(_WIN32)
+    // DPI 感知必须在任何 GDI/User32 调用之前设置
+    // Win10 1703+ 用 SetProcessDpiAwarenessContext；老系统动态加载失败即跳过（manifest 兜底）
+    {
+        HMODULE user32 = ::GetModuleHandleW(L"user32.dll");
+        using SetCtx_t = BOOL (WINAPI*)(void*);
+        auto setCtx = reinterpret_cast<SetCtx_t>(user32
+            ? ::GetProcAddress(user32, "SetProcessDpiAwarenessContext") : nullptr);
+        if (setCtx) setCtx((void*)(intptr_t)-4);  // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+    }
+
     ::AddVectoredExceptionHandler(1, apxVehHandler);
     ::SetUnhandledExceptionFilter(apxCrashFilter);
     std::set_terminate(apxTerminateHandler);

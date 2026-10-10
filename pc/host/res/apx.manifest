@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+
+  <!-- common-controls v6：让 button/edit/menu 用 Vista+ 现代主题，而不是 win95 灰方块 -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <!-- asInvoker：不需要管理员权限；开机自启写 HKCU Run 键足够 -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <!-- DPI 感知：Per-Monitor V2（Win10 1703+）。
+       Win11 默认 125%/150%/200% 缩放下，进程声明后：
+         · CreateWindowExW 的 cx/cy 被当作物理像素而非 CSS 像素 → 窗口不会被系统位图拉伸
+         · GetDpiForWindow 返回真正的 DPI scale → WebView2 用它决定渲染缩放
+         · 老 Win10 / Win8.1 回退到 System DPI（dpiAware）-->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings xmlns:ws2005="http://schemas.microsoft.com/SMI/2005/WindowsSettings"
+                     xmlns:ws2016="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+      <ws2005:dpiAware>true/pm</ws2005:dpiAware>
+      <ws2016:dpiAwareness>PerMonitorV2, System</ws2016:dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>
