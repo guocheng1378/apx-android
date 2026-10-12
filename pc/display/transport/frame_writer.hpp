@@ -18,6 +18,10 @@ class FrameWriter {
 public:
     explicit FrameWriter(IChannel* channel) : channel_(channel) {}
 
+    /// v1.11：传输层 close()+open() 后 channel 指针可能变了（USB transport 每次 open()
+    /// 都重新 make_unique Channel 对象）。重连成功后必须用新指针更新，否则 Use-After-Free。
+    void setChannel(IChannel* channel) { channel_ = channel; }
+
     void setMaxFragment(size_t bytes) { maxFragment_ = bytes; }
     size_t maxFragment() const { return maxFragment_; }
     uint32_t seq() const { return seq_; }

@@ -44,6 +44,10 @@ class TvControllerClient(
 
     /** 建立 socket + 握手 + 启动 reader（connect 与自动重连共用） */
     private fun openSocket(): Boolean = try {
+        // v1.11：先关旧 socket，再建新的——自动重连时旧 socket 引用会被覆盖为新的，
+        // 如果不显式 close，Java GC 何时回收不确定，弱网频繁重连会积累 FD 泄露
+        // 最终触发 "Too many open files"。close() 是幂等的（sock?.close() 对已关闭 socket 无副作用）。
+        runCatching { s_close() }
         val s = Socket()
         s.tcpNoDelay = true; s.connect(InetSocketAddress(host, port), 5000)
         sock = s; out = s.getOutputStream()

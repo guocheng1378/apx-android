@@ -144,6 +144,12 @@ bool Pipeline::start(const PipelineConfig& cfg, std::string* err) {
             }
             transport_->close();
             const bool ok = transport_->open(spec_);
+            if (ok) {
+                // v1.11：同 encodeThread 重连路径——USB transport 销毁旧 Channel 对象后，
+                // FrameWriter/CtrlSession 必须切到新指针，否则 Use-After-Free。
+                frameWriter_->setChannel(transport_->videoChannel());
+                if (ctrl_) ctrl_->setChannel(transport_->controlChannel());
+            }
             const bool hsOk = ok && (!cfg_.enableHandshake || handshake(nullptr));
             reconnecting_.store(false);
             return ok && hsOk;
@@ -358,6 +364,11 @@ void Pipeline::encodeThread() {
                     const bool ok = transport_->open(spec_);
                     if (ok) {
                         APX_LOG_I("传输重连成功，恢复推流");
+                        // v1.11：USB transport 每次 open() 都 make_unique 新的 Channel 对象，
+                        // close() 后旧对象已析构。FrameWriter/CtrlSession 必须切到新指针，
+                        // 否则 Use-After-Free（表现为重连后立即崩溃或持续发送到无效 FD）。
+                        frameWriter_->setChannel(transport_->videoChannel());
+                        if (ctrl_) ctrl_->setChannel(transport_->controlChannel());
                         frameWriter_->setMaxFragment(cfg_.maxFragmentBytes);
                         if (cfg_.enableHandshake && !handshake(nullptr)) {
                             APX_LOG_E("重连后握手失败：%s", lastError());

@@ -104,6 +104,10 @@ class CtrlSession {
 public:
     explicit CtrlSession(IChannel* channel) : channel_(channel) {}
 
+    /// v1.11：与 FrameWriter::setChannel 同修——USB transport 重连后 channel 对象
+    /// 被销毁重建，CtrlSession 必须用新指针，否则 Use-After-Free。
+    void setChannel(IChannel* channel) { channel_ = channel; }
+
     bool sendHello(uint64_t pcClockNs, uint64_t capabilities);
     bool waitHelloAck(HelloAckPayload& ack, uint32_t timeoutMs = 3000);
     bool sendConfig(const ConfigPayload& cfg);
