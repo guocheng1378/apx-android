@@ -146,34 +146,40 @@ typedef struct _APXHID_DEVICE_CONTEXT {
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(APXHID_DEVICE_CONTEXT, ApxHidGetDeviceContext)
 
 /* ------------------------------------------------------------ 队列操作 ----*/
-static VOID ApxHidCompletePendingRead(PAPXHID_DEVICE_CONTEXT ctx, PUCHAR report, USHORT len)
+/* 尝试把一个报告交给挂起中的读请求；成功交给某个请求返回 TRUE，无挂起请求返回 FALSE */
+static BOOLEAN ApxHidCompletePendingRead(PAPXHID_DEVICE_CONTEXT ctx, PUCHAR report, USHORT len)
 {
     /* 从挂起队列取一个请求，把数据填进去并完成 */
     WDFREQUEST pendingReq = NULL;
+    PVOID outBuf = NULL;
     NTSTATUS status = WdfIoQueueFindRequest(ctx->PendingReadQueue, NULL, NULL, NULL, &pendingReq);
-    if (NT_SUCCESS(status) && pendingReq != NULL) {
-        PVOID outBuf = NULL;
-        status = WdfRequestRetrieveOutputBuffer(pendingReq, APXHID_MAX_REPORT, &outBuf, NULL);
-        if (NT_SUCCESS(status) && outBuf != NULL) {
-            RtlCopyMemory(outBuf, report, len);
-            WdfRequestCompleteWithInformation(pendingReq, STATUS_SUCCESS, (size_t)len);
-        } else {
-            WdfRequestCompleteWithInformation(pendingReq, STATUS_BUFFER_TOO_SMALL, 0);
-        }
-        WdfObjectDereferenceObject(pendingReq);
+    if (!NT_SUCCESS(status) || pendingReq == NULL) {
+        return FALSE;
     }
+    status = WdfRequestRetrieveOutputBuffer(pendingReq, APXHID_MAX_REPORT, &outBuf, NULL);
+    if (NT_SUCCESS(status) && outBuf != NULL) {
+        RtlCopyMemory(outBuf, report, len);
+        WdfRequestCompleteWithInformation(pendingReq, STATUS_SUCCESS, (size_t)len);
+    } else {
+        WdfRequestCompleteWithInformation(pendingReq, STATUS_BUFFER_TOO_SMALL, 0);
+    }
+    WdfObjectDereferenceObject(pendingReq);
+    return TRUE;
 }
 
 static VOID ApxHidEnqueue(PAPXHID_DEVICE_CONTEXT ctx, PUCHAR report, USHORT len)
 {
     WdfSpinLockAcquire(ctx->QueueLock);
-    if (ctx->Count < APXHID_QUEUE_DEPTH && len <= APXHID_MAX_REPORT) {
-        RtlCopyMemory(ctx->Reports[ctx->Tail], report, len);
-        ctx->ReportLength[ctx->Tail] = len;
-        ctx->Tail = (ctx->Tail + 1) % APXHID_QUEUE_DEPTH;
-        ctx->Count++;
-        /* 有挂起的读请求 → 立即完成一个 */
-        ApxHidCompletePendingRead(ctx, report, len);
+    if (len <= APXHID_MAX_REPORT) {
+        /* 有挂起读请求 → 直接把报告交给它，绝不能再入环形缓冲区，否则该报告会被重复上报 */
+        if (!ApxHidCompletePendingRead(ctx, report, len)) {
+            if (ctx->Count < APXHID_QUEUE_DEPTH) {
+                RtlCopyMemory(ctx->Reports[ctx->Tail], report, len);
+                ctx->ReportLength[ctx->Tail] = len;
+                ctx->Tail = (ctx->Tail + 1) % APXHID_QUEUE_DEPTH;
+                ctx->Count++;
+            }
+        }
     }
     WdfSpinLockRelease(ctx->QueueLock);
 }
