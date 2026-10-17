@@ -13,6 +13,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.math.min
 
@@ -25,7 +26,12 @@ import kotlin.math.min
  * `com.allperiph.tv.net.TvFileReceiver`（两端逐字节同实现，对端设备通用）。
  */
 object FileReceiver {
-    const val PORT = 9512
+    companion object {
+        const val PORT = 9512
+
+        /** 单文件大小上限（2GB）。拒绝发送方声明的更大值，防止远程磁盘耗尽 DoS。 */
+        const val MAX_FILE_SIZE_BYTES = 2L * 1024 * 1024 * 1024
+    }
 
     private val running = AtomicBoolean(false)
     private var server: ServerSocket? = null
@@ -76,6 +82,7 @@ object FileReceiver {
     }
 
     private fun handle(sock: Socket) {
+        val tmpFile = AtomicReference<File>(null)
         try {
             sock.tcpNoDelay = true
             sock.getInputStream().use { raw ->
@@ -87,28 +94,56 @@ object FileReceiver {
                 val name = String(nameBuf, Charsets.UTF_8)
                     .replace('/', '_').replace('\\', '_').replace("..", "")
                 val size = readU64(ins)
+                // Bug 2 修复：拒绝发送方声明的过大文件，防止远程磁盘耗尽 DoS。
+                // 手机应用私有目录一般 1-2GB 量级，这里给个宽裕但合理的上限（2GB）。
+                if (size <= 0 || size > MAX_FILE_SIZE_BYTES) {
+                    Log.w("文件接收", "拒收超限文件 $name (size=$size)")
+                    return
+                }
                 val base = ctx?.getExternalFilesDir(null) ?: return
                 val dir = File(base, "APX").apply { mkdirs() }
-                val out = File(dir, name)
-                Log.i("文件接收", "接收文件 $name (${size}B) → $out")
+                // Bug 3 修复：先写 .part 临时文件，完整收到后再 rename ——
+                // 连接中途断开不会留下残缺正式文件，DoS 场景不会污染下载目录。
+                val tmp = File(dir, "$name.part")
+                tmpFile.set(tmp)
+                Log.i("文件接收", "接收文件 $name (${size}B) → $tmp")
                 var left = size
+                var written = 0L
                 val buf = ByteArray(32 * 1024)
-                FileOutputStream(out).use { fos ->
+                FileOutputStream(tmp).use { fos ->
                     while (left > 0) {
                         val toRead = min(buf.size.toLong(), left).toInt()
                         val n = ins.read(buf, 0, toRead)
                         if (n <= 0) break
                         fos.write(buf, 0, n)
+                        written += n
                         left -= n
                     }
                 }
-                Log.i("文件接收", "文件已存：$out")
+                // 没完整收齐 → 删临时文件，不污染目录
+                if (left > 0) {
+                    Log.w("文件接收", "文件 $name 传输中断（已收 ${written}B / ${size}B），丢弃")
+                    tmp.delete()
+                    tmpFile.set(null)
+                    return
+                }
+                // 完整收到 → 原子 rename 为正式文件
+                val final = File(dir, name)
+                if (final.exists()) final.delete()   // 覆盖同名旧文件
+                if (!tmp.renameTo(final)) {
+                    Log.e("文件接收", "rename 失败：${tmp.name} → ${final.name}")
+                    tmp.delete()
+                    tmpFile.set(null)
+                    return
+                }
+                tmpFile.set(null)
+                Log.i("文件接收", "文件已存：$final")
                 val c = ctx
                 if (c != null) {
                     Handler(Looper.getMainLooper()).post {
                         val cb = onReceived
                         if (cb != null) {
-                            runCatching { cb(c, out) }
+                            runCatching { cb(c, final) }
                         } else {
                             runCatching {
                                 Toast.makeText(c, "已接收文件：$name", Toast.LENGTH_SHORT).show()
@@ -119,6 +154,8 @@ object FileReceiver {
             }
         } catch (t: Throwable) {
             Log.e("文件接收", "文件接收异常：${t.message}")
+            // 异常退出也清掉临时文件
+            tmpFile.getAndSet(null)?.delete()
         } finally {
             runCatching { sock.close() }
         }

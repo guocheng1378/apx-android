@@ -8,10 +8,12 @@
 #include <jni.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "apx/frame.h"
@@ -567,8 +569,15 @@ void alsaParamsAny(struct snd_pcm_hw_params* p) {
 }
 
 /// 打开并配置一个 PCM 流。返回 fd（>=0）或负的 -errno。
+///
+/// 使用**阻塞 open**（不带 O_NONBLOCK）：
+///   历史上曾用 O_NONBLOCK + 应用层 EAGAIN 重试，但重试循环没有任何等待，
+///   ALSA 缓冲区满时 write 立刻返回 EAGAIN → 100% 自旋占一个 CPU 核心。
+///   实测触发：PC 端麦克风未开启，手机 ALSA playback 缓冲区长时间满。
+///   阻塞模式下 write 会自然等待缓冲区有空间再返回，零额外 CPU，且 read/write
+///   调用本身就带超时（SW_PARAMS 的 start_threshold/stop_threshold 机制）。
 int alsaOpenStream(const char* path, bool playback, unsigned rate, unsigned channels) {
-    const int fd = ::open(path, O_RDWR | O_NONBLOCK);
+    const int fd = ::open(path, O_RDWR);
     if (fd < 0) {
         APX_LOGW("alsa: open %s errno=%d", path, errno);
         return -errno;
@@ -652,12 +661,23 @@ Java_com_allperiph_core_AlsaPcm_nativeWrite(JNIEnv* env, jobject, jint fd, jbyte
     std::vector<uint8_t> buf(static_cast<size_t>(n));
     env->GetByteArrayRegion(src, 0, n, reinterpret_cast<jbyte*>(buf.data()));
     ssize_t off = 0;
+    int eagainSeen = 0;
     while (off < n) {
         const ssize_t w = ::write(fd, buf.data() + off, static_cast<size_t>(n) - off);
         if (w < 0) {
-            if (errno == EAGAIN || errno == EINTR) continue;
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN) {
+                // 阻塞 open 下 EAGAIN 理论上不该出现；若内核偶发返回，短让出后
+                // 重试（最多 5 次仍不行就报错，避免任何形式的无限自旋）。
+                if (++eagainSeen > 5) return -EIO;
+                std::this_thread::sleep_for(std::chrono::microseconds(1000));
+                continue;
+            }
             return -errno;
         }
+        // 理论上 write 不会返回 0；若返回则视为异常，防止死循环。
+        if (w == 0) return -EIO;
+        eagainSeen = 0;
         off += w;
     }
     return static_cast<jint>(off);
@@ -670,10 +690,19 @@ Java_com_allperiph_core_AlsaPcm_nativeRead(JNIEnv* env, jobject, jint fd, jbyteA
     if (cap <= 0) return 0;
     std::vector<uint8_t> buf(static_cast<size_t>(cap));
     ssize_t n;
-    do {
+    int eagainSeen = 0;
+    for (;;) {
         n = ::read(fd, buf.data(), static_cast<size_t>(cap));
-    } while (n < 0 && (errno == EAGAIN || errno == EINTR));
-    if (n < 0) return -errno;
+        if (n >= 0) break;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN) {
+            // 阻塞 open 下 EAGAIN 罕见；兜底让出再试（最多 5 次），防止自旋
+            if (++eagainSeen > 5) return -EIO;
+            std::this_thread::sleep_for(std::chrono::microseconds(1000));
+            continue;
+        }
+        return -errno;
+    }
     if (n > 0) {
         env->SetByteArrayRegion(dst, 0, static_cast<jsize>(n),
                                 reinterpret_cast<jbyte*>(buf.data()));
