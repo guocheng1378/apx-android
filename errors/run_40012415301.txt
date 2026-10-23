@@ -1,0 +1,104 @@
+[ 16%] Built target apx_shared
+[ 25%] Built target apxpc_core
+[ 37%] Built target apxpc_media
+[ 46%] Built target apxpc_discovery
+[ 53%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 81%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_injector_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:192:17: error: unknown type name 'InputInjector'; did you mean 'apxpc::wireless::InputInjector'?
+  192 | std::unique_ptr<InputInjector> createPlatformInjector() { return std::make_unique<MacInjector>(); }
+      |                 ^~~~~~~~~~~~~
+      |                 apxpc::wireless::InputInjector
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:60:7: note: 'apxpc::wireless::InputInjector' declared here
+   60 | class InputInjector {
+      |       ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:192:83: error: unknown type name 'MacInjector'; did you mean 'apxpc::wireless::MacInjector'?
+  192 | std::unique_ptr<InputInjector> createPlatformInjector() { return std::make_unique<MacInjector>(); }
+      |                                                                                   ^~~~~~~~~~~
+      |                                                                                   apxpc::wireless::MacInjector
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:63:7: note: 'apxpc::wireless::MacInjector' declared here
+   63 | class MacInjector : public InputInjector {
+      |       ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:193:17: error: unknown type name 'ClipboardWatcher'; did you mean 'apxpc::wireless::ClipboardWatcher'?
+  193 | std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
+      |                 ^~~~~~~~~~~~~~~~
+      |                 apxpc::wireless::ClipboardWatcher
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:90:7: note: 'apxpc::wireless::ClipboardWatcher' declared here
+   90 | class ClipboardWatcher {
+      |       ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:195:29: error: unknown type name 'MacClipboardWatcher'; did you mean 'apxpc::wireless::MacClipboardWatcher'?
+  195 |     return std::make_unique<MacClipboardWatcher>(std::move(cb));
+      |                             ^~~~~~~~~~~~~~~~~~~
+      |                             apxpc::wireless::MacClipboardWatcher
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:161:7: note: 'apxpc::wireless::MacClipboardWatcher' declared here
+  161 | class MacClipboardWatcher : public ClipboardWatcher {
+      |       ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:270:9: error: use of undeclared identifier 'g_clipSuppressMs'; did you mean 'apxpc::wireless::g_clipSuppressMs'?
+  270 |         g_clipSuppressMs.store(steadyMsNow());
+      |         ^~~~~~~~~~~~~~~~
+      |         apxpc::wireless::g_clipSuppressMs
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:59:24: note: 'apxpc::wireless::g_clipSuppressMs' declared here
+   59 | std::atomic<long long> g_clipSuppressMs{0};
+      |                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:270:32: error: use of undeclared identifier 'steadyMsNow'; did you mean 'apxpc::wireless::steadyMsNow'?
+  270 |         g_clipSuppressMs.store(steadyMsNow());
+      |                                ^~~~~~~~~~~
+      |                                apxpc::wireless::steadyMsNow
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:54:11: note: 'apxpc::wireless::steadyMsNow' declared here
+   54 | long long steadyMsNow() {
+      |           ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:291:17: error: no matching function for call to 'CGEventKeyboardSetUnicodeString'
+  291 |                 CGEventKeyboardSetUnicodeString(e, &u, 1);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGEvent.h:205:16: note: candidate function not viable: no known conversion from 'const UniChar *' (aka 'const unsigned short *') to 'UniCharCount' (aka 'unsigned long') for 2nd argument; remove &
+  205 | CG_EXTERN void CGEventKeyboardSetUnicodeString(CGEventRef __nullable event,
+      |                ^
+  206 |     UniCharCount stringLength, const UniChar * __nullable unicodeString)
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:294:17: error: no matching function for call to 'CGEventKeyboardSetUnicodeString'
+  294 |                 CGEventKeyboardSetUnicodeString(e, &u, 1);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreGraphics.framework/Headers/CGEvent.h:205:16: note: candidate function not viable: no known conversion from 'const UniChar *' (aka 'const unsigned short *') to 'UniCharCount' (aka 'unsigned long') for 2nd argument; remove &
+  205 | CG_EXTERN void CGEventKeyboardSetUnicodeString(CGEventRef __nullable event,
+      |                ^
+  206 |     UniCharCount stringLength, const UniChar * __nullable unicodeString)
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:303:9: error: use of undeclared identifier 'g_clipSuppressMs'; did you mean 'apxpc::wireless::g_clipSuppressMs'?
+  303 |         g_clipSuppressMs.store(steadyMsNow());
+      |         ^~~~~~~~~~~~~~~~
+      |         apxpc::wireless::g_clipSuppressMs
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:59:24: note: 'apxpc::wireless::g_clipSuppressMs' declared here
+   59 | std::atomic<long long> g_clipSuppressMs{0};
+      |                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:303:32: error: use of undeclared identifier 'steadyMsNow'; did you mean 'apxpc::wireless::steadyMsNow'?
+  303 |         g_clipSuppressMs.store(steadyMsNow());
+      |                                ^~~~~~~~~~~
+      |                                apxpc::wireless::steadyMsNow
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:54:11: note: 'apxpc::wireless::steadyMsNow' declared here
+   54 | long long steadyMsNow() {
+      |           ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:311:9: error: use of undeclared identifier 'g_clipSuppressMs'; did you mean 'apxpc::wireless::g_clipSuppressMs'?
+  311 |         g_clipSuppressMs.store(steadyMsNow());
+      |         ^~~~~~~~~~~~~~~~
+      |         apxpc::wireless::g_clipSuppressMs
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:59:24: note: 'apxpc::wireless::g_clipSuppressMs' declared here
+   59 | std::atomic<long long> g_clipSuppressMs{0};
+      |                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:311:32: error: use of undeclared identifier 'steadyMsNow'; did you mean 'apxpc::wireless::steadyMsNow'?
+  311 |         g_clipSuppressMs.store(steadyMsNow());
+      |                                ^~~~~~~~~~~
+      |                                apxpc::wireless::steadyMsNow
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:54:11: note: 'apxpc::wireless::steadyMsNow' declared here
+   54 | long long steadyMsNow() {
+      |           ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_injector_mac.mm:320:1: error: extraneous closing brace ('}')
+  320 | }  // namespace apxpc::wireless
+      | ^
+13 errors generated.
+make[3]: *** [CMakeFiles/apxpc_wireless.dir/src/wireless/input_injector_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_wireless.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_wireless.dir/all] Error 2
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
