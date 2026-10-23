@@ -1,0 +1,119 @@
+{
+  "edits": [
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "> **本文是能力现状的真源**：`docs/ARCHITECTURE.md` 描述的是更广的目标形态，\n> 其中副屏（已终止）与摄像头（未编译）都还按原始设计保留，勿据此判断可用性。",
+      "replace": "> **本文是能力现状的真源**：`docs/ARCHITECTURE.md` 描述的是更广的目标形态，\n> 两份文档的状态说明已于 2026-10-23 按源码同步：**副屏镜像已交付**（本文 §2.3，真机验证；\n> 终止的仅是 IddCx 扩展屏）、**摄像头代码已随 v0.3.2 全部移除**。各处历史留档勿据以判断可用性。"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "| Android 发现 | `wireless/WirelessBeacon.kt`：UDP 9501 广播 `APX1PHONE <name> <port> <token>` |",
+      "replace": "| Android 发现 | ⚠️ `WirelessBeacon.kt` 已随 v1.11 移除（源码树不存在，2026-10-23 核对）；现行发现/连接以 `wireless/` 现存文件为准 |"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "**Wi‑Fi 的落地方式（已实现）**：`wireless/TcpControlChannel.kt` 实现 `TcpCtrlBridge.Sink`\n（`sendControl` 组 `APX1` 帧后**入队**，由专用 writer 线程写出；`ready` = 已连接）。\n输入模块经 `TcpCtrlBridge`（`mouse` / `consumer` / `keyboard`）出口，不感知承载。\n注意：**不要在调用线程直接写 socket** —— 手势帧来自 UI 线程，会触发\n`NetworkOnMainThreadException`（§2.2 真机教训）。",
+      "replace": "**Wi‑Fi 的落地方式**：⚠️ 2026-10-23 核对——`wireless/TcpControlChannel.kt` 与 `core/TcpCtrlBridge.kt`\n已于 v1.11 移入 `.attic/wireless_removed_v1.11/`，\"输入模块经 TcpCtrlBridge 出口\"的形态已不存在；\n当前无线出口为 `wireless/ControlTarget` + `TvControllerClient`（受控目标），择路唯一判据见\n`core/Uplink.kt`（无线目标 → USB → 蓝牙 → NONE）。\n历史教训仍有效：**不要在调用线程直接写 socket** —— 手势帧来自 UI 线程会触发\n`NetworkOnMainThreadException`（§2.2 真机教训）。"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "2. **蓝牙键盘**：JNI 暴露 `buildBtReportDescriptor`，`BtHidDevice` 换 native 描述符 +\n   补 `reportKeyboard`，接进 `BtInputSink`。真机配对验证键盘可打字。",
+      "replace": "2. ~~**蓝牙键盘**~~ ✅ 已完成（2026-10-23）：native 描述符 + `reportKeyboard` 早已在，\n   `HidKeys.send` 已接 `Uplink.BLUETOOTH` 分支（剩真机配对打字验证）。"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "3. **蓝牙手柄**：扩展 `buildBtReportDescriptor` 加 gamepad TLC（rid 4），补 `reportGamepad`。",
+      "replace": "3. ~~**蓝牙手柄**~~ ✅ 描述符与 `reportGamepad`（rid 4）均已实现（v184），`GamepadController` 已走蓝牙优先；\n   剩真机配对验证；TCP 出口受 ViGEmBus 限制（见 §2.2「尚未接入」）。"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "4. ~~**Wi‑Fi 控制**~~：✅ 已完成（§2.2）：Android 服务端 + `TcpCtrlBridge` 出口 +\n   UDP 信标发现；PC 端 `WirelessLink` 注入（鼠标 / 键盘 / 多媒体）。真机端到端验证通过。",
+      "replace": "4. ~~**Wi‑Fi 控制**~~：✅ 曾完成并真机验证；v1.11 起 Android 侧（服务端/出口/信标）移入 `.attic`，\n   现行无线出口 = 受控目标链路（§2.2 核对注）。PC 侧是否仍在构建以 `pc/host/CMakeLists.txt` 为准（§2.2 末核对注）。"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "find": "| CLI | `apxhost wireless <ip>:port [秒数]` / `apxhost wireless-listen [秒数]` |",
+      "replace": "| CLI | `apxhost wireless <ip>:port [秒数]` / `apxhost wireless-listen [秒数]` |\n\n> ⚠️ 2026-10-23 核对：本表 PC 侧三行（`wireless_link.cpp` / `beacon_listener.cpp` / CLI）\n> 均不在 `pc/host/CMakeLists.txt` 的 `APXPC_WIRELESS_SRC` 构建清单里（现行清单 =\n> wireless_session / ctrl9511 / file 收发 / input 注入），以构建脚本为准、勿按本表找代码。"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "> ⚠️ **文档状态（先读这条）**：本文是**设计真源**，包含比实现更广的目标形态。\n> 其中 **副屏（本文 §5 及图中 ScreenClient）已由用户决策终止**，**摄像头**代码停在\n> `android/app/src/disabled/camera/` 不参与编译 —— 这两项在本文各处仍按原始设计保留，\n> 但**不是交付目标**。当前真实能力与实施顺序以 [`ROADMAP.md`](./ROADMAP.md) 为准。",
+      "replace": "> ⚠️ **文档状态（先读这条，2026-10-23 按源码同步）**：本文是**设计真源**，包含比实现更广的目标形态。\n> - **副屏**：镜像形态**已交付并真机验证**（`ROADMAP.md` §2.3，`pc/display` 在 CI 构建）；\n>   本文所称**终止**的仅是「IddCx 虚拟显示器扩展屏」方案（§5）。\n> - **摄像头**：代码已随 v0.3.2 **全部移除**（`app/src/disabled/camera/` 已不存在）；\n>   §2.2 阶段三与 §7 的摄像头行仅作历史设计留档。\n> - **蓝牙**：`reportKeyboard`（rid 2）/ `reportGamepad`（rid 4）与 native 描述符均已实现，\n>   键盘 2026-10-23 接入出口。\n> 当前真实能力与实施顺序以 [`ROADMAP.md`](./ROADMAP.md) 为准。"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "形态是**手机做服务端**（TCP `9500`，`wireless/TcpControlChannel.kt`）、PC 主动连入\n（出站连接，Windows 防火墙默认放行），另有 UDP `9501` 广播信标供 PC 自动发现。\n落点与验证证据见 `docs/ROADMAP.md` §2.2。",
+      "replace": "历史实现为手机服务端 + UDP 信标（`TcpControlChannel`/`WirelessBeacon`，已随 v1.11 移入\n`.attic/wireless_removed_v1.11/`）；现行上行链路 = 受控目标 `wireless/ControlTarget` +\n`core/Uplink.kt` 择路，落点与验证证据见 `docs/ROADMAP.md` §2.2 核对注。"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "**键盘与手柄待补**（缺 `reportKeyboard` 与 gamepad TLC）。**可与 USB 复合设备并存**。",
+      "replace": "~~键盘与手柄待补~~ **已补全**：`reportKeyboard`（rid 2）与 `reportGamepad`（rid 4）均在（v184），键盘 2026-10-23 接入出口。**可与 USB 复合设备并存**。"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| 键盘 | WiFi TCP（PC 端 `SendInput`） | **否** | ✅ Wi‑Fi 可用；蓝牙待补 |",
+      "replace": "| 键盘 | WiFi TCP（PC 端 `SendInput`） / 蓝牙 HID | **否** | ✅ 双路可用（蓝牙 2026-10-23 接入） |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| ~~副屏视频~~ | ~~TCP + IddCx 虚拟显示器~~ | — | ❌ **用户已决策终止** |\n| ~~副屏触控注入~~ | ~~TCP + `SendInput`~~ | — | ❌ **随副屏终止** |",
+      "replace": "| 副屏（镜像）+ 触摸回传 | TCP 媒体通道 + `SendInput` | **否** | ✅ 已交付并真机验证（ROADMAP §2.3，v0.3.0 起） |\n| 扩展屏（IddCx 虚拟显示器） | IddCx 驱动 | 需驱动 | ❌ 已决策终止（仅此方案，镜像不受影响） |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| **摄像头（供系统其它程序）** | TCP + 虚拟摄像头 | **否**（用户态 Media Source DLL） | ⏸ 代码在 `app/src/disabled/camera/`，未编译；PC 侧需 Win11 22000+ 与 HKLM 注册 |",
+      "replace": "| **摄像头（供系统其它程序）** | TCP + 虚拟摄像头 | **否**（用户态 Media Source DLL） | ❌ 代码已随 v0.3.2 全部移除；原路线留档见下方阶段三 |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "│   │   ├─ wireless/     Wi‑Fi 控制服务端（TCP 9500）+ UDP 信标广播",
+      "replace": "│   │   ├─ wireless/     受控目标/TV 控制（ControlTarget·TvControllerClient·TvDiscovery；旧9500服务端已移 .attic）"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "│   ├─ app/src/disabled/ 停用区（**不参与编译**）：camera/【M7】、screen/【M4 副屏】",
+      "replace": "│   ├─ app/src/disabled/ 历史停用区（**不参与编译**；camera/ 已随 v0.3.2 整体移除，screen/ 现位于主源码树）"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "│   ├─ display/          【M7/M9】副屏推流与注入（**副屏已终止**，不在 build.bat 范围内）",
+      "replace": "│   ├─ display/          【M9】副屏推流与注入（镜像副屏已交付；CI 构建并跑 apxdisp --self-test）"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| **M4** 副屏手机端 | `android/app/src/disabled/screen/` | P0 | ❌ 已终止 |",
+      "replace": "| **M4** 副屏手机端 | `android/.../screen/`（ScreenModule/Renderer/Activity，主源码树） | P0 | ✅ 已交付 |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| **M7** 摄像头 | `android/app/src/disabled/camera/` | P0, M2 | ⏸ 未编译 |",
+      "replace": "| **M7** 摄像头 | ~~`app/src/disabled/camera/`~~（已随 v0.3.2 移除） | P0, M2 | ❌ 已移除（路线留档 §2.2 阶段三） |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "| **M9** PC 副屏驱动与推流 | `pc/display/` | P0 | ❌ 已终止 |",
+      "replace": "| **M9** PC 副屏推流 | `pc/display/` | P0 | ✅ 镜像已交付（扩展屏 IddCx 已终止） |"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "（蓝牙仅覆盖\n  触控板与多媒体，键盘 / 手柄待补）；原计划中「TCP 覆盖副屏」的部分随副屏一并取消。",
+      "replace": "（蓝牙四类输入\n  已全：触控板/多媒体/键盘/手柄，键盘 2026-10-23 接入）；「TCP 覆盖副屏」已由媒体通道兑现\n  （镜像副屏，ROADMAP §2.3），扩展屏部分随决策取消。"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "## 5. 副屏闭环（❌ 用户已决策终止）",
+      "replace": "## 5. 副屏闭环（镜像已交付；❌ 终止的仅是本节 IddCx 扩展屏方案）"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "find": "> **本节仅作设计留档，不再是交付目标。** 相关代码停在 `android/app/src/disabled/screen/`\n> 与 `pc/display/`，都不在构建范围内；`docs/REQ-五路回报.md` 的 L3/L4 两路同属历史记录。",
+      "replace": "> **2026-10-23 更正**：镜像副屏（抓屏→推流→手机渲染→触摸回传）**已交付并真机验证**\n> （`ROADMAP.md` §2.3；`pc/display` 在 CI 构建）。本节**未交付**的部分仅 IddCx 虚拟显示器扩展屏；\n> “screen 停在 disabled/ 且不在构建范围”说法已过时。`REQ-五路回报.md` 的 L3/L4 仍属历史记录。"
+    },
+    {
+      "path": "docs/CHANGELOG.md",
+      "find": "> 所有版本的变更记录。详细用法见 [`docs/使用说明.md`](./使用说明.md)\n> 发版流程见 [`docs/RELEASE.md`](./RELEASE.md)（一条命令发版，三端版本号同源）。",
+      "replace": "> 详细用法见 [`docs/使用说明.md`](./使用说明.md)；发版流程见 [`docs/RELEASE.md`](./RELEASE.md)。\n> **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；\n> 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。"
+    }
+  ]
+}
