@@ -42,8 +42,8 @@
     },
     {
       "path": "docs/ARCHITECTURE.md",
-      "find": "形态是**手机做服务端**（TCP `9500`，`wireless/TcpControlChannel.kt`）、PC 主动连入\n（出站连接，Windows 防火墙默认放行），另有 UDP `9501` 广播信标供 PC 自动发现。\n落点与验证证据见 `docs/ROADMAP.md` §2.2。",
-      "replace": "历史实现为手机服务端 + UDP 信标（`TcpControlChannel`/`WirelessBeacon`，已随 v1.11 移入\n`.attic/wireless_removed_v1.11/`）；现行上行链路 = 受控目标 `wireless/ControlTarget` +\n`core/Uplink.kt` 择路，落点与验证证据见 `docs/ROADMAP.md` §2.2 核对注。"
+      "find": "形态是**手机做服务端**（TCP `9500`，`wireless/TcpControlChannel.kt`）、PC 主动连入\n   （出站连接，Windows 防火墙默认放行），另有 UDP `9501` 广播信标供 PC 自动发现。\n   落点与验证证据见 `docs/ROADMAP.md` §2.2。",
+      "replace": "历史实现为手机服务端 + UDP 信标（`TcpControlChannel`/`WirelessBeacon`，已随 v1.11 移入\n   `.attic/wireless_removed_v1.11/`）；现行上行链路 = 受控目标 `wireless/ControlTarget` +\n   `core/Uplink.kt` 择路，落点与验证证据见 `docs/ROADMAP.md` §2.2 核对注。"
     },
     {
       "path": "docs/ARCHITECTURE.md",
