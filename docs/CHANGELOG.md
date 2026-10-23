@@ -1,7 +1,8 @@
 # 全能外设 更新日志
 
-> 所有版本的变更记录。详细用法见 [`docs/使用说明.md`](./使用说明.md)
-> 发版流程见 [`docs/RELEASE.md`](./RELEASE.md)（一条命令发版，三端版本号同源）。
+> 详细用法见 [`docs/使用说明.md`](./使用说明.md)；发版流程见 [`docs/RELEASE.md`](./RELEASE.md)。
+> **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
+> 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
 ---
 

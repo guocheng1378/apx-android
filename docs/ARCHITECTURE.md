@@ -3,10 +3,14 @@
 > 目标：一部 Android 手机通过一根 **USB 3.0（SuperSpeed 5Gbps）** 线缆，把机身内的硬件元器件虚拟化成 PC 的**本机设备**。
 > 设计信条：**凡是能映射为 USB 标准 Class / HID 标准 Usage 的，一律走标准路径，PC 端零自研驱动。**
 
-> ⚠️ **文档状态（先读这条）**：本文是**设计真源**，包含比实现更广的目标形态。
-> 其中 **副屏（本文 §5 及图中 `ScreenClient`）已由用户决策终止**，**摄像头**代码停在
-> `android/app/src/disabled/camera/` 不参与编译 —— 这两项在本文各处仍按原始设计保留，
-> 但**不是交付目标**。当前真实能力与实施顺序以 [`ROADMAP.md`](./ROADMAP.md) 为准。
+> ⚠️ **文档状态（先读这条，2026-10-23 按源码同步）**：本文是**设计真源**，包含比实现更广的目标形态。
+> - **副屏**：镜像形态**已交付并真机验证**（`ROADMAP.md` §2.3，`pc/display` 在 CI 构建）；
+>   本文所称**终止**的仅是「IddCx 虚拟显示器扩展屏」方案（§5）。
+> - **摄像头**：代码已随 v0.3.2 **全部移除**（`app/src/disabled/camera/` 已不存在）；
+>   §2.2 阶段三与 §7 的摄像头行仅作历史设计留档。
+> - **蓝牙**：`reportKeyboard`（rid 2）/ `reportGamepad`（rid 4）与 native 描述符均已实现，
+>   键盘 2026-10-23 接入出口。
+> 当前真实能力与实施顺序以 [`ROADMAP.md`](./ROADMAP.md) 为准。
 
 ---
 
@@ -62,12 +66,12 @@
 
 1. **WiFi 局域网 TCP**（**已实现，真机验证通过**）—— 承载**输入类与控制面**：
    触控板 / 键盘 / 多媒体键（`streamId=3` 控制帧，PC 端 `SendInput` 注入）与状态上报。
-   形态是**手机做服务端**（TCP `9500`，`wireless/TcpControlChannel.kt`）、PC 主动连入
-   （出站连接，Windows 防火墙默认放行），另有 UDP `9501` 广播信标供 PC 自动发现。
-   落点与验证证据见 `docs/ROADMAP.md` §2.2。
+   历史实现为手机服务端 + UDP 信标（`TcpControlChannel`/`WirelessBeacon`，已随 v1.11 移入
+   `.attic/wireless_removed_v1.11/`）；现行上行链路 = 受控目标 `wireless/ControlTarget` +
+   `core/Uplink.kt` 择路，落点与验证证据见 `docs/ROADMAP.md` §2.2 核对注。
 2. **蓝牙 HID**（`BluetoothHidDevice`，API 28+）—— 已承载**触控板与多媒体键**，PC 端零驱动
    （标准协议）。使用独立的裁剪版描述符（仅 3 个 TLC，实测 181 字节，见 `PROTOCOL.md` §2.11）。
-   **键盘与手柄待补**（缺 `reportKeyboard` 与 gamepad TLC）。**可与 USB 复合设备并存**。
+   ~~键盘与手柄待补~~ **已补全**：`reportKeyboard`（rid 2）与 `reportGamepad`（rid 4）均在（v184），键盘 2026-10-23 接入出口。**可与 USB 复合设备并存**。
    注意：描述符一变，PC 端**旧配对记录必须删除重连**，否则 Windows 会拿缓存描述符解析导致错位。
 3. **无线 ADB** —— 开发期联调与兜底（`adb tcpip` + `adb forward`，即现有 `tcp://127.0.0.1:9500` 模式）。
    需开 USB 调试，定位为开发通道而非产品形态。
@@ -77,11 +81,11 @@
 | 功能 | 无线实现 | 是否需新驱动 | 现状 |
 |---|---|---|---|
 | 触控板 / 多媒体键 | 蓝牙 HID 或 WiFi TCP | **否** | ✅ 双路可用 |
-| 键盘 | WiFi TCP（PC 端 `SendInput`） | **否** | ✅ Wi‑Fi 可用；蓝牙待补 |
+| 键盘 | WiFi TCP（PC 端 `SendInput`） / 蓝牙 HID | **否** | ✅ 双路可用（蓝牙 2026-10-23 接入） |
 | 控制面 / 状态 | WiFi TCP | **否** | ✅ |
-| ~~副屏视频~~ | ~~TCP + IddCx 虚拟显示器~~ | — | ❌ **用户已决策终止** |
-| ~~副屏触控注入~~ | ~~TCP + `SendInput`~~ | — | ❌ **随副屏终止** |
-| **摄像头（供系统其它程序）** | TCP + 虚拟摄像头 | **否**（用户态 Media Source DLL） | ⏸ 代码在 `app/src/disabled/camera/`，未编译；PC 侧需 Win11 22000+ 与 HKLM 注册 |
+| 副屏（镜像）+ 触摸回传 | TCP 媒体通道 + `SendInput` | **否** | ✅ 已交付并真机验证（ROADMAP §2.3，v0.3.0 起） |
+| 扩展屏（IddCx 虚拟显示器） | IddCx 驱动 | 需驱动 | ❌ 已决策终止（仅此方案，镜像不受影响） |
+| **摄像头（供系统其它程序）** | TCP + 虚拟摄像头 | **否**（用户态 Media Source DLL） | ❌ 代码已随 v0.3.2 全部移除；原路线留档见下方阶段三 |
 | **音频（无线）** | TCP + 虚拟声卡 | **是**（可借第三方如 VB-Cable） | 规划中；**有线 UAC2 已可用** |
 
 **落地节奏**：
@@ -117,12 +121,12 @@
 │   │   ├─ bt/           蓝牙 HID 设备（鼠标 / 多媒体）
 │   │   ├─ hid/          HID 报告描述符 + 键码映射
 │   │   ├─ touchpad/     触控板（相对鼠标手势）
-│   │   ├─ wireless/     Wi‑Fi 控制服务端（TCP 9500）+ UDP 信标广播
+│   │   ├─ wireless/     受控目标/TV 控制（ControlTarget·TvControllerClient·TvDiscovery；旧9500服务端已移 .attic）
 │   │   └─ ui/           【M6】App UI 与服务编排
-│   ├─ app/src/disabled/ 停用区（**不参与编译**）：camera/【M7】、screen/【M4 副屏】
+│   ├─ app/src/disabled/ 历史停用区（**不参与编译**；camera/ 已随 v0.3.2 整体移除，screen/ 现位于主源码树）
 │   └─ app/src/main/cpp/ NDK 桥（复用 shared/）
 ├─ pc/
-│   ├─ display/          【M7/M9】副屏推流与注入（**副屏已终止**，不在 build.bat 范围内）
+│   ├─ display/          【M9】副屏推流与注入（镜像副屏已交付；CI 构建并跑 apxdisp --self-test）
 │   ├─ host/             【M8/M10】Host Service：设备发现、Wi‑Fi 控制、桌面面板、CLI/SDK、安装包
 │   └─ tools/            【M11】验证工具（链路测速等）
 └─ scripts/              ConfigFS 挂载脚本、构建脚本
@@ -159,10 +163,11 @@
 
 ---
 
-## 5. 副屏闭环（❌ 用户已决策终止）
+## 5. 副屏闭环（镜像已交付；❌ 终止的仅是本节 IddCx 扩展屏方案）
 
-> **本节仅作设计留档，不再是交付目标。** 相关代码停在 `android/app/src/disabled/screen/`
-> 与 `pc/display/`，都不在构建范围内；`docs/REQ-五路回报.md` 的 L3/L4 两路同属历史记录。
+> **2026-10-23 更正**：镜像副屏（抓屏→推流→手机渲染→触摸回传）**已交付并真机验证**
+> （`ROADMAP.md` §2.3；`pc/display` 在 CI 构建）。本节**未交付**的部分仅 IddCx 虚拟显示器扩展屏；
+> “screen 停在 disabled/ 且不在构建范围”说法已过时。`REQ-五路回报.md` 的 L3/L4 仍属历史记录。
 > 以下保留原始设计，供将来若重启这条线时参考。
 
 下行（PC → 手机）：IddCx 虚拟显示器 → Desktop Duplication 抓屏 → **只编码 DirtyRects** → H.265/AV1 硬编（关 B 帧、GOP=1）→ bulk 推流 → 手机 MediaCodec 低延迟解码 → SurfaceView 全屏渲染。
@@ -191,11 +196,11 @@
 |---|---|---|---|
 | **P0** 协议与公共库 | `shared/` 全部 + `docs/PROTOCOL.md` | — | 先行 |
 | **M2** Gadget 管理器 | `android/.../gadget/` + `scripts/` | P0 | ✅ |
-| **M4** 副屏手机端 | `android/app/src/disabled/screen/` | P0 | ❌ 已终止 |
+| **M4** 副屏手机端 | `android/.../screen/`（ScreenModule/Renderer/Activity，主源码树） | P0 | ✅ 已交付 |
 | **M6** App UI 编排 | `android/.../ui/` + `core/` | M2 | 后 |
-| **M7** 摄像头 | `android/app/src/disabled/camera/` | P0, M2 | ⏸ 未编译 |
+| **M7** 摄像头 | ~~`app/src/disabled/camera/`~~（已随 v0.3.2 移除） | P0, M2 | ❌ 已移除（路线留档 §2.2 阶段三） |
 | **M8** 音频 | `android/.../audio/` | P0, M2 | ✅ |
-| **M9** PC 副屏驱动与推流 | `pc/display/` | P0 | ❌ 已终止 |
+| **M9** PC 副屏推流 | `pc/display/` | P0 | ✅ 镜像已交付（扩展屏 IddCx 已终止） |
 | **M10** PC Host Service | `pc/host/` | P0 | ✅ |
 | **M11** PC 验证工具 | `pc/tools/` | P0 | ✅ |
 | **M12** Wi‑Fi 控制通道 | `android/.../wireless/` + `pc/host/src/wireless/` | P0, M10 | ✅ |
@@ -208,8 +213,9 @@
 - **MS1 全链路 Hello World**：USB 复合设备挂载 + 触控板 / 键盘 / 多媒体 / 音频全部跑通。✅
 - ~~**MS2 副屏闭环**~~：虚拟显示器 + 推流 + 触控上行注入，端到端延迟 ≤ 30ms ——
   **用户已决策终止**，不再推进。
-- **MS3 无线闭环**：免 root 跑通输入类与控制面。✅ **最终以 Wi‑Fi TCP 达成**（蓝牙仅覆盖
-  触控板与多媒体，键盘 / 手柄待补）；原计划中「TCP 覆盖副屏」的部分随副屏一并取消。
+- **MS3 无线闭环**：免 root 跑通输入类与控制面。✅ **最终以 Wi‑Fi TCP 达成**（蓝牙四类输入
+  已全：触控板/多媒体/键盘/手柄，键盘 2026-10-23 接入）；「TCP 覆盖副屏」已由媒体通道兑现
+  （镜像副屏，ROADMAP §2.3），扩展屏部分随决策取消。
 - **MS4 产品化**：桌面面板、开机自连、断线自愈、降级策略、SDK/CLI。✅ 安装包
   `apxsetup.exe` 已就绪。
 

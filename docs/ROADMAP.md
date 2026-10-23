@@ -3,7 +3,8 @@
 > 本文记录 v1.x 的**能力现状**与后续主线（**蓝牙补全**：键盘 → 手柄），
 > 以及**已预留在代码里的扩展点**。动手改这些接口前请先读本文。
 > **本文是能力现状的真源**：`docs/ARCHITECTURE.md` 描述的是更广的目标形态，
-> 其中副屏（已终止）与摄像头（未编译）都还按原始设计保留，勿据此判断可用性。
+> 两份文档的状态说明已于 2026-10-23 按源码同步：**副屏镜像已交付**（本文 §2.3，真机验证；
+> 终止的仅是 IddCx 扩展屏）、**摄像头代码已随 v0.3.2 全部移除**。各处历史留档勿据以判断可用性。
 
 ---
 
@@ -64,10 +65,14 @@ App「状态」页打开总开关后，手机作为 USB 复合设备被 Windows 
 |---|---|
 | Android 承载 | ⚠️ `wireless/TcpControlChannel.kt` 与 `core/TcpCtrlBridge.kt` **已在 v1.11 移入 `.attic/wireless_removed_v1.11/`，源码树中不存在**（2026-10-23 核对：全库搜不到源码）；当前 9511 上行走 `wireless/ControlTarget` + `TvControllerClient`（受控目标 TV/PC） |
 | Android 出口 | 择路唯一判据 = `core/Uplink.kt` 的 `resolve(hid, btConnected, wireless)`：无线目标 → USB → 蓝牙 → NONE，触控板/键盘/多媒体/手柄四点共用 |
-| Android 发现 | `wireless/WirelessBeacon.kt`：UDP 9501 广播 `APX1PHONE <name> <port> <token>` |
+| Android 发现 | ⚠️ `WirelessBeacon.kt` 已随 v1.11 移除（源码树不存在，2026-10-23 核对）；现行发现/连接以 `wireless/` 现存文件为准 |
 | PC 客户端 | `pc/host/src/wireless/wireless_link.cpp`（握手 + 解帧 + SendInput 注入） |
 | PC 发现 | `pc/host/src/wireless/beacon_listener.cpp`（收信标自动连入） |
 | CLI | `apxhost wireless <ip>:port [秒数]` / `apxhost wireless-listen [秒数]` |
+
+> ⚠️ 2026-10-23 核对：本表 PC 侧三行（`wireless_link.cpp` / `beacon_listener.cpp` / CLI）
+> 均不在 `pc/host/CMakeLists.txt` 的 `APXPC_WIRELESS_SRC` 构建清单里（现行清单 =
+> wireless_session / ctrl9511 / file 收发 / input 注入），以构建脚本为准、勿按本表找代码。
 
 **控制面子命令**（streamId=3，改一边必须改另一边：
 
@@ -293,10 +298,11 @@ runtime.attachHid(btHid)      // 或蓝牙 HID（同接口）
 runtime.attachSerial(tcpChan) // Wi‑Fi 挂载后
 ```
 
-**Wi‑Fi 的落地方式（已实现）**：`wireless/TcpControlChannel.kt` 实现 `TcpCtrlBridge.Sink`
-（`sendControl` 组 `APX1` 帧后**入队**，由专用 writer 线程写出；`ready` = 已连接）。
-输入模块经 `TcpCtrlBridge`（`mouse` / `consumer` / `keyboard`）出口，不感知承载。
-注意：**不要在调用线程直接写 socket** —— 手势帧来自 UI 线程，会触发
+**Wi‑Fi 的落地方式**：⚠️ 2026-10-23 核对——`wireless/TcpControlChannel.kt` 与 `core/TcpCtrlBridge.kt`
+已于 v1.11 移入 `.attic/wireless_removed_v1.11/`，"输入模块经 TcpCtrlBridge 出口"的形态已不存在；
+当前无线出口为 `wireless/ControlTarget` + `TvControllerClient`（受控目标），择路唯一判据见
+`core/Uplink.kt`（无线目标 → USB → 蓝牙 → NONE）。
+历史教训仍有效：**不要在调用线程直接写 socket** —— 手势帧来自 UI 线程会触发
 `NetworkOnMainThreadException`（§2.2 真机教训）。
 
 ### 3.2 输入出口：✅ 判据已由 `core/Uplink.kt` 统一（原计划的 `InputSink` 不再需要）
@@ -370,11 +376,12 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 
 1. ~~**输入统一**：新增 `InputHub`/`InputSink`~~ ✅ 已由 `core/Uplink.resolve` 满足（判据唯一，四点共用）；
    2026-10-23 补齐的是键盘蓝牙分支与 `MainActivity.isBtConnected()` 真值，见 §3.2 顶部核对注。
-2. **蓝牙键盘**：JNI 暴露 `buildBtReportDescriptor`，`BtHidDevice` 换 native 描述符 +
-   补 `reportKeyboard`，接进 `BtInputSink`。真机配对验证键盘可打字。
-3. **蓝牙手柄**：扩展 `buildBtReportDescriptor` 加 gamepad TLC（rid 4），补 `reportGamepad`。
-4. ~~**Wi‑Fi 控制**~~：✅ 已完成（§2.2）：Android 服务端 + `TcpCtrlBridge` 出口 +
-   UDP 信标发现；PC 端 `WirelessLink` 注入（鼠标 / 键盘 / 多媒体）。真机端到端验证通过。
+2. ~~**蓝牙键盘**~~ ✅ 已完成（2026-10-23）：native 描述符 + `reportKeyboard` 早已在，
+   `HidKeys.send` 已接 `Uplink.BLUETOOTH` 分支（剩真机配对打字验证）。
+3. ~~**蓝牙手柄**~~ ✅ 描述符与 `reportGamepad`（rid 4）均已实现（v184），`GamepadController` 已走蓝牙优先；
+   剩真机配对验证；TCP 出口受 ViGEmBus 限制（见 §2.2「尚未接入」）。
+4. ~~**Wi‑Fi 控制**~~：✅ 曾完成并真机验证；v1.11 起 Android 侧（服务端/出口/信标）移入 `.attic`，
+   现行无线出口 = 受控目标链路（§2.2 核对注）。PC 侧是否仍在构建以 `pc/host/CMakeLists.txt` 为准（§2.2 末核对注）。
 
 > 2026-10-23 更新：**输入出口已统一在 `Uplink.resolve`**（§3.2）；`reportKeyboard`/`reportGamepad` 与
 > native 蓝牙描述符均已存在，本轮把键盘接进蓝牙分支。手柄仍无 TCP 出口（发送面受控目标）：
