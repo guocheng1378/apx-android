@@ -1,0 +1,21 @@
+[ 14%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 34%] Built target apxpc_media
+[ 46%] Built target apxpc_discovery
+[ 53%] Built target apxpc_sensors
+[ 78%] Built target apxpc_service
+[ 93%] Built target apxpc_wireless
+[ 95%] Building CXX object CMakeFiles/apxhost.dir/src/host_main.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/host_main.cpp:439:46: error: variable has incomplete type 'apxpc::wireless::WirelessSession'
+  439 |             apxpc::wireless::WirelessSession session;
+      |                                              ^
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:45:7: note: forward declaration of 'apxpc::wireless::WirelessSession'
+   45 | class WirelessSession;
+      |       ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxhost.dir/src/host_main.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
