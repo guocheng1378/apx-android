@@ -1,0 +1,20 @@
+[ 15%] Built target apx_shared
+[ 25%] Built target apxpc_core
+[ 36%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 54%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 95%] Built target apxpc_wireless
+[ 97%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a'
+Undefined symbols for architecture arm64:
+  "apxpc::usb::Device::looksLikeApxGadget() const", referenced from:
+      apxpc::usb::(anonymous namespace)::SysfsUsbEnumerator::enumerate(apxpc::usb::EnumerateOptions const&) in libapxpc_discovery.a[4](usb_enum_sysfs.cpp.o)
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
