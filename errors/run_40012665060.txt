@@ -1,0 +1,25 @@
+[ 16%] Built target apx_shared
+[ 25%] Built target apxpc_core
+[ 37%] Built target apxpc_media
+[ 46%] Built target apxpc_discovery
+[ 53%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 95%] Built target apxpc_wireless
+[ 97%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a'
+Undefined symbols for architecture arm64:
+  "apxpc::discovery::enumerate()", referenced from:
+      (anonymous namespace)::doList() in host_main.cpp.o
+      apxpc::api::ActionRouter::act(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, apxpc::net::Json const&, apxpc::net::Json&) in libapxpc_service.a[7](action_router.cpp.o)
+      apxpc::api::ActionRouter::act(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, apxpc::net::Json const&, apxpc::net::Json&) in libapxpc_service.a[7](action_router.cpp.o)
+      apxpc::api::ActionRouter::act(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, apxpc::net::Json const&, apxpc::net::Json&) in libapxpc_service.a[7](action_router.cpp.o)
+      apxpc::api::ActionRouter::query(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, apxpc::net::Json&) in libapxpc_service.a[7](action_router.cpp.o)
+      apxpc::api::ActionRouter::buildState() in libapxpc_service.a[7](action_router.cpp.o)
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
