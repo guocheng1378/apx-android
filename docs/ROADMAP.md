@@ -5,6 +5,8 @@
 > **本文是能力现状的真源**：`docs/ARCHITECTURE.md` 描述的是更广的目标形态，
 > 两份文档的状态说明已于 2026-10-23 按源码同步：**副屏镜像已交付**（本文 §2.3，真机验证；
 > 终止的仅是 IddCx 扩展屏）、**摄像头代码已随 v0.3.2 全部移除**。各处历史留档勿据以判断可用性。
+> **2026-10-24 更新**：macOS（arm64）测试版随 v211 发布，平台能力总表见 §2.4；
+> 原有各节的落点/状态为 Windows 与 Android 视角（均属实），平台差异以 §2.4 为准。
 
 ---
 
@@ -122,7 +124,7 @@ exe，窗口与托盘共用同一枚。**手机端图标一改，重跑脚本即
 
 > GDI+ 两个坑（都已踩过）：① `GraphicsPath` 拷贝构造是 protected，不能按值返回，
 > 圆角路径要用出参构造；② 双缓冲 `BitBlt` 必须**在位图仍选中时**执行，先
-> `SelectObject` 还原的话读到的是那张 1×1 单色位图 —— 现象是整窗一片空白，
+> `SelectObject` 还原的话读到的是一张 1×1 单色位图 —— 现象是整窗一片空白，
 > 只有原生子控件可见。
 
 ### 2.2.2 安装包（apxsetup.exe）
@@ -270,6 +272,37 @@ apxdisp --run --transport tcp --host <手机IP> --port 9502 --no-handshake
 
 **仍未做**：镜像是「抓现有桌面」；要"扩展第二块屏"仍需 IddCx 虚拟显示器驱动。
 `apxdisp.exe` 保留（CLI/自测仍用它），但日常使用已不必单独运行。
+
+### 2.4 macOS 平台现状（v211 起，测试版）
+
+2026-10-24 随 v211 发布首版；**验证级别 = CI 编译/链接双平台全绿**（macOS 26 runner +
+MSVC 回归），**真机实测尚未执行**（用户声明跳过）—— 下表「可用」指代码链路完整、
+诚实降级项均已标注，不代表实机验证已通过。
+
+| 能力 | 状态 | 落点 / 说明 |
+|---|---|---|
+| 浏览器控制面板 | ✅ | `apxhost panel` / `./apxdesktop` → `src/ui/panel_http.cpp`（方案 B：仅 127.0.0.1，`?host=1`），协议与 Windows WebView2 面板同构；前端 `bridge.ts` 第三态 `http`（400ms 轮询 state/events，POST act/query） |
+| 桌面壳 apxdesktop | ✅ | `desktop_main.cpp` mac 分支（GUI 基础设施 Win 条件化；`share.h` 归位），CI 已纳入编译（macos.yml `--target apxhost apxdesktop`）；**无 .app 包 / 无托盘**（终端运行，`Ctrl+C` 退出） |
+| 9511 受控端 + 信标 | ✅ | `Ctrl9511Server` + `gethostname`（双入口自带），手机「TV 控制」列表可发现（标 `(PC)`）；与 `apxhost serve` 并存时端口冲突会警告降级 |
+| 控制面客户端（连手机） | ✅ | `wireless_session` 跨平台（此前已可编），`startAuto` 自动发现 |
+| 文件接收 9512 | ✅ | `file.list`/`file.delete` 可用（浏览器文件卡）；**发送本机文件 ❌**（浏览器无系统文件对话框，明确报错） |
+| 媒体通道 9502 | ✅ | `media_session.cpp` 跨平台（connect/收发流/5s 拥塞重试，6 处等价变换保留 Win 语义）；面板媒体泵自动建链 |
+| 麦克风桥 | ✅ | `mic_bridge.cpp` `__APPLE__` 分支：CoreAudio **AudioQueue**（回调驱动、缺数据补静音、400ms 环形上限）；接线 = panel_http `setHandler`（`kStreamMic → feed`） |
+| 音箱（系统声音） | ✅ | `audio_capture_mac.mm`：**CoreAudio Process Tap**（`CATapDescription` 全局立体声 + 聚合设备 + IOProc），**macOS 14.2+**，需「系统音频录制」TCC 授权；DRM 内容可能静音（平台限制）；部署目标压 12.0 使新 API 弱链接可降级 |
+| 副屏 | ❌ | 虚拟显示器仅 Windows；`screenPush=nullptr`，面板显示未初始化形态 + `screen.toggle` 明确拒绝 |
+| 音箱设备下拉 | ❌（无此概念） | Process Tap 采全局进程组混音，不挂具体端点（`listRenderDevices` 返回空、面板下拉为空，自洽） |
+| 全局热键 / USB 有线 | ❌ | 热键 Win-only；mac 无 `/sys`（`usb_enum_sysfs` 空枚举），USB 线路不可用（IOKit 枚举为后续项） |
+| 开机自启 | ✅ | `~/Library/LaunchAgents/` plist（`autostart.cpp` 非 Win 分支） |
+| 检查更新 | ✅ | `update_check_mac.mm`（NSURLSession + gh-proxy 镜像兑底，与 Windows 同比对算法） |
+| 发版产物 | ✅ | macos.yml `tags: ['v*']` → `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml release 双向幂等） |
+
+**mac 构建/发版**：`cmake -S pc/host -B build_host -DCMAKE_BUILD_TYPE=Release -DAPXPC_BUILD_UI=OFF`
+（部署目标自动压 12.0）；前端 `pc/web` npm build 后 dist 拷到 exe 旁 `web/`；日常直接用
+CI artifact 或 Release 资产。详见 [`使用说明.md`](./使用说明.md) 二/七/九章与 README。
+
+**待办（按价值排序）**：① 真机实测（面板/连接/媒体/TCC 授权归属——CLI 无 Info.plist 的
+授权宿主是未知项）② `.app` 壳 + NSStatusItem 托盘 ③ USB/IOKit 枚举 ④ `panel_http`
+的 9511 "已在运行"检测（消除双起警告日志）。
 
 ---
 
