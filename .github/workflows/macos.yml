@@ -14,8 +14,9 @@ name: macOS Build
 #   3) ::error:: 注解（必须显式 :: 分隔符：消息里若含 std::nullptr_t 这类双冒号，
 #      GitHub 会拿第一个 :: 当分隔符把消息截断；前缀写成 ::error:: 后第一个 :: 就是自己的）
 # 成功时：
-#   strip 后打包 apxhost/apxdesktop + web/ 前端 dist 为 zip 上传 artifact，
-#   解压即用（./apxdesktop 或 ./apxhost panel 自动打开浏览器面板）
+#   strip 后打包 apxhost/apxdesktop + web/ 前端 dist + AllPeriph.app（双击壳：ad-hoc 签名、
+#   Info.plist 挂麦克风/系统音频用途说明 —— TCC 授权宿主）为 zip 上传 artifact，
+#   解压即用（双击 AllPeriph.app，或 ./apxdesktop / ./apxhost panel 自动打开浏览器面板）
 
 on:
   push:
@@ -60,7 +61,7 @@ jobs:
         # `apxhost --version` 即为 tag 号（与 build.yml 三端同源逻辑一致）。
         run: cmake --build build_host -j4 --target apxhost apxdesktop
 
-      - name: Package (strip + web dist + zip)
+      - name: Package (strip + web dist + .app bundle + zip)
         if: success()
         run: |
           cd build_host
@@ -71,22 +72,78 @@ jobs:
           cp apxhost "$STAGE/"
           cp apxdesktop "$STAGE/"
           cp -r ../pc/web/dist/. "$STAGE/web/"
+
+          # —— AllPeriph.app（双击入口 + TCC 授权宿主）——
+          # web/ 必须与可执行文件同级（runWebPanelHttp 默认「exe 旁 web/」）→ Contents/MacOS/web。
+          # strip 会破坏链接期 ad-hoc 签名，这里统一补签：arm64 的 Mach-O 执行与 TCC 按
+          # bundle 归属记录都依赖签名。ad-hoc（无公证）→ 下载后仍走「仍要打开」放行流程。
+          APP="$STAGE/AllPeriph.app"
+          mkdir -p "$APP/Contents/MacOS/web"
+          cp apxdesktop "$APP/Contents/MacOS/apxdesktop"
+          cp -r ../pc/web/dist/. "$APP/Contents/MacOS/web/"
+          printf 'APPL????' > "$APP/Contents/PkgInfo"
+          VER="0.0.0-dev"
+          case "${GITHUB_REF_NAME}" in
+            v*) VER="${GITHUB_REF_NAME#v}" ;;
+          esac
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.guocheng.alliph</string>
+            <key>CFBundleName</key>
+            <string>全能外设</string>
+            <key>CFBundleDisplayName</key>
+            <string>全能外设</string>
+            <key>CFBundleExecutable</key>
+            <string>apxdesktop</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VER}</string>
+            <key>CFBundleVersion</key>
+            <string>${GITHUB_RUN_NUMBER}</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>12.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSMicrophoneUsageDescription</key>
+            <string>用手机当电脑麦克风：把手机收到的声音转发给本机应用（会议/录音软件）。</string>
+            <key>NSAudioCaptureUsageDescription</key>
+            <string>把电脑系统声音投到手机扬声器播放（macOS 14.2+ 系统音频采集）。</string>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force -s - "$STAGE/apxhost"
+          codesign --force -s - "$STAGE/apxdesktop"
+          codesign --force -s - "$APP/Contents/MacOS/apxdesktop"
+          codesign --force --deep -s - "$APP"
+          codesign --verify --strict --deep "$APP" && echo "AllPeriph.app 签名校验通过"
+
           printf '%s\n' \
-            "全能外设 macOS（arm64，未签名）" \
+            "全能外设 macOS（arm64，ad-hoc 签名 · 未公证）" \
             "" \
             "快速上手：" \
-            "  ./apxdesktop         桌面壳（自动打开浏览器面板，自带 9511 受控端）" \
-            "  ./apxhost panel       浏览器控制面板（自动打开 http://127.0.0.1:…/?host=1）" \
-            "  ./apxhost serve       无界面常驻服务（9511 受控 + 热键）" \
-            "  ./apxhost list        枚举设备与传感器" \
-            "  ./apxhost --help      全部命令" \
+            "  双击 AllPeriph.app      桌面壳（自动打开浏览器面板，自带 9511 受控端）" \
+            "  ./apxdesktop            同上（终端方式，Ctrl+C 退出）" \
+            "  ./apxhost panel         浏览器控制面板（自动打开 http://127.0.0.1:…/?host=1）" \
+            "  ./apxhost serve         无界面常驻服务（9511 受控 + 热键）" \
+            "  ./apxhost list          枚举设备与传感器" \
+            "  ./apxhost --help        全部命令" \
             "" \
-            "首次打开（未签名应用）：" \
+            "退出：pkill -x apxdesktop（.app 壳 v1 无托盘菜单，随后续版本补）" \
+            "" \
+            "首次打开（未公证应用）：" \
             "  系统设置 → 隐私与安全性 → 底部「仍要打开」" \
-            "  或执行：xattr -dr com.apple.quarantine ./apxhost ./apxdesktop" \
+            "  或执行：xattr -dr com.apple.quarantine AllPeriph.app ./apxhost ./apxdesktop" \
             "" \
             "浏览器面板要求 web/ 目录与可执行文件同级（本包已附带）。" \
-            "音箱首次使用需授权「系统音频录制」（系统设置 → 隐私与安全性）。" \
+            "麦克风/音箱首次使用按系统弹窗授权（麦克风 / 系统音频录制，macOS 14.2+）。" \
             > "$STAGE/README.txt"
           zip -9 -r apxhost-macos-arm64.zip "$STAGE"
           shasum -a 256 apxhost-macos-arm64.zip | tee apxhost-macos-arm64.zip.sha256
