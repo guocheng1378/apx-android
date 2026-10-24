@@ -1,0 +1,41 @@
+[ 14%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 25%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/mic_bridge.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/mic_bridge.cpp:337:36: error: no member named 'data' in 'std::deque<short>'
+  337 |             std::memcpy(d, self->q.data(), srcFrames * kSrcChannels * sizeof(int16_t));
+      |                            ~~~~~~~ ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_media.dir/src/media/mic_bridge.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_media.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_media.dir/all] Error 2
+[ 38%] Built target apxpc_discovery
+[ 44%] Built target apxpc_sensors
+[ 46%] Building CXX object CMakeFiles/apxpc_service.dir/src/net/json.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/net/json.cpp:210:14: warning: variable 'dot' set but not used [-Wunused-but-set-variable]
+  210 |         bool dot = false;
+      |              ^
+1 warning generated.
+[ 48%] Building CXX object CMakeFiles/apxpc_service.dir/src/config/app_config.cpp.o
+[ 51%] Building CXX object CMakeFiles/apxpc_service.dir/src/bandwidth/arbiter.cpp.o
+[ 53%] Building CXX object CMakeFiles/apxpc_service.dir/src/display/display_control.cpp.o
+[ 55%] Building CXX object CMakeFiles/apxpc_service.dir/src/hotkey/hotkey_manager.cpp.o
+[ 57%] Building CXX object CMakeFiles/apxpc_service.dir/src/api/action_router.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:12:11: warning: unused function 'ok' [-Wunused-function]
+   12 | net::Json ok(const net::Json& data = {}) {
+      |           ^~
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/api/action_router.hpp:60:12: warning: private field 'lastRttMs_' is not used [-Wunused-private-field]
+   60 |     double lastRttMs_ = 1.2;
+      |            ^
+2 warnings generated.
+[ 59%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o
+[ 61%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/update_check.cpp.o
+[ 63%] Building CXX object CMakeFiles/apxpc_service.dir/src/tray/tray_win32.cpp.o
+[ 65%] Building CXX object CMakeFiles/apxpc_service.dir/src/autostart.cpp.o
+[ 68%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/app/update_check_mac.mm.o
+[ 70%] Linking CXX static library libapxpc_service.a
+[ 70%] Built target apxpc_service
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
