@@ -6,6 +6,38 @@
 
 ---
 
+## v211（2026-10-24）
+
+### 新增
+- **macOS（arm64）测试版首次发布**：Release 自此带 `AllPeriph-<tag>-macos-arm64.zip`
+  （含 `apxdesktop` 桌面壳 + `apxhost` + `web/` 前端），包内附未签名放行与授权指引
+  - **浏览器控制面板（方案 B）**：`apxhost panel` / `./apxdesktop` 起本地 HTTP（仅 127.0.0.1）
+    自动打开 `?host=1` 页面——协议与 Windows WebView2 面板同构（state/act/query/事件四通道），
+    前端 `bridge.ts` 三态传输（webview / http / mock），Windows 路径零改动（PR #30）
+  - **媒体通道 9502 跨平台**：connect/收发流/5s 拥塞重试去 Win 圈（6 处等价变换，Win 逐字保留），
+    面板媒体泵自动建链；**麦克风桥 CoreAudio AudioQueue**；**音箱 CoreAudio Process Tap**
+    （macOS 14.2+，首次需「系统音频录制」授权；DRM 保护内容可能采集为静音，系统侧行为）（PR #31/#32）
+  - **9511 受控端 + APX1PC 信标**：`apxdesktop` / `apxhost panel` 自带受控端，手机「TV 控制」
+    设备列表可发现这台 Mac（标为 `(PC)`）；9512 收文件 + 面板文件卡事件刷新（PR #33）
+  - 开机自启（`~/Library/LaunchAgents/` plist）、媒体收流→麦克风接线、CI 纳入 apxdesktop 编译
+- **发版链补 mac（PR #34）**：macos.yml 加 `tags: ['v*']` 触发，zip 改名
+  `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml release job **双向幂等**：
+  谁先完成谁建 Release、后到者 `--clobber`）；build.yml Release 正文新增 macOS 章节
+
+### 文档（PR #35）
+- README：产物表 `AllPeriph-vXXX-*` 五件套（替换过时 v186 手写表，`vXXX` 占位防再过时）、
+  5 分钟上手加 mac 路线、源码构建加 mac 三步、已知限制加 macOS 边界条目
+- `docs/使用说明.md`：8 处 mac 增量（三端表 / 安装小节 / 快速开始入口 / 被控电脑端信标 /
+  文件·副屏·音箱边界 / FAQ×4 / 卸载 / 构建 / 九章入口拆 Win·mac 两节）；
+  修正「Web 控制台 v117 起已下线」过时表述（Windows 桌面面板 / **macOS 另行采用浏览器面板**）
+
+### macOS 已知边界（如实降级，非缺陷）
+- 副屏不支持（虚拟显示器仅 Windows，面板显示不支持并明确报错）；发送本机文件不支持
+  （浏览器无系统文件对话框；接收不受影响）；全局热键 / USB 有线暂不可用；
+  无 `.app` 包与托盘（终端运行，`Ctrl+C` 退出），TCC 授权归属待真机验证
+
+---
+
 ## v210（2026-10-23）
 
 ### 修复
