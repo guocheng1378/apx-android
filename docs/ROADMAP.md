@@ -3,7 +3,7 @@
 > 本文记录 v1.x 的**能力现状**与后续主线（**蓝牙补全**：键盘 → 手柄），
 > 以及**已预留在代码里的扩展点**。动手改这些接口前请先读本文。
 > **本文是能力现状的真源**：`docs/ARCHITECTURE.md` 描述的是更广的目标形态，
-> 两份文档的状态说明已于 2026-10-23 按源码同步：**副屏镜像已交付**（本文 §2.3，真机验证
+> 两份文档的状态说明已于 2026-10-23 按源码同步：**副屏镜像已交付**（本文 §2.3，真机验证；
 > 终止的仅是 IddCx 扩展屏）、**摄像头代码已随 v0.3.2 全部移除**。各处历史留档勿据以判断可用性。
 > **2026-10-24 更新**：macOS（arm64）测试版随 v211 发布，平台能力总表见 §2.4；
 > 原有各节的落点/状态为 Windows 与 Android 视角（均属实），平台差异以 §2.4 为准。
@@ -196,7 +196,7 @@ apxhost speaker <手机IP> 8 [设备序号]   # 音箱：采集本机系统声�
   # 对照：不播放任何声音时 —— 0 片 · 0 KB · 峰值 0.00
   # （loopback 在系统静音时**根本不产生数据包**，不是送静音包，见下）
   # 对照：指定到没在播声音的那块（apxhost speaker <IP> 8 1）—— 同样 0 片；
-  #       同一条链路、同一个开关，只是**换了块设备**，听起来和"坏了"一样。
+  #       同一链路、同一个开关，只是**换了块设备**，听起来和"坏了"一样。
   #       这正是「采集设备」下拉存在的理由。
   # 序号越界会明确报错：设备序号 9 不存在（共 2 个）
 
@@ -294,7 +294,7 @@ MSVC 回归），**真机实测尚未执行**（用户声明跳过）—— 下�
 | 全局热键 / USB 有线 | ❌ | 热键 Win-only；mac 无 `/sys`（`usb_enum_sysfs` 空枚举），USB 线路不可用（IOKit 枚举为后续项） |
 | 开机自启 | ✅ | `~/Library/LaunchAgents/` plist（`autostart.cpp` 非 Win 分支） |
 | 检查更新 | ✅ | `update_check_mac.mm`（NSURLSession + gh-proxy 镜像兑底，与 Windows 同比对算法） |
-| 发版产物 | ✅ | macos.yml `tags: ['v*']` → `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml 双向幂等） |
+| 发版产物 | ✅ | macos.yml `tags: ['v*']` → `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml release job 双向幂等） |
 
 **mac 构建/发版**：`cmake -S pc/host -B build_host -DCMAKE_BUILD_TYPE=Release -DAPXPC_BUILD_UI=OFF`
 （部署目标自动压 12.0）；前端 `pc/web` npm build 后 dist 拷到 exe 旁 `web/`；日常直接用
