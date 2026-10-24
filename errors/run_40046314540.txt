@@ -1,0 +1,31 @@
+[ 14%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 54%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 93%] Built target apxpc_wireless
+[100%] Built target apxhost
+[ 14%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 54%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 93%] Built target apxpc_wireless
+[ 95%] Linking CXX executable apxdesktop
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a'
+Undefined symbols for architecture arm64:
+  "apxpc::media::ScreenPush::stop()", referenced from:
+      _main in desktop_main.cpp.o
+  "apxpc::media::ScreenPush::~ScreenPush()", referenced from:
+      _main in desktop_main.cpp.o
+      std::__1::unique_ptr<apxpc::media::ScreenPush, std::__1::default_delete<apxpc::media::ScreenPush>>::~unique_ptr[abi:nqe210106]() in desktop_main.cpp.o
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxdesktop] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
