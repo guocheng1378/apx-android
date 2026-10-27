@@ -1,0 +1,62 @@
+[ 12%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 43%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 75%] Built target apxpc_service
+[ 87%] Built target apxpc_wireless
+[ 95%] Built target apxpc_localsend
+[ 95%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+duplicate symbol 'apxpc::tray::TrayIcon::~TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::~TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+ld: 4 duplicate symbols
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 12%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 32%] Built target apxpc_media
+[ 42%] Built target apxpc_discovery
+[ 48%] Built target apxpc_sensors
+[ 73%] Built target apxpc_service
+[ 85%] Built target apxpc_wireless
+[ 93%] Built target apxpc_localsend
+[ 95%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+[ 97%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+[100%] Linking CXX executable apxdesktop
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+duplicate symbol 'apxpc::tray::TrayIcon::~TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::~TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+duplicate symbol 'apxpc::tray::TrayIcon::TrayIcon()' in:
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[13](tray_mac.mm.o)
+    /Users/runner/work/apx-android/apx-android/build_host/libapxpc_service.a[10](tray_win32.cpp.o)
+ld: 4 duplicate symbols
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxdesktop] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
