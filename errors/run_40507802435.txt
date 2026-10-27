@@ -1,0 +1,49 @@
+[ 12%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 33%] Building CXX object CMakeFiles/apxpc_discovery.dir/src/discovery/usb_enum_iokit.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/discovery/usb_enum_iokit.cpp:32:10: fatal error: 'IOKit/usb/IOUSBHostFamily.h' file not found
+   32 | #include <IOKit/usb/IOUSBHostFamily.h>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/discovery/usb_enum_iokit.cpp:32:10: note: did not find header 'usb/IOUSBHostFamily.h' in framework 'IOKit' (loaded from '/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks')
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_discovery.dir/src/discovery/usb_enum_iokit.cpp.o] Error 1
+[ 35%] Building CXX object CMakeFiles/apxpc_discovery.dir/src/discovery/discovery.cpp.o
+[ 37%] Building CXX object CMakeFiles/apxpc_discovery.dir/src/discovery/usb_types.cpp.o
+make[3]: Target `CMakeFiles/apxpc_discovery.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_discovery.dir/all] Error 2
+[ 43%] Built target apxpc_sensors
+[ 45%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/wireless_session.cpp.o
+[ 47%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:77:9: warning: unused function 'nowMs' [-Wunused-function]
+   77 | int64_t nowMs() {
+      |         ^~~~~
+1 warning generated.
+[ 50%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/file_receiver.cpp.o
+[ 52%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/file_sender.cpp.o
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_injector_mac.mm.o
+[ 54%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o
+[ 56%] Linking CXX static library libapxpc_wireless.a
+[ 56%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 12%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 32%] Built target apxpc_media
+[ 32%] Building CXX object CMakeFiles/apxpc_discovery.dir/src/discovery/usb_enum_iokit.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/discovery/usb_enum_iokit.cpp:32:10: fatal error: 'IOKit/usb/IOUSBHostFamily.h' file not found
+   32 | #include <IOKit/usb/IOUSBHostFamily.h>
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/discovery/usb_enum_iokit.cpp:32:10: note: did not find header 'usb/IOUSBHostFamily.h' in framework 'IOKit' (loaded from '/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks')
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_discovery.dir/src/discovery/usb_enum_iokit.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_discovery.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_discovery.dir/all] Error 2
+[ 38%] Built target apxpc_sensors
+[ 51%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
