@@ -324,6 +324,24 @@ android/app/src/main/java/com/allperiph/
 **仍未迁**：快捷键模板的**编辑器**（新建/改名/拖拽排序要进 HotkeyBoard，属键盘页那一块）；
 `logcat`（全进程日志，需 root 抓取，旧实现留在旧设置页）；状态通道自检对话框。
 
+### 9.10 第六批：触控板页（2026-10-28）
+
+用户口径再次确认：**不要旧 UI，全部重做**。所以这一批开始动「主页面」本身。
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/touchpad/GestureInput.kt`（新） | Compose 指针事件 → MotionEvent 的桥：第一个指头按下 ACTION_DOWN、后续按下 ACTION_POINTER_DOWN（带索引）、抬起 ACTION_UP/POINTER_UP、其余 ACTION_MOVE；交给既有的 `TouchpadModule.feed()` |
+| `ui/feature/touchpad/TouchpadScreen.kt`（新） | 手势面 + 液态光标（按下放大 + 外圈光晕，位置直接取指针不做插值）+ 顶部状态条；长按/双指/三指手势全部由既有 `GestureEngine` 识别 |
+
+**关键取舍**：手势识别**不重写**。`touchpad/GestureEngine.kt`（410 行）是纯逻辑、只吃 MotionEvent，
+「跟手」的两级加速、惯性滚动版本号、双指/三指的里程碑反馈都调过；重写等于把这些参数丢掉重调。
+Compose 侧只做界面与事件桥，手势行为与旧页一致。
+
+**外壳变化**：底部第一个标签从「首页（占位）」改成「触控板」，接真页面。
+
+**这一页还没搬完的**：快捷键条（HotkeyBoard，属键盘页那块）、全屏控制台
+（`TouchpadActivity` 1505 行：分栏、光标锁、悬浮球入口、屏内按钮）。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
