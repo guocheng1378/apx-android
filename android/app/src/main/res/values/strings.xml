@@ -519,4 +519,9 @@
     <string name="ui_keyboard_power_reboot">重启</string>
     <string name="shell_kb_remote">遥控</string>
     <string name="shell_kb_game">游戏</string>
+    <string name="shell_custom_kbd_hint">还没自定义布局。点「编辑」可以自己排按键：一行一行加，键从字母 / 数字 / 符号 / 编辑键 / 方向键 / 功能键里选</string>
+    <string name="shell_custom_kbd_edit">编辑</string>
+    <string name="shell_custom_kbd_add_row">加一行</string>
+    <string name="shell_custom_kbd_add_key">加键</string>
+    <string name="shell_kb_custom">自定义</string>
 </resources>
