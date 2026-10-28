@@ -382,6 +382,21 @@ Compose 侧只做界面与事件桥，手势行为与旧页一致。
 
 **仍缺**：自定义布局面板与它的编辑器（`CustomKeyboardDialog` 145 行 + `KeyPref` 的 custom_rows）。
 
+### 9.14 第九批：自定义布局面板（键盘页收口，2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/keyboard/CustomPanel.kt`（新） | 自定义布局面板：没有行表时给引导入口；有行表时按行渲染键帽。编辑器：点键帽删除、行尾「加键」（按 `HidKeys.KEY_GROUPS` 六组选）、「加一行」、清空、保存 |
+| `ui/feature/keyboard/KeyCap.kt`（新） | 键帽从 KeyboardScreen 提出来，全键 / 游戏 / 自定义三个面板共用一份 |
+
+存储**不新增**：仍是 `KeyPref.customRows` / `setCustomRows`（`apx_kb` 里的 JSON 行表），
+新旧界面看到同一套自定义键位。编辑器只允许选 `KEY_GROUPS` 里的键 —— 它们都有确定的 usage，
+排不出「按不响」的键（键面文字反查不到 usage 时发送会静默失败，这个坑旧版注释里就记过）。
+
+**键盘页到此收口**：八套面板（全键 / 数字 / 九宫格 / 方向 / F 区 / 遥控 / 游戏 / 自定义）
+全部在 Compose 里，旧 `KeyboardPanels`（525 行）+ `CustomKeyboardDialog`（145 行）+
+`HotkeyBoard`（505 行）+ `KeyPref` 的渲染部分可随启动入口切换一起删除。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
