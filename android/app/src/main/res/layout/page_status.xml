@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  状态块（已并入设置页顶，反馈#10）：根节点改 LinearLayout 平铺，滚动交给设置页外层
+  ScrollView；左右/底部留白由设置页统一提供（本块不再自带 padding）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pageStatus"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="@dimen/space_4">
+
+        <!--
+          状态概览：一行文字（状态 · 出口 · 环境摘要），不再用大卡片。
+          「大号 30sp 状态字 + 整卡白底」占掉首屏近 1/3，而这两条信息在顶栏徽章里
+          本来就有；这里降级成一行，把首屏让给真正的操作入口。
+        -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/space_4"
+            android:paddingEnd="@dimen/space_4"
+            android:paddingTop="@dimen/space_8"
+            android:paddingBottom="@dimen/space_4">
+
+            <TextView
+                android:id="@+id/tvOverall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/common_off"
+                android:textColor="@color/md_on_background"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvOverallSub"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="@dimen/space_8"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="@string/common_unknown"
+                android:textAppearance="@style/APTextCaption" />
+        </LinearLayout>
+
+        <!--
+          传输入口：三个按钮（点一下**进对应分类**，不再就地开关）。进去的是设置页右栏的
+          「无线 / 蓝牙 / 有线（USB）」分类页 —— 那一页第一张卡就是这一类的总开关。
+          真机反馈原话：「设置页左边三个传输按钮点了应该弹出对应分类」；开关搬到分类页里做，
+          按钮本身只导航，同时用选中色显示当前开/关状态（renderTransportButtons）。
+          选中态由代码上色（APButtonGhost 是描边胶囊，未选中保持中性）。
+
+          ⚠️ 竖排、整列宽（原来是三个横排的 0dp+weight=1）：
+          本块现在只活在**设置页左栏**（1/3 宽，竖屏约 114dp）。三个 weight=1 的按钮
+          平分下来每个只有 ~33dp，「无线/蓝牙/USB」被单行 + ellipsize 切得一个字都不剩 ——
+          真机截图里就是三个空描边胶囊。竖排后每个按钮占满整列宽，标签完整。
+          （本块全仓只有 layout/page_settings.xml 一处 include，改竖排不会牵连别处。）
+        -->
+        <LinearLayout
+            android:id="@+id/rowsTransport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingTop="@dimen/space_4"
+            android:paddingBottom="@dimen/space_4">
+
+            <TextView
+                android:id="@+id/btnTransportWifi"
+                style="@style/APTransportButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="0"
+                android:text="@string/lay_transport_wifi"
+                android:contentDescription="@string/lay_transport_wifi_cd" />
+
+            <TextView
+                android:id="@+id/btnTransportBt"
+                style="@style/APTransportButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="0"
+                android:layout_marginTop="@dimen/space_8"
+                android:text="@string/lay_transport_bt"
+                android:contentDescription="@string/lay_transport_bt_cd" />
+
+            <TextView
+                android:id="@+id/btnTransportUsb"
+                style="@style/APTransportButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_weight="0"
+                android:layout_marginTop="@dimen/space_8"
+                android:text="USB"
+                android:contentDescription="@string/lay_transport_usb_cd" />
+        </LinearLayout>
+
+        <!-- 一行说明：按钮现在是「入口」，别让人以为点了没反应（真机反馈的下一句担心） -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="@dimen/space_4"
+            android:paddingEnd="@dimen/space_4"
+            android:paddingTop="@dimen/space_2"
+            android:paddingBottom="@dimen/space_2"
+            android:text="@string/hint_transport_enter"
+            android:textAppearance="@style/APTextCaption" />
+
+        <TextView
+            android:id="@+id/tvIdleHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="@dimen/space_4"
+            android:paddingTop="@dimen/space_2"
+            android:paddingBottom="@dimen/space_8"
+            android:text="@string/hint_idle"
+            android:textAppearance="@style/APTextCaption" />
+
+        <!-- 批C：功能说明九行已搬进帮助页 groupHelp；本容器保留为空壳——
+             StatusFragment ensureViews 找不到会 return false、MainActivity lateinit 会 NPE，
+             子 TextView 无 id 故代码不可达；透明空壳高为 0、零渲染。 -->
+        <LinearLayout
+            android:id="@+id/boxIdleFeatures"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            android:orientation="vertical"
+            android:padding="0dp" />
+
+        <!-- 批C：三步上手三行已搬进帮助页 groupHelp -->
+
+        <LinearLayout
+            android:id="@+id/boxRunning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>
