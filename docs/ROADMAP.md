@@ -467,3 +467,89 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 > 需第三方虚拟手柄驱动，见 §2.2「尚未接入」。
 
 > 每一步都遵循项目硬性原则：**不可用则如实标注（`ModuleState.DEGRADED/ERROR`），绝不伪装成功。**
+
+---
+
+## 五、Android UI 全量重构为 Compose + Miuix（2026-10-28 定案）
+
+> 详细方案见 `docs/COMPOSE-REFACTOR.md`。本节只写**口径**，方案文件写**做法**。
+
+### 5.1 范围与三条硬口径
+
+1. **范围 = 整个 Android 端 UI**：手机端（`android/app`）+ 电视端（`android/tv`）的全部界面。
+   量级：手机端 UI 约 **1.08 万行** Kotlin（`ui/` 45 文件 + `touchpad/` + `screen/` 等）+ TV 端 **1 639 行**，
+   外加 **12 个布局 XML**。这些**全部重写**，不是挑几页试点。
+2. **旧 UI 不保留**：现有 Views 实现（Activity / Fragment / 自绘 View / 布局 XML / `ui/kit/ApKit.kt` 设计系统）
+   在对应页面迁移完成的**同一个提交里删除** —— 不做双实现、不留运行时切换开关、不冻结旧代码。
+   回退手段是 **git 分支与 tag**（每阶段打 tag），不是运行时开关。
+3. **只重写 UI 层**：协议、传输、服务编排、NDK（`shared/` C++）、PC 端**不动**。
+   唯一被显式修改的仓库级约定：
+
+   | 原约定 | 新约定 |
+   |---|---|
+   | 生产代码零第三方依赖（`README.md` / `android/app/build.gradle.kts`） | **UI 层**允许 Apache-2.0 的 Compose 栈（Compose runtime/ui/foundation/material3 + androidx.activity + Miuix）；**非 UI 层**（core/hid/audio/bt/gadget/wireless/localsend/controlled/shared NDK）**维持零第三方依赖** |
+   | 离线可用（只依赖 framework API） | **保留**：依赖随仓库 / 内部镜像缓存，不要求现场联网 |
+
+### 5.2 脚手架：Miuix（compose-miuix-ui/miuix）
+
+选型理由：Apache-2.0（可闭源分发，与 MIT 兼容）；纯 Compose 组件库，自带设置页最缺的
+偏好行 / 分区标题 / 卡片 / 下拉 / 对话框；可离线缓存。脚手架形态照 MiuixGuiExample（katiusu/MiuixGuiExample）取：
+**形态自由切换**（按窗口宽度断点 600 / 840 / 1200dp → 手机 1 列 / 平板·宽屏 2 列 / 电视 3 列）、
+**组件可自定义**（改单个组件参数，或给子树套局部 `MiuixTheme`）、设置项注册表驱动偏好行。
+
+### 5.3 工具链一次抬到位（不做两段式迁移）
+
+| 项 | 现状 | 目标 | 依据 |
+|---|---|---|---|
+| AGP | 8.7.3 | **9.4.1** | Miuix 自身 `gradle/libs.versions.toml`、MiuixGuiExample 同值 |
+| Gradle | 8.9 | **9.7.1** | MiuixGuiExample 的 wrapper |
+| Kotlin | 2.0.21（master）/ 2.1.21（试验分支） | **2.4.21** | Miuix 自身版本表 |
+| compileSdk | 35 | **37** | MiuixGuiExample `app/build.gradle.kts` 注释：「Miuix 0.9.4 的 AAR 元数据要求依赖方 compileSdk >= 37」 |
+| build-tools（CI） | 35.0.0 | **37.0.0** | 随 compileSdk |
+| Compose | 无 | **BOM 2026.09.00** + activity-compose 1.13.0 | MiuixGuiExample 版本表 |
+| Miuix | 无（试验分支 0.5.0） | **0.9.4** 多模块 | `miuix-core/ui/shader/blur/preference/icons/squircle/nav` |
+
+CI 同步改造：sdkmanager 增 `platforms;android-37` + `build-tools;37.0.0`；
+`gradle wrapper --gradle-version 9.7.1`；JDK 17 保持不变。
+
+### 5.4 六条架构决策
+
+1. **宿主**：`ComponentActivity` + Compose，UI 不再由 Fragment 承载。
+2. **导航**：用 Miuix 自带 `miuix-nav`（`NavController` / `NavDisplay` / `NavKey`，已集成 predictive back），
+   不引 `androidx.navigation`。
+3. **主题**：Miuix `Colors` 为唯一真源；系统取色用 0.9.x 的 `ColorSchemeMode` / `ThemeController`；
+   现有 `md_*` 令牌与 `ThemeSkin` 皮肤在迁移期降级为**一层 override**，迁移完成即删。
+4. **形态**：`MiuixForm` 宽度断点 + 0.9.x 的 `NavigationRail`（手机底栏 / 宽屏侧栏）。
+5. **手势面**：触控板与虚拟摇杆用 Compose `pointerInput` 重写 —— **最高风险项**，单独排期与真机验证。
+6. **组件自定义**：`MiuixTokens.scheme(dark, override)` 是唯一的局部覆盖入口（全局主题仍只有一个真源）。
+
+### 5.5 阶段
+
+| 阶段 | 内容 | 出口判据 |
+|---|---|---|
+| P0 | 工具链与基础设施（依赖、主题层、导航层、形态层） | 新旧两套可同时构建；CI 绿 |
+| P1 | 主壳：首页 / 状态 / 设置（Compose） | 三页功能对齐，**旧 Fragment 与对应布局删除** |
+| P2 | 手势面：触控板 / 虚拟摇杆 | 真机手势与延迟达标，**旧 View 与 Activity 删除** |
+| P3 | 次级页：文件面板 / 发送 / 远控 / 副屏 / 快捷键 / 键盘 | 逐页替换并删除旧实现 |
+| P4 | TV 端 | 遥控器焦点、10-foot 导航、形态钉死 |
+| P5 | 收口：删旧 UI、`ApKit`、布局 XML、`md_*` 令牌 | 全仓无 Views UI 残留 |
+
+**进度（2026-10-28）**：
+- P0 工具链：已由远端 miuix-ui 分支落地（AGP 9.4.1 / Gradle 9.7.1 / compileSdk 37 /
+  Miuix 0.9.4 / CI JDK 21），本线不重复改。
+- P1 外壳与主题/形态层：已落地（`ui/miuix/MiuixForm.kt` 形态层、
+  `ui/feature/shell/` 形态自适应骨架、主题走既有 `ThemePref`）。
+- P1 状态页：已落地为真页面（`ui/feature/status/`，数据层脱离 Activity）。
+- P1 剩余：设置页五个分类 → 键盘页 → 触控板页 → 新外壳接管启动入口，
+  同提交删除旧 Activity / Fragment / 布局（不留双轨的最终态在这一步保证）。
+详见 `docs/COMPOSE-REFACTOR.md` §9。
+
+### 5.6 风险（登记在方案文件 §6）
+
+工具链大版本跃迁（AGP 9 / Kotlin 2.4 / compileSdk 37）· Miuix 官方自述 experimental ·
+手势面重写 · TV 焦点系统 · APK 体积与冷启动 · 迁移期功能冻结约束。
+
+### 5.7 不做的事
+
+不改协议 / 传输 / NDK；不保留旧 UI 双实现；重构期**不新增功能**（冻结范围，避免边改边加）；
+除 Miuix 与 Compose 栈外不引其它三方 UI 库（模糊材质先用 Miuix 自带 blur/shader，Haze 等另行评估）。
