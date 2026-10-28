@@ -126,18 +126,22 @@ class MiuixAboutCard @JvmOverloads constructor(
                         .padding(16.dp, 8.dp, 16.dp, 0.dp),
                 )
                 // 两个按钮各占整行（并排时窄屏上文字会顶到边 —— 与旧卡同一约定）
+                // TextButton 的 onClick 是**第二个位置参数**（尾 lambda 会绑到末尾的
+                // insideMargin: PaddingValues 上）—— 必须 named 传，CI 实测两种错各一条。
                 TextButton(
                     text = context.getString(R.string.about_check_update),
+                    onClick = { check(manual = true) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp, 10.dp, 16.dp, 0.dp),
-                ) { check(manual = true) }
+                )
                 TextButton(
                     text = context.getString(R.string.about_feedback),
+                    onClick = { IssueLauncher.open(context) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp, 10.dp, 16.dp, 16.dp),
-                ) { IssueLauncher.open(context) }
+                )
             }
         }
     }
