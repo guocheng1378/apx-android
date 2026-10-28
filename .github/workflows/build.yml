@@ -89,18 +89,18 @@ jobs:
             fi
           done
 
-      # AGP 9 需要 Gradle 9.7.1（wrapper properties 已入库为 9.7.1）。
-      # 不能在项目目录里直接跑 `gradle wrapper` —— 那会先加载 settings 并配置本项目，
-      # 而 runner 自带的 Gradle 可能低于 AGP 9 的要求，配置期直接失败。
-      # 在隔离目录生成 wrapper 产物（jar + 脚本）再拷进来，不触碰本项目配置。
-      - name: Generate Gradle Wrapper (isolated dir)
+      # Gradle 9.7.1 wrapper 三件套：仓库只提交了 properties（distributionUrl=9.7.1），
+      # gradlew / gradlew.bat / gradle-wrapper.jar 不入库 —— 从 gradle 仓库 v9.7.1
+      # tag 直接下载（wrapper 脚本是通用件，适用任何项目）。
+      # run#668 教训：`gradle wrapper` 依赖 runner 自带的 gradle 命令，
+      # ubuntu-latest 镜像滚动更新下它不可靠——本次在隔离目录直接失败，
+      # Build 根本没跑（annotation 只剩「未捕获到 error 行」）。
+      - name: Download Gradle wrapper (9.7.1)
         run: |
-          mkdir -p /tmp/wrapgen && cd /tmp/wrapgen
-          gradle wrapper --gradle-version 9.7.1 --no-daemon
-          cp gradlew gradlew.bat "$GITHUB_WORKSPACE/android/"
-          mkdir -p "$GITHUB_WORKSPACE/android/gradle/wrapper"
-          cp gradle/wrapper/gradle-wrapper.jar "$GITHUB_WORKSPACE/android/gradle/wrapper/"
-          cd "$GITHUB_WORKSPACE/android"
+          BASE=https://raw.githubusercontent.com/gradle/gradle/v9.7.1
+          curl -fsSL --retry 3 -o gradlew "$BASE/gradlew"
+          curl -fsSL --retry 3 -o gradlew.bat "$BASE/gradlew.bat"
+          curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar "$BASE/gradle/wrapper/gradle-wrapper.jar"
           chmod +x ./gradlew
 
       - name: Make gradlew executable
@@ -114,7 +114,7 @@ jobs:
         if: failure()
         run: |
           echo "========== BUILD FAILED =========="
-          grep -n -A 5 -i "error:" /tmp/build.log 2>/dev/null || true
+          grep -an -A 5 -i "error:" /tmp/build.log 2>/dev/null || true
           echo "========== LAST 80 LINES =========="
           tail -80 /tmp/build.log 2>/dev/null || true
 
@@ -133,14 +133,29 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p ci-log
-          grep -n -E "^e: |error: |FAILURE: |What went wrong|> Task .*FAILED|Execution failed" \
-            /tmp/build.log 2>/dev/null | head -60 > ci-log/errors.txt || true
+          # grep -a：Kotlin/Gradle 错误输出可能带 ANSI 颜色码（run#668 教训：
+          # `^e: ` 因行首有转义序列全部漏配，annotation 只剩「未捕获到 error 行」）
+          if [ -f /tmp/build.log ]; then
+            grep -an -E "e: |error: |FAILURE: |What went wrong|> Task .*FAILED|Execution failed" \
+              /tmp/build.log | head -60 > ci-log/errors.txt || true
+            tail -60 /tmp/build.log > ci-log/last60.txt || true
+          else
+            echo "/tmp/build.log 不存在 —— Build 步骤未执行或前置步骤失败（看本 job 各 step 状态）" > ci-log/errors.txt
+            : > ci-log/last60.txt
+          fi
           echo "========== ERRORS =========="; cat ci-log/errors.txt 2>/dev/null || true
+          echo "========== LAST 60 LINES =========="; cat ci-log/last60.txt 2>/dev/null | head -60 || true
           {
             echo "## Android 构建失败 · 错误摘录"
             echo ''
             echo '```'
             head -40 ci-log/errors.txt 2>/dev/null || true
+            echo '```'
+            echo ''
+            echo '### 最后 60 行'
+            echo ''
+            echo '```'
+            cat ci-log/last60.txt 2>/dev/null | head -40 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           # workflow command 需要转义 %、CR、LF（顺序：先 % 再换行）
@@ -152,8 +167,15 @@ jobs:
             n=$((n + 1))
             [ "$n" -ge 10 ] && break
           done < ci-log/errors.txt
+          # 错误行没捕获到时，用 build.log 尾部兜底（run#668 教训）
           if [ "$n" -eq 0 ]; then
-            echo "::error title=Android build error::未捕获到 error 行，请下载 artifact build-log-android 查看完整日志"
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              msg=$(printf '%s' "$line" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g' | cut -c1-600)
+              echo "::error title=Android build tail::${msg}"
+              n=$((n + 1))
+              [ "$n" -ge 8 ] && break
+            done < ci-log/last60.txt
           fi
 
       - name: Upload build log (debug)
@@ -163,6 +185,7 @@ jobs:
           name: build-log-android
           path: |
             ci-log/errors.txt
+            ci-log/last60.txt
             /tmp/build.log
           retention-days: 7
           if-no-files-found: ignore
