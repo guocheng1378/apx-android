@@ -20,6 +20,7 @@ import com.allperiph.R
 import com.allperiph.hid.HidKeys
 import com.allperiph.ui.kit.ApKit
 import com.allperiph.wireless.ControlTarget
+import com.allperiph.ui.feature.device.DevicePickerActivity
 
 /**
  * 「遥控器」—— 仿小米遥控器的**拨盘式**布局（真机反馈"找不到遥控器界面"，之后又要求更像遥控器）。
@@ -497,10 +498,7 @@ class RemoteActivity : Activity() {
      * 带上之后它会直接弹出选择器，选完/取消自动 finish 回到本页，本页 onResume 再刷新目标。
      */
     private fun pickTarget() {
-        startActivity(
-            Intent(this, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
-        )
+        startActivity(Intent(this, DevicePickerActivity::class.java))
     }
 
     /** 多媒体键：按下 + 60ms 释放（被控端按位图边沿识别，见 HotkeyController） */

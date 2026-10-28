@@ -20,6 +20,7 @@ import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.core.Uplink
+import com.allperiph.ui.feature.shell.ApShellActivity
 import com.allperiph.R
 
 /**
@@ -114,7 +115,7 @@ class AgentForegroundService : Service() {
     private fun buildNotification(): Notification {
         val openPi = PendingIntent.getActivity(
             this, 1,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(this, ApShellActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stopPi = PendingIntent.getService(

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import com.allperiph.ui.feature.shell.ApShellActivity
 
 /**
  * 控制页快捷入口：给快捷设置 Tile 与外部 App（`com.allperiph.OPEN_CONTROL`）用。
@@ -34,7 +35,7 @@ class ControlShortcutActivity : Activity() {
         // 先结束自己：中转页不该有任何可见界面
         finish()
         startActivity(
-            Intent(this, MainActivity::class.java).apply {
+            Intent(this, ApShellActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
         )
