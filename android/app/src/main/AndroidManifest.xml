@@ -111,6 +111,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- miuix-ui 分支：组件总览（开发页，从设置页「关于」卡进入） -->
+        <activity
+            android:name=".ui.miuix.MiuixShowcaseActivity"
+            android:label="Miuix 组件总览"
+            android:exported="false" />
 
         <!--
           ② 触控板（手势捕捉面，v1.19）

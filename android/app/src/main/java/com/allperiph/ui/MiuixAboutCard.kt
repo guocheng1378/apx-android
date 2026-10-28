@@ -140,6 +140,16 @@ class MiuixAboutCard @JvmOverloads constructor(
                     onClick = { IssueLauncher.open(context) },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(16.dp, 10.dp, 16.dp, 0.dp),
+                )
+                // miuix-ui 分支：组件总览（开发页）—— 一页看全 Miuix 组件在本主题下的效果
+                TextButton(
+                    text = "组件总览（Miuix）",
+                    onClick = {
+                        context.startActivity(android.content.Intent(context, miuix.MiuixShowcaseActivity::class.java))
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
                         .padding(16.dp, 10.dp, 16.dp, 16.dp),
                 )
             }
