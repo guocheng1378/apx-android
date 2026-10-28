@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.allperiph.ui.feature.settings.SettingsPage
+import com.allperiph.ui.feature.touchpad.TouchpadScreen
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.LocalMiuixFormOverride
 import com.allperiph.ui.miuix.MiuixForm
@@ -38,7 +39,7 @@ class ApShellActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalMiuixFormOverride provides formOverride) {
                     ApShell { tab ->
                         when (tab) {
-                            ShellTab.HOME -> ShellHomeScreen()
+                            ShellTab.HOME -> TouchpadScreen()
                             ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
                             ShellTab.SETTINGS -> SettingsPage(
                                 context = this@ApShellActivity,

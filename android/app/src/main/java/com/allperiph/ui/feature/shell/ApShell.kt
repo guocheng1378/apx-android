@@ -67,7 +67,7 @@ fun ApShell(
     var tab by remember { mutableStateOf(initialTab) }
 
     val entries = listOf(
-        ShellEntry(ShellTab.HOME, stringResource(R.string.shell_tab_home), MiuixIcons.Home),
+        ShellEntry(ShellTab.HOME, stringResource(R.string.shell_tab_touchpad), MiuixIcons.Home),
         ShellEntry(ShellTab.STATUS, stringResource(R.string.shell_tab_status), MiuixIcons.Tasks),
         ShellEntry(ShellTab.SETTINGS, stringResource(R.string.shell_tab_settings), MiuixIcons.Settings),
     )

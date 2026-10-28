@@ -497,4 +497,5 @@
     <string name="shell_about_latest">已是最新（%1$s）</string>
     <string name="shell_about_failed">检查失败，稍后再试</string>
     <string name="shell_about_showcase">组件总览（开发用）</string>
+    <string name="shell_tab_touchpad">触控板</string>
 </resources>
