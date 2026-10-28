@@ -17,7 +17,7 @@ import com.allperiph.ui.feature.keyboard.KeyboardScreen
 import com.allperiph.ui.feature.remote.RemoteScreen
 import com.allperiph.ui.feature.send.SendScreen
 import com.allperiph.ui.feature.settings.SettingsPage
-import com.allperiph.ui.feature.status.ShellStatusScreen
+import com.allperiph.ui.feature.shell.ShellStatusScreen
 import com.allperiph.ui.feature.touchpad.TouchpadScreen
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.LocalMiuixFormOverride

@@ -13,7 +13,7 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import com.allperiph.R
-import com.allperiph.shared.net.ClipboardSync
+import com.allperiph.ui.ClipboardSync
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.ControlConnect
 import com.allperiph.ui.ThemePref
@@ -105,7 +105,7 @@ class DevicePickerActivity : ComponentActivity() {
                         name = ip,
                         type = "tv",
                         onReverseClipboard = { recvReverseClipboard(it) },
-                        onResult = { ok ->
+                        onDone = { ok ->
                             runOnUiThread {
                                 if (!ok) {
                                     Toast.makeText(this, R.string.ui_main_toast_done, Toast.LENGTH_SHORT).show()
@@ -128,7 +128,7 @@ class DevicePickerActivity : ComponentActivity() {
             name = name,
             type = type,
             onReverseClipboard = { recvReverseClipboard(it) },
-            onResult = { ok ->
+            onDone = { ok ->
                 runOnUiThread {
                     if (!ok) {
                         Toast.makeText(this, R.string.ui_main_toast_done, Toast.LENGTH_SHORT).show()
