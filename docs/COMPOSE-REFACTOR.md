@@ -266,6 +266,19 @@ android/app/src/main/java/com/allperiph/
 同提交删除 `MainActivity` / `StatusFragment` / `SettingsFragment` / `TouchpadFragment`
 与全部旧布局。
 
+### 9.7 第三批：设置页 · 外观分类（2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/settings/LookSettings.kt`（新） | 设置页 **外观**分类：主题明暗（既有 `ThemePref`）、三个模块的皮肤（`ThemeSkin.SCOPES` + `PRESETS` + 自定义皮肤，Miuix `WindowDialog` 选）、背景（纯色预设 + 相册选图 + 清除图片）、动效 / 震动 / 声音（`ThemeSkin` 三组标签做下拉） |
+
+**口径**：偏好读写全部走既有的 `ThemePref` / `ThemeSkin` —— 新旧界面改的是同一份存储，
+不会出现「两边设置各存一份」。选纯色背景会撤掉自定义图片、选图要申请持久读权限、
+主题切换要重建 Activity，都与旧设置页同款。
+
+**新外壳设置页当前构成**：外观分类（真）+ 界面形态（真）；通用 / 遥控 / 关于 / 帮助四个
+分类待迁（旧实现：`page_settings.xml` 62KB + `SettingsFragment` 1041 行）。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
