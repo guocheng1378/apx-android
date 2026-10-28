@@ -66,7 +66,8 @@ class MiuixShowcaseActivity : ComponentActivity() {
         var checked by remember { mutableStateOf(false) }
         var slider by remember { mutableFloatStateOf(0.4f) }
         var dropdown by remember { mutableStateOf(1) }
-        var showDialog by remember { mutableStateOf(false) }
+        // SuperDialog 的 show 参数是 MutableState<Boolean>（0.5.0 签名）—— 传状态对象本身
+        val showDialogState = remember { mutableStateOf(false) }
         val textState = rememberTextFieldState()
 
         Column(
@@ -107,7 +108,7 @@ class MiuixShowcaseActivity : ComponentActivity() {
             }
             TextButton(
                 text = "弹出 SuperDialog",
-                onClick = { showDialog = true },
+                onClick = { showDialogState.value = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.textButtonColorsPrimary(),
             )
@@ -118,6 +119,7 @@ class MiuixShowcaseActivity : ComponentActivity() {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Row(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                         Text(text = "Switch 开关", fontSize = 15.sp, modifier = Modifier.weight(1f))
+                        // Switch/Checkbox 的 onCheckedChange 同为第二位置参数 —— named 传（0.5.0 签名）
                         Switch(checked = switchOn, onCheckedChange = { switchOn = it })
                     }
                     Row(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -173,16 +175,15 @@ class MiuixShowcaseActivity : ComponentActivity() {
                 }
             }
 
-            // —— 对话框（声明式：常驻树里，show 驱动）——
+            // —— 对话框（声明式：常驻树里，show 是 MutableState<Boolean>）——
             SuperDialog(
-                show = showDialog,
+                show = showDialogState,
                 title = "SuperDialog",
-                summary = "声明式弹窗：show 驱动，不是 showDialog() 命令式",
-                onDismissRequest = { showDialog = false },
+                summary = "声明式弹窗：传 MutableState，不是 showDialog() 命令式",
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TextButton(text = "取消", onClick = { showDialog = false }, modifier = Modifier.weight(1f))
-                    Button(onClick = { showDialog = false }, modifier = Modifier.weight(1f)) {
+                    TextButton(text = "取消", onClick = { showDialogState.value = false }, modifier = Modifier.weight(1f))
+                    Button(onClick = { showDialogState.value = false }, modifier = Modifier.weight(1f)) {
                         Text(text = "确定", fontSize = 15.sp)
                     }
                 }

@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.ui.miuix.MiuixShowcaseActivity
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
@@ -146,7 +147,7 @@ class MiuixAboutCard @JvmOverloads constructor(
                 TextButton(
                     text = "组件总览（Miuix）",
                     onClick = {
-                        context.startActivity(android.content.Intent(context, miuix.MiuixShowcaseActivity::class.java))
+                        context.startActivity(android.content.Intent(context, MiuixShowcaseActivity::class.java))
                     },
                     modifier = Modifier
                         .fillMaxWidth()
