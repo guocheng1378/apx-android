@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeProgressive
@@ -236,7 +237,7 @@ class MiuixShowcaseActivity : ComponentActivity() {
     /**
      * 组件总览：文本 / 卡片 / 按钮 / 开关 / 选择 / 滑杆 / 输入 / 偏好行 / 下拉 / 对话框。
      * 0.9.4 迁移点：偏好行改名移包（preference）、对话框换 WindowDialog（show 是 Boolean）、
-     * Slider 改 value/onValueChange。
+     * Slider 改 value/onValueChange、Checkbox 改三态 ToggleableState + onClick。
      */
     @Composable
     private fun ComponentsDemo() {
@@ -294,7 +295,11 @@ class MiuixShowcaseActivity : ComponentActivity() {
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                     Text(text = "Checkbox 复选", fontSize = 15.sp, modifier = Modifier.weight(1f))
-                    Checkbox(checked = checked, onCheckedChange = { checked = it })
+                    // 0.9.4：Checkbox 改三态 ToggleableState + onClick（caller 负责翻转）
+                    Checkbox(
+                        state = if (checked) ToggleableState.On else ToggleableState.Off,
+                        onClick = { checked = !checked },
+                    )
                 }
             }
         }
