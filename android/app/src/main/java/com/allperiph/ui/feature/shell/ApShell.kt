@@ -22,12 +22,14 @@ import top.yukonga.miuix.kmp.basic.NavigationRailItem
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
+import top.yukonga.miuix.kmp.icon.extended.GridView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tasks
 
 /** 新外壳的三个标签页 */
 enum class ShellTab {
     HOME,
+    KEYBOARD,
     STATUS,
     SETTINGS,
 }
@@ -68,6 +70,7 @@ fun ApShell(
 
     val entries = listOf(
         ShellEntry(ShellTab.HOME, stringResource(R.string.shell_tab_touchpad), MiuixIcons.Home),
+        ShellEntry(ShellTab.KEYBOARD, stringResource(R.string.shell_tab_keyboard), MiuixIcons.GridView),
         ShellEntry(ShellTab.STATUS, stringResource(R.string.shell_tab_status), MiuixIcons.Tasks),
         ShellEntry(ShellTab.SETTINGS, stringResource(R.string.shell_tab_settings), MiuixIcons.Settings),
     )

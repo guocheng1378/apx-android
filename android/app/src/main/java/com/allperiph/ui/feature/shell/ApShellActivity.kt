@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.allperiph.ui.feature.keyboard.KeyboardScreen
 import com.allperiph.ui.feature.settings.SettingsPage
 import com.allperiph.ui.feature.touchpad.TouchpadScreen
 import com.allperiph.ui.miuix.ApMiuixTheme
@@ -40,6 +41,7 @@ class ApShellActivity : ComponentActivity() {
                     ApShell { tab ->
                         when (tab) {
                             ShellTab.HOME -> TouchpadScreen()
+                            ShellTab.KEYBOARD -> KeyboardScreen()
                             ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
                             ShellTab.SETTINGS -> SettingsPage(
                                 context = this@ApShellActivity,

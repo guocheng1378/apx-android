@@ -498,4 +498,10 @@
     <string name="shell_about_failed">检查失败，稍后再试</string>
     <string name="shell_about_showcase">组件总览（开发用）</string>
     <string name="shell_tab_touchpad">触控板</string>
+    <string name="shell_kb_qwerty">全键</string>
+    <string name="shell_kb_numpad">数字</string>
+    <string name="shell_kb_grid9">九宫格</string>
+    <string name="shell_kb_arrows">方向</string>
+    <string name="shell_kb_fn">F 区</string>
+    <string name="shell_tab_keyboard">键盘</string>
 </resources>

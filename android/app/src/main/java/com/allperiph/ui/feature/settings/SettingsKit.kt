@@ -1,19 +1,13 @@
 package com.allperiph.ui.feature.settings
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -21,7 +15,7 @@ import com.allperiph.R
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.allperiph.ui.miuix.CapsuleRow
 
 /**
  * 设置页的**结构件**（Compose 重构线）。
@@ -53,31 +47,16 @@ enum class SettingsCategory(val titleRes: Int) {
  *
  * 选中态用「主色实心 + onPrimary 文字」而不是下划线或小圆点 —— 胶囊本身就是按钮，
  * 实心是最不容易误读的选中反馈；五个分类在手机宽度下正好一屏（多语言变长时可滚）。
+ * 具体画法在 [com.allperiph.ui.miuix.CapsuleRow]，键盘页的面板切换用的是同一份。
  */
 @Composable
 fun CapsuleCategoryBar(selected: SettingsCategory, onSelect: (SettingsCategory) -> Unit) {
-    val cs = MiuixTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for (c in SettingsCategory.entries) {
-            val on = c == selected
-            Text(
-                text = stringResource(c.titleRes),
-                fontSize = 14.sp,
-                color = if (on) cs.onPrimary else cs.onSurface,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (on) cs.primary else cs.surfaceVariant)
-                    .clickable { onSelect(c) }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-            )
-        }
-    }
+    val all = SettingsCategory.entries
+    CapsuleRow(
+        labelRes = all.map { it.titleRes },
+        selectedIndex = all.indexOf(selected),
+        onSelect = { onSelect(all[it]) },
+    )
 }
 
 /**
