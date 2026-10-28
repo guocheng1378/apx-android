@@ -359,6 +359,16 @@ Compose 侧只做界面与事件桥，手势行为与旧页一致。
 **这一页还没搬的**：快捷键条（HotkeyBoard 505 行：模板 combos 的手势与拖拽排序）、
 快捷面板 / 遥控面板（媒体键、电源确认）/ 游戏面板 / 自定义布局编辑器（CustomKeyboardDialog 145 行）。
 
+### 9.12 第八批：快捷键条与管理（2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/hotkey/HotkeyStrip.kt`（新） | 横向快捷键条：轻点发一次组合键，**按住保持到松手**（Ctrl+拖动、Shift+连选要靠它），长按阈值取系统 `longPressTimeout`；尾部「管理」入口；数据仍走 `HotkeyStore.load/loadTv` |
+| `ui/feature/hotkey/HotkeyManagerDialog.kt`（新） | 列表上移/下移/删除 + 添加 + 恢复默认；编辑弹窗可**多选修饰键**（Ctrl+Shift+A 能配出来）+ 按组分节选按键；写回 `HotkeyStore.save` 并 `markCustom` |
+
+**唯一有意的行为差异**：旧版「长按拖动换位」在横向滚动容器里与滚动抢手势，改为列表里的
+上移/下移 —— 换位能力保留，操作方式从拖拽换成点击。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
