@@ -2172,9 +2172,12 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         }, 1_500)
     }
 
+    // miuix-ui 分支：宿主换成 ComponentActivity 后，它的 Kotlin 可见签名是
+    // Array<String>（不是平台类型的 Array<out String>）—— Kotlin 2.1 的 override
+    // 检查严格，照父类签名写（CI 实测 "overrides nothing"）。
     override fun onRequestPermissionsResult(
         requestCode: Int,
-        permissions: Array<out String>,
+        permissions: Array<String>,
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

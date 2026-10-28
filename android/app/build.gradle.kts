@@ -116,6 +116,9 @@ dependencies {
     implementation(project(":shared"))
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("top.yukonga.miuix.kmp:miuix-android:0.5.0")
+    // foundation-layout（Row / fillMaxWidth / PaddingValues）—— CI 实测不在 miuix 的
+    // 传递闭包里（MPP 变体选择的问题），显式声明；1.8.2 与 miuix 的 compose 版本一致。
+    implementation("androidx.compose.foundation:foundation:1.8.2")
     testImplementation("junit:junit:4.13.2")
 }
 
