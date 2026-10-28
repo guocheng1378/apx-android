@@ -186,6 +186,8 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
      * 环境探测结果：存在 [EnvHolder]（与 Compose 状态页共享同一份），这里保留别名，
      * 免得把 2000 行里所有 lastEnv 用法都改一遍。
      */
+    @get:JvmName("getLastEnvAlias")
+    @set:JvmName("setLastEnvAlias")
     private var lastEnv: EnvChecks.Env?
         get() = EnvHolder.env
         set(value) { EnvHolder.env = value }
