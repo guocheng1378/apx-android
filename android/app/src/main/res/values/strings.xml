@@ -508,4 +508,15 @@
     <string name="shell_hotkey_add">添加</string>
     <string name="shell_hotkey_reset">恢复默认</string>
     <string name="shell_hotkey_edit">编辑快捷键</string>
+    <string name="ui_keyboard_media_prev">上一曲</string>
+    <string name="ui_keyboard_media_play">播放 / 暂停</string>
+    <string name="ui_keyboard_media_next">下一曲</string>
+    <string name="ui_keyboard_media_vol_down">音量 −</string>
+    <string name="ui_keyboard_media_vol_up">音量 +</string>
+    <string name="ui_keyboard_media_mute">静音</string>
+    <string name="ui_keyboard_media_power">电源</string>
+    <string name="ui_keyboard_power_off">关机</string>
+    <string name="ui_keyboard_power_reboot">重启</string>
+    <string name="shell_kb_remote">遥控</string>
+    <string name="shell_kb_game">游戏</string>
 </resources>

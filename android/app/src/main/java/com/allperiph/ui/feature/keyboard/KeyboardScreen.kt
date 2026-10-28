@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +56,8 @@ fun KeyboardScreen(modifier: Modifier = Modifier) {
         R.string.shell_kb_grid9,
         R.string.shell_kb_arrows,
         R.string.shell_kb_fn,
+        R.string.shell_kb_remote,
+        R.string.shell_kb_game,
     )
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -66,17 +69,26 @@ fun KeyboardScreen(modifier: Modifier = Modifier) {
                 1 -> KeyGrid(KeyLayouts.NUMPAD)
                 2 -> KeyGrid(KeyLayouts.GRID9)
                 3 -> KeyGrid(KeyLayouts.ARROWS)
-                else -> KeyGrid(KeyLayouts.FN)
+                4 -> KeyGrid(KeyLayouts.FN)
+                5 -> MediaPanel()
+                else -> GamePanel()
             }
         }
     }
 }
 
-/** QWERTY 全键面板：修饰键行（可粘滞）+ 数字行 + 三排字母 + 功能行 */
+/**
+ * 全键面板：修饰键行（可粘滞）+ 数字行 + 三排字母 + 功能行
+ *
+ * 两个细节沿用旧版，都是盲打时能感觉到的：
+ *  · **梯形缩进**：三排字母各按半键宽逐排内缩（0.5 / 1.0 / 1.5 键），跟实体键盘一样错位，
+ *    手指不用横向找键位；
+ *  · **功能行配重**：Esc 1 / Tab 1 / Space 4 / Enter 2 / ⌫ 2 / Del 2，空格才是长条。
+ */
 @Composable
 private fun QwertyPanel() {
     val ctx = LocalContext.current
-    // 粘滞状态在 HidKeys 里（与旧页同一份），点一下要重画才能反应到键帽高亮
+    // 粘滞状态在 HidKeys 里（与旧页同一份）：点键会清 sticky，必须重画才能熄灭修饰键高亮
     var revision by remember { mutableIntStateOf(0) }
     val rows = remember(revision) { KeyPref.letterRows(ctx) }
 
@@ -96,17 +108,32 @@ private fun QwertyPanel() {
                 }
             }
         }
-        for (row in rows) {
+        rows.forEachIndexed { rowIndex, labels ->
+            val inset = when (rowIndex) {
+                1 -> 0.5f
+                2 -> 1.0f
+                3 -> 1.5f
+                else -> 0f
+            }
+            val isFunctionRow = rowIndex == rows.lastIndex
+            val fnWeights = listOf(1f, 1f, 4f, 2f, 2f, 2f)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f),
             ) {
-                for (label in row) {
-                    KeyCap(label = label, modifier = Modifier.weight(1f)) {
-                        // 键面文字 → usage 由 HidKeys 反查（含 ';' '[' 这类符号位）
+                if (inset > 0f) Spacer(modifier = Modifier.weight(inset))
+                labels.forEachIndexed { k, label ->
+                    KeyCap(
+                        label = label,
+                        modifier = Modifier.weight(
+                            if (isFunctionRow) fnWeights.getOrElse(k) { 1f } else 1f
+                        ),
+                    ) {
                         HidKeys.tap(HidKeys.usageByLabel(label))
+                        revision++
                     }
                 }
+                if (inset > 0f) Spacer(modifier = Modifier.weight(inset))
             }
         }
     }
@@ -153,5 +180,43 @@ private fun KeyCap(
             fontSize = 14.sp,
             color = if (accent) cs.onPrimary else cs.onSurface,
         )
+    }
+}
+
+/**
+ * 游戏面板：一张固定键位表（Esc/1-4/Tab、Q W E R F B、A S D Shift Space Ctrl、方向键 + Enter/Del）。
+ *
+ * 为什么是固定表而不是全键盘：玩游戏时手指落点是肌肉记忆，键位不能随窗口宽度重排；
+ * 这里六列等分，横屏双拇指正好够到。Shift / Ctrl 仍是**粘滞**，跑动+转向要能按住不放。
+ */
+@Composable
+private fun GamePanel() {
+    val layout = listOf(
+        listOf("Esc", "1", "2", "3", "4", "Tab"),
+        listOf("Q", "W", "E", "R", "F", "B"),
+        listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
+        listOf("↑", "↓", "←", "→", "Enter", "Del"),
+    )
+    var revision by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxSize()) {
+        for (row in layout) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            ) {
+                for (label in row) {
+                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == label }?.second
+                    KeyCap(
+                        label = label,
+                        accent = bit != null && HidKeys.isSticky(bit),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (bit != null) HidKeys.toggleSticky(bit)
+                        else HidKeys.tap(HidKeys.usageByLabel(label))
+                        revision++
+                    }
+                }
+            }
+        }
     }
 }
