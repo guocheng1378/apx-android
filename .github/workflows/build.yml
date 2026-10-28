@@ -7,7 +7,7 @@ name: Build
 #   workflow_dispatch  —— 手动构建验证
 on:
   push:
-    branches: [master]
+    branches: [master, 'feat/compose-miuix-refactor-2026-10-28']
     tags: ['v*']
   pull_request:
     branches: [master]
