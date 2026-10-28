@@ -193,42 +193,47 @@ class MiuixShowcaseActivity : ComponentActivity() {
             }
 
             // —— 底部悬浮玻璃栏（Miuix textureBlur 采样内容层 + 玻璃描边）——
-            FloatingNavigationBar(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 20.dp)
-                    .widthIn(max = 440.dp)
-                    .then(
-                        if (blurSupported) {
-                            Modifier.textureBlur(
-                                backdrop = backdrop,
-                                shape = RoundedCornerShape(FloatingToolbarDefaults.CornerRadius),
-                                blurRadius = 25f,
-                                colors = BlurDefaults.blurColors(
-                                    blendColors = listOf(
-                                        BlendColorEntry(color = containerColor.copy(alpha = 0.4f)),
+            // 0.9.4 契约（对上游 NavigationBar.kt 核对）：FloatingNavigationBar 的 modifier
+            // 作用于内层胶囊 Row，根 Column 固定 fillMaxWidth 且不接定位——直接放 Box 里
+            // 传 BoxScope.align 会被组件内部 Column 静默丢弃（编译不报错、运行时贴顶）。
+            // 垂直定位由父级负责：外包一层 Box align(BottomCenter)；离底高度组件自管
+            // （26dp + 导航栏 inset，无 inset 时 36dp），不要再往胶囊 modifier 里塞 padding。
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                FloatingNavigationBar(
+                    modifier = Modifier
+                        .widthIn(max = 440.dp)
+                        .then(
+                            if (blurSupported) {
+                                Modifier.textureBlur(
+                                    backdrop = backdrop,
+                                    shape = RoundedCornerShape(FloatingToolbarDefaults.CornerRadius),
+                                    blurRadius = 25f,
+                                    colors = BlurDefaults.blurColors(
+                                        blendColors = listOf(
+                                            BlendColorEntry(color = containerColor.copy(alpha = 0.4f)),
+                                        ),
                                     ),
-                                ),
-                                highlight = if (isDark) Highlight.GlassStrokeMiddleDark
-                                else Highlight.GlassStrokeMiddleLight,
-                            )
-                        } else {
-                            Modifier
-                        }
-                    ),
-                color = if (blurSupported) Color.Transparent else containerColor,
-            ) {
-                listOf("组件", "动效").forEachIndexed { index, label ->
-                    FloatingNavigationBarItem(
-                        selected = selectedIndex == index,
-                        onClick = {
-                            selectedIndex = index
-                            scope.launch { pagerState.springAnimateToPage(index) }
-                        },
-                        icon = if (index == 0) MiuixIcons.ListView else MiuixIcons.Home,
-                        label = label,
-                        enabled = true,
-                    )
+                                    highlight = if (isDark) Highlight.GlassStrokeMiddleDark
+                                    else Highlight.GlassStrokeMiddleLight,
+                                )
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    color = if (blurSupported) Color.Transparent else containerColor,
+                ) {
+                    listOf("组件", "动效").forEachIndexed { index, label ->
+                        FloatingNavigationBarItem(
+                            selected = selectedIndex == index,
+                            onClick = {
+                                selectedIndex = index
+                                scope.launch { pagerState.springAnimateToPage(index) }
+                            },
+                            icon = if (index == 0) MiuixIcons.ListView else MiuixIcons.Home,
+                            label = label,
+                            enabled = true,
+                        )
+                    }
                 }
             }
         }
