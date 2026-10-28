@@ -15,7 +15,9 @@ val releaseTag: String = run {
 
 android {
     namespace = "com.allperiph.tv"
-    compileSdk = 34
+    // 35：AGP 9 的 checkAarMetadata 要求依赖方 compileSdk ≥ 所依赖 library
+    // （:shared = 35）的编译 SDK；34 会让 :tv:checkReleaseAarMetadata 直接失败
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.allperiph.tv"
