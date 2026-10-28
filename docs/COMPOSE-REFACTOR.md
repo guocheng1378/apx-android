@@ -397,6 +397,20 @@ Compose 侧只做界面与事件桥，手势行为与旧页一致。
 全部在 Compose 里，旧 `KeyboardPanels`（525 行）+ `CustomKeyboardDialog`（145 行）+
 `HotkeyBoard`（505 行）+ `KeyPref` 的渲染部分可随启动入口切换一起删除。
 
+### 9.15 第十批：互传发送页（2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/send/SendScreen.kt`（新） | 设备列表（`LocalSendClient.activeDevices()`，2 秒刷新，60 秒 announce 窗口）→ 点设备 → 系统多选文件（`OpenMultipleDocuments`）→ 后台推送，结果用 Toast 回显 |
+
+两处**不能顺手改掉**的实现原因（旧版注释里记过，这里保留）：
+1. **Content-Length 必须与实传字节一致**：`OpenableColumns.SIZE` 很多 ContentProvider 不给，
+   拿不到时先拷进 cache 量一遍再发，不能估；
+2. **deviceType 用 `smallestScreenWidthDp >= 600`** 判平板，跟旧版同一口径，
+   否则同一台设备在两边显示的类型不一致。
+
+外壳标签增至五个：触控板 / 键盘 / 状态 / 发送 / 设置。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
