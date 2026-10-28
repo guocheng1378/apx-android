@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    // miuix-ui 分支：Compose 编译器插件（版本与 Kotlin 一致，见根脚本）
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // 发版版本号同源：GitHub Actions 打 tag v* 构建时 GITHUB_REF 为 refs/tags/*，
@@ -81,6 +83,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true   // miuix-ui 分支：设置页「关于」卡改 Compose + Miuix 渲染
     }
 
     packaging {
@@ -99,8 +102,20 @@ android {
 // v1.7 起：**仅测试**编译期引入 JUnit（testImplementation 不进 APK、不参与运行时，
 // 也不改变上面这条原则）。协议层的组帧/解析/重同步纪律需要有回归网 ——
 // v1.7 之前修过的多处"协议漂移"缺陷，若有这些测试本可以当场被拦住。
+//
+// miuix-ui 分支（Compose + Miuix PoC）**第一次引入两个运行时依赖**（都是 Apache-2.0、
+// 源码公开，Maven Central 可查）：
+//   · androidx.activity:activity-compose —— Compose 需要 ViewTreeLifecycleOwner /
+//     ViewModelStoreOwner，MainActivity 从 android.app.Activity 换成 ComponentActivity
+//     才能挂 ComposeView；这条只把宿主能力补上，不改变既有 UI。
+//   · top.yukonga.miuix.kmp:miuix —— HyperOS 风格 Compose 组件库（MiuixTheme/Card/
+//     TextButton…）。版本对齐：0.5.0 的 kotlin-stdlib=2.2.0 需要 Kotlin ≥ 2.1（根脚本
+//     2.0.21 → 2.1.21），Compose 运行时 1.8.2 对应 compileSdk 35（35 不动）。
+//     更新的 0.9.x 要 Kotlin 2.3/2.4 + compileSdk 36，本分支不追。
 dependencies {
     implementation(project(":shared"))
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("top.yukonga.miuix.kmp:miuix-android:0.5.0")
     testImplementation("junit:junit:4.13.2")
 }
 

@@ -3,6 +3,7 @@ package com.allperiph.ui
 import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -78,7 +79,11 @@ import com.allperiph.shared.net.FileSender
  * 所有 IO（su、sysfs、设备节点）都在后台线程，本 Activity 只做事件订阅与视图刷新。
  * 主题实现：覆写 [attachBaseContext] 注入 uiMode，深色取值来自 res/values-night/。
  */
-class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, StatusFragment.Host {
+// miuix-ui 分支：android.app.Activity → ComponentActivity（androidx.activity）。
+// 原因：ComposeView 需要 ViewTreeLifecycleOwner / ViewModelStoreOwner，只有
+// ComponentActivity（androidx）会挂 —— 纯 framework 的 Activity 挂不了 Compose。
+// ComponentActivity 继承 android.app.Activity，本文件对其余 API 的用法零变化。
+class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragment.Host, StatusFragment.Host {
 
     private val handler = Handler(Looper.getMainLooper())
     private val disposables = ArrayList<EventBus.Disposable>()

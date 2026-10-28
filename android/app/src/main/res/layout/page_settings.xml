@@ -859,22 +859,13 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-        <!-- 关于与支持：版本行 + 检查更新 + 意见反馈。
-             自包含控件：状态、点击、静默检查都在 AboutCard 里，设置页其余代码零改动。 -->
-        <com.allperiph.ui.AboutCard
-            style="@style/APCard"
+        <!-- 关于与支持（miuix-ui 分支 PoC）：同一张卡改 **Compose + Miuix** 渲染 ——
+             标题/版本行/两个按钮都由 Compose 画（MiuixTheme 跟随 ThemePref 的明暗），
+             不再吃 APCard/APGroupTitle 样式；行为（检查更新/意见反馈/静默检查）与旧 AboutCard 一致。
+             合并本分支即切换到这张卡；旧 AboutCard.kt 与 about_card.xml 保留，便于对照/回退。 -->
+        <com.allperiph.ui.MiuixAboutCard
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <TextView
-                style="@style/APGroupTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/lay_settings_tab_about" />
-
-            <View style="@style/APGroupDivider" />
-        </com.allperiph.ui.AboutCard>
+            android:layout_height="wrap_content" />
 
         <!-- 维护：两个按钮各占整行（并排时窄屏上文字会顶到边） -->
         <LinearLayout
