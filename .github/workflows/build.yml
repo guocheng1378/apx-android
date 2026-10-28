@@ -52,33 +52,42 @@ jobs:
           SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDK" --licenses > /dev/null 2>&1 || true
 
-          # 每个包独立重试：sdkmanager 偶发下载损坏（实测 run#589：
-          # "Error reading Zip content from a SeekableByteChannel" 下 CMake 包，
-          # 退出码 1 → 整个 android job 判失败，而后面步骤全被跳过，
-          # 明明只差一个可选的包，却让整轮构建白跑）。
+          # 尽力预装以加速构建，但**不再阻断**：licenses 已接受，缺什么由 AGP
+          # 构建期自动下载（platforms / build-tools / NDK / CMake 都支持
+          # auto-download；Miuix 0.9.4 上游的 android CI 连 sdkmanager 步骤都
+          # 没有，直接 gradlew 构建即绿——run#667 教训：镜像没有的新组件
+          # （android-37 / build-tools 37.0.0）一旦 sdkmanager 装失败，旧版
+          # 「目录不存在 → ::error:: → exit 1」把整轮构建判死在环境层，
+          # 编译一行都没跑（失败仅 1m35s，Build 步骤全被跳过）。
+          #
+          # 另修退出码 bug：旧写法 `"$SDK" "$pkg" | tail -3` 的 if 判断的是
+          # tail 的退出码（恒 0），三次重试形同虚设；现在输出落文件，
+          # 用 sdkmanager 的真实退出码判断重试。
           for pkg in "platform-tools" "build-tools;35.0.0" "build-tools;37.0.0" "platforms;android-35" \
                      "platforms;android-34" "platforms;android-37" "ndk;27.2.12479018" "cmake;3.22.1"; do
+            ok=0
             for i in 1 2 3; do
               echo "===== sdkmanager install '$pkg' (attempt $i) ====="
-              if "$SDK" "$pkg" < /dev/null 2>&1 | tail -3; then break; fi
-              if [ "$i" = 3 ]; then echo "::warning::$pkg 三次都没装上，改用目录存在性判定"; fi
-              sleep 15
+              if "$SDK" "$pkg" < /dev/null > /tmp/sdk-pkg.log 2>&1; then
+                ok=1
+                tail -2 /tmp/sdk-pkg.log
+                break
+              fi
+              tail -5 /tmp/sdk-pkg.log
+              sleep 10
             done
+            [ "$ok" = 1 ] || echo "::warning::$pkg 三次都没装上（构建期 AGP 自动补齐）"
           done
 
-          # 最终以**目录是否存在**为准，而不是 sdkmanager 的退出码：
-          # ubuntu-latest 镜像自带大部分组件，装不上不等于用不了。
-          missing=0
+          # 只报告不阻断：缺的组件交给 AGP 构建期 auto-download 补齐
           for d in "platforms/android-35" "platforms/android-34" "platforms/android-37" "build-tools/35.0.0" \
                    "build-tools/37.0.0" "ndk/27.2.12479018" "cmake/3.22.1"; do
             if [ -d "$ANDROID_HOME/$d" ]; then
-              echo "OK   \$ANDROID_HOME/$d"
+              echo "OK   $ANDROID_HOME/$d"
             else
-              echo "::error::缺少组件目录 $d（构建必需）"
-              missing=1
+              echo "MISS $ANDROID_HOME/$d（构建期 AGP 自动下载）"
             fi
           done
-          exit $missing
 
       # AGP 9 需要 Gradle 9.7.1（wrapper properties 已入库为 9.7.1）。
       # 不能在项目目录里直接跑 `gradle wrapper` —— 那会先加载 settings 并配置本项目，
@@ -417,7 +426,7 @@ jobs:
           if ($vsLlvm) {
             $clangTidy = Get-ChildItem $vsLlvm -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($clangTidy) {
-              Write-Host "found bundled clang-tidy: $($clangTidy.FullName)"
+              Write-Host "found bundled clang-tidy: $($t.FullName)"
               $clangTidy.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
               exit 0
             }
@@ -502,7 +511,7 @@ jobs:
           $ico = (Resolve-Path 'pc\host\res').Path
           New-Item -ItemType Directory -Force out | Out-Null
           $out = (Resolve-Path out).Path
-          & $iscc "scripts/installer/AllPeriph.iss" `
+          & $iscc "scripts\installer\AllPeriph.iss" `
             "/DMyAppVersion=${env:GITHUB_REF_NAME}" `
             "/DArtifactsDir=$art" `
             "/DIconDir=$ico" `
