@@ -504,4 +504,8 @@
     <string name="shell_kb_arrows">方向</string>
     <string name="shell_kb_fn">F 区</string>
     <string name="shell_tab_keyboard">键盘</string>
+    <string name="shell_hotkey_manage">管理</string>
+    <string name="shell_hotkey_add">添加</string>
+    <string name="shell_hotkey_reset">恢复默认</string>
+    <string name="shell_hotkey_edit">编辑快捷键</string>
 </resources>

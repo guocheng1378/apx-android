@@ -30,7 +30,10 @@ import com.allperiph.R
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.touchpad.TouchpadModule
+import androidx.compose.ui.platform.LocalContext
 import com.allperiph.ui.AgentController
+import com.allperiph.ui.feature.hotkey.HotkeyManagerDialog
+import com.allperiph.ui.feature.hotkey.HotkeyStrip
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -53,6 +56,7 @@ fun TouchpadScreen(modifier: Modifier = Modifier) {
     val cs = MiuixTheme.colorScheme
     var cursor by remember { mutableStateOf<Offset?>(null) }
     var pressed by remember { mutableStateOf(false) }
+    var showManager by remember { mutableStateOf(false) }
     val module = remember { AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule }
     val state = remember { mutableStateOf(module?.state ?: ModuleState.IDLE) }
 
@@ -81,8 +85,11 @@ fun TouchpadScreen(modifier: Modifier = Modifier) {
             Text(text = stringResource(R.string.lay_status_text_touchpad_cursor_swipe), fontSize = 12.sp)
         }
 
-        // —— 手势面 ——
-        Box(modifier = Modifier.fillMaxSize()) {
+        // —— 快捷键条：轻点发组合键、按住保持 ——
+        HotkeyStrip(context = LocalContext.current, onManage = { showManager = true })
+
+        // —— 手势面：占满剩下的高度（快捷键条与状态条之后） ——
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
@@ -121,6 +128,10 @@ fun TouchpadScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+
+    if (showManager) {
+        HotkeyManagerDialog(context = LocalContext.current, onDismiss = { showManager = false })
     }
 }
 
