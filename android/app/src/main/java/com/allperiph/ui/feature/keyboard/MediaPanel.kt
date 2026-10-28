@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import com.allperiph.R
 import com.allperiph.ui.HotkeyController
 import com.allperiph.wireless.ControlTarget
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
@@ -165,25 +167,30 @@ private fun androidx.compose.foundation.layout.RowScope.MediaTile(
     val pressModifier = if (repeat == null) {
         Modifier.clickable { onClick?.invoke() }
     } else {
+        val scope = rememberCoroutineScope()
         Modifier.pointerInput(repeat) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 pressed = true
                 // 首下立即给一次（对端要看到按下→释放的边沿）
-                HotkeyController.press(repeat)
-                delay(60)
-                HotkeyController.release(repeat)
+                scope.launch {
+                    HotkeyController.press(repeat)
+                    delay(60)
+                    HotkeyController.release(repeat)
+                }
                 // 按住不放：每 190ms 再补一次，抬手立即停
                 var done = false
                 while (!done) {
                     done = withTimeoutOrNull(190L) { waitForUpOrCancellation() } != null
                     if (!done) {
-                        HotkeyController.press(repeat)
-                        delay(60)
-                        HotkeyController.release(repeat)
+                        scope.launch {
+                            HotkeyController.press(repeat)
+                            delay(60)
+                            HotkeyController.release(repeat)
+                        }
                     }
                 }
-                HotkeyController.release(repeat)   // 兜底
+                scope.launch { HotkeyController.release(repeat) }   // 兜底
                 pressed = false
             }
         }

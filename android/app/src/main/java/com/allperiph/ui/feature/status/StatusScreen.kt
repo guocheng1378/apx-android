@@ -274,9 +274,13 @@ private fun StatusRow(label: String, value: String, color: Color) {
 
 // ==================== 颜色与文案 ====================
 
+@Composable
 private fun okColor(): Color = colorResource(R.color.state_ok)
+@Composable
 private fun warnColor(): Color = colorResource(R.color.state_warn)
+@Composable
 private fun errorColor(): Color = colorResource(R.color.state_error)
+@Composable
 private fun idleColor(): Color = colorResource(R.color.state_idle)
 
 /** 模块状态 → 语义色（与旧 StatusFragment.stateColor 同一张表） */

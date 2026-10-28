@@ -46,6 +46,7 @@ class ApShellActivity : ComponentActivity() {
                             ShellTab.KEYBOARD -> KeyboardScreen()
                             ShellTab.REMOTE -> RemoteScreen()
                             ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
+                            ShellTab.SEND -> SendScreen()
                             ShellTab.SETTINGS -> SettingsPage(
                                 context = this@ApShellActivity,
                                 formOverride = formOverride,

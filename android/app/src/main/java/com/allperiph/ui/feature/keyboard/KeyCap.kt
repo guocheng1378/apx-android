@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.allperiph.hid.HidKeys
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +57,7 @@ internal fun KeyCap(
  * 这里六列等分，横屏双拇指正好够到。Shift / Ctrl 仍是**粘滞**，跑动+转向要能按住不放。
  */
 @Composable
-private fun GamePanel() {
+internal fun GamePanel() {
     val layout = listOf(
         listOf("Esc", "1", "2", "3", "4", "Tab"),
         listOf("Q", "W", "E", "R", "F", "B"),
