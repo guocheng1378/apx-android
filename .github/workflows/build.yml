@@ -36,10 +36,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up JDK 17
+      # JDK 21：AGP 9.4.1 + Kotlin 2.4.20 组合的工具链（与 Miuix 0.9.4 上游一致）
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -55,8 +56,8 @@ jobs:
           # "Error reading Zip content from a SeekableByteChannel" 下 CMake 包，
           # 退出码 1 → 整个 android job 判失败，而后面步骤全被跳过，
           # 明明只差一个可选的包，却让整轮构建白跑）。
-          for pkg in "platform-tools" "build-tools;35.0.0" "platforms;android-35" \
-                     "platforms;android-34" "ndk;27.2.12479018" "cmake;3.22.1"; do
+          for pkg in "platform-tools" "build-tools;35.0.0" "build-tools;37.0.0" "platforms;android-35" \
+                     "platforms;android-34" "platforms;android-37" "ndk;27.2.12479018" "cmake;3.22.1"; do
             for i in 1 2 3; do
               echo "===== sdkmanager install '$pkg' (attempt $i) ====="
               if "$SDK" "$pkg" < /dev/null 2>&1 | tail -3; then break; fi
@@ -68,8 +69,8 @@ jobs:
           # 最终以**目录是否存在**为准，而不是 sdkmanager 的退出码：
           # ubuntu-latest 镜像自带大部分组件，装不上不等于用不了。
           missing=0
-          for d in "platforms/android-35" "platforms/android-34" "build-tools/35.0.0" \
-                   "ndk/27.2.12479018" "cmake/3.22.1"; do
+          for d in "platforms/android-35" "platforms/android-34" "platforms/android-37" "build-tools/35.0.0" \
+                   "build-tools/37.0.0" "ndk/27.2.12479018" "cmake/3.22.1"; do
             if [ -d "$ANDROID_HOME/$d" ]; then
               echo "OK   \$ANDROID_HOME/$d"
             else
@@ -79,8 +80,19 @@ jobs:
           done
           exit $missing
 
-      - name: Generate Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.9
+      # AGP 9 需要 Gradle 9.7.1（wrapper properties 已入库为 9.7.1）。
+      # 不能在项目目录里直接跑 `gradle wrapper` —— 那会先加载 settings 并配置本项目，
+      # 而 runner 自带的 Gradle 可能低于 AGP 9 的要求，配置期直接失败。
+      # 在隔离目录生成 wrapper 产物（jar + 脚本）再拷进来，不触碰本项目配置。
+      - name: Generate Gradle Wrapper (isolated dir)
+        run: |
+          mkdir -p /tmp/wrapgen && cd /tmp/wrapgen
+          gradle wrapper --gradle-version 9.7.1 --no-daemon
+          cp gradlew gradlew.bat "$GITHUB_WORKSPACE/android/"
+          mkdir -p "$GITHUB_WORKSPACE/android/gradle/wrapper"
+          cp gradle/wrapper/gradle-wrapper.jar "$GITHUB_WORKSPACE/android/gradle/wrapper/"
+          cd "$GITHUB_WORKSPACE/android"
+          chmod +x ./gradlew
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew

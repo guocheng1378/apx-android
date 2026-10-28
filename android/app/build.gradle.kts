@@ -1,7 +1,8 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
+    // AGP 9 起 built-in Kotlin：org.jetbrains.kotlin.android 插件已移除，
+    // Kotlin 编译由 AGP 直接提供（jvmTarget 跟随 compileOptions）。
     // miuix-ui 分支：Compose 编译器插件（版本与 Kotlin 一致，见根脚本）
+    id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -21,7 +22,9 @@ val releaseTag: String = run {
 
 android {
     namespace = "com.allperiph"
-    compileSdk = 35
+    // Miuix 0.9.4：其 AAR 元数据要求依赖方 compileSdk ≥ 37（miuix-blur 上游锁的值，
+    // 低于 37 直接报错），35 → 37
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.allperiph"
@@ -76,10 +79,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf("-Xno-param-assertions")
-    }
+    // AGP 9 built-in Kotlin：不再有 kotlinOptions {} 块，jvmTarget 自动跟随
+    // compileOptions（17）。原 -Xno-param-assertions 微优化随 kotlinOptions 一并移除。
 
     buildFeatures {
         buildConfig = true
@@ -103,22 +104,26 @@ android {
 // 也不改变上面这条原则）。协议层的组帧/解析/重同步纪律需要有回归网 ——
 // v1.7 之前修过的多处"协议漂移"缺陷，若有这些测试本可以当场被拦住。
 //
-// miuix-ui 分支（Compose + Miuix PoC）**第一次引入两个运行时依赖**（都是 Apache-2.0、
-// 源码公开，Maven Central 可查）：
+// miuix-ui 分支（Compose + Miuix PoC）引入的运行时依赖（都是 Apache-2.0、源码公开）：
 //   · androidx.activity:activity-compose —— Compose 需要 ViewTreeLifecycleOwner /
 //     ViewModelStoreOwner，MainActivity 从 android.app.Activity 换成 ComponentActivity
 //     才能挂 ComposeView；这条只把宿主能力补上，不改变既有 UI。
-//   · top.yukonga.miuix.kmp:miuix —— HyperOS 风格 Compose 组件库（MiuixTheme/Card/
-//     TextButton…）。版本对齐：0.5.0 的 kotlin-stdlib=2.2.0 需要 Kotlin ≥ 2.1（根脚本
-//     2.0.21 → 2.1.21），Compose 运行时 1.8.2 对应 compileSdk 35（35 不动）。
-//     更新的 0.9.x 要 Kotlin 2.3/2.4 + compileSdk 36，本分支不追。
+//   · Miuix 0.9.4 模块化坐标（Maven Central，-android 后缀直接选 Android 变体）：
+//     miuix-ui（组件/主题）+ miuix-blur（textureBlur 纹理模糊，AAR 要求 compileSdk ≥ 37 /
+//     minSdk ≥ 33）+ miuix-preference（SwitchPreference/WindowDropdownPreference，
+//     原 Super* 系改名并移入 preference 包）+ miuix-icons（MiuixIcons 扩展图标）。
+//     foundation-layout 由 miuix-ui 的 POM 传递提供（0.5.0 时代要显式声明的问题在
+//     0.9.4 已不存在）。
+//   · dev.chrisbanes.haze —— 顶栏渐进模糊（HazeProgressive）。Miuix blur 模块不含它，
+//     需要显式声明。
 dependencies {
     implementation(project(":shared"))
     implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("top.yukonga.miuix.kmp:miuix-android:0.5.0")
-    // foundation-layout（Row / fillMaxWidth / PaddingValues）—— CI 实测不在 miuix 的
-    // 传递闭包里（MPP 变体选择的问题），显式声明；1.8.2 与 miuix 的 compose 版本一致。
-    implementation("androidx.compose.foundation:foundation:1.8.2")
+    implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-blur-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4")
+    implementation("dev.chrisbanes.haze:haze:1.7.3")
     testImplementation("junit:junit:4.13.2")
 }
 
@@ -134,3 +139,4 @@ dependencies {
 // 属非 ASCII 项目路径下 Gradle test worker 加载不到产物的问题（本仓库已设
 // android.overridePathCheck=true）。**以 CI 为准**：Linux runner 的路径是纯 ASCII。
 // 所以这些测试的看门人是 CI 的 `:app:testReleaseUnitTest` 步骤，本地不必强跑。
+// （AGP 9 built-in Kotlin 下 kotlin-classes 目录的挂载行为如仍有差异，以 CI 报错为准。）
