@@ -161,7 +161,7 @@ def check_view_refs(problems):
         for f in os.listdir(d):
             if f.endswith(".xml"):
                 txt = open(os.path.join(d, f), encoding="utf-8").read()
-                defined |= set(re.findall(r'android:id="@+id/(\w+)"', txt))
+                defined |= set(re.findall(r'android:id="@[+]id/(\w+)"', txt))
 
     java_root = os.path.join(ROOT, "android", "app", "src", "main", "java")
     for dirpath, _d, files in os.walk(java_root):
