@@ -489,4 +489,6 @@
     <string name="status_state_starting">启动中</string>
     <string name="status_state_stopping">停止中</string>
     <string name="status_state_idle">未启动</string>
+    <string name="shell_bg_pick_image">从相册选图片…</string>
+    <string name="shell_bg_clear_image">清除自定义图片</string>
 </resources>
