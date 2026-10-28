@@ -111,6 +111,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!--
+          Compose 重构线：新外壳的宿主。**不挂桌面图标**（避免出现两个启动器），
+          用 adb 起：am start -n com.allperiph/com.allperiph.ui.feature.shell.ApShellActivity
+          等触控板 / 键盘 / 设置分类页迁完，新外壳接管启动入口时，旧的 MainActivity
+          与其 Fragment、布局会在同一个提交里删除。
+        -->
+        <activity
+            android:name=".ui.feature.shell.ApShellActivity"
+            android:label="@string/shell_title"
+            android:theme="@style/Theme.AllPeriph"
+            android:exported="false" />
+
         <!-- miuix-ui 分支：组件总览（开发页，从设置页「关于」卡进入） -->
         <activity
             android:name=".ui.miuix.MiuixShowcaseActivity"

@@ -465,4 +465,28 @@
     <string name="ui_help_cursor_lock">触摸板光标锁定：连上电脑后本窗隐藏系统光标，触控板点击只转发到电脑（Pad 防误触）。</string>
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
+    <!--
+      Compose 重构线：新外壳（首页 / 状态 / 设置）、界面形态、模块状态文案。
+      新 UI 的文案一律走这里（Compose 侧 stringResource），旧 UI 的 lay_* 文案暂不动。
+    -->
+    <string name="shell_title">AllPeriph 新界面</string>
+    <string name="shell_tab_home">首页</string>
+    <string name="shell_tab_status">状态</string>
+    <string name="shell_tab_settings">设置</string>
+    <string name="shell_home_title">首页</string>
+    <string name="shell_home_placeholder">触控板与键盘页正在迁移到 Compose（本页为占位）。</string>
+    <string name="shell_settings_title">设置</string>
+    <string name="shell_settings_placeholder">其余设置项将按「分组 → 偏好行」数据驱动重建。</string>
+    <string name="shell_theme_label">主题</string>
+    <string name="shell_theme_summary">跟随系统 / 浅色 / 深色</string>
+    <string name="shell_form_label">界面形态</string>
+    <string name="shell_form_summary">按当前窗口宽度自动判定，也可手动钉死</string>
+    <string name="form_follow">跟随窗口（自动）</string>
+    <string name="form_phone">手机</string>
+    <string name="form_tablet">平板</string>
+    <string name="form_wide">宽屏</string>
+    <string name="form_tv">电视</string>
+    <string name="status_state_starting">启动中</string>
+    <string name="status_state_stopping">停止中</string>
+    <string name="status_state_idle">未启动</string>
 </resources>

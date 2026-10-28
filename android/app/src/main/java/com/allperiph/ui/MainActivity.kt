@@ -182,8 +182,13 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         val sw: Switch,
     )
 
-    @Volatile
-    private var lastEnv: EnvChecks.Env? = null
+    /**
+     * 环境探测结果：存在 [EnvHolder]（与 Compose 状态页共享同一份），这里保留别名，
+     * 免得把 2000 行里所有 lastEnv 用法都改一遍。
+     */
+    private var lastEnv: EnvChecks.Env?
+        get() = EnvHolder.env
+        set(value) { EnvHolder.env = value }
 
     // 长按拖动（armDrag）与手势分发均已搬进 TouchpadFragment（v196）
 
