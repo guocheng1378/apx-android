@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.allperiph.ui.feature.keyboard.KeyboardScreen
+import com.allperiph.ui.feature.remote.RemoteScreen
 import com.allperiph.ui.feature.send.SendScreen
 import com.allperiph.ui.feature.settings.SettingsPage
 import com.allperiph.ui.feature.touchpad.TouchpadScreen
@@ -43,6 +44,7 @@ class ApShellActivity : ComponentActivity() {
                         when (tab) {
                             ShellTab.HOME -> TouchpadScreen()
                             ShellTab.KEYBOARD -> KeyboardScreen()
+                            ShellTab.REMOTE -> RemoteScreen()
                             ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
                             ShellTab.SETTINGS -> SettingsPage(
                                 context = this@ApShellActivity,

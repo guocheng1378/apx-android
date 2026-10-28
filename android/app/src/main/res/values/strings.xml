@@ -528,4 +528,7 @@
     <string name="shell_send_empty">没发现设备。互传开关要打开，两台设备在同一个 Wi‑Fi 下，对方也开着互传</string>
     <string name="shell_send_pick">轻点设备选文件发送</string>
     <string name="shell_tab_send">发送</string>
+    <string name="shell_tab_remote">遥控</string>
+    <string name="shell_remote_target_none">未连接受控设备 —— 按键会走 USB HID（等于本机键盘）。到「状态」里连一台 TV / PC</string>
+    <string name="shell_remote_ok">确定</string>
 </resources>

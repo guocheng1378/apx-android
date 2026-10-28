@@ -31,6 +31,7 @@ import top.yukonga.miuix.kmp.icon.extended.Tasks
 enum class ShellTab {
     HOME,
     KEYBOARD,
+    REMOTE,
     STATUS,
     SEND,
     SETTINGS,
@@ -73,6 +74,7 @@ fun ApShell(
     val entries = listOf(
         ShellEntry(ShellTab.HOME, stringResource(R.string.shell_tab_touchpad), MiuixIcons.Home),
         ShellEntry(ShellTab.KEYBOARD, stringResource(R.string.shell_tab_keyboard), MiuixIcons.GridView),
+        ShellEntry(ShellTab.REMOTE, stringResource(R.string.shell_tab_remote), MiuixIcons.Home),
         ShellEntry(ShellTab.STATUS, stringResource(R.string.shell_tab_status), MiuixIcons.Tasks),
         ShellEntry(ShellTab.SEND, stringResource(R.string.shell_tab_send), MiuixIcons.ListView),
         ShellEntry(ShellTab.SETTINGS, stringResource(R.string.shell_tab_settings), MiuixIcons.Settings),
