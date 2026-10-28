@@ -1,0 +1,14 @@
+227:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:62:56 Unresolved reference 'pageTouchpad'.
+228:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:82:36 Unresolved reference 'btnScreen'.
+229:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:82:52 Unresolved reference 'btnGamepad'.
+230:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:82:69 Unresolved reference 'btnRemote'.
+231:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:146:36 Unresolved reference 'btnScreen'.
+232:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:146:52 Unresolved reference 'btnGamepad'.
+233:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:146:69 Unresolved reference 'btnRemote'.
+234:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:178:43 Unresolved reference 'touchArea'.
+235:e: file:///home/runner/work/apx-android/apx-android/android/app/src/main/java/com/allperiph/ui/TouchpadSplit.kt:185:70 Unresolved reference 'touchArea'.
+237:> Task :app:compileReleaseKotlin FAILED
+244:FAILURE: Build failed with an exception.
+246:* What went wrong:
+247:Execution failed for task ':app:compileReleaseKotlin' (registered by plugin 'com.android.internal.application').
+260:org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileReleaseKotlin' (registered by plugin 'com.android.internal.application').
