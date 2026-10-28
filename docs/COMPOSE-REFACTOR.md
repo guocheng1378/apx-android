@@ -279,6 +279,19 @@ android/app/src/main/java/com/allperiph/
 **新外壳设置页当前构成**：外观分类（真）+ 界面形态（真）；通用 / 遥控 / 关于 / 帮助四个
 分类待迁（旧实现：`page_settings.xml` 62KB + `SettingsFragment` 1041 行）。
 
+### 9.8 第四批：设置页 · 通用分类的开关与诊断（2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/feature/settings/GeneralSettings.kt`（新） | 通用分类里**自成闭环**的两组：交互开关（光标锁定 —— `SharedPreferences("apx")` 的 `cursor_lock`，默认开；手势防误触 —— `GestureShield` 同一份偏好）、诊断（电池白名单：直接申请 `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`，失败退回系统白名单列表页；重新检测环境：`AgentController.refreshEnv`，结果写进 `EnvHolder`，状态页下一帧可见） |
+
+**为什么先迁这两组**：这一分类的其余项（快捷键模板 / 模板编辑 / 远程目标 / LocalSend / 日志导出）
+都要牵动主机侧的重型 UI（HotkeyBoard、模板编辑对话框、设备选择器、文件面板）。把它们与几个
+简单开关混在一个分类里迁，会得到「一半新一半旧」的分类，反而更难收尾 —— 所以成组迁。
+
+**新外壳设置页当前构成**：外观分类（真）+ 通用分类的交互开关与诊断（真）+ 界面形态（真）。
+待迁：通用剩余项、遥控 / 关于 / 帮助三个分类。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
