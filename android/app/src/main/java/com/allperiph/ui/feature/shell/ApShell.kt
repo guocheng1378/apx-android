@@ -23,6 +23,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.GridView
+import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.icon.extended.Tasks
 
@@ -31,6 +32,7 @@ enum class ShellTab {
     HOME,
     KEYBOARD,
     STATUS,
+    SEND,
     SETTINGS,
 }
 
@@ -72,6 +74,7 @@ fun ApShell(
         ShellEntry(ShellTab.HOME, stringResource(R.string.shell_tab_touchpad), MiuixIcons.Home),
         ShellEntry(ShellTab.KEYBOARD, stringResource(R.string.shell_tab_keyboard), MiuixIcons.GridView),
         ShellEntry(ShellTab.STATUS, stringResource(R.string.shell_tab_status), MiuixIcons.Tasks),
+        ShellEntry(ShellTab.SEND, stringResource(R.string.shell_tab_send), MiuixIcons.ListView),
         ShellEntry(ShellTab.SETTINGS, stringResource(R.string.shell_tab_settings), MiuixIcons.Settings),
     )
 

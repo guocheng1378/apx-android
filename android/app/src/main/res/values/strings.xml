@@ -524,4 +524,8 @@
     <string name="shell_custom_kbd_add_row">加一行</string>
     <string name="shell_custom_kbd_add_key">加键</string>
     <string name="shell_kb_custom">自定义</string>
+    <string name="shell_send_title">发送到设备</string>
+    <string name="shell_send_empty">没发现设备。互传开关要打开，两台设备在同一个 Wi‑Fi 下，对方也开着互传</string>
+    <string name="shell_send_pick">轻点设备选文件发送</string>
+    <string name="shell_tab_send">发送</string>
 </resources>
