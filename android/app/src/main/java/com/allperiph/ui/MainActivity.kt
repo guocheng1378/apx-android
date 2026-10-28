@@ -1252,43 +1252,33 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
     override fun connectTarget(ip: String, port: Int, name: String, type: String) =
         connectTargetInternal(ip, port, name, type)
 
+    /**
+     * 连入受控设备。真正的连接/回滚/记历史都在 [ControlConnect]（设置页也用同一份实现，
+     * 避免两处各写一套「必须先断开旧实例」的坑）；这里只保留 Activity 侧的事：
+     * 反向剪贴板回到本 Activity、连完刷新界面、给用户一句结果。
+     */
     private fun connectTargetInternal(ip: String, port: Int, name: String, type: String = "tv") {
-        Thread({
-            val c = TvControllerClient(ip, port)
-            val ok = c.connect()
-            runOnUiThread {
-                // connect() 最长阻塞 5s，期间用户可能已经退出页面
-                if (isFinishing || isDestroyed) {
-                    c.disconnect()
-                    return@runOnUiThread
-                }
-                if (ok) {
-                    // ⚠️ 必须先断开旧连接：旧实例仍是 running，它的 readerLoop 会
-                    // 每 2s 无限重连**旧 IP**，并一直留着 socket + tx/ping 三条线程。
-                    // 以前这里直接覆盖，于是每换一次受控设备就永久多留一套。
-                    ControlTarget.controlClient?.takeIf { it !== c }?.disconnect()
-                    ControlTarget.controlClient = c
-                    ControlTarget.host = ip
-                    ControlTarget.label = name
-                    ControlTarget.type = type
-                    // 连接历史：连上就记一笔（v196 接线 —— ConnectHistory 此前零调用点，
-                    // 「最近连过哪些设备」持久化功能等于不存在）。
-                    ConnectHistory.add(this, name, ip, port)
-                    c.onReverseClipboard = { text -> runOnUiThread { recvReverseClipboard(text) } }
-                    onTargetChanged()
-                    Toast.makeText(this, getString(R.string.ui_main_toast_done, name), Toast.LENGTH_SHORT).show()
-                } else {
-                    ControlTarget.clear()
-                    onTargetChanged()
-                    // 失败句给"为什么 + 下一步"，别只说一句连不上
-                    Toast.makeText(
-                        this,
-                        "连不上 $ip —— 确认两台设备在同一个 Wi‑Fi，或改用「手动输入 IP」直连",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+        ControlConnect.connect(
+            context = this,
+            ip = ip,
+            port = port,
+            name = name,
+            type = type,
+            onReverseClipboard = { text -> recvReverseClipboard(text) },
+        ) { ok ->
+            // connect() 最长阻塞 5s，期间用户可能已经退出页面
+            if (isFinishing || isDestroyed) return@connect
+            onTargetChanged()
+            if (ok) {
+                Toast.makeText(this, getString(R.string.ui_main_toast_done, name), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(
+                    this,
+                    "连不上 $ip —— 确认两台设备在同一个 Wi‑Fi，或改用「手动输入 IP」直连",
+                    Toast.LENGTH_LONG
+                ).show()
             }
-        }, "apx-target").start()
+        }
     }
 
     /** 设备选择：本机/PC + 已发现设备 + 手动输入 IP（TV 与 PC 都跑 9511）

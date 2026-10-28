@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.allperiph.ui.feature.settings.SettingsPage
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.LocalMiuixFormOverride
 import com.allperiph.ui.miuix.MiuixForm
@@ -39,7 +40,7 @@ class ApShellActivity : ComponentActivity() {
                         when (tab) {
                             ShellTab.HOME -> ShellHomeScreen()
                             ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
-                            ShellTab.SETTINGS -> ShellSettingsScreen(
+                            ShellTab.SETTINGS -> SettingsPage(
                                 context = this@ApShellActivity,
                                 formOverride = formOverride,
                                 onFormOverride = { formOverride = it },

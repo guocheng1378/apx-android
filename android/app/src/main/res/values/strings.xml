@@ -491,4 +491,10 @@
     <string name="status_state_idle">未启动</string>
     <string name="shell_bg_pick_image">从相册选图片…</string>
     <string name="shell_bg_clear_image">清除自定义图片</string>
+    <string name="shell_about_version">版本</string>
+    <string name="shell_about_update">检查更新</string>
+    <string name="shell_about_checking">检查中…</string>
+    <string name="shell_about_latest">已是最新（%1$s）</string>
+    <string name="shell_about_failed">检查失败，稍后再试</string>
+    <string name="shell_about_showcase">组件总览（开发用）</string>
 </resources>
