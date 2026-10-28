@@ -14,6 +14,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.ui.feature.settings.GeneralSettings
 import com.allperiph.ui.feature.settings.LookSettings
 import com.allperiph.ui.feature.status.StatusScreen
 import com.allperiph.ui.miuix.MiuixForm
@@ -81,6 +82,8 @@ fun ShellSettingsScreen(
     ) {
         // 外观分类：主题 / 皮肤 / 背景 / 动效 / 震动 / 声音（真设置，走既有偏好）
         LookSettings(context)
+        // 通用分类：交互开关 + 诊断（自成闭环的那两组）
+        GeneralSettings(context)
 
         // 界面形态（重构线新增的全局开关）：跟随窗口宽度，或手动钉死
         SmallTitle(text = stringResource(R.string.shell_form_label))

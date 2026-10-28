@@ -38,9 +38,9 @@ class ApShellActivity : ComponentActivity() {
                     ApShell { tab ->
                         when (tab) {
                             ShellTab.HOME -> ShellHomeScreen()
-                            ShellTab.STATUS -> ShellStatusScreen(applicationContext)
+                            ShellTab.STATUS -> ShellStatusScreen(this@ApShellActivity)
                             ShellTab.SETTINGS -> ShellSettingsScreen(
-                                context = applicationContext,
+                                context = this@ApShellActivity,
                                 formOverride = formOverride,
                                 onFormOverride = { formOverride = it },
                             )
