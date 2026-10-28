@@ -48,10 +48,7 @@ jobs:
 
       - name: Configure (CMake)
         run: |
-          cmake -S pc/host -B build_host \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DAPXPC_BUILD_UI=OFF \
-            -DAPXPC_BUILD_TESTS=ON
+          cmake -S pc/host -B build_host -DCMAKE_BUILD_TYPE=Release -DAPXPC_BUILD_UI=OFF -DAPXPC_BUILD_TESTS=ON
 
       - name: Build (apxhost + apxdesktop)
         # apxdesktop：mac 桌面壳（desktop_main → runWebPanelHttp）。历史上 mac CI **只 build
@@ -68,11 +65,7 @@ jobs:
         # 新增用例记得同步这里与 build.yml —— 只加 CMake target 不加这里，
         # ctest 会以「Not Run（找不到可执行文件）」红，v223.3 就是这么红的。
         run: |
-          cmake --build build_host -j4 --target \
-            arbiter_test utf16_convert_test ctrl_frame_test relative_move_test \
-            gamepad_fallback_test phone_mode_test tcp_probe_test \
-            wireless_session_lifecycle_test localsend_protocol_test \
-            localsend_upload_test localsend_sender_test
+          cmake --build build_host -j4 --target arbiter_test utf16_convert_test ctrl_frame_test relative_move_test gamepad_fallback_test phone_mode_test tcp_probe_test wireless_session_lifecycle_test localsend_protocol_test localsend_upload_test localsend_sender_test
           ctest --test-dir build_host --output-on-failure
 
       - name: Save symbols (for crash-offset lookup)
@@ -105,11 +98,15 @@ jobs:
           cp -r ../pc/web/dist/. "$STAGE/web/"
 
           # —— AllPeriph.app（双击入口 + TCC 授权宿主）——
-          # ⚠️ 签名阶段 Contents/MacOS/web 必须不存在：codesign --deep 会把 Contents/MacOS/
-          # 下的 web/ 当嵌套代码树要求签名，.js 不可签 → "code object is not signed at all
-          # In subcomponent: web/assets/..." exit 1（#47/#48/#50/#52 四轮 CI 实锤，
-          # 每次都是 Package 毫秒级秒挂）。所以先签干净 bundle，签完再放回 web 打包 ——
-          # ad-hoc 未公证，Gatekeeper/TCC 只认签名存在与 bundle id，不校验 web 的 seal。
+          # ⚠️ web/ 必须在签名【前】放进 Contents/MacOS/web：签名后再往 bundle 里放任何
+          # 文件都会打破 CodeResources 封印（seal 里没有 web/ 的记录），Apple Silicon 上
+          # 双击 .app 会被内核直接 SIGKILL——无弹窗秒退，只在
+          # ~/Library/Logs/DiagnosticReports 留 .ips。v223.7~v223.10 的 mac 包（release
+          # 与 artifact 同管线）全部中招，真机实锤：双击闪退、顶层 ./apxdesktop 正常。
+          # 不用 --deep：--deep 会把 Contents/MacOS/ 下的 web/ 当嵌套代码树要求签名，
+          # .js 不可签 → "code object is not signed at all" exit 1（#47/#48/#50/#52 四轮
+          # CI 实锤）。不带 --deep 时 web/ 按普通文件封进 seal，最后用 verify --strict
+          # 自证：seal 不完整直接红，不再出带病包。
           # strip 会破坏链接期 ad-hoc 签名，这里统一补签：arm64 的 Mach-O 执行与 TCC 按
           # bundle 归属记录都依赖签名。ad-hoc（无公证）→ 下载后仍走「仍要打开」放行流程。
           APP="$STAGE/AllPeriph.app"
@@ -153,35 +150,37 @@ jobs:
           </plist>
           PLIST
           plutil -lint "$APP/Contents/Info.plist"
+          # web/ 先进 bundle，再统一签名（顺序是本修复的核心，见上方注释）
+          mkdir -p "$APP/Contents/MacOS/web"
+          cp -r ../pc/web/dist/. "$APP/Contents/MacOS/web/"
           codesign --force -s - "$STAGE/apxhost"
           codesign --force -s - "$STAGE/apxdesktop"
           codesign --force -s - "$APP/Contents/MacOS/apxdesktop"
-          codesign --force --deep -s - "$APP"
-          echo "ad-hoc 签名完成（web 暂时在场外，接下来放回）"
-          # 签名完成后放回 web/ —— 功能约定「exe 旁 web/」，runWebPanelHttp 从 exe 同级读取。
-          mkdir -p "$APP/Contents/MacOS/web"
-          cp -r ../pc/web/dist/. "$APP/Contents/MacOS/web/"
+          codesign --force -s - "$APP"
+          codesign --verify --strict "$APP"
+          codesign -dvv "$APP" 2>&1 | head -3
+          echo "ad-hoc 签名完成（web 已在 bundle 内一并封印，verify --strict 通过）"
 
-          printf '%s\n' \
-            "全能外设 macOS（arm64，ad-hoc 签名 · 未公证）" \
-            "" \
-            "快速上手：" \
-            "  双击 AllPeriph.app      桌面壳（自动打开浏览器面板，自带 9511 受控端）" \
-            "  ./apxdesktop            同上（终端方式，Ctrl+C 退出）" \
-            "  ./apxhost panel         浏览器控制面板（自动打开 http://127.0.0.1:…/?host=1）" \
-            "  ./apxhost serve         无界面常驻服务（9511 受控 + 热键）" \
-            "  ./apxhost list          枚举设备与传感器" \
-            "  ./apxhost --help        全部命令" \
-            "" \
-            "退出：终端方式直接 Ctrl+C；.app 壳 v1 无托盘菜单，用 pkill -x apxdesktop 或活动监视器结束" \
-            "" \
-            "首次打开（未公证应用）：" \
-            "  系统设置 → 隐私与安全性 → 底部「仍要打开」" \
-            "  或执行：xattr -dr com.apple.quarantine AllPeriph.app ./apxhost ./apxdesktop" \
-            "" \
-            "浏览器面板要求 web/ 目录与可执行文件同级（本包已附带）。" \
-            "麦克风/音箱首次使用按系统弹窗授权（麦克风 / 系统音频录制，macOS 14.2+）。" \
-            > "$STAGE/README.txt"
+          cat > "$STAGE/README.txt" <<'README'
+          全能外设 macOS（arm64，ad-hoc 签名 · 未公证）
+
+          快速上手：
+            双击 AllPeriph.app      桌面壳（自动打开浏览器面板，自带 9511 受控端）
+            ./apxdesktop            同上（终端方式，Ctrl+C 退出）
+            ./apxhost panel         浏览器控制面板（自动打开 http://127.0.0.1:…/?host=1）
+            ./apxhost serve         无界面常驻服务（9511 受控 + 热键）
+            ./apxhost list          枚举设备与传感器
+            ./apxhost --help        全部命令
+
+          退出：终端方式直接 Ctrl+C；.app 壳 v1 无托盘菜单，用 pkill -x apxdesktop 或活动监视器结束
+
+          首次打开（未公证应用）：
+            系统设置 → 隐私与安全性 → 底部「仍要打开」
+            或执行：xattr -dr com.apple.quarantine AllPeriph.app ./apxhost ./apxdesktop
+
+          浏览器面板要求 web/ 目录与可执行文件同级（本包已附带）。
+          麦克风/音箱首次使用按系统弹窗授权（麦克风 / 系统音频录制，macOS 14.2+）。
+          README
           zip -9 -r apxhost-macos-arm64.zip "$STAGE"
           shasum -a 256 apxhost-macos-arm64.zip | tee apxhost-macos-arm64.zip.sha256
 
@@ -221,7 +220,7 @@ jobs:
               --title "全能外设 ${TAG}" \
               --notes "macOS 测试版资产已上传；Windows/Android 资产由 build.yml 随后补充。" \
               || true
-            # 竞态兕底：若上面因 Release 已被 build.yml 抢建而失败，再试一次 upload
+            # 竞态兜底：若上面因 Release 已被 build.yml 抢建而失败，再试一次 upload
             gh release upload "$TAG" $ASSETS --clobber
           fi
           echo "mac 资产已进入 Release ${TAG}"
