@@ -18,7 +18,7 @@ import com.allperiph.wireless.ControlTarget
  * 物理按键根本进不了软件，这就是「蓝牙键盘在电脑上打不出字」的根因。
  *
  * 实现：包装 [Window.Callback]（Activity 本身就是原回调，所有其余方法 `by delegate`
- * 原样透传），在 [dispatchKeyEvent] 抢在视图树之前拦截 —— 不改 MainActivity
+ * 原样透传），在 [dispatchKeyEvent] 抢在视图树之前拦截 —— 不改 ApShellActivity
  * （与 TouchpadSplit 同一思路：旋屏不重建 + 96K 大文件改不动就从 Fragment 接线）。
  *
  * 转发规则（按序，任一条不满足就放行给手机本地）：

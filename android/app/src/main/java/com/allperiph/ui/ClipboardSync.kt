@@ -9,7 +9,7 @@ import com.allperiph.wireless.ControlTarget
 /**
  * 剪贴板同步：手机复制文字后自动发送到已连接的 PC/TV（通过 TCP 9511 控制面）。
  *
- * 用法：在 MainActivity 的 onStart 注册、onStop 取消注册。
+ * 用法：在 ApShellActivity 的 onResume 注册、onPause 取消注册。
  * 由 ControlTarget.controlClient（手机→TV/PC 的连接）发送 0x20 帧到对端。
  */
 object ClipboardSync {

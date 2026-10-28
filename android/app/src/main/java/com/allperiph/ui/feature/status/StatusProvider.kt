@@ -24,7 +24,7 @@ import com.allperiph.wireless.ControlTarget
 /**
  * 状态页的**数据层** —— 把旧 [com.allperiph.ui.StatusFragment] 的取数与开关动作搬过来，
  * 但不再依赖 Activity：数据全部来自单例（AgentController / EnvHolder / Uplink / EventBus），
- * 因此这一页可以在任何宿主里渲染（新外壳、将来换掉 MainActivity 后都不用改）。
+ * 因此这一页可以在任何宿主里渲染（新外壳 ApShellActivity 后都不用改）。
  *
  * ## 刷新的三条路（与旧实现同款）
  *  1. 每秒轮询（USB 可能被外部拔掉、电池白名单可能被系统改）；

@@ -6,7 +6,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `MainActivity.kt` | 主控制面：总开关、链路状态、模块开关、环境诊断、延迟预算、触控板页与快捷键 |
+| `ApShellActivity.kt` | Compose 外壳宿主：启动入口与形态自适应骨架（原「主控制面」各功能页已拆到 `feature/*` 的 Compose 实现） |
 | `AgentForegroundService.kt` | 唯一声明的前台服务：编排启停、常驻通知、进程兜底 |
 | `AgentController.kt` | 编排中枢：模块注册顺序、开关持久化、环境自检、链路速度注入 |
 | `EnvChecks.kt` | root / USB 速度 / 电池白名单 / 通知权限自检 |
@@ -17,7 +17,7 @@
 | `GamepadActivity.kt` / `GamepadController.kt` / `JoystickView.kt` | 手柄页（**仅 USB 出口**） |
 
 > 副屏能力现由 `screen/` 包承担：`screen/ScreenActivity.kt` 在 `AndroidManifest.xml` 中声明，
-> 由 `MainActivity` / `TouchpadActivity` / `AgentForegroundService` 拉起。
+> 由 `ApShellActivity` / `TouchpadActivity` / `AgentForegroundService` 拉起。
 > 早先放在 `app/src/disabled/screen/` 的废止副本（从不参与编译）已删除。
 
 ## 唯一前台服务
@@ -76,7 +76,7 @@
 - **不引入任何第三方依赖**（与 `app/build.gradle.kts` 的零依赖约定一致），使用 framework
   原生控件，卡片用 shape drawable 模拟 M3 Outlined Card；
 - **文案与真实能力必须对齐**：不可用的功能不得写进状态页的「已实现」清单
-  （两组清单见 `res/layout/page_status.xml`）。
+  （两组清单见 `feature/status/StatusScreen.kt`）。
 
 ### v1.33 起补充的三条硬规则
 

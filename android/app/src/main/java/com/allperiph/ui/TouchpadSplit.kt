@@ -14,16 +14,16 @@ import com.allperiph.shared.util.Log
 /**
  * 横屏触控板页左右分栏 —— 运行时重排（旋屏不重建 Activity）。
  *
- * MainActivity 挂了 configChanges=orientation：旋屏不走重建，res/layout-land/ 不会
+ * 旧 MainActivity 挂了 configChanges=orientation：旋屏不走重建，res/layout-land/ 不会
  * 重新加载（applyOrientationLayout 注释已注明这条路不通），所以分栏只能在现有视图
  * 树上做 removeView/addView 重挂载：
  *
  *  横屏：左 2/3（顶部操作行「文件 剪贴板 屏幕 手柄 遥控」+ 手势面），
  *        右 1/3（快捷键：标题 + 编辑 + 网格），中缝 1dp 分隔线；
- *  竖屏：还原 activity_main.xml 的原始竖排（4 子：操作行/手势面/快捷键条/网格）。
+ *  竖屏：还原旧 activity_main.xml 的原始竖排（4 子：操作行/手势面/快捷键条/网格）。
  *
  * 视图实例全程不变 —— findViewById 缓存（touchHint/chipRow/touchArea）、
- * TouchpadFragment.ensureViews 绑定、按钮 clickListener、HotkeyBoard 持有的
+ * 旧 TouchpadFragment.ensureViews 绑定、按钮 clickListener、HotkeyBoard 持有的
  * chipRow、手势面里的液态光标全部继续有效；只换父容器与 LayoutParams。
  * 网格单元格是等分权重（HotkeyBoard.render），挪进窄栏自动收缩，无需重渲染。
  *

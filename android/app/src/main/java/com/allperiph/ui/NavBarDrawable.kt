@@ -24,7 +24,7 @@ import com.allperiph.R
  *   ⑤ 底部内阴影 —— 让玻璃有厚度，不是贴纸
  *   ⑥ 边缘亮线 —— 轮廓
  *
- * 位置 / 宽度由 MainActivity 插值（滑动中段会膨胀一下，像液体被推着走）。
+ * 位置 / 宽度由 ApShellActivity 插值（滑动中段会膨胀一下，像液体被推着走）。
  * 颜色读 `@color/nav_pill*` 令牌，亮 / 暗主题自动跟随。
  */
 class NavBarDrawable(private val act: Activity) : Drawable() {

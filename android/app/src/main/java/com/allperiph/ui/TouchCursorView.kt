@@ -12,7 +12,7 @@ import android.view.animation.LinearInterpolator
 /**
  * 触控板液态光标（v1.26）。
  *
- * 手势面上跟随手指的"液滴"，只做视觉反馈（事件仍由 MainActivity 喂给 TouchpadModule）：
+ * 手势面上跟随手指的"液滴"，只做视觉反馈（事件仍由 ApShellActivity 喂给 TouchpadModule）：
  *
  * · **单指**：按下内点放大 + 一圈涟漪，移动带轻微拖尾，抬起淡出扩散；
  * · **多指**：液滴放成大号，并在外面**持续向外扩散波纹**（两圈相位错开循环），
@@ -67,7 +67,7 @@ class TouchCursorView(context: Context) : View(context) {
     }
 
     /**
-     * 由 MainActivity 转发原始事件（坐标由本 View 自己换算，多指时还要取第二指落点）。
+     * 由 ApShellActivity 转发原始事件（坐标由本 View 自己换算，多指时还要取第二指落点）。
      *
      * @param ox 手势面左上角在窗口中的 x（用于把窗口坐标换算到本 View 坐标）
      * @param oy 同上，y

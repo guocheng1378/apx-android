@@ -2,7 +2,9 @@ package com.allperiph.ui.feature.shell
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.hardware.SensorManager
 import android.os.Bundle
+import android.view.OrientationEventListener
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -42,14 +44,21 @@ import com.allperiph.wireless.TvDiscovery
  *  - 退出时清理（TvDiscovery.stop / onReverseClipboard 解绑）
  *
  * 暂未搬的细化项（标注以便后续跟进，不影响基本可用）：
- *  - 旧 MainActivity 的「旋屏自动切触控板/键盘操控面」监听：新 Compose 各页自行管理朝向，
- *    这里不再全局强制，避免与单页 orientation 请求打架。
  *  - 退出确认弹窗：属 UX 细化，可在 Shell 层补。
+ *
+ * 已搬回的细化项：
+ *  - 「旋屏沉浸操控面」：见 [onResume] 里的 [OrientationEventListener]，横持且停在首页/键盘/
+ *    遥控页时，由 [ApShell] 隐藏导航栏把整屏让给操控面（状态/设置页保留导航）。只做沉浸隐藏，
+ *    不复刻旧壳那套强制 requestedOrientation + MIUI 兜底。
  */
 class ApShellActivity : ComponentActivity() {
 
     private val REQ_NOTIFICATION = 1
     private val HOLDER_SHELL = "shell"
+
+    /** 物理朝向：横持为 true；仅用于「横屏沉浸操控面」判断（见 [ApShell] 的 immersive）。 */
+    private val landscape = mutableStateOf(false)
+    private var orientListener: OrientationEventListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,7 +75,8 @@ class ApShellActivity : ComponentActivity() {
                 // 形态覆盖：null = 跟随窗口宽度；非 null = 手动钉死
                 var formOverride by remember { mutableStateOf<MiuixForm?>(null) }
                 CompositionLocalProvider(LocalMiuixFormOverride provides formOverride) {
-                    ApShell { tab ->
+                    val landscape by this@ApShellActivity.landscape
+                    ApShell(landscape = landscape) { tab ->
                         when (tab) {
                             ShellTab.HOME -> TouchpadScreen()
                             ShellTab.KEYBOARD -> KeyboardScreen()
@@ -83,15 +93,28 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
         }
+
+        // 旋屏监听：物理横持 → 切沉浸操控面。只做沉浸隐藏，不强制 requestedOrientation，
+        // 方向跟随系统自动旋转（旧壳那套 SENSOR_LANDSCAPE + MIUI 兜底在 Compose 线不搬）。
+        orientListener = object : OrientationEventListener(this, SensorManager.SENSOR_DELAY_GAME) {
+            override fun onOrientationChanged(deg: Int) {
+                if (deg == OrientationEventListener.ORIENTATION_UNKNOWN) return
+                // 60~120° / 240~300° 视为横持，其余为竖持；仅在状态变化时才写，避免无谓重组。
+                val land = (deg in 60..120) || (deg in 240..300)
+                if (landscape.value != land) landscape.value = land
+            }
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        orientListener?.enable()
         ClipboardSync.register(this)
         GestureShield.acquireWithHint(this, HOLDER_SHELL)
     }
 
     override fun onPause() {
+        orientListener?.disable()
         super.onPause()
         ClipboardSync.unregister(this)
         GestureShield.release(this, HOLDER_SHELL)

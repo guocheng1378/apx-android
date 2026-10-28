@@ -48,7 +48,7 @@ fun LookSettings(context: Context, modifier: Modifier = Modifier) {
     var skinScope by remember { mutableStateOf<String?>(null) }
     var bgDialog by remember { mutableStateOf(false) }
 
-    // 自定义背景图：走 Activity 结果 API（Compose 侧自带 launcher，不必改 MainActivity）
+    // 自定义背景图：走 Activity 结果 API（Compose 侧自带 launcher，不必改 ApShellActivity）
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         // 持久读权限：不申请的话重启后这张图就读不到了

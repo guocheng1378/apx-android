@@ -197,7 +197,7 @@ class TouchpadActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 截屏已放开（与 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，
+        // 截屏已放开（与旧 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，
         // 截图/录屏一片黑，用户没法截图反馈界面问题，排查只能靠口述。
         // 快捷键列表由 HotkeyBoard 自己从盘上读（见 buildChipsPanel）
         hidReady = AgentController.runtime?.hid?.isReady() == true
@@ -1432,7 +1432,7 @@ class TouchpadActivity : Activity() {
                 }
                 if (ok) {
                     // 先断开旧连接：否则旧实例仍在 running，readerLoop 会每 2s 无限重连旧 IP，
-                    // 并留下 socket + tx/ping/reconn 线程（与 MainActivity 同一处修复）
+                    // 并留下 socket + tx/ping/reconn 线程（与旧 MainActivity 同一处修复）
                     ControlTarget.controlClient?.takeIf { it !== c }?.disconnect()
                     ControlTarget.controlClient = c
                     ControlTarget.host = ip
@@ -1499,7 +1499,7 @@ class TouchpadActivity : Activity() {
         private const val PAGE_KEYBOARD = 1
         private const val PAGE_DISPLAY = 2
 
-        /** 三指手势遮蔽的持有者标识（与 MainActivity 的 main 区分开） */
+        /** 三指手势遮蔽的持有者标识（与旧 MainActivity 的 main 区分开） */
         private const val HOLDER_CONSOLE = "console"
     }
 }

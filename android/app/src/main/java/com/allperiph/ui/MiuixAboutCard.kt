@@ -38,7 +38,7 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
  *  · 依赖面只有两个（都 Apache-2.0、Maven Central 可查）：androidx.activity:activity-compose
  *    （宿主能力）与 top.yukonga.miuix.kmp:miuix（组件库）；Compose 运行时/foundation 由它
  *    传递引入，本工程不直接声明；
- *  · 宿主：MainActivity 从 android.app.Activity 换成 **ComponentActivity** —— ComposeView
+ *  · 宿主：ApShellActivity 从 android.app.Activity 换成 **ComponentActivity** —— ComposeView
  *    需要 ViewTreeLifecycleOwner / ViewModelStoreOwner，只有 androidx 的宿主会挂；
  *  · 主题：MiuixTheme 跟随 **ThemePref** 的明暗（不是系统日夜）—— ThemePref.wrap 把用户的
  *    选择写进 configuration，本卡读 configuration.uiMode，AUTO 时交给系统；
@@ -47,13 +47,13 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
  *
  * ## 与 AboutCard 的关系
  * 行为一致（版本行 + 检查更新 + 意见反馈 + 首次可见静默检查），只是渲染从
- * 纯 Views（about_card.xml）换成 Miuix 组件。同一插槽（page_settings.xml）二选一：
+ * 纯 Views（about_card.xml）换成 Miuix 组件。同一插槽（设置页）二选一：
  * 合并本分支即切换到本卡，旧 AboutCard 保留在树里便于对照/回退。
  *
  * ## 已知差异（如实说）
  *  · 本卡**只做编译级验证**（本机没有安卓工具链）；渲染效果、触摸反馈、与滚动容器的
  *    嵌套（设置页是 ScrollView + 自定义滚动逻辑）都要真机确认；
- *  · Compose 的重组需要 MainActivity 走 ComponentActivity —— 其他 Activity
+ *  · Compose 的重组需要 ApShellActivity 走 ComponentActivity —— 其他 Activity
  *    （触控板/遥控器/副屏…）仍是纯 framework 的 Activity，不受影响。
  */
 class MiuixAboutCard @JvmOverloads constructor(

@@ -66,6 +66,7 @@ private data class ShellEntry(
 fun ApShell(
     modifier: Modifier = Modifier,
     initialTab: ShellTab = ShellTab.HOME,
+    landscape: Boolean = false,
     screen: @Composable (ShellTab) -> Unit,
 ) {
     val form = currentMiuixForm()
@@ -83,10 +84,16 @@ fun ApShell(
     // 平板 / 宽屏 / 电视走左侧导航栏，手机走底部导航栏
     val useRail = form != MiuixForm.PHONE
 
+    // 旋屏沉浸操控面：横持且停在「操控面」三类页（首页/键盘/遥控）时，隐藏导航栏把整屏让给操控面；
+    // 状态 / 设置页保留导航（沿用旧 MainActivity 的口径：这两类页保持用户的方向控制权）。
+    // 注意：这里只做「沉浸隐藏」，不强制 requestedOrientation —— 旧壳那套 SENSOR_LANDSCAPE +
+    // MIUI 兜底的强制朝向在 Compose 重构线里不搬，方向与系统自动旋转保持一致即可。
+    val immersive = landscape && tab in setOf(ShellTab.HOME, ShellTab.KEYBOARD, ShellTab.REMOTE)
+
     Scaffold(
         modifier = modifier,
         bottomBar = {
-            if (!useRail) {
+            if (!useRail && !immersive) {
                 NavigationBar {
                     entries.forEach { entry ->
                         NavigationBarItem(
@@ -102,7 +109,7 @@ fun ApShell(
         },
         content = { padding ->
             Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                if (useRail) {
+                if (useRail && !immersive) {
                     NavigationRail(expanded = form == MiuixForm.TV) {
                         entries.forEach { entry ->
                             NavigationRailItem(

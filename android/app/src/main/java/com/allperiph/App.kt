@@ -53,7 +53,7 @@ class App : Application() {
 
     /**
      * 三指手势遮蔽的界面钩子：集中在这里，避免每个 Activity 各写一遍
-     * （MainActivity 与 TouchpadActivity 都要，漏一处就是一条会误触的路径）。
+     * （ApShellActivity 与 TouchpadActivity 都要，漏一处就是一条会误触的路径）。
      */
     private object ShieldLifecycle : ActivityLifecycleCallbacks {
         private fun nameOf(a: Activity) = a.javaClass.name
