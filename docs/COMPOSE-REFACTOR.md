@@ -342,6 +342,23 @@ Compose 侧只做界面与事件桥，手势行为与旧页一致。
 **这一页还没搬完的**：快捷键条（HotkeyBoard，属键盘页那块）、全屏控制台
 （`TouchpadActivity` 1505 行：分栏、光标锁、悬浮球入口、屏内按钮）。
 
+### 9.11 第七批：键盘页 + 胶囊选择器公用化（2026-10-28）
+
+| 文件 | 内容 |
+|---|---|
+| `ui/miuix/CapsuleRow.kt`（新） | 一排互斥胶囊选项：横向可滚、选中实心主色、标签传**资源 id**（中文不进 Kotlin 常量，不抬硬编码文案基线）。设置页分类栏与键盘页面板切换共用同一份实现 |
+| `ui/feature/keyboard/KeyboardScreen.kt`（新） | 五个面板：全键（QWERTY/AZERTY/Dvorak + 数字行 + 功能行 + 可粘滞修饰键行）、数字小键盘、九宫格、方向键、F 区 |
+
+复用而非重写的部分：[KeyLayouts]（usage 显式写出，不靠键面反查）、[KeyPref.letterRows]
+（三套字母排布，读 `apx_kb` 偏好）、`HidKeys.tap` / `toggleSticky` / `isSticky` / `usageByLabel`
+—— 发键与粘滞语义与旧页完全同一条链路。键帽尺寸随行高（`fillMaxHeight` + Row 的 `weight`），
+不写死高度，横竖屏与 TV 形态下都不会挤出屏幕。
+
+**外壳**：标签从三个变四个（触控板 / 键盘 / 状态 / 设置）。
+
+**这一页还没搬的**：快捷键条（HotkeyBoard 505 行：模板 combos 的手势与拖拽排序）、
+快捷面板 / 遥控面板（媒体键、电源确认）/ 游戏面板 / 自定义布局编辑器（CustomKeyboardDialog 145 行）。
+
 ### 9.5 坐标与版本核验（2026-10-28 实查，不是抄文档）
 
 | 核验项 | 结果 |
