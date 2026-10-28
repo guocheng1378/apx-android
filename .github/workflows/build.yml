@@ -137,7 +137,7 @@ jobs:
           # `^e: ` 因行首有转义序列全部漏配，annotation 只剩「未捕获到 error 行」）
           if [ -f /tmp/build.log ]; then
             grep -an -E "e: |error: |FAILURE: |What went wrong|> Task .*FAILED|Execution failed" \
-              /tmp/build.log | head -60 > ci-log/errors.txt || true
+              /tmp/build.log | head -500 > ci-log/errors.txt || true
             tail -60 /tmp/build.log > ci-log/last60.txt || true
           else
             echo "/tmp/build.log 不存在 —— Build 步骤未执行或前置步骤失败（看本 job 各 step 状态）" > ci-log/errors.txt
@@ -189,6 +189,28 @@ jobs:
             /tmp/build.log
           retention-days: 7
           if-no-files-found: ignore
+
+      # 把完整错误清单（未经 10 条 annotation 上限截断）force-push 到 ci-errors-dump
+      # 分支，本地 `git fetch origin ci-errors-dump` 即可无 token 读取全部编译错误，
+      # 避免每次 CI 只能看到前 10 条、要几十轮才能修完。
+      - name: Dump full errors to ci-errors-dump branch
+        if: failure()
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config user.email "guocheng1378@users.noreply.github.com"
+          git config user.name "guocheng1378"
+          : > ci-errors.txt
+          : > ci-errors-last60.txt
+          [ -f android/ci-log/errors.txt ] && cp android/ci-log/errors.txt ci-errors.txt
+          [ -f android/ci-log/last60.txt ] && cp android/ci-log/last60.txt ci-errors-last60.txt
+          git add -f ci-errors.txt ci-errors-last60.txt
+          if git diff --cached --quiet; then
+            echo "nothing to dump"
+          else
+            git commit -m "ci: dump android build errors (run ${{ github.run_id }})"
+            git push --force origin HEAD:refs/heads/ci-errors-dump
+          fi
 
       # 原生符号自检（真机教训）：只 enable CXX 的 CMake 工程会静默跳过 .c 源文件，
       # 编译链接与 CI 全绿、运行期才报 "No implementation found ... UinputGamepad"，

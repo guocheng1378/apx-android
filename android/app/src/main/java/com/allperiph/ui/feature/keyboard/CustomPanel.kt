@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.weight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -162,7 +162,7 @@ private fun CustomLayoutEditorDialog(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 TextButton(
                     text = stringResource(R.string.shell_custom_kbd_add_row),
-                    onClick = { rows = rows + mutableListOf<String>() },
+                    onClick = { rows = rows.toMutableList().also { it.add(mutableListOf()) } },
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
