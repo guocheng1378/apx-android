@@ -176,8 +176,8 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
 // 接口为跨平台统一而设（mac 上 run() 是主线程 AppKit 事件泵，见 tray_mac.mm）。
 bool TrayIcon::run(const std::function<bool()>&) { return false; }
 
-TrayStatus TrayIcon::status() const {
-    TrayStatus t;
+TrayIcon::TrayStatus TrayIcon::status() const {
+    TrayIcon::TrayStatus t;
     t.created = (window_ != nullptr);
     t.active = t.created && running_;
     t.reason = t.created ? std::string() : std::string("托盘未创建");
@@ -190,7 +190,7 @@ TrayStatus TrayIcon::status() const {
    会撞重复符号 —— 所以这里必须把 Apple 排除掉，不是忘了。 */
 bool TrayIcon::create(const std::string&) { return true; }
 bool TrayIcon::run(const std::function<bool()>&) { return false; }
-TrayStatus TrayIcon::status() const { return TrayStatus{}; }
+TrayIcon::TrayStatus TrayIcon::status() const { return TrayIcon::TrayStatus{}; }
 void TrayIcon::quit() { if (onQuit_) onQuit_(); }
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }

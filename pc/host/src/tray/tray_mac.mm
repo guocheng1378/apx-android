@@ -378,9 +378,9 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     }
 }
 
-TrayStatus TrayIcon::status() const {
+TrayIcon::TrayStatus TrayIcon::status() const {
     // 跨线程只读指针与原子量（AppKit 对象一个都不碰），面板线程可随时调。
-    TrayStatus t;
+    TrayIcon::TrayStatus t;
     t.created = (g_statusItem != nil);
     t.active = t.created && !g_shared.stopped.load();
     t.reason = g_createFailReason;
