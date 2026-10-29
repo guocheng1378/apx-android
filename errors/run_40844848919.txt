@@ -1,0 +1,44 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:381:1: error: unknown type name 'TrayStatus'; did you mean 'TrayIcon::TrayStatus'?
+  381 | TrayStatus TrayIcon::status() const {
+      | ^~~~~~~~~~
+      | TrayIcon::TrayStatus
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/tray/tray_win32.hpp:78:12: note: 'TrayIcon::TrayStatus' declared here
+   78 |     struct TrayStatus {
+      |            ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 66%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:381:1: error: unknown type name 'TrayStatus'; did you mean 'TrayIcon::TrayStatus'?
+  381 | TrayStatus TrayIcon::status() const {
+      | ^~~~~~~~~~
+      | TrayIcon::TrayStatus
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/tray/tray_win32.hpp:78:12: note: 'TrayIcon::TrayStatus' declared here
+   78 |     struct TrayStatus {
+      |            ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 66%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
