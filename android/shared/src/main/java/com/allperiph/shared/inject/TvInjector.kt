@@ -212,9 +212,16 @@ object TvInjector {
         // TV 端不需要切线程（needsMainThreadSwitch=false）。
         val p = platform ?: return
         val block: () -> Unit = {
-            // 刚连上：立刻取一次真实尺寸（不能沿用节流里的旧值，横竖屏切换后它们会过期）
-            refreshScreen(force = true)
-            paintOverlay()   // 原来是 move/hide 直调 —— 走门：浮层被控制端关掉时不画
+            if (on) {
+                // 刚连上：立刻取一次真实尺寸（不能沿用节流里的旧值，横竖屏切换后它们会过期），
+                // 再把浮层画在初始位置
+                refreshScreen(force = true)
+                paintOverlay()   // 原来是 move/hide 直调 —— 走门：浮层被控制端关掉时不画
+            } else {
+                // 断开：收起浮层。旧实现不管 on 都走 paintOverlay() —— overlayEnabled 时
+                // 反手把浮层画回最后落点并一直显示（#47 用户报「断开退出后屏幕中心还有个光点」）
+                overlay?.hide()
+            }
         }
         if (p.needsMainThreadSwitch) p.runOnMain(block) else block()
     }
