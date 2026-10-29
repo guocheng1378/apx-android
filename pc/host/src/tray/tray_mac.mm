@@ -121,19 +121,21 @@ void drainPendingNotifications();
 
 namespace {
 
-/// 托盘线程的共享状态（跨线程只通过这些字段，且都在锁/原子下访问）。
+/// 托盘的共享状态：quit() 只置 stopped，事件泵（run()，主线程）看到就退出。
+/// AppKit 对象全部只在主线程碰（create 在调用方主线程、泵在主线程、
+/// 面板线程的 notify 走队列由泵代发）—— 跨线程直接碰 AppKit 就是 issue#47 的根因。
 struct MacTrayShared {
     std::atomic<bool> stopped{false};
-    std::mutex mu;
-    std::condition_variable cv;
-    bool ready = false;      // create() 等这个：true=图标已挂上，false=起不来
-    bool ok = false;
 };
 
 MacTrayShared g_shared;
-NSThread* g_trayThread = nil;      // 托盘线程（quit 时用于 marshalling 回去）
 APXTrayTarget* g_target = nil;     // 菜单接收者（持有到进程结束）
 NSStatusItem* g_statusItem = nil;  // 状态栏项
+
+// 面板线程投递的通知队列：notify() 从非主线程只入队（不碰 AppKit），
+// run() 的泵每一拍在主线程上取出发出。
+std::mutex g_notifyMu;
+std::vector<std::pair<NSString*, NSString*>> g_pendingNotifications;
 
 /// 建菜单。所有项都走 APXTrayTarget 的 invokeAction:（tag 索引 g_actions）。
 NSMenu* buildMenu(const MenuPlan& plan) {
