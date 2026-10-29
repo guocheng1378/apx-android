@@ -8,6 +8,8 @@
 #include "apxpc/wireless/relative_move.hpp"
 // 手柄降级的算术（边沿/死区/缩放/滚轮限速）：与 Windows 共用，用例在 host 跑（第 5 条）。
 #include "apxpc/wireless/gamepad_fallback.hpp"
+// 权限自检的提示走 APX_LOG 落盘 —— .app 双击启动时 stderr 不可见（见 ensureTrustedOnce）。
+#include "apxpc/log.hpp"
 
 #if defined(__APPLE__)
 
@@ -146,15 +148,15 @@ public:
         if (trustChecked_) return;
         trustChecked_ = true;
         if (platformInputTrusted()) return;
-        std::fprintf(stderr,
-                     "[AllPeriph] 未获得「辅助功能」权限：注入事件会被系统丢弃，正在弹出授权引导…\n"
-                     "            授权路径：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph\n");
-        std::fflush(stderr);
+        // 走 APX_LOG 落盘而不是 stderr：.app 双击启动时 stderr 不可见，fprintf 那版在真机上
+        // 等于什么都没写 —— 报障「开了录屏和录音、重启还是提示」时，日志里唯一能证明
+        // preflight=false 的痕迹就是这条。
+        APX_LOGW("未获得「辅助功能」权限：注入事件会被系统丢弃，正在弹出授权引导"
+                 "（授权路径：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph）");
         if (requestPlatformInputTrust())
-            std::fprintf(stderr, "[AllPeriph] 已获得「辅助功能」权限\n");
+            APX_LOGI("已获得「辅助功能」权限");
         else
-            std::fprintf(stderr, "[AllPeriph] 仍未授权：手机发来的键鼠在授权前不会生效\n");
-        std::fflush(stderr);
+            APX_LOGW("仍未授权：手机发来的键鼠在授权前不会生效（面板有「重新检测」可再弹引导）");
     }
 
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel, int8_t pan = 0) override {

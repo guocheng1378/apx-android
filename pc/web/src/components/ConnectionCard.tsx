@@ -19,6 +19,8 @@ interface UsbTransports {
   btSupported?: boolean;
   /** macOS「辅助功能」授权：false = 手机发来的输入会被系统静默丢弃 */
   inputTrusted?: boolean;
+  /** 实际注入进程的 exe 路径（TCC 按进程/签名归属授权，用户要对上「该勾哪一个」） */
+  inputProc?: string;
   /** 手机上报的三种接入模式状态（9511 帧 0x31） */
   phone?: PhoneMode;
   /** 9511 受控端的归属：listening=本面板起的；shared=端口被本机另一个实例占着（它提供） */
@@ -49,6 +51,8 @@ interface PhoneMode {
   reported?: boolean;
   connected?: boolean;
   frames?: number;
+  /** 9511 由本机另一个实例提供：本面板收不到手机上报（modeStatus=0），不是故障 */
+  shared?: boolean;
   wirelessAvailable?: boolean;
   bluetoothAvailable?: boolean;
   usbAvailable?: boolean;
@@ -65,13 +69,15 @@ const ModeRow: React.FC<{
   reported: boolean;
   available?: boolean;
   active?: boolean;
+  /** 受控端由另一实例提供：本面板读不到手机上报，如实说，别误读成「未上报/坏了」 */
+  shared?: boolean;
   note: string;
   sub?: string;
   extra?: React.ReactNode;
-}> = ({ name, reported, available, active, note, sub, extra }) => {
+}> = ({ name, reported, available, active, shared, note, sub, extra }) => {
   const usable = reported && available;
   const dot = !usable ? 'bg-state-idle' : active ? 'bg-primary' : 'bg-state-ok';
-  const tag = !reported ? '未上报' : !available ? '不可用' : active ? '当前在用' : '可用';
+  const tag = shared ? '经另一实例' : !reported ? '未上报' : !available ? '不可用' : active ? '当前在用' : '可用';
   const tagColor = !usable ? 'text-on-tertiary' : active ? 'text-primary' : 'text-state-ok';
   return (
     <div className="pt-3 border-t border-stroke flex items-start gap-3">
@@ -108,6 +114,20 @@ const ModeRow: React.FC<{
 export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
   const [host, setHost] = useState('');
   const [port, setPort] = useState('9511');
+  // 辅助功能「重新检测」：以前用户在系统设置改完只能干等 400ms 轮询 + 重启面板，
+  // 没有任何主动反馈入口。act 会再弹一次系统引导（仍未授权时），并回实时 preflight。
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckHint, setRecheckHint] = useState('');
+  const recheck = async () => {
+    setRechecking(true);
+    try {
+      const r: any = await bridge.act('input.recheck');
+      if (r?.ok && r?.data?.trusted === false)
+        setRecheckHint('仍未授权：勾选的条目要和上面显示的进程对上（.app 双击启动 = AllPeriph；终端启动 = 终端 App）');
+      else setRecheckHint('');
+    } catch { /* 宿主未就绪：横幅会随 400ms 轮询自己刷新 */ }
+    setRechecking(false);
+  };
   const s = state.link;
   const tp = (state.transports ?? {}) as UsbTransports;
   const phone = tp.phone ?? {};
@@ -168,8 +188,19 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
             本机未授予「辅助功能」权限：手机发来的键鼠会被系统丢弃
           </div>
           <div className="data-text text-on-tertiary mt-1">
-            系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph（apxdesktop / apxhost），然后重启面板。
-            首次收到手机输入时也会自动弹一次授权引导。
+            系统设置 → 隐私与安全性 → 辅助功能 → 勾选与上面进程对应的条目
+            {tp.inputProc ? `（本面板：${tp.inputProc.split(/[\\/]/).pop()}）` : ''}
+            ，勾选后 1 秒内横幅会自动消失（检测是实时的，不用重启面板）。
+          </div>
+          <div className="data-text text-on-tertiary mt-1">
+            包里有三个各自签名的副本（AllPeriph.app / apxdesktop / apxhost），勾错对象权限不生效；
+            从终端启动时，权限要授给终端 App 本身。「录屏」「麦克风」是另一道权限，与此不通。
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button className="btn-ghost h-[30px]" disabled={rechecking} onClick={recheck}>
+              {rechecking ? '检测中…' : '重新检测 / 弹出授权引导'}
+            </button>
+            {recheckHint && <span className="data-text text-state-error">{recheckHint}</span>}
           </div>
         </div>
       )}
@@ -182,7 +213,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.wirelessAvailable}
           active={phone.active === 'wireless'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.wirelessAvailable
                 ? '手机已选定受控目标：输入经 9511 上行，本机就地注入'
                 : '手机未启用无线出口（未选受控目标，或不在同一局域网）'
@@ -204,7 +237,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.bluetoothAvailable}
           active={phone.active === 'bluetooth'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.bluetoothAvailable
                 ? '手机蓝牙已开启：配对后本机免驱识别为鼠标 / 键盘 / 多媒体键'
                 : '手机蓝牙出口不可用（未开启，或未配对）'
@@ -222,7 +257,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.usbAvailable ?? tp.usbDevice}
           active={phone.active === 'usb'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.usbAvailable
                 ? '手机 USB gadget 已就绪：插线即用（HID 键鼠 + UAC2 声卡 + NCM）'
                 : '手机 USB 出口不可用（未插线，或手机端「有线（USB）」开关未开）'

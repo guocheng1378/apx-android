@@ -71,6 +71,17 @@ public:
 
     void quit();
 
+    /// 托盘状态（面板可见性诊断）：created = 图标建起来了；active = 在菜单栏上活着；
+    /// reason = create 失败/降级的原因（成功时为空）。
+    /// 为什么值得暴露：托盘创建失败以前只有日志里一行 LOGW —— 用户看面板只会觉得
+    /// 「app 莫名其妙没图标、连退出入口都没有」。回传面板后，失败原因直接可见。
+    struct TrayStatus {
+        bool created = false;
+        bool active = false;
+        std::string reason;
+    };
+    TrayStatus status() const;
+
 // 以下成员供本翻译单元内的线程/窗口过程自由函数访问（内部工具类，直接公开）
 public:
     std::function<void()> onQuit_;

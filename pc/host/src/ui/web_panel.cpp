@@ -39,6 +39,9 @@
 #include "apxpc/wireless/wireless_session.hpp"
 #include "apxpc/wireless/file_receiver.hpp"
 #include "apxpc/wireless/file_sender.hpp"
+// 9511 受控端状态回填（phone 0x31 解码 / inputTrusted / ctrlServer）—— 对齐 panel_http.cpp。
+#include "apxpc/wireless/ctrl9511.hpp"
+#include "apxpc/wireless/phone_mode.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/localsend/local_send_sender.hpp"
 #include "apxpc/media/media_session.hpp"
@@ -283,6 +286,32 @@ void buildState(const HostBundle& b, Json& out) {
         transports["btSupported"] = true;
     }
 
+    // 9511 受控端状态（对齐 panel_http.cpp buildState 逐字段）：phone（0x31 解码）/
+    // inputTrusted / ctrlServer。以前不回填 —— Win 壳的连接卡三行模式显示永远「未上报」，
+    // 即使手机实际连着并报了 0x31（前端 ConnectionCard 依赖这些字段）。
+    if (b.ctrlSrv) {
+        const auto cs = b.ctrlSrv->status();
+        const auto pm = apxpc::wireless::decodePhoneMode(cs.modeFlags);
+        Json ph = Json::makeObject();
+        ph["reported"] = cs.modeStatus > 0;
+        ph["connected"] = cs.connected;
+        ph["frames"] = static_cast<double>(cs.modeStatus);
+        ph["wirelessAvailable"] = pm.wirelessAvailable;
+        ph["bluetoothAvailable"] = pm.bluetoothAvailable;
+        ph["usbAvailable"] = pm.usbAvailable;
+        ph["active"] = pm.active;
+        transports["phone"] = ph;
+        // 注入权限（macOS 的「辅助功能」）：Win 上 platformInputTrusted() 恒 true，
+        // 横幅永不显示 —— 字段照样给，前端不用分平台判断。
+        transports["inputTrusted"] = cs.inputTrusted;
+        Json csj = Json::makeObject();
+        csj["listening"] = cs.listening;
+        csj["shared"] = false;   // Win 侧 9511 由本进程创建，不存在另一实例提供的场景
+        csj["connected"] = cs.connected;
+        csj["error"] = cs.error;
+        transports["ctrlServer"] = csj;
+    }
+
     // USB 传输状态（设置页「传输状态」区块消费）
     if (Panel* gp = g_panel; gp && gp->usbScanned) {
         transports["usbDevice"] = gp->usbDevice;
@@ -290,6 +319,17 @@ void buildState(const HostBundle& b, Json& out) {
         transports["usbHid"] = gp->usbHid;
         transports["usbName"] = gp->usbName;
         transports["usbSpeed"] = gp->usbSpeed;
+    }
+
+    // 托盘状态（created/active/失败原因）：对齐 panel_http.cpp —— 创建失败以前只有日志
+    // 一行 LOGW，用户看面板只会觉得「没图标、连退出入口都没有」。回传后失败原因直接可见。
+    if (b.tray) {
+        const auto t = b.tray->status();
+        Json tj = Json::makeObject();
+        tj["created"] = t.created;
+        tj["active"] = t.active;
+        tj["reason"] = t.reason;
+        out["tray"] = tj;
     }
 
     // 互传（LocalSend）：字段口径由 apxpc::localsend::statusJson 统一给出（单测钉住的那份），

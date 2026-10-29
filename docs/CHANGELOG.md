@@ -6,6 +6,72 @@
 
 ---
 
+## v223.11（2026-10-29）
+
+本版集中处理 mac 端四件报障事（互传「提示不支持」、辅助功能检测、托盘状态、
+连接卡模式显示）与 Win 壳连接卡回填；同时把 PR #49 的 mac 双击闪退修复
+正式带上发布线（该修复已在 master，自 v223.10 起未发过版）。
+
+### 修复（mac）：双击 AllPeriph.app 闪退（PR #49，issue #47）
+两层根因，都已修，并加了防回归：
+
+- **bundle 封印破损**：打包管线 `codesign --deep` 签完后又把 `web/` 拷回
+  `Contents/MacOS/web`，`CodeResources` 里没有它的记录 —— Apple Silicon 对
+  「签名后被改动」的 .app 直接 SIGKILL（崩溃报告只在
+  `~/Library/Logs/DiagnosticReports`，界面无任何提示）。修法：`web/` 在签名
+  **前**放进 bundle、改放 `Contents/Resources/web`；签名不用 `--deep`；
+  新增 `codesign --verify --strict` 自证，seal 不完整直接红，不再出带病包。
+  v223.7 起 mac 包全部中招，本版起恢复。
+- **AppKit 必须拥有主线程**：托盘（NSStatusItem）在非主线程初始化抛
+  `NSInternalInconsistencyException`，主线程的 `catch(...)` 接不住别的线程的
+  异常。修法：tray 的 AppKit 初始化回到主线程并 `@try/@catch` 兜底
+  （headless SSH 下无托盘、应用继续跑）；HTTP 面板挪到后台线程，主线程跑
+  托盘事件泵。
+- **CI smoke test**：用 LaunchServices `open` 走真实双击路径启动 .app，
+  封印破损或线程崩溃当场红 —— 这是能抓住这两类问题的「双击模拟」。
+- 顺手：mac zip 的 README 补退出方式说明（托盘菜单已存在）。
+
+### 修复（mac）：浏览器面板互传「提示不支持」—— file.send 真实现
+报障者点的是**文件面板**（FilePanelModal）：它此前没有 HTTP 面板管线适配，
+后端 `file.send` 也只是个桩，点了直接回「本机不支持」。现已接真：
+
+- `file.send` 走 `sendFile`(9512) 直发手机，每 10% 推一次进度事件
+  （`on-file-send-progress` / `on-file-send-done`），FilePanelModal 按 HTTP
+  语义适配：act-response = 已入队，等 done 事件收尾；主按钮补 `label[for]`。
+- 发送白名单与 `file.delete` 同一接收目录，`weakly_canonical` 防路径穿越。
+- 「上传到手机」：`/api/upload` 支持 `?target=file`；未连手机时只落盘并回
+  warn，不假装已发。
+
+### 修复（mac）：辅助功能检测体验
+- 横幅写明**卡住的是哪个进程**、需要哪个权限；解释包里三个 TCC 身份
+  （AllPeriph.app / 裸 apxdesktop / apxhost，各自 ad-hoc 签名）—— 在系统设置
+  里勾错对象就会出现「明明开了还是不行」。
+- 横幅上加「重新检测」（发 `input.recheck`，实时预检授权状态）与
+  「弹出授权引导」（直达系统设置对应开关）两个按钮；勾选后 1 秒内自动消失。
+- 授权预检的 stderr 输出改走 APX_LOG 落盘（`~/Library/Logs/AllPeriph/`），
+  报障可回查。
+
+### 修复（mac+win）：托盘状态回传 + 连接卡如实显示
+- 托盘创建失败的具体原因随 `/api/state` 的 `tray` 字段回传面板（是否创建、
+  是否激活、失败原因），不再只能靠猜；托盘通知改为跨线程排队投递。
+- **Dock 没有图标是设计使然**：纯托盘应用 `setActivationPolicy:Accessory`，
+  README 已注明，不是 bug。
+
+### 修复（win）：连接卡三行永远「未上报」
+- Win 壳此前没把 Ctrl9511Server 的状态喂给面板 buildState，「手机上报 /
+  输入信任 / 受控服务」三行恒为未上报。HostBundle 增加 ctrlSrv 指针，
+  desktop_main 在 Win 下注入，三行恢复真实数据（手机 0x31 解码、
+  `platformInputTrusted()` 实时查询、受控端连接状态）。
+- 新增 `phone.shared` 字段：受控端由**另一实例**提供（ctrlShared）时，
+  本面板读不到手机上报属正常 —— 面板如实显示「受控端由另一实例提供
+  （不是故障）」并加「经另一实例」标记，不再误报为手机未上报。
+
+### 其他
+- CI 抓到 `TrayStatus` 嵌套类型在类外定义返回值需全限定
+  （`TrayIcon::TrayStatus`），mac / Win 三处已修。
+
+---
+
 ## v223.10（2026-10-27）
 
 ### 新增（遥控器页：被控端**光标浮层开关**）

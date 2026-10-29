@@ -682,6 +682,9 @@ int runDesktopMain() {
     bundle.micBridge    = micBridge.get();
     bundle.tray         = tray.get();
     bundle.hotkey       = hk.get();
+#if defined(_WIN32)
+    bundle.ctrlSrv      = &ctrlSrv;   // web_panel buildState 读受控端状态（phone/inputTrusted）
+#endif
     bundle.cfg          = &cfg;
     bundle.configPath   = cfgPath;
 
