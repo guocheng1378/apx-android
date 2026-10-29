@@ -693,7 +693,22 @@ int runDesktopMain() {
     // 9511 受控端由 runWebPanelHttp 内部的 HttpPanel::ctrlSrv **唯一**创建
     // （本文件上方对 mac 已不再创建 —— 重复创建就是 v223 打开即崩的根因，见上方注释）。
     // 其余（startAuto / 9512 收文件事件 / 媒体泵 / 麦克风接线）由 runWebPanelHttp 统一负责。
-    const int rc = apxpc::ui::runWebPanelHttp(bundle, {});
+    //
+    // ⚠️ 面板必须挪后台线程：托盘（AppKit）必须占**主线程** —— 非主线程建
+    // NSStatusItem/NSApp 会抛 NSInternalInconsistencyException（NSException），
+    // 无人接住就是 std::terminate。CI macOS 26 实锤（issue#47 第二层根因）：
+    // seal 修好后 app 依然「双击秒退」就是这里（旧设计托盘自带 NSThread 上建 AppKit）。
+    // 主线程交给 tray->run() 的 AppKit 事件泵，面板跑后台线程；两条退出路径都会合：
+    //   · 菜单「退出」→ requestPanelQuit() → 面板线程收尾 → tray->quit() → 泵退出；
+    //   · 面板自己退（前端「退出」）→ 面板线程 tray->quit() → 泵退出。
+    std::atomic<int> panelRc{0};
+    std::thread panelThread([&] {
+        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));
+        tray->quit();   // 面板先退：把托盘事件泵放下来（幂等，只置标志）
+    });
+    tray->run();        // 主线程：AppKit 事件泵，阻塞到 quit / 面板线程收尾
+    panelThread.join();
+    const int rc = panelRc.load();
 #else
     std::fprintf(stderr,
                  "apxdesktop 桌面壳暂仅支持 Windows/macOS；Linux 请用 apxhost panel\n");

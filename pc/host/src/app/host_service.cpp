@@ -179,8 +179,22 @@ int runService(const ServiceOptions& opt) {
 
     APX_LOGI("已就绪：9511 受控端 + 全局热键 + 托盘（无 Web 界面）");
 
+#if defined(__APPLE__)
+    // mac：AppKit 必须占**主线程**（issue#47）——常驻循环由托盘事件泵承担：
+    // 菜单「退出」与 SIGINT 都把 g_running 置 false，泵下一拍退出。
+    // run() 返回 false = 没有可泵的托盘（未启用或无 GUI 会话下初始化失败），
+    // 退回 sleep 循环，服务继续（9511 + 热键不受影响）。
+    if (tray) {
+        if (!tray->run([] { return g_running.load(); })) {
+            while (g_running) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+    } else {
+        while (g_running) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+#else
     // 常驻循环：只为持有 9511 受控端与热键（原先这里还按 1Hz 广播 SSE 状态，随 Web 一并去掉）
     while (g_running) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+#endif
 
     APX_LOGI("正在停止服务……");
     if (hk) hk->stop();

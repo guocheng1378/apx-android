@@ -58,9 +58,13 @@ struct MenuPlan {
 }  // namespace
 
 namespace {
-// 真正「贴 tooltip + 发通知」的那一步：只在托盘线程上调（AppKit 规矩）。
+// 真正「贴 tooltip + 发通知」的那一步：只在**主线程**上调（AppKit 规矩，
+// issue#47：跨线程碰 AppKit 会抛 NSException → terminate）。
 // 前置声明：它的实现排在下面那个匿名 namespace 里，晚于这里的 @implementation。
 void deliverNotification(NSString* title, NSString* body);
+
+// notify() 入队的通知在这里（主线程，run() 的泵内）统一发出。
+void drainPendingNotifications();
 }  // namespace
 
 /// 菜单点击的接收者。唯一的职责：把 tag 翻回 std::function 并调用。
@@ -210,6 +214,16 @@ void deliverNotification(NSString* title, NSString* body) {
 #pragma clang diagnostic pop
 }
 
+// notify() 从非主线程入队的通知由 run() 的泵在这里（主线程）统一发出。
+void drainPendingNotifications() {
+    std::vector<std::pair<NSString*, NSString*>> pending;
+    {
+        std::lock_guard<std::mutex> lk(g_notifyMu);
+        pending.swap(g_pendingNotifications);
+    }
+    for (auto& p : pending) deliverNotification(p.first, p.second);
+}
+
 }  // namespace
 
 namespace apxpc::tray {
@@ -239,21 +253,22 @@ bool TrayIcon::create(const std::string& tip) {
         if (quitFn) quitFn();
     };
 
-    const std::string tipCopy = tip;
     {
         // 清空上一轮的动作表：菜单项 tag 是这张表的下标，重复 create 会错位
         // （点「打开面板」结果执行了「退出」这种事最难查）。
         std::lock_guard<std::mutex> lk(g_actionsMu);
         g_actions.clear();
     }
-    {
-        std::lock_guard<std::mutex> lk(g_shared.mu);
-        g_shared.ready = false;
-        g_shared.ok = false;
-    }
     g_shared.stopped.store(false);   // 允许再次 quit（重复 create 的场景）
 
-    NSThread* th = [[NSThread alloc] initWithBlock:^{
+    // ⚠️ AppKit 必须在**进程主线程**上初始化：NSStatusItem/NSApp 在非主线程创建，
+    // AppKit 会抛 NSInternalInconsistencyException（NSException，non-std）→ 无人接住
+    // → std::terminate。CI macOS 26 实锤（issue#47 第二层根因）：v223.8~v223.10 的
+    // 「双击秒退」在 seal 修好后依然存在，就是这里 —— 旧设计（托盘自带 NSThread 上建
+    // AppKit）在真机/CI 上都活不过启动。修复 = 调用方把主线程让给 AppKit：
+    //   · 本函数在主线程上直接建（不再起 NSThread）；
+    //   · run() 在主线程上泵事件（桌面壳把面板挪进后台线程）。
+    @try {
         @autoreleasepool {
             // NSApplication 必须先有实例，NSStatusItem 才有落脚点。
             // activationPolicy=Accessory：只在菜单栏出现，不进 Dock、不抢焦点。
@@ -264,71 +279,63 @@ bool TrayIcon::create(const std::string& tip) {
             g_statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
             if (g_statusItem == nil) {
                 APX_LOGW("mac 托盘：statusItemWithLength 返回 nil（无法挂状态栏项）");
-                std::lock_guard<std::mutex> lk(g_shared.mu);
-                g_shared.ready = true;
-                g_shared.ok = false;
-                g_shared.cv.notify_all();
-                return;
+                return false;
             }
             applyStatusIcon(g_statusItem);
             [g_statusItem setMenu:buildMenu(*plan)];
-            [g_statusItem.button setToolTip:[NSString stringWithUTF8String:tipCopy.c_str()]];
+            [g_statusItem.button setToolTip:[NSString stringWithUTF8String:tip.c_str()]];
 
-            APX_LOGI("mac 托盘已就绪（菜单栏图标）");
-            {
-                std::lock_guard<std::mutex> lk(g_shared.mu);
-                g_shared.ready = true;
-                g_shared.ok = true;
-                g_shared.cv.notify_all();
-            }
-
-            [NSApp run];   // 阻塞到 requestStop
-
-            // —— 停下来了：把状态栏项摘掉，别留一个点了没反应的图标 ——
-            if (g_statusItem) {
-                [[NSStatusBar systemStatusBar] removeStatusItem:g_statusItem];
-                g_statusItem = nil;
-            }
-            APX_LOGI("mac 托盘已停止");
+            APX_LOGI("mac 托盘已就绪（菜单栏图标，AppKit 在主线程）");
+            return true;
         }
-    }];
-    [th setName:@"apx-tray-mac"];
-    g_trayThread = th;
-    [th start];
-
-    // 等图标真的挂上再返回：调用方（desktop_main）会按返回值决定要不要打日志，
-    // 不能先骗他说成功、其实那条线程已经退出了。
-    std::unique_lock<std::mutex> lk(g_shared.mu);
-    const bool signaled = g_shared.cv.wait_for(lk, std::chrono::milliseconds(2000),
-                                              [] { return g_shared.ready; });
-    if (!signaled) {
-        APX_LOGW("mac 托盘：2 秒内没等到状态栏项就绪（继续跑，不影响面板）");
+    } @catch (NSException* e) {
+        // SSH 无 GUI 会话 / AppKit 拒绝：如实降级为「无托盘」。绝不能让 NSException
+        // 逃出去 —— 它是 non-std 异常，main 的 catch(...) 接不住就是 terminate。
+        APX_LOGW("mac 托盘：AppKit 初始化失败（{}）——无托盘继续跑",
+                 e.reason ? e.reason.UTF8String : "?");
+        g_statusItem = nil;
+        g_target = nil;
         return false;
     }
-    return g_shared.ok;
+}
+
+bool TrayIcon::run(const std::function<bool()>& keepGoing) {
+    // 主线程 AppKit 事件泵：不用 [NSApp run]（它阻塞且只能靠 requestStop 唤醒），
+    // 改用 0.2s 一拍的事件泵 —— quit() 只置原子标志，下一拍自然退出；
+    // SIGINT 这类非 AppKit 路径通过 keepGoing 参与判断。菜单动作与通知都在
+    // 本（主）线程分发，跨线程 AppKit 访问为零。
+    if (![NSThread isMainThread]) {
+        APX_LOGW("mac 托盘：run() 必须在主线程（AppKit 规矩），本次跳过");
+        return false;
+    }
+    if (!g_statusItem) return false;   // create 失败（无托盘）：泵无事可做
+
+    @autoreleasepool {
+        while (!g_shared.stopped.load() && (!keepGoing || keepGoing())) {
+            @autoreleasepool {
+                NSEvent* ev = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                                  untilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]
+                                                     inMode:NSDefaultRunLoopMode
+                                                    dequeue:YES];
+                if (ev) [NSApp sendEvent:ev];
+                drainPendingNotifications();
+            }
+        }
+        // —— 停下来了：把状态栏项摘掉，别留一个点了没反应的图标 ——
+        if (g_statusItem) {
+            [[NSStatusBar systemStatusBar] removeStatusItem:g_statusItem];
+            g_statusItem = nil;
+        }
+        APX_LOGI("mac 托盘已停止");
+    }
+    return true;
 }
 
 void TrayIcon::quit() {
-    // 幂等：析构也会调到这里。
+    // 幂等：析构也会调到这里。只置标志 —— 事件泵（run()，主线程）0.2s 一拍，
+    // 看到就退出并摘图标；不再需要跨线程 marshalling（旧设计依赖
+    // performSelector:onThread:，泵模型下不可靠也不再需要）。
     if (g_shared.stopped.exchange(true)) return;
-
-    NSThread* th = g_trayThread;
-    APXTrayTarget* target = g_target;
-    if (th != nil && target != nil && ![th isFinished]) {
-        // 跨线程 marshalling：requestStop 必须在托盘线程上执行。
-        [target performSelector:@selector(requestStop) onThread:th withObject:nil waitUntilDone:NO];
-        // 给一小段时间让 run loop 退出；不 join（NSThread 没有 join 语义，
-        // 卡在这里会让「退出」按钮看起来没反应）。
-        for (int i = 0; i < 20 && ![th isFinished]; ++i) {
-            [NSThread sleepForTimeInterval:0.05];
-        }
-    }
-    g_statusItem = nil;
-    g_target = nil;
-    g_trayThread = nil;
-
-    // 旧的非 Windows 桩就是这样：quit() 直接回调 onQuit_（apxhost serve 的退出路径
-    // 依赖它把主循环放下来）。保持语义不变。
     if (onQuit_) onQuit_();
 }
 
@@ -343,17 +350,14 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
         if (!t) t = @"";
         if (!b) b = @"";
 
-        // 调用方主要是**面板线程**（收到文件时 panel_http 直接调 bundle.tray->notify）。
-        // AppKit 对象只能在自己线程上碰，跨线程直接动 NSStatusItem / 通知中心是未定义
-        // 行为 —— 所以不在托盘线程就 marshalling 回去（NSApp run 的 run loop 会处理）。
-        NSThread* tray = g_trayThread;
-        if (tray != nil && [NSThread currentThread] != tray && g_target != nil) {
-            [g_target performSelector:@selector(showNotification:)
-                             onThread:tray
-                           withObject:@[t, b]
-                        waitUntilDone:NO];
-        } else {
+        // AppKit 对象只能在**主线程**碰（issue#47 的根因就是跨线程 AppKit）：
+        //   · 已在主线程（泵的分发路径）→ 直接贴 tooltip / 发通知；
+        //   · 面板线程等非主线程 → 入队，由 run() 的泵每一拍在主线程上代发。
+        if ([NSThread isMainThread]) {
             deliverNotification(t, b);
+        } else {
+            std::lock_guard<std::mutex> lk(g_notifyMu);
+            g_pendingNotifications.emplace_back(t, b);
         }
         APX_LOGI("托盘通知：{} — {}", title.c_str(), text.c_str());
     }

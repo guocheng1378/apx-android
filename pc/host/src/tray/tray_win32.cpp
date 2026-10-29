@@ -172,11 +172,16 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
+// Windows：托盘线程在 create() 内自跑消息循环，这里无事可做。
+// 接口为跨平台统一而设（mac 上 run() 是主线程 AppKit 事件泵，见 tray_mac.mm）。
+bool TrayIcon::run(const std::function<bool()>&) { return false; }
+
 #elif !defined(__APPLE__)
 /* 非 Windows 且非 macOS：托盘只做空桩（Linux 侧本来就走 CLI）。
    macOS 的实现在同目录 tray_mac.mm（NSStatusItem + NSMenu）；两边若同时定义
    会撞重复符号 —— 所以这里必须把 Apple 排除掉，不是忘了。 */
 bool TrayIcon::create(const std::string&) { return true; }
+bool TrayIcon::run(const std::function<bool()>&) { return false; }
 void TrayIcon::quit() { if (onQuit_) onQuit_(); }
 void TrayIcon::setQuitCallback(std::function<void()> cb) { onQuit_ = std::move(cb); }
 void TrayIcon::setOpenCallback(std::function<void()> cb) { onOpen_ = std::move(cb); }

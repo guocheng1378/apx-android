@@ -581,7 +581,21 @@ int main(int argc, char** argv) {
             bundle.cfg          = &cfg;
             bundle.configPath   = cfgPath;
             // webDir 空 = panel 内部按可执行文件旁 web/ 定位（与 apxdesktop 约定一致）
+#if defined(__APPLE__)
+            // mac：托盘（AppKit）必须占**主线程**（issue#47）——面板挪后台线程，
+            // 主线程跑托盘事件泵；面板线程退出时 tray.quit() 把泵放下来（幂等）。
+            // 托盘没建起来（无 GUI 会话）时 run() 立即返回，退回「面板占主线程」的老路径。
+            int rc = 0;
+            std::thread panelThread([&] {
+                rc = apxpc::ui::runWebPanelHttp(bundle, {});
+                tray.quit();   // 面板先退：把托盘事件泵放下来（幂等，只置标志）
+            });
+            tray.run();
+            panelThread.join();
+            return rc;
+#else
             return apxpc::ui::runWebPanelHttp(bundle, {});
+#endif
         }
 
         // ---- 媒体通道（副屏 / 音箱 / 麦克风）----
