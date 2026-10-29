@@ -44,6 +44,7 @@
 namespace apxpc::wireless {
 class WirelessSession;
 class FileReceiver;
+class Ctrl9511Server;
 }
 
 namespace apxpc::media {
@@ -68,6 +69,11 @@ struct HostBundle {
     // 核心会话
     wireless::WirelessSession*   session      = nullptr;
     wireless::FileReceiver*      fileReceiver = nullptr;
+
+    // 9511 受控端（Win 上由 desktop_main 创建）：web_panel 的 buildState 读它回填
+    // phone（0x31 解码）/ inputTrusted / ctrlServer —— 以前不传，Win 壳的连接卡
+    // 三行模式显示永远「未上报」，即使手机实际连着并报了 0x31。
+    wireless::Ctrl9511Server*    ctrlSrv      = nullptr;
 
     // 互传（LocalSend 协议 v2.2）：PC 侧接收端。落盘目录由调用方决定（面板里取
     // FileReceiver::defaultDir()，与「文件传输」面板同一目录）；为空时前端显示「未初始化」。

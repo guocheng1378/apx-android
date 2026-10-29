@@ -51,6 +51,8 @@ interface PhoneMode {
   reported?: boolean;
   connected?: boolean;
   frames?: number;
+  /** 9511 由本机另一个实例提供：本面板收不到手机上报（modeStatus=0），不是故障 */
+  shared?: boolean;
   wirelessAvailable?: boolean;
   bluetoothAvailable?: boolean;
   usbAvailable?: boolean;
@@ -67,13 +69,15 @@ const ModeRow: React.FC<{
   reported: boolean;
   available?: boolean;
   active?: boolean;
+  /** 受控端由另一实例提供：本面板读不到手机上报，如实说，别误读成「未上报/坏了」 */
+  shared?: boolean;
   note: string;
   sub?: string;
   extra?: React.ReactNode;
-}> = ({ name, reported, available, active, note, sub, extra }) => {
+}> = ({ name, reported, available, active, shared, note, sub, extra }) => {
   const usable = reported && available;
   const dot = !usable ? 'bg-state-idle' : active ? 'bg-primary' : 'bg-state-ok';
-  const tag = !reported ? '未上报' : !available ? '不可用' : active ? '当前在用' : '可用';
+  const tag = shared ? '经另一实例' : !reported ? '未上报' : !available ? '不可用' : active ? '当前在用' : '可用';
   const tagColor = !usable ? 'text-on-tertiary' : active ? 'text-primary' : 'text-state-ok';
   return (
     <div className="pt-3 border-t border-stroke flex items-start gap-3">
@@ -209,7 +213,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.wirelessAvailable}
           active={phone.active === 'wireless'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.wirelessAvailable
                 ? '手机已选定受控目标：输入经 9511 上行，本机就地注入'
                 : '手机未启用无线出口（未选受控目标，或不在同一局域网）'
@@ -231,7 +237,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.bluetoothAvailable}
           active={phone.active === 'bluetooth'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.bluetoothAvailable
                 ? '手机蓝牙已开启：配对后本机免驱识别为鼠标 / 键盘 / 多媒体键'
                 : '手机蓝牙出口不可用（未开启，或未配对）'
@@ -249,7 +257,9 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           available={phone.usbAvailable ?? tp.usbDevice}
           active={phone.active === 'usb'}
           note={
-            phone.reported
+            phone.shared
+              ? '受控端由另一实例提供：本面板读不到手机上报（不是故障）'
+              : phone.reported
               ? phone.usbAvailable
                 ? '手机 USB gadget 已就绪：插线即用（HID 键鼠 + UAC2 声卡 + NCM）'
                 : '手机 USB 出口不可用（未插线，或手机端「有线（USB）」开关未开）'

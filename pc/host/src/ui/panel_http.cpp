@@ -338,6 +338,9 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         ph["bluetoothAvailable"] = pm.bluetoothAvailable;
         ph["usbAvailable"] = pm.usbAvailable;
         ph["active"] = pm.active;
+        // ctrlShared：9511 由本机另一个实例提供 —— 本面板收不到 0x31 帧，phone 全零。
+        // 如实标记，前端据此显示「经另一实例」，别误读成「手机未上报/坏了」。
+        ph["shared"] = p->ctrlShared;
         transports["phone"] = ph;
         /* 注入权限（macOS 的「辅助功能」）：false 时手机发来的键鼠会被系统静默丢弃 ——
            面板必须把这件事说出来，否则用户只会认定「手机连上了但按什么都没反应」。 */
