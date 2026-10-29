@@ -131,6 +131,7 @@ struct MacTrayShared {
 MacTrayShared g_shared;
 APXTrayTarget* g_target = nil;     // 菜单接收者（持有到进程结束）
 NSStatusItem* g_statusItem = nil;  // 状态栏项
+std::string g_createFailReason;    // create 失败/降级原因（status() 回传面板用；成功时清空）
 
 // 面板线程投递的通知队列：notify() 从非主线程只入队（不碰 AppKit），
 // run() 的泵每一拍在主线程上取出发出。
@@ -184,6 +185,11 @@ NSMenu* buildMenu(const MenuPlan& plan) {
 /// 拿不到就退回一个文字图标 —— 宁可丑，也不要「菜单栏上什么都不出现」。
 void applyStatusIcon(NSStatusItem* item) {
     NSStatusBarButton* button = [item button];
+    if (button == nil) {
+        // 不检查的话 setImage/setTitle 全是 no-op 且无日志 ——「菜单栏上什么都不出现」最难查
+        APX_LOGW("mac 托盘：statusItem.button 为 nil（图标挂不上，菜单仍可用）");
+        return;
+    }
     if (@available(macOS 11.0, *)) {
         NSImage* img = [NSImage imageWithSystemSymbolName:@"computermouse"
                                  accessibilityDescription:@"全能外设"];
@@ -262,6 +268,7 @@ bool TrayIcon::create(const std::string& tip) {
         g_actions.clear();
     }
     g_shared.stopped.store(false);   // 允许再次 quit（重复 create 的场景）
+    g_createFailReason.clear();      // 上一次失败的描述不再成立
 
     // ⚠️ AppKit 必须在**进程主线程**上初始化：NSStatusItem/NSApp 在非主线程创建，
     // AppKit 会抛 NSInternalInconsistencyException（NSException，non-std）→ 无人接住
@@ -275,12 +282,16 @@ bool TrayIcon::create(const std::string& tip) {
             // NSApplication 必须先有实例，NSStatusItem 才有落脚点。
             // activationPolicy=Accessory：只在菜单栏出现，不进 Dock、不抢焦点。
             [NSApplication sharedApplication];
-            [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+            // 返回值要检查：失败（返回 NO）时 app 停留 Regular —— Dock 图标反而会出现，
+            // 与「只在菜单栏出现」的设计相反。日志分开写「切换失败」，别和设计行为混为一谈。
+            if (![NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory])
+                APX_LOGW("mac 托盘：setActivationPolicy(Accessory) 失败（Dock 将显示常规图标）");
 
             g_target = [[APXTrayTarget alloc] init];
             g_statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
             if (g_statusItem == nil) {
                 APX_LOGW("mac 托盘：statusItemWithLength 返回 nil（无法挂状态栏项）");
+                g_createFailReason = "statusItemWithLength 返回 nil（无法挂状态栏项）";
                 return false;
             }
             applyStatusIcon(g_statusItem);
@@ -295,6 +306,8 @@ bool TrayIcon::create(const std::string& tip) {
         // 逃出去 —— 它是 non-std 异常，main 的 catch(...) 接不住就是 terminate。
         APX_LOGW("mac 托盘：AppKit 初始化失败（{}）——无托盘继续跑",
                  e.reason ? e.reason.UTF8String : "?");
+        g_createFailReason = e.reason ? std::string(e.reason.UTF8String)
+                                      : std::string("AppKit 初始化失败");
         g_statusItem = nil;
         g_target = nil;
         return false;
@@ -363,6 +376,15 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
         }
         APX_LOGI("托盘通知：{} — {}", title.c_str(), text.c_str());
     }
+}
+
+TrayStatus TrayIcon::status() const {
+    // 跨线程只读指针与原子量（AppKit 对象一个都不碰），面板线程可随时调。
+    TrayStatus t;
+    t.created = (g_statusItem != nil);
+    t.active = t.created && !g_shared.stopped.load();
+    t.reason = g_createFailReason;
+    return t;
 }
 
 }  // namespace apxpc::tray

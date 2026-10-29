@@ -89,6 +89,8 @@ export interface HostState {
       fingerprint: string; port: number; lastSeenMs: number;
     }[];
   };
+  /** 托盘状态（created/active/失败原因）：create 失败或未运行时前端给退出入口提示 */
+  tray?: { created?: boolean; active?: boolean; reason?: string };
   transports: Record<string, unknown>;
   counts: { mouse: number; keyboard: number; consumer: number; dropped: number };
   config: Record<string, unknown>;
@@ -339,6 +341,41 @@ class Bridge {
     }
     if (!resp.ok) throw new Error(`上传失败（HTTP ${resp.status}）`);
     // 宿主回了 200 但 body 不是 upload-response：不装作成功
+    throw new Error('上传失败：宿主响应无法识别');
+  }
+
+  /**
+   * 「文件传输」面板（浏览器模式）的发送：把选中的文件字节上传给宿主，宿主落盘后
+   * 发给当前连接的手机（9512 私有通道，与 file.send 同链路）。
+   *
+   * 与 uploadFile 的差别：不带 ip&port（目标由宿主的会话/受控端状态决定，?target=file）——
+   * 文件面板的语义是「发给手机」，不是「发给互传列表里的某台设备」。
+   * 发送结果由 on-file-send-done 事件回来（宿主后台队列），与本方法的返回值无关。
+   * 未连接手机时宿主只落盘并回 warn —— 文件不丢，连接后还能从面板发回。
+   */
+  async uploadFilePhone(file: File): Promise<any> {
+    if (this.transport !== 'http') throw new Error('uploadFilePhone 仅用于浏览器面板（桌面壳请走 openFile + file.send）');
+    let resp: Response;
+    try {
+      resp = await fetch(`/api/upload?target=file`, {
+        method: 'POST',
+        headers: {
+          'X-File-Name': encodeURIComponent(file.name),
+          'Content-Type': 'application/octet-stream',
+        },
+        body: file,
+      });
+    } catch (e: any) {
+      // fetch 层失败（宿主没起、连接断）——给一句人话，不要把 TypeError: Failed to fetch 直接甩出去
+      throw new Error('上传失败：连不上宿主服务（浏览器面板是否已关闭？）');
+    }
+    let box: any = null;
+    try { box = await resp.json(); } catch {}
+    if (box && box.kind === 'upload-response') {
+      if (box.ok === false) throw new Error(box.error || '上传失败');
+      return box;
+    }
+    if (!resp.ok) throw new Error(`上传失败（HTTP ${resp.status}）`);
     throw new Error('上传失败：宿主响应无法识别');
   }
   subscribeState(listener: Listener): () => void {

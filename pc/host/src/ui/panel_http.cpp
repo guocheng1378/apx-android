@@ -28,9 +28,10 @@
 // 在「文件传输」面板里直接可见、也删得掉（file.delete 的白名单就是那个目录）。
 // 动作：localsend.toggle（开关）/ localsend.status / localsend.openDir。
 //
-// 同步响应槽说明：web_panel 的异步动作（file.send 后台线程回响应）在本实现**未启用** ——
-// 浏览器无法 open-file，FilePanelModal 在 openFile 被拒后根本走不到 file.send；
-// 其余 act 全部同步完成，响应槽仅在请求线程写入，无锁安全（事件队列除外，跨线程有锁）。
+// 同步响应槽说明：file.send 在本实现里也走后台队列（9512 发送），但 HTTP 是一问一答，
+// 连接不能挂着等大文件传完 —— act-response 先回「已入队」，结果走事件 on-file-send-done
+// 推回前端（FilePanelModal 已在听）。FilePanelModal 的两条发送路（file.list 给出的接收目录
+// 路径 / 上传转发）都通；其余 act 全部同步完成，响应槽仅在请求线程写入，无锁安全。
 
 #include "apxpc/ui/panel_http.hpp"
 
@@ -49,6 +50,8 @@
 // 手机上报的三种接入模式状态（0x31）：位布局与解码抽在头文件里，和 Android 侧对拍。
 #include "apxpc/wireless/phone_mode.hpp"
 #include "apxpc/wireless/file_receiver.hpp"
+// file.send / 上传转发：9512 私有通道发送（sendFile / lastSendError）。
+#include "apxpc/wireless/file_sender.hpp"
 #include "apxpc/wireless/wireless_session.hpp"
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/audio_capture.hpp"
@@ -69,6 +72,7 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -123,6 +127,9 @@ void pushEvent(const std::string& name, Json data = Json::makeObject()) {
 }
 
 // ——— HTTP 面板状态（与 web_panel.cpp 的 Panel 同构，去掉窗口/COM）———
+// 9512 发送队列的一项：host = 手机 IP（connectedPhoneHost 给出），path = 本机文件路径。
+struct FileSendItem { std::string host; std::string path; };
+
 struct HttpPanel {
     HostBundle bundle;
     std::atomic<bool> running{false};
@@ -154,6 +161,16 @@ struct HttpPanel {
     // 结果走 on-localsend-sent 事件，act-response 先回「已开始」。
     std::thread sendThread;
     std::atomic<bool> sendBusy{false};
+
+    // 9512 私有通道发送（file.send / 上传转发给手机）：队列 + 单 worker。
+    // 大文件要传几十秒，不能卡住单线程的 accept 循环；结果走事件 on-file-send-done。
+    // 线程持 HttpPanel*（栈对象）—— 清理段先 join 再出栈，与 sendThread 同规矩。
+    std::thread fileSendThread;
+    std::mutex fileSendMu;
+    std::condition_variable fileSendCv;
+    std::deque<FileSendItem> fileSendQueue;   // 待发文件，依次发（多文件不互相挤掉）
+    bool fileSendWorkerUp = false;
+    std::atomic<bool> fileSendQuit{false};
 
     // 同步响应槽（单请求线程读写；见文件头说明）
     Json resp;
@@ -325,6 +342,10 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         /* 注入权限（macOS 的「辅助功能」）：false 时手机发来的键鼠会被系统静默丢弃 ——
            面板必须把这件事说出来，否则用户只会认定「手机连上了但按什么都没反应」。 */
         transports["inputTrusted"] = cs.inputTrusted;
+        /* 注入进程身份：TCC 按进程/签名归属授权 —— 包里有 AllPeriph.app / 裸 apxdesktop /
+           apxhost 三个各自 ad-hoc 签名的副本，用户在系统设置勾的条目很容易和实际注入的
+           进程对不上。把 exe 路径亮出来，用户能对上「该勾哪一个」。 */
+        transports["inputProc"] = apxpc::autostart::getExePath();
         /* 受控端归属（9511）：listening=本面板自己的受控端在跑；shared=端口被本机另一个
            AllPeriph 实例占着（受控端由它提供）。两者都 false 才是「本机没有受控端」。 */
         Json csj = Json::makeObject();
@@ -333,6 +354,18 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         csj["connected"] = cs.connected;
         csj["error"] = cs.error;
         transports["ctrlServer"] = csj;
+    }
+
+    // 托盘状态（created/active/失败原因）：创建失败以前只有日志一行 LOGW —— 用户看面板
+    // 只会觉得「app 没图标、连退出入口都没有」。回传面板后失败原因直接可见（真机报障
+    // 「托盘不显示」时，这里就是唯一不用翻日志的诊断出口）。跨线程只读指针与原子量，安全。
+    if (b.tray) {
+        const auto t = b.tray->status();
+        Json tj = Json::makeObject();
+        tj["created"] = t.created;
+        tj["active"] = t.active;
+        tj["reason"] = t.reason;
+        out["tray"] = tj;
     }
 
     if (p && p->usbScanned) {
@@ -488,6 +521,78 @@ bool startLocalSendToPeer(HttpPanel* p, const std::string& ip, uint16_t port,
     return true;
 }
 
+// ——— 9512 私有通道发送（与 web_panel 的 startFileSend 同链路，响应语义改成事件）———
+
+// 当前连接的手机：先看会话（PC 主动连手机那条方向，与 web_panel 的 startFileSend 同源）；
+// 会话没连再看受控端（手机连进本机 9511 的方向）—— 发 9512 文件过来的就是它，IP 从受控端状态拿。
+// 两个方向都没有 → 返回空串，调用方如实回「未连接手机」。
+std::string connectedPhoneHost(HttpPanel* p) {
+    if (p->bundle.session) {
+        const auto s = p->bundle.session->snapshot();
+        if (s.phase == LinkPhase::Connected) {
+            const size_t colon = s.peer.rfind(':');
+            return (colon == std::string::npos) ? s.peer : s.peer.substr(0, colon);
+        }
+    }
+    const auto cs = p->ctrlSrv.status();
+    if (cs.connected && !cs.peer.empty()) {
+        const size_t colon = cs.peer.rfind(':');
+        return (colon == std::string::npos) ? cs.peer : cs.peer.substr(0, colon);
+    }
+    return {};
+}
+
+// worker：逐个发队列里的文件（进度/结果都走事件，前端 400ms 轮询 /api/events 收）。
+// sendFile 的进度回调在调用线程执行 —— 就是本 worker 线程，lastPct 局部量安全。
+void fileSendWorker(HttpPanel* p) {
+    for (;;) {
+        FileSendItem it;
+        {
+            std::unique_lock<std::mutex> lk(p->fileSendMu);
+            p->fileSendCv.wait(lk, [&] {
+                return !p->fileSendQueue.empty() || p->fileSendQuit.load();
+            });
+            if (p->fileSendQueue.empty()) return;   // quit 且队列空：收工
+            it = std::move(p->fileSendQueue.front());
+            p->fileSendQueue.pop_front();
+        }
+        int lastPct = -1;
+        const bool ok = apxpc::wireless::sendFile(it.host, 9512, it.path,
+            [p, &it, &lastPct](int pct) {
+                if (pct >= 100 || pct - lastPct >= 10) {
+                    lastPct = pct;
+                    Json d = Json::makeObject();
+                    d["path"] = it.path;
+                    d["percent"] = static_cast<double>(pct);
+                    pushEvent("on-file-send-progress", d);
+                }
+            });
+        const std::string err = ok ? std::string() : apxpc::wireless::lastSendError();
+        if (ok) APX_LOGI("文件已发送到手机 {}: {}", it.host.c_str(), it.path.c_str());
+        else    APX_LOGW("发送文件失败: {}（{}）", err.c_str(), it.path.c_str());
+        Json d = Json::makeObject();
+        d["ok"] = ok;
+        d["path"] = it.path;
+        d["peer"] = it.host;
+        d["via"] = std::string("9512");
+        if (!ok) d["error"] = err.empty() ? std::string("发送文件失败") : err;
+        pushEvent("on-file-send-done", d);
+    }
+}
+
+// 入队（懒启动 worker；多文件依次发，不互相挤掉 —— 与互传发送的语义对齐）。
+void enqueueFileSend(HttpPanel* p, const std::string& host, const std::string& path) {
+    {
+        std::lock_guard<std::mutex> lk(p->fileSendMu);
+        p->fileSendQueue.push_back({host, path});
+        if (!p->fileSendWorkerUp) {
+            p->fileSendWorkerUp = true;
+            p->fileSendThread = std::thread([p] { fileSendWorker(p); });
+        }
+    }
+    p->fileSendCv.notify_all();
+}
+
 void handleAct(HttpPanel* p, const std::string& id, const std::string& name, const Json& payload) {
     APX_LOGI("handleAct: name={} id={}", name.c_str(), id.c_str());
     const HostBundle& b = p->bundle;
@@ -605,10 +710,57 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, okResp(d3));
     }
 
+    // input.recheck：主动再检测一次输入注入权限（macOS「辅助功能」）。仍未授权时
+    // requestPlatformInputTrust 会再弹一次系统引导（用户点完即时生效，不必重启）——
+    // 以前用户在系统设置改完只能干等 400ms 轮询 + 重启面板，没有任何主动反馈入口。
+    if (name == "input.recheck") {
+        const bool trusted = apxpc::wireless::requestPlatformInputTrust();
+        APX_LOGI("input.recheck → {}", trusted ? "trusted" : "not trusted");
+        Json dr = Json::makeObject(); dr["trusted"] = trusted;
+        return postResponse(p, id, okResp(dr));
+    }
+
     // —— 文件传输 ——
+    // file.send：把本机文件发给当前连接的手机（9512 私有通道，与 web_panel 的 file.send 同链路）。
+    // 合法路径只有 file.list 给出的那份（接收目录）—— 白名单与 file.delete 同一目录，
+    // 收口在这防止别的本地页面借道把任意路径的文件推给手机。
+    // 响应语义与 web_panel 不同：HTTP 是一问一答，连接不能挂着等大文件传完 ——
+    // act-response 先回「已入队」，结果走事件 on-file-send-done（FilePanelModal 已在听）。
     if (name == "file.send") {
-        // 浏览器拿不到系统路径，FilePanelModal 正常流程不会走到这里；保守回显式错误。
-        return postResponse(p, id, failResp("浏览器面板不支持发送本机文件（无系统文件对话框），请在桌面客户端操作"));
+        const std::string path = payload.find("path") ? payload.find("path")->asString() : "";
+        if (path.empty()) return postResponse(p, id, failResp("未指定文件"));
+        std::error_code ec;
+        fs::path fp = fs::weakly_canonical(fs::path(path), ec);
+        if (ec) fp = fs::path(path);
+        if (!fs::exists(fp, ec) || !fs::is_regular_file(fp, ec))
+            return postResponse(p, id, failResp("文件不存在: " + path));
+        {
+            std::error_code ec1, ec2;
+            const fs::path root = fs::weakly_canonical(
+                fs::path(apxpc::wireless::FileReceiver::defaultDir()), ec1);
+            fs::path target = fs::weakly_canonical(fs::path(path), ec2);
+            if (ec1 || ec2) return postResponse(p, id, failResp("路径无效"));
+            auto norm = [](std::string s) {
+                std::replace(s.begin(), s.end(), '\\', '/');
+                for (auto& c : s) if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+                return s;
+            };
+            const std::string r8 = norm(root.generic_string());
+            const std::string t8 = norm(target.generic_string());
+            if (t8.size() <= r8.size() + 1 || t8.compare(0, r8.size(), r8) != 0 ||
+                t8[r8.size()] != '/') {
+                return postResponse(p, id, failResp("只允许发送收到的文件（接收目录内）"));
+            }
+        }
+        const std::string host = connectedPhoneHost(p);
+        if (host.empty())
+            return postResponse(p, id, failResp("未连接手机（先建立控制连接，或让手机连入本机 9511 再发送）"));
+        enqueueFileSend(p, host, fp.string());
+        Json ds = Json::makeObject();
+        ds["queued"] = true;
+        ds["path"] = fp.string();
+        APX_LOGI("file.send 已入队：{} → 手机 {}", fp.string().c_str(), host.c_str());
+        return postResponse(p, id, okResp(ds));
     }
     if (name == "file.list") {
         // 列出收到的文件（与接收端同一 defaultDir），按修改时间新→旧
@@ -1023,8 +1175,10 @@ fs::path dedupePath(const fs::path& dir, const std::string& name) {
     return first;
 }
 
-/// 浏览器面板上传：`POST /api/upload?ip=..&port=..`，body 是文件原始字节，
-/// 文件名走 `X-File-Name` 头（percent-encoded UTF-8，页面上的 <input type=file> 拿不到真实路径）。
+/// 浏览器面板上传：`POST /api/upload?ip=..&port=..`（互传卡，LocalSend 定向）或
+/// `POST /api/upload?target=file`（文件传输面板，发给当前连接的手机，走 9512 通道）。
+/// body 是文件原始字节，文件名走 `X-File-Name` 头（percent-encoded UTF-8，
+/// 页面上的 <input type=file> 拿不到真实路径）。
 ///
 /// 为什么要有这条路：桌面壳（WebView2）的「选文件」是系统对话框，浏览器页面拿不到；
 /// 于是 mac / 浏览器面板里「互传发送」以前只能报错。浏览器自带 <input type=file>，
@@ -1048,8 +1202,11 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
                 "application/json; charset=utf-8", r.stringify());
     };
 
-    if (ip.empty() || portL <= 0 || portL > 65535) {
-        fail(400, "目标设备不合法（需要 ip 与 port）");
+    // target=file：发给当前连接的手机（FilePanelModal 浏览器模式的「发送文件到手机」）——
+    // 不带 ip&port，目标由宿主的会话/受控端状态决定；ip&port 是互传卡那条路（LocalSend 定向）。
+    const bool toPhone = queryValue(req.query, "target") == "file";
+    if (!toPhone && (ip.empty() || portL <= 0 || portL > 65535)) {
+        fail(400, "目标设备不合法（需要 ip 与 port，或 target=file）");
         return;
     }
 
@@ -1105,6 +1262,36 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
         fail(500, "落盘失败：" + ec.message());
         return;
     }
+    if (toPhone) {
+        const std::string host = connectedPhoneHost(p);
+        if (host.empty()) {
+            // 文件已落盘，不丢：如实说「没连手机」，用户连接后还能从面板发回去
+            APX_LOGW("上传已落盘但未连接手机：{}（{} 字节）", finalPath.string().c_str(), written);
+            Json r = Json::makeObject();
+            r["kind"] = std::string("upload-response");
+            r["ok"] = true;
+            r["queued"] = false;
+            r["name"] = finalPath.filename().string();
+            r["path"] = finalPath.string();
+            r["size"] = static_cast<double>(written);
+            r["warn"] = std::string("未连接手机：文件已保存在互传目录，连接后可从「文件传输」面板发回手机");
+            respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+            return;
+        }
+        enqueueFileSend(p, host, finalPath.string());
+        APX_LOGI("浏览器上传已落盘：{}（{} 字节）→ 发送给手机 {}",
+                 finalPath.string().c_str(), written, host.c_str());
+        Json r = Json::makeObject();
+        r["kind"] = std::string("upload-response");
+        r["ok"] = true;
+        r["queued"] = true;
+        r["name"] = finalPath.filename().string();
+        r["path"] = finalPath.string();
+        r["size"] = static_cast<double>(written);
+        respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+        return;
+    }
+
     APX_LOGI("浏览器上传已落盘：{}（{} 字节）→ 发送给 {}:{}",
              finalPath.string().c_str(), written, ip.c_str(), static_cast<int>(portL));
 
@@ -1403,6 +1590,10 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     // 发送线程持 HttpPanel*（栈对象）：先 join 再出栈，否则发送中退出会悬空崩溃
     if (panel.sendThread.joinable()) panel.sendThread.join();
     if (panel.mediaThread.joinable()) panel.mediaThread.join();
+    // 9512 发送 worker：置退出标志 → 手头文件发完（队列清空）就收工，再 join
+    panel.fileSendQuit.store(true);
+    panel.fileSendCv.notify_all();
+    if (panel.fileSendThread.joinable()) panel.fileSendThread.join();
     g_hp = nullptr;
     {
         std::lock_guard<std::mutex> g(g_urlMu);

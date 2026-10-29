@@ -19,6 +19,8 @@ interface UsbTransports {
   btSupported?: boolean;
   /** macOS「辅助功能」授权：false = 手机发来的输入会被系统静默丢弃 */
   inputTrusted?: boolean;
+  /** 实际注入进程的 exe 路径（TCC 按进程/签名归属授权，用户要对上「该勾哪一个」） */
+  inputProc?: string;
   /** 手机上报的三种接入模式状态（9511 帧 0x31） */
   phone?: PhoneMode;
   /** 9511 受控端的归属：listening=本面板起的；shared=端口被本机另一个实例占着（它提供） */
@@ -108,6 +110,20 @@ const ModeRow: React.FC<{
 export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
   const [host, setHost] = useState('');
   const [port, setPort] = useState('9511');
+  // 辅助功能「重新检测」：以前用户在系统设置改完只能干等 400ms 轮询 + 重启面板，
+  // 没有任何主动反馈入口。act 会再弹一次系统引导（仍未授权时），并回实时 preflight。
+  const [rechecking, setRechecking] = useState(false);
+  const [recheckHint, setRecheckHint] = useState('');
+  const recheck = async () => {
+    setRechecking(true);
+    try {
+      const r: any = await bridge.act('input.recheck');
+      if (r?.ok && r?.data?.trusted === false)
+        setRecheckHint('仍未授权：勾选的条目要和上面显示的进程对上（.app 双击启动 = AllPeriph；终端启动 = 终端 App）');
+      else setRecheckHint('');
+    } catch { /* 宿主未就绪：横幅会随 400ms 轮询自己刷新 */ }
+    setRechecking(false);
+  };
   const s = state.link;
   const tp = (state.transports ?? {}) as UsbTransports;
   const phone = tp.phone ?? {};
@@ -168,8 +184,19 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
             本机未授予「辅助功能」权限：手机发来的键鼠会被系统丢弃
           </div>
           <div className="data-text text-on-tertiary mt-1">
-            系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph（apxdesktop / apxhost），然后重启面板。
-            首次收到手机输入时也会自动弹一次授权引导。
+            系统设置 → 隐私与安全性 → 辅助功能 → 勾选与上面进程对应的条目
+            {tp.inputProc ? `（本面板：${tp.inputProc.split(/[\\/]/).pop()}）` : ''}
+            ，勾选后 1 秒内横幅会自动消失（检测是实时的，不用重启面板）。
+          </div>
+          <div className="data-text text-on-tertiary mt-1">
+            包里有三个各自签名的副本（AllPeriph.app / apxdesktop / apxhost），勾错对象权限不生效；
+            从终端启动时，权限要授给终端 App 本身。「录屏」「麦克风」是另一道权限，与此不通。
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <button className="btn-ghost h-[30px]" disabled={rechecking} onClick={recheck}>
+              {rechecking ? '检测中…' : '重新检测 / 弹出授权引导'}
+            </button>
+            {recheckHint && <span className="data-text text-state-error">{recheckHint}</span>}
           </div>
         </div>
       )}

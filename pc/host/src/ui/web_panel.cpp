@@ -292,6 +292,17 @@ void buildState(const HostBundle& b, Json& out) {
         transports["usbSpeed"] = gp->usbSpeed;
     }
 
+    // 托盘状态（created/active/失败原因）：对齐 panel_http.cpp —— 创建失败以前只有日志
+    // 一行 LOGW，用户看面板只会觉得「没图标、连退出入口都没有」。回传后失败原因直接可见。
+    if (b.tray) {
+        const auto t = b.tray->status();
+        Json tj = Json::makeObject();
+        tj["created"] = t.created;
+        tj["active"] = t.active;
+        tj["reason"] = t.reason;
+        out["tray"] = tj;
+    }
+
     // 互传（LocalSend）：字段口径由 apxpc::localsend::statusJson 统一给出（单测钉住的那份），
     // 两个面板不各写一遍，免得字段名漂移弄坏前端。
     if (b.localSend) {

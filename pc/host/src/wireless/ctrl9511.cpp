@@ -654,7 +654,14 @@ void Ctrl9511Server::stop() {
 }
 
 Ctrl9511ServerStatus Ctrl9511Server::status() const {
-    if (!impl_) return Ctrl9511ServerStatus{};
+    if (!impl_) {
+        // 受控端没在本进程跑（9511 被另一个实例占用）：其余字段保持默认，但注入权限是
+        // 进程级 TCC 检测 —— 面板自己的 preflight 照实问一次。别让「本面板与另一实例
+        // 都没被授权」的丢输入场景因为默认 true 而伪装成横幅消失。
+        Ctrl9511ServerStatus s0;
+        s0.inputTrusted = platformInputTrusted();
+        return s0;
+    }
     Ctrl9511ServerStatus s;
     {
         std::lock_guard<std::mutex> lk(impl_->clientMu);
