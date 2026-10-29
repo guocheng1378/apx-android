@@ -175,7 +175,8 @@ jobs:
             ./apxhost list          枚举设备与传感器
             ./apxhost --help        全部命令
 
-          退出：终端方式直接 Ctrl+C；.app 壳 v1 无托盘菜单，用 pkill -x apxdesktop 或活动监视器结束
+          退出：.app 壳点菜单栏图标 →「退出全能外设」（托盘 AppKit 在主线程，v223.11 起）；
+                终端方式 Ctrl+C；或 pkill -x apxdesktop
 
           首次打开（未公证应用）：
             系统设置 → 隐私与安全性 → 底部「仍要打开」
