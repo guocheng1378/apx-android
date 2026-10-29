@@ -20,6 +20,7 @@ object KeyPref {
     private const val KEY_LAYOUT = "layout"
     private const val KEY_DENSITY = "density"
     private const val KEY_CUSTOM = "custom_rows"
+    private const val KEY_KEYCAP_STYLE = "keycap_style"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
@@ -87,6 +88,21 @@ object KeyPref {
     }
 
     fun density(ctx: Context): Density = DENSITIES[densityIndex(ctx)]
+
+    // —————————————————————————— 键帽材质 ——————————————————————————
+
+    /** 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动 */
+    val KEYCAP_STYLE_LABELS = listOf("平面", "机械")
+
+    fun keycapStyleIndex(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_KEYCAP_STYLE, 0).coerceIn(0, KEYCAP_STYLE_LABELS.size - 1)
+
+    fun setKeycapStyle(ctx: Context, i: Int) {
+        prefs(ctx).edit().putInt(KEY_KEYCAP_STYLE, i.coerceIn(0, KEYCAP_STYLE_LABELS.size - 1)).apply()
+    }
+
+    /** 机械键帽档启用（材质 + 下沉 + 波形震动一体） */
+    fun isMechanical(ctx: Context): Boolean = keycapStyleIndex(ctx) != 0
 
     // —————————————————————————— 自定义布局 ——————————————————————————
 

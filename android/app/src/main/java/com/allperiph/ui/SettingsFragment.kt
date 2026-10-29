@@ -625,6 +625,12 @@ class SettingsFragment : Fragment() {
                 h.recreateActivity()
             }
         })
+        fxBox.addView(settingRow(getString(R.string.ui_main_label_keycap_style), KeyPref.KEYCAP_STYLE_LABELS[KeyPref.keycapStyleIndex(activity)], accent) {
+            h.pickChoice(getString(R.string.ui_main_label_keycap_style), KeyPref.KEYCAP_STYLE_LABELS, KeyPref.keycapStyleIndex(activity)) { i ->
+                KeyPref.setKeycapStyle(activity, i)
+                h.recreateActivity()
+            }
+        })
         fxBox.addView(settingRow(
             getString(R.string.ui_main_label_keyboard), if (KeyPref.customRows(activity) == null) getString(R.string.ui_main_text_not_2) else getString(R.string.ui_main_text_done_3), accent
         ) {

@@ -66,8 +66,17 @@ object HidKeys {
         "Ctrl" to MOD_CTRL, "Alt" to MOD_ALT, "Shift" to MOD_SHIFT, "Win" to MOD_WIN,
     )
 
+    /** 常驻第 3 排：Windows 11 新常用（重开标签 / 任务视图 / 截图等） */
+    val ROW3 = listOf(
+        Combo("重开标签", MOD_CTRL or MOD_SHIFT, 0x17),  // Ctrl+Shift+T
+        Combo("任务视图", MOD_WIN, 0x2B),                // Win+Tab
+        Combo("截图", MOD_WIN or MOD_SHIFT, 0x16),       // Win+Shift+S
+        Combo("通知中心", MOD_WIN, 0x04),                // Win+N
+        Combo("最小化", MOD_WIN, 0x2D),                  // Win+M
+    )
+
     /** 出厂预置快捷键（快捷键页「恢复默认」与首次启动的初始值） */
-    val DEFAULTS: List<Combo> get() = ROW1 + ROW2
+    val DEFAULTS: List<Combo> get() = ROW1 + ROW2 + ROW3
 
     /**
      * 可配置按键清单（快捷键编辑弹窗的下拉项）：显示名 → Keyboard Page (0x07) usage。
@@ -81,9 +90,10 @@ object HidKeys {
         listOf(
             "Enter" to 0x28, "Esc" to 0x29, "Backspace" to 0x2A, "Tab" to 0x2B, "Space" to 0x2C,
             "-" to 0x2D, "=" to 0x2E, "[" to 0x2F, "]" to 0x30,
-            ";" to 0x33, "'" to 0x34, "," to 0x36, "." to 0x37, "/" to 0x38,
+            "`" to 0x35, ";" to 0x33, "'" to 0x34, "," to 0x36, "." to 0x37, "/" to 0x38,
             "Insert" to 0x49, "Home" to 0x4A, "PageUp" to 0x4B, "Delete" to 0x4C,
             "End" to 0x4D, "PageDown" to 0x4E,
+            "PrSc" to 0x46, "ScrLk" to 0x47, "Pause" to 0x48,
             "→" to 0x4F, "←" to 0x50, "↓" to 0x51, "↑" to 0x52,
         ).forEach { add(it) }
         (1..12).forEach { add("F$it" to 0x39 + it) }
@@ -103,11 +113,12 @@ object HidKeys {
         listOf(
             "字母" to KEY_CHOICES.filter { it.first.length == 1 && it.first[0] in 'A'..'Z' },
             "数字" to KEY_CHOICES.filter { it.first.length == 1 && it.first[0] in '0'..'9' },
-            "符号" to KEY_CHOICES.filter { it.first in listOf("-", "=", "[", "]", ";", "'", ",", ".", "/") },
+            "符号" to KEY_CHOICES.filter { it.first in listOf("-", "=", "`", "[", "]", ";", "'", ",", ".", "/") },
             "编辑键" to KEY_CHOICES.filter {
                 it.first in listOf(
                     "Enter", "Esc", "Backspace", "Tab", "Space",
                     "Insert", "Delete", "Home", "End", "PageUp", "PageDown",
+                    "PrSc", "ScrLk", "Pause",
                 )
             },
             "方向键" to KEY_CHOICES.filter { it.first in listOf("→", "←", "↓", "↑") },

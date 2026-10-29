@@ -1,11 +1,14 @@
 package com.allperiph.ui
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.SoundPool
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.SoundEffectConstants
 import android.view.View
+import com.allperiph.R
 
 /**
  * 按键反馈（v1.31）：震动 + 声音，**强度与音色都能在设置页换**。
@@ -51,7 +54,20 @@ object Feedback {
         if (!vib.hasVibrator()) return
         // 防御：按键反馈属非关键路径，个别 ROM 即便声明了 VIBRATE 仍可能抛
         // SecurityException，绝不能让它把整个页面带崩（曾实测点页签闪退）。
-        runCatching { vib.vibrate(VibrationEffect.createOneShot(ms, amp)) }
+        runCatching {
+            if (KeyPref.isMechanical(context)) {
+                // 机械键帽：三段波形（按下冲击 → 触点停顿 → 回弹），模拟实体轴的段落感
+                vib.vibrate(
+                    VibrationEffect.createWaveform(
+                        longArrayOf(0, 10, 20, 6),
+                        intArrayOf(0, amp, 0, amp / 2),
+                        -1,
+                    )
+                )
+            } else {
+                vib.vibrate(VibrationEffect.createOneShot(ms, amp))
+            }
+        }
     }
 
     /** 按键音：随 [ThemeSkin] 的音效档位（"键盘"用系统键盘敲击音） */
@@ -59,6 +75,32 @@ object Feedback {
         when (ThemeSkin.soundIndex(v.context)) {
             1 -> v.playSoundEffect(SoundEffectConstants.CLICK)
             2 -> v.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
+            3 -> mechSound(v.context)
         }
+    }
+
+    // —————————————————————————— 机械轴音 ——————————————————————————
+
+    private var pool: SoundPool? = null
+    private var clickId = 0
+
+    /**
+     * 机械轴音：SoundPool 播 res/raw/mech_click（短噪声脉冲，红/茶轴手感）。
+     * 不用 playSoundEffect——它跟随系统「触摸音效」开关与通知音量，关掉就没声；
+     * 机械档要独立可听，音色也可控（青轴的"咔哒"感靠双段脉冲合成）。
+     */
+    private fun mechSound(ctx: Context) {
+        if (pool == null) {
+            pool = SoundPool.Builder()
+                .setMaxStreams(2)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .build()
+                )
+                .build()
+            clickId = pool!!.load(ctx, R.raw.mech_click, 1)
+        }
+        pool?.play(clickId, 0.8f, 0.8f, 1, 0, 1f)
     }
 }
