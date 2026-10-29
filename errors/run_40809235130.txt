@@ -1,0 +1,116 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:40: error: unknown type name 'g_notifyMu'
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:39: warning: parentheses were disambiguated as a function declaration [-Wvexing-parse]
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                       ^~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:40: note: add a pair of parentheses to declare a variable
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                        ^
+      |                                        (
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:222:22: error: use of undeclared identifier 'g_pendingNotifications'; did you mean 'drainPendingNotifications'?
+  222 |         pending.swap(g_pendingNotifications);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~
+      |                      drainPendingNotifications
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:218:6: note: 'drainPendingNotifications' declared here
+  218 | void drainPendingNotifications() {
+      |      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:222:22: error: non-const lvalue reference to type 'vector<std::pair<NSString *, NSString *>>' cannot bind to a value of unrelated type 'void ()'
+  222 |         pending.swap(g_pendingNotifications);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__vector/vector.h:550:72: note: passing argument to parameter '__x' here
+  550 |   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void swap(vector&)
+      |                                                                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:44: error: unknown type name 'g_notifyMu'
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                            ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:43: warning: parentheses were disambiguated as a function declaration [-Wvexing-parse]
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                           ^~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:44: note: add a pair of parentheses to declare a variable
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                            ^
+      |                                            (
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:360:13: error: use of undeclared identifier 'g_pendingNotifications'; did you mean 'drainPendingNotifications'?
+  360 |             g_pendingNotifications.emplace_back(t, b);
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+      |             drainPendingNotifications
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:218:6: note: 'drainPendingNotifications' declared here
+  218 | void drainPendingNotifications() {
+      |      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:360:35: error: member reference base type 'void ()' is not a structure or union
+  360 |             g_pendingNotifications.emplace_back(t, b);
+      |             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+2 warnings and 6 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 66%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:40: error: unknown type name 'g_notifyMu'
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:39: warning: parentheses were disambiguated as a function declaration [-Wvexing-parse]
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                       ^~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:221:40: note: add a pair of parentheses to declare a variable
+  221 |         std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                        ^
+      |                                        (
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:222:22: error: use of undeclared identifier 'g_pendingNotifications'; did you mean 'drainPendingNotifications'?
+  222 |         pending.swap(g_pendingNotifications);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~
+      |                      drainPendingNotifications
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:218:6: note: 'drainPendingNotifications' declared here
+  218 | void drainPendingNotifications() {
+      |      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:222:22: error: non-const lvalue reference to type 'vector<std::pair<NSString *, NSString *>>' cannot bind to a value of unrelated type 'void ()'
+  222 |         pending.swap(g_pendingNotifications);
+      |                      ^~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/c++/v1/__vector/vector.h:550:72: note: passing argument to parameter '__x' here
+  550 |   _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void swap(vector&)
+      |                                                                        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:44: error: unknown type name 'g_notifyMu'
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                            ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:43: warning: parentheses were disambiguated as a function declaration [-Wvexing-parse]
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                           ^~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:359:44: note: add a pair of parentheses to declare a variable
+  359 |             std::lock_guard<std::mutex> lk(g_notifyMu);
+      |                                            ^
+      |                                            (
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:360:13: error: use of undeclared identifier 'g_pendingNotifications'; did you mean 'drainPendingNotifications'?
+  360 |             g_pendingNotifications.emplace_back(t, b);
+      |             ^~~~~~~~~~~~~~~~~~~~~~
+      |             drainPendingNotifications
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:218:6: note: 'drainPendingNotifications' declared here
+  218 | void drainPendingNotifications() {
+      |      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/tray/tray_mac.mm:360:35: error: member reference base type 'void ()' is not a structure or union
+  360 |             g_pendingNotifications.emplace_back(t, b);
+      |             ~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
+2 warnings and 6 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 66%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
