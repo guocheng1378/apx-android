@@ -39,7 +39,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build web frontend (Vite + React)
-        # 浏览器面板的前端 dist：`apxhost panel` / `apxdesktop` 从 exe 旁 web/ 读取。
+        # 浏览器面板的前端 dist：裸二进制从 exe 旁 web/ 读取；AllPeriph.app 从
+        # Contents/Resources/web 读取（runWebPanelHttp 双回退）。
         # 用 npm install 而非 npm ci（不强依赖 package-lock.json，与 Windows 侧构建口径一致）
         run: |
           cd pc/web
@@ -98,15 +99,16 @@ jobs:
           cp -r ../pc/web/dist/. "$STAGE/web/"
 
           # —— AllPeriph.app（双击入口 + TCC 授权宿主）——
-          # ⚠️ web/ 必须在签名【前】放进 Contents/MacOS/web：签名后再往 bundle 里放任何
-          # 文件都会打破 CodeResources 封印（seal 里没有 web/ 的记录），Apple Silicon 上
-          # 双击 .app 会被内核直接 SIGKILL——无弹窗秒退，只在
-          # ~/Library/Logs/DiagnosticReports 留 .ips。v223.7~v223.10 的 mac 包（release
-          # 与 artifact 同管线）全部中招，真机实锤：双击闪退、顶层 ./apxdesktop 正常。
-          # 不用 --deep：--deep 会把 Contents/MacOS/ 下的 web/ 当嵌套代码树要求签名，
-          # .js 不可签 → "code object is not signed at all" exit 1（#47/#48/#50/#52 四轮
-          # CI 实锤）。不带 --deep 时 web/ 按普通文件封进 seal，最后用 verify --strict
-          # 自证：seal 不完整直接红，不再出带病包。
+          # ⚠️ web/ 放进 Contents/Resources/web：Resources 属资源区，随 codesign 封进
+          # CodeResources seal，verify --strict 可自证。两个错误位置都实测过，别再走：
+          #   a) 签名后放 Contents/MacOS/web —— seal 里没有 web/ 记录，Apple Silicon 内核
+          #      对「签名后被改动」的 bundle 直接 SIGKILL：双击无弹窗秒退，只在
+          #      ~/Library/Logs/DiagnosticReports 留 .ips。v223.7~v223.10 的 mac 包
+          #      （release 与 artifact 同管线）全部中招，真机实锤：双击闪退、顶层
+          #      ./apxdesktop 正常。
+          #   b) 签名前放 Contents/MacOS/web、不带 --deep —— codesign 仍把 MacOS/ 下一切
+          #      当嵌套代码，.js 不可签 → "code object is not signed at all" exit 1
+          #      （run 40783120088 实测；--deep 与不带一个下场）。
           # strip 会破坏链接期 ad-hoc 签名，这里统一补签：arm64 的 Mach-O 执行与 TCC 按
           # bundle 归属记录都依赖签名。ad-hoc（无公证）→ 下载后仍走「仍要打开」放行流程。
           APP="$STAGE/AllPeriph.app"
@@ -150,9 +152,10 @@ jobs:
           </plist>
           PLIST
           plutil -lint "$APP/Contents/Info.plist"
-          # web/ 先进 bundle，再统一签名（顺序是本修复的核心，见上方注释）
-          mkdir -p "$APP/Contents/MacOS/web"
-          cp -r ../pc/web/dist/. "$APP/Contents/MacOS/web/"
+          # web/ 放 Contents/Resources/web（资源区，随 seal 封进 CodeResources），再统一
+          # 签名 —— 位置与顺序都是本修复的核心，见上方注释。绝不能进 Contents/MacOS/。
+          mkdir -p "$APP/Contents/Resources/web"
+          cp -r ../pc/web/dist/. "$APP/Contents/Resources/web/"
           codesign --force -s - "$STAGE/apxhost"
           codesign --force -s - "$STAGE/apxdesktop"
           codesign --force -s - "$APP/Contents/MacOS/apxdesktop"
@@ -178,7 +181,8 @@ jobs:
             系统设置 → 隐私与安全性 → 底部「仍要打开」
             或执行：xattr -dr com.apple.quarantine AllPeriph.app ./apxhost ./apxdesktop
 
-          浏览器面板要求 web/ 目录与可执行文件同级（本包已附带）。
+          浏览器面板前端：双击 AllPeriph.app 从 Contents/Resources/web 读取（bundle 内已附带）；
+          顶层裸跑 ./apxdesktop / ./apxhost 时要求 web/ 与可执行文件同级（已附带）。
           麦克风/音箱首次使用按系统弹窗授权（麦克风 / 系统音频录制，macOS 14.2+）。
           README
           zip -9 -r apxhost-macos-arm64.zip "$STAGE"
