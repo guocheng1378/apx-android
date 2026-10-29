@@ -185,7 +185,7 @@ object ThemeSkin {
     val HAPTIC_LABELS = listOf("关", "轻", "标准", "强")
 
     /** 音效：0 关 / 1 点击 / 2 键盘敲击 */
-    val SOUND_LABELS = listOf("关", "点击", "键盘")
+    val SOUND_LABELS = listOf("关", "点击", "键盘", "机械轴")
 
     fun hapticIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_HAPTIC, 2).coerceIn(0, 3)
 
@@ -193,7 +193,7 @@ object ThemeSkin {
         prefs(ctx).edit().putInt(KEY_HAPTIC, i).apply()
     }
 
-    fun soundIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_SOUND, 1).coerceIn(0, 2)
+    fun soundIndex(ctx: Context): Int = prefs(ctx).getInt(KEY_SOUND, 1).coerceIn(0, SOUND_LABELS.size - 1)
 
     fun setSound(ctx: Context, i: Int) {
         prefs(ctx).edit().putInt(KEY_SOUND, i).apply()

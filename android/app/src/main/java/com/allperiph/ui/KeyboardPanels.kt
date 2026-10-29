@@ -2,7 +2,9 @@ package com.allperiph.ui
 
 import android.app.Activity
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -434,11 +436,14 @@ class KeyboardPanels(private val act: Activity) {
         this.text = text
         textSize = dens.textSize
         gravity = Gravity.CENTER
+        contentDescription = if (modifier) "$text 修饰键" else "发送 $text"
         setTextColor(if (modifier) cAccent else cText)
         // 修饰键给一层淡蓝描边，否则浅蓝底在白页面上"看不见键帽"
         val corner = dp(dens.cornerDp)
         val restBg = {
-            if (modifier) strokeCard(cAccentSoft, corner, cAccentSoftStroke)
+            if (KeyPref.isMechanical(act)) {
+                mechKeycap(if (modifier) cAccentSoft else cCard, corner, if (modifier) cAccentSoftStroke else cStroke)
+            } else if (modifier) strokeCard(cAccentSoft, corner, cAccentSoftStroke)
             else strokeCard(cCard, corner, cStroke)
         }
         background = restBg()
@@ -451,17 +456,29 @@ class KeyboardPanels(private val act: Activity) {
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     v.animate().cancel()
-                    v.animate().scaleX(0.90f).scaleY(0.90f)
-                        .setDuration(ThemeSkin.motionMs(act, 120L)).start()
+                    if (KeyPref.isMechanical(act)) {
+                        // 机械键帽：按压时整体下沉，模拟实体键行程
+                        v.animate().scaleX(0.90f).scaleY(0.90f).translationY(dp(3).toFloat())
+                            .setDuration(ThemeSkin.motionMs(act, 120L)).start()
+                    } else {
+                        v.animate().scaleX(0.90f).scaleY(0.90f)
+                            .setDuration(ThemeSkin.motionMs(act, 120L)).start()
+                    }
                     v.background = card(cAccentSoft, corner)
                     Feedback.tap(v)
                     rippleOn(v, e.x, e.y)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.animate().cancel()
-                    v.animate().scaleX(1f).scaleY(1f)
-                        .setDuration(ThemeSkin.motionMs(act, 360L))
-                        .setInterpolator(OvershootInterpolator(2.2f)).start()
+                    if (KeyPref.isMechanical(act)) {
+                        v.animate().scaleX(1f).scaleY(1f).translationY(0f)
+                            .setDuration(ThemeSkin.motionMs(act, 360L))
+                            .setInterpolator(OvershootInterpolator(2.2f)).start()
+                    } else {
+                        v.animate().scaleX(1f).scaleY(1f)
+                            .setDuration(ThemeSkin.motionMs(act, 360L))
+                            .setInterpolator(OvershootInterpolator(2.2f)).start()
+                    }
                     v.background = restBg()
                 }
             }
@@ -512,6 +529,30 @@ class KeyboardPanels(private val act: Activity) {
         shape = GradientDrawable.RECTANGLE
         setColor(color)
         cornerRadius = radius.toFloat()
+    }
+
+    /** 机械键帽：底座（暗侧壁）+ 顶面（本色）+ 顶部高光渐变，三层叠加出立体感 */
+    private fun mechKeycap(color: Int, radius: Int, stroke: Int): Drawable {
+        val side = card(shade(color, 0.62f), radius)
+        val top = card(color, radius).apply { setStroke(1, stroke) }
+        val shine = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(0x2EFFFFFF, 0x00FFFFFF),
+        ).apply { cornerRadius = radius.toFloat() }
+        return LayerDrawable(arrayOf(side, top, shine)).apply {
+            val lip = dp(4)
+            setLayerInset(1, 0, 0, 0, lip)
+            setLayerInset(2, dp(3), dp(2), dp(3), lip + dp(2))
+        }
+    }
+
+    /** 颜色调暗（机械键帽的侧壁色） */
+    private fun shade(color: Int, factor: Float): Int {
+        val alpha = (color shr 24) and 0xFF
+        val r = (((color shr 16) and 0xFF) * factor).toInt()
+        val g = (((color shr 8) and 0xFF) * factor).toInt()
+        val b = ((color and 0xFF) * factor).toInt()
+        return (alpha shl 24) or (r shl 16) or (g shl 8) or b
     }
 
     private fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =

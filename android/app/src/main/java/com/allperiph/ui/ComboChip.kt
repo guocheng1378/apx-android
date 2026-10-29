@@ -33,7 +33,7 @@ object ComboChip {
         v: View,
         c: HidKeys.Combo,
         onSent: (() -> Unit)? = null,
-        onReorder: ((from: Int, dropCenterX: Float) -> Unit)? = null,
+        onReorder: ((from: Int, dropCenterX: Float, dropCenterY: Float) -> Unit)? = null,
     ) {
         val slop = DRAG_SLOP_DP * v.resources.displayMetrics.density
         val from = (v.tag as? Int) ?: -1
@@ -46,6 +46,9 @@ object ComboChip {
             holding = true
             HidKeys.hold(c)
             onSent?.invoke()
+            // 按住态高亮：从按下的小尺寸弹到 1.02，与"轻点按下"区分开
+            v.animate().cancel()
+            v.animate().scaleX(1.02f).scaleY(1.02f).setDuration(90).start()
             Feedback.haptic(v) // 进入按住的第二下震动，手感上"咔"一声
         }
 
@@ -94,7 +97,8 @@ object ComboChip {
                         view.alpha = 1f
                         view.scaleX = 1f
                         view.scaleY = 1f
-                        if (e.actionMasked == MotionEvent.ACTION_UP) onReorder?.invoke(from, centerX)
+                        val centerY = loc[1] + view.height / 2f
+                        if (e.actionMasked == MotionEvent.ACTION_UP) onReorder?.invoke(from, centerX, centerY)
                     } else {
                         view.animate().scaleX(1f).scaleY(1f).setDuration(260)
                             .setInterpolator(OvershootInterpolator(2.2f)).start()

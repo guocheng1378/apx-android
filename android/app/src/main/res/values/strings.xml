@@ -134,6 +134,7 @@
     <string name="ui_main_label_sound">音效</string>
     <string name="ui_main_label_keyrow_arrange">键位排列</string>
     <string name="ui_main_label_keycap_density">键帽密度</string>
+    <string name="ui_main_label_keycap_style">键帽材质</string>
     <string name="ui_main_toast_no_gallery">没有可用的图库</string>
     <string name="ui_main_dialog_color">%1$s 配色</string>
     <string name="ui_main_toast_file_no">没有可用的文件管理器</string>
@@ -383,6 +384,7 @@
     <string name="ui_hotkey_title">快捷键管理</string>
     <string name="ui_hotkey_title_new">新建快捷键</string>
     <string name="ui_hotkey_title_edit">编辑快捷键</string>
+    <string name="ui_hotkey_auto_sort">自动按使用频率排序</string>
     <string name="ui_hotkey_empty">还没有快捷键，点下面「新建」加一条</string>
     <string name="ui_hotkey_reset_msg">把快捷方式恢复为出厂预置？自建项会丢失。</string>
     <string name="ui_hotkey_field_name">名称</string>
@@ -399,6 +401,7 @@
     <string name="ui_keyboard_power_sent">已发送%1$s 指令</string>
 
     <string name="ui_custom_kbd_title">自定义键盘布局</string>
+    <string name="ui_custom_kbd_hint">长按行内键删除；「＋键」添加，「＋新行」加一行</string>
     <string name="ui_custom_kbd_pick_group">选分组</string>
 
     <string name="ui_filepanel_delete_title">删除文件</string>

@@ -12,6 +12,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
@@ -190,7 +191,7 @@ class HotkeyBoard(
         ComboChip.attach(
             this, c,
             onSent = { HotkeyStore.bump(act, c) },
-            onReorder = { from, dropCenterX -> reorder(from, dropCenterX) },
+            onReorder = { from, dropX, dropY -> reorder(from, dropX, dropY) },
         )
     }
 
@@ -210,26 +211,40 @@ class HotkeyBoard(
         setMargins(dp(3), dp(3), dp(3), dp(3))
     }
 
-    /** 拖拽落位：按所有块的中心 X 找最近的一块，把条目插到那个位置并落盘 */
-    private fun reorder(from: Int, dropCenterX: Float) {
-        val views = chipViews()
+    /** 拖拽落位：先按中心 Y 找最近的一行，再在行内按中心 X 找最近的一块——跨行拖动也能落对位置 */
+    private fun reorder(from: Int, dropCenterX: Float, dropCenterY: Float) {
+        val rowViews = chipRows()
+        val views = rowViews.flatten()
         if (views.size < 2 || from !in shortcuts.indices) return
         val displayOrder = views.mapNotNull { it.tag as? Int }
         val movingAt = displayOrder.indexOf(from)
         if (movingAt < 0) return
         val loc = IntArray(2)
-        var nearest = 0
+        // 第一级：按中心 Y 找最近的一行
+        var nearestRow = rowViews.first()
+        var bestRowDist = Float.MAX_VALUE
+        rowViews.forEach { row ->
+            row.first().getLocationInWindow(loc)
+            val d = abs(loc[1] + row.first().height / 2f - dropCenterY)
+            if (d < bestRowDist) {
+                bestRowDist = d
+                nearestRow = row
+            }
+        }
+        // 第二级：行内按中心 X 找最近的块
+        var nearestView = nearestRow.first()
         var best = Float.MAX_VALUE
-        views.forEachIndexed { k, v ->
+        nearestRow.forEach { v ->
             v.getLocationInWindow(loc)
             val d = abs(loc[0] + v.width / 2f - dropCenterX)
             if (d < best) {
                 best = d
-                nearest = k
+                nearestView = v
             }
         }
         val rest = displayOrder.toMutableList().apply { removeAt(movingAt) }
-        val insertAt = if (nearest > movingAt) nearest - 1 else nearest
+        val nearestAt = displayOrder.indexOf(nearestView.tag as Int)
+        val insertAt = if (nearestAt > movingAt) nearestAt - 1 else nearestAt
         rest.add(insertAt.coerceIn(0, rest.size), from)
         shortcuts = rest.map { shortcuts[it] }.toMutableList()
         preferManualOrder()
@@ -238,14 +253,17 @@ class HotkeyBoard(
         onChanged?.invoke()
     }
 
-    private fun chipViews(): List<View> {
-        val out = ArrayList<View>()
+    /** 按行分组的 chip 视图（tag 为 Int 的才算；空格占位块不算） */
+    private fun chipRows(): List<List<View>> {
+        val out = ArrayList<List<View>>()
         for (r in 0 until container.childCount) {
             val row = container.getChildAt(r) as? ViewGroup ?: continue
+            val chips = ArrayList<View>()
             for (k in 0 until row.childCount) {
                 val v = row.getChildAt(k)
-                if (v.tag is Int) out.add(v)
+                if (v.tag is Int) chips.add(v)
             }
+            if (chips.isNotEmpty()) out.add(chips)
         }
         return out
     }
@@ -266,6 +284,19 @@ class HotkeyBoard(
             setPadding(dp(20), dp(4), dp(20), dp(4))
         }
         val box = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+        // 自动排序开关：从设置页挪一个入口到这里，排序模式随手切
+        val sortSw = Switch(act).apply {
+            text = act.getString(R.string.ui_hotkey_auto_sort)
+            textSize = 13f
+            setTextColor(s.textSecondary)
+            isChecked = HotkeyStore.isAutoSort(act)
+        }
+        sortSw.setOnCheckedChangeListener { _, on ->
+            Feedback.tap(sortSw)
+            HotkeyStore.setAutoSort(act, on)
+            render()
+        }
+        box.addView(sortSw, LinearLayout.LayoutParams(-1, -2).apply { setMargins(dp(16), dp(4), dp(16), dp(2)) })
         box.addView(ScrollView(act).apply { addView(list) }, LinearLayout.LayoutParams(-1, 0, 1f))
 
         fun rebuild() {

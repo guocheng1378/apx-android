@@ -57,6 +57,13 @@ object CustomKeyboardDialog {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(this, 16), dp(this, 16), dp(this, 16), dp(this, 16))
         }
+        col.addView(TextView(act).apply {
+            text = act.getString(R.string.ui_custom_kbd_hint)
+            textSize = 12f
+            setTextColor(act.getColor(R.color.md_on_surface))
+            setPadding(0, 0, 0, dp(this, 10))
+        })
+
         fun rebuild() {
             col.removeAllViews()
             rows.forEachIndexed { i, row ->
@@ -93,9 +100,11 @@ object CustomKeyboardDialog {
                         setTextColor(act.getColor(R.color.md_on_surface))
                         setBackgroundColor(act.getColor(R.color.md_surface))
                         setPadding(dp(this, 14), dp(this, 7), dp(this, 14), dp(this, 7))
-                        setOnClickListener {
+                        isLongClickable = true
+                        setOnLongClickListener {
                             rows[i].remove(label)
                             rebuild()
+                            true
                         }
                     })
                 }
