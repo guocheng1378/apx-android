@@ -195,8 +195,9 @@ jobs:
         if: success()
         run: |
           cd build_host
-          unzip -q apxhost-macos-arm64.zip
-          open "apxhost-macos-arm64/AllPeriph.app"
+          SMOKE=$(mktemp -d)
+          unzip -q apxhost-macos-arm64.zip -d "$SMOKE"
+          open "$SMOKE/apxhost-macos-arm64/AllPeriph.app"
           sleep 6
           if pgrep -x apxdesktop >/dev/null; then
             echo "smoke OK: apxdesktop 经 LaunchServices 启动并存活（seal 有效）"
@@ -206,6 +207,7 @@ jobs:
             ls ~/Library/Logs/DiagnosticReports 2>/dev/null | tail -5 || true
             exit 1
           fi
+          rm -rf "$SMOKE"
 
       - name: Upload artifact
         if: success()
