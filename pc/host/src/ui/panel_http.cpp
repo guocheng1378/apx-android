@@ -1200,13 +1200,26 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     if (!webDir.empty()) {
         panel.webDir = webDir;
     } else {
-        // exe 旁 web/（与 apxdesktop 约定一致）
+        // exe 旁 web/（裸二进制约定）；没有时回退 bundle 内 Contents/Resources/web。
+        // AllPeriph.app 里 exe 在 Contents/MacOS/，../Resources 即 Contents/Resources。
+        // mac 包双击秒退修复的运行时另一半：web/ 不能进 Contents/MacOS/ —— codesign 把
+        // MacOS/ 下一切当嵌套代码，.js 不可签（CI 实锤）；签名后再放又打破 CodeResources
+        // seal → Apple Silicon 直接 SIGKILL。改放 Resources/ 随 seal 封印，这里补上查找。
         const std::string exe = apxpc::autostart::getExePath();
         const size_t slash = exe.find_last_of('/');
         const std::string exeDir =
             exe.empty() ? std::string(".")
                         : (slash == std::string::npos ? std::string(".") : exe.substr(0, slash));
         panel.webDir = exeDir + "/web";
+        std::error_code ec;
+        if (!fs::exists(panel.webDir, ec)) {
+            const std::string bundled = exeDir + "/../Resources/web";
+            std::error_code ec2;
+            if (fs::exists(bundled, ec2)) {
+                APX_LOGI("web/ 不在 exe 旁，改用 bundle 内 {}", bundled.c_str());
+                panel.webDir = bundled;
+            }
+        }
     }
     g_hp = &panel;
     panel.running.store(true);
