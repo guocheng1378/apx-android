@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   顶栏（复用块）：页名 + 副说明 + 全局状态徽章。
-  竖屏显示；横屏沉浸操控面里整条隐藏（layout-land 用 include + visibility=gone）。
+  两种朝向都显示（v223.13 起横屏不再走沉浸操控面：顶栏 + 底栏常驻，见 issue #52 建议 4）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/headerBar"

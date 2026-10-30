@@ -2,7 +2,8 @@
 <!--
   全能外设 · 主控制面（竖屏，v1.19）。
   结构：顶栏（复用块 header_bar）+ 四页 ViewFlipper + MIUIX 液态悬浮底栏（复用块 nav_tabs）。
-  横屏布局见 res/layout-land/activity_main.xml（沉浸操控面：无顶栏、无底栏、触控板左右分栏）。
+  v223.13 起**没有** res/layout-land/ 版本：横屏保持同一套顶栏 + 底栏（issue #52 建议 4），
+  触控板页的左右分栏由 TouchpadSplit 在运行时重排（旋屏不重建 Activity，本就不吃 layout-land）。
   公共块抽成独立文件，两种朝向共用同一批 id，代码侧 findViewById 无需分支。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"

@@ -467,22 +467,16 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
                 "config=${resources.configuration.orientation} ${dm.widthPixels}x${dm.heightPixels}"
         )
 
-        // 结构与间距差异全部交给 res/layout-land/；
-        // 但 include 标签的 android:visibility 会被 LayoutInflater 忽略（只认 layout_* 和 id），
-        // 所以顶栏/底栏的显隐只能在这里设。
-        headerBar.visibility = if (landscape) View.GONE else View.VISIBLE
-        // 批P：撤回反馈#9（实测横屏底栏碍事）→ 恢复对称式隐藏；切页改走右上 pill 条
-        tabBarView.visibility = if (landscape) View.GONE else View.VISIBLE
+        // 顶栏 / 底栏的显隐只能在这里设 —— include 标签的 android:visibility 会被
+        // LayoutInflater 忽略（只认 layout_* 和 id），布局文件里写 view=gone 不生效。
+        // v223.13（issue #52 建议 4）：横屏**保持竖屏的顶栏 + 底栏**，不再走沉浸式。
+        // 报障者原话：「横屏建议保持竖屏顶栏和底栏样式，不要改成右上角的按钮组，不要隐藏
+        // 底栏，避免 UI 遮挡主区域内容、内容拉伸变形」。切页与设置都回到常驻入口，
+        // 四指滑作为附加路径保留（它不再承担唯一入口的职责）。
+        headerBar.visibility = View.VISIBLE
+        tabBarView.visibility = View.VISIBLE
 
-        // ⚠️ 底部留白只按**朝向**取一次，且用 dimen 令牌（不再就地写 104dp / 90dp）：
-        //   竖屏 = inset_bottom_nav（给悬浮底栏让位）
-        //   横屏 = inset_bottom_land（底栏是隐藏的，留白必须收回去）
-        // 真机反馈「横屏后隐藏的底栏部分没有扩展回去」的根因就在这里：原来无条件写死
-        // 104dp / 90dp，把 layout-land 给的值整个覆盖掉 —— 底栏都藏了，底下还压着一条
-        // 百 dp 死白带；何况旋屏不重建 Activity，横屏用的还是竖屏那棵视图树。
-        val padPortrait = resources.getDimensionPixelSize(R.dimen.inset_bottom_nav)
-        val padLandscape = resources.getDimensionPixelSize(R.dimen.inset_bottom_land)
-        val bottomPad = if (landscape) padLandscape else padPortrait
+        val bottomPad = resources.getDimensionPixelSize(R.dimen.inset_bottom_nav)
         if (::pageKeyboardView.isInitialized) {
             pageKeyboardView.setPadding(
                 pageKeyboardView.paddingLeft, pageKeyboardView.paddingTop,
@@ -499,68 +493,24 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         findViewById<View>(R.id.pageSettings)?.let {
             it.setPadding(it.paddingLeft, it.paddingTop, it.paddingRight, bottomPad)
         }
-        // 批P：横屏操作条 pill 的显隐也在这里按朝向设 —— 见 bindActions 里的说明。
-        // pill 悬浮在根 FrameLayout 右上角（top|end + elevation）。原先它压着键盘页顶部那行
-        // 布局页签的右端（真机截图里最后一个页签「自定义」被整个盖住，点下去命中的是 pill），
-        // 所以轮到的内容必须给它让位。
-        //
-        // ⚠️ 但**不再把这条带子从 pager 顶部整块让出去** —— 真机反馈原话：
-        //    「横屏时最上面的横条把所有界面都压下去了」。
-        // pager 一层 padding 会让触控板 / 键盘 / 设置**每一页**都往下缩一截，而 pill 实际
-        // 只压到其中两处的右上角。现在按「谁真的被压到，谁让」分开处理：
-        //   ① 触控板页：顶部控件在左右两栏里各自靠左排 —— **整页不让高度**，只把右栏
-        //      chipSection 的右内边距加宽，让「快捷键 / 编辑」躲到 pill 左边；
-        //   ② 键盘页：整页也不让高度 —— 只把顶部那行布局页签（横滑容器）的右端让出 pill
-        //      宽度，页签滑到底也到不了 pill 底下；
-        //   ③ 设置页：右栏（分类列表）顶部让出 pillBand。分类行是**整行可点**的，让它在
-        //      pill 底下既点不到、又容易误触切页；左栏（状态 + 传输按钮）保持满高。
-        // 两份值都**显式写**（竖屏写回各自布局里的原值）：旋屏不重建 Activity，改过的
-        // padding 会留在同一棵视图树上，只写横屏那份就会把竖屏也带偏。
-        val pill = findViewById<View>(R.id.pillLandActions)
-        var pillBand = 0
-        var pillWidth = 0
-        if (landscape && pill != null) {
-            pill.visibility = View.VISIBLE
-            pill.measure(
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-            )
-            // 顶距(space_12) + pill 实测高度 + 一点间隙。用实测值而不是写死 dp，是为了
-            // 以后调 pill 的内边距 / 字号时这条带子自己跟着变。
-            pillBand = dp(12) + pill.measuredHeight + dp(8)
-            // 需要躲开 pill 的宽度：pill 宽 + 它的右距(space_12) + 一点余量
-            // （触控板页右栏那一行的右内边距、键盘页页签行的右内边距都用它）
-            pillWidth = pill.measuredWidth + dp(24)
-        } else {
-            pill?.visibility = View.GONE
+        // ---- v223.13（issue #52 建议 4）：右上角 pill 按钮组整体下线 ----
+        // pill（触控板/键盘/锁定/设置四颗）从「横屏 chrome 全隐」那套里来，它靠 elevation
+        // 浮在页面右上角，压住键盘页页签行、触控板页「常用快捷键」标题、设置页分类列表 ——
+        // 此前为它做了三处让位（顶距 / 右内边距 / 顶距），现在顶栏底栏常驻，pill 没有任何
+        // 独占职能，整条撤掉，三处让位也一并写回各自布局里的原值。
+        // （旋屏不重建 Activity，改过的 padding 会留在同一棵视图树上，必须显式写回。）
+        findViewById<View>(R.id.pillLandActions)?.visibility = View.GONE
+        findViewById<View>(R.id.chipSection)?.let {
+            it.setPadding(it.paddingLeft, dp(8), it.paddingRight, it.paddingBottom)
         }
-        // 键盘页顶部那行「布局页签」（8 套布局的横滑容器）：横屏只需把它的右端让出 pill 的
-        // 宽度 —— 页签滑到底也不会钻到 pill 底下，键盘**不用整页下移**（改前这里是整页顶距）。
         if (::keyboardPanel.isInitialized) {
             keyboardPanel.tabScroll.setPadding(
                 keyboardPanel.tabScroll.paddingLeft, keyboardPanel.tabScroll.paddingTop,
-                if (landscape) pillWidth else dp(6), keyboardPanel.tabScroll.paddingBottom,
+                dp(6), keyboardPanel.tabScroll.paddingBottom,
             )
         }
-        // 触控板页右栏顶部那一行（「常用快捷键」+ 编辑）：**竖向**让位，不能像键盘页那样只加
-        // 右内边距 —— 这一栏本身只有 ~320dp 宽，扣掉 pill 的宽度后剩不下「标题 + 编辑」两个
-        // 控件：真机复测里 pillWidth 一加，「编辑」当场被挤成竖排两行（截图见 CHANGELOG）。
-        // 改成整行下移到 pill 底边之下：宽度保持满栏，标题与按钮都不变形；
-        // 代价只是右栏（快捷键）整体下移一个 pill 的高度 —— 它是列表，本来就有余量。
-        val space8 = resources.getDimensionPixelSize(R.dimen.space_8)
-        findViewById<View>(R.id.chipSection)?.let {
-            it.setPadding(
-                it.paddingLeft,
-                if (landscape) pillBand else space8,
-                it.paddingRight, it.paddingBottom,
-            )
-        }
-        // 设置页右栏（分类列表所在的滚动容器）：横屏顶部让出 pillBand。
         findViewById<View>(R.id.paneGroupsScroll)?.let {
-            it.setPadding(
-                it.paddingLeft, if (landscape) pillBand else 0,
-                it.paddingRight, it.paddingBottom,
-            )
+            it.setPadding(it.paddingLeft, 0, it.paddingRight, it.paddingBottom)
         }
 
         // 旋转只换布局、不切页：横竖屏各自铺各自的布局，当前页面保持不动
@@ -588,12 +538,11 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
     private fun applyImmersive() {
         val c = window.insetsController ?: return
         c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (landscape) {
-            c.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
-        } else {
-            c.show(WindowInsets.Type.statusBars())
-            c.hide(WindowInsets.Type.navigationBars())
-        }
+        // v223.13（issue #52 建议 4）：横屏不再是「整屏操控面」—— 顶栏回来了，状态栏就
+        // 必须显示，否则顶栏标题会压到时间/电量上。两种朝向同一套：显示状态栏、
+        // 只盖掉底部手势条（那条白横对操控面没用，还会误触）。
+        c.show(WindowInsets.Type.statusBars())
+        c.hide(WindowInsets.Type.navigationBars())
     }
 
     /**

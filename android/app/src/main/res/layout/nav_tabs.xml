@@ -3,7 +3,7 @@
   MIUIX 悬浮底栏（复用块，v1.21）：**无底板** —— 背景由代码挂 NavBarDrawable（bare = true），
   只画选中胶囊；不再有白色胶囊底与 elevation 投影，图标 / 文字直接落在页面背景上。
   每个页签 = 外层可点容器（weight 均分）+ 内层"选中胶囊"（位置由 Drawable 按选中态滑动）。
-  横屏沉浸操控面里整条隐藏，改用四指左右滑切页。
+  两种朝向都常驻（v223.13 起横屏保留底栏，四指滑切页降级为附加路径）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/tabBar"
