@@ -78,6 +78,16 @@ object TvInjector {
     /** 浮层被关掉期间已收起一次的标记：别在每一帧移动上都重复 hide() */
     private var hiddenWhileDisabled = false
 
+    /**
+     * 对端是否真的下发过光标移动（issue #52 建议 1）。
+     *
+     * 只用于「刚连上要不要画点」：连上就把预置落点画出来，等于凭空给被控端屏幕正中
+     * 添了一颗静止蓝点。等第一帧真实移动到了再画，用户看到的就是「对端一动，点就跟过来」。
+     * 断开时复位 —— 重连后要重新等第一次移动。
+     */
+    @Volatile
+    private var cursorMovedByPeer = false
+
     /** 控制端关/开被控端光标浮层（0x32 的落点）。关 = 立即收起，不等下一帧。 */
     fun setOverlayEnabled(on: Boolean) {
         overlayEnabled = on
@@ -201,9 +211,14 @@ object TvInjector {
             screenW = m.widthPixels
             screenH = m.heightPixels
         }
+        // issue #52 建议 1：首次落点**不再预置到屏幕正中心**。
+        // 原先 cursorX/Y 初值 0 会被当成"还没定位过"，直接塞到 (screenW/2, screenH/2)；
+        // 连上后 setConnected(true) 立刻画出来，被控端屏幕正中央就多出一颗静止蓝点，
+        // 一直压着主区域内容（报障者要它「合并到悬浮球，避免影响显示」）。
+        // 现在改成右上角内缩一格：仍在屏内（增量移动模式需要一个起点），但不挡内容。
         if (cursorX == 0f && cursorY == 0f) {
-            cursorX = screenW / 2f
-            cursorY = screenH / 2f
+            cursorX = (screenW - NUDGE).coerceAtLeast(0f)
+            cursorY = NUDGE
         }
     }
 
@@ -213,14 +228,19 @@ object TvInjector {
         val p = platform ?: return
         val block: () -> Unit = {
             if (on) {
-                // 刚连上：立刻取一次真实尺寸（不能沿用节流里的旧值，横竖屏切换后它们会过期），
-                // 再把浮层画在初始位置
+                // 刚连上：立刻取一次真实尺寸（不能沿用节流里的旧值，横竖屏切换后它们会过期）
                 refreshScreen(force = true)
-                paintOverlay()   // 原来是 move/hide 直调 —— 走门：浮层被控制端关掉时不画
+                // issue #52 建议 1：**连上不再自动画点**。
+                // 原先这里无条件 paintOverlay()，于是连接成功的一瞬间就有一颗蓝点出现在
+                // 屏幕正中心，而且只要对端不动它就永久停在那儿。现在只在「对端真的移动过
+                // 光标」之后才画：静止的居中蓝点消失，一动鼠标点照旧跟手。
+                if (cursorMovedByPeer) paintOverlay()
             } else {
                 // 断开：收起浮层。旧实现不管 on 都走 paintOverlay() —— overlayEnabled 时
                 // 反手把浮层画回最后落点并一直显示（#47 用户报「断开退出后屏幕中心还有个光点」）
                 overlay?.hide()
+                // 建议 1：断开复位，重连后重新等第一帧移动再画（别复用上一次会话的位置）
+                cursorMovedByPeer = false
             }
         }
         if (p.needsMainThreadSwitch) p.runOnMain(block) else block()
@@ -228,6 +248,7 @@ object TvInjector {
 
     fun cursorMove(x: Float, y: Float, absolute: Boolean) {
         refreshScreen()
+        cursorMovedByPeer = true   // 建议 1：有了真实移动帧，之后才允许画点
         if (absolute) {
             cursorX = (x * screenW).coerceIn(0f, screenW.toFloat())
             cursorY = (y * screenH).coerceIn(0f, screenH.toFloat())
