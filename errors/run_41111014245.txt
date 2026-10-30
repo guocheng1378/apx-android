@@ -1,0 +1,50 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 74%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 94%] Built target apxpc_localsend
+[ 96%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "apxpc::ui::environ", referenced from:
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::ui::requestRelaunch()::$_0>>(void*) in panel_http.cpp.o
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::ui::requestRelaunch()::$_0>>(void*) in panel_http.cpp.o
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 74%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 94%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+[ 98%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:570:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  570 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+1 warning generated.
+[100%] Linking CXX executable apxdesktop
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "apxpc::ui::environ", referenced from:
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::ui::requestRelaunch()::$_0>>(void*) in panel_http.cpp.o
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::ui::requestRelaunch()::$_0>>(void*) in panel_http.cpp.o
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxdesktop] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
