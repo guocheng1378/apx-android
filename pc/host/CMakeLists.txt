@@ -319,7 +319,7 @@ if(WIN32)
   target_link_libraries(apxpc_wireless PUBLIC ws2_32 Iphlpapi)
 elseif(APPLE)
   enable_language(OBJCXX)
-  target_link_libraries(apxpc_wireless PUBLIC "-framework CoreGraphics" "-framework AppKit")
+  target_link_libraries(apxpc_wireless PUBLIC "-framework CoreGraphics" "-framework AppKit" "-framework ApplicationServices")
 endif()
 
 # ---------------------------------------------------------------- 目标：LocalSend 互传（PC 收发两端）

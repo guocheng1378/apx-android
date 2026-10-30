@@ -140,7 +140,7 @@ class GadgetManager(
                 udc = best
                 linkSpeed = best.speed
                 if (!best.speed.isSuperSpeed) {
-                    val msg = "当前链路为 ${best.rawSpeed}，非 USB 3.0 SuperSpeed：音频带宽受限，已降级运行"
+                    val msg = "当前链路为 ${best.rawSpeed}（非 USB 3.0）：键鼠/触控全功能，仅音频带宽受限"
                     Log.w(TAG, msg)
                     EventBus.post(LinkSpeedDegradedEvent(best.speed, msg))
                 }
@@ -233,7 +233,10 @@ class GadgetManager(
         lastReason = null
         healCount = 0
         retryCount = 0
-        state = if (best.speed.isSuperSpeed) ModuleState.RUNNING else ModuleState.DEGRADED
+        // 链路速度不影响输入功能（HID 帧几十字节，USB 2.0 绰绰有余）；这个读数还发生在
+        // 绑定 UDC **之前**（常读到 adb/MTP 的旧速度）。此前直接映射成模块 DEGRADED →
+        // 用户看到「降级运行」却一切正常（issue #52 第 5 条）。速度差异只体现在文案。
+        state = ModuleState.RUNNING
         publishState("mounted on ${best.name} (${best.rawSpeed})")
         startWatchdog()
     }
@@ -522,7 +525,9 @@ class GadgetManager(
     private fun sendStatusReport() {
         val st = runtime.snapshotStatus(linkSpeed)
         val status = if (st.state == ModuleState.ERROR) AgentStatus.ERROR
-        else if (st.state == ModuleState.DEGRADED || !linkSpeed.isSuperSpeed) AgentStatus.DEGRADED_USB2
+        // 不再把「非 SuperSpeed」上报成 DEGRADED_USB2：该读数绑定前采样、之后不再刷新，
+        // 会让 PC 面板/顶栏误显示「降级」（issue #52 第 5 条）。只有模块真处于 DEGRADED 才上报。
+        else if (st.state == ModuleState.DEGRADED) AgentStatus.DEGRADED_USB2
         else AgentStatus.RUNNING
         val bytes = ApxNative.packVendorStatusOrNull(
             status, linkSpeed.code, st.moduleMask, st.errorCode, st.uptimeMs, st.lastSeq,
@@ -584,7 +589,7 @@ class GadgetManager(
     override fun statusText(): String = when (state) {
         ModuleState.RUNNING -> {
             val u = udc
-            val speed = if (linkSpeed.isSuperSpeed) "USB 3.0" else "USB 2.0"
+            val speed = if (linkSpeed.isSuperSpeed) "USB 3.0" else "USB 2.0（输入全功能，仅音频带宽受限）"
             val base = "Gadget 运行中 · $speed · ${u?.name ?: ""}".trimEnd(' ', '·')
             // 主机没完成配置就明说（否则用户只看到"USB 通道用不了"，猜不到是主机侧的事）
             if (hostConfigured) base else "$base · ${lastReason ?: "主机未完成配置（UDC=$hostState）：试重新插拔 USB 线"}"

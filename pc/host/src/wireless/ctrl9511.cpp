@@ -577,8 +577,8 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
            系统丢弃。真机报障里「手机按了全无反应」最难查的就是这种「连上了、帧也到了、
            注入被吞」；面板横幅 + 首次输入时的系统授权引导兜住它。 */
         if (!platformInputTrusted()) {
-            APX_LOGW("本机未获得输入注入权限（macOS：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph）"
-                     "：手机发来的键鼠此刻不会生效");
+            APX_LOGW("本机未获得输入注入权限（macOS：系统设置 → 隐私与安全性 → {} → 勾选全能外设；改完须重启应用）"
+                     "：手机发来的键鼠此刻不会生效", inputTrustSettingsLabel());
         }
 
         /* 顺序很关键（issue#47 根因）：先把监听端口占上，成功之后再起剪贴板监视线程。

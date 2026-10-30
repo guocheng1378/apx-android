@@ -113,6 +113,10 @@ class GestureEngine(private val sink: TouchpadSink) {
     private var twoFingerDownTime = 0L
     private var twoFingerBaseDist = 0f
     private var scrollEntered = false      // 本轮双指滑动是否已给过"进入滚动"反馈
+    private var twoFingerMovedPx = 0f      // 双指本轮质心累计位移（滚动 vs 静止长按的判据，issue #52 第 4 条）
+    private var scrollLocked = false       // 本轮双指已进入滚动：长按/右键点按不再生效
+    private var scrollFracX = 0f           // 双指滚动 pan 的亚像素累加（慢滚不丢帧）
+    private var scrollFracY = 0f           // 双指滚动 wheel 的亚像素累加
     @Volatile private var lastTwoTapSent = 0L
     private var dragArmed = false
     private var dragSent = false
@@ -153,6 +157,10 @@ class GestureEngine(private val sink: TouchpadSink) {
 
     fun armRightDrag() {
         if (activePointers < 2) return
+        // 手指已经在移动（滚动中）就不算长按：550ms 定时器在 Activity 侧无条件挂，
+        // 真正的判定必须看位移 —— 否则任何超过 550ms 的双指滚动都会滚到一半被注入右键
+        // （issue #52 第 4 条「双指滚动经常识别为双指右键」的根因）。
+        if (scrollLocked || twoFingerMovedPx >= TWO_FINGER_SCROLL_SLOP) return
         pendingButtons = pendingButtons or 0x02  // bit1 = right click
         onFeedback?.invoke(GestureFeedback.RIGHT_DRAG)
         com.allperiph.shared.util.Log.i("GestureEngine", "armRightDrag: buttons=$pendingButtons")
@@ -165,6 +173,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                 downTime = ev.eventTime; activePointers = 1; pendingButtons = 0
                 dragArmed = false; dragSent = false
                 scrollEntered = false
+                scrollLocked = false; twoFingerMovedPx = 0f; scrollFracX = 0f; scrollFracY = 0f
                 twoFingerBaseDist = 0f      // 新的一次触摸：捏合基线重新量
                 fracX = 0f; fracY = 0f      // 新的一笔：清掉上一笔残留的亚像素余数
                 gestureConsumed = false     // (a) 新的一笔：清掉上一笔的消费锁存
@@ -184,6 +193,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                     twoFingerBaseDist = fingerDist(ev)
                 }
                 scrollEntered = false
+                scrollLocked = false; twoFingerMovedPx = 0f; scrollFracX = 0f; scrollFracY = 0f
                 dragArmed = false
                 if (dragSent) { sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L)); dragSent = false }
                 // (b) 指数变化重建基准：新指落下时把 lastX/lastY 重置为当前质心 ——
@@ -203,7 +213,7 @@ class GestureEngine(private val sink: TouchpadSink) {
                     val dur = ev.eventTime - twoFingerDownTime
                     val (cx, cy) = centroid(ev)
                     val moved = hypot((cx - twoFingerCx).toDouble(), (cy - twoFingerCy).toDouble())
-                    if (!gestureConsumed && dur < TAP_MS && moved < TAP_SLOP) {
+                    if (!gestureConsumed && dur < TAP_MS && moved < TAP_SLOP && !scrollLocked && pendingButtons == 0) {
                         val now = ev.eventTime
                         if (now - lastTwoTapSent > 300) {
                             lastTwoTapSent = now
@@ -330,6 +340,9 @@ class GestureEngine(private val sink: TouchpadSink) {
                         sink.send(TouchpadFrame(0, 0, 0, tsNs = ev.eventTime * 1_000_000L))
                         // 缩放是离散的"咔哒"（每跨一次阈值发一帧），逐次震是对的
                         onFeedback?.invoke(GestureFeedback.ZOOM)
+                        // 跨阈后重建基线：否则此后每帧都跨阈早退，双指滚动彻底失效
+                        twoFingerBaseDist = d
+                        scrollLocked = true          // 缩放也算已消费：长按右键不再生效
                         lastX = ev.x; lastY = ev.y
                         return
                     }
@@ -338,12 +351,21 @@ class GestureEngine(private val sink: TouchpadSink) {
                 val dx = cx - lastX
                 val dy = cy - lastY
                 lastX = cx; lastY = cy
+                // 双指累计位移：滚动 vs 静止长按的唯一判据（issue #52 第 4 条）
+                twoFingerMovedPx += hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                // wheel/pan 亚像素累加（与单指 fracX/fracY 同款）：高刷屏每帧质心增量常 <1px，
+                // 直接 toInt() 截断会丢帧 —— 慢速滚动在引擎里「没有发生过」。
+                scrollFracY += dy * scrollStep
+                scrollFracX += dx * scrollStep
+                if (twoFingerMovedPx < TWO_FINGER_SCROLL_SLOP) return
+                scrollLocked = true
                 // P0-1：wheel/pan 同样是单字节有符号字段，快滑也要钳 ±127 防回绕
-                val w = (-(dy * scrollStep).toInt()).coerceIn(-127, 127)
-                val p = ((dx * scrollStep).toInt()).coerceIn(-127, 127)
-                // ★ 双指滑动**进入**滚动这一刻震一下：区分"移动光标"和"滚动页面"。
+                val w = (-scrollFracY.toInt()).coerceIn(-127, 127)
+                val p = (scrollFracX.toInt()).coerceIn(-127, 127)
+                scrollFracY += w; scrollFracX -= p
+                // ★ 双指滑动进入滚动这一刻震一下：区分"移动光标"和"滚动页面"。
                 //   之后每帧都不震 —— 那会变成持续嗡嗡声。抬起再落下是新的一轮，会再震。
-                if (!scrollEntered && (w != 0 || p != 0)) {
+                if (!scrollEntered) {
                     scrollEntered = true
                     onFeedback?.invoke(GestureFeedback.SCROLL_ENTER)
                 }
@@ -402,6 +424,10 @@ class GestureEngine(private val sink: TouchpadSink) {
     }
 
     companion object {
+        /** 双指滚动死区（px）：小于它视为手抖不发帧；超过它锁定滚动、禁用长按右键。
+            取 8：必须 ≤ TAP_SLOP(12)，否则 8–12px 区间既不成滚动又落进右键点按窗；
+            又明显高于手抖噪声。 */
+        private const val TWO_FINGER_SCROLL_SLOP = 8f
         private const val TAP_SLOP = 12f
         /** 三指滑动起步阈值：与点按(12)/中键拖拽拉开档次，60px 主轴明确才触发 */
         private const val SWIPE_MIN = 60f

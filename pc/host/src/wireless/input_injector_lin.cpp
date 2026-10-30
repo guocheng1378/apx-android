@@ -422,6 +422,9 @@ std::unique_ptr<InputInjector> createPlatformInjector() {
    不存在「连上了、帧也到了、注入被系统吞掉」的静默失败模式。所以恒 true。 */
 bool platformInputTrusted() { return true; }
 bool requestPlatformInputTrust() { return true; }
+std::string inputTrustSettingsLabel() { return "辅助功能"; }
+bool openPlatformInputSettings() { return false; }
+bool runningFromAppBundle() { return false; }
 std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     std::function<void(const std::string&)> cb) {
     return std::make_unique<LinClipboardWatcher>(std::move(cb));

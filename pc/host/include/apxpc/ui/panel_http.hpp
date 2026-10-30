@@ -21,6 +21,10 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir = {});
 /// 面板未运行时是 no-op。
 void requestPanelQuit();
 
+/// 请求退出本进程并延时重启（macOS「重启应用」按钮）：授权后必须重启才生效。
+/// Win 侧是空桩（Windows 没有这道授权门槛）。
+void requestRelaunch();
+
 /// 9511「已有实例在跑」探测：本机 127.0.0.1:port 是否有人监听。
 /// 面板启动前用它区分「端口被别人占着（另有 apxhost serve / apxdesktop）」与
 /// 「真起不来」—— 前者不该打告警，也不该重复起一个受控端。

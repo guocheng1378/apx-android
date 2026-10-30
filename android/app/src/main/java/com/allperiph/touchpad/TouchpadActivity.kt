@@ -159,6 +159,8 @@ class TouchpadActivity : Activity() {
     private var headerView: View? = null
     private var tabBarView: View? = null
     private var tpPageCol: LinearLayout? = null
+    /** 实体键盘/指针转发桥（v223.13：全屏操控面此前从没接过 —— issue #52 第 6 条）。 */
+    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
     private var tpArea: FrameLayout? = null
     private var tpHint: TextView? = null
     private var tpHotkeySection: View? = null
@@ -189,6 +191,7 @@ class TouchpadActivity : Activity() {
      * 只清回调，**不断开控制连接**（切页面不该掉链路）。
      */
     override fun onDestroy() {
+        physKeyBridge?.detach(); physKeyBridge = null
         ControlTarget.controlClient?.onReverseClipboard = null
         // 退出操控面立刻还原系统三指手势（进程被杀的情况交给 App 启动时的自愈）
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_CONSOLE)
@@ -238,6 +241,11 @@ class TouchpadActivity : Activity() {
         })
         // v1.7 修复：显式 MATCH_PARENT（root 高度塌缩曾致触摸区只剩一小条）
         setContentView(shell, ViewGroup.LayoutParams(-1, -1))
+        // 实体键盘 / 实体触控板转发桥：全屏操控面是独立 Activity，主页触控板页的
+        // PhysKeyBridge（TouchpadFragment 里 attach）管不到这里 —— 不接的话全屏里
+        // 实体键盘按键、实体触控板 hover/指针事件全部落进系统默认路径，
+        // 用户看到的就是「实体键盘无法使用、实体触控板单指失效」（issue #52 第 6 条）。
+        physKeyBridge = com.allperiph.ui.PhysKeyBridge(this).also { it.attach(window) }
         // Android 15+（targetSdk 35）强制 edge-to-edge，主题里的 windowFullscreen 不再保证内容避开系统栏 ——
         // R+ 显式接管：关掉 decor 贴合、隐藏状态栏、按实际 insets（状态栏/挖孔/导航栏/输入法）给内容垫边：
         // 系统认为栏还在（insets>0）就垫开，已隐藏/已贴合时 inset=0 不垫，任何一态都不遮住标题头。

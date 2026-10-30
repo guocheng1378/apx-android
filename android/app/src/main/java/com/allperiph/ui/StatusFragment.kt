@@ -143,7 +143,10 @@ class StatusFragment : Fragment() {
     private val rowHandles = LinkedHashMap<String, StatusRows.Row>()
 
     // --- Module rows ---
-    private val moduleRows = LinkedHashMap<String, ModuleRow>()
+    // 值改为「该模块所有分组的行」：双组模块（触控板 = wifi+usb）此前只把第一组
+    // （wifi 卡）放进刷新表，USB 卡那行是构建时快照、永不更新 —— 用户看到
+    // 「触控板已停止」而实际可用（issue #52 第 5 条）。
+    private val moduleRows = LinkedHashMap<String, List<ModuleRow>>()
 
     private class ModuleRow(
         val root: View,
@@ -325,7 +328,7 @@ class StatusFragment : Fragment() {
                 }.addView(v)
                 views += row
             }
-            moduleRows[moduleId] = views.first()
+            moduleRows[moduleId] = views
 
             // Wi-Fi 音频子开关（音箱/麦克风）
             if (moduleId == ModuleId.WIFI_AUDIO) {
@@ -596,11 +599,14 @@ class StatusFragment : Fragment() {
         )
 
         // 模块行
-        for ((id, row) in moduleRows) {
+        for ((id, rows) in moduleRows) {
             val m: Module? = AgentController.module(id)
             val state = m?.state ?: ModuleState.IDLE
-            row.detail.text = m?.statusText() ?: getString(R.string.common_off)
-            tintDot(row.dot, state)
+            val text = m?.statusText() ?: getString(R.string.common_off)
+            rows.forEach { row ->
+                row.detail.text = text
+                tintDot(row.dot, state)
+            }
         }
     }
 
