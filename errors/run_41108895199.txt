@@ -1,0 +1,51 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 74%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 94%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxhost.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:570:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  570 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:1648:78: error: use of undeclared identifier 'environ'
+ 1648 |             if (::posix_spawn(&pid, "/usr/bin/open", nullptr, nullptr, argv, environ) != 0)
+      |                                                                              ^~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:1652:74: error: use of undeclared identifier 'environ'
+ 1652 |             if (::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv, environ) != 0)
+      |                                                                          ^~~~~~~
+1 warning and 2 errors generated.
+make[3]: *** [CMakeFiles/apxhost.dir/src/ui/panel_http.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 47%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 74%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 94%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+[ 98%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:570:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  570 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:1648:78: error: use of undeclared identifier 'environ'
+ 1648 |             if (::posix_spawn(&pid, "/usr/bin/open", nullptr, nullptr, argv, environ) != 0)
+      |                                                                              ^~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:1652:74: error: use of undeclared identifier 'environ'
+ 1652 |             if (::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv, environ) != 0)
+      |                                                                          ^~~~~~~
+1 warning and 2 errors generated.
+make[3]: *** [CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
