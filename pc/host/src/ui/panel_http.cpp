@@ -40,6 +40,7 @@
 #include "apxpc/discovery/discovery.hpp"
 #include "apxpc/discovery/enumerator.hpp"
 #include "apxpc/log.hpp"
+#include "apxpc/log_export.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/localsend/local_send_sender.hpp"
 #include "apxpc/net/json.hpp"
@@ -699,6 +700,48 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         if (l) b.cfg->logLevel = l->asString();
         if (!b.configPath.empty()) apxpc::config::saveConfig(b.configPath, *b.cfg);
         return postResponse(p, id, okResp());
+    }
+
+    // —— 日志：清单 + 按时间范围导出（issue #52 建议 5）——
+    // mac 端只有一个 apxdesktop 日志，报障者要的是「能选类型、能选文件夹、能按
+    // 日期时间范围（精确到秒）挑一段导出」。时间戳解析与窗口过滤都在
+    // apxpc::logexport 里（三端共用），这里只做信封转换。
+    if (name == "log.list") {
+        const std::string dir = apxpc::logexport::defaultLogDir();
+        Json arr = Json::makeArray();
+        for (const auto& f : apxpc::logexport::list(dir)) {
+            Json o = Json::makeObject();
+            o["name"] = f.name;
+            o["kind"] = f.kind;
+            o["size"] = static_cast<double>(f.size);
+            o["mtime"] = static_cast<double>(f.mtimeSec);
+            arr.push(std::move(o));
+        }
+        Json data = Json::makeObject();
+        data["dir"] = dir;
+        data["exportDir"] = apxpc::logexport::defaultExportDir();
+        data["files"] = std::move(arr);
+        return postResponse(p, id, okResp(data));
+    }
+    if (name == "log.export") {
+        auto sval = [&](const char* k) -> std::string {
+            const Json* n = payload.find(k);
+            return n ? n->asString() : std::string();
+        };
+        auto ival = [&](const char* k) -> int64_t {
+            const Json* n = payload.find(k);
+            return n ? static_cast<int64_t>(n->asNumber(0)) : 0;
+        };
+        const std::string dir = sval("dir").empty() ? apxpc::logexport::defaultLogDir()
+                                                    : sval("dir");
+        const apxpc::logexport::Result r = apxpc::logexport::exportRange(
+            dir, sval("dest"), sval("kind"), ival("since"), ival("until"));
+        if (!r.ok) return postResponse(p, id, failResp(r.error));
+        Json d = Json::makeObject();
+        d["path"] = r.outPath;
+        d["lines"] = static_cast<double>(r.lines);
+        d["scanned"] = static_cast<double>(r.scanned);
+        return postResponse(p, id, okResp(d));
     }
 
     // —— 窗口语义（浏览器无宿主窗口：hide=no-op；quit=停服务并退出）——

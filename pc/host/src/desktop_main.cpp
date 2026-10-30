@@ -21,6 +21,7 @@
 // ScreenPush 在 mac **完全不声明**（见下方链接说明）；Linux 报错退出。
 
 #include "apxpc/log.hpp"
+#include "apxpc/log_export.hpp"
 #include "apxpc/ui/web_panel.hpp"
 #include "apxpc/ui/panel_http.hpp"
 #include "apxpc/wireless/wireless_session.hpp"
@@ -68,6 +69,7 @@
 #endif
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -76,6 +78,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #if defined(__APPLE__)
 extern char** environ;   // posix_spawn 要传父进程环境（/usr/bin/open 依赖它）
@@ -508,11 +511,32 @@ void startFileLogging() {
     const std::string dir = logDir();
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    const std::string path = dir + "/apxdesktop.log";
+    // v223.13（issue #52 建议 5）：文件名改成「类型 + 时间戳」——
+    //   apxdesktop-YYYYMMDD-HHMMSS.log，每次启动一份。
+    // 原来是固定 apxdesktop.log + 超 2MB 先删，等于「只有最后一次运行的日志」，
+    // 报障者想按日期时间范围挑一段导出根本无从下手。现在每次启动独立成文件，
+    // 目录里最多留 10 份（按最旧淘汰），导出时按类型 + 时间窗筛。
+    const std::string path = dir + "/apxdesktop-" + apxpc::logexport::stampNow() + ".log";
     {
+        std::vector<std::filesystem::directory_entry> olds;
         std::error_code e2;
-        const auto sz = std::filesystem::file_size(path, e2);
-        if (!e2 && sz > 2u * 1024u * 1024u) std::filesystem::remove(path, e2);
+        for (std::filesystem::directory_iterator it(dir, e2), end; !e2 && it != end; it.increment(e2)) {
+            const std::string n = it->path().filename().string();
+            if (n.rfind("apxdesktop", 0) != 0 || n.size() < 5) continue;
+            if (n.compare(n.size() - 4, 4, ".log") != 0) continue;
+            if (it->path().string() == path) continue;
+            olds.push_back(*it);
+        }
+        std::sort(olds.begin(), olds.end(), [](const auto& a, const auto& b) {
+            std::error_code x, y;
+            return a.last_write_time(x) < b.last_write_time(y);
+        });
+        constexpr std::size_t kKeep = 10;
+        while (olds.size() >= kKeep) {
+            std::error_code e3;
+            std::filesystem::remove(olds.front().path(), e3);
+            olds.erase(olds.begin());
+        }
     }
     static std::mutex mu;
     static std::FILE* f = std::fopen(path.c_str(), "a");

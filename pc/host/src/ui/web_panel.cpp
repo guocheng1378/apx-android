@@ -943,7 +943,7 @@ void onWebView2EnvFailed(Panel* p, unsigned hresult) {
         std::swprintf(code, 32, L"0x%08X", hresult);
         MessageBoxW(p->hwnd,
             (std::wstring(L"WebView2 初始化失败（运行组件已安装仍无法创建环境）。\n错误码：") +
-             code + L"\n\n详细日志：%LOCALAPPDATA%\\AllPeriph\\apxdesktop.log").c_str(),
+             code + L"\n\n详细日志：%LOCALAPPDATA%\\AllPeriph\\apxdesktop-<时间戳>.log").c_str(),
             L"全能外设", MB_OK | MB_ICONERROR);
         p->running.store(false);
         ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);

@@ -59,7 +59,10 @@ void Logger::write(LogLevel l, std::string_view msg) {
     localtime_r(&t, &tm);
 #endif
     char buf[256];
-    std::snprintf(buf, sizeof(buf), "[%02d:%02d:%02d.%03lld] %s %.*s",
+    // v223.13（issue #52 建议 5）：前缀带**日期**。原先只有时分秒，跨天之后
+    // 「按日期时间范围筛选日志」根本无从下手 —— 导出功能靠这一列做窗口过滤。
+    std::snprintf(buf, sizeof(buf), "[%04d-%02d-%02d %02d:%02d:%02d.%03lld] %s %.*s",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                   tm.tm_hour, tm.tm_min, tm.tm_sec, (long long)ms.count(),
                   logLevelName(l), (int)msg.size(), msg.data());
     std::string line(buf);

@@ -127,6 +127,8 @@ endif()
 # ---------------------------------------------------------------- 源码组织
 set(APXPC_COMMON_SRC
   "${APXPC_ROOT}/src/log/log.cpp"
+  # 日志清单 + 按时间范围导出（issue #52 建议 5）：只依赖标准库，三端共用。
+  "${APXPC_ROOT}/src/log/log_export.cpp"
   "${APXPC_ROOT}/src/platform/clock.cpp"
   "${APXPC_ROOT}/src/util/crc32.cpp"
   # 本机端口占用探测：面板用它区分「9511 已由另一个实例提供」与「真的起不来」。
