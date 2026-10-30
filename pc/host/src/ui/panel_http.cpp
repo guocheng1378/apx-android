@@ -87,6 +87,10 @@
 #include <thread>
 #include <vector>
 
+// macOS libc 不经 <unistd.h> 导出 environ（requestRelaunch 的 posix_spawn 要用）；
+// 必须在**全局作用域**声明 —— 写进 namespace 会变成 ui::environ，链接期抓到过。
+extern char** environ;
+
 namespace apxpc::ui {
 namespace {
 
@@ -1635,8 +1639,6 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
    读取一次 —— 用户去系统设置勾完必须重启进程才生效。.app 内用 `open -n <bundle>` 重开
    （保活 LaunchServices 语义）；裸二进制 re-exec 自己。延时 1.2s 让本进程先把
    9511/9512/互传端口放掉，否则新实例 bind 必然失败（与「两处都起 9511」同款坑）。 */
-extern char** environ;   // macOS libc 不经 <unistd.h> 导出 environ，须显式声明（Linux 上重复声明无害）
-
 void requestRelaunch() {
     const std::string exe = apxpc::autostart::getExePath();
     std::thread([exe] {
