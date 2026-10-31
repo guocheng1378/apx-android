@@ -155,6 +155,10 @@ internal class PhysKeyBridge(private val act: Activity) {
     }
 
     private fun forwardPointerImpl(event: android.view.MotionEvent): Boolean {
+        // root 直读桥接管时让位：那条读的是真正的一手 EV_REL，而本函数拿的是
+        // 绝对 hover 坐标、靠相邻帧差求位移。两条同时跑会把位移算两遍
+        // （光标跑得比手快一倍），按钮状态也会互相覆盖 —— 见 RootPointerBridge.active。
+        if (com.allperiph.touchpad.RootPointerBridge.active) return false
         val src = event.source
         val isPointer = src and android.view.InputDevice.SOURCE_MOUSE != 0 ||
             src and android.view.InputDevice.SOURCE_TOUCHPAD != 0
