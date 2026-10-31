@@ -1106,7 +1106,7 @@ class TouchpadActivity : Activity() {
         val tvBtn = Button(this).apply {
             text = getString(R.string.ui_main_item_link)
             setBackgroundResource(R.drawable.bg_btn_primary)
-            setTextColor(com.allperiph.ui.ThemeSkin.onPrimary(this))
+            setTextColor(com.allperiph.ui.ThemeSkin.onPrimary(this@TouchpadActivity))
             textSize = 15f; typeface = Typeface.DEFAULT_BOLD
             setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { showDevicePicker() }

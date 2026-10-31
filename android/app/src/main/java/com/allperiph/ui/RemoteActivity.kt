@@ -210,9 +210,9 @@ class RemoteActivity : Activity() {
                 text = "OK"
                 textSize = 20f
                 gravity = Gravity.CENTER
-                setTextColor(ThemeSkin.onPrimary(this))
+                setTextColor(ThemeSkin.onPrimary(this@RemoteActivity))
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                background = ApKit.oval(ThemeSkin.primary(this))
+                background = ApKit.oval(ThemeSkin.primary(this@RemoteActivity))
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -384,7 +384,7 @@ class RemoteActivity : Activity() {
             val fg = when (label) {
                 "关机" -> 0xFFD23F31.toInt()
                 "重启" -> 0xFFF0A020.toInt()
-                "电源" -> ThemeSkin.primary(this)
+                "电源" -> ThemeSkin.primary(this@RemoteActivity)
                 else -> getColor(R.color.md_on_surface)
             }
             setTextColor(fg)
@@ -531,7 +531,7 @@ class RemoteActivity : Activity() {
 
     private fun chip(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
         this.text = text
-        setTextColor(ThemeSkin.primary(this))
+        setTextColor(ThemeSkin.primary(this@RemoteActivity))
         textSize = 12f
         gravity = Gravity.CENTER
         background = ApKit.shape(

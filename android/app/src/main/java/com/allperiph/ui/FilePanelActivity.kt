@@ -94,7 +94,7 @@ class FilePanelActivity : Activity() {
 
         targetView = TextView(this).apply {
             textSize = 13f
-            setTextColor(ThemeSkin.primary(this))
+            setTextColor(ThemeSkin.primary(this@FilePanelActivity))
             setPadding(0, dp(8f), 0, dp(4f))
             setOnClickListener { switchTarget() }
         }
@@ -133,8 +133,8 @@ class FilePanelActivity : Activity() {
         this.text = text
         textSize = 14f
         gravity = Gravity.CENTER
-        setTextColor(ThemeSkin.onPrimary(this))
-        setBackgroundColor(ThemeSkin.primary(this))
+        setTextColor(ThemeSkin.onPrimary(this@FilePanelActivity))
+        setBackgroundColor(ThemeSkin.primary(this@FilePanelActivity))
         setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
         setOnClickListener { onClick() }
     }
@@ -184,7 +184,7 @@ class FilePanelActivity : Activity() {
             text = getString(R.string.ui_filepanel_text_forward)
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(ThemeSkin.primary(this))
+            setTextColor(ThemeSkin.primary(this@FilePanelActivity))
         })
         // 行内「删除」（v205）：子视图可点击会先消费触摸事件，不会误触发整行的转发
         row.addView(TextView(this).apply {
