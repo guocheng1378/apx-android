@@ -53,8 +53,16 @@ class EvdevPointerReader(
 
         /**
          * 从 /proc/bus/input/devices 挑出指针设备的 event 节点。
-         * 用 Handlers 里的 `mouseN` 作判据（内核给所有指针类设备挂它），
-         * 比按名字猜「Touchpad」稳；排除自家虚拟设备避免自激。
+         *
+         * 两条判据取「或」，因为单用一条会在真机上当：
+         *   - `mouseN`（Handlers 里）：内核挂了 mousedev 才有。**很多 Android 内核
+         *     根本没编 mousedev** —— 真机（小米 15，Android 15）实测本机全部设备里
+         *     一个 mouseN 都没有，只认这条会静默「找不到设备」，功能直接失效。
+         *   - 能力位图：`EV` 位图含 EV_REL **且** `KEY` 位图含 BTN_LEFT。
+         *     相对指针的本质特征，不依赖 mousedev。触摸屏是 EV_ABS、键盘无 EV_REL、
+         *     手柄无 REL，都能据此排掉。
+         *
+         * 另外排除名字含 apx / allperiph 的自家虚拟设备，避免自激（读到自己发出的）。
          */
         fun findPointerNodes(): List<File> {
             val out = ArrayList<File>()
@@ -65,14 +73,47 @@ class EvdevPointerReader(
                     val name = Regex("N: Name=\"([^\"]*)\"").find(blk)?.groupValues?.get(1) ?: ""
                     if (name.contains("apx", true) || name.contains("allperiph", true)) continue
                     val handlers = Regex("H: Handlers=([^\n]*)").find(blk)?.groupValues?.get(1) ?: ""
-                    val m = Regex("mouse(\\d+)").find(handlers) ?: continue
-                    out.add(File("/dev/input/event${m.groupValues[1]}"))
+                    // eventN 是读裸事件的节点；没有它（纯 mouseN 的旧设备走 mousedev）就跳过
+                    val idx = Regex("event(\\d+)").find(handlers)?.groupValues?.get(1) ?: continue
+                    val byMouse = Regex("mouse\\d+").containsMatchIn(handlers)
+                    val byCaps = hasRelAxis(blk) && hasBtnLeft(blk)
+                    if (!byMouse && !byCaps) continue
+                    Log.i(
+                        TAG,
+                        "指针设备：$name -> event$idx" +
+                            if (byCaps && !byMouse) "（靠能力位图认出，该内核无 mousedev）" else "",
+                    )
+                    out.add(File("/dev/input/event$idx"))
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "读 /proc/bus/input/devices 失败：${t.message}")
             }
             return out
         }
+
+        /**
+         * 取 `B: <field>=` 的十六进制位图分组。
+         * 内核按 64 位一组输出、**高位组在前**（如 `KEY=70000 0 0 0 0 0`）。
+         */
+        private fun bitmapGroups(blk: String, field: String): List<Long> {
+            val m = Regex("B: " + field + "=([0-9A-Fa-f ]+)").find(blk) ?: return emptyList()
+            return m.groupValues[1].trim().split(Regex("\\s+"))
+                .mapNotNull { runCatching { java.lang.Long.parseUnsignedLong(it, 16) }.getOrNull() }
+        }
+
+        /** 位 b 是否置位（b 为 Linux 输入码，如 BTN_LEFT = 0x110） */
+        private fun bitSet(groups: List<Long>, b: Int): Boolean {
+            if (groups.isEmpty()) return false
+            val gi = groups.size - 1 - (b / 64)
+            if (gi < 0 || gi >= groups.size) return false
+            return (groups[gi] ushr (b % 64)) and 1L == 1L
+        }
+
+        /** 相对轴能力（EV_REL = 0x02） */
+        private fun hasRelAxis(blk: String) = bitSet(bitmapGroups(blk, "EV"), 0x02)
+
+        /** 左键能力（BTN_LEFT = 0x110）—— 把「有相对轴但没键」的怪设备也排掉 */
+        private fun hasBtnLeft(blk: String) = bitSet(bitmapGroups(blk, "KEY"), 0x110)
     }
 
     @Volatile private var running = false
