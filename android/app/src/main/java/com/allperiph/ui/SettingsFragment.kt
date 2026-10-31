@@ -28,6 +28,7 @@ import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
 import com.allperiph.shared.net.FileSender
+import com.allperiph.shared.util.LogExport
 import android.net.Uri
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -230,7 +231,7 @@ class SettingsFragment : Fragment() {
             v.context.startActivity(android.content.Intent(v.context, com.allperiph.localsend.SendActivity::class.java))
         }
         // 批O：手动导出运行日志（issue 建议）——自进程 logcat → Download/AllPeriph/。
-        // 落盘与提示复用 exportLog 那条口径（同一份 saveToDownloads / 头部 / 文案），
+        // 落盘与提示复用 exportLog 那条口径（同一份 LogExport.saveToDownloads / 头部 / 文案），
         // 与运行日志、Logcat 两个对话框的「导出」完全一致。
         act.findViewById<android.view.View>(R.id.rowExportLog)?.setOnClickListener {
             Toast.makeText(act, getString(R.string.ui_log_collecting), Toast.LENGTH_SHORT).show()
@@ -248,11 +249,11 @@ class SettingsFragment : Fragment() {
                     if (raw.isBlank()) {
                         getString(R.string.ui_log_empty)
                     } else {
-                        val fileName = "log_${System.currentTimeMillis()}.txt"
-                        saveToDownloads(
-                            act.applicationContext, fileName, logHead() + raw.takeLast(890_000),
+                        val saved = LogExport.saveToDownloads(
+                            act.applicationContext, LogExport.fileName("logcat"),
+                            logHead() + raw.takeLast(890_000),
                         )
-                        getString(R.string.ui_log_exported, fileName)
+                        getString(R.string.ui_log_exported, saved)
                     }
                 } catch (e: Throwable) {
                     getString(R.string.ui_log_export_failed, e.message ?: "")
@@ -1103,9 +1104,10 @@ class SettingsFragment : Fragment() {
                 if (text.isBlank()) {
                     ctx.getString(R.string.ui_log_empty)
                 } else {
-                    val fileName = "${logName}_${System.currentTimeMillis()}.txt"
-                    saveToDownloads(ctx, fileName, logHead() + text.takeLast(890_000))
-                    ctx.getString(R.string.ui_log_exported, fileName)
+                    val saved = LogExport.saveToDownloads(
+                        ctx, LogExport.fileName(logName), logHead() + text.takeLast(890_000),
+                    )
+                    ctx.getString(R.string.ui_log_exported, saved)
                 }
             } catch (e: Throwable) {
                 ctx.getString(R.string.ui_log_export_failed, e.message ?: "")
@@ -1114,37 +1116,6 @@ class SettingsFragment : Fragment() {
                 Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
             }
         }.apply { isDaemon = true; setName("apx-log-export") }.start()
-    }
-
-    /** 正文写进 Download/AllPeriph/&lt;fileName&gt;（MediaStore，免存储权限），返回 uri。 */
-    private fun saveToDownloads(
-        ctx: Context,
-        fileName: String,
-        body: String,
-    ): android.net.Uri {
-        val values = android.content.ContentValues().apply {
-            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(
-                android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
-                android.os.Environment.DIRECTORY_DOWNLOADS + "/AllPeriph",
-            )
-            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val uri = ctx.contentResolver.insert(
-            android.provider.MediaStore.Downloads
-                .getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY),
-            values,
-        ) ?: throw IllegalStateException("insert failed")
-        ctx.contentResolver.openOutputStream(uri)!!.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        ctx.contentResolver.update(
-            uri,
-            android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
-            },
-            null, null,
-        )
-        return uri
     }
 
     private fun readLogcat(): String {

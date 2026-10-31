@@ -30,6 +30,8 @@
 #include <commdlg.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shobjidl.h>        // CLSID_FileOpenDialog（log.pickDir 的原生目录选择框）
+#include <shobjidl_core.h>   // IFileOpenDialog / SIGDN_FILESYSPATH
 #endif
 
 #include "apxpc/ui/web_panel.hpp"
@@ -43,6 +45,8 @@
 #include "apxpc/wireless/ctrl9511.hpp"
 #include "apxpc/wireless/phone_mode.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
+// 日志清单与按时间范围导出（issue #52 第 3 条）——与 panel_http.cpp 共用同一套实现。
+#include "apxpc/log_export.hpp"
 #include "apxpc/localsend/local_send_sender.hpp"
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/screen_push.hpp"
@@ -828,6 +832,99 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
             return postResponse(p, id, failResp("删除失败: " + ec3.message()));
         APX_LOGI("已删除收到的文件: {}", path.c_str());
         return postResponse(p, id, okResp());
+    }
+
+    // —— 日志：清单 + 按时间范围导出（issue #52 第 3 条）——
+    // 与 panel_http.cpp 同口径（那边跑 macOS/Linux）。Windows 这一份**还多一个
+    // log.pickDir**：这里的模态对话框跑在 UI 线程（WebView2 消息循环 + STA COM），
+    // 能安全弹 IFileOpenDialog；macOS 的面板主线程被 accept 循环占着，弹不了，
+    // 所以那边如实回 false 让前端退回「常用目录」候选。
+    if (name == "log.list") {
+        const std::string dir = apxpc::logexport::defaultLogDir();
+        Json arr = Json::makeArray();
+        for (const auto& f : apxpc::logexport::list(dir)) {
+            Json o = Json::makeObject();
+            o["name"] = f.name;
+            o["kind"] = f.kind;
+            o["size"] = static_cast<double>(f.size);
+            o["mtime"] = static_cast<double>(f.mtimeSec);
+            arr.push(std::move(o));
+        }
+        Json data = Json::makeObject();
+        data["dir"] = dir;
+        data["exportDir"] = apxpc::logexport::defaultExportDir();
+        // 常用目录候选：即使能弹对话框也给一份「一键到的」快捷项。
+        {
+            Json presets = Json::makeArray();
+            for (const auto& pr : apxpc::logexport::dirPresets()) {
+                Json o = Json::makeObject();
+                o["name"] = pr.first;
+                o["path"] = pr.second;
+                presets.push(std::move(o));
+            }
+            data["dirPresets"] = std::move(presets);
+        }
+        data["canPickDir"] = true;
+        data["files"] = std::move(arr);
+        return postResponse(p, id, okResp(data));
+    }
+
+    // 原生「选择文件夹」对话框。FOS_PICKFOLDERS 只让选目录、FOS_FORCEFILESYSTEM
+    // 排除「网络位置/库」这类取不到盘符的虚拟位置（导出要的是能直接写的本地路径）。
+    if (name == "log.pickDir") {
+        wil::com_ptr<IFileOpenDialog> dlg;
+        HRESULT hr = ::CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(dlg.put()));
+        if (FAILED(hr) || !dlg) {
+            APX_LOGW("log.pickDir: 创建文件对话框失败 hr=0x{:08X}", static_cast<unsigned>(hr));
+            return postResponse(p, id, failResp("无法打开系统目录选择对话框"));
+        }
+        DWORD opts = 0;
+        if (SUCCEEDED(dlg->GetOptions(&opts)))
+            dlg->SetOptions(opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        dlg->SetTitle(L"选择日志导出目录");
+        hr = dlg->Show(p->hwnd);
+        if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+            // 取消不是错误：回空 dir，前端据此显示「已取消」而不是红字报错。
+            Json d = Json::makeObject();
+            d["dir"] = std::string();
+            return postResponse(p, id, okResp(d));
+        }
+        if (FAILED(hr)) return postResponse(p, id, failResp("系统目录选择对话框打开失败"));
+        wil::com_ptr<IShellItem> item;
+        if (FAILED(dlg->GetResult(item.put())) || !item)
+            return postResponse(p, id, failResp("未能取得所选目录"));
+        PWSTR wpath = nullptr;
+        if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &wpath)) || !wpath) {
+            if (wpath) ::CoTaskMemFree(wpath);
+            return postResponse(p, id, failResp("所选位置没有本地路径（请选本机磁盘上的目录）"));
+        }
+        Json d = Json::makeObject();
+        d["dir"] = wideToUtf8(std::wstring(wpath));
+        ::CoTaskMemFree(wpath);
+        return postResponse(p, id, okResp(d));
+    }
+
+    if (name == "log.export") {
+        auto sval = [&](const char* k) -> std::string {
+            const Json* n = payload.find(k);
+            return n ? n->asString() : std::string();
+        };
+        auto ival = [&](const char* k) -> long long {
+            const Json* n = payload.find(k);
+            return n ? static_cast<long long>(n->asInt(0)) : 0LL;
+        };
+        const std::string dir = sval("dir").empty() ? apxpc::logexport::defaultLogDir()
+                                                    : sval("dir");
+        // note：拼进文件名里的设备标识（用户可自定义，留空回落本机主机名）。
+        const apxpc::logexport::Result r = apxpc::logexport::exportRange(
+            dir, sval("dest"), sval("kind"), ival("since"), ival("until"), sval("note"));
+        if (!r.ok) return postResponse(p, id, failResp(r.error));
+        Json d = Json::makeObject();
+        d["path"] = r.outPath;
+        d["lines"] = static_cast<double>(r.lines);
+        d["scanned"] = static_cast<double>(r.scanned);
+        return postResponse(p, id, okResp(d));
     }
 
     return postResponse(p, id, failResp("未知动作: " + name));

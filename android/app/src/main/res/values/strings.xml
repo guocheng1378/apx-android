@@ -509,7 +509,7 @@
     <string name="ui_log_empty">没有可导出的日志内容</string>
     <string name="ui_log_empty_hint">暂无日志 —— 只有达到「日志级别」的记录才会留下</string>
     <string name="ui_log_export_failed">导出失败：%1$s</string>
-    <string name="ui_log_exported">已保存到 Download/AllPeriph/%1$s</string>
+    <string name="ui_log_exported">已保存到 %1$s</string>
     <string name="ui_log_head">=== AllPeriph 运行日志导出 ===\n时间: %1$s\n设备: %2$s / SDK %3$s\n\n</string>
 
     <!-- 帮助页：开关与日志说明 / 遥控键位（从各分组搬来的长文） -->

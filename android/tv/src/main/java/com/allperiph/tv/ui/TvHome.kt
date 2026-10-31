@@ -62,6 +62,7 @@ fun TvHome(
     onScreen: () -> Unit,
     onSelfCheck: () -> Unit,
     onAccessibility: () -> Unit,
+    onExportLog: () -> Unit,
     onToggleService: () -> Unit,
 ) {
     val pad = 20.dp
@@ -120,6 +121,9 @@ fun TvHome(
             TvAction(s(ctx, R.string.tv_action_screen), onScreen)
             TvAction(s(ctx, R.string.tv_action_selfcheck), onSelfCheck)
             TvAction(s(ctx, R.string.tv_action_a11y), onAccessibility)
+            // 导出日志：issue #52 第 3 条要求「多端同步」，电视端此前完全没有这个入口 ——
+            // 电视出了问题用户只能拍照，日志根本拿不出来。
+            TvAction(s(ctx, R.string.tv_action_export_log), onExportLog)
             TvAction(
                 s(ctx, 
                     if (state.accepting) R.string.tv_accept_off else R.string.tv_accept_on,

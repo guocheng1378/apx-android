@@ -9,6 +9,12 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <utility>
+#include <vector>
+
+#if !defined(_WIN32)
+#include <unistd.h>   // gethostname（导出文件名里的本机标识）
+#endif
 
 namespace fs = std::filesystem;
 
@@ -110,6 +116,37 @@ std::string fmtLocal(const char* fmt) {
     return std::string(buf, n);
 }
 
+/// 本机名（导出文件名用）：Windows 上 gethostname 走 Winsock 需要额外初始化，
+/// 这里用环境变量 COMPUTERNAME 更省事；其余平台 gethostname。取不到给 "PC"。
+std::string localHostName() {
+#if defined(_WIN32)
+    const char* cn = std::getenv("COMPUTERNAME");
+    if (cn && *cn) return cn;
+    return "PC";
+#else
+    char buf[256] = {};
+    if (::gethostname(buf, sizeof(buf) - 1) == 0 && buf[0] != '\0') return buf;
+    return "PC";
+#endif
+}
+
+/// 把 nameNote 洗成文件名安全的一段（用户可自定义，见 exportRange 参数说明）：
+/// 去掉路径分隔符与控制字符、去掉会跟文件名格式打架的 `-` 与空格，其余保留中文
+/// （macOS / Windows / Linux 的文件名都支持 UTF-8 中文）。
+std::string sanitizeNote(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    for (unsigned char c : in) {
+        if (c < 0x20 || c == 0x7F) continue;                       // 控制字符
+        if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' ||
+            c == '"' || c == '<' || c == '>' || c == '|') continue; // 非法/危险字符
+        if (c == ' ' || c == '-') continue;                         // 撞文件名格式
+        if (out.size() >= 48) break;                                // 别让文件名失控
+        out.push_back(static_cast<char>(c));
+    }
+    return out;
+}
+
 }  // namespace
 
 std::string defaultLogDir() {
@@ -137,6 +174,40 @@ std::string defaultExportDir() {
 }
 
 std::string stampNow() { return fmtLocal("%Y%m%d-%H%M%S"); }
+
+std::vector<std::pair<std::string, std::string>> dirPresets() {
+    /* 「选择目录」的原生系统对话框只有 Windows 弹得出来（macOS 的主线程被面板的
+       accept 循环占着，AppKit 的模态文件对话框必须在主线程 —— 把主线程让给 AppKit
+       是结构性改动，见 tray_mac.mm 顶部那段，不能为了这个功能贸然改）。
+       所以三端统一给一组**常用目录候选**：任何端都能用「点一下换目录」的体验，
+       Windows 上还额外提供真正的系统目录选择对话框（见 panel_http 的 log.pickDir）。 */
+    const std::string h = homeDir();
+    std::vector<std::pair<std::string, std::string>> out;
+    std::error_code ec;
+#if defined(_WIN32)
+    out.emplace_back("默认（下载\\AllPeriphLogs）", defaultExportDir());
+    const char* up = std::getenv("USERPROFILE");
+    if (up && *up) {
+        out.emplace_back("桌面", std::string(up) + "\\Desktop");
+        out.emplace_back("文档", std::string(up) + "\\Documents");
+        out.emplace_back("下载", std::string(up) + "\\Downloads");
+    }
+#else
+    out.emplace_back("默认（下载/AllPeriphLogs）", defaultExportDir());
+    out.emplace_back("桌面", h + "/Desktop");
+    out.emplace_back("文稿", h + "/Documents");
+    out.emplace_back("下载", h + "/Downloads");
+#endif
+    // 去掉不存在的候选（目录都没建出来的话，列出来只会误导）
+    out.erase(std::remove_if(out.begin(), out.end(),
+                             [&](const auto& p) {
+                                 std::error_code e2;
+                                 return !fs::is_directory(fs::path(p.second), e2);
+                             }),
+              out.end());
+    if (out.empty()) out.emplace_back("默认", defaultExportDir());
+    return out;
+}
 
 std::string readableNow() { return fmtLocal("%Y-%m-%d %H:%M:%S"); }
 
@@ -174,7 +245,8 @@ std::vector<LogFile> list(const std::string& dir) {
 
 Result exportRange(const std::string& dir, const std::string& destDirIn,
                    const std::string& kindPrefix,
-                   int64_t sinceSec, int64_t untilSec) {
+                   int64_t sinceSec, int64_t untilSec,
+                   const std::string& nameNote) {
     Result r;
     const std::string destDir = destDirIn.empty() ? defaultExportDir() : destDirIn;
     std::error_code ec;
@@ -200,8 +272,20 @@ Result exportRange(const std::string& dir, const std::string& destDirIn,
               [](const LogFile& a, const LogFile& b) { return a.mtimeSec < b.mtimeSec; });
 
     const std::string kindTag = kindPrefix.empty() ? "all" : kindPrefix;
-    const std::string outPath =
-        (fs::path(destDir) / ("apx-logs-" + kindTag + "-" + stampNow() + ".log")).string();
+    /* 设备标识（issue #52 第 3 条）：默认本机主机名，用户可在导出弹窗里自定义。
+       拼在 kindTag 后面、以 @ 分隔 → `apx-logs-apxdesktop@TurnsMacBookAir-20261031-172855.log`，
+       同一目录下多台机器的日志一眼分得清，也不会与类型名混淆。 */
+    const std::string note = sanitizeNote(nameNote);
+    const std::string nameTag = note.empty() ? sanitizeNote(localHostName()) : note;
+    const std::string base =
+        "apx-logs-" + kindTag + "@" + nameTag + "-" + stampNow();
+    // 不覆盖已有导出：同一秒内连点两次、或补导出第二遍时，追加 -2 / -3 ……
+    std::string outPath = (fs::path(destDir) / (base + ".log")).string();
+    for (int n = 2; n < 100; ++n) {
+        std::error_code ee;
+        if (!fs::exists(fs::path(outPath), ee)) break;
+        outPath = (fs::path(destDir) / (base + "-" + std::to_string(n) + ".log")).string();
+    }
 
     std::ofstream out(outPath, std::ios::binary | std::ios::trunc);
     if (!out) {
