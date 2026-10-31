@@ -607,6 +607,32 @@
         </LinearLayout>
 
 
+        <!-- v223.15：悬浮球开关 + 它的功能勾选。
+             原先长在「远程」分组的 tvBox 里，而首页分类默认收起所有分组 ——
+             不点进「远程」就看不到，真机反馈「找不到自定义功能」。挪到首页第一项
+             「通用」里，行由 SettingsFragment.renderBallRows() 填。 -->
+        <LinearLayout
+            style="@style/APCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/APGroupTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/ui_ball_group_title" />
+
+            <View style="@style/APGroupDivider" />
+
+            <LinearLayout
+                android:id="@+id/ballBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingTop="@dimen/space_6" />
+        </LinearLayout>
+
         </LinearLayout><!-- /groupGeneral -->
 
         <LinearLayout

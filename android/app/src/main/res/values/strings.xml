@@ -375,6 +375,7 @@
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
     <string name="ui_ball_fn_quit">退出</string>
+    <string name="ui_ball_group_title">悬浮球</string>
     <string name="ui_ball_cfg_label">悬浮球功能</string>
     <string name="ui_ball_cfg_note">单击球展开扇形，只显示勾选项</string>
     <string name="ui_ball_cfg_title">选择悬浮球功能</string>
