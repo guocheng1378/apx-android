@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.IBinder
@@ -15,6 +16,8 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
@@ -23,7 +26,9 @@ import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * 悬浮球（反馈#7）：独立系统 overlay 触控板窗口。
@@ -89,12 +94,25 @@ class FloatingBallService : Service() {
 
     private val wm by lazy { getSystemService(Context.WINDOW_SERVICE) as WindowManager }
 
+    /**
+     * 服务侧的换肤上下文（见 [ThemePref.wrapService]）。
+     *
+     * 菜单／面板／连接模式按钮必须用**它**去 inflate 与取色：`Service` 自身的
+     * `getTheme()` 是 framework 的 `Theme.DeviceDefault.Light.DarkActionBar`，
+     * 解析不到 `?attr/apPrimary` 一族的属性 —— v223.13 起「单击悬浮球」
+     * 就闪退正是栽在这里（InflateException：Failed to resolve attribute）。
+     */
+    private val themed by lazy { ThemePref.wrapService(this) }
+
     private var ball: View? = null
     private var ballAttached = false
     private var panel: View? = null
 
-    /** 功能菜单浮层（issue #52 建议 2）：单击悬浮球展开的那一列 */
+    /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
+
+    /** 展开中的快捷项（id → 那一格 View）：连接模式切换后按它就地刷新选中态 */
+    private val fanItems = mutableListOf<Pair<String, View>>()
 
     /** 已停靠在侧边（半透明、点击恢复）—— 轻拨手势的落点状态 */
     private var docked = false
@@ -116,7 +134,8 @@ class FloatingBallService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        ThemeSkin.applyRuntimeTheme(this)   // 菜单/面板的 ?attr 强调色（建议 3）
+        // 菜单／面板的 ?attr 强调色由 [themed]（ThemePref.wrapService）负责，
+        // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
         NotificationChannels.ensure(this)
         startForeground(
@@ -182,7 +201,7 @@ class FloatingBallService : Service() {
     private fun addBall() {
         if (ballAttached) return
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
-        val v = ball ?: LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_floating_ball, null).also { ball = it }
+        val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         wm.addView(v, ballLayoutParams())
         ballAttached = true
         setupBallTouch(v)
@@ -287,13 +306,20 @@ class FloatingBallService : Service() {
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
     }
 
-    // ————————————————————————— 功能菜单（建议 2） —————————————————————————
+    // ————————————————————— 扇形快捷菜单（v223.15，MIUI / HyperOS 快捷球观感） —————————————————————
 
     /**
-     * 单击悬浮球：展开/收起功能菜单。
+     * 单击悬浮球：展开／收起扇形快捷菜单。
      *
-     * 菜单是**独立 overlay 窗口**（不是把面板撑大）—— 球本身只有 60dp，塞不进这些项；
-     * 独立窗口还能让菜单出现在球的哪一侧就贴哪一侧，不会顶到屏幕外。
+     * 为什么是扇形，而不是旧版那一列卡片：
+     * - HyperOS 快捷球的交互就是「球 → 周围一圈快捷项」，用户要的是这个观感；
+     * - 悬浮球住在 overlay 层，任何矩形卡片都会压住球旁边的应用内容；扇形只在球周围
+     *   占一圈，遮挡与视觉重量都最小；
+     * - 圈里有哪些项由**用户勾选**决定（[BallConfig]），不再是写死的四颗按钮。
+     *
+     * ⚠️ 菜单窗口的尺寸 = 那一圈的包围盒，不是整屏：窗口内被子 View 之外的区域由根容器
+     * 接住并收起菜单（点空白处即关），窗口外的触摸照常落给下面的应用（FLAG_NOT_TOUCH_MODAL），
+     * 所以展开菜单时别处还能滑。
      */
     private fun toggleMenu(v: View) {
         if (menu != null) {
@@ -301,108 +327,170 @@ class FloatingBallService : Service() {
             return
         }
         collapse()   // 菜单与触控板面板互斥：面板铺满底部，菜单要占球旁边的位置
-        val m = LayoutInflater.from(ThemePref.wrap(this))
-            .inflate(R.layout.view_floating_menu, null)
-        bindMenu(m)
-        if (!attachMenu(m, v)) return
-        menu = m
+        // 兜底：即便主题／资源出问题，也只让菜单展开失败，不能把整个进程带走
+        val fan = runCatching { buildFan(v) }.getOrElse {
+            Log.w(TAG, "扇形菜单构建失败：${it.message}")
+            return
+        }
+        if (!attachFan(fan)) return
+        menu = fan.root
     }
 
-    /** 把菜单贴到球旁边：球在右半屏 → 菜单摆左边，反之摆右边；纵向与球对齐并夹进屏内 */
-    private fun attachMenu(m: View, ballView: View): Boolean {
+    /** 扇形菜单的「一屏」：包围盒尺寸的根容器 + 它的窗口参数 */
+    private class Fan(val root: View, val lp: WindowManager.LayoutParams)
+
+    /**
+     * 按 [BallConfig.enabled] 生成扇形：球心为圆心、[BallConfig.ARC_RADIUS_DP] 为半径，
+     * 朝屏幕内侧铺开；项数与角度定不下时自动绕成一圈。
+     */
+    private fun buildFan(ballView: View): Fan {
+        val items = BallConfig.enabled(this)
+        val dm = resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+        val itemPx = dp(BallConfig.ITEM_DP)
+        val gapPx = dp(8)
+        val half = itemPx / 2f
+        val cx = ballView.x + ballView.width / 2f
+        val cy = ballView.y + ballView.height / 2f
+
+        // 半径优先用设计值；球贴边时留不出这么多空，就自动缩（宁可挤一点也不出屏）
+        val rMax = minOf(cx, screenW - cx, cy, screenH - cy) - half - gapPx
+        val radius = minOf(dp(BallConfig.ARC_RADIUS_DP).toFloat(), rMax).coerceAtLeast(half + gapPx)
+        val box = ((radius + half + gapPx) * 2).toInt()
+
+        // 朝屏幕内侧展开：球在右半屏 → 朝左（180°），否则朝右（0°）
+        val base = if (cx >= screenW / 2f) 180f else 0f
+        val n = items.size
+        // 44° 一档：52dp 的项在 96dp 半径上差不多刚好挨着不叠；7 项起绕成一整圈
+        val step = if (n <= 6) 44f else 360f / n
+        val start = base - step * (n - 1) / 2f
+
+        val root = FrameLayout(themed).apply {
+            // 空白处点一下 = 收起菜单（子 View 各吃各的，不会传上来）
+            isClickable = true
+            setOnClickListener { closeMenu() }
+        }
+        fanItems.clear()
+        items.forEachIndexed { i, id ->
+            val angle = Math.toRadians((start + step * i).toDouble())
+            val cell = buildFanItem(id)
+            val lpItem = FrameLayout.LayoutParams(itemPx, itemPx).apply {
+                leftMargin = (box / 2f + (radius * cos(angle)).toFloat() - half)
+                    .toInt().coerceIn(0, box - itemPx)
+                topMargin = (box / 2f + (radius * sin(angle)).toFloat() - half)
+                    .toInt().coerceIn(0, box - itemPx)
+            }
+            root.addView(cell, lpItem)
+            fanItems.add(id to cell)
+        }
+
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            box,
+            box,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START }
-
-        return runCatching {
-            wm.addView(m, lp)
-            // 尺寸要等一次测量：刚 addView 时 width/height 还是 0，算不出贴边的坐标
-            m.post {
-                val screenW = resources.displayMetrics.widthPixels
-                val screenH = resources.displayMetrics.heightPixels
-                val ballRight = ballView.x + ballView.width
-                val rightSide = ballView.x + ballView.width / 2f >= screenW / 2f
-                lp.x = if (rightSide) {
-                    (ballView.x - m.width - dp(8)).toInt().coerceAtLeast(0)
-                } else {
-                    (ballRight + dp(8)).toInt()
-                        .coerceAtMost((screenW - m.width).coerceAtLeast(0))
-                }
-                lp.y = ballView.y.toInt()
-                    .coerceIn(0, (screenH - m.height).coerceAtLeast(0))
-                wm.updateViewLayout(m, lp)
-            }
-            true
-        }.getOrElse {
-            Log.w(TAG, "菜单创建失败：${it.message}")
-            false
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // 包围盒居中在球心上，扇形才会以球为圆心展开
+            x = (cx - box / 2f).toInt()
+            y = (cy - box / 2f).toInt()
         }
+        return Fan(root, lp)
+    }
+
+    /** 一颗快捷项：52dp 圆 + 居中单色图标（HyperOS 那边也是只给图标，不给文字） */
+    private fun buildFanItem(id: String): View {
+        val cell = FrameLayout(themed).apply {
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(BallConfig.labelRes(id))
+            setOnClickListener { onFanItem(id) }
+        }
+        cell.addView(
+            ImageView(themed).apply {
+                setImageResource(BallConfig.iconRes(id))
+                // 图标是单色遮罩，颜色在这儿定（见 applyFanState）
+                setImageTintList(ColorStateList.valueOf(themed.resources.getColor(R.color.ball_text)))
+            },
+            FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER),
+        )
+        applyFanState(cell, id)
+        return cell
+    }
+
+    /** 快捷项外观：连接模式类按开关态走主色实底，其余走和球同款半透明白／黑 */
+    private fun applyFanState(cell: View, id: String) {
+        val kind = BallConfig.transportOf(id)
+        val on = kind != null && AgentController.isTransportEnabled(this, kind)
+        cell.setBackgroundResource(if (on) R.drawable.bg_ball_item_on else R.drawable.bg_ball_item)
+        val tint = if (on) ThemeSkin.onPrimary(themed) else themed.resources.getColor(R.color.ball_text)
+        (cell as? FrameLayout)?.getChildAt(0)?.let { (it as? ImageView)?.setImageTintList(ColorStateList.valueOf(tint)) }
+    }
+
+    /** 连接模式切完就地刷新那几格，不重建整个扇形（重建会闪一下，且丢按下态） */
+    private fun renderFanStates() {
+        for ((id, cell) in fanItems) applyFanState(cell, id)
+    }
+
+    private fun attachFan(fan: Fan): Boolean = runCatching {
+        wm.addView(fan.root, fan.lp)
+        true
+    }.getOrElse {
+        Log.w(TAG, "扇形菜单贴窗失败：${it.message}")
+        false
     }
 
     private fun closeMenu() {
         detach(menu)
         menu = null
+        fanItems.clear()
     }
 
-    /** 菜单项接线。连接模式三颗按当前开关态渲染，点一下即切（与状态页同一套语义） */
-    private fun bindMenu(m: View) {
-        m.findViewById<TextView>(R.id.btnMenuTouchpad)?.setOnClickListener {
-            closeMenu()
-            expand()
-        }
-        m.findViewById<TextView>(R.id.btnMenuDevices)?.setOnClickListener {
-            closeMenu()
-            // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
-            // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
-            runCatching {
-                startActivity(
-                    Intent(this, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
-                )
+    /** 快捷项分发：触控板面板 / 设备选择 / 文件互传 / 全屏触控板 / 退出 / 连接模式切换 */
+    private fun onFanItem(id: String) {
+        when (id) {
+            BallConfig.TOUCHPAD -> {
+                closeMenu()
+                expand()
             }
-        }
-        m.findViewById<TextView>(R.id.btnMenuFiles)?.setOnClickListener {
-            closeMenu()
-            runCatching {
-                startActivity(
-                    Intent(this, FilePanelActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+            BallConfig.DEVICES -> {
+                closeMenu()
+                // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
+                // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
+                runCatching {
+                    startActivity(
+                        Intent(this, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
+                    )
+                }
             }
-        }
-        m.findViewById<TextView>(R.id.btnMenuQuit)?.setOnClickListener {
-            closeMenu()
-            quitApp()
-        }
-        for ((id, kind) in listOf(
-            R.id.btnModeWifi to "wifi",
-            R.id.btnModeBt to "bt",
-            R.id.btnModeUsb to "usb",
-        )) {
-            m.findViewById<TextView>(id)?.setOnClickListener { onMenuTransport(kind) }
-        }
-        renderModeButtons(m)
-    }
-
-    /** 连接模式三颗按钮的选中态：开 = 主色实底 + onPrimary 字；关 = 中性描边胶囊 */
-    private fun renderModeButtons(m: View) {
-        for ((id, kind) in listOf(
-            R.id.btnModeWifi to "wifi",
-            R.id.btnModeBt to "bt",
-            R.id.btnModeUsb to "usb",
-        )) {
-            val btn = m.findViewById<TextView>(id) ?: continue
-            val on = AgentController.isTransportEnabled(this, kind)
-            btn.setTextColor(if (on) ThemeSkin.onPrimary(this) else ThemeSkin.primary(this))
-            btn.setBackgroundResource(
-                if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
-            )
+            BallConfig.FILES -> {
+                closeMenu()
+                runCatching {
+                    startActivity(
+                        Intent(this, FilePanelActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.CONSOLE -> {
+                closeMenu()
+                runCatching {
+                    startActivity(
+                        Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.QUIT -> {
+                closeMenu()
+                quitApp()
+            }
+            else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }
         }
     }
 
@@ -445,7 +533,7 @@ class FloatingBallService : Service() {
             getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
             Toast.LENGTH_SHORT,
         ).show()
-        menu?.let { renderModeButtons(it) }
+        renderFanStates()
     }
 
     /**
@@ -469,7 +557,12 @@ class FloatingBallService : Service() {
 
     private fun expand() {
         if (panel != null) return
-        val v = LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_touchpad_panel, null)
+        val v = runCatching {
+            LayoutInflater.from(themed).inflate(R.layout.view_touchpad_panel, null)
+        }.getOrElse {
+            Log.w(TAG, "触控板面板加载失败：${it.message}")
+            return
+        }
         v.findViewById<TextView>(R.id.tvPanelClose)?.setOnClickListener { collapse() }
         v.findViewById<View>(R.id.touchSurface).setOnTouchListener { _, ev ->
             // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB 鼠标帧/蓝牙/无线）
