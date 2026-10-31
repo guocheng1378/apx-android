@@ -284,7 +284,7 @@ class TouchpadFragment : Fragment() {
             perRow = 4,
             fixedRows = 0,
             stretchRows = false,
-            accent = resources.getColor(R.color.md_primary),
+            accent = ThemeSkin.primary(activity),
             textPrimary = resources.getColor(R.color.md_on_surface),
             textSecondary = resources.getColor(R.color.md_on_surface_variant),
         )

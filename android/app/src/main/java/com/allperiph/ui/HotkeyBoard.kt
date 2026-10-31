@@ -344,9 +344,10 @@ class HotkeyBoard(
         }
         rebuild()
 
-        val dlg = AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_hotkey_title))
-            .setView(box)
+            // 横屏高度只有竖屏一半多：长列表套限高滚动，别把底部按钮顶出屏幕（issue #52 问题 2）
+            .setView(com.allperiph.ui.kit.DialogKit.scrollable(act, box))
             .setPositiveButton(act.getString(R.string.ui_common_new), null)
             .setNeutralButton(act.getString(R.string.ui_common_restore_default), null)
             .setNegativeButton(act.getString(R.string.ui_common_done), null)
@@ -389,7 +390,7 @@ class HotkeyBoard(
     }
 
     private fun confirmReset() {
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_common_restore_default))
             .setMessage(act.getString(R.string.ui_hotkey_reset_msg))
             .setPositiveButton(act.getString(R.string.ui_common_restore)) { _, _ ->
@@ -466,9 +467,9 @@ class HotkeyBoard(
         }
         box.addView(keyBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
-        val dlg = AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(if (editing) R.string.ui_hotkey_title_edit else R.string.ui_hotkey_title_new))
-            .setView(box)
+            .setView(com.allperiph.ui.kit.DialogKit.scrollable(act, box))
             .setPositiveButton(act.getString(R.string.ui_common_save), null)
             .setNegativeButton(act.getString(R.string.ui_common_cancel), null)
             .apply { if (editing) setNeutralButton(act.getString(R.string.ui_common_delete), null) }
@@ -506,11 +507,11 @@ class HotkeyBoard(
     /** 按键选择：一级选组、二级选键 */
     private fun pickKey(onPicked: (Pair<String, Int>) -> Unit) {
         val groups = HidKeys.KEY_GROUPS.map { it.first }.toTypedArray()
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_hotkey_pick_group))
             .setItems(groups) { _, gi ->
                 val (groupName, keys) = HidKeys.KEY_GROUPS[gi]
-                AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+                AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
                     .setTitle(act.getString(R.string.ui_hotkey_pick_key, groupName))
                     .setItems(keys.map { it.first }.toTypedArray()) { _, ki -> onPicked(keys[ki]) }
                     .setNegativeButton(act.getString(R.string.ui_common_back), null)

@@ -10,10 +10,13 @@
 #include "apxpc/wireless/gamepad_fallback.hpp"
 // 权限自检的提示走 APX_LOG 落盘 —— .app 双击启动时 stderr 不可见（见 ensureTrustedOnce）。
 #include "apxpc/log.hpp"
+// 授权身份判断用 exe 路径（.app 内 vs 裸二进制）。
+#include "apxpc/autostart.hpp"
 
 #if defined(__APPLE__)
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <ApplicationServices/ApplicationServices.h>   // AXIsProcessTrustedWithOptions（授权面板兜底）
 #import <AppKit/AppKit.h>
 
 #include <string>
@@ -48,11 +51,45 @@ int hidToMacKey(uint8_t u) {
         case 0x2A: return 0x33;   // Backspace
         case 0x2B: return 0x30;   // Tab
         case 0x2C: return 0x31;   // Space
-        case 0x4F: return 0x7B;   // Right
-        case 0x50: return 0x7C;   // Left
+        case 0x4F: return 0x7C;   // Right（kVK_RightArrow；此前写成 0x7B=Left，issue #52「左右反」）
+        case 0x50: return 0x7B;   // Left（kVK_LeftArrow）
         case 0x51: return 0x7D;   // Down
         case 0x52: return 0x7E;   // Up
         case 0x4C: return 0x75;   // Delete (forward)
+        // —— 标点/符号行（此前全部落 default → -1 被静默丢弃：issue #52「标点键无反应」）——
+        case 0x2D: return 0x1B;   // -
+        case 0x2E: return 0x18;   // =
+        case 0x2F: return 0x21;   // [
+        case 0x30: return 0x1E;   // ]
+        case 0x31: return 0x2A;   // \（backslash）
+        case 0x32: return 0x2A;   // non-US #（按反斜杠兜底）
+        case 0x33: return 0x29;   // ;
+        case 0x34: return 0x27;   // '
+        case 0x35: return 0x32;   // `
+        case 0x36: return 0x2B;   // ,
+        case 0x37: return 0x2F;   // .
+        case 0x38: return 0x2C;   // /
+        case 0x39: return 0x39;   // Caps Lock
+        // —— F1–F12 ——
+        case 0x3A: return 0x7A; case 0x3B: return 0x78; case 0x3C: return 0x63;
+        case 0x3D: return 0x76; case 0x3E: return 0x60; case 0x3F: return 0x61;
+        case 0x40: return 0x62; case 0x41: return 0x64; case 0x42: return 0x65;
+        case 0x43: return 0x6D; case 0x44: return 0x67; case 0x45: return 0x6F;
+        // —— PrSc/ScrLk/Pause → F13–F15（Mac 键盘没有这三颗独立键）——
+        case 0x46: return 0x69; case 0x47: return 0x6B; case 0x48: return 0x71;
+        // —— 编辑键 ——
+        case 0x49: return 0x72;   // Insert → Help
+        case 0x4A: return 0x73;   // Home
+        case 0x4B: return 0x74;   // PageUp
+        case 0x4D: return 0x77;   // End
+        case 0x4E: return 0x79;   // PageDown
+        // —— 小键盘 ——
+        case 0x53: return 0x4B; case 0x54: return 0x43; case 0x55: return 0x4E;
+        case 0x56: return 0x45; case 0x57: return 0x4C;                        // / * - + Enter
+        case 0x58: return 0x53; case 0x59: return 0x54; case 0x5A: return 0x55;
+        case 0x5B: return 0x56; case 0x5C: return 0x57; case 0x5D: return 0x58;
+        case 0x5E: return 0x59; case 0x5F: return 0x5B; case 0x60: return 0x5C;
+        case 0x61: return 0x52; case 0x62: return 0x41; case 0x63: return 0x51;  // 1–9 0 . =
         default: return -1;
     }
 }
@@ -151,12 +188,15 @@ public:
         // 走 APX_LOG 落盘而不是 stderr：.app 双击启动时 stderr 不可见，fprintf 那版在真机上
         // 等于什么都没写 —— 报障「开了录屏和录音、重启还是提示」时，日志里唯一能证明
         // preflight=false 的痕迹就是这条。
-        APX_LOGW("未获得「辅助功能」权限：注入事件会被系统丢弃，正在弹出授权引导"
-                 "（授权路径：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 AllPeriph）");
+        // 权限名按系统版本取（macOS 26+ = 「设备控制与数据访问」），日志里用户要照着去
+        // 系统设置找面板 —— 写死旧名就会让人在设置里找不到那道开关（issue #52 第 1 条）。
+        const std::string lbl = inputTrustSettingsLabel();
+        APX_LOGW("未获得「{}」权限：注入事件会被系统丢弃，正在弹出授权引导"
+                 "（授权路径：系统设置 → 隐私与安全性 → {} → 勾选全能外设）", lbl, lbl);
         if (requestPlatformInputTrust())
-            APX_LOGI("已获得「辅助功能」权限");
+            APX_LOGI("已获得「{}」权限", lbl);
         else
-            APX_LOGW("仍未授权：手机发来的键鼠在授权前不会生效（面板有「重新检测」可再弹引导）");
+            APX_LOGW("仍未授权：手机发来的键鼠在授权前不会生效（面板可「打开系统设置」改授权，改完须重启应用）");
     }
 
     void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel, int8_t pan = 0) override {
@@ -249,7 +289,11 @@ public:
         kbMod_ = mod;
         for (uint8_t i = 0; i < 6; ++i) kbKeys_[i] = (i < n) ? keys[i] : 0;
     }
-    void postKey(uint8_t usage, bool down) { postCode(hidToMacKey(usage), down); }
+    void postKey(uint8_t usage, bool down) {
+        const int cg = hidToMacKey(usage);
+        if (cg < 0) { APX_LOGD("按键未映射：HID usage=0x{:02x} 已跳过", usage); return; }
+        postCode(cg, down);
+    }
 
     /// 按键码直投（手柄降级用；-1 = 该位没有对应键，静默跳过）
     void postCode(int cgKey, bool down) {
@@ -388,11 +432,52 @@ bool platformInputTrusted() {
 bool requestPlatformInputTrust() {
 #if defined(__MAC_OS_X_VERSION_MAX_ALLOWED) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101500
     if (CGPreflightPostEventAccess()) return true;
-    CGRequestPostEventAccess();          // 弹系统引导；用户点完即时生效，不必重启
+    CGRequestPostEventAccess();          // 只在 TCC「未决定」时弹窗；用户拒绝过一次后
+                                         // 本函数静默返回 false，必须引导去系统设置（input.openSettings）
     return CGPreflightPostEventAccess();
 #else
     return true;
 #endif
+}
+
+/* 权限面板在系统设置里的显示名：macOS 26 起「辅助功能」改叫「设备控制与数据访问」。
+   只用于文案，不参与任何判断 —— TCC 服务名仍是 kTCCServiceAccessibility。 */
+std::string inputTrustSettingsLabel() {
+    NSOperatingSystemVersion v = [[NSProcessInfo processInfo] operatingSystemVersion];
+    if (v.majorVersion >= 26) return "设备控制与数据访问";
+    return "辅助功能";
+}
+
+/* 打开系统设置里对应的权限面板（TCC 拒绝过一次后 CGRequestPostEventAccess 不再弹窗，
+   这里是用户唯一的自救入口）。URL 打不开则退回官方 AX prompt —— 系统自己导航，
+   面板改名不影响它。返回是否成功把用户带到设置界面。 */
+bool openPlatformInputSettings() {
+    const NSOperatingSystemVersion v = [[NSProcessInfo processInfo] operatingSystemVersion];
+    const char* urls[] = {
+        v.majorVersion >= 13
+            ? "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility"
+            : "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension",
+    };
+    for (const char* u : urls) {
+        NSURL* url = [NSURL URLWithString:[NSString stringWithUTF8String:u]];
+        if (url && [[NSWorkspace sharedWorkspace] openURL:url]) {
+            APX_LOGI("已打开权限设置面板：{}", u);
+            return true;
+        }
+    }
+    NSDictionary* opt = @{ (__bridge NSString*)kAXTrustedCheckOptionPrompt : @YES };
+    (void)AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)opt);
+    APX_LOGW("深链打开失败，已改用 AXIsProcessTrustedWithOptions 提示");
+    return false;
+}
+
+/* 本进程是否跑在 .app 里：.app 与裸二进制是两条独立 TCC 记录（ad-hoc 签名按 cdhash 记账），
+   面板必须说清该勾哪一项，否则用户永远在系统设置里勾错对象。 */
+bool runningFromAppBundle() {
+    const std::string exe = apxpc::autostart::getExePath();
+    return exe.find(".app/Contents/MacOS/") != std::string::npos;
 }
 
 // ============================================================================

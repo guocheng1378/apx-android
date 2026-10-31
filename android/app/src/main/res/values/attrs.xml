@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  强调色的「主题属性」间接层（issue #52 建议 3：系统莫奈取色）。
+
+  为什么要绕一层：布局 / drawable 里原先直接写 `@color/md_primary`，那是**编译期常量**，
+  运行时无论换什么主题都变不了。改成 `?attr/apPrimary` 后，谁的主题里定义了这 4 个属性
+  就听谁的 —— 默认主题指向原来的 md_* 令牌（行为与改动前一致），莫奈叠加层
+  （@style/APMonetOverlay）指向系统壁纸取色，App 就能跟着系统主题换色。
+
+  ⚠️ 所有可能被当作 Context 主题的 style 都必须定义这 4 个属性：解析不到的 ?attr 是
+  运行时 Resources.NotFoundException，不会在编译期报错。
+-->
+<resources>
+    <!-- 主色：强调文字、描边、选中态实底 -->
+    <attr name="apPrimary" format="color" />
+    <!-- 主色按下态（实底按钮的 pressed 层） -->
+    <attr name="apPrimaryPressed" format="color" />
+    <!-- 主色的浅底（胶囊 / 徽标底色） -->
+    <attr name="apPrimaryContainer" format="color" />
+    <!-- 主色实底上的文字色 -->
+    <attr name="apOnPrimary" format="color" />
+</resources>

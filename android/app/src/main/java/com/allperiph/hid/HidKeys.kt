@@ -90,7 +90,7 @@ object HidKeys {
         listOf(
             "Enter" to 0x28, "Esc" to 0x29, "Backspace" to 0x2A, "Tab" to 0x2B, "Space" to 0x2C,
             "-" to 0x2D, "=" to 0x2E, "[" to 0x2F, "]" to 0x30,
-            "`" to 0x35, ";" to 0x33, "'" to 0x34, "," to 0x36, "." to 0x37, "/" to 0x38,
+            "`" to 0x35, "\\" to 0x31, ";" to 0x33, "'" to 0x34, "," to 0x36, "." to 0x37, "/" to 0x38,
             "Insert" to 0x49, "Home" to 0x4A, "PageUp" to 0x4B, "Delete" to 0x4C,
             "End" to 0x4D, "PageDown" to 0x4E,
             "PrSc" to 0x46, "ScrLk" to 0x47, "Pause" to 0x48,
@@ -209,7 +209,7 @@ object HidKeys {
         "Esc" -> 0x29; "Tab" -> 0x2B; "Enter" -> 0x28; "Space" -> 0x2C
         "⌫" -> 0x2A; "Del" -> 0x4C
         "-" -> 0x2D; "=" -> 0x2E; "[" -> 0x2F; "]" -> 0x30
-        ";" -> 0x33; "'" -> 0x34; "," -> 0x36; "." -> 0x37; "/" -> 0x38
+        "`" -> 0x35; "\\" -> 0x31; ";" -> 0x33; "'" -> 0x34; "," -> 0x36; "." -> 0x37; "/" -> 0x38
         else -> when (val c = label.firstOrNull() ?: return 0) {
             in 'A'..'Z' -> 0x04 + (c - 'A')
             in '1'..'9' -> 0x1E + (c - '1')

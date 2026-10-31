@@ -43,7 +43,7 @@
     <!-- 次按钮：MIUIX 胶囊描边（蓝字细描边） -->
     <style name="APButtonGhost">
         <item name="android:background">@drawable/bg_btn_ghost</item>
-        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textColor">?attr/apPrimary</item>
         <item name="android:textSize">15sp</item>
         <item name="android:paddingStart">22dp</item>
         <item name="android:paddingEnd">22dp</item>
@@ -86,7 +86,7 @@
     <style name="APSectionTitle">
         <item name="android:textSize">13sp</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textColor">?attr/apPrimary</item>
         <item name="android:letterSpacing">0.06</item>
         <item name="android:paddingStart">4dp</item>
         <item name="android:paddingBottom">8dp</item>
@@ -149,7 +149,7 @@
         <item name="android:minWidth">48dp</item>
         <item name="android:gravity">center</item>
         <item name="android:focusable">true</item>
-        <item name="android:textColor">@color/md_primary</item>
+        <item name="android:textColor">?attr/apPrimary</item>
         <item name="android:textSize">14sp</item>
         <item name="android:paddingStart">12dp</item>
         <item name="android:paddingEnd">12dp</item>

@@ -449,7 +449,28 @@ class KeyboardPanels(private val act: Activity) {
         background = restBg()
         isClickable = true
         isFocusable = true
-        setOnClickListener { onTap() }
+        // ---- 长按连发（issue #52 建议 7）----
+        // 按住不放 → 400ms 后每 55ms 重复发送同一个键，退格 / 方向键 / 字母可以一口气
+        // 连打，不用一下一下戳。松开时**吞掉多出来的那一次 click** —— 否则长按退格会
+        // 多删一个字符（连发 N 次 + 抬手 1 次）。修饰键不参与：Shift / Ctrl / Caps 之类
+        // 连发只会把修饰状态反复开关，没有任何意义。
+        var repeatOn = false
+        var repeatFired = false
+        val tick = object : Runnable {
+            override fun run() {
+                if (!repeatOn) return
+                repeatFired = true
+                onTap()
+                this@apply.postDelayed(this, 55L)
+            }
+        }
+        setOnClickListener {
+            if (repeatFired) {
+                repeatFired = false
+            } else {
+                onTap()
+            }
+        }
         // 液态按压：按下缩到 0.9 + 染蓝 + **震动 / 声音 / 玻璃扩散**，松手弹回原色。
         // 扩散画在 foreground 上，与底色（background）互不覆盖；节奏比原来慢一档，看得清。
         setOnTouchListener { v, e ->
@@ -467,6 +488,11 @@ class KeyboardPanels(private val act: Activity) {
                     v.background = card(cAccentSoft, corner)
                     Feedback.tap(v)
                     rippleOn(v, e.x, e.y)
+                    if (!modifier) {
+                        repeatOn = true
+                        repeatFired = false
+                        v.postDelayed(tick, 400L)
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.animate().cancel()
@@ -480,6 +506,12 @@ class KeyboardPanels(private val act: Activity) {
                             .setInterpolator(OvershootInterpolator(2.2f)).start()
                     }
                     v.background = restBg()
+                    if (repeatOn) {
+                        repeatOn = false
+                        v.removeCallbacks(tick)
+                    }
+                    // CANCEL 不会再来一次 click，标志要当场清掉，否则下一次短按被吞
+                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) repeatFired = false
                 }
             }
             false // 交回给 click，发送逻辑不变

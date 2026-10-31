@@ -100,6 +100,17 @@ bool platformInputTrusted();
 /// 用户正在操作的那一刻弹窗，他才明白为什么要授权。
 bool requestPlatformInputTrust();
 
+/// 权限面板在系统设置里的显示名（macOS 26 起「辅助功能」改叫「设备控制与数据访问」）。
+/// 只用于文案，不参与任何判断。
+std::string inputTrustSettingsLabel();
+
+/// 打开系统设置里对应的权限面板 —— TCC 拒绝过一次后 CGRequestPostEventAccess 不再弹窗，
+/// 这是用户唯一能改回决定的地方。返回是否成功把用户带到设置界面。
+bool openPlatformInputSettings();
+
+/// 本进程是否跑在 .app 内（.app 与裸二进制是两条独立 TCC 身份，面板必须说清该勾哪一项）。
+bool runningFromAppBundle();
+
 // ---------------------------------------------------------- 剪贴板反向监听 ----
 /// 监听本机剪贴板变化；变化时回调最新文本。受控端据此发送 0x21 反向剪贴板帧。
 class ClipboardWatcher {

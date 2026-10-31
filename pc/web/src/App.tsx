@@ -8,6 +8,7 @@ import { LocalSendCard } from './components/LocalSendCard';
 import { RemoteInputModal } from './components/RemoteInputModal';
 import { SettingsModal } from './components/SettingsModal';
 import { FilePanelModal } from './components/FilePanelModal';
+import { LogExportModal } from './components/LogExportModal';
 
 /**
  * 主面板 —— 双栏 2×2 布局（连接卡整宽 + 功能卡双栏 + 底部控件）。
@@ -31,6 +32,7 @@ export default function App() {
   // 三个 Modal 开关
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fileOpen, setFileOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);   // 日志导出（issue #52 建议 5）
   const [remoteInputOpen, setRemoteInputOpen] = useState(false);
   const [remoteInputHint, setRemoteInputHint] = useState('');
 
@@ -98,6 +100,7 @@ export default function App() {
             state={state}
             onSettings={() => setSettingsOpen(true)}
             onFilePanel={() => setFileOpen(true)}
+            onLogExport={() => setLogOpen(true)}
           />
         </div>
       </div>
@@ -105,6 +108,7 @@ export default function App() {
       {/* Modal 层 */}
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} state={state} />
       <FilePanelModal open={fileOpen} onClose={() => setFileOpen(false)} />
+      <LogExportModal open={logOpen} onClose={() => setLogOpen(false)} />
       <RemoteInputModal
         open={remoteInputOpen}
         hint={remoteInputHint}
@@ -116,10 +120,11 @@ export default function App() {
 }
 
 /** Footer 的设置按钮现在会打开 Modal —— 旧 Footer 组件无此 prop，这里用 inline 包装。 */
-function FooterWithActions({ state, onSettings, onFilePanel }: {
+function FooterWithActions({ state, onSettings, onFilePanel, onLogExport }: {
   state: HostState;
   onSettings: () => void;
   onFilePanel: () => void;
+  onLogExport: () => void;
 }) {
   // 直接内联 Footer 结构，加上设置/文件按钮的正确接线
   const [autostart, setAutostart] = useState(false);
@@ -143,6 +148,7 @@ function FooterWithActions({ state, onSettings, onFilePanel }: {
       <div className="flex items-center gap-2">
         <button className="btn-ghost h-[38px]" onClick={onFilePanel}>文件传输</button>
         <button className="btn-ghost h-[38px]" onClick={() => bridge.act('window.hide')}>隐藏</button>
+        <button className="btn-ghost h-[38px]" onClick={onLogExport}>日志</button>
         <button className="btn-ghost h-[38px]" onClick={onSettings}>设置</button>
         <button className="btn-primary h-[38px]" onClick={() => bridge.act('window.quit')}>退出</button>
       </div>

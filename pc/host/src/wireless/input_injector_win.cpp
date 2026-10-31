@@ -517,6 +517,10 @@ std::unique_ptr<InputInjector> createPlatformInjector() { return std::make_uniqu
    挡不住全局注入），所以恒 true —— 与 macOS 的 TCC 门槛不同，这里不要凭习惯返回 false。 */
 bool platformInputTrusted() { return true; }
 bool requestPlatformInputTrust() { return true; }
+// 无 TCC 门槛：文案字段恒为旧名，打开设置/身份判断都是 no-op（跨平台契约占位）。
+std::string inputTrustSettingsLabel() { return "辅助功能"; }
+bool openPlatformInputSettings() { return false; }
+bool runningFromAppBundle() { return false; }
 std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
     std::function<void(const std::string&)> cb) {
     return std::make_unique<WinClipboardWatcher>(std::move(cb));

@@ -55,7 +55,7 @@
             android:gravity="center"
             android:text="@string/ui_main_floating_ball_collapse"
             android:textSize="13sp"
-            android:textColor="@color/md_primary"
+            android:textColor="?attr/apPrimary"
             android:clickable="true"
             android:focusable="true" />
     </LinearLayout>

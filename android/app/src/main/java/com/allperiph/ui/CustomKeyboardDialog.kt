@@ -26,7 +26,7 @@ object CustomKeyboardDialog {
     fun show(act: Activity, onDone: () -> Unit) {
         val rows = KeyPref.customRows(act)?.map { it.toMutableList() }?.toMutableList()
             ?: defaultRows()
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_custom_kbd_title))
             .setView(buildView(act, rows))
             .setPositiveButton(act.getString(R.string.ui_common_save)) { _, _ ->
@@ -138,11 +138,11 @@ object CustomKeyboardDialog {
     /** 两段选键：先选分组，再选该组下的键 */
     private fun pickKey(act: Activity, onPick: (String) -> Unit) {
         val groups = HidKeys.KEY_GROUPS
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_custom_kbd_pick_group))
             .setItems(groups.map { it.first }.toTypedArray()) { d1, gi ->
                 d1.dismiss()
-                AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+                AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
                     .setTitle(groups[gi].first)
                     .setItems(groups[gi].second.map { it.first }.toTypedArray()) { _, ki ->
                         onPick(groups[gi].second[ki].first)

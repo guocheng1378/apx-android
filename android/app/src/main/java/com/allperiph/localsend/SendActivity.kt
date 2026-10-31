@@ -57,6 +57,8 @@ class SendActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
         title = "发送到设备"
         setContentView(R.layout.page_localsend_send)
         listView = findViewById(R.id.lsDeviceList)

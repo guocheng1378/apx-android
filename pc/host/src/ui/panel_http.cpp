@@ -40,6 +40,7 @@
 #include "apxpc/discovery/discovery.hpp"
 #include "apxpc/discovery/enumerator.hpp"
 #include "apxpc/log.hpp"
+#include "apxpc/log_export.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/localsend/local_send_sender.hpp"
 #include "apxpc/net/json.hpp"
@@ -63,6 +64,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -85,6 +87,10 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+// macOS libc 不经 <unistd.h> 导出 environ（requestRelaunch 的 posix_spawn 要用）；
+// 必须在**全局作用域**声明 —— 写进 namespace 会变成 ui::environ，链接期抓到过。
+extern char** environ;
 
 namespace apxpc::ui {
 namespace {
@@ -345,6 +351,11 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         /* 注入权限（macOS 的「辅助功能」）：false 时手机发来的键鼠会被系统静默丢弃 ——
            面板必须把这件事说出来，否则用户只会认定「手机连上了但按什么都没反应」。 */
         transports["inputTrusted"] = cs.inputTrusted;
+        /* 权限面板的显示名与进程身份由后端下发：macOS 26 起「辅助功能」改叫
+           「设备控制与数据访问」（issue #52 第 1 条）—— 前端不写死，再改名也不用动前端。 */
+        transports["inputTrustLabel"] = apxpc::wireless::inputTrustSettingsLabel();
+        transports["inputProcKind"] =
+            apxpc::wireless::runningFromAppBundle() ? "app-bundle" : "bare-binary";
         /* 注入进程身份：TCC 按进程/签名归属授权 —— 包里有 AllPeriph.app / 裸 apxdesktop /
            apxhost 三个各自 ad-hoc 签名的副本，用户在系统设置勾的条目很容易和实际注入的
            进程对不上。把 exe 路径亮出来，用户能对上「该勾哪一个」。 */
@@ -691,6 +702,48 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, okResp());
     }
 
+    // —— 日志：清单 + 按时间范围导出（issue #52 建议 5）——
+    // mac 端只有一个 apxdesktop 日志，报障者要的是「能选类型、能选文件夹、能按
+    // 日期时间范围（精确到秒）挑一段导出」。时间戳解析与窗口过滤都在
+    // apxpc::logexport 里（三端共用），这里只做信封转换。
+    if (name == "log.list") {
+        const std::string dir = apxpc::logexport::defaultLogDir();
+        Json arr = Json::makeArray();
+        for (const auto& f : apxpc::logexport::list(dir)) {
+            Json o = Json::makeObject();
+            o["name"] = f.name;
+            o["kind"] = f.kind;
+            o["size"] = static_cast<double>(f.size);
+            o["mtime"] = static_cast<double>(f.mtimeSec);
+            arr.push(std::move(o));
+        }
+        Json data = Json::makeObject();
+        data["dir"] = dir;
+        data["exportDir"] = apxpc::logexport::defaultExportDir();
+        data["files"] = std::move(arr);
+        return postResponse(p, id, okResp(data));
+    }
+    if (name == "log.export") {
+        auto sval = [&](const char* k) -> std::string {
+            const Json* n = payload.find(k);
+            return n ? n->asString() : std::string();
+        };
+        auto ival = [&](const char* k) -> int64_t {
+            const Json* n = payload.find(k);
+            return n ? static_cast<int64_t>(n->asNumber(0)) : 0;
+        };
+        const std::string dir = sval("dir").empty() ? apxpc::logexport::defaultLogDir()
+                                                    : sval("dir");
+        const apxpc::logexport::Result r = apxpc::logexport::exportRange(
+            dir, sval("dest"), sval("kind"), ival("since"), ival("until"));
+        if (!r.ok) return postResponse(p, id, failResp(r.error));
+        Json d = Json::makeObject();
+        d["path"] = r.outPath;
+        d["lines"] = static_cast<double>(r.lines);
+        d["scanned"] = static_cast<double>(r.scanned);
+        return postResponse(p, id, okResp(d));
+    }
+
     // —— 窗口语义（浏览器无宿主窗口：hide=no-op；quit=停服务并退出）——
     if (name == "window.hide") {
         return postResponse(p, id, okResp());
@@ -713,14 +766,32 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, okResp(d3));
     }
 
-    // input.recheck：主动再检测一次输入注入权限（macOS「辅助功能」）。仍未授权时
-    // requestPlatformInputTrust 会再弹一次系统引导（用户点完即时生效，不必重启）——
-    // 以前用户在系统设置改完只能干等 400ms 轮询 + 重启面板，没有任何主动反馈入口。
+    // input.recheck：主动再检测一次输入注入权限。如实回状态、顺带把面板显示名带回；
+    // TCC 对「已拒绝」的客户端不再弹窗 —— requestPlatformInputTrust 只在「未决定」时
+    // 才能弹出来，真正的自救入口是 input.openSettings + app.relaunch（issue #52 第 1 条）。
     if (name == "input.recheck") {
         const bool trusted = apxpc::wireless::requestPlatformInputTrust();
-        APX_LOGI("input.recheck → {}", trusted ? "trusted" : "not trusted");
+        APX_LOGI("input.recheck → {}（{}）", trusted ? "trusted" : "not trusted",
+                 trusted ? "已授权" : "若此前拒绝过，系统不会再次弹窗");
         Json dr = Json::makeObject(); dr["trusted"] = trusted;
+        dr["label"] = apxpc::wireless::inputTrustSettingsLabel();
         return postResponse(p, id, okResp(dr));
+    }
+
+    // input.openSettings：替用户打开系统设置里对应的权限面板 —— TCC 拒绝过一次后
+    // CGRequestPostEventAccess 不再弹窗，系统设置是唯一能改回决定的地方。
+    if (name == "input.openSettings") {
+        const bool opened = apxpc::wireless::openPlatformInputSettings();
+        Json d = Json::makeObject(); d["opened"] = opened;
+        if (opened) return postResponse(p, id, okResp(d));
+        return postResponse(p, id, failResp(std::string("无法自动打开系统设置，请手动打开：系统设置 → 隐私与安全性 → ") +
+                                            apxpc::wireless::inputTrustSettingsLabel()));
+    }
+
+    // app.relaunch：Accessibility 授权在进程启动时读取 —— 勾完必须重启进程才生效。
+    if (name == "app.relaunch") {
+        requestRelaunch();
+        return postResponse(p, id, okResp());
     }
 
     // —— 文件传输 ——
@@ -1607,6 +1678,31 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     return 0;
 }
 
+/* 面板上的「重启应用」（macOS，issue #52 第 1 条）：Accessibility 授权在进程启动时
+   读取一次 —— 用户去系统设置勾完必须重启进程才生效。.app 内用 `open -n <bundle>` 重开
+   （保活 LaunchServices 语义）；裸二进制 re-exec 自己。延时 1.2s 让本进程先把
+   9511/9512/互传端口放掉，否则新实例 bind 必然失败（与「两处都起 9511」同款坑）。 */
+void requestRelaunch() {
+    const std::string exe = apxpc::autostart::getExePath();
+    std::thread([exe] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+        const size_t pos = exe.find(".app/Contents/MacOS/");
+        pid_t pid = 0;
+        if (pos != std::string::npos) {
+            const std::string bundle = exe.substr(0, pos + 4);
+            char* const argv[] = { const_cast<char*>("/usr/bin/open"), const_cast<char*>("-n"),
+                                   const_cast<char*>(bundle.c_str()), nullptr };
+            if (::posix_spawn(&pid, "/usr/bin/open", nullptr, nullptr, argv, environ) != 0)
+                APX_LOGW("重启失败：open -n {} 失败", bundle);
+        } else {
+            char* const argv[] = { const_cast<char*>(exe.c_str()), nullptr };
+            if (::posix_spawn(&pid, exe.c_str(), nullptr, nullptr, argv, environ) != 0)
+                APX_LOGW("重启失败：re-exec {} 失败", exe);
+        }
+    }).detach();
+    g_quitRequested.store(true);
+}
+
 /* 托盘「退出」入口（本文件导出）：只置标志，真正的收尾在面板线程里按既有顺序做
    （停 9511 → 停互传 → join 工作线程 → 关监听）。托盘在自己的线程上，因此**不能**
    直接去 stop 这些对象 —— 那会与面板线程的收尾并发。 */
@@ -1635,6 +1731,7 @@ int runWebPanelHttp(const HostBundle&, const std::string&) {
 // desktop_main + web_panel 负责。给桩是为了「别处误引用时链接期报错而不是运行期崩」——
 // requestPanelQuit 无面板可退，ctrlPortOccupied 在 Win 上没有调用方。
 void requestPanelQuit() {}
+void requestRelaunch() {}
 bool ctrlPortOccupied(uint16_t, int) { return false; }
 std::string panelUrl() { return {}; }   // Win 面板是 WebView2 窗口，没有「浏览器地址」
 }  // namespace apxpc::ui

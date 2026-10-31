@@ -75,10 +75,10 @@ class TouchpadActivity : Activity() {
         com.allperiph.ui.ThemeSkin.picked(this, com.allperiph.ui.ThemeSkin.KEYBOARD).isNotBlank()
     private val cAccent get() =
         if (kbSkinPicked) com.allperiph.ui.ThemeSkin.current(this, com.allperiph.ui.ThemeSkin.KEYBOARD).accent
-        else getColor(R.color.miuix_accent)
+        else com.allperiph.ui.ThemeSkin.primary(this)
     private val cAccentSoft get() =
         if (kbSkinPicked) com.allperiph.ui.ThemeSkin.current(this, com.allperiph.ui.ThemeSkin.KEYBOARD).accentSoft
-        else getColor(R.color.miuix_accent_soft)
+        else com.allperiph.ui.ThemeSkin.primaryContainer(this)
 
     /** 键帽密度（设置页可换） */
     private val dens get() = com.allperiph.ui.KeyPref.density(this)
@@ -159,6 +159,8 @@ class TouchpadActivity : Activity() {
     private var headerView: View? = null
     private var tabBarView: View? = null
     private var tpPageCol: LinearLayout? = null
+    /** 实体键盘/指针转发桥（v223.13：全屏操控面此前从没接过 —— issue #52 第 6 条）。 */
+    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
     private var tpArea: FrameLayout? = null
     private var tpHint: TextView? = null
     private var tpHotkeySection: View? = null
@@ -189,6 +191,7 @@ class TouchpadActivity : Activity() {
      * 只清回调，**不断开控制连接**（切页面不该掉链路）。
      */
     override fun onDestroy() {
+        physKeyBridge?.detach(); physKeyBridge = null
         ControlTarget.controlClient?.onReverseClipboard = null
         // 退出操控面立刻还原系统三指手势（进程被杀的情况交给 App 启动时的自愈）
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_CONSOLE)
@@ -197,6 +200,8 @@ class TouchpadActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
         // 截屏已放开（与 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，
         // 截图/录屏一片黑，用户没法截图反馈界面问题，排查只能靠口述。
         // 快捷键列表由 HotkeyBoard 自己从盘上读（见 buildChipsPanel）
@@ -238,6 +243,11 @@ class TouchpadActivity : Activity() {
         })
         // v1.7 修复：显式 MATCH_PARENT（root 高度塌缩曾致触摸区只剩一小条）
         setContentView(shell, ViewGroup.LayoutParams(-1, -1))
+        // 实体键盘 / 实体触控板转发桥：全屏操控面是独立 Activity，主页触控板页的
+        // PhysKeyBridge（TouchpadFragment 里 attach）管不到这里 —— 不接的话全屏里
+        // 实体键盘按键、实体触控板 hover/指针事件全部落进系统默认路径，
+        // 用户看到的就是「实体键盘无法使用、实体触控板单指失效」（issue #52 第 6 条）。
+        physKeyBridge = com.allperiph.ui.PhysKeyBridge(this).also { it.attach(window) }
         // Android 15+（targetSdk 35）强制 edge-to-edge，主题里的 windowFullscreen 不再保证内容避开系统栏 ——
         // R+ 显式接管：关掉 decor 贴合、隐藏状态栏、按实际 insets（状态栏/挖孔/导航栏/输入法）给内容垫边：
         // 系统认为栏还在（insets>0）就垫开，已隐藏/已贴合时 inset=0 不垫，任何一态都不遮住标题头。
@@ -728,7 +738,7 @@ class TouchpadActivity : Activity() {
             Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
             .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
@@ -745,7 +755,7 @@ class TouchpadActivity : Activity() {
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
             .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
             .setPositiveButton(getString(R.string.ui_common_close), null)
@@ -859,7 +869,28 @@ class TouchpadActivity : Activity() {
         background = restBg()
         isClickable = true
         isFocusable = true
-        setOnClickListener { onTap() }
+        // ---- 长按连发（issue #52 建议 7）----
+        // 按住不放 → 400ms 后每 55ms 重复发送同一个键，退格 / 方向键 / 字母可以一口气
+        // 连打，不用一下一下戳。松开时**吞掉多出来的那一次 click** —— 否则长按退格会
+        // 多删一个字符（连发 N 次 + 抬手 1 次）。修饰键不参与：Shift / Ctrl / Caps 之类
+        // 连发只会把修饰状态反复开关，没有任何意义。
+        var repeatOn = false
+        var repeatFired = false
+        val tick = object : Runnable {
+            override fun run() {
+                if (!repeatOn) return
+                repeatFired = true
+                onTap()
+                this@apply.postDelayed(this, 55L)
+            }
+        }
+        setOnClickListener {
+            if (repeatFired) {
+                repeatFired = false
+            } else {
+                onTap()
+            }
+        }
         // M3 Expressive 弹性反馈（Issue #15）：Spring 物理动画替代固定 duration
         setOnTouchListener { v, e ->
             when (e.actionMasked) {
@@ -868,10 +899,21 @@ class TouchpadActivity : Activity() {
                     v.background = card(cAccentSoft, corner)
                     com.allperiph.ui.Feedback.tap(v)
                     rippleOn(v, e.x, e.y)
+                    if (!modifier) {
+                        repeatOn = true
+                        repeatFired = false
+                        v.postDelayed(tick, 400L)
+                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     ExpressiveFeedback.release(v)
                     v.background = restBg()
+                    if (repeatOn) {
+                        repeatOn = false
+                        v.removeCallbacks(tick)
+                    }
+                    // CANCEL 不会再来一次 click，标志要当场清掉，否则下一次短按被吞
+                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) repeatFired = false
                 }
             }
             false // 交回给 click，发送逻辑不变
@@ -1064,7 +1106,7 @@ class TouchpadActivity : Activity() {
         val tvBtn = Button(this).apply {
             text = getString(R.string.ui_main_item_link)
             setBackgroundResource(R.drawable.bg_btn_primary)
-            setTextColor(getColor(R.color.md_on_primary))
+            setTextColor(com.allperiph.ui.ThemeSkin.onPrimary(this@TouchpadActivity))
             textSize = 15f; typeface = Typeface.DEFAULT_BOLD
             setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { showDevicePicker() }
@@ -1304,7 +1346,7 @@ class TouchpadActivity : Activity() {
         // 全屏时返回键先退出全屏（这里连确认框都不该弹：用户只是想回到控制面）
         if (fullscreen) { setFullscreen(false); return }
         if (backDialog?.isShowing == true) return
-        backDialog = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        backDialog = AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
             .setMessage(getString(R.string.ui_touchpad_dialog_home))
             .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
@@ -1382,7 +1424,7 @@ class TouchpadActivity : Activity() {
         val tvs = TvDiscovery.list()
         tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
         items.add(getString(R.string.ui_main_item_input_manual))
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setItems(items.toTypedArray()) { _, which ->
                 when {
@@ -1407,7 +1449,7 @@ class TouchpadActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_input))
             .setView(edit)
             .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->
