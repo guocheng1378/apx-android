@@ -1563,7 +1563,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
         AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_template_new))
-            .setView(box)
+            .setView(com.allperiph.ui.kit.DialogKit.scrollable(this, box))
             .setPositiveButton(getString(R.string.ui_common_save), null)
             .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()

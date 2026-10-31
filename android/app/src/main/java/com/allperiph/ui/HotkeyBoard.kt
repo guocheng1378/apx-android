@@ -346,7 +346,8 @@ class HotkeyBoard(
 
         val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_hotkey_title))
-            .setView(box)
+            // 横屏高度只有竖屏一半多：长列表套限高滚动，别把底部按钮顶出屏幕（issue #52 问题 2）
+            .setView(com.allperiph.ui.kit.DialogKit.scrollable(act, box))
             .setPositiveButton(act.getString(R.string.ui_common_new), null)
             .setNeutralButton(act.getString(R.string.ui_common_restore_default), null)
             .setNegativeButton(act.getString(R.string.ui_common_done), null)
@@ -468,7 +469,7 @@ class HotkeyBoard(
 
         val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(if (editing) R.string.ui_hotkey_title_edit else R.string.ui_hotkey_title_new))
-            .setView(box)
+            .setView(com.allperiph.ui.kit.DialogKit.scrollable(act, box))
             .setPositiveButton(act.getString(R.string.ui_common_save), null)
             .setNegativeButton(act.getString(R.string.ui_common_cancel), null)
             .apply { if (editing) setNeutralButton(act.getString(R.string.ui_common_delete), null) }
