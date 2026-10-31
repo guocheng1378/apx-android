@@ -745,6 +745,39 @@ class SettingsFragment : Fragment() {
             tvBox.addView(settingRow(getString(R.string.ui_main_label_connect_disconnect), getString(R.string.ui_main_btn_to_local_local), accent) { ControlTarget.clear(); h.onTargetChanged() })
         }
         tvBox.addView(fieldLabel(getString(R.string.lay_settings_group_tools)))
+        // issue #52 建议 6：物理键盘全局转发（无界面也能用键盘）——
+        // 走无障碍 onKeyEvent，默认关；未启用无障碍时如实提示去哪儿开。
+        // 这里直接用 renderTv 作用域内的 accent（第一条 settingRow 就用了它）。
+        val kbOn = com.allperiph.ui.GlobalKeyForwarder.enabled
+        val a11yOn = com.allperiph.shared.accessibility.ApxAccessibilityService.isReady()
+        tvBox.addView(settingRow(
+            getString(R.string.ui_main_label_global_key_forward),
+            if (kbOn) {
+                if (a11yOn) getString(R.string.ui_main_floating_ball_on)
+                else getString(R.string.ui_main_label_global_key_forward_2)
+            } else getString(R.string.common_off),
+            accent,
+        ) {
+            val act = activity ?: return@settingRow
+            val prefs = act.getSharedPreferences("apx_ime_bridge", android.content.Context.MODE_PRIVATE)
+            if (kbOn) {
+                com.allperiph.ui.GlobalKeyForwarder.setEnabled(prefs, false)
+                renderTv()
+            } else if (!com.allperiph.shared.accessibility.ApxAccessibilityService.isReady()) {
+                // 开了转发但无障碍没启用 —— 直接带到系统设置页，别让用户自己找
+                AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
+                    .setTitle(getString(R.string.ui_main_label_global_key_forward))
+                    .setMessage(getString(R.string.ui_main_hint_global_key_forward_need_a11y))
+                    .setPositiveButton(getString(R.string.ui_main_btn_a11y_settings)) { _, _ ->
+                        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+                    }
+                    .setNegativeButton(getString(R.string.ui_common_cancel), null)
+                    .show()
+            } else {
+                com.allperiph.ui.GlobalKeyForwarder.setEnabled(prefs, true)
+                renderTv()
+            }
+        })
         tvBox.addView(settingRow(
             getString(R.string.ui_main_label_remote_power_volume), null, accent,
             hint = getString(R.string.ui_main_hint_remote_keys),
@@ -833,37 +866,6 @@ class SettingsFragment : Fragment() {
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
-        // issue #52 建议 6：物理键盘全局转发（无界面也能用键盘）——
-        // 走无障碍 onKeyEvent，默认关；未启用无障碍时如实提示去哪儿开。
-        val kbOn = com.allperiph.ui.GlobalKeyForwarder.enabled
-        val a11yOn = com.allperiph.shared.accessibility.ApxAccessibilityService.isReady()
-        tvBox.addView(settingRow(
-            getString(R.string.ui_main_label_global_key_forward),
-            if (kbOn) {
-                if (a11yOn) getString(R.string.ui_main_floating_ball_on) else getString(R.string.ui_main_label_global_key_forward_2)
-            } else getString(R.string.common_off),
-            accent,
-        ) {
-            val prefs = act.getSharedPreferences("apx_ime_bridge", android.content.Context.MODE_PRIVATE)
-            if (kbOn) {
-                com.allperiph.ui.GlobalKeyForwarder.setEnabled(prefs, false)
-                renderTv()
-            } else if (!com.allperiph.shared.accessibility.ApxAccessibilityService.isReady()) {
-                // 开了转发但无障碍没启用 —— 直接带到设置页，别让用户自己找
-                AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
-                    .setTitle(getString(R.string.ui_main_label_global_key_forward))
-                    .setMessage(getString(R.string.ui_main_hint_global_key_forward_need_a11y))
-                    .setPositiveButton(getString(R.string.ui_main_btn_a11y_settings)) { _, _ ->
-                        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-                    }
-                    .setNegativeButton(getString(R.string.ui_common_cancel), null)
-                    .show()
-            } else {
-                com.allperiph.ui.GlobalKeyForwarder.setEnabled(prefs, true)
-                renderTv()
-            }
-        })
-
         val running = com.allperiph.controlled.ControlledService.isRunning()
         AlertDialog.Builder(activity, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_label_state_channel_inject))
