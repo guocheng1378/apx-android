@@ -957,35 +957,59 @@ class SettingsFragment : Fragment() {
     }
 
     /**
-     * Logcat 系统日志（反馈#4）：showLogs() 的环形缓冲只到「日志级别」，
-     * 这里经 root 抓**全进程全 tag** 的真 logcat；无 root 时降级为本进程日志
-     * （App 读自己的日志不需要 READ_LOGS）。后台线程抓取，抓到回填对话框。
-     */
-    /**
      * 悬浮球功能多选（v223.15）。
      *
-     * 用 setMultiChoiceItems 而不是自建列表：勾选态由 Dialog 自己维护，
-     * 但「至少留一项」这条约束必须在**点保存之后**再校验并拦住关闭 ——
+     * 自建勾选列表而不是 setMultiChoiceItems + setMessage：后者在 framework 的
+     * AlertController 里互斥（message 非空就走 message 分支，ListView 直接被丢掉），
+     * 真机上表现为「只有说明文字、一个可勾选项都没有」。见函数内注释。
+     *
+     * 「至少留一项」的约束必须在**点保存之后**再校验并拦住关闭 ——
      * 空清单会让球展开成一颗空壳，比不给改还糟。
      */
     private fun showBallFunctions() {
         val act = activity ?: return
+        val h = host ?: return
         val all = BallConfig.ALL
-        val labels = all.map { getString(BallConfig.labelRes(it)) }.toTypedArray()
         val on = BallConfig.enabled(act)
-        val checked = BooleanArray(all.size) { all[it] in on }
+        val accent = ThemeSkin.primary(act)
+        // v223.15 真机：这里原先 setMessage + setMultiChoiceItems，结果**只有说明文字、没有选项**。
+        //   原因在 framework 的 AlertController.setupContent()：message 非空时整段走 message 分支，
+        //   ListView 不是被裁掉，而是压根没加进布局 —— 表现就是「不能选择悬浮球功能」。
+        //   现在改成自建勾选列表塞进 setView，说明与选项不再互斥。
+        val list = LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(h.dp(20), 0, h.dp(20), h.dp(4))
+        }
+        list.addView(TextView(act).apply {
+            text = getString(R.string.ui_ball_cfg_hint)
+            textSize = 13f
+            setTextColor(resources.getColor(R.color.md_on_surface_variant))
+            setPadding(0, 0, 0, h.dp(6))
+        })
+        // 用 LinkedHashMap 保留 BallConfig.ALL 的顺序：菜单顺序就是这里的顺序，不能乱。
+        val boxes = LinkedHashMap<String, android.widget.CheckBox>()
+        for (id in all) {
+            val cb = android.widget.CheckBox(act).apply {
+                text = getString(BallConfig.labelRes(id))
+                textSize = 15f
+                setTextColor(act.resources.getColor(R.color.md_on_surface))
+                isChecked = id in on
+                minHeight = h.dp(44)
+                buttonTintList = android.content.res.ColorStateList.valueOf(accent)
+            }
+            boxes[id] = cb
+            list.addView(cb)
+        }
+        val scroll = android.widget.ScrollView(act).apply { addView(list) }
         val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_ball_cfg_title))
-            .setMessage(getString(R.string.ui_ball_cfg_hint))
-            .setMultiChoiceItems(labels, checked, null)
+            .setView(scroll)
             .setPositiveButton(getString(R.string.ui_common_save), null)
             .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .create()
         dlg.setOnShowListener {
             dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val picked = all.filterIndexed { i, _ ->
-                    dlg.listView.checkedItemPositions.get(i)
-                }
+                val picked = all.filter { boxes[it]?.isChecked == true }
                 if (picked.isEmpty()) {
                     Toast.makeText(act, getString(R.string.ui_ball_cfg_keep_one), Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -998,6 +1022,11 @@ class SettingsFragment : Fragment() {
         dlg.show()
     }
 
+    /**
+     * Logcat 系统日志（反馈#4）：showLogs() 的环形缓冲只到「日志级别」，
+     * 这里经 root 抓**全进程全 tag** 的真 logcat；无 root 时降级为本进程日志
+     * （App 读自己的日志不需要 READ_LOGS）。后台线程抓取，抓到回填对话框。
+     */
     private fun showLogcat() {
         val act = activity ?: return
         // 抓取在后台（root logcat 可能要几秒），而「复制 / 导出」按钮**点开时就绑定**了内容 ——
