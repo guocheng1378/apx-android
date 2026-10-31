@@ -10,6 +10,7 @@ import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -297,12 +298,31 @@ class FloatingBallService : Service() {
         }
     }
 
+    /**
+     * 父框原点相对屏幕的偏移（screen = lp + offset）。
+     *
+     * overlay 窗口的 lp.x / lp.y 是相对**父框**的，而父框顶部被状态栏顶下去（真机 144px）。
+     * 只在屏幕坐标里算位置的地方（拖动夹边、扇形圆心、包围盒）都得拿它换算，
+     * 否则表现就是「球比手指低一截」「扇形比球高一截」。
+     */
+    private fun parentOffset(v: View): Pair<Int, Int> {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return 0 to 0
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        return (loc[0] - lp.x) to (loc[1] - lp.y)
+    }
+
     /** 把球挪到窗口坐标 (x, y) 并夹进屏内（拖动期间的每一帧都走这里） */
     private fun moveBall(v: View, x: Float, y: Float) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         val dm = resources.displayMetrics
-        lp.x = x.toInt().coerceIn(0, (dm.widthPixels - v.width).coerceAtLeast(0))
-        lp.y = y.toInt().coerceIn(0, (dm.heightPixels - v.height).coerceAtLeast(0))
+        val (left, top) = parentOffset(v)
+        val maxX = (dm.widthPixels - left - v.width).coerceAtLeast(0)
+        // ⚠️ 上限要减父框偏移：lp.y 从父框顶部算，屏幕底部还剩多少得先扣掉状态栏那段，
+        //    否则拖到底会被系统自己裁一次，落点比手指高，看着像「一拖就跳／跑掉」。
+        val maxY = (dm.heightPixels - top - v.height).coerceAtLeast(0)
+        lp.x = x.toInt().coerceIn(0, maxX)
+        lp.y = y.toInt().coerceIn(0, maxY)
         runCatching { wm.updateViewLayout(v, lp) }
     }
 
@@ -315,14 +335,15 @@ class FloatingBallService : Service() {
     private fun settleAfterDrag(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         val dm = resources.displayMetrics
-        val cx = lp.x + v.width / 2f
-        lp.y = lp.y.coerceIn(0, (dm.heightPixels - v.height).coerceAtLeast(0))
+        val (left, top) = parentOffset(v)
+        val cx = left + lp.x + v.width / 2f
+        lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
         if (v.width > 0 && cx < dockSnapPx) {
             lp.x = 0
             docked = true
         } else if (v.width > 0 && cx > dm.widthPixels - dockSnapPx) {
-            lp.x = (dm.widthPixels - v.width).coerceAtLeast(0)
+            lp.x = (dm.widthPixels - left - v.width).coerceAtLeast(0)
             docked = true
         } else {
             docked = false
@@ -415,11 +436,17 @@ class FloatingBallService : Service() {
         val half = itemPx / 2f
         val designR = dp(BallConfig.ARC_RADIUS_DP).toFloat()
 
-        // ⚠️ 必须取 lp.x / lp.y，不能取 ballView.x / .y —— overlay 窗口里 View.x 恒为 0，
-        //    拿它当圆心等于把扇形摆在屏幕左上角，这就是「图标不在一个地方」的直接来源。
+        // ⚠️ 圆心必须用「屏幕坐标」，不能直接用 lp.x / lp.y，也不能用 View.x / .y：
+        //    前者相对父框（父框顶部被状态栏顶下去 144px），后者在 overlay 里恒为 0。
+        //    上一版拿 lp.y 当圆心，扇形整体比球高一个状态栏，看着就是「图标不在一个地方」。
         val ballLp = ballView.layoutParams as? WindowManager.LayoutParams
-        val cx = (ballLp?.x ?: 0) + ballView.width / 2f
-        val cy = (ballLp?.y ?: 0) + ballView.height / 2f
+        val loc = IntArray(2)
+        ballView.getLocationOnScreen(loc)
+        // 父框原点与 lp 原点的差值：屏幕坐标 = lp + 这个偏移
+        val parentLeft = loc[0] - (ballLp?.x ?: 0)
+        val parentTop = loc[1] - (ballLp?.y ?: 0)
+        val cx = loc[0] + ballView.width / 2f
+        val cy = loc[1] + ballView.height / 2f
         val n = items.size
         // 朝屏幕中心（球停在角落时自然变成对角方向）
         val dirDeg = Math.toDegrees(
@@ -516,10 +543,19 @@ class FloatingBallService : Service() {
         val wx = minX.toInt()
         val wy = minY.toInt()
 
+        val shownAt = SystemClock.uptimeMillis()
         val root = FrameLayout(themed).apply {
-            // 空白处点一下 = 收起菜单（快捷项各吃各的，不会传上来）
-            isClickable = true
-            setOnClickListener { closeMenu() }
+            // 空白处点一下 = 收起菜单（快捷项各吃各的，不会传上来）。
+            // ⚠️ 只认「菜单出现之后」才按下的手势：展开菜单的那一次抬手会落到刚 add 的
+            //    窗口上，不筛 downTime 的话菜单一闪就自己关掉（真机实测）。
+            setOnTouchListener { _, ev ->
+                if (ev.downTime < shownAt) {
+                    true                                   // 吃掉展开手势的残留，别当点击
+                } else {
+                    if (ev.actionMasked == MotionEvent.ACTION_UP) closeMenu()
+                    true
+                }
+            }
         }
         fanItems.clear()
         centres.forEachIndexed { i, (x, y) ->
@@ -541,8 +577,9 @@ class FloatingBallService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = wx
-            y = wy
+            // 包围盒是按屏幕坐标算的，写回窗口时要把父框偏移减掉（状态栏那 144px）
+            x = wx - parentLeft
+            y = wy - parentTop
         }
         return Fan(root, lp)
     }
