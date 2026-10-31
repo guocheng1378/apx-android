@@ -1,0 +1,241 @@
+package com.allperiph.ui.compose
+
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.allperiph.R
+import com.allperiph.touchpad.GestureShield
+import com.allperiph.ui.Feedback
+import com.allperiph.ui.IssueLauncher
+import com.allperiph.ui.ThemePref
+import com.allperiph.ui.ThemeSkin
+import com.allperiph.ui.UpdateChecker
+import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.MiuixTokens
+import com.allperiph.ui.miuix.rememberApInsets
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+
+/**
+ * 设置页（阶段 4，**本轮只迁核心分组**）。
+ *
+ * 覆盖范围与旧 `SettingsFragment` 的对照：
+ *  · 外观：主题明暗（[ThemePref]）、取色方案（品牌蓝 / 跟随系统）、三处皮肤（触控板 / 键盘 / 快捷键）、
+ *    动效、震动、音效档位 —— 与旧 `renderTheme` / `renderSkins` / `renderFx` 一一对应；
+ *  · 通用：光标锁定（`apx` 偏好里的 `cursor_lock`）、三指手势遮蔽（[GestureShield]）、
+ *    LocalSend 互传（`localsend_enabled` + 服务启停）；
+ *  · 关于：版本行 + 检查更新 + 意见反馈 + Miuix 组件总览入口。
+ *
+ * **未迁移**（仍留在旧设置页）：快捷键模板的增删改与拖动排序、遥控器配对（TV 连接）、
+ * 文件发送、键映射、环境诊断、日志查看/导出、主题导入导出与分享、背景图。
+ * 这些分组都带对话框或文件选择器，一次迁完风险过大，留给阶段 4 的第二批。
+ */
+@Composable
+fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
+    val insets = rememberApInsets()
+    // 档位值放在 state 里：下拉组件是受控的，改完要立刻反映到界面
+    var themeMode by remember { mutableIntStateOf(ThemePref.get(ctx)) }
+    var colorSource by remember { mutableIntStateOf(ThemeSkin.colorSource(ctx)) }
+    var motion by remember { mutableIntStateOf(ThemeSkin.motionIndex(ctx)) }
+    var haptic by remember { mutableIntStateOf(ThemeSkin.hapticIndex(ctx)) }
+    var sound by remember { mutableIntStateOf(ThemeSkin.soundIndex(ctx)) }
+
+    val apxPrefs = remember { ctx.getSharedPreferences("apx", Context.MODE_PRIVATE) }
+    var cursorLock by remember { mutableStateOf(apxPrefs.getBoolean("cursor_lock", true)) }
+    var shield by remember { mutableStateOf(GestureShield.isEnabled(ctx)) }
+    var localSend by remember { mutableStateOf(apxPrefs.getBoolean("localsend_enabled", false)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 16.dp + insets.left,
+                end = 16.dp + insets.right,
+                top = 8.dp,
+                bottom = 96.dp + insets.bottom,
+            ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        // ———————————————— 外观 ————————————————
+        ApComponents.Section(title = ctx.getString(R.string.ui_main_label_theme)) {
+            Column {
+                WindowDropdownPreference(
+                    title = "主题明暗",
+                    summary = ThemePref.LABELS.getOrElse(themeMode) { "" },
+                    items = ThemePref.LABELS,
+                    selectedIndex = themeMode,
+                    onSelectedIndexChange = { i ->
+                        Feedback.haptic(ctx)
+                        themeMode = i
+                        ThemePref.set(ctx, i)
+                        // 明暗写的是 configuration，必须重建才生效（与旧实现同一处理）
+                        onRecreate()
+                    },
+                )
+                WindowDropdownPreference(
+                    title = ctx.getString(R.string.ui_main_label_color_source),
+                    summary = ThemeSkin.COLOR_SOURCE_LABELS.getOrElse(colorSource) { "" },
+                    items = ThemeSkin.COLOR_SOURCE_LABELS,
+                    selectedIndex = colorSource,
+                    onSelectedIndexChange = { i ->
+                        Feedback.haptic(ctx)
+                        colorSource = i
+                        ThemeSkin.setColorSource(ctx, i)
+                        ThemeSkin.applyRuntimeTheme(ctx)
+                        onRecreate()
+                    },
+                )
+            }
+        }
+
+        ApComponents.Section(title = "皮肤") {
+            Column {
+                ThemeSkin.SCOPES.forEach { (scope, title) ->
+                    val current = ThemeSkin.current(ctx, scope)
+                    val names = ThemeSkin.PRESETS.map { it.name }
+                    val selected = ThemeSkin.PRESETS.indexOfFirst { it.id == current.id }
+                        .coerceAtLeast(0)
+                    WindowDropdownPreference(
+                        title = title,
+                        summary = if (ThemeSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
+                        items = names,
+                        selectedIndex = selected,
+                        onSelectedIndexChange = { i ->
+                            Feedback.haptic(ctx)
+                            ThemeSkin.set(ctx, scope, ThemeSkin.PRESETS[i].id)
+                            ApAccentSync.apply(ctx)
+                            onRecreate()
+                        },
+                    )
+                }
+            }
+        }
+
+        ApComponents.Section(title = ctx.getString(R.string.ui_main_label_motion)) {
+            Column {
+                WindowDropdownPreference(
+                    title = ctx.getString(R.string.ui_main_label_motion),
+                    summary = ThemeSkin.MOTION_LABELS.getOrElse(motion) { "" },
+                    items = ThemeSkin.MOTION_LABELS,
+                    selectedIndex = motion,
+                    onSelectedIndexChange = { i ->
+                        motion = i
+                        ThemeSkin.setMotion(ctx, i)
+                        Feedback.haptic(ctx)
+                    },
+                )
+                WindowDropdownPreference(
+                    title = ctx.getString(R.string.ui_main_label_haptic),
+                    summary = ThemeSkin.HAPTIC_LABELS.getOrElse(haptic) { "" },
+                    items = ThemeSkin.HAPTIC_LABELS,
+                    selectedIndex = haptic,
+                    onSelectedIndexChange = { i ->
+                        haptic = i
+                        ThemeSkin.setHaptic(ctx, i)
+                        Feedback.haptic(ctx)
+                    },
+                )
+                WindowDropdownPreference(
+                    title = ctx.getString(R.string.ui_main_label_sound),
+                    summary = ThemeSkin.SOUND_LABELS.getOrElse(sound) { "" },
+                    items = ThemeSkin.SOUND_LABELS,
+                    selectedIndex = sound,
+                    onSelectedIndexChange = { i ->
+                        sound = i
+                        ThemeSkin.setSound(ctx, i)
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 通用 ————————————————
+        ApComponents.Section(title = "通用") {
+            Column {
+                ApComponents.SwitchRow(
+                    title = "光标锁定",
+                    summary = "触控板光标锁定在屏幕内，不贴边滑出",
+                    checked = cursorLock,
+                    onCheckedChange = { on ->
+                        cursorLock = on
+                        apxPrefs.edit().putBoolean("cursor_lock", on).apply()
+                        Feedback.haptic(ctx)
+                    },
+                )
+                ApComponents.SwitchRow(
+                    title = "三指手势遮蔽",
+                    summary = "触控板里三指滑动不再被系统截屏（需 root，退出即还原）",
+                    checked = shield,
+                    onCheckedChange = { on ->
+                        shield = on
+                        GestureShield.setEnabled(ctx, on)
+                        Feedback.haptic(ctx)
+                    },
+                )
+                ApComponents.SwitchRow(
+                    title = "LocalSend 互传",
+                    summary = "开启后在局域网内接收文件",
+                    checked = localSend,
+                    onCheckedChange = { on ->
+                        localSend = on
+                        apxPrefs.edit().putBoolean("localsend_enabled", on).apply()
+                        if (on) {
+                            com.allperiph.localsend.LocalSendService.start(ctx)
+                        } else {
+                            com.allperiph.localsend.LocalSendService.stop(ctx)
+                        }
+                        Feedback.haptic(ctx)
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 关于 ————————————————
+        ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
+            Column {
+                ApComponents.ValueRow(
+                    title = "当前版本",
+                    value = UpdateChecker.currentTag(),
+                )
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.about_check_update),
+                    onClick = {
+                        UpdateChecker.check(ctx) { r ->
+                            val msg = when (r) {
+                                is UpdateChecker.Result.UpToDate -> "已是最新：${r.tag}"
+                                is UpdateChecker.Result.NewVersion -> "发现新版：${r.tag}"
+                                is UpdateChecker.Result.Failed -> "检查失败"
+                            }
+                            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.about_feedback),
+                    onClick = { IssueLauncher.open(ctx) },
+                )
+                ApComponents.ActionButton(
+                    text = "组件总览（Miuix）",
+                    onClick = {
+                        ctx.startActivity(
+                            Intent(ctx, com.allperiph.ui.miuix.MiuixShowcaseActivity::class.java),
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
