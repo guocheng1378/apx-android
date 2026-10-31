@@ -76,19 +76,18 @@ class StatusFragment : Fragment() {
     /** [ensureBooted] 是否已成功执行（幂等守卫：开关监听/行构建/事件订阅只做一次） */
     private var booted = false
 
+    /** 状态块的 Compose 内容是否已挂载（ComposeView.setContent 只能调一次） */
+    private var statusMounted = false
+
     /** 绑定状态页全部视图；任一缺失即返回 false（布局差异、横竖屏差异都会命中）。 */
     private fun bindViews(): Boolean {
         val act = activity ?: return false
-        tvOverall = act.findViewById(R.id.tvOverall) ?: return false
-        tvOverallSub = act.findViewById(R.id.tvOverallSub) ?: return false
+        // 状态块（概览 + 三个传输入口）已迁 Miuix Compose：这里只拿容纳它的 ComposeView，
+        // 内容挂载见 mountStatusPane()。原来的 tvOverall / tvOverallSub / tvIdleHint /
+        // boxRunning / boxIdleFeatures / btnTransport* 六个 id 随 page_status.xml 下线。
+        statusCompose = act.findViewById(R.id.statusCompose) ?: return false
         // 链路诊断行挂在设置页「通用」分组里（原状态块那张卡已撤），id 见 page_settings.xml
         rowsLink = act.findViewById(R.id.rowsLinkHost) ?: return false
-        btnTransportWifi = act.findViewById(R.id.btnTransportWifi) ?: return false
-        btnTransportBt = act.findViewById(R.id.btnTransportBt) ?: return false
-        btnTransportUsb = act.findViewById(R.id.btnTransportUsb) ?: return false
-        tvIdleHint = act.findViewById(R.id.tvIdleHint) ?: return false
-        boxRunning = act.findViewById(R.id.boxRunning) ?: return false
-        boxIdleFeatures = act.findViewById(R.id.boxIdleFeatures) ?: return false
         swTransportWifi = act.findViewById(R.id.swTransportWifi) ?: return false
         swTransportBt = act.findViewById(R.id.swTransportBt) ?: return false
         swTransportUsb = act.findViewById(R.id.swTransportUsb) ?: return false
@@ -111,15 +110,11 @@ class StatusFragment : Fragment() {
     private val handler by lazy { host?.getStatusHandler() ?: Handler(Looper.getMainLooper()) }
     private val disposables = ArrayList<EventBus.Disposable>()
 
-    // --- Status page views (in page_status.xml) ---
-    private lateinit var tvOverall: TextView
-    private lateinit var tvOverallSub: TextView
-    private lateinit var tvIdleHint: TextView
-    private lateinit var boxRunning: LinearLayout
-    private lateinit var btnTransportWifi: TextView
-    private lateinit var btnTransportBt: TextView
-    private lateinit var btnTransportUsb: TextView
-    private lateinit var boxIdleFeatures: LinearLayout
+    // --- 状态块（page_settings.xml 里的 statusCompose 插槽；内容见 ApMiuixStatus.kt）---
+    private var statusCompose: androidx.compose.ui.platform.ComposeView? = null
+
+    /** 状态块的 Compose 状态源：本 Fragment 每秒 refresh 时写入，Compose 只读。 */
+    private val paneState = com.allperiph.ui.miuix.ApMiuixStatusState()
 
     // --- 传输分类页（in page_settings.xml，由左侧三个传输按钮导航进入）---
     private lateinit var swTransportWifi: Switch
@@ -207,6 +202,7 @@ class StatusFragment : Fragment() {
         if (booted) return true
         val h = host ?: return false
         if (!ensureViews()) return false
+        mountStatusPane()
         h.buildAgentController()
         buildLinkRows()
         buildModuleRows()
@@ -215,6 +211,26 @@ class StatusFragment : Fragment() {
         booted = true
         Log.i(TAG, "状态页初始化完成：传输开关监听 / 模块行 / 事件订阅已就绪")
         return true
+    }
+
+    /**
+     * 把状态块挂进 ComposeView。
+     *
+     * 与 [com.allperiph.ui.miuix.ApMiuixShell] 同一机制：ComposeView 需要 ViewTreeLifecycleOwner，
+     * 而宿主 MainActivity 自 #48 起已是 ComponentActivity，本 Fragment 无需额外提供。
+     * 幂等：`setContent` 调两次会抛 IllegalStateException，用 [statusMounted] 挡住。
+     */
+    private fun mountStatusPane() {
+        if (statusMounted) return
+        val cv = statusCompose ?: return
+        cv.setContent {
+            com.allperiph.ui.miuix.ApMiuixTheme {
+                com.allperiph.ui.miuix.ApMiuixStatusPane(paneState) { kind ->
+                    host?.showCategory(kind)
+                }
+            }
+        }
+        statusMounted = true
     }
 
     override fun onResume() {
@@ -403,15 +419,10 @@ class StatusFragment : Fragment() {
         if (!ensureViews()) return
         val h = host ?: return
         renderTransportButtons()
-        // 左侧三个传输按钮 = **进入对应分类**（真机反馈原话：「设置页左边三个传输按钮点了
-        // 应该弹出对应分类」）。开/关搬到那一页的总开关上做，按钮只负责导航 —— 同时仍用
-        // 选中色显示该类的当前状态（renderTransportButtons），点之前就知道开没开。
-        for ((btn, kind) in transportButtons()) {
-            btn.setOnClickListener {
-                Feedback.tap(it)
-                h.showCategory(kind)
-            }
-        }
+        // 左侧三个传输入口按钮的**点击**已随视图迁进 Compose（ApMiuixStatusPane 的
+        // onTransport 回调 → host.showCategory），这里不再绑 View 监听。
+        // 开/关仍在那一页的总开关上做，按钮只负责导航；选中色由 renderTransportButtons
+        // 每秒写进状态源，点之前就知道开没开。
         // 分类页里的总开关：勾选即开/关该类传输，沿用 onTransportToggle 那条原生效路径
         // （模块热启 / 前台服务 / 双属模块的退出开关都在那里）。新状态仍从
         // h.isTransportEnabled **回读**，不靠本地取反 —— 开 USB 可能失败（没 root / 口被
@@ -426,13 +437,7 @@ class StatusFragment : Fragment() {
         }
     }
 
-    private fun transportButtons(): List<Pair<TextView, String>> = listOf(
-        btnTransportWifi to "wifi",
-        btnTransportBt to "bt",
-        btnTransportUsb to "usb",
-    )
-
-    /** 传输分类页里的三个总开关（与 transportButtons() 同一套 kind 取值）。 */
+    /** 传输分类页里的三个总开关（kind 取值与状态块三个入口一致）。 */
     private fun transportSwitches(): List<Pair<Switch, String>> = listOf(
         swTransportWifi to "wifi",
         swTransportBt to "bt",
@@ -448,20 +453,15 @@ class StatusFragment : Fragment() {
     }
 
     /**
-     * 传输按钮选中态：开启 = 主色实底 + onPrimary 文字；关闭 = 中性描边胶囊。
-     * 三处（bindActions / refresh / 点按后）都走这里，避免各写一份色值。
+     * 传输按钮选中态：开启 = 主色实底 + onPrimary 文字；关闭 = 浅底 + 主色文字。
+     * 刷新（每秒）与点按后都走这里，避免各写一份色值 —— 现在只是把三个布尔写进
+     * Compose 状态源，具体着色在 ApMiuixStatusPane.TransportEntry。
      */
     private fun renderTransportButtons() {
         val h = host ?: return
-        val act = activity ?: return
-        for ((btn, kind) in transportButtons()) {
-            val on = h.isTransportEnabled(kind)
-            btn.setTextColor(if (on) ThemeSkin.onPrimary(act) else ThemeSkin.primary(act))
-            btn.setBackgroundResource(
-                if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
-            )
-            btn.isSelected = on
-        }
+        paneState.wifiOn = h.isTransportEnabled("wifi")
+        paneState.btOn = h.isTransportEnabled("bt")
+        paneState.usbOn = h.isTransportEnabled("usb")
     }
 
     private fun onTransportToggle(t: String, on: Boolean) {
@@ -532,14 +532,11 @@ class StatusFragment : Fragment() {
         val h = host ?: return
         val anyOn = anyTransportOn()
 
-        // 启动后才展开状态信息
-        boxRunning.visibility = if (anyOn) View.VISIBLE else View.GONE
-        tvIdleHint.visibility = if (anyOn) View.GONE else View.VISIBLE
-        boxIdleFeatures.visibility = if (anyOn) View.GONE else View.VISIBLE
-
+        // 启动后才展开状态信息（三个 View 的显隐改由 Compose 侧按 running 决定）
+        paneState.running = anyOn
         val rootMissing = h.getLastEnv()?.rooted == false
         if (!anyOn) {
-            tvIdleHint.text = getString(
+            paneState.idleHint = getString(
                 if (rootMissing) R.string.hint_root_missing else R.string.hint_idle
             )
         }
@@ -554,10 +551,10 @@ class StatusFragment : Fragment() {
         cardBtModules.visibility = if (h.isTransportEnabled("bt")) View.VISIBLE else View.GONE
         cardUsbModules.visibility = if (h.isTransportEnabled("usb")) View.VISIBLE else View.GONE
 
-        // 总状态
+        // 总状态（写进 Compose 状态源，由 ApMiuixStatusPane 渲染）
         val st = AgentController.overallState()
-        tvOverall.text = stateLabel(st)
-        tvOverall.setTextColor(resources.getColor(stateColor(st)))
+        paneState.overall = stateLabel(st)
+        paneState.overallArgb = resources.getColor(stateColor(st))
 
         // 顶部状态徽章（通过 host 更新）
         val path = h.displayUplinkPath()
@@ -567,9 +564,9 @@ class StatusFragment : Fragment() {
             path,
         )
 
-        tvOverallSub.text = h.getEnvSummary()
+        paneState.summary = h.getEnvSummary()
 
-        // 运行摘要卡已撤（那行信息并进顶部 tvOverallSub）；这里只需拿到 env 给下面的
+        // 运行摘要卡已撤（那行信息并进状态块那一行）；这里只需拿到 env 给下面的
         // 链路行刷新用。
         val env = h.getLastEnv()
 
