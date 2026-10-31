@@ -26,7 +26,9 @@ import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -62,6 +64,26 @@ class FloatingBallService : Service() {
 
         /** 停靠态的透明度（建议 2）：够看得见、又不挡下面的内容 */
         private const val DOCK_ALPHA = 0.42f
+
+        /**
+         * 球直径（dp）。窗口尺寸直接用这个值给死，不走 WRAP_CONTENT ——
+         * 球底 `bg_floating_ball` 是 layer-list，而 shape 基元**没有** intrinsic size，
+         * `WRAP_CONTENT` 会一路塌到子 View（那个 22dp 图标），实测球窗口只有 66px
+         * （22dp，@3x），比设计小一半，顺带把扇形的圆心也带偏。
+         */
+        private const val BALL_DP = 48
+
+        /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
+        private const val LONG_PRESS_MS = 800L
+
+        /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项 */
+        private const val FAN_GAP_DP = 10
+
+        /** 扇形张角的搜索下限（°）。再小就挤成一条线，不如让邻项略叠一点 */
+        private const val FAN_SPAN_MIN = 10f
+
+        /** 张角搜索步进（°）：从上限往下退，退到能放下为止 */
+        private const val FAN_SPAN_STEP = 2.5f
 
         /** 服务实际存活状态（设置行显示用，比持久化的开关位更真实） */
         @Volatile
@@ -120,11 +142,16 @@ class FloatingBallService : Service() {
     /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
     private val dockSnapPx get() = dp(48)
 
+    /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
+    private val touchSlop get() = dp(6)
+
     // 球拖动/点击判定
-    private var dragDX = 0f
-    private var dragDY = 0f
     private var downRawX = 0f
     private var downRawY = 0f
+
+    /** 按下瞬间的窗口坐标（拖动全程以它为基准，避免与世界坐标混算） */
+    private var downWindowX = 0
+    private var downWindowY = 0
     private var downAt = 0L
     private var moved = false
 
@@ -208,8 +235,10 @@ class FloatingBallService : Service() {
     }
 
     private fun ballLayoutParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.WRAP_CONTENT,
+        // ⚠️ 必须给死尺寸，别用 WRAP_CONTENT：球底是 layer-list，shape 没有 intrinsic
+        //    size，wrap_content 会塌到子 View（那个 22dp 图标）→ 实测球只有 66px。
+        dp(BALL_DP),
+        dp(BALL_DP),
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
@@ -222,19 +251,34 @@ class FloatingBallService : Service() {
 
     private fun setupBallTouch(v: View) {
         v.setOnTouchListener { view, ev ->
+            val lp = view.layoutParams as? WindowManager.LayoutParams
+            if (lp == null) {
+                return@setOnTouchListener false
+            }
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    dragDX = view.x - ev.rawX
-                    dragDY = view.y - ev.rawY
+                    // ⚠️ 记录「按下瞬间手指相对窗口左上角」而不是窗口的世界坐标：
+                    //    overlay 窗口的 x/y 不带状态栏偏移，rawX/rawY 却带 ——
+                    //    直接拿 rawY - y 当偏移，球会一路往屏幕外飘。
                     downRawX = ev.rawX
                     downRawY = ev.rawY
+                    downWindowX = lp.x
+                    downWindowY = lp.y
                     downAt = System.currentTimeMillis()
                     moved = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (abs(ev.rawX - downRawX) > 12 || abs(ev.rawY - downRawY) > 12) moved = true
-                    view.x = ev.rawX + dragDX
-                    view.y = ev.rawY + dragDY
+                    // 先判位移、后动球：阈值内不更新位置，球的视觉与「是拖是点」的判定
+                    // 才不会各说各话 —— 旧版动 1px 就挪球、却要 12px 才算拖动，
+                    // 于是「按住想挪一下」常常落进长按分支，把服务直接关掉。
+                    val dx = ev.rawX - downRawX
+                    val dy = ev.rawY - downRawY
+                    if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        moved = true
+                    }
+                    if (moved) {
+                        moveBall(view, downWindowX + dx, downWindowY + dy)
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downAt
@@ -243,13 +287,23 @@ class FloatingBallService : Service() {
                         moved -> settleAfterDrag(view)
                         // 停靠态单击 = 恢复悬浮球正常显示（建议 2）
                         docked -> undock(view)
-                        held >= 400 -> shutdown()          // 长按关闭悬浮球
-                        else -> toggleMenu(view)           // 单击展开/收起功能菜单（建议 2）
+                        // 长按关闭：只在「真的没动过」时算数，拖动不背这个锅
+                        held >= LONG_PRESS_MS -> shutdown()
+                        else -> toggleMenu(view)           // 单击展开/收起扇形菜单
                     }
                 }
             }
             true
         }
+    }
+
+    /** 把球挪到窗口坐标 (x, y) 并夹进屏内（拖动期间的每一帧都走这里） */
+    private fun moveBall(v: View, x: Float, y: Float) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        lp.x = x.toInt().coerceIn(0, (dm.widthPixels - v.width).coerceAtLeast(0))
+        lp.y = y.toInt().coerceIn(0, (dm.heightPixels - v.height).coerceAtLeast(0))
+        runCatching { wm.updateViewLayout(v, lp) }
     }
 
     // ————————————————————————— 侧边停靠（建议 2） —————————————————————————
@@ -259,23 +313,21 @@ class FloatingBallService : Service() {
      * 落在中间就保持普通显示（顺带把 y 夹回屏内，免得出屏幕找不回来）。
      */
     private fun settleAfterDrag(v: View) {
-        val screenW = resources.displayMetrics.widthPixels
-        val screenH = resources.displayMetrics.heightPixels
-        val cx = v.x + v.width / 2f
-        v.y = v.y.coerceIn(0f, (screenH - v.height).toFloat().coerceAtLeast(0f))
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val cx = lp.x + v.width / 2f
+        lp.y = lp.y.coerceIn(0, (dm.heightPixels - v.height).coerceAtLeast(0))
 
         if (v.width > 0 && cx < dockSnapPx) {
-            v.x = 0f
+            lp.x = 0
             docked = true
-        } else if (v.width > 0 && cx > screenW - dockSnapPx) {
-            v.x = (screenW - v.width).toFloat()
+        } else if (v.width > 0 && cx > dm.widthPixels - dockSnapPx) {
+            lp.x = (dm.widthPixels - v.width).coerceAtLeast(0)
             docked = true
         } else {
             docked = false
         }
         v.alpha = if (docked) DOCK_ALPHA else 1f
-        // ⚠️ x/y 是在触摸回调里直接赋的，必须显式回写 WindowManager：拖动的那些帧
-        //    靠后续 MOVE 持续吐值掩盖了这个缺口，抬手这一下没有后续帧，不写就不动。
         publishBallPosition(v)
         // 拖动/停靠后菜单与球的相对位置失效，直接收掉，下次点球再按新位置摆
         closeMenu()
@@ -283,25 +335,24 @@ class FloatingBallService : Service() {
 
     /** 停靠态点击 → 恢复正常显示：回到不透明，并往屏内挪出一个球身 */
     private fun undock(v: View) {
-        val screenW = resources.displayMetrics.widthPixels
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
         docked = false
         v.alpha = 1f
-        v.x = if (v.x <= 0f) (v.width.toFloat().coerceAtMost(screenW.toFloat()))
-              else (screenW - v.width * 2).toFloat().coerceAtLeast(0f)
+        lp.x = if (lp.x <= 0) min(v.width, dm.widthPixels)
+               else (dm.widthPixels - v.width * 2).coerceAtLeast(0)
         publishBallPosition(v)
     }
 
     /**
-     * 把球当前的 x/y 真正落回 WindowManager。
+     * 把球当前的窗口坐标落回 WindowManager。
      *
-     * 球窗口的坐标来源是 [WindowManager.LayoutParams] 的 x/y；触摸回调里赋的是
-     * `View.x/View.y`（视图内部偏移），只在后续 `updateViewLayout` 时才会被采纳。
-     * 拖动过程中每帧都在走，抬手与停靠这两处没有后续帧，所以必须显式写一次。
+     * 坐标的唯一真相是 [WindowManager.LayoutParams] 的 x / y —— 旧版把 `View.x` 当
+     * 真身（overlay 里它恒为 0），于是拖动「不跟手」、抬手也「不动」，还得靠额外的
+     * 回写去补，补不齐就飘。现在只在 lp 上改，这里只是统一收口 + 失败日志。
      */
     private fun publishBallPosition(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        lp.x = v.x.toInt()
-        lp.y = v.y.toInt()
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
     }
@@ -340,8 +391,19 @@ class FloatingBallService : Service() {
     private class Fan(val root: View, val lp: WindowManager.LayoutParams)
 
     /**
-     * 按 [BallConfig.enabled] 生成扇形：球心为圆心、[BallConfig.ARC_RADIUS_DP] 为半径，
-     * 朝屏幕内侧铺开；项数与角度定不下时自动绕成一圈。
+     * 按 [BallConfig.enabled] 生成扇形：球心为圆心、朝**屏幕内侧**铺开。
+     *
+     * 上一版真机表现是「图标散着、还叠在一起」，三个错都在这儿纠：
+     * 1. **张角不能拍脑袋取 44°×n**：球停在边缘／角落时，朝外那半边根本没空间。
+     *    这里改成从上限往下退（[FAN_SPAN_STEP] 一档），退到「每项都完整落在屏内」为止；
+     * 2. **圆心角不能硬取「朝屏心」那个角**：球在角上时它并不是可行区间的中点，
+     *    弧的一半会甩出屏。改成在 0.5° 粒度上搜遍一周，取**离朝屏心方向最近**的可行角；
+     * 3. **半径按弦长定**：相邻两项的弦长（2R·sin(step/2)）必须容得下「图标 + 间隙」，
+     *    不能按「球到屏幕边缘的余量」缩 —— 球贴边时后者会把半径压到比图标还小
+     *    （实测 102px < 156px），相邻两项必然互相盖住。
+     *
+     * 窗口取**所有快捷项外扩一圈的矩形**，而不是固定的正方形包围盒：球贴边时正方形
+     * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
     private fun buildFan(ballView: View): Fan {
         val items = BallConfig.enabled(this)
@@ -349,54 +411,138 @@ class FloatingBallService : Service() {
         val screenW = dm.widthPixels
         val screenH = dm.heightPixels
         val itemPx = dp(BallConfig.ITEM_DP)
-        val gapPx = dp(8)
+        val gapPx = dp(FAN_GAP_DP)
         val half = itemPx / 2f
-        val cx = ballView.x + ballView.width / 2f
-        val cy = ballView.y + ballView.height / 2f
+        val designR = dp(BallConfig.ARC_RADIUS_DP).toFloat()
 
-        // 半径优先用设计值；球贴边时留不出这么多空，就自动缩（宁可挤一点也不出屏）
-        val rMax = minOf(cx, screenW - cx, cy, screenH - cy) - half - gapPx
-        val radius = minOf(dp(BallConfig.ARC_RADIUS_DP).toFloat(), rMax).coerceAtLeast(half + gapPx)
-        val box = ((radius + half + gapPx) * 2).toInt()
-
-        // 朝屏幕内侧展开：球在右半屏 → 朝左（180°），否则朝右（0°）
-        val base = if (cx >= screenW / 2f) 180f else 0f
+        // ⚠️ 必须取 lp.x / lp.y，不能取 ballView.x / .y —— overlay 窗口里 View.x 恒为 0，
+        //    拿它当圆心等于把扇形摆在屏幕左上角，这就是「图标不在一个地方」的直接来源。
+        val ballLp = ballView.layoutParams as? WindowManager.LayoutParams
+        val cx = (ballLp?.x ?: 0) + ballView.width / 2f
+        val cy = (ballLp?.y ?: 0) + ballView.height / 2f
         val n = items.size
-        // 44° 一档：52dp 的项在 96dp 半径上差不多刚好挨着不叠；7 项起绕成一整圈
-        val step = if (n <= 6) 44f else 360f / n
-        val start = base - step * (n - 1) / 2f
+        // 朝屏幕中心（球停在角落时自然变成对角方向）
+        val dirDeg = Math.toDegrees(
+            atan2((screenH / 2f - cy).toDouble(), (screenW / 2f - cx).toDouble()),
+        ).toFloat()
+
+        val centres = ArrayList<Pair<Float, Float>>(n)
+        if (n <= 1) {
+            val a = Math.toRadians(dirDeg.toDouble())
+            centres.add(
+                (cx + designR * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                    (cy + designR * sin(a).toFloat()).coerceIn(half, screenH - half),
+            )
+        } else {
+            var span = min(180f, 44f * (n - 1))
+            while (span >= FAN_SPAN_MIN) {
+                val step = span / (n - 1)
+                // 不重叠所需半径：相邻弦长 2R·sin(step/2) ≥ 图标 + 间隙
+                val r = maxOf(
+                    designR,
+                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+                )
+                var best: List<Pair<Float, Float>>? = null
+                var bestDev = Float.MAX_VALUE
+                var k = 0
+                while (k < 720) {                       // 0.5° 粒度扫一周
+                    val c = dirDeg - 180f + k * 0.5f
+                    val pts = ArrayList<Pair<Float, Float>>(n)
+                    var ok = true
+                    var i = 0
+                    while (i < n) {
+                        val a = Math.toRadians((c - span / 2f + step * i).toDouble())
+                        val x = cx + r * cos(a).toFloat()
+                        val y = cy + r * sin(a).toFloat()
+                        if (x < half || x > screenW - half || y < half || y > screenH - half) {
+                            ok = false
+                            break
+                        }
+                        pts.add(x to y)
+                        i++
+                    }
+                    if (ok) {
+                        var dev = ((c - dirDeg) % 360f + 360f) % 360f
+                        if (dev > 180f) dev = 360f - dev
+                        if (dev < bestDev) {
+                            bestDev = dev
+                            best = pts
+                        }
+                    }
+                    k++
+                }
+                if (best != null) {
+                    centres.addAll(best)
+                    break
+                }
+                span -= FAN_SPAN_STEP
+            }
+            if (centres.isEmpty()) {
+                // 极端兜底（球被挤在角落、项又多）：保持最小张角，逐项夹进屏内。
+                //   宁可邻项略叠一点，也不摆到看不见的地方 —— 叠一点至少每个都点得到。
+                val step = 24f / (n - 1)
+                val r = maxOf(
+                    designR,
+                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+                )
+                for (i in 0 until n) {
+                    val a = Math.toRadians((dirDeg - 12f + step * i).toDouble())
+                    centres.add(
+                        (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                            (cy + r * sin(a).toFloat()).coerceIn(half, screenH - half),
+                    )
+                }
+            }
+        }
+
+        // 窗口 = 所有快捷项外扩一圈的矩形，紧贴扇形，不做无谓的遮挡
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for ((x, y) in centres) {
+            minX = min(minX, x)
+            minY = min(minY, y)
+            maxX = max(maxX, x)
+            maxY = max(maxY, y)
+        }
+        val pad = half + gapPx
+        minX -= pad
+        minY -= pad
+        maxX += pad
+        maxY += pad
+        val boxW = (maxX - minX).toInt().coerceAtLeast(itemPx)
+        val boxH = (maxY - minY).toInt().coerceAtLeast(itemPx)
+        val wx = minX.toInt()
+        val wy = minY.toInt()
 
         val root = FrameLayout(themed).apply {
-            // 空白处点一下 = 收起菜单（子 View 各吃各的，不会传上来）
+            // 空白处点一下 = 收起菜单（快捷项各吃各的，不会传上来）
             isClickable = true
             setOnClickListener { closeMenu() }
         }
         fanItems.clear()
-        items.forEachIndexed { i, id ->
-            val angle = Math.toRadians((start + step * i).toDouble())
-            val cell = buildFanItem(id)
+        centres.forEachIndexed { i, (x, y) ->
+            val cell = buildFanItem(items[i])
             val lpItem = FrameLayout.LayoutParams(itemPx, itemPx).apply {
-                leftMargin = (box / 2f + (radius * cos(angle)).toFloat() - half)
-                    .toInt().coerceIn(0, box - itemPx)
-                topMargin = (box / 2f + (radius * sin(angle)).toFloat() - half)
-                    .toInt().coerceIn(0, box - itemPx)
+                leftMargin = (x - wx - half).toInt()
+                topMargin = (y - wy - half).toInt()
             }
             root.addView(cell, lpItem)
-            fanItems.add(id to cell)
+            fanItems.add(items[i] to cell)
         }
 
         val lp = WindowManager.LayoutParams(
-            box,
-            box,
+            boxW,
+            boxH,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            // 包围盒居中在球心上，扇形才会以球为圆心展开
-            x = (cx - box / 2f).toInt()
-            y = (cy - box / 2f).toInt()
+            x = wx
+            y = wy
         }
         return Fan(root, lp)
     }
