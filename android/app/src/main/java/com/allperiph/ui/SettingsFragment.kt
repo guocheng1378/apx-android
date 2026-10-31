@@ -151,6 +151,7 @@ class SettingsFragment : Fragment() {
             R.id.templatesBox, R.id.tvTemplateCurrent, R.id.btnToggleTemplates,
             R.id.themeBox, R.id.skinBox, R.id.fxBox, R.id.tvBox,
             R.id.fileBox, R.id.keymapBox, R.id.swHotkeySort, R.id.rowTemplateCurrent,
+            R.id.ballBox,
         )
         val missing = requiredIds.filter { act.findViewById<View>(it) == null }
         if (missing.isNotEmpty()) {
@@ -178,6 +179,7 @@ class SettingsFragment : Fragment() {
         // 先置位再渲染：下面这几个方法自身也会过 ensureViews()，避免递归重入
         viewsBound = true
         setupSettingsTabs()
+        renderBallRows()   // 悬浮球两行（v223.15）：入口在「通用」首页，必须随绑定一起画
         renderFile()
         renderKeymap()
         return true
@@ -825,30 +827,9 @@ class SettingsFragment : Fragment() {
         tvBox.addView(settingRow(getString(R.string.ui_main_label_log_view), null, accent) { showLogs() })
         // 反馈#4：环形缓冲只留「日志级别」，信息量不够 —— 这里给全进程/内核 tag 的真 logcat
         tvBox.addView(settingRow(getString(R.string.ui_main_label_logcat), null, accent) { showLogcat() })
-        // 反馈#7：悬浮球 —— 独立 overlay 触控板（绕开 HyperOS 小窗失焦不能输入）；无权限先跳授权
-        tvBox.addView(
-            settingRow(
-                getString(R.string.ui_main_label_floating_ball),
-                getString(
-                    if (FloatingBallService.isRunning) R.string.ui_main_floating_ball_on
-                    else R.string.ui_main_floating_ball_off,
-                ),
-                accent,
-            ) {
-                activity?.let { ctx -> FloatingBallService.requestToggle(ctx) }
-                renderTv()
-            },
-        )
-        // v223.15 MIUI 快捷球：球展开后是扇形，哪些项在圈里由这里勾选（BallConfig 持久化）。
-        //   不要求重启服务 —— 每次展开菜单都现读配置重建扇形，改完下一次点球就生效。
-        tvBox.addView(
-            settingRow(
-                getString(R.string.ui_ball_cfg_label),
-                null,
-                accent,
-                hint = getString(R.string.ui_ball_cfg_note),
-            ) { showBallFunctions() },
-        )
+        // 悬浮球那两行不在这里 —— 见 renderBallRows()。
+        // 原因（v223.15 真机反馈「找不到自定义功能」）：这两行原先长在 tvBox（groupRemote）里，
+        // 而首页分类默认收起所有分组容器，不点进「远程」就永远看不到，等于入口不存在。
         // 最近连过的设备（ConnectHistory 持久化，v196）：点一下直接重连，不用重新挑设备。
         //   这段曾加在 MainActivity.renderTv() 里，而那个方法后来改成转发到本 Fragment ——
         //   随之被一起丢掉了（ConnectHistory 只写不读、文案零引用），现在补在真正的渲染方。
@@ -890,6 +871,41 @@ class SettingsFragment : Fragment() {
      * 兜底不做自动跳转 —— MIUI 快捷手势页的 Activity 名不公开，跳错页面更迷惑，
      * 只给准确路径 + 一个「打开系统设置」。
      */
+    /**
+     * 「通用」分组里的悬浮球两行（v223.15）。
+     *
+     * 与 [renderTv] 分开是有原因的：入口原先塞在「远程」分组的 tvBox 里，而首页分类
+     * 默认把每个分组容器 `visibility = GONE` —— 用户不点进「远程」就看不到「悬浮球功能」，
+     * 真机反馈「不能选／找不到自定义功能」就是这个。现在行落在首页第一项「通用」的
+     * [R.id.ballBox]，一进设置页就在眼前。
+     */
+    fun renderBallRows() {
+        if (!ensureViews()) return
+        val act = activity ?: return
+        val box = act.findViewById<LinearLayout>(R.id.ballBox) ?: return
+        box.removeAllViews()
+        val accent = ThemeSkin.primary(act)
+        box.addView(settingRow(
+            getString(R.string.ui_main_label_floating_ball),
+            getString(
+                if (FloatingBallService.isRunning) R.string.ui_main_floating_ball_on
+                else R.string.ui_main_floating_ball_off,
+            ),
+            accent,
+        ) {
+            FloatingBallService.requestToggle(act)
+            renderBallRows()
+        })
+        // v223.15 MIUI 快捷球：球展开后是扇形，哪些项在圈里由这里勾选（BallConfig 持久化）。
+        //   不要求重启服务 —— 每次展开菜单都现读配置重建扇形，改完下一次点球就生效。
+        box.addView(settingRow(
+            getString(R.string.ui_ball_cfg_label),
+            null,
+            accent,
+            hint = getString(R.string.ui_ball_cfg_note),
+        ) { showBallFunctions() })
+    }
+
     private fun showGestureShieldHelp() {
         val act = activity ?: return
         AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
