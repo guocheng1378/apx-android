@@ -220,7 +220,13 @@ build_host\Release\arbiter_test.exe
 
 ## 📋 开发约定
 
-- **零第三方依赖**：离线可用，只依赖 framework API
+- **界面层：Compose + Miuix**（2026-11-01 起）。手机端 `android/app` 与电视端 `android/tv` 的界面
+  统一用 Jetpack Compose 渲染，组件与观感来自 Miuix（`top.yukonga.miuix.kmp` 0.9.4：
+  `miuix-ui` / `miuix-blur` / `miuix-preference` / `miuix-icons`），顶栏渐进模糊用 Haze。
+  逻辑层（`core/`、`gadget/`、`shared/` 的 C++、`pc/` 全部）仍**零第三方依赖**，
+  界面层新增的依赖已收敛在上一节列出的 6 个坐标里，不得再扩。
+- **可离线构建**：所有依赖都走 Maven 本地/代理缓存，构建过程不需要联网授权；
+  新增依赖必须同时说明「离线可用性」与许可证（现有一律 Apache-2.0）。
 - **如实降级**：不可用的能力明确标注，绝不伪装成功
 - **共享契约先行**：`shared/` 改动需两端同步
 - **协议一致性**：CI 自动校验跨端常量（`scripts/check_protocol.py`）
