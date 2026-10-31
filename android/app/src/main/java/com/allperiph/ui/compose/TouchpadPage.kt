@@ -34,6 +34,10 @@ import com.allperiph.ui.miuix.ApMotion
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalViewConfiguration
 
 /**
  * 触控板页（阶段 3）：手势面 + 液态光标 + 快捷键网格。
@@ -76,9 +80,18 @@ fun TouchpadPage(
             hintVisible = true
         }
     }
-    val rightDragTask = remember { Runnable { onLongPressRightDrag() } }
+    // issue #52 问题 4：双指滚动常被判成双指右键。根因是长按计时器不看位移 ——
+    // 两指一落就排 550ms，滚动途中照样触发。这里加"位移超过 touchSlop 就作废"的门禁。
+    // （变量必须先声明再被下面的 Runnable 捕获，Kotlin 不允许前向引用局部变量）
+    val slop = LocalViewConfiguration.current.touchSlop
+    var downX by remember { mutableStateOf(0f) }
+    var downY by remember { mutableStateOf(0f) }
+    var scrolledAway by remember { mutableStateOf(false) }
+    val rightDragTask = remember { Runnable { if (!scrolledAway) onLongPressRightDrag() } }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    Row(modifier = Modifier.fillMaxSize()) {
+      Column(modifier = Modifier.weight(1f)) {
         // —— 手势提示（手指落下后收起，长按锁定拖拽时重新出现）——
         if (hintVisible) {
             Text(
@@ -100,16 +113,33 @@ fun TouchpadPage(
                             pressed = true
                             hintVisible = false
                             cursor = Offset(ev.x, ev.y)
+                            downX = ev.x
+                            downY = ev.y
+                            scrolledAway = false
                             handler.postDelayed(dragTask, 550)
                         }
                         MotionEvent.ACTION_POINTER_DOWN -> {
                             if (ev.pointerCount == 2) handler.postDelayed(rightDragTask, 550)
                         }
-                        MotionEvent.ACTION_MOVE -> cursor = Offset(ev.x, ev.y)
+                        MotionEvent.ACTION_MOVE -> {
+                            cursor = Offset(ev.x, ev.y)
+                            // 位移一旦超过 slop，本次触摸就是"滑动/滚动"，不再是长按候选
+                            if (!scrolledAway) {
+                                val dx = ev.x - downX
+                                val dy = ev.y - downY
+                                if (dx * dx + dy * dy > slop * slop) {
+                                    scrolledAway = true
+                                    handler.removeCallbacks(dragTask)
+                                    handler.removeCallbacks(rightDragTask)
+                                }
+                            }
+                        }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             pressed = false
                             handler.removeCallbacks(dragTask)
                             handler.removeCallbacks(rightDragTask)
+                            // 抬手即隐光标：旧版被控时屏幕正中留一个蓝点，反馈里被点名"挡显示"
+                            cursor = null
                         }
                     }
                     // 先更新光标，再把原始事件交给模块 —— 与旧顺序一致（先画后发）
@@ -135,8 +165,16 @@ fun TouchpadPage(
             }
         }
 
-        // —— 快捷键网格 ——
-        HotkeyGrid(ctx = ctx)
+        // —— 快捷键网格：窄屏在下方，宽屏（横屏/平板）挪到右侧独立列 ——
+        if (!wide) HotkeyGrid(ctx = ctx)
+      }
+      // 横屏（issue #52 建议 4）：保持顶栏与底栏不变，只把快捷键挪到右侧窄列，
+      // 主区仍是手势面 —— 不做"右上角按钮组"，也不隐藏底栏
+      if (wide) {
+          Box(modifier = Modifier.width(320.dp).fillMaxHeight()) {
+              HotkeyGrid(ctx = ctx)
+          }
+      }
     }
 }
 
