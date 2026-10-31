@@ -16,10 +16,14 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.widget.Toast
 import com.allperiph.R
 import com.allperiph.shared.util.Log
 import com.allperiph.touchpad.TouchpadModule
+import com.allperiph.wireless.ControlTarget
+import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
+import kotlin.math.min
 
 /**
  * 悬浮球（反馈#7）：独立系统 overlay 触控板窗口。
@@ -50,6 +54,9 @@ class FloatingBallService : Service() {
 
         /** 三指手势遮蔽的持有者标识（与主页 / 独立操控面区分开） */
         private const val HOLDER_BALL = "ball"
+
+        /** 停靠态的透明度（建议 2）：够看得见、又不挡下面的内容 */
+        private const val DOCK_ALPHA = 0.42f
 
         /** 服务实际存活状态（设置行显示用，比持久化的开关位更真实） */
         @Volatile
@@ -85,6 +92,15 @@ class FloatingBallService : Service() {
     private var ball: View? = null
     private var ballAttached = false
     private var panel: View? = null
+
+    /** 功能菜单浮层（issue #52 建议 2）：单击悬浮球展开的那一列 */
+    private var menu: View? = null
+
+    /** 已停靠在侧边（半透明、点击恢复）—— 轻拨手势的落点状态 */
+    private var docked = false
+
+    /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
+    private val dockSnapPx get() = dp(48)
 
     // 球拖动/点击判定
     private var dragDX = 0f
@@ -148,8 +164,10 @@ class FloatingBallService : Service() {
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_BALL)
         detach(ball)
         detach(panel)
+        detach(menu)
         ball = null
         panel = null
+        menu = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -201,14 +219,249 @@ class FloatingBallService : Service() {
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downAt
                     when {
-                        moved -> { /* 拖动结束：落位即可 */ }
-                        held >= 400 -> shutdown()                            // 长按关闭悬浮球
-                        else -> if (panel == null) expand() else collapse()  // 单击展开/收起
+                        // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
+                        moved -> settleAfterDrag(view)
+                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）
+                        docked -> undock(view)
+                        held >= 400 -> shutdown()          // 长按关闭悬浮球
+                        else -> toggleMenu(view)           // 单击展开/收起功能菜单（建议 2）
                     }
                 }
             }
             true
         }
+    }
+
+    // ————————————————————————— 侧边停靠（建议 2） —————————————————————————
+
+    /**
+     * 拖动结束后判定「轻拨」：球心贴近左/右边缘就吸附过去并半透明，减少遮挡；
+     * 落在中间就保持普通显示（顺带把 y 夹回屏内，免得出屏幕找不回来）。
+     */
+    private fun settleAfterDrag(v: View) {
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        val cx = v.x + v.width / 2f
+        v.y = v.y.coerceIn(0f, (screenH - v.height).toFloat().coerceAtLeast(0f))
+
+        if (v.width > 0 && cx < dockSnapPx) {
+            v.x = 0f
+            docked = true
+        } else if (v.width > 0 && cx > screenW - dockSnapPx) {
+            v.x = (screenW - v.width).toFloat()
+            docked = true
+        } else {
+            docked = false
+        }
+        v.alpha = if (docked) DOCK_ALPHA else 1f
+        // ⚠️ x/y 是在触摸回调里直接赋的，必须显式回写 WindowManager：拖动的那些帧
+        //    靠后续 MOVE 持续吐值掩盖了这个缺口，抬手这一下没有后续帧，不写就不动。
+        publishBallPosition(v)
+        // 拖动/停靠后菜单与球的相对位置失效，直接收掉，下次点球再按新位置摆
+        closeMenu()
+    }
+
+    /** 停靠态点击 → 恢复正常显示：回到不透明，并往屏内挪出一个球身 */
+    private fun undock(v: View) {
+        val screenW = resources.displayMetrics.widthPixels
+        docked = false
+        v.alpha = 1f
+        v.x = if (v.x <= 0f) (v.width.toFloat().coerceAtMost(screenW.toFloat()))
+              else (screenW - v.width * 2).toFloat().coerceAtLeast(0f)
+        publishBallPosition(v)
+    }
+
+    /**
+     * 把球当前的 x/y 真正落回 WindowManager。
+     *
+     * 球窗口的坐标来源是 [WindowManager.LayoutParams] 的 x/y；触摸回调里赋的是
+     * `View.x/View.y`（视图内部偏移），只在后续 `updateViewLayout` 时才会被采纳。
+     * 拖动过程中每帧都在走，抬手与停靠这两处没有后续帧，所以必须显式写一次。
+     */
+    private fun publishBallPosition(v: View) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        lp.x = v.x.toInt()
+        lp.y = v.y.toInt()
+        runCatching { wm.updateViewLayout(v, lp) }
+            .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
+    }
+
+    // ————————————————————————— 功能菜单（建议 2） —————————————————————————
+
+    /**
+     * 单击悬浮球：展开/收起功能菜单。
+     *
+     * 菜单是**独立 overlay 窗口**（不是把面板撑大）—— 球本身只有 60dp，塞不进这些项；
+     * 独立窗口还能让菜单出现在球的哪一侧就贴哪一侧，不会顶到屏幕外。
+     */
+    private fun toggleMenu(v: View) {
+        if (menu != null) {
+            closeMenu()
+            return
+        }
+        collapse()   // 菜单与触控板面板互斥：面板铺满底部，菜单要占球旁边的位置
+        val m = LayoutInflater.from(ThemePref.wrap(this))
+            .inflate(R.layout.view_floating_menu, null)
+        bindMenu(m)
+        if (!attachMenu(m, v)) return
+        menu = m
+    }
+
+    /** 把菜单贴到球旁边：球在右半屏 → 菜单摆左边，反之摆右边；纵向与球对齐并夹进屏内 */
+    private fun attachMenu(m: View, ballView: View): Boolean {
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+
+        return runCatching {
+            wm.addView(m, lp)
+            // 尺寸要等一次测量：刚 addView 时 width/height 还是 0，算不出贴边的坐标
+            m.post {
+                val screenW = resources.displayMetrics.widthPixels
+                val screenH = resources.displayMetrics.heightPixels
+                val ballRight = ballView.x + ballView.width
+                val rightSide = ballView.x + ballView.width / 2f >= screenW / 2f
+                lp.x = if (rightSide) {
+                    (ballView.x - m.width - dp(8)).toInt().coerceAtLeast(0)
+                } else {
+                    (ballRight + dp(8)).toInt()
+                        .coerceAtMost((screenW - m.width).coerceAtLeast(0))
+                }
+                lp.y = ballView.y.toInt()
+                    .coerceIn(0, (screenH - m.height).coerceAtLeast(0))
+                wm.updateViewLayout(m, lp)
+            }
+            true
+        }.getOrElse {
+            Log.w(TAG, "菜单创建失败：${it.message}")
+            false
+        }
+    }
+
+    private fun closeMenu() {
+        detach(menu)
+        menu = null
+    }
+
+    /** 菜单项接线。连接模式三颗按当前开关态渲染，点一下即切（与状态页同一套语义） */
+    private fun bindMenu(m: View) {
+        m.findViewById<TextView>(R.id.btnMenuTouchpad)?.setOnClickListener {
+            closeMenu()
+            expand()
+        }
+        m.findViewById<TextView>(R.id.btnMenuDevices)?.setOnClickListener {
+            closeMenu()
+            // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
+            // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
+            runCatching {
+                startActivity(
+                    Intent(this, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
+                )
+            }
+        }
+        m.findViewById<TextView>(R.id.btnMenuFiles)?.setOnClickListener {
+            closeMenu()
+            runCatching {
+                startActivity(
+                    Intent(this, FilePanelActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        }
+        m.findViewById<TextView>(R.id.btnMenuQuit)?.setOnClickListener {
+            closeMenu()
+            quitApp()
+        }
+        for ((id, kind) in listOf(
+            R.id.btnModeWifi to "wifi",
+            R.id.btnModeBt to "bt",
+            R.id.btnModeUsb to "usb",
+        )) {
+            m.findViewById<TextView>(id)?.setOnClickListener { onMenuTransport(kind) }
+        }
+        renderModeButtons(m)
+    }
+
+    /** 连接模式三颗按钮的选中态：开 = 主色实底 + onPrimary 字；关 = 中性描边胶囊 */
+    private fun renderModeButtons(m: View) {
+        for ((id, kind) in listOf(
+            R.id.btnModeWifi to "wifi",
+            R.id.btnModeBt to "bt",
+            R.id.btnModeUsb to "usb",
+        )) {
+            val btn = m.findViewById<TextView>(id) ?: continue
+            val on = AgentController.isTransportEnabled(this, kind)
+            btn.setTextColor(getColor(if (on) R.color.md_on_primary else R.color.md_primary))
+            btn.setBackgroundResource(
+                if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
+            )
+        }
+    }
+
+    /**
+     * 切换连接模式。与状态页 `StatusFragment.onTransportToggle` 同一套语义：
+     * 多出口模块只切「该出口」、不动模块启停；单出口模块跟着传输开关启停；
+     * 打开任一路就先拉起前台服务保活，全关了就停掉。
+     */
+    private fun onMenuTransport(kind: String) {
+        val next = !AgentController.isTransportEnabled(this, kind)
+        AgentController.setTransportEnabled(this, kind, next)
+        for (id in AgentController.groupModules(kind)) {
+            if (AgentController.groupsOf(id).size > 1) {
+                AgentController.setExitEnabled(this, id, kind, next)
+                if (next) AgentController.setModuleEnabled(this, id, true)
+                continue
+            }
+            if (!next) {
+                val stillNeeded = listOf("wifi", "bt", "usb").any { other ->
+                    other != kind &&
+                        AgentController.isTransportEnabled(this, other) &&
+                        AgentController.groupModules(other).contains(id)
+                }
+                if (stillNeeded) continue
+            }
+            AgentController.setModuleEnabled(this, id, next)
+        }
+        if (next) {
+            AgentForegroundService.start(this)
+        } else if (!listOf("wifi", "bt", "usb").any {
+                AgentController.isTransportEnabled(this, it)
+            }
+        ) {
+            AgentController.stopAll()
+            stopService(Intent(this, AgentForegroundService::class.java))
+        }
+        val label = AgentController.transportLabel(kind)
+        Toast.makeText(
+            this,
+            getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
+            Toast.LENGTH_SHORT,
+        ).show()
+        menu?.let { renderModeButtons(it) }
+    }
+
+    /**
+     * 退出：把所有外设服务停掉，最后收悬浮球自己。
+     *
+     * 顺序不能反 —— 悬浮球是前台服务，先关它进程就可能被回收，后面的清理就跑不完。
+     * 与主界面返回键的退出确认同义（那里是 finish + 服务自停，这里是后台直接清）。
+     */
+    private fun quitApp() {
+        runCatching {
+            ControlTarget.clear()
+            TvDiscovery.stop()
+        }
+        AgentController.stopAll()
+        stopService(Intent(this, AgentForegroundService::class.java))
+        Toast.makeText(this, getString(R.string.ui_ball_menu_quit_done), Toast.LENGTH_SHORT).show()
+        shutdown()
     }
 
     // ————————————————————————— 展开面板（底部触控板） —————————————————————————
@@ -230,6 +483,7 @@ class FloatingBallService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.BOTTOM }
+        closeMenu()   // 菜单与面板互斥
         wm.addView(v, lp)
         panel = v
         // 悬浮球的触控板同样是三指滑动面：展开期间一并遮蔽系统三指截屏，
