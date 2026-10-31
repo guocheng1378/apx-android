@@ -89,6 +89,16 @@ class FloatingBallService : Service() {
 
     private val wm by lazy { getSystemService(Context.WINDOW_SERVICE) as WindowManager }
 
+    /**
+     * 服务侧的换肤上下文（见 [ThemePref.wrapService]）。
+     *
+     * 菜单／面板／连接模式按钮必须用**它**去 inflate 与取色：`Service` 自身的
+     * `getTheme()` 是 framework 的 `Theme.DeviceDefault.Light.DarkActionBar`，
+     * 解析不到 `?attr/apPrimary` 一族的属性 —— v223.13 起「单击悬浮球」
+     * 就闪退正是栽在这里（InflateException：Failed to resolve attribute）。
+     */
+    private val themed by lazy { ThemePref.wrapService(this) }
+
     private var ball: View? = null
     private var ballAttached = false
     private var panel: View? = null
@@ -116,7 +126,8 @@ class FloatingBallService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        ThemeSkin.applyRuntimeTheme(this)   // 菜单/面板的 ?attr 强调色（建议 3）
+        // 菜单／面板的 ?attr 强调色由 [themed]（ThemePref.wrapService）负责，
+        // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
         NotificationChannels.ensure(this)
         startForeground(
@@ -182,7 +193,7 @@ class FloatingBallService : Service() {
     private fun addBall() {
         if (ballAttached) return
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
-        val v = ball ?: LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_floating_ball, null).also { ball = it }
+        val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         wm.addView(v, ballLayoutParams())
         ballAttached = true
         setupBallTouch(v)
@@ -301,8 +312,13 @@ class FloatingBallService : Service() {
             return
         }
         collapse()   // 菜单与触控板面板互斥：面板铺满底部，菜单要占球旁边的位置
-        val m = LayoutInflater.from(ThemePref.wrap(this))
-            .inflate(R.layout.view_floating_menu, null)
+        // 兜底：即便主题／资源出问题，也只让菜单展开失败，不能把整个进程带走
+        val m = runCatching {
+            LayoutInflater.from(themed).inflate(R.layout.view_floating_menu, null)
+        }.getOrElse {
+            Log.w(TAG, "菜单加载失败：${it.message}")
+            return
+        }
         bindMenu(m)
         if (!attachMenu(m, v)) return
         menu = m
@@ -399,7 +415,7 @@ class FloatingBallService : Service() {
         )) {
             val btn = m.findViewById<TextView>(id) ?: continue
             val on = AgentController.isTransportEnabled(this, kind)
-            btn.setTextColor(if (on) ThemeSkin.onPrimary(this) else ThemeSkin.primary(this))
+            btn.setTextColor(if (on) ThemeSkin.onPrimary(themed) else ThemeSkin.primary(themed))
             btn.setBackgroundResource(
                 if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
             )
@@ -469,7 +485,12 @@ class FloatingBallService : Service() {
 
     private fun expand() {
         if (panel != null) return
-        val v = LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_touchpad_panel, null)
+        val v = runCatching {
+            LayoutInflater.from(themed).inflate(R.layout.view_touchpad_panel, null)
+        }.getOrElse {
+            Log.w(TAG, "触控板面板加载失败：${it.message}")
+            return
+        }
         v.findViewById<TextView>(R.id.tvPanelClose)?.setOnClickListener { collapse() }
         v.findViewById<View>(R.id.touchSurface).setOnTouchListener { _, ev ->
             // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB 鼠标帧/蓝牙/无线）
