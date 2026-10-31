@@ -366,6 +366,7 @@
     <string name="ui_ball_menu_wifi">无线</string>
     <string name="ui_ball_menu_bt">蓝牙</string>
     <string name="ui_ball_menu_usb">USB</string>
+    <string name="ui_ball_menu_touchpad">触控板面板</string>
     <string name="ui_ball_menu_devices">扫描 / 切换设备</string>
     <string name="ui_ball_menu_files">文件互传</string>
     <string name="ui_ball_menu_quit">退出 app</string>
