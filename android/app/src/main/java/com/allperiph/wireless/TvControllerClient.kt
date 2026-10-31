@@ -309,12 +309,22 @@ class TvControllerClient(
     private fun startModeStatus() {
         if (modeThread?.isAlive == true) return
         modeThread = thread(name = "tvctrl-mode") {
+            var lastGen = com.allperiph.core.Uplink.generation
             while (running.get()) {
                 if (ready) {
                     val flags = runCatching { ModeStatus.currentFlags() }.getOrDefault(0)
                     sendModeStatus(flags)
                 }
-                try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+                // 连接模式刚切换过：不等那 2s，立刻再报一帧，让面板与手机同时改口。
+                // 没有这一步，用户切完模式最长要盯 2s 的旧状态，看着就是「没切过去」。
+                lastGen = com.allperiph.core.Uplink.generation
+                var waited = 0
+                while (running.get() && waited < 2000 &&
+                    com.allperiph.core.Uplink.generation == lastGen
+                ) {
+                    try { Thread.sleep(100) } catch (_: InterruptedException) { return@thread }
+                    waited += 100
+                }
             }
         }
     }

@@ -1760,6 +1760,8 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
     /** 传输开关：整组启用 / 停用该类下全部模块，并维护前台服务生命周期 */
     private fun onTransportToggle(t: String, on: Boolean) {
         AgentController.setTransportEnabled(this, t, on)
+        // 同 StatusFragment：切换后作废已观测出口，避免各端停留在上一个模式
+        Uplink.reset()
         for (id in AgentController.groupModules(t)) {
             // v184：多出口模块（触摸板同时挂在「无线」与「USB」两组）只有一个
             // enable.<id>，而两个组的开关都会写它 —— 用户看到的就是

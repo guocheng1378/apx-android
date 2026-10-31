@@ -467,6 +467,9 @@ class StatusFragment : Fragment() {
     private fun onTransportToggle(t: String, on: Boolean) {
         val h = host ?: return
         h.setTransportEnabled(t, on)
+        // 出口变了：作废「已观测出口」，否则在用户碰屏幕之前各端仍显示上一个模式
+        //（issue#52「切换后无法快速识别 / 停留在上一个模式」）。见 Uplink.reset。
+        com.allperiph.core.Uplink.reset()
         for (id in h.groupModules(t)) {
             if (h.groupsOf(id).size > 1) {
                 h.setExitEnabled(id, t, on)

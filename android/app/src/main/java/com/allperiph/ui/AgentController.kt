@@ -13,6 +13,7 @@ import com.allperiph.core.ModuleState
 import com.allperiph.gadget.GadgetManager
 import com.allperiph.screen.ScreenModule
 import com.allperiph.touchpad.TouchpadModule
+import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.WirelessModule
 import java.util.concurrent.Executors
 
@@ -158,6 +159,17 @@ object AgentController {
 
     fun setTransportEnabled(context: Context, t: String, on: Boolean) {
         prefs(context).edit().putBoolean("transport.$t", on).apply()
+        /* 关掉「无线」这一整组时必须一并断开 9511 控制目标（issue#52 第 8 条）。
+           [Uplink.resolve] 判「无线可用」的依据是
+           `ControlTarget.isControlling() && controlClient != null` —— 只置
+           transport.wifi=false、不断开客户端的话，无线出口**依旧成立**：
+           触控板与键盘继续走无线、PC 面板继续显示「无线在用」，用户看到的就是
+           「切到 USB 了，模式还停在无线 / 两个模式来回跳」。
+           断开 -> resolve 自然回落到 USB HID / 蓝牙 HID；ControlTarget.clear()
+           内部同时会作废已观测出口（Uplink.reset），两类残留一起清掉。
+           收在这里而不是三个切换入口：这是三处唯一的公共写点（见本文件顶部
+           传输分类说明），漏掉任一入口都会让其中一条路的无线出口残留。 */
+        if (t == "wifi" && !on) ControlTarget.clear()
     }
 
     fun isEnabled(context: Context, id: String): Boolean =

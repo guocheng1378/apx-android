@@ -51,6 +51,34 @@ object Uplink {
         private set
 
     /**
+     * 作废「已观测到的出口」，回到「未发送过输入」的状态。
+     *
+     * 为什么必须有它（issue#52 反复反馈的「停留在上一个模式」）：[observed] 一旦为真就
+     * 再也不会回退，而 [current] 记的是**上一次真的发出去**的出口。用户切了连接模式
+     * （无线 ↔ USB ↔ 蓝牙）但还没碰过屏幕时，各端仍然照着旧出口显示 —— 手机徽章、
+     * 通知栏、0x31 上报给 PC 面板的「当前在用」全是过期的，看着就是「切了没反应」
+     * 或「两个模式来回跳」。切换传输类、换／断开受控目标时调用它，让下一步重新按
+     * [resolve] 给出**预计**出口。
+     */
+    fun reset() {
+        observed = false
+        current = NONE
+        reason = ""
+        generation++
+    }
+
+    /**
+     * 出口代数：每次 [reset] 自增。
+     *
+     * 上报线程（[com.allperiph.wireless.TvControllerClient] 的 0x31 模式帧）原本固定 2s
+     * 轮询一次 —— 用户切完模式最多要等 2s 面板才更新，观感就是「切了没反应」。它比对这个
+     * 计数，一变就立刻补发一帧。
+     */
+    @Volatile
+    var generation: Int = 0
+        private set
+
+    /**
      * 是否**真的发送过**至少一次输入。
      *
      * 界面必须靠它区分两种情况：① 还没发过东西（[current] 仍是 [NONE]，但出口其实可能是
