@@ -161,6 +161,14 @@ struct Ctrl9511ServerStatus {
     /// 手机上报的模式状态帧（0x31）计数与原始位图；位布局见 phone_mode.hpp
     uint64_t modeStatus = 0;
     uint8_t modeFlags = 0;
+    /**
+     * 本**次**会话里手机是否上报过模式状态。
+     *
+     * 为什么不看 modeStatus > 0：那是历史累计计数，跨会话不清 —— 手机断线后
+     * modeFlags 还留着上一会话的位图，面板就会把「上一个模式」当成当前状态
+     * 一直显示（issue#52 反复反馈的那条）。新会话握手与断链都把它清掉。
+     */
+    bool modeReported = false;
     /// 本机是否具备注入权限（macOS 的「辅助功能」授权）；false 时收到的输入不会生效
     bool inputTrusted = true;
 };

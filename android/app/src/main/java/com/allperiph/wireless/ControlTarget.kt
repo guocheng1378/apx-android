@@ -41,5 +41,7 @@ object ControlTarget {
         host = ""
         label = "本机 / PC"
         type = "tv"
+        // 无线出口没了：作废已观测出口，否则徽章/面板还会写着「无线 9511」在用
+        com.allperiph.core.Uplink.reset()
     }
 }

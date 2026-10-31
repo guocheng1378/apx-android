@@ -147,7 +147,13 @@ function FooterWithActions({ state, onSettings, onFilePanel, onLogExport }: {
 
       <div className="flex items-center gap-2">
         <button className="btn-ghost h-[38px]" onClick={onFilePanel}>文件传输</button>
-        <button className="btn-ghost h-[38px]" onClick={() => bridge.act('window.hide')}>隐藏</button>
+        {/* 「隐藏」只对桌面壳（WebView2）有意义：那里 window.hide 真的把面板窗口
+            SW_HIDE。浏览器面板（HTTP 通道）没有宿主窗口可隐藏，后端对 window.hide
+            只能返回成功而不做事 —— 用户看到的就是「点了没反应的按钮」
+            （issue#52 第 9 条）。按通道隐掉，别留一个 no-op 入口。 */}
+        {bridge.mode !== 'http' && (
+          <button className="btn-ghost h-[38px]" onClick={() => bridge.act('window.hide')}>隐藏</button>
+        )}
         <button className="btn-ghost h-[38px]" onClick={onLogExport}>日志</button>
         <button className="btn-ghost h-[38px]" onClick={onSettings}>设置</button>
         <button className="btn-primary h-[38px]" onClick={() => bridge.act('window.quit')}>退出</button>

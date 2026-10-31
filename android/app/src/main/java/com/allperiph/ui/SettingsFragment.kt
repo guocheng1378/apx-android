@@ -885,12 +885,24 @@ class SettingsFragment : Fragment() {
         val box = act.findViewById<LinearLayout>(R.id.ballBox) ?: return
         box.removeAllViews()
         val accent = ThemeSkin.primary(act)
+        /* 状态文案按「意愿 + 实际」两件事给（issue#52 第 7 条：开关与画面不一致）：
+             · 意愿开、球也真的挂着   → 「已开启」
+             · 意愿开、球没挂上       → 「已开启，但未显示」—— 悬浮窗权限被撤 / 挂载失败时
+                                       如实说出来，别让用户对着设置页「已开启」找不到球；
+             · 意愿关、球却在屏幕上   → 「已关闭，但仍显示」—— 服务还在（系统没回收）时
+                                       点一下就能关掉。
+           意愿位来自 SharedPreferences（跨进程可读），不再用进程内静态 isRunning。 */
+        val ballWanted = FloatingBallService.isOn(act)
+        val ballAlive = FloatingBallService.isRunning && FloatingBallService.ballAttachedGlobal
+        val ballValue = when {
+            ballWanted && ballAlive -> getString(R.string.ui_main_floating_ball_on)
+            ballWanted -> getString(R.string.ui_main_floating_ball_on_not_shown)
+            ballAlive -> getString(R.string.ui_main_floating_ball_off_but_shown)
+            else -> getString(R.string.ui_main_floating_ball_off)
+        }
         box.addView(settingRow(
             getString(R.string.ui_main_label_floating_ball),
-            getString(
-                if (FloatingBallService.isRunning) R.string.ui_main_floating_ball_on
-                else R.string.ui_main_floating_ball_off,
-            ),
+            ballValue,
             accent,
         ) {
             FloatingBallService.requestToggle(act)

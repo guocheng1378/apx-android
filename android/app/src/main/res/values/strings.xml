@@ -349,6 +349,11 @@
     <string name="ui_main_label_floating_ball">悬浮球</string>
     <string name="ui_main_floating_ball_on">已开启</string>
     <string name="ui_main_floating_ball_off">未开启</string>
+    <!-- 悬浮球开关与画面对不上时（issue #52 第 7 条）：
+         开关读的是持久化「意愿位」，屏幕上的球是「实际结果」——
+         两件事分开说，别让用户对着「已开启」满屏找球。 -->
+    <string name="ui_main_floating_ball_on_not_shown">已开启，但未显示</string>
+    <string name="ui_main_floating_ball_off_but_shown">已关闭，但仍显示</string>
     <string name="ui_main_floating_ball_note">单击展开触控板，长按关闭</string>
     <string name="ui_main_floating_ball_hint">单指移动 · 双指滚动 · 三指滑动</string>
     <string name="ui_main_floating_ball_collapse">收起</string>

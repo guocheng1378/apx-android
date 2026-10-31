@@ -337,7 +337,7 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         const auto cs = p->ctrlSrv.status();
         const auto pm = apxpc::wireless::decodePhoneMode(cs.modeFlags);
         Json ph = Json::makeObject();
-        ph["reported"] = cs.modeStatus > 0;
+        ph["reported"] = cs.modeReported;
         ph["connected"] = cs.connected;
         ph["frames"] = static_cast<double>(cs.modeStatus);
         ph["wirelessAvailable"] = pm.wirelessAvailable;

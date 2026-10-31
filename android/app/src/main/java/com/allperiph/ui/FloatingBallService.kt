@@ -86,9 +86,36 @@ class FloatingBallService : Service() {
         /** 张角搜索步进（°）：从上限往下退，退到能放下为止 */
         private const val FAN_SPAN_STEP = 2.5f
 
-        /** 服务实际存活状态（设置行显示用，比持久化的开关位更真实） */
+        /**
+         * 服务**实际存活**（onCreate 起到了 onDestroy 之间）。设置行据此显示 ——
+         * 它是结果，不是意愿。
+         */
         @Volatile
         var isRunning: Boolean = false
+            private set
+
+        /**
+         * 用户**意愿**（持久化开关位）。与 [isRunning] 分开是这次真机反馈的根因：
+         *
+         * 旧实现只有 [isRunning]（进程内静态），而它是**进程级**的 —— 进程一被系统回收
+         * 就归 false，可设置页那个开关读的正是它，于是出现「设置里显示关着、球还在屏幕上」
+         * （服务在另一个进程活得好好的）。反之 [onCreate] 里先 `isRunning = true` 再
+         * `addBall()`，addBall 抛异常（悬浮窗权限被撤 / 主题解析失败）时开关照样显示「开」，
+         * 就是「开了没有球」。
+         *
+         * 修法：开关位落 SharedPreferences（跨进程 / 跨重启可读），显示与切换都看它；
+         * addBall 真的成功了才算「开」。
+         */
+        fun isOn(c: Context): Boolean =
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ON, false)
+
+        private fun setOn(c: Context, on: Boolean) =
+            c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ON, on).apply()
+
+        /** 是否真的挂着球（给设置页的「实际状态」用；与意愿位交叉比对） */
+        @Volatile
+        var ballAttachedGlobal: Boolean = false
             private set
 
         /**
@@ -108,8 +135,9 @@ class FloatingBallService : Service() {
                 Log.i(TAG, "悬浮窗未授权，已跳系统授权页")
                 return
             }
+            // 用持久化开关位判「现在是开还是关」，不用进程内静态 —— 见 isOn 注释。
             val intent = Intent(c, FloatingBallService::class.java).apply {
-                action = if (isRunning) ACTION_STOP else ACTION_TOGGLE
+                action = if (isOn(c)) ACTION_STOP else ACTION_TOGGLE
             }
             c.startService(intent)
         }
@@ -183,8 +211,15 @@ class FloatingBallService : Service() {
                 .build(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
+        // 意愿先落盘（服务真起来了），「是不是真的挂上球」由 addBall 的成功与否决定 ——
+        // 旧版无条件 isRunning = true，addBall 失败时开关与画面必然对不上。
+        setOn(this, true)
+        if (addBall()) {
+            ballAttachedGlobal = true
+        } else {
+            Log.w(TAG, "悬浮球挂载失败：开关位保持 true，设置页会显示「已开启但未显示」")
+        }
         isRunning = true
-        addBall()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -207,7 +242,8 @@ class FloatingBallService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun shutdown() {
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ON, false).apply()
+        setOn(this, false)
+        ballAttachedGlobal = false
         // 服务被杀/关闭时面板可能还开着：遮蔽必须一起还，否则系统三指截屏一直被关着
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_BALL)
         detach(ball)
@@ -226,13 +262,20 @@ class FloatingBallService : Service() {
 
     // ————————————————————————— 小球 —————————————————————————
 
-    private fun addBall() {
-        if (ballAttached) return
+    /** @return 是否真的把球挂上了（失败时调用方不能对外宣称「已开启」） */
+    private fun addBall(): Boolean {
+        if (ballAttached) return true
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
         val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
-        wm.addView(v, ballLayoutParams())
+        runCatching { wm.addView(v, ballLayoutParams()) }.onFailure {
+            Log.w(TAG, "addView 失败（悬浮窗权限被撤？）：${it.message}")
+            ball = null
+            return false
+        }
         ballAttached = true
+        ballAttachedGlobal = true
         setupBallTouch(v)
+        return true
     }
 
     private fun ballLayoutParams() = WindowManager.LayoutParams(
@@ -714,6 +757,8 @@ class FloatingBallService : Service() {
     private fun onMenuTransport(kind: String) {
         val next = !AgentController.isTransportEnabled(this, kind)
         AgentController.setTransportEnabled(this, kind, next)
+        // 同状态页：模式变了就作废已观测出口，否则扇形里的选中态与各端显示都会滞后
+        com.allperiph.core.Uplink.reset()
         for (id in AgentController.groupModules(kind)) {
             if (AgentController.groupsOf(id).size > 1) {
                 AgentController.setExitEnabled(this, id, kind, next)
