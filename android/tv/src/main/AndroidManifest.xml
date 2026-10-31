@@ -8,6 +8,21 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!--
+      电视端要引 Miuix 0.9.4（miuix-ui / miuix-icons），两个 AAR 的清单都写 minSdk 24，
+      而本模块为老电视保留 minSdk 23（仓库约定，见下）。清单合并默认会把这种「依赖比宿主
+      要求更高」判成硬错误（`:tv:processReleaseMainManifest` FAILED），
+      所以只对这两个包放行。
+
+      为什么可以直接放行：Miuix 的 Android 侧只用到
+      `Build.VERSION_CODES.S` / `TIRAMISU` 的分支（DynamicColors.android.kt），
+      并且都写了 SDK_INT 判断；本模块实际只用到 Compose 组件与主题，
+      不碰动态取色，23 上不会命中未受保护的 API。
+      这是「已知限制、显式声明」，不是静默忽略 —— 若日后 Miuix 依赖真正 24+ 的
+      API，会表现为运行期 NoSuchMethodError，届时再抬 minSdk。
+    -->
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.ui,top.yukonga.miuix.kmp.icon" />
+
     <!-- 局域网 TCP 控制面（ServerSocket + UDP 信标） -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 全局光标浮层（被控端可视化手机光标） -->

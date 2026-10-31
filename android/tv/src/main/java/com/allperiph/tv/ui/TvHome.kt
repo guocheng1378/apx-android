@@ -184,7 +184,7 @@ private fun TvAction(text: String, onClick: () -> Unit) {
                 color = Color(if (focused) TvUi.Pal.accent else Color.Transparent),
                 shape = shape,
             )
-            .defaultMinSize(minWidth = ActionMinWidth)
+            .defaultMinSize(minWidth = IntrinsicWidthMin)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     )
 }
@@ -192,14 +192,12 @@ private fun TvAction(text: String, onClick: () -> Unit) {
 /** 动作卡片最小宽度：远距离也够点得准（旧实现 minimumWidth = 64dp） */
 private val IntrinsicWidthMin = 88.dp
 
-private var appCtx: android.content.Context? = null
-
-/** 供 [TvHome] 内部取字符串（Composable 里不方便拿 Context 时用，由 Activity 注入） */
-internal fun s(ctx, resId: Int, vararg args: Any): String {
-    val ctx = appCtx ?: return ""
-    return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
-}
-
-internal fun bindTvHomeContext(ctx: android.content.Context) {
-    appCtx = ctx.applicationContext
-}
+/**
+ * 供 [TvHome] 内部取字符串。
+ *
+ * ⚠️ 必须由调用方传入 Context：早先这里用一个文件级 `appCtx` 变量 + `bindTvHomeContext()`
+ * 注入，但**没有任何地方调用过注入**，导致所有文案永远返回空串（编译能过、界面全空）。
+ * 改为直接走参数，[TvHome] 本来就持有 `ctx`。
+ */
+internal fun s(ctx: android.content.Context, resId: Int, vararg args: Any): String =
+    if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
