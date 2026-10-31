@@ -583,10 +583,25 @@ class FloatingBallService : Service() {
 
     private fun attachFan(fan: Fan): Boolean = runCatching {
         wm.addView(fan.root, fan.lp)
+        // 菜单的矩形包围盒把球也框在里面（球心正是扇形圆心），新加的窗口又在最上层 ——
+        // 不把球重新 add 一次，展开期间就点不到、拖不动它了。视觉上球在圆心、项在外圈，
+        // 两者不重叠，置顶只是把触摸权还给球。
+        raiseBall()
         true
     }.getOrElse {
         Log.w(TAG, "扇形菜单贴窗失败：${it.message}")
         false
+    }
+
+    /** 把球窗口重新 add 一次以抬到最上层（复用原 lp，位置与透明度不变） */
+    private fun raiseBall() {
+        val v = ball ?: return
+        if (!ballAttached) return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        runCatching {
+            wm.removeView(v)
+            wm.addView(v, lp)
+        }.onFailure { Log.w(TAG, "悬浮球置顶失败：${it.message}") }
     }
 
     private fun closeMenu() {
