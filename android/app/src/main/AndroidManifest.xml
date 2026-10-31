@@ -118,6 +118,18 @@
             android:exported="false" />
 
         <!--
+          状态页迁移宿主（阶段 2）：Compose + Miuix 重写的状态页，并行于旧主界面。
+          没有 LAUNCHER，只能从组件总览/调试入口进入；全部屏迁完后才把主入口切到这里，
+          切换与回退都只涉及这一处。
+        -->
+        <activity
+            android:name=".ui.compose.ApStatusActivity"
+            android:label="状态（Miuix）"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.AllPeriph" />
+
+        <!--
           ② 触控板（手势捕捉面，v1.19）
           结构：全屏手势区域 + 右侧快捷键网格。
           横屏没有单独布局 —— 分栏由 TouchpadSplit 在运行时重排（旋屏不重建 Activity）。
