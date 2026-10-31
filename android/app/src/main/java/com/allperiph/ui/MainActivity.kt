@@ -3,6 +3,7 @@ package com.allperiph.ui
 import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -78,7 +79,11 @@ import com.allperiph.shared.net.FileSender
  * 所有 IO（su、sysfs、设备节点）都在后台线程，本 Activity 只做事件订阅与视图刷新。
  * 主题实现：覆写 [attachBaseContext] 注入 uiMode，深色取值来自 res/values-night/。
  */
-class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, StatusFragment.Host {
+// miuix-ui 分支：android.app.Activity → ComponentActivity（androidx.activity）。
+// 原因：ComposeView 需要 ViewTreeLifecycleOwner / ViewModelStoreOwner，只有
+// ComponentActivity（androidx）会挂 —— 纯 framework 的 Activity 挂不了 Compose。
+// ComponentActivity 继承 android.app.Activity，本文件对其余 API 的用法零变化。
+class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragment.Host, StatusFragment.Host {
 
     private val handler = Handler(Looper.getMainLooper())
     private val disposables = ArrayList<EventBus.Disposable>()
@@ -2118,9 +2123,12 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         }, 1_500)
     }
 
+    // miuix-ui 分支：宿主换成 ComponentActivity 后，它的 Kotlin 可见签名是
+    // Array<String>（不是平台类型的 Array<out String>）—— Kotlin 2.1 的 override
+    // 检查严格，照父类签名写（CI 实测 "overrides nothing"）。
     override fun onRequestPermissionsResult(
         requestCode: Int,
-        permissions: Array<out String>,
+        permissions: Array<String>,
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)

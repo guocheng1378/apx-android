@@ -1,6 +1,6 @@
 plugins {
+    // AGP 9 起 built-in Kotlin：org.jetbrains.kotlin.android 插件已移除
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // 与 :app 同源：CI 打 tag v* 构建时取 GITHUB_REF_NAME（如 v205），
@@ -15,7 +15,9 @@ val releaseTag: String = run {
 
 android {
     namespace = "com.allperiph.tv"
-    compileSdk = 34
+    // 35：AGP 9 的 checkAarMetadata 要求依赖方 compileSdk ≥ 所依赖 library
+    // （:shared = 35）的编译 SDK；34 会让 :tv:checkReleaseAarMetadata 直接失败
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.allperiph.tv"
@@ -51,10 +53,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf("-Xno-param-assertions")
-    }
+    // AGP 9 built-in Kotlin：kotlinOptions {} 已移除，jvmTarget 跟随 compileOptions
 
     buildFeatures {
         buildConfig = true

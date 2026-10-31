@@ -1,6 +1,6 @@
 plugins {
+    // AGP 9 起 built-in Kotlin：org.jetbrains.kotlin.android 插件已移除
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -17,10 +17,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf("-Xno-param-assertions")
-    }
+    // AGP 9 built-in Kotlin：kotlinOptions {} 已移除，jvmTarget 跟随 compileOptions
 
     buildFeatures {
         buildConfig = false
