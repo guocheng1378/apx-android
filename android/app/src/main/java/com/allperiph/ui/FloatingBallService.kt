@@ -581,25 +581,39 @@ class FloatingBallService : Service() {
         for ((id, cell) in fanItems) applyFanState(cell, id)
     }
 
-    private fun attachFan(fan: Fan): Boolean = runCatching {
-        wm.addView(fan.root, fan.lp)
-        // 菜单的矩形包围盒把球也框在里面（球心正是扇形圆心），新加的窗口又在最上层 ——
-        // 不把球重新 add 一次，展开期间就点不到、拖不动它了。视觉上球在圆心、项在外圈，
-        // 两者不重叠，置顶只是把触摸权还给球。
-        raiseBall()
-        true
-    }.getOrElse {
-        Log.w(TAG, "扇形菜单贴窗失败：${it.message}")
-        false
+    private fun attachFan(fan: Fan): Boolean {
+        val added = runCatching {
+            wm.addView(fan.root, fan.lp)
+            true
+        }.getOrElse {
+            Log.w(TAG, "扇形菜单贴窗失败：${it.message}")
+            false
+        }
+        // ⚠️ 置顶必须与 addView 分开兜底：若它失败让整个 attachFan 返回 false，
+        //    菜单窗口已经 add 进去了却没人记着 —— 之后既收不掉也再开不了（变成孤儿窗口）。
+        if (added) raiseBall()
+        return added
     }
 
-    /** 把球窗口重新 add 一次以抬到最上层（复用原 lp，位置与透明度不变） */
+    /**
+     * 把球窗口抬到最上层。
+     *
+     * 菜单窗口是「以球心为中心的矩形」，新 add 的窗口又在最上层 —— 不抬球的话，
+     * 展开期间球被自己的菜单盖住，既点不到也拖不动（用户报的「移动还会退出」里
+     * 就有这一层：以为在拖球，实际点在了菜单上）。
+     * 球与外面那圈项在视觉上并不重叠，抬它只是把触摸权还回来。
+     *
+     * 必须用 removeViewImmediate：普通 removeView 是异步的，窗口记录要等
+     * ViewRootImpl 回收完才清，紧接着 addView 同一 View 会撞
+     * 「View has already been added to the window manager」，而那时球已经被摘掉了 ——
+     * 表现就是球直接消失。
+     */
     private fun raiseBall() {
         val v = ball ?: return
         if (!ballAttached) return
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         runCatching {
-            wm.removeView(v)
+            wm.removeViewImmediate(v)
             wm.addView(v, lp)
         }.onFailure { Log.w(TAG, "悬浮球置顶失败：${it.message}") }
     }
