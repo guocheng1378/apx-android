@@ -93,15 +93,11 @@ class ApShellActivity : ComponentActivity() {
                                 toggleAgent(want)
                             },
                         )
-                        1 -> TouchpadPage(
+                        else -> TouchpadPage(
                             ctx = this@ApShellActivity,
                             onGesture = { ev -> touchpadModule()?.feed(ev) },
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
-                        )
-                        else -> SettingsPage(
-                            ctx = this@ApShellActivity,
-                            onRecreate = { recreate() },
                         )
                     }
                 }
@@ -123,15 +119,6 @@ class ApShellActivity : ComponentActivity() {
                         onClick = { page = 1 },
                         icon = MiuixIcons.ListView,
                         label = "触控板",
-                        enabled = true,
-                    )
-                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
-                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
-                    FloatingNavigationBarItem(
-                        selected = page == 2,
-                        onClick = { page = 2 },
-                        icon = MiuixIcons.ListView,
-                        label = "设置",
                         enabled = true,
                     )
                 }
