@@ -350,6 +350,10 @@ void buildState(const HostBundle& b, Json& out) {
         out["localsend"] = ls;
     }
 
+    // 宿主平台（与 panel_http.cpp 同口径）：Windows 是唯一能枚举真实播放端点的平台，
+    // 前端据此决定「设备下拉」还是「说明态」，别再让空列表被误读成功能坏了。
+    out["platform"] = std::string("windows");
+
     out["link"] = link;
     out["media"] = media;
     out["transports"] = transports;

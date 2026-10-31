@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { bridge, HostState } from '../api/bridge';
+import { bridge, HostState, hostPlatform } from '../api/bridge';
 import { Switch } from './Switch';
-import { useAudioDevices } from './useAudioDevices';
+import { useAudioDevices, audioDeviceHint } from './useAudioDevices';
 
 interface Props { state: HostState }
 
@@ -10,6 +10,8 @@ export const MicCard: React.FC<Props> = ({ state }) => {
   const [on, setOn] = useState(false);
   const [devId, setDevId] = useState('');
   const { devices, defaultName } = useAudioDevices();
+  // 同 SpeakerCard：端点枚举只有 Windows 有，其它平台给说明态（issue #52 第三条）
+  const platform = hostPlatform(state);
   const mic = state.media.mic;
   const running = mic?.running ?? false;
 
@@ -31,15 +33,19 @@ export const MicCard: React.FC<Props> = ({ state }) => {
         <Switch on={on} onChange={toggle} />
       </div>
 
-      <select className="input-field h-[36px] text-[13px]"
-              value={devId}
-              onChange={(e) => setDevId(e.target.value)}>
-        <option value="">跟随系统默认{defaultName ? `（${defaultName}）` : ''}</option>
-        {devices.map((d) => (
-          <option key={d.id} value={d.id}>{d.name}{d.isDefault ? '（默认）' : ''}</option>
-        ))}
-        {devices.length === 0 && <option disabled>（本机不支持枚举播放设备）</option>}
-      </select>
+      {platform === 'windows' ? (
+        <select className="input-field h-[36px] text-[13px]"
+                value={devId}
+                onChange={(e) => setDevId(e.target.value)}>
+          <option value="">跟随系统默认{defaultName ? `（${defaultName}）` : ''}</option>
+          {devices.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}{d.isDefault ? '（默认）' : ''}</option>
+          ))}
+          {devices.length === 0 && <option disabled>（本机不支持枚举播放设备）</option>}
+        </select>
+      ) : (
+        <div className="caption-text text-on-variant leading-snug">{audioDeviceHint(platform, 'capture')}</div>
+      )}
 
       <div className="mt-1 flex flex-col gap-0.5">
         {running ? (
