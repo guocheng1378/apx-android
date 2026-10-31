@@ -626,7 +626,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         tabBarView.elevation = 0f // 无底板 → 不要容器投影
         // 初始朝向由当前配置决定（冷启动时物理朝向 = 配置方向）
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        applyOrientationLayout() // 竖屏/横屏两套 chrome（横屏为沉浸操控面）
+        applyOrientationLayout() // 横屏保持竖屏顶栏/底栏（issue #52 建议 4）
         findViewById<View>(R.id.contentStack).post { snapIndicator() }
         // 方向锁定恢复：重建后 requestedOrientation 已复位为 manifest 默认，必须重新上锁
         restoreOrientLock()
