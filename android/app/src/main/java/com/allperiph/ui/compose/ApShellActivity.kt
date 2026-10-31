@@ -28,6 +28,9 @@ import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
+import com.allperiph.ui.miuix.ApGlassTopBar
+import com.allperiph.ui.miuix.apHazeSource
+import com.allperiph.ui.miuix.rememberApHazeState
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
@@ -70,6 +73,8 @@ class ApShellActivity : ComponentActivity() {
     @Composable
     private fun Shell() {
         val insets = rememberApInsets()
+        // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
+        val hazeState = rememberApHazeState()
         var page by remember { mutableIntStateOf(0) }
         var running by remember { mutableStateOf(AgentController.running) }
 
@@ -83,7 +88,7 @@ class ApShellActivity : ComponentActivity() {
                     .fillMaxSize()
                     .padding(top = if (insets.top > 0.dp) insets.top else 0.dp),
             ) {
-                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                Box(modifier = Modifier.fillMaxSize().weight(1f).apHazeSource(hazeState)) {
                     when (page) {
                         0 -> StatusPage(
                             ctx = this@ApShellActivity,
@@ -106,6 +111,17 @@ class ApShellActivity : ComponentActivity() {
                     }
                 }
             }
+
+            // 顶栏：玻璃渐进模糊 + 当前页标题（内容从栏下滚过）
+            ApGlassTopBar(
+                title = when (page) {
+                    0 -> "状态"
+                    1 -> "触控板"
+                    else -> "设置"
+                },
+                hazeState = hazeState,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
 
             // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
             // 外层只负责贴底（组件内部 Column 会丢弃 BoxScope.align）
