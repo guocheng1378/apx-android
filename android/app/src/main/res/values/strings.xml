@@ -118,7 +118,7 @@
     <string name="ui_main_hint_global_key_forward_off">关闭：仅在 app 前台时转发物理键盘。</string>
     <string name="ui_main_label_root_pointer">外接触控板直读（需 root）</string>
     <string name="ui_main_hint_root_pointer_on">已接管：外接触控板的移动/按键/滚轮走一手硬件事件（App 不在前台也能用）。仅转发事件、不落盘。</string>
-    <string name="ui_main_hint_root_pointer_need_root">需要 root 才能读取硬件事件；当前拿不到 root，仍走原来的窗口通路。</string>
+    <string name="ui_main_hint_root_pointer_need_root">未能接管：读硬件事件需要 root 授权，且要接上外接鼠标/触控板。当前两者有一项不满足，仍走原来的窗口通路（仅 app 前台有效）。</string>
     <string name="ui_main_hint_global_key_forward_need_a11y">已开启转发，但系统「无障碍」里尚未启用本应用 —— 请点这里去开启。</string>
     <string name="ui_common_close">关闭</string>
     <string name="ui_common_copy">复制</string>
