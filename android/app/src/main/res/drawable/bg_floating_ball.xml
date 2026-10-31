@@ -1,9 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球背景：半透明圆（深底白点都看得清） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="@color/ball_bg" />
-    <stroke
-        android:width="1dp"
-        android:color="@color/ball_stroke" />
-</shape>
+<!--
+  悬浮球本体（v223.15 改 MIUI / HyperOS 快捷球风格）。
+  形态：48dp 半透明圆 + 一圈极淡外沿柔光（layer-list 模拟投影 —— overlay 窗口
+  没有父容器，elevation 不会画阴影）。
+  配色全部走 ball_* 令牌，深浅两套由 values-night 覆盖，这个文件不用改。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 外沿柔光：比球身大一圈、透明度更低，远看像一层淡淡的投影 -->
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/ball_halo" />
+        </shape>
+    </item>
+    <!-- 球身 -->
+    <item
+        android:bottom="2dp"
+        android:left="2dp"
+        android:right="2dp"
+        android:top="2dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/ball_bg" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/ball_stroke" />
+        </shape>
+    </item>
+</layer-list>

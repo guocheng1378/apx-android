@@ -6,15 +6,19 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
@@ -23,7 +27,11 @@ import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 /**
  * 悬浮球（反馈#7）：独立系统 overlay 触控板窗口。
@@ -58,6 +66,26 @@ class FloatingBallService : Service() {
         /** 停靠态的透明度（建议 2）：够看得见、又不挡下面的内容 */
         private const val DOCK_ALPHA = 0.42f
 
+        /**
+         * 球直径（dp）。窗口尺寸直接用这个值给死，不走 WRAP_CONTENT ——
+         * 球底 `bg_floating_ball` 是 layer-list，而 shape 基元**没有** intrinsic size，
+         * `WRAP_CONTENT` 会一路塌到子 View（那个 22dp 图标），实测球窗口只有 66px
+         * （22dp，@3x），比设计小一半，顺带把扇形的圆心也带偏。
+         */
+        private const val BALL_DP = 48
+
+        /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
+        private const val LONG_PRESS_MS = 800L
+
+        /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项 */
+        private const val FAN_GAP_DP = 10
+
+        /** 扇形张角的搜索下限（°）。再小就挤成一条线，不如让邻项略叠一点 */
+        private const val FAN_SPAN_MIN = 10f
+
+        /** 张角搜索步进（°）：从上限往下退，退到能放下为止 */
+        private const val FAN_SPAN_STEP = 2.5f
+
         /** 服务实际存活状态（设置行显示用，比持久化的开关位更真实） */
         @Volatile
         var isRunning: Boolean = false
@@ -89,12 +117,25 @@ class FloatingBallService : Service() {
 
     private val wm by lazy { getSystemService(Context.WINDOW_SERVICE) as WindowManager }
 
+    /**
+     * 服务侧的换肤上下文（见 [ThemePref.wrapService]）。
+     *
+     * 菜单／面板／连接模式按钮必须用**它**去 inflate 与取色：`Service` 自身的
+     * `getTheme()` 是 framework 的 `Theme.DeviceDefault.Light.DarkActionBar`，
+     * 解析不到 `?attr/apPrimary` 一族的属性 —— v223.13 起「单击悬浮球」
+     * 就闪退正是栽在这里（InflateException：Failed to resolve attribute）。
+     */
+    private val themed by lazy { ThemePref.wrapService(this) }
+
     private var ball: View? = null
     private var ballAttached = false
     private var panel: View? = null
 
-    /** 功能菜单浮层（issue #52 建议 2）：单击悬浮球展开的那一列 */
+    /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
+
+    /** 展开中的快捷项（id → 那一格 View）：连接模式切换后按它就地刷新选中态 */
+    private val fanItems = mutableListOf<Pair<String, View>>()
 
     /** 已停靠在侧边（半透明、点击恢复）—— 轻拨手势的落点状态 */
     private var docked = false
@@ -102,11 +143,16 @@ class FloatingBallService : Service() {
     /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
     private val dockSnapPx get() = dp(48)
 
+    /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
+    private val touchSlop get() = dp(6)
+
     // 球拖动/点击判定
-    private var dragDX = 0f
-    private var dragDY = 0f
     private var downRawX = 0f
     private var downRawY = 0f
+
+    /** 按下瞬间的窗口坐标（拖动全程以它为基准，避免与世界坐标混算） */
+    private var downWindowX = 0
+    private var downWindowY = 0
     private var downAt = 0L
     private var moved = false
 
@@ -116,7 +162,8 @@ class FloatingBallService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        ThemeSkin.applyRuntimeTheme(this)   // 菜单/面板的 ?attr 强调色（建议 3）
+        // 菜单／面板的 ?attr 强调色由 [themed]（ThemePref.wrapService）负责，
+        // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
         NotificationChannels.ensure(this)
         startForeground(
@@ -182,15 +229,17 @@ class FloatingBallService : Service() {
     private fun addBall() {
         if (ballAttached) return
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
-        val v = ball ?: LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_floating_ball, null).also { ball = it }
+        val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         wm.addView(v, ballLayoutParams())
         ballAttached = true
         setupBallTouch(v)
     }
 
     private fun ballLayoutParams() = WindowManager.LayoutParams(
-        WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.WRAP_CONTENT,
+        // ⚠️ 必须给死尺寸，别用 WRAP_CONTENT：球底是 layer-list，shape 没有 intrinsic
+        //    size，wrap_content 会塌到子 View（那个 22dp 图标）→ 实测球只有 66px。
+        dp(BALL_DP),
+        dp(BALL_DP),
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
@@ -203,19 +252,34 @@ class FloatingBallService : Service() {
 
     private fun setupBallTouch(v: View) {
         v.setOnTouchListener { view, ev ->
+            val lp = view.layoutParams as? WindowManager.LayoutParams
+            if (lp == null) {
+                return@setOnTouchListener false
+            }
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    dragDX = view.x - ev.rawX
-                    dragDY = view.y - ev.rawY
+                    // ⚠️ 记录「按下瞬间手指相对窗口左上角」而不是窗口的世界坐标：
+                    //    overlay 窗口的 x/y 不带状态栏偏移，rawX/rawY 却带 ——
+                    //    直接拿 rawY - y 当偏移，球会一路往屏幕外飘。
                     downRawX = ev.rawX
                     downRawY = ev.rawY
+                    downWindowX = lp.x
+                    downWindowY = lp.y
                     downAt = System.currentTimeMillis()
                     moved = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (abs(ev.rawX - downRawX) > 12 || abs(ev.rawY - downRawY) > 12) moved = true
-                    view.x = ev.rawX + dragDX
-                    view.y = ev.rawY + dragDY
+                    // 先判位移、后动球：阈值内不更新位置，球的视觉与「是拖是点」的判定
+                    // 才不会各说各话 —— 旧版动 1px 就挪球、却要 12px 才算拖动，
+                    // 于是「按住想挪一下」常常落进长按分支，把服务直接关掉。
+                    val dx = ev.rawX - downRawX
+                    val dy = ev.rawY - downRawY
+                    if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                        moved = true
+                    }
+                    if (moved) {
+                        moveBall(view, downWindowX + dx, downWindowY + dy)
+                    }
                 }
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downAt
@@ -224,13 +288,42 @@ class FloatingBallService : Service() {
                         moved -> settleAfterDrag(view)
                         // 停靠态单击 = 恢复悬浮球正常显示（建议 2）
                         docked -> undock(view)
-                        held >= 400 -> shutdown()          // 长按关闭悬浮球
-                        else -> toggleMenu(view)           // 单击展开/收起功能菜单（建议 2）
+                        // 长按关闭：只在「真的没动过」时算数，拖动不背这个锅
+                        held >= LONG_PRESS_MS -> shutdown()
+                        else -> toggleMenu(view)           // 单击展开/收起扇形菜单
                     }
                 }
             }
             true
         }
+    }
+
+    /**
+     * 父框原点相对屏幕的偏移（screen = lp + offset）。
+     *
+     * overlay 窗口的 lp.x / lp.y 是相对**父框**的，而父框顶部被状态栏顶下去（真机 144px）。
+     * 只在屏幕坐标里算位置的地方（拖动夹边、扇形圆心、包围盒）都得拿它换算，
+     * 否则表现就是「球比手指低一截」「扇形比球高一截」。
+     */
+    private fun parentOffset(v: View): Pair<Int, Int> {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return 0 to 0
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        return (loc[0] - lp.x) to (loc[1] - lp.y)
+    }
+
+    /** 把球挪到窗口坐标 (x, y) 并夹进屏内（拖动期间的每一帧都走这里） */
+    private fun moveBall(v: View, x: Float, y: Float) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        val maxX = (dm.widthPixels - left - v.width).coerceAtLeast(0)
+        // ⚠️ 上限要减父框偏移：lp.y 从父框顶部算，屏幕底部还剩多少得先扣掉状态栏那段，
+        //    否则拖到底会被系统自己裁一次，落点比手指高，看着像「一拖就跳／跑掉」。
+        val maxY = (dm.heightPixels - top - v.height).coerceAtLeast(0)
+        lp.x = x.toInt().coerceIn(0, maxX)
+        lp.y = y.toInt().coerceIn(0, maxY)
+        runCatching { wm.updateViewLayout(v, lp) }
     }
 
     // ————————————————————————— 侧边停靠（建议 2） —————————————————————————
@@ -240,23 +333,22 @@ class FloatingBallService : Service() {
      * 落在中间就保持普通显示（顺带把 y 夹回屏内，免得出屏幕找不回来）。
      */
     private fun settleAfterDrag(v: View) {
-        val screenW = resources.displayMetrics.widthPixels
-        val screenH = resources.displayMetrics.heightPixels
-        val cx = v.x + v.width / 2f
-        v.y = v.y.coerceIn(0f, (screenH - v.height).toFloat().coerceAtLeast(0f))
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        val cx = left + lp.x + v.width / 2f
+        lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
         if (v.width > 0 && cx < dockSnapPx) {
-            v.x = 0f
+            lp.x = 0
             docked = true
-        } else if (v.width > 0 && cx > screenW - dockSnapPx) {
-            v.x = (screenW - v.width).toFloat()
+        } else if (v.width > 0 && cx > dm.widthPixels - dockSnapPx) {
+            lp.x = (dm.widthPixels - left - v.width).coerceAtLeast(0)
             docked = true
         } else {
             docked = false
         }
         v.alpha = if (docked) DOCK_ALPHA else 1f
-        // ⚠️ x/y 是在触摸回调里直接赋的，必须显式回写 WindowManager：拖动的那些帧
-        //    靠后续 MOVE 持续吐值掩盖了这个缺口，抬手这一下没有后续帧，不写就不动。
         publishBallPosition(v)
         // 拖动/停靠后菜单与球的相对位置失效，直接收掉，下次点球再按新位置摆
         closeMenu()
@@ -264,36 +356,42 @@ class FloatingBallService : Service() {
 
     /** 停靠态点击 → 恢复正常显示：回到不透明，并往屏内挪出一个球身 */
     private fun undock(v: View) {
-        val screenW = resources.displayMetrics.widthPixels
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
         docked = false
         v.alpha = 1f
-        v.x = if (v.x <= 0f) (v.width.toFloat().coerceAtMost(screenW.toFloat()))
-              else (screenW - v.width * 2).toFloat().coerceAtLeast(0f)
+        lp.x = if (lp.x <= 0) min(v.width, dm.widthPixels)
+               else (dm.widthPixels - v.width * 2).coerceAtLeast(0)
         publishBallPosition(v)
     }
 
     /**
-     * 把球当前的 x/y 真正落回 WindowManager。
+     * 把球当前的窗口坐标落回 WindowManager。
      *
-     * 球窗口的坐标来源是 [WindowManager.LayoutParams] 的 x/y；触摸回调里赋的是
-     * `View.x/View.y`（视图内部偏移），只在后续 `updateViewLayout` 时才会被采纳。
-     * 拖动过程中每帧都在走，抬手与停靠这两处没有后续帧，所以必须显式写一次。
+     * 坐标的唯一真相是 [WindowManager.LayoutParams] 的 x / y —— 旧版把 `View.x` 当
+     * 真身（overlay 里它恒为 0），于是拖动「不跟手」、抬手也「不动」，还得靠额外的
+     * 回写去补，补不齐就飘。现在只在 lp 上改，这里只是统一收口 + 失败日志。
      */
     private fun publishBallPosition(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        lp.x = v.x.toInt()
-        lp.y = v.y.toInt()
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
     }
 
-    // ————————————————————————— 功能菜单（建议 2） —————————————————————————
+    // ————————————————————— 扇形快捷菜单（v223.15，MIUI / HyperOS 快捷球观感） —————————————————————
 
     /**
-     * 单击悬浮球：展开/收起功能菜单。
+     * 单击悬浮球：展开／收起扇形快捷菜单。
      *
-     * 菜单是**独立 overlay 窗口**（不是把面板撑大）—— 球本身只有 60dp，塞不进这些项；
-     * 独立窗口还能让菜单出现在球的哪一侧就贴哪一侧，不会顶到屏幕外。
+     * 为什么是扇形，而不是旧版那一列卡片：
+     * - HyperOS 快捷球的交互就是「球 → 周围一圈快捷项」，用户要的是这个观感；
+     * - 悬浮球住在 overlay 层，任何矩形卡片都会压住球旁边的应用内容；扇形只在球周围
+     *   占一圈，遮挡与视觉重量都最小；
+     * - 圈里有哪些项由**用户勾选**决定（[BallConfig]），不再是写死的四颗按钮。
+     *
+     * ⚠️ 菜单窗口的尺寸 = 那一圈的包围盒，不是整屏：窗口内被子 View 之外的区域由根容器
+     * 接住并收起菜单（点空白处即关），窗口外的触摸照常落给下面的应用（FLAG_NOT_TOUCH_MODAL），
+     * 所以展开菜单时别处还能滑。
      */
     private fun toggleMenu(v: View) {
         if (menu != null) {
@@ -301,108 +399,310 @@ class FloatingBallService : Service() {
             return
         }
         collapse()   // 菜单与触控板面板互斥：面板铺满底部，菜单要占球旁边的位置
-        val m = LayoutInflater.from(ThemePref.wrap(this))
-            .inflate(R.layout.view_floating_menu, null)
-        bindMenu(m)
-        if (!attachMenu(m, v)) return
-        menu = m
+        // 兜底：即便主题／资源出问题，也只让菜单展开失败，不能把整个进程带走
+        val fan = runCatching { buildFan(v) }.getOrElse {
+            Log.w(TAG, "扇形菜单构建失败：${it.message}")
+            return
+        }
+        if (!attachFan(fan)) return
+        menu = fan.root
     }
 
-    /** 把菜单贴到球旁边：球在右半屏 → 菜单摆左边，反之摆右边；纵向与球对齐并夹进屏内 */
-    private fun attachMenu(m: View, ballView: View): Boolean {
+    /** 扇形菜单的「一屏」：包围盒尺寸的根容器 + 它的窗口参数 */
+    private class Fan(val root: View, val lp: WindowManager.LayoutParams)
+
+    /**
+     * 按 [BallConfig.enabled] 生成扇形：球心为圆心、朝**屏幕内侧**铺开。
+     *
+     * 上一版真机表现是「图标散着、还叠在一起」，三个错都在这儿纠：
+     * 1. **张角不能拍脑袋取 44°×n**：球停在边缘／角落时，朝外那半边根本没空间。
+     *    这里改成从上限往下退（[FAN_SPAN_STEP] 一档），退到「每项都完整落在屏内」为止；
+     * 2. **圆心角不能硬取「朝屏心」那个角**：球在角上时它并不是可行区间的中点，
+     *    弧的一半会甩出屏。改成在 0.5° 粒度上搜遍一周，取**离朝屏心方向最近**的可行角；
+     * 3. **半径按弦长定**：相邻两项的弦长（2R·sin(step/2)）必须容得下「图标 + 间隙」，
+     *    不能按「球到屏幕边缘的余量」缩 —— 球贴边时后者会把半径压到比图标还小
+     *    （实测 102px < 156px），相邻两项必然互相盖住。
+     *
+     * 窗口取**所有快捷项外扩一圈的矩形**，而不是固定的正方形包围盒：球贴边时正方形
+     * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
+     */
+    private fun buildFan(ballView: View): Fan {
+        val items = BallConfig.enabled(this)
+        val dm = resources.displayMetrics
+        val screenW = dm.widthPixels
+        val screenH = dm.heightPixels
+        val itemPx = dp(BallConfig.ITEM_DP)
+        val gapPx = dp(FAN_GAP_DP)
+        val half = itemPx / 2f
+        val designR = dp(BallConfig.ARC_RADIUS_DP).toFloat()
+
+        // ⚠️ 圆心必须用「屏幕坐标」，不能直接用 lp.x / lp.y，也不能用 View.x / .y：
+        //    前者相对父框（父框顶部被状态栏顶下去 144px），后者在 overlay 里恒为 0。
+        //    上一版拿 lp.y 当圆心，扇形整体比球高一个状态栏，看着就是「图标不在一个地方」。
+        val ballLp = ballView.layoutParams as? WindowManager.LayoutParams
+        val loc = IntArray(2)
+        ballView.getLocationOnScreen(loc)
+        // 父框原点与 lp 原点的差值：屏幕坐标 = lp + 这个偏移
+        val parentLeft = loc[0] - (ballLp?.x ?: 0)
+        val parentTop = loc[1] - (ballLp?.y ?: 0)
+        val cx = loc[0] + ballView.width / 2f
+        val cy = loc[1] + ballView.height / 2f
+        val n = items.size
+        // 朝屏幕中心（球停在角落时自然变成对角方向）
+        val dirDeg = Math.toDegrees(
+            atan2((screenH / 2f - cy).toDouble(), (screenW / 2f - cx).toDouble()),
+        ).toFloat()
+
+        val centres = ArrayList<Pair<Float, Float>>(n)
+        if (n <= 1) {
+            val a = Math.toRadians(dirDeg.toDouble())
+            centres.add(
+                (cx + designR * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                    (cy + designR * sin(a).toFloat()).coerceIn(half, screenH - half),
+            )
+        } else {
+            var span = min(180f, 44f * (n - 1))
+            while (span >= FAN_SPAN_MIN) {
+                val step = span / (n - 1)
+                // 不重叠所需半径：相邻弦长 2R·sin(step/2) ≥ 图标 + 间隙
+                val r = maxOf(
+                    designR,
+                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+                )
+                var best: List<Pair<Float, Float>>? = null
+                var bestDev = Float.MAX_VALUE
+                var k = 0
+                while (k < 720) {                       // 0.5° 粒度扫一周
+                    val c = dirDeg - 180f + k * 0.5f
+                    val pts = ArrayList<Pair<Float, Float>>(n)
+                    var ok = true
+                    var i = 0
+                    while (i < n) {
+                        val a = Math.toRadians((c - span / 2f + step * i).toDouble())
+                        val x = cx + r * cos(a).toFloat()
+                        val y = cy + r * sin(a).toFloat()
+                        if (x < half || x > screenW - half || y < half || y > screenH - half) {
+                            ok = false
+                            break
+                        }
+                        pts.add(x to y)
+                        i++
+                    }
+                    if (ok) {
+                        var dev = ((c - dirDeg) % 360f + 360f) % 360f
+                        if (dev > 180f) dev = 360f - dev
+                        if (dev < bestDev) {
+                            bestDev = dev
+                            best = pts
+                        }
+                    }
+                    k++
+                }
+                if (best != null) {
+                    centres.addAll(best)
+                    break
+                }
+                span -= FAN_SPAN_STEP
+            }
+            if (centres.isEmpty()) {
+                // 极端兜底（球被挤在角落、项又多）：保持最小张角，逐项夹进屏内。
+                //   宁可邻项略叠一点，也不摆到看不见的地方 —— 叠一点至少每个都点得到。
+                val step = 24f / (n - 1)
+                val r = maxOf(
+                    designR,
+                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+                )
+                for (i in 0 until n) {
+                    val a = Math.toRadians((dirDeg - 12f + step * i).toDouble())
+                    centres.add(
+                        (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                            (cy + r * sin(a).toFloat()).coerceIn(half, screenH - half),
+                    )
+                }
+            }
+        }
+
+        // 窗口 = 所有快捷项外扩一圈的矩形，紧贴扇形，不做无谓的遮挡
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        for ((x, y) in centres) {
+            minX = min(minX, x)
+            minY = min(minY, y)
+            maxX = max(maxX, x)
+            maxY = max(maxY, y)
+        }
+        val pad = half + gapPx
+        minX -= pad
+        minY -= pad
+        maxX += pad
+        maxY += pad
+        val boxW = (maxX - minX).toInt().coerceAtLeast(itemPx)
+        val boxH = (maxY - minY).toInt().coerceAtLeast(itemPx)
+        val wx = minX.toInt()
+        val wy = minY.toInt()
+
+        val shownAt = SystemClock.uptimeMillis()
+        val root = FrameLayout(themed).apply {
+            // 空白处点一下 = 收起菜单（快捷项各吃各的，不会传上来）。
+            // ⚠️ 只认「菜单出现之后」才按下的手势：展开菜单的那一次抬手会落到刚 add 的
+            //    窗口上，不筛 downTime 的话菜单一闪就自己关掉（真机实测）。
+            setOnTouchListener { _, ev ->
+                if (ev.downTime < shownAt) {
+                    true                                   // 吃掉展开手势的残留，别当点击
+                } else {
+                    if (ev.actionMasked == MotionEvent.ACTION_UP) closeMenu()
+                    true
+                }
+            }
+        }
+        fanItems.clear()
+        centres.forEachIndexed { i, (x, y) ->
+            val cell = buildFanItem(items[i])
+            val lpItem = FrameLayout.LayoutParams(itemPx, itemPx).apply {
+                leftMargin = (x - wx - half).toInt()
+                topMargin = (y - wy - half).toInt()
+            }
+            root.addView(cell, lpItem)
+            fanItems.add(items[i] to cell)
+        }
+
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            boxW,
+            boxH,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // 包围盒是按屏幕坐标算的，写回窗口时要把父框偏移减掉（状态栏那 144px）
+            x = wx - parentLeft
+            y = wy - parentTop
+        }
+        return Fan(root, lp)
+    }
 
-        return runCatching {
-            wm.addView(m, lp)
-            // 尺寸要等一次测量：刚 addView 时 width/height 还是 0，算不出贴边的坐标
-            m.post {
-                val screenW = resources.displayMetrics.widthPixels
-                val screenH = resources.displayMetrics.heightPixels
-                val ballRight = ballView.x + ballView.width
-                val rightSide = ballView.x + ballView.width / 2f >= screenW / 2f
-                lp.x = if (rightSide) {
-                    (ballView.x - m.width - dp(8)).toInt().coerceAtLeast(0)
-                } else {
-                    (ballRight + dp(8)).toInt()
-                        .coerceAtMost((screenW - m.width).coerceAtLeast(0))
-                }
-                lp.y = ballView.y.toInt()
-                    .coerceIn(0, (screenH - m.height).coerceAtLeast(0))
-                wm.updateViewLayout(m, lp)
-            }
+    /** 一颗快捷项：52dp 圆 + 居中单色图标（HyperOS 那边也是只给图标，不给文字） */
+    private fun buildFanItem(id: String): View {
+        val cell = FrameLayout(themed).apply {
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(BallConfig.labelRes(id))
+            setOnClickListener { onFanItem(id) }
+        }
+        cell.addView(
+            ImageView(themed).apply {
+                setImageResource(BallConfig.iconRes(id))
+                // 图标是单色遮罩，颜色在这儿定（见 applyFanState）
+                setImageTintList(ColorStateList.valueOf(themed.resources.getColor(R.color.ball_text)))
+            },
+            FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER),
+        )
+        applyFanState(cell, id)
+        return cell
+    }
+
+    /** 快捷项外观：连接模式类按开关态走主色实底，其余走和球同款半透明白／黑 */
+    private fun applyFanState(cell: View, id: String) {
+        val kind = BallConfig.transportOf(id)
+        val on = kind != null && AgentController.isTransportEnabled(this, kind)
+        cell.setBackgroundResource(if (on) R.drawable.bg_ball_item_on else R.drawable.bg_ball_item)
+        val tint = if (on) ThemeSkin.onPrimary(themed) else themed.resources.getColor(R.color.ball_text)
+        (cell as? FrameLayout)?.getChildAt(0)?.let { (it as? ImageView)?.setImageTintList(ColorStateList.valueOf(tint)) }
+    }
+
+    /** 连接模式切完就地刷新那几格，不重建整个扇形（重建会闪一下，且丢按下态） */
+    private fun renderFanStates() {
+        for ((id, cell) in fanItems) applyFanState(cell, id)
+    }
+
+    private fun attachFan(fan: Fan): Boolean {
+        val added = runCatching {
+            wm.addView(fan.root, fan.lp)
             true
         }.getOrElse {
-            Log.w(TAG, "菜单创建失败：${it.message}")
+            Log.w(TAG, "扇形菜单贴窗失败：${it.message}")
             false
         }
+        // ⚠️ 置顶必须与 addView 分开兜底：若它失败让整个 attachFan 返回 false，
+        //    菜单窗口已经 add 进去了却没人记着 —— 之后既收不掉也再开不了（变成孤儿窗口）。
+        if (added) raiseBall()
+        return added
+    }
+
+    /**
+     * 把球窗口抬到最上层。
+     *
+     * 菜单窗口是「以球心为中心的矩形」，新 add 的窗口又在最上层 —— 不抬球的话，
+     * 展开期间球被自己的菜单盖住，既点不到也拖不动（用户报的「移动还会退出」里
+     * 就有这一层：以为在拖球，实际点在了菜单上）。
+     * 球与外面那圈项在视觉上并不重叠，抬它只是把触摸权还回来。
+     *
+     * 必须用 removeViewImmediate：普通 removeView 是异步的，窗口记录要等
+     * ViewRootImpl 回收完才清，紧接着 addView 同一 View 会撞
+     * 「View has already been added to the window manager」，而那时球已经被摘掉了 ——
+     * 表现就是球直接消失。
+     */
+    private fun raiseBall() {
+        val v = ball ?: return
+        if (!ballAttached) return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        runCatching {
+            wm.removeViewImmediate(v)
+            wm.addView(v, lp)
+        }.onFailure { Log.w(TAG, "悬浮球置顶失败：${it.message}") }
     }
 
     private fun closeMenu() {
         detach(menu)
         menu = null
+        fanItems.clear()
     }
 
-    /** 菜单项接线。连接模式三颗按当前开关态渲染，点一下即切（与状态页同一套语义） */
-    private fun bindMenu(m: View) {
-        m.findViewById<TextView>(R.id.btnMenuTouchpad)?.setOnClickListener {
-            closeMenu()
-            expand()
-        }
-        m.findViewById<TextView>(R.id.btnMenuDevices)?.setOnClickListener {
-            closeMenu()
-            // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
-            // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
-            runCatching {
-                startActivity(
-                    Intent(this, MainActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
-                )
+    /** 快捷项分发：触控板面板 / 设备选择 / 文件互传 / 全屏触控板 / 退出 / 连接模式切换 */
+    private fun onFanItem(id: String) {
+        when (id) {
+            BallConfig.TOUCHPAD -> {
+                closeMenu()
+                expand()
             }
-        }
-        m.findViewById<TextView>(R.id.btnMenuFiles)?.setOnClickListener {
-            closeMenu()
-            runCatching {
-                startActivity(
-                    Intent(this, FilePanelActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
+            BallConfig.DEVICES -> {
+                closeMenu()
+                // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
+                // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
+                runCatching {
+                    startActivity(
+                        Intent(this, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
+                    )
+                }
             }
-        }
-        m.findViewById<TextView>(R.id.btnMenuQuit)?.setOnClickListener {
-            closeMenu()
-            quitApp()
-        }
-        for ((id, kind) in listOf(
-            R.id.btnModeWifi to "wifi",
-            R.id.btnModeBt to "bt",
-            R.id.btnModeUsb to "usb",
-        )) {
-            m.findViewById<TextView>(id)?.setOnClickListener { onMenuTransport(kind) }
-        }
-        renderModeButtons(m)
-    }
-
-    /** 连接模式三颗按钮的选中态：开 = 主色实底 + onPrimary 字；关 = 中性描边胶囊 */
-    private fun renderModeButtons(m: View) {
-        for ((id, kind) in listOf(
-            R.id.btnModeWifi to "wifi",
-            R.id.btnModeBt to "bt",
-            R.id.btnModeUsb to "usb",
-        )) {
-            val btn = m.findViewById<TextView>(id) ?: continue
-            val on = AgentController.isTransportEnabled(this, kind)
-            btn.setTextColor(if (on) ThemeSkin.onPrimary(this) else ThemeSkin.primary(this))
-            btn.setBackgroundResource(
-                if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
-            )
+            BallConfig.FILES -> {
+                closeMenu()
+                runCatching {
+                    startActivity(
+                        Intent(this, FilePanelActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.CONSOLE -> {
+                closeMenu()
+                runCatching {
+                    startActivity(
+                        Intent(this, com.allperiph.touchpad.TouchpadActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.QUIT -> {
+                closeMenu()
+                quitApp()
+            }
+            else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }
         }
     }
 
@@ -445,7 +745,7 @@ class FloatingBallService : Service() {
             getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
             Toast.LENGTH_SHORT,
         ).show()
-        menu?.let { renderModeButtons(it) }
+        renderFanStates()
     }
 
     /**
@@ -469,7 +769,12 @@ class FloatingBallService : Service() {
 
     private fun expand() {
         if (panel != null) return
-        val v = LayoutInflater.from(ThemePref.wrap(this)).inflate(R.layout.view_touchpad_panel, null)
+        val v = runCatching {
+            LayoutInflater.from(themed).inflate(R.layout.view_touchpad_panel, null)
+        }.getOrElse {
+            Log.w(TAG, "触控板面板加载失败：${it.message}")
+            return
+        }
         v.findViewById<TextView>(R.id.tvPanelClose)?.setOnClickListener { collapse() }
         v.findViewById<View>(R.id.touchSurface).setOnTouchListener { _, ev ->
             // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB 鼠标帧/蓝牙/无线）

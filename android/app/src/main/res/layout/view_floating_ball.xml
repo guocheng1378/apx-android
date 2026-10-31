@@ -1,20 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 悬浮球：60dp 实底圆球（反馈#7 + 实测改版；issue#44 反馈"太小"放大一档）。
-     配色走 ball_bg / ball_text / ball_stroke 令牌，深浅两套自动切换。 -->
+<!--
+  悬浮球本体（v223.15 改 MIUI / HyperOS 快捷球风格）。
+
+  与旧版的差别：
+  - 60dp 实底 + 一个「●」字 → 48dp 半透明球 + 居中单色图标（HyperOS 快捷球就是这个观感：
+    球本身不抢眼，展开出来的扇形才是重点）；
+  - 球里的图标固定用触控板（这是本 app 的主功能），换功能靠扇形菜单而不是换球；
+  - 配色全部走 ball_* 令牌，深浅两套由 values-night 覆盖。
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="60dp"
-    android:layout_height="60dp"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
     android:background="@drawable/bg_floating_ball"
     android:clickable="true"
     android:focusable="true">
 
-    <TextView
-        android:id="@+id/tvBallState"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+    <ImageView
+        android:id="@+id/ivBallIcon"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
         android:layout_gravity="center"
-        android:text="●"
-        android:textSize="18sp"
-        android:textColor="@color/ball_text" />
+        android:contentDescription="@string/ui_main_label_floating_ball"
+        android:src="@drawable/ic_apx_touchpad"
+        android:tint="@color/ball_text" />
 
 </FrameLayout>

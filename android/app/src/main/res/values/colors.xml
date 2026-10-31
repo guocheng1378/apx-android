@@ -104,6 +104,8 @@
     <color name="ball_bg">#F2FFFFFF</color>
     <color name="ball_text">#CC000000</color>
     <color name="ball_stroke">#33000000</color>
+    <!-- v223.15 MIUI 快捷球：球身外一圈极淡柔光（overlay 无父容器，elevation 画不出阴影） -->
+    <color name="ball_halo">#0F000000</color>
 
     <!--
       快捷键模板色板（vXXX）：模板色此前内联在 `hid/HotkeyTemplates.kt` 里，

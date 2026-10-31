@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  扇形菜单的快捷项底（v223.15）：和球同款半透明圆，按下转主色浅底 + 主色描边。
+  用 selector 而不是代码里临时建 drawable —— 按下态才不会跟着实现走样。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="oval">
+            <solid android:color="?attr/apPrimaryContainer" />
+            <stroke
+                android:width="1dp"
+                android:color="?attr/apPrimary" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/ball_bg" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/ball_stroke" />
+        </shape>
+    </item>
+</selector>

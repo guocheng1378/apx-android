@@ -365,6 +365,22 @@
     <string name="ui_ball_menu_mode_on">已开启 %1$s</string>
     <string name="ui_ball_menu_mode_off">已关闭 %1$s</string>
     <string name="ui_ball_menu_quit_done">外设服务已停止</string>
+
+    <!--
+      v223.15 MIUI 快捷球：扇形菜单的快捷项文案 + 设置页「悬浮球功能」多选。
+      快捷项 id → 文案的映射在 BallConfig.labelRes()，加新项要两处一起改。
+    -->
+    <string name="ui_ball_fn_touchpad">触控板</string>
+    <string name="ui_ball_fn_devices">设备</string>
+    <string name="ui_ball_fn_files">文件</string>
+    <string name="ui_ball_fn_console">全屏触控板</string>
+    <string name="ui_ball_fn_quit">退出</string>
+    <string name="ui_ball_cfg_label">悬浮球功能</string>
+    <string name="ui_ball_cfg_note">单击球展开扇形，只显示勾选项</string>
+    <string name="ui_ball_cfg_title">选择悬浮球功能</string>
+    <string name="ui_ball_cfg_hint">顺序即扇形顺序；勾多了会自动环绕一圈</string>
+    <string name="ui_ball_cfg_keep_one">至少保留一项</string>
+    <string name="ui_ball_cfg_saved">已保存，下次展开生效</string>
     <string name="ui_main_cat_general">通用</string>
     <string name="ui_main_cat_general_hint">模板 · 功能开关 · 方向锁定</string>
     <string name="ui_main_cat_look">外观</string>

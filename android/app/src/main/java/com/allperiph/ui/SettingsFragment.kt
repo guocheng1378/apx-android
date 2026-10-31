@@ -839,6 +839,16 @@ class SettingsFragment : Fragment() {
                 renderTv()
             },
         )
+        // v223.15 MIUI 快捷球：球展开后是扇形，哪些项在圈里由这里勾选（BallConfig 持久化）。
+        //   不要求重启服务 —— 每次展开菜单都现读配置重建扇形，改完下一次点球就生效。
+        tvBox.addView(
+            settingRow(
+                getString(R.string.ui_ball_cfg_label),
+                null,
+                accent,
+                hint = getString(R.string.ui_ball_cfg_note),
+            ) { showBallFunctions() },
+        )
         // 最近连过的设备（ConnectHistory 持久化，v196）：点一下直接重连，不用重新挑设备。
         //   这段曾加在 MainActivity.renderTv() 里，而那个方法后来改成转发到本 Fragment ——
         //   随之被一起丢掉了（ConnectHistory 只写不读、文案零引用），现在补在真正的渲染方。
@@ -935,6 +945,43 @@ class SettingsFragment : Fragment() {
      * 这里经 root 抓**全进程全 tag** 的真 logcat；无 root 时降级为本进程日志
      * （App 读自己的日志不需要 READ_LOGS）。后台线程抓取，抓到回填对话框。
      */
+    /**
+     * 悬浮球功能多选（v223.15）。
+     *
+     * 用 setMultiChoiceItems 而不是自建列表：勾选态由 Dialog 自己维护，
+     * 但「至少留一项」这条约束必须在**点保存之后**再校验并拦住关闭 ——
+     * 空清单会让球展开成一颗空壳，比不给改还糟。
+     */
+    private fun showBallFunctions() {
+        val act = activity ?: return
+        val all = BallConfig.ALL
+        val labels = all.map { getString(BallConfig.labelRes(it)) }.toTypedArray()
+        val on = BallConfig.enabled(act)
+        val checked = BooleanArray(all.size) { all[it] in on }
+        val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
+            .setTitle(getString(R.string.ui_ball_cfg_title))
+            .setMessage(getString(R.string.ui_ball_cfg_hint))
+            .setMultiChoiceItems(labels, checked, null)
+            .setPositiveButton(getString(R.string.ui_common_save), null)
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
+            .create()
+        dlg.setOnShowListener {
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val picked = all.filterIndexed { i, _ ->
+                    dlg.listView.checkedItemPositions.get(i)
+                }
+                if (picked.isEmpty()) {
+                    Toast.makeText(act, getString(R.string.ui_ball_cfg_keep_one), Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                BallConfig.setEnabled(act, picked)
+                Toast.makeText(act, getString(R.string.ui_ball_cfg_saved), Toast.LENGTH_SHORT).show()
+                dlg.dismiss()
+            }
+        }
+        dlg.show()
+    }
+
     private fun showLogcat() {
         val act = activity ?: return
         // 抓取在后台（root logcat 可能要几秒），而「复制 / 导出」按钮**点开时就绑定**了内容 ——

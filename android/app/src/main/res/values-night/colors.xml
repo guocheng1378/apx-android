@@ -58,6 +58,8 @@
     <color name="ball_bg">#F21C1C1E</color>
     <color name="ball_text">#FFEDEDED</color>
     <color name="ball_stroke">#33FFFFFF</color>
+    <!-- v223.15 MIUI 快捷球：深色下的外沿柔光（黑底上投影看不见，改用淡白） -->
+    <color name="ball_halo">#1FFFFFFF</color>
 
     <!--
       快捷键模板色板（vXXX）深色覆盖：终端石墨 #5B6470 与表格墨绿 #1E9E5A
