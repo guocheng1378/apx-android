@@ -297,6 +297,8 @@
     <string name="lay_transport_bt">蓝牙</string>
     <string name="lay_transport_bt_cd">蓝牙开关</string>
     <string name="lay_transport_usb_cd">USB 开关</string>
+    <!-- 状态块三个传输入口按钮的可见标签（原为布局里的字面量「USB」，现由 Compose 渲染） -->
+    <string name="lay_transport_usb">USB</string>
     <string name="lay_status_text_touchpad_cursor_swipe">触控板 —— 手机当鼠标：滑动控光标，轻点左键、双指右键、长按拖选</string>
     <string name="lay_status_text_remote_keyboard">键盘 —— 8 套布局（快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义），插线与 Wi‑Fi 都能用，电脑免驱</string>
     <string name="lay_status_text_hotkey_template">常用快捷键 —— 多套场景模板一键铺开，可拖拽排序、长按按住不放</string>

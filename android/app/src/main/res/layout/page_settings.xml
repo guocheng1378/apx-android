@@ -70,9 +70,13 @@
                 android:paddingTop="@dimen/space_4"
                 android:paddingBottom="@dimen/space_8">
 
-                <!-- 状态块（原状态页并入设置页顶，反馈#10）：状态概览 + 传输按钮。 -->
-                <include
-                    layout="@layout/page_status"
+                <!-- 状态块（原状态页并入设置页顶，反馈#10）：状态概览 + 传输按钮。
+                     第二刀（miuix-ui 续）：整块改由 ApMiuixStatusPane 用 Miuix Compose 渲染，
+                     宿主只留一个 ComposeView 插槽；page_status.xml 与其中的子 id 全部下线。
+                     状态经 ApMiuixStatusState 单向流入（StatusFragment 每秒 refresh 写入），
+                     点击仍回 Activity 原路径（showCategory）。 -->
+                <androidx.compose.ui.platform.ComposeView
+                    android:id="@+id/statusCompose"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
             </LinearLayout>

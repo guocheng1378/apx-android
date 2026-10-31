@@ -89,8 +89,9 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
     private val handler = Handler(Looper.getMainLooper())
     private val disposables = ArrayList<EventBus.Disposable>()
 
-    private lateinit var tvOverall: TextView
-    private lateinit var tvOverallSub: TextView
+    // 状态块的 tvOverall / tvOverallSub / tvIdleHint / boxRunning / boxIdleFeatures 与三个
+    // 传输入口按钮**已整体迁进 Miuix Compose**（ApMiuixStatus.kt）：Activity 侧不再持有这些
+    // 视图，渲染由 StatusFragment 每秒写 ApMiuixStatusState 驱动。
     // 传输三组（groupWifi / groupBt / groupUsb）与它们的模块行容器（rowsWifi / rowsBt /
     // rowsUsb）**只在 StatusFragment 里持有**：显隐由设置页导航 + 该 Fragment 的总开关回读
     // 决定，Activity 侧原先那份按月轮询的 visibility 赋值与这里的绑定一起删掉了。
@@ -104,11 +105,6 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
      * 否则会停在默认的触控板页，用户以为"点错了、跳回触控页了"（真机反馈）。
      */
     private var pickDeviceThenReturn = false
-
-    // 启动后才显示的区域（状态页）
-    private lateinit var tvIdleHint: TextView
-    private lateinit var boxRunning: LinearLayout
-    private lateinit var boxIdleFeatures: LinearLayout
 
     // 触控板页：手势提示 + 常用快捷键条
     private lateinit var touchHint: TextView
@@ -334,15 +330,9 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
     // ————————————————————————— 视图 —————————————————————————
 
     private fun bindViews() {
-        tvOverall = findViewById(R.id.tvOverall)
-        tvOverallSub = findViewById(R.id.tvOverallSub)
         tvDiag = findViewById(R.id.tvDiag)
         btnBattery = findViewById(R.id.btnBattery)
         btnRefresh = findViewById(R.id.btnRefresh)
-
-        tvIdleHint = findViewById(R.id.tvIdleHint)
-        boxRunning = findViewById(R.id.boxRunning)
-        boxIdleFeatures = findViewById(R.id.boxIdleFeatures)
 
         touchHint = findViewById(R.id.tvTouchHint)
         chipRow = findViewById(R.id.chipRow)
@@ -1822,30 +1812,18 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
             lastWidgetSig = widgetSig
             AllPeriphWidget.refreshAll(this)
         }
-        // 大号启动开关（原单总开关）→ 任一类传输开关打开即视为已启用
-        val serviceRunning = AgentForegroundService.running || AgentController.running
-        val anyOn = anyTransportOn()
-        // 启动后才展开状态信息（未启动只有开关与一句提示）
-        boxRunning.visibility = if (anyOn) View.VISIBLE else View.GONE
-        tvIdleHint.visibility = if (anyOn) View.GONE else View.VISIBLE
-        // 未启动时列出"开启后可用"，启动后让位给真实的链路 / 模块状态
-        boxIdleFeatures.visibility = if (anyOn) View.GONE else View.VISIBLE
-        // 未 root：ConfigFS 写不进去，开了也必然失败 —— 提示换成 root 引导。
-        // lastEnv 未探测完时为 null，此时不置灰，避免刚进页面闪一下。
-        val rootMissing = lastEnv?.rooted == false
-        if (!anyOn) {
-            tvIdleHint.text = getString(
-                if (rootMissing) R.string.hint_root_missing else R.string.hint_idle
-            )
-        }
+        // 「大号启动开关」的判定（任一类传输开关打开即视为已启用）现在由状态块自己算：
+        // StatusFragment.refresh 每秒回读开关并写 ApMiuixStatusState（含「未 root 换 root
+        // 引导」那条），这里不再重复算一份 —— 原先 Activity 与 Fragment 各写一遍同一批视图。
+        // 未启动时只有一句提示、启动后才展开状态信息，显隐同样由状态块（Compose）控制。
+
         // 传输分类页（无线 / 蓝牙 / 有线）的显隐**不在这里**：它跟其它分类一样由
         // SettingsFragment 的导航控制。原先这里按 isTransportEnabled 直接置 group* 可见 ——
         // 那正是「点左侧传输按钮进分类」要反过来用的一处（刚切过去就被下一秒刷回 GONE）。
         // 该类是否显示模块行，由 StatusFragment.refresh() 按同一个开关每秒回读。
 
         val st = AgentController.overallState()
-        tvOverall.text = stateLabel(st)
-        tvOverall.setTextColor(resources.getColor(stateColor(st)))
+        // 总状态行已迁 Compose（状态块），这里只驱动顶栏徽章。
         // 顶部状态徽章与总状态同步（文本 + 语义色），并**带上当前上行出口** ——
         // 徽章是一直可见的那一处，"点不动"时用户第一眼就看这里。出口只剩"无出口"时用错误色。
         val path = displayUplinkPath()
@@ -1853,10 +1831,7 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         shellState.badgeArgb = resources.getColor(
             if (path == Uplink.NONE) R.color.state_error else stateColor(st)
         )
-        val envSummary = lastEnv?.summary ?: getString(R.string.common_unknown)
-        // 不再报「启用模块 N 个」：那是内部模块位图计数，用户读不出任何信息
-        // （想细看有哪些功能，去「设置 → 功能开关」）
-        tvOverallSub.text = envSummary
+        // 环境摘要那行文案已由 StatusFragment.refresh 写进状态块（Host.getEnvSummary 同一来源）。
         // 运行摘要的链路口径按实际通道：有 USB 速度才显示 USB 档位；纯蓝牙时提示配对。
         // 原文案固定走 USB 分支，没插线也会显示"建议更换 USB 3.0 线缆"，误导。
         val btRunning = AgentController.module(ModuleId.BTHID)?.state?.isActive == true

@@ -75,8 +75,9 @@
 - 全中文文案，Material 3 配色（`res/values/colors.xml`）与排版层级（`res/values/styles.xml`）；
 - **不引入任何第三方依赖**（与 `app/build.gradle.kts` 的零依赖约定一致），使用 framework
   原生控件，卡片用 shape drawable 模拟 M3 Outlined Card；
-- **文案与真实能力必须对齐**：不可用的功能不得写进状态页的「已实现」清单
-  （两组清单见 `res/layout/page_status.xml`）。
+- **文案与真实能力必须对齐**：不可用的功能不得写进状态页的「已实现」清单。
+- 状态块（设置页左栏：状态概览 + 三个传输入口）自 miuix-ui 第二刀起由
+  `ui/miuix/ApMiuixStatus.kt` 用 Miuix Compose 渲染，`res/layout/page_status.xml` 已删除；
 
 ### v1.33 起补充的三条硬规则
 
