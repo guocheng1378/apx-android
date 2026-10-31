@@ -778,6 +778,37 @@ class SettingsFragment : Fragment() {
                 renderTv()
             }
         })
+
+        // issue #52 建议 6 第二条腿：外接触控板 root 直读。
+        // 需要 root、默认关；拿不到 root 时如实说明仍走窗口通路（不假装成功）。
+        val rpOn = com.allperiph.touchpad.RootPointerBridge.enabled
+        val rpActive = com.allperiph.touchpad.RootPointerBridge.active
+        tvBox.addView(settingRow(
+            getString(R.string.ui_main_label_root_pointer),
+            if (rpOn) {
+                if (rpActive) getString(R.string.ui_main_floating_ball_on)
+                else getString(R.string.ui_main_label_global_key_forward_2)
+            } else getString(R.string.common_off),
+            accent,
+        ) {
+            val act2 = activity ?: return@settingRow
+            val pf = act2.getSharedPreferences("apx_root_pointer", android.content.Context.MODE_PRIVATE)
+            if (rpOn) {
+                com.allperiph.touchpad.RootPointerBridge.setEnabled(act2, pf, false)
+                renderTv()
+            } else {
+                com.allperiph.touchpad.RootPointerBridge.setEnabled(act2, pf, true)
+                if (!com.allperiph.touchpad.RootPointerBridge.active) {
+                    // 开了但没接管成功：没 root 或无指针设备 —— 如实告知，别留假的「已开启」
+                    AlertDialog.Builder(act2, com.allperiph.ui.ThemeSkin.dialogStyle())
+                        .setTitle(getString(R.string.ui_main_label_root_pointer))
+                        .setMessage(getString(R.string.ui_main_hint_root_pointer_need_root))
+                        .setPositiveButton(getString(R.string.ui_common_got_it), null)
+                        .show()
+                }
+                renderTv()
+            }
+        })
         tvBox.addView(settingRow(
             getString(R.string.ui_main_label_remote_power_volume), null, accent,
             hint = getString(R.string.ui_main_hint_remote_keys),

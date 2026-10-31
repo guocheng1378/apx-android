@@ -56,6 +56,11 @@ class App : Application() {
         )
         com.allperiph.shared.accessibility.ApxAccessibilityService.keyForwarder =
             com.allperiph.ui.GlobalKeyForwarder::forward
+        // issue #52 建议 6 第二条腿：外接触控板的 root 直读（默认关）—— 同样在进程
+        // 起点恢复；模块起来后由 RootPointerBridge.start() 实际接管。
+        com.allperiph.touchpad.RootPointerBridge.loadPref(
+            getSharedPreferences("apx_root_pointer", Context.MODE_PRIVATE)
+        )
         registerActivityLifecycleCallbacks(ShieldLifecycle)
     }
 
