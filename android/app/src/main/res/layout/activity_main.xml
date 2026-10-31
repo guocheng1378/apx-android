@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   全能外设 · 主控制面（竖屏，v1.19）。
-  结构：顶栏（复用块 header_bar）+ 四页 ViewFlipper + MIUIX 液态悬浮底栏（复用块 nav_tabs）。
+  结构：Miuix 顶栏（Compose）+ 四页 ViewFlipper + Miuix 悬浮底栏（Compose）。
   v223.13 起**没有** res/layout-land/ 版本：横屏保持同一套顶栏 + 底栏（issue #52 建议 4），
   触控板页的左右分栏由 TouchpadSplit 在运行时重排（旋屏不重建 Activity，本就不吃 layout-land）。
   公共块抽成独立文件，两种朝向共用同一批 id，代码侧 findViewById 无需分支。
@@ -19,10 +19,18 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <include
-            layout="@layout/header_bar"
+        <!-- 顶栏：Miuix Compose 渲染（ApMiuixTopBar）。宿主保留 @id/headerBar，
+             显隐仍由 MainActivity.applyOrientationLayout() 控制（include 的 visibility 本就无效）。 -->
+        <FrameLayout
+            android:id="@+id/headerBar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content">
+
+            <androidx.compose.ui.platform.ComposeView
+                android:id="@+id/headerCompose"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </FrameLayout>
 
         <ViewFlipper
             android:id="@+id/pager"
@@ -178,11 +186,20 @@
         </ViewFlipper>
     </LinearLayout>
 
-    <!-- MIUIX 液态悬浮底栏 -->
-    <include
-        layout="@layout/nav_tabs"
+    <!-- 底栏：Miuix 悬浮玻璃导航栏（ApMiuixBottomBar，Compose 渲染）。
+         宿主保留 @id/tabBar：横竖屏都是这一套 chrome（issue #52 建议 4），
+         显隐由 applyOrientationLayout() 控制；宽度上限与离底间距移进 Compose。 -->
+    <FrameLayout
+        android:id="@+id/tabBar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom">
+
+        <androidx.compose.ui.platform.ComposeView
+            android:id="@+id/navCompose"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+    </FrameLayout>
 
     <!--
       批P：横屏操作条 pill——触控板/键盘切换 + 方向锁 + 设置。

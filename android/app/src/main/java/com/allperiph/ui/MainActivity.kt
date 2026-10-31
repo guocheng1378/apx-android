@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.platform.ComposeView
 import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -90,7 +91,6 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
 
     private lateinit var tvOverall: TextView
     private lateinit var tvOverallSub: TextView
-    private lateinit var badgeStatus: TextView
     // 传输三组（groupWifi / groupBt / groupUsb）与它们的模块行容器（rowsWifi / rowsBt /
     // rowsUsb）**只在 StatusFragment 里持有**：显隐由设置页导航 + 该 Fragment 的总开关回读
     // 决定，Activity 侧原先那份按月轮询的 visibility 赋值与这里的绑定一起删掉了。
@@ -134,16 +134,11 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
 
     // 页签
     private lateinit var pager: ViewFlipper
-    private lateinit var tvPageTitle: TextView
-    private lateinit var tvPageSub: TextView
-    private val tabViews = ArrayList<LinearLayout>()
-    private val tabIcons = ArrayList<ImageView>()
-    private val tabLabels = ArrayList<TextView>()
-    private val tabPills = ArrayList<LinearLayout>()  // 选中态的圆角胶囊底
+    /** Miuix 顶栏 / 底栏的状态源：Activity 写、Compose 读（单向数据流） */
+    private val shellState = com.allperiph.ui.miuix.ApMiuixShellState()
 
-    // MIUIX 液态玻璃底栏：玻璃只做在选中胶囊上（见 NavBarDrawable）
-    private lateinit var navGlass: NavBarDrawable
-    private var indicatorAnimator: ValueAnimator? = null
+    // 底栏：Miuix FloatingNavigationBar（Compose 渲染）—— 玻璃材质与选中胶囊由 Miuix 承担，
+    // 原先自绘的 NavBarDrawable / 胶囊插值动画随本次迁移下线（见 ApMiuixShell.kt）
 
     // 触控板液态光标（v196：光标本体已移交 TouchpadFragment 创建与驱动）
     private lateinit var touchArea: View
@@ -339,8 +334,6 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
     // ————————————————————————— 视图 —————————————————————————
 
     private fun bindViews() {
-        badgeStatus = findViewById(R.id.badgeStatus)
-
         tvOverall = findViewById(R.id.tvOverall)
         tvOverallSub = findViewById(R.id.tvOverallSub)
         tvDiag = findViewById(R.id.tvDiag)
@@ -376,8 +369,26 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         )
 
         pager = findViewById(R.id.pager)
-        tvPageTitle = findViewById(R.id.tvPageTitle)
-        tvPageSub = findViewById(R.id.tvPageSub)
+        // —— Miuix 顶栏 / 底栏：Compose 渲染；状态经 shellState 单向流入，交互仍走本类原方法 ——
+        shellState.title = getString(PAGE_TITLES[PAGE_TOUCHPAD])
+        shellState.subtitle = getString(PAGE_SUBS[PAGE_TOUCHPAD])
+        shellState.badge = getString(R.string.common_unknown)
+        shellState.orientLockLabel = getString(R.string.ui_main_btn_orient_lock)
+        findViewById<ComposeView>(R.id.headerCompose).setContent {
+            com.allperiph.ui.miuix.ApMiuixTheme {
+                com.allperiph.ui.miuix.ApMiuixTopBar(
+                    state = shellState,
+                    onTargetClick = { showTargetMenu() },
+                    onOrientLockClick = { toggleOrientLock() },
+                    onSettingsClick = { showPage(PAGE_SETTINGS) },
+                )
+            }
+        }
+        findViewById<ComposeView>(R.id.navCompose).setContent {
+            com.allperiph.ui.miuix.ApMiuixTheme {
+                com.allperiph.ui.miuix.ApMiuixBottomBar(state = shellState) { page -> showPage(page) }
+            }
+        }
 
         headerBar = findViewById(R.id.headerBar)
         tabBarView = findViewById(R.id.tabBar)
@@ -454,13 +465,11 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
                 landscape = want
                 applyOrientationLayout()
             }
-            handler.post { snapIndicator() }
             return
         }
         // 配置变化时用新配置校准 landscape（与 orientListener 的物理朝向判断互为兜底）
         landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
         applyOrientationLayout()
-        handler.post { snapIndicator() }
     }
 
     private fun applyOrientationLayout() {
@@ -531,9 +540,7 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         }
 
         // 反馈#9：横屏底栏常驻 → 旋屏后重算胶囊位置（原横屏 setIndicator(null) 清除）
-        if (landscape) findViewById<View>(R.id.contentStack).post { animateIndicator() }
         applyImmersive()
-        applyNavBarWidth()
         updateSettingsEntry()
     }
 
@@ -610,29 +617,19 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         cancel.recycle()
     }
 
-    private fun applyNavBarWidth() {
-        val lp = tabBarView.layoutParams as? FrameLayout.LayoutParams ?: return
-        lp.width = min(resources.displayMetrics.widthPixels - dp(32), dp(430))
-        lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        tabBarView.layoutParams = lp
-    }
 
 
 
-    // ————————————————————————— 液态玻璃底栏 —————————————————————————
+    // ————————————————————————— 顶栏 / 底栏（Miuix） —————————————————————————
 
     /**
-     * 底栏**不铺任何底板**：玻璃特效只做在选中胶囊上（见 [NavBarDrawable]），
-     * 半透明白 + 顶部高光 + 极细亮边，切页时胶囊在几个页签之间流动。
+     * 外壳初始化：**顶栏与底栏本身已由 Compose 渲染**（见 [com.allperiph.ui.miuix.ApMiuixShell]），
+     * 这里只做朝向初始化、方向锁定恢复与朝向兜底轮询 —— 不再有自绘玻璃与滑动胶囊。
      */
     private fun setupGlass() {
-        navGlass = NavBarDrawable(this)
-        tabBarView.background = navGlass
-        tabBarView.elevation = 0f // 无底板 → 不要容器投影
         // 初始朝向由当前配置决定（冷启动时物理朝向 = 配置方向）
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         applyOrientationLayout() // 横屏保持竖屏顶栏/底栏（issue #52 建议 4）
-        findViewById<View>(R.id.contentStack).post { snapIndicator() }
         // 方向锁定恢复：重建后 requestedOrientation 已复位为 manifest 默认，必须重新上锁
         restoreOrientLock()
         // 朝向兜底：个别 ROM（MIUI 某些省电/分屏场景）旋屏不派发 onConfigurationChanged，
@@ -682,12 +679,11 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
 
     /** 双入口状态同步：顶栏按钮三态文案（锁定中显示锁定方向）+ 设置开关勾选态（程序化 setChecked 不回调 listener） */
     private fun renderOrientLock() {
-        findViewById<TextView>(R.id.btnOrientLock)?.apply {
-            text = when {
-                !orientLocked -> context.getString(R.string.ui_main_btn_orient_lock)
-                lockedOrient == 1 -> context.getString(R.string.ui_main_btn_orient_locked_land)
-                else -> context.getString(R.string.ui_main_btn_orient_locked_port)
-            }
+        // 顶栏按钮文案进 Compose（三段式：未锁 / 锁横 / 锁竖）
+        shellState.orientLockLabel = when {
+            !orientLocked -> getString(R.string.ui_main_btn_orient_lock)
+            lockedOrient == 1 -> getString(R.string.ui_main_btn_orient_locked_land)
+            else -> getString(R.string.ui_main_btn_orient_locked_port)
         }
         findViewById<Switch>(R.id.swOrientLock)?.isChecked = orientLocked
     }
@@ -699,15 +695,10 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
      */
     private fun updateSettingsEntry() {
         val onSettings = ::pager.isInitialized && pager.displayedChild == PAGE_SETTINGS
-        findViewById<TextView>(R.id.btnSettingsEntry)?.visibility =
-            if (!landscape && !onSettings) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.btnSettingsFloat)?.apply {
-            visibility = View.GONE // 批P：横屏操作条 pill（btnLandSettings）接管
-            text = getString(
-                if (onSettings) R.string.ui_main_btn_settings_back
-                else R.string.ui_main_btn_settings_entry,
-            )
-        }
+        // Miuix 顶栏里的「设置」入口：与旧顶栏同一口径（竖屏、且不在设置页时常驻）
+        shellState.settingsVisible = !landscape && !onSettings
+        // 横屏悬浮入口已由常驻顶栏取代，保持隐藏
+        findViewById<TextView>(R.id.btnSettingsFloat)?.visibility = View.GONE
     }
 
     /** orientPoll 上次 re-request 方向的时刻（3s 冷却，防每秒请求风暴） */
@@ -812,92 +803,26 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         }
     }
 
-    /** 底部页签：绑定点击与选中态（胶囊底 + 图标 / 文字同步染色） */
-    private fun buildTabs() {
-        // 底栏 3 页签：触控板 / 键盘 / 设置（状态页并入设置页，顶栏分页互切）。
-        // 旋转只换布局不切页，页面选择权始终在用户手里。
-        listOf(
-            intArrayOf(R.id.tabTouchpad, R.id.ivTabTouchpad, R.id.tvTabTouchpad, R.id.tabPillTouchpad),
-            intArrayOf(R.id.tabKeyboard, R.id.ivTabKeyboard, R.id.tvTabKeyboard, R.id.tabPillKeyboard),
-            intArrayOf(R.id.tabSettings, R.id.ivTabSettings, R.id.tvTabSettings, R.id.tabPillSettings),
-        ).forEachIndexed { tabIndex, ids ->
-            val page = TAB_PAGES[tabIndex]
-            val tab = findViewById<LinearLayout>(ids[0])
-            tab.setOnClickListener { showPage(page) }
-            // 液态玻璃按压：落点处扩散出一圈玻璃波前 + 整体微缩，松手带 overshoot 弹回。
-            // 震动与触摸音效由 [Feedback] 统一发出，和键盘键帽同一套手感。
-            tab.setOnTouchListener { v, e ->
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        v.animate().cancel()
-                        v.animate().scaleX(0.92f).scaleY(0.92f)
-                            .setDuration(ThemeSkin.motionMs(this@MainActivity, 140L)).start()
-                        Feedback.tap(v)
-                        playGlassRipple(v, tabPills[tabIndex], e.x, e.y)
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        v.animate().cancel()
-                        v.animate().scaleX(1f).scaleY(1f)
-                            .setDuration(ThemeSkin.motionMs(this@MainActivity, 420L))
-                            .setInterpolator(OvershootInterpolator(2.2f)).start()
-                    }
-                }
-                false // 交回给 click
-            }
-            tabViews += tab
-            tabIcons += findViewById<ImageView>(ids[1])
-            tabLabels += findViewById<TextView>(ids[2])
-            tabPills += findViewById<LinearLayout>(ids[3])
-            if (tabIndex == 0) {
-                tab.isLongClickable = true
-                tab.setOnLongClickListener {
-                    showTargetMenu()
-                    true
-                }
-            }
-        }
-        // 初始页固定触控板（横竖屏一致；旋转只换布局，不再自动跳键盘页）
-        showPage(PAGE_TOUCHPAD)
-    }
-
-
     /**
-     * 玻璃扩散：从按下的**落点**向外铺开一圈波前（中心柔光 + 前缘亮环），慢慢变淡后自己收尾。
-     * 落点坐标要从页签容器换算到内层胶囊（两者原点不同），否则光晕会长在页签外。
+     * 底栏：Miuix FloatingNavigationBar（Compose，见 [com.allperiph.ui.miuix.ApMiuixBottomBar]）。
+     * 装配在 bindViews（ComposeView.setContent）里完成，这里只负责初始页。
+     * 旧「长按触控板页签选控制目标」的入口挪到了顶栏状态徽章（Compose 页签只有单击）。
      */
-    private fun playGlassRipple(tab: View, pill: View, x: Float, y: Float) {
-        if (pill.width <= 0 || pill.height <= 0) return
-        val tl = IntArray(2)
-        val pl = IntArray(2)
-        tab.getLocationInWindow(tl)
-        pill.getLocationInWindow(pl)
-        val maxR = maxOf(pill.width, pill.height) * 1.05f
-        val dur = ThemeSkin.motionMs(this, 620L)
-        if (dur <= 0L) return // 动效关闭：只留震动 / 音效
-        val ripple = GlassRipple(
-            x + tl[0] - pl[0],
-            y + tl[1] - pl[1],
-            resources.getColor(R.color.nav_pill_shine),
-            ThemeSkin.primary(this),
-            maxR,
-            dur,
-        ).apply {
-            onFinish = { if (pill.foreground === this) pill.foreground = null }
-        }
-        pill.foreground = ripple
-        ripple.play()
+    private fun buildTabs() {
+        showPage(PAGE_TOUCHPAD)
     }
 
     /** 页 → 底栏页签下标（未映射返回 -1；状态页已并入设置，反馈#10） */
     private fun tabIndexFor(page: Int): Int =
         TAB_PAGES.indexOf(page)
 
-    /** 切页：标题栏、页签染色与选中胶囊同步（内容页各自独立滚动） */
+    /** 切页：ViewFlipper 翻页 + Miuix 顶栏标题/选中页签同步（内容页各自独立滚动） */
     private fun showPage(i: Int) {
         if (!::pager.isInitialized) return
         pager.displayedChild = i
-        tvPageTitle.text = getString(PAGE_TITLES[i])
-        tvPageSub.text = getString(PAGE_SUBS[i])
+        shellState.title = getString(PAGE_TITLES[i])
+        shellState.subtitle = getString(PAGE_SUBS[i])
+        shellState.selectedPage = i
         if (i == PAGE_TOUCHPAD) {
             renderChips()
             // 切回触控板页 = 重新上遮蔽；切走 = 放掉（引用计数，另一操控面同时在时仍生效）
@@ -907,83 +832,13 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         }
         // 反馈#10 批 B：进设置页一律落回分类首页（setupSettingsTabs 内部 showHome）
         if (i == PAGE_SETTINGS) settingsFragment?.setupSettingsTabs()
-        val activeTab = tabIndexFor(i)
-        tabViews.indices.forEach { k ->
-            val on = k == activeTab
-            val color = if (on) ThemeSkin.primary(this) else resources.getColor(R.color.state_idle)
-            tabIcons[k].setColorFilter(color)
-            tabLabels[k].setTextColor(color)
-            tabLabels[k].setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
-            tabPills[k].background = null // 选中底由底栏 Drawable 里的滑动胶囊承担
-        }
         // 状态已并入设置页（反馈#10）：顶栏「状态↔设置」分段及其着色一并移除
         updateSettingsEntry()
-        // 反馈#9：横屏底栏常驻 → 不再提前返回，选中胶囊也跟着滑（四指滑切页保留，只是不再唯一）
-        // 新页布局完成后再滑动胶囊（否则取到的还是上一页的坐标）
-        findViewById<View>(R.id.contentStack).post { animateIndicator() }
+        // 反馈#9：横屏底栏常驻（四指滑切页保留，只是不再唯一）
+        // 顶栏标题 / 底栏选中态由 shellState 驱动，Compose 侧自动重组，无需再摆弄 View
     }
 
-    /** 选中胶囊在页签之间滑动（位移 + 宽度一起插值，像液体被推着走） */
-    private fun animateIndicator() {
-        val bar = tabBarView
-        if (bar.visibility != View.VISIBLE || bar.width <= 0) {
-            navGlass.setIndicator(null)
-            return
-        }
-        val tabIndex = tabIndexFor(pager.displayedChild)
-        if (tabIndex < 0) return
-        val pill = tabPills[tabIndex]
-        if (pill.width <= 0) return
-        val bl = IntArray(2)
-        val pl = IntArray(2)
-        bar.getLocationInWindow(bl)
-        pill.getLocationInWindow(pl)
-        val target = RectF(
-            (pl[0] - bl[0]).toFloat(),
-            (pl[1] - bl[1]).toFloat(),
-            (pl[0] - bl[0] + pill.width).toFloat(),
-            (pl[1] - bl[1] + pill.height).toFloat(),
-        )
-        val from = navGlass.indicatorRect() ?: target
-        indicatorAnimator?.cancel()
-        indicatorAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = ThemeSkin.motionMs(this@MainActivity, 560L)
-            interpolator = DecelerateInterpolator(1.3f)
-            addUpdateListener { a ->
-                val t = a.animatedFraction
-                // 液态：中心沿路径平移（缓出），宽度在中段**膨胀**一下再收回
-                // —— 玻璃被推着走时会先"胖"一圈，落定后恢复目标尺寸。
-                val ease = 1f - (1f - t) * (1f - t)
-                val cx = from.centerX() + (target.centerX() - from.centerX()) * ease
-                val cy = from.centerY() + (target.centerY() - from.centerY()) * ease
-                val bulge = 1f + 0.20f * kotlin.math.sin(Math.PI.toFloat() * t)
-                val w = (from.width() + (target.width() - from.width()) * t) * bulge
-                val h = (from.height() + (target.height() - from.height()) * t)
-                navGlass.setIndicator(RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f))
-            }
-            start()
-        }
-    }
 
-    /** 立即归位（横竖屏切换等无动画场景） */
-    private fun snapIndicator() {
-        indicatorAnimator?.cancel()
-        navGlass.setIndicator(null)
-        val bar = findViewById<View>(R.id.tabBar)
-        val pill = tabPills.getOrNull(tabIndexFor(pager.displayedChild)) ?: return
-        val bl = IntArray(2)
-        val pl = IntArray(2)
-        bar.getLocationInWindow(bl)
-        pill.getLocationInWindow(pl)
-        navGlass.setIndicator(
-            RectF(
-                (pl[0] - bl[0]).toFloat(),
-                (pl[1] - bl[1]).toFloat(),
-                (pl[0] - bl[0] + pill.width).toFloat(),
-                (pl[1] - bl[1] + pill.height).toFloat(),
-            )
-        )
-    }
 
     // ————————————————————————— 触控板页 —————————————————————————
 
@@ -1154,8 +1009,8 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
 
     /** 顶栏徽章：状态文案 + 颜色 + 出口提示（v196 由 Fragment 统一驱动，避免两处各写一份） */
     override fun onStatusBadgeUpdate(stateLabel: String, stateColor: Int, uplinkPath: String) {
-        tvPageSub?.text = stateLabel
-        runCatching { tvPageSub?.setTextColor(stateColor) }
+        shellState.subtitle = stateLabel
+        shellState.subtitleArgb = stateColor
         renderUplink()
     }
 
@@ -1663,10 +1518,7 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         tvDiag.setOnClickListener { showRootHelp() }
         // 模块配色：导出 / 导入 / 分享
         // 方向锁定：顶栏按钮（竖屏快捷）+ 设置页开关（横屏经四指滑可达），两入口由 renderOrientLock 同步
-        findViewById<TextView>(R.id.btnOrientLock)?.setOnClickListener {
-            Feedback.tap(it)
-            toggleOrientLock()
-        }
+        // 方向锁定 / 设置入口的点击已在 Miuix 顶栏（Compose）里接线，见 bindViews
         findViewById<Switch>(R.id.swOrientLock)?.apply {
             isChecked = orientLocked
             setOnCheckedChangeListener { _, on -> setOrientLock(on) }
@@ -1685,12 +1537,7 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         findViewById<TextView>(R.id.btnLandKeyboard)?.setOnClickListener { Feedback.tap(it); showPage(PAGE_KEYBOARD) }
         findViewById<TextView>(R.id.btnLandLock)?.setOnClickListener { Feedback.tap(it); toggleOrientLock() }
         findViewById<TextView>(R.id.btnLandSettings)?.setOnClickListener { Feedback.tap(it); showPage(PAGE_SETTINGS) }
-        // 右上角设置入口常驻（反馈#2）：竖屏顶栏 btnSettingsEntry、横屏悬浮 btnSettingsFloat，
-        // 不再依赖「四指滑 / 底栏页签」才能进设置页。
-        findViewById<TextView>(R.id.btnSettingsEntry)?.setOnClickListener {
-            Feedback.tap(it)
-            showPage(PAGE_SETTINGS)
-        }
+        // 设置入口：竖屏由 Miuix 顶栏常驻（Compose），横屏走底栏「设置」页签。
         findViewById<TextView>(R.id.btnSettingsFloat)?.setOnClickListener {
             Feedback.tap(it)
             // 横屏设置页上它当「返回」用（四指滑之外再给一条退路），其余页面进设置
@@ -2001,15 +1848,11 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         tvOverall.setTextColor(resources.getColor(stateColor(st)))
         // 顶部状态徽章与总状态同步（文本 + 语义色），并**带上当前上行出口** ——
         // 徽章是一直可见的那一处，"点不动"时用户第一眼就看这里。出口只剩"无出口"时用错误色。
-        if (::badgeStatus.isInitialized) {
-            val path = displayUplinkPath()
-            badgeStatus.text = "${stateLabel(st)} · ${Uplink.label(path)}"
-            badgeStatus.setTextColor(
-                resources.getColor(
-                    if (path == Uplink.NONE) R.color.state_error else stateColor(st)
-                )
-            )
-        }
+        val path = displayUplinkPath()
+        shellState.badge = "${stateLabel(st)} · ${Uplink.label(path)}"
+        shellState.badgeArgb = resources.getColor(
+            if (path == Uplink.NONE) R.color.state_error else stateColor(st)
+        )
         val envSummary = lastEnv?.summary ?: getString(R.string.common_unknown)
         // 不再报「启用模块 N 个」：那是内部模块位图计数，用户读不出任何信息
         // （想细看有哪些功能，去「设置 → 功能开关」）
