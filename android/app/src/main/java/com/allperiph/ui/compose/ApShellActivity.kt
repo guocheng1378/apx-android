@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -73,6 +75,11 @@ class ApShellActivity : ComponentActivity() {
     @Composable
     private fun Shell() {
         val insets = rememberApInsets()
+        // 反馈 #52（新一轮）第 4 条：横屏底部留白按 96dp 统一，不再让底栏压住页面内容；
+        // 竖屏 88dp（底栏自身高度 + 一点呼吸）
+        // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
+        val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val bottomGap = if (landscape) 96.dp else 88.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         var page by remember { mutableIntStateOf(0) }
@@ -88,7 +95,15 @@ class ApShellActivity : ComponentActivity() {
                     .fillMaxSize()
                     .padding(top = if (insets.top > 0.dp) insets.top else 0.dp),
             ) {
-                Box(modifier = Modifier.fillMaxSize().weight(1f).apHazeSource(hazeState)) {
+                // 顶栏是玻璃叠层、底栏是浮动导航条，两者都盖在内容之上：
+                // 这里给内容留出 64dp（顶栏高）+ 96dp（底栏 + 反馈 #52 第 4 条要求的横屏留白）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .apHazeSource(hazeState)
+                        .padding(top = 64.dp, bottom = insets.bottom + bottomGap),
+                ) {
                     when (page) {
                         0 -> StatusPage(
                             ctx = this@ApShellActivity,
