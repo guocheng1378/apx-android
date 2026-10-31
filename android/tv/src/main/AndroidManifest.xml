@@ -21,7 +21,7 @@
       这是「已知限制、显式声明」，不是静默忽略 —— 若日后 Miuix 依赖真正 24+ 的
       API，会表现为运行期 NoSuchMethodError，届时再抬 minSdk。
     -->
-    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.ui,top.yukonga.miuix.kmp.icon" />
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.ui,top.yukonga.miuix.kmp.core,top.yukonga.miuix.kmp.icon" />
 
     <!-- 局域网 TCP 控制面（ServerSocket + UDP 信标） -->
     <uses-permission android:name="android.permission.INTERNET" />
