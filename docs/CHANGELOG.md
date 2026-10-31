@@ -4,6 +4,73 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.14（2026-10-31）
+
+本版补上 **issue #52 建议 6**（「app 设为输入法/无障碍 → 采集输入映射到电脑，
+不必把 app 挂前台」）—— v223.13 时该建议标为待定，现两条腿都已落地（PR #54、#56），
+另含 #56 的真机修正（PR #57）。
+
+### 建议 6 · 不把 app 挂前台也能用键鼠
+
+该能力在 Android 上分两条腿，各自独立开关、独立门槛：
+
+- **键盘腿（无需 root，默认关）**——PR #54 已合入
+  - 走**无障碍 `onKeyEvent`** 全局转发：新增 `ui/GlobalKeyForwarder.kt`（不持有
+    Activity，进程起点恢复开关，SharedPreferences 持久化）与 `ui/HidKeyMap.kt`
+    （keyCode → HID usage 的**单一真源**，`PhysKeyBridge` 改调它，两边不再各写一份码表）。
+  - `ApxAccessibilityService` 加 `onKeyEvent` 与静态钩子（:shared 不能反依赖 :app，
+    故用钩子接）：界面不在前台时按键照样转发。
+  - 需要系统「无障碍」里启用本应用；未启用时设置页**直接带到无障碍设置页**，
+    不给假「已开启」。
+  - **隐私边界**：只转发物理按键本身 —— **不读取输入内容、不读剪贴板、不落盘**。
+- **触控板腿（需 root，默认关）**——PR #56 合入，#57 修正
+  - 触控板位移没有对应的无障碍事件：外接指针的原始位移被系统当**光标**消费，
+    App 不在前台时窗口根本收不到 `MotionEvent`。故直接读硬件：
+    `EvdevPointerReader` 从 `/proc/bus/input/devices` 选指针设备，用
+    **`su -c cat <event 节点>`** 读裸 `input_event`（拿到 root 授权 ≠ 有权直接
+    `open` 该字符设备），只解析 `EV_REL`（X/Y/WHEEL/HWHEEL）与
+    `BTN_LEFT/RIGHT/MIDDLE`，在 `EV_SYN` 处成帧。
+  - `RootPointerBridge` 把位移喂 `TouchpadModule.feedPointer`，与屏上触摸、
+    窗口 hover **同一出口**；按钮位图持久保留（否则「按住拖动」会在第二帧断）；
+    接管时令窗口 hover 通路让位，避免位移双计。
+  - 拿不到 root 或没接指针设备时**如实提示**，仍走原窗口通路，不显示假的「已开启」。
+
+### 修正（PR #57）· 真机内核无 mousedev 时指针设备发现必空
+
+真机复验（小米 15 / Android 15）发现 #56 的设备发现逻辑在该内核上**静默失效**：
+
+- `cat /proc/bus/input/handlers` 只注册了 `leds / evdev / input-boost / xiaomi-fp /
+  xiaomi-touch / kgsl` —— **没有 mousedev**；`/dev/input/` 下只有 `eventN`、
+  没有 `mouseN` 节点，全机设备 `mouseN` 出现 **0 次**。
+- 原实现只认 Handlers 里的 `mouseN`，于是恒返回空、开关开了也不接管
+  （与问题 5「状态显示与实际不符」同类）。
+
+修法：判据改为「`mouseN` **或** 能力位图（`EV` 含 `EV_REL` 且 `KEY` 含 `BTN_LEFT`）」
+取或，并改用 `eventN` 定位节点。触摸屏是 `EV_ABS`、键盘无 `EV_REL`、手柄无 `REL`，
+据此都不入选；自家虚拟设备按名字继续排除以防自激。
+
+### 真机验证（本机内核）
+
+- **位图分组顺序**：用真机 `gpio-keys` 的 `KEY=8000000000000 0` 核对 —— 位 115
+  （`KEY_VOLUMEUP`，真机音量键）命中，确认首组为高位组、`gi = size-1-(b/64)`，
+  与内核 `input_print_bitmap` 的逆序输出一致。
+- **解析层端到端**：用 `/dev/uinput` 造真指针设备（该内核 legacy write 返 `EINVAL`，
+  须走 `UI_DEV_SETUP`），发 `EV_REL(7,-3)` / `BTN_LEFT` 按下再松开 / `WHEEL +1`，
+  用与 Kotlin 端**逐行等价**的解析器读 `eventN`：得 `[(7,-3)]` / `[1,0]` / `[1]`,
+  24 字节/帧、`type@16`/`code@18`/`value@20`、`EV_SYN` 成帧、按钮位图全部正确。
+  该设备 Handlers 无 `mouseN`：**新判据认出、旧判据漏掉**。
+- **实际读取路径**：走 App 真正用的 `su -c cat <eventN>`（subprocess stdout 读裸二进制）
+  复验，位移 `[(12,-5)]` / 按钮 `[1,0]` / 滚轮 `[-2]` 全部正确，stderr 未污染 stdout。
+- `com.allperiph` 已在本机 KernelSU 授权列表内（`/data/adb/ksu/.allowlist`），
+  应用侧确实能拿到 root。
+
+### 验证状态
+
+- CI：Android 编译 + lint、PC 三平台、协议校验、mac 构建。
+- 触控板腿已验证到**解析层与 `su -c cat` 读取层**（真机合成设备）；
+  **接真鼠标/触控板的实操端到端仍待真机回验**。
+- v223.13 遗留的待回验项（建议 3 莫奈取色、问题 3/5/6）不变。
+
 ---
 
 ## v223.13（2026-10-31）
