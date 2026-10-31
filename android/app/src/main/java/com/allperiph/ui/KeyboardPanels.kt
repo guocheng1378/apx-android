@@ -460,6 +460,10 @@ class KeyboardPanels(private val act: Activity) {
             override fun run() {
                 if (!repeatOn) return
                 repeatFired = true
+                // 连发前先全释放：55ms 的连发节奏短于 combo()/tap() 的 60ms 自动释放窗口，
+                // 不清就会「内容没变的重复帧」——对端看不到新的按下边沿，长按只出第一个字符
+                //（issue #52 第三条「无线模式虚拟键盘无法长按连续输入」）。
+                HidKeys.releaseNow()
                 onTap()
                 this@apply.postDelayed(this, 55L)
             }
