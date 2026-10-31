@@ -29,6 +29,14 @@ type Transport = 'webview' | 'http' | 'mock';
  * 播放（渲染）设备 —— 与后端 `AudioCapture::listRenderDevices` 同源。
  * Windows 走 IMMDeviceEnumerator 有真实列表；macOS / Linux 无此概念，后端返回空表。
  */
+export type HostPlatform = 'windows' | 'macos' | 'linux';
+
+/** 后端 platform 字段 → 联合类型；缺字段/不认识的平台一律按 windows（老宿主兜底） */
+export function hostPlatform(state: { platform?: string } | undefined): HostPlatform {
+  const p = state?.platform;
+  return p === 'macos' || p === 'linux' ? p : 'windows';
+}
+
 export interface AudioDevice {
   id: string;
   name: string;
@@ -36,6 +44,15 @@ export interface AudioDevice {
 }
 
 export interface HostState {
+  /**
+   * 宿主平台：'windows' | 'macos' | 'linux'。
+   *
+   * 后端两套 buildState 都下发（Windows 的 web_panel.cpp / mac+Linux 的 panel_http.cpp）。
+   * 只用来区分**平台能力差异**，不要拿它做业务分支：例如「本机能否枚举播放端点」
+   * 只有 Windows 有（issue #52 第三条反馈：macOS 上空下拉被当成功能坏了）。
+   * 老宿主没有这个字段 → 按 'windows' 兜底（WebView2 只在 Windows 上存在）。
+   */
+  platform?: HostPlatform;
   link: {
     phase: number;             // 0=idle 1=disconnecting 2=connecting 3=connected 4=failed
     phaseName: string;
@@ -168,6 +185,7 @@ class Bridge {
     const mockInterval = setInterval(() => {
       if (this.stateListeners.size === 0) return;
       const state: HostState = {
+        platform: 'windows',
         link: {
           phase: 3, phaseName: 'connected',
           peer: '192.168.1.5:9511', rttMs: 12, upMs: 12345000,

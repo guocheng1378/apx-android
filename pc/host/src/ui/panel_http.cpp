@@ -408,6 +408,15 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         out["localsend"] = ls;
     }
 
+    // 宿主平台：前端据此把「本机不支持枚举播放设备」这类**平台差异**讲清楚
+    //（issue #52 第三条反馈：macOS 上音箱/麦克风下拉永远空着，被当成功能坏了）。
+    // 字段名与 web_panel.cpp（Windows WebView2）保持同一口径，缺字段时前端按 windows 兜底。
+#if defined(__APPLE__)
+    out["platform"] = std::string("macos");
+#else
+    out["platform"] = std::string("linux");
+#endif
+
     out["link"] = link;
     out["media"] = media;
     out["transports"] = transports;

@@ -26,8 +26,11 @@ import com.allperiph.wireless.ControlTarget
  *  ② [Uplink.resolve] 无可用出口 → 放行（没连电脑时蓝牙键盘就是普通手机键盘）
  *  ③ 修饰键（Shift/Ctrl/Alt/Win）→ 消费并自记 heldMods（位图随后续按键发）
  *  ④ 认不出的键（音量/媒体/Back/Home…）→ 放行，手机系统功能不受影响
- *  ⑤ 其余映射 USB HID usage → [HidKeys.combo]（与屏上快捷键同一条链路，
- *     60ms 自动释放；重复事件会续期释放定时器 = 电脑侧自然长按/自动重复）
+ *  ⑤ 其余映射 USB HID usage → 按下用 [HidKeys.hold] **按住不放**，抬起才 [HidKeys.releaseHold]
+ *     （旧实现一律走 [HidKeys.combo]，60ms 后自动全释放；系统的自动重复事件再把这个窗口
+ *     续期，于是长按只出首按 + 首个重复两个字符 —— issue #52 第三条）
+ *     系统自动重复事件：USB / 蓝牙 HID 的对端是真键盘设备，重复由对端系统自己做，这里忽略；
+ *     无线 9511 注入的是合成事件、对端不会重复 —— 由本机按重复节奏补一对 抬起 → 按下。
  *
  * 出口判据不自写：一律 [Uplink.resolve]（与 HidKeys.send / 通知栏 / 界面同口径）。
  */
@@ -117,9 +120,21 @@ internal class PhysKeyBridge(private val act: Activity) {
         val usage = usageOf(event.keyCode)
         if (usage == 0) return false
 
-        // ⑤ 发送：与屏上快捷键同链路（60ms 自动释放；重复事件续期 = 电脑侧自然长按）
+        // ⑤ 发送
+        val combo = HidKeys.Combo("", heldMods or metaMod(event.metaState), usage)
         if (action == KeyEvent.ACTION_DOWN) {
-            HidKeys.combo(HidKeys.Combo("", heldMods or metaMod(event.metaState), usage))
+            if (event.repeatCount == 0) {
+                // 首次按下：按住不放，直到 ACTION_UP 才释放（长按/按住 Shift 连续选字都对）
+                HidKeys.hold(combo)
+            } else if (Uplink.current == Uplink.WIRELESS) {
+                // 无线：对端收到的是合成注入事件，不会自己重复 —— 每来一次自动重复，
+                // 先清一次再按下，造出真实的边沿 = 对端出一个字符。
+                HidKeys.releaseNow()
+                HidKeys.hold(combo)
+            }
+            // USB / 蓝牙 HID：对端是真实键盘设备，按住不放它自己就会重复，这里什么都不做
+        } else {
+            HidKeys.releaseHold()
         }
         return true
     }

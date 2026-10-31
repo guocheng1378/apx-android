@@ -305,10 +305,21 @@ void buildTlcDigitizer(Builder& b) {
 
 std::vector<uint8_t> buildReportDescriptor() {
     Builder b;
+    // ★ 顶层 collection（TLC）的顺序有语义，不是随便排的 —— issue #52 第三条反馈：
+    //   「USB 模式下设备只被上报成音频类型……手柄功能无法使用」。
+    //   macOS 的 HID 栈按描述符里**第一个** TLC 决定这个 HID 接口的主用途
+    //   （IOHIDDevice 的 PrimaryUsagePage / PrimaryUsage）；Gamepad 排在第四位时，
+    //   GameController 框架不会把它注册成手柄设备。Windows 是按 collection 逐个
+    //   枚举子设备的，顺序对它没有影响。
+    //   所以 Gamepad 提到最前：主用途 = Generic Desktop / Gamepad（0x0001 / 0x0005）。
+    //   回退办法：把这一行挪回 buildTlcKeyboard 之后即可 —— report ID（22）、
+    //   report length 与打包函数 packGamepad 都不变，改的只是描述符字节顺序。
+    //   注意：改了 TLC 顺序后必须重新核对 report_length（ConfigFsLayout.functionProps
+    //   用同一个 reportLength 与 reportDescSource），长度对不上 f_hid 会装载失败。
+    buildTlcGamepad(b);
     buildTlcMouse(b);
     buildTlcConsumer(b);
     buildTlcKeyboard(b);
-    buildTlcGamepad(b);
     // ⚠️ PTP 触控板（Digitizer，Report 16-20）与电池（Battery，Report 6）**暂时移出 USB 描述符**。
     // 真机（本 PC）复现：MI_00 HID 接口 Code 10（STATUS_IO_TIMEOUT，ProblemStatus=0xC00000B9）——
     // Windows 的 PTP 触控板栈启动时会发 GET_REPORT（Input Mode / Surface Switch 等 Feature），
