@@ -59,6 +59,19 @@ class ApxAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {}
 
+    /**
+     * 物理键盘全局转发的入口钩子（issue #52 建议 6）。
+     *
+     * ⚠️ 为什么是钩子而不是直接调转发器：本类在 `:shared` 模块，转发器在 `:app`
+     * （要碰 HidKeys/Uplink/AgentController），而 `:app` 依赖 `:shared`、反向不可。
+     * 与 [onFocusDetected] 同一模式 —— 由 `:app` 的 App.onCreate 注册实现。
+     * 未注册（或用户未开启）时 [onKeyEvent] 返回 false，按键照常给本地。
+     */
+    override fun onKeyEvent(event: android.view.KeyEvent?): Boolean {
+        if (event == null) return false
+        return keyForwarder?.invoke(event) ?: false
+    }
+
     private fun post(action: () -> Unit) {
         val h = mainHandler
         if (h != null && Looper.myLooper() != Looper.getMainLooper()) h.post(action) else action()
@@ -176,6 +189,16 @@ class ApxAccessibilityService : AccessibilityService() {
          */
         @Volatile
         var onFocusDetected: ((String) -> Unit)? = null
+
+        /**
+         * 物理键盘转发钩子（issue #52 建议 6）：`:app` 侧注册全局转发器的 forward。
+         * 返回 true = 已转发/已消费（本地不再响应这颗键）。
+         *
+         * 必须是**静态**的：无障碍服务由系统随时重建，挂在实例上会在重建后丢失。
+         * 默认 null = 不转发（零行为变化），只有用户在设置页显式开启并注册实现后才生效。
+         */
+        @Volatile
+        var keyForwarder: ((android.view.KeyEvent) -> Boolean)? = null
 
         /**
          * 防环：本机正在替对端做远程输入（RemoteInputActivity / RemoteInputOverlay 显示中）时置 true。

@@ -73,7 +73,7 @@
 
     <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
 
-    <string name="accessibility_desc">全能外设「被控模式」：把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（无需 root）。需要在系统「无障碍」里启用本服务，并允许「显示在其他应用上层」以显示光标。</string>
+    <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
     <string name="controlled_enable_hint">被控模式已打开：请到系统「无障碍」里启用「全能外设」，并允许「显示在其他应用上层」，手机发来的操作才能真正作用到本机（没授权时只能看到一个跟着动的光标）。</string>
 
     <!-- ↓↓↓ 从 Kotlin 迁入（scripts/kotlin_i18n.py）↓↓↓ -->
@@ -111,6 +111,12 @@
     <string name="ui_main_label_recent_devices">最近连过的设备</string>
     <string name="ui_main_text_no_recent">还没有记录 —— 连上一次就会出现在这里</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
+    <!-- issue #52 建议 6：物理键盘全局转发（无界面也能用键盘） -->
+    <string name="ui_main_label_global_key_forward">物理键盘全局转发</string>
+    <string name="ui_main_label_global_key_forward_2">不打开 app 也能用</string>
+    <string name="ui_main_hint_global_key_forward_on">已开启：实体键盘按键会转发到电脑。仅转发按键本身，不读取输入内容、不落盘。需在系统「无障碍」里启用本应用。</string>
+    <string name="ui_main_hint_global_key_forward_off">关闭：仅在 app 前台时转发物理键盘。</string>
+    <string name="ui_main_hint_global_key_forward_need_a11y">已开启转发，但系统「无障碍」里尚未启用本应用 —— 请点这里去开启。</string>
     <string name="ui_common_close">关闭</string>
     <string name="ui_common_copy">复制</string>
     <string name="ui_common_copied">已复制</string>
