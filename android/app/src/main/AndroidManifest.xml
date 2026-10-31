@@ -123,8 +123,8 @@
           切换与回退都只涉及这一处。
         -->
         <activity
-            android:name=".ui.compose.ApStatusActivity"
-            android:label="状态（Miuix）"
+            android:name=".ui.compose.ApShellActivity"
+            android:label="全能外设（Miuix 迁移预览）"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AllPeriph" />
