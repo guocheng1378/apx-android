@@ -30,8 +30,20 @@ object ThemePref {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putInt(KEY_MODE, mode).apply()
     }
 
-    /** 把用户选择注入资源配置；[AUTO] 时原样返回，交给系统日夜模式决定 */
+    /**
+     * 把用户选择注入资源配置；[AUTO] 时原样返回，交给系统日夜模式决定。
+     *
+     * 顺带把「跟随系统取色」的叠加层盖上：服务（悬浮球 / 触控板面板）和弹窗都是拿这个
+     * 上下文去 inflate 的，`?attr/apPrimary` 得在这个主题里能解析到。
+     * Activity 那条路径上这次叠加会被随后的 setTheme 冲掉，所以在 onCreate 里另调一次。
+     */
     fun wrap(base: Context): Context {
+        val ctx = wrapNight(base)
+        ThemeSkin.applyRuntimeTheme(ctx)
+        return ctx
+    }
+
+    private fun wrapNight(base: Context): Context {
         val mode = get(base)
         if (mode == AUTO) return base
         val conf = Configuration(base.resources.configuration)

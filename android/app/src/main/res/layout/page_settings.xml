@@ -504,7 +504,7 @@
                     android:paddingEnd="@dimen/space_2"
                     android:paddingBottom="@dimen/space_6"
                     android:text="@string/ui_main_template_expand"
-                    android:textColor="@color/md_primary"
+                    android:textColor="?attr/apPrimary"
                     android:textSize="13sp" />
             </LinearLayout>
 

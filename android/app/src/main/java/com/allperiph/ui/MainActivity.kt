@@ -192,6 +192,8 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        ThemeSkin.applyRuntimeTheme(this)
         // ⚠️ 截屏已放开（用户反馈：不能截屏 = 没法截图反馈界面问题）。
         // 此前这里挂 FLAG_SECURE，截图/录屏/最近任务缩略图全黑，排查 UI 只能靠口述；
         // TouchpadActivity 同步移除，两处口径一致。
@@ -317,7 +319,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
     override fun onBackPressed() {
         if (backDialog?.isShowing == true) return
         val running = AgentForegroundService.running || AgentController.running
-        backDialog = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        backDialog = AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_exit))
             .setMessage(
                 if (running) getString(R.string.ui_main_text_exit)
@@ -871,7 +873,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             x + tl[0] - pl[0],
             y + tl[1] - pl[1],
             resources.getColor(R.color.nav_pill_shine),
-            resources.getColor(R.color.md_primary),
+            ThemeSkin.primary(this),
             maxR,
             dur,
         ).apply {
@@ -903,7 +905,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         val activeTab = tabIndexFor(i)
         tabViews.indices.forEach { k ->
             val on = k == activeTab
-            val color = resources.getColor(if (on) R.color.md_primary else R.color.state_idle)
+            val color = if (on) ThemeSkin.primary(this) else resources.getColor(R.color.state_idle)
             tabIcons[k].setColorFilter(color)
             tabLabels[k].setTextColor(color)
             tabLabels[k].setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
@@ -1015,7 +1017,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             perRow = 4,
             fixedRows = 0,
             stretchRows = false,
-            accent = resources.getColor(R.color.md_primary),
+            accent = ThemeSkin.primary(this),
             textPrimary = resources.getColor(R.color.md_on_surface),
             textSecondary = resources.getColor(R.color.md_on_surface_variant),
         )
@@ -1177,7 +1179,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
     override fun templateColor(): Int =
         HotkeyTemplates.byKey(HotkeyStore.loadTemplate(this))
             ?.let { HotkeyTemplates.resolveColor(this, it) }
-            ?: resources.getColor(R.color.md_primary)
+            ?: ThemeSkin.primary(this)
 
     /** 同色调的浅底（12% 不透明度），给 chip / 模板行做底 */
     override fun softTint(color: Int): Int =
@@ -1249,7 +1251,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             adapter.notifyDataSetChanged()
         }
         rebuild()
-        val dlg = AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        val dlg = AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setAdapter(adapter) { _, which ->
                 val tvs = TvDiscovery.list()
@@ -1291,7 +1293,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_input))
             .setView(edit)
             .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->
@@ -1311,7 +1313,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         // 主页面本身够用，但全屏操控面原先只能从"被控通知"进，这里补上随手可达的一处。
         items.add(getString(R.string.ui_main_item_fullscreen_console))
         if (ControlTarget.isControlling()) items.add(getString(R.string.ui_main_item_disconnect_to_local_local))
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_touchpad))
             .setItems(items.toTypedArray()) { _, which ->
                 when (which) {
@@ -1393,7 +1395,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
         val running = com.allperiph.controlled.ControlledService.isRunning()
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_label_state_channel_inject))
             .setMessage(
                 "当前通道：${inj.channelText()}\n" +
@@ -1415,7 +1417,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
         } else {
             snap.takeLast(120).joinToString("\n") { e -> "${e.level} ${e.tag}: ${e.msg}" }
         }
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_log, minOf(snap.size, 120)))
             .setMessage(text)
             .setNeutralButton(getString(R.string.ui_common_copy)) { _, _ ->
@@ -1559,7 +1561,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
 
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_template_new))
             .setView(box)
             .setPositiveButton(getString(R.string.ui_common_save), null)
@@ -1594,7 +1596,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
     /** 删除自建模板（快捷键条内容不受影响） */
     private fun confirmDeleteTemplate(t: HotkeyTemplates.Template) {
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_template_delete))
             .setMessage(getString(R.string.ui_main_dialog_hotkey_delete, t.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
@@ -1747,7 +1749,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
     /** 通用单选弹窗 */
     override fun pickChoice(title: String, labels: List<String>, current: Int, onPick: (Int) -> Unit) {
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(title)
             .setSingleChoiceItems(labels.toTypedArray(), current) { d, i ->
                 onPick(i)
@@ -1761,7 +1763,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
     override fun pickBg() {
         val labels = ThemeSkin.BG_PRESETS.map { it.name } + listOf("从相册选图片…", "清除自定义图片")
         val current = ThemeSkin.BG_PRESETS.indexOfFirst { it.id == ThemeSkin.bgId(this) }.coerceAtLeast(0)
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_label_background))
             .setSingleChoiceItems(labels.toTypedArray(), current) { d, i ->
                 d.dismiss()
@@ -1806,7 +1808,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
     /** 选配色：跟随主题 + 预设 + 导入进来的自定义；选完重建页面，三个模块一起生效 */
     override fun pickSkin(scope: String, title: String) {
         val skins = listOf(ThemeSkin.followTheme(this)) + ThemeSkin.PRESETS + ThemeSkin.customs(this)
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_color, title))
             .setItems(skins.map { it.name }.toTypedArray()) { _, i ->
                 ThemeSkin.set(this, scope, skins[i].id.ifBlank { null })
@@ -1875,7 +1877,7 @@ class MainActivity : Activity(), TouchpadFragment.Host, SettingsFragment.Host, S
 
     /** Root 说明（点设置页「环境摘要」弹出） */
     private fun showRootHelp() {
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(R.string.hint_root_dialog_title)
             .setMessage(R.string.hint_root_dialog_body)
             .setPositiveButton(getString(R.string.ui_common_got_it), null)

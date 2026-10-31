@@ -456,7 +456,7 @@ class StatusFragment : Fragment() {
         val act = activity ?: return
         for ((btn, kind) in transportButtons()) {
             val on = h.isTransportEnabled(kind)
-            btn.setTextColor(act.getColor(if (on) R.color.md_on_primary else R.color.md_primary))
+            btn.setTextColor(if (on) ThemeSkin.onPrimary(act) else ThemeSkin.primary(act))
             btn.setBackgroundResource(
                 if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
             )

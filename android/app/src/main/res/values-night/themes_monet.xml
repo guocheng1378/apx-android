@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 莫奈取色叠加层（深色）：亮色的对照版，见 values/themes_monet.xml 的推导说明。 -->
+<resources>
+    <style name="APMonetOverlay" parent="">
+        <item name="apPrimary">@android:color/system_accent1_200</item>
+        <item name="apPrimaryPressed">@android:color/system_accent1_300</item>
+        <item name="apPrimaryContainer">@android:color/system_accent1_700</item>
+        <item name="apOnPrimary">@android:color/system_accent1_800</item>
+        <item name="android:colorAccent">@android:color/system_accent1_200</item>
+        <item name="android:colorPrimary">@android:color/system_accent1_200</item>
+    </style>
+</resources>

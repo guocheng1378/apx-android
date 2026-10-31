@@ -63,6 +63,8 @@ class FilePanelActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        ThemeSkin.applyRuntimeTheme(this)
         setContentView(buildUi())
         refreshTargets()
         refreshList()
@@ -92,7 +94,7 @@ class FilePanelActivity : Activity() {
 
         targetView = TextView(this).apply {
             textSize = 13f
-            setTextColor(resources.getColor(R.color.md_primary))
+            setTextColor(ThemeSkin.primary(this))
             setPadding(0, dp(8f), 0, dp(4f))
             setOnClickListener { switchTarget() }
         }
@@ -131,8 +133,8 @@ class FilePanelActivity : Activity() {
         this.text = text
         textSize = 14f
         gravity = Gravity.CENTER
-        setTextColor(Color.WHITE)
-        setBackgroundColor(resources.getColor(R.color.md_primary))
+        setTextColor(ThemeSkin.onPrimary(this))
+        setBackgroundColor(ThemeSkin.primary(this))
         setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
         setOnClickListener { onClick() }
     }
@@ -182,7 +184,7 @@ class FilePanelActivity : Activity() {
             text = getString(R.string.ui_filepanel_text_forward)
             textSize = 14f
             setTypeface(null, Typeface.BOLD)
-            setTextColor(resources.getColor(R.color.md_primary))
+            setTextColor(ThemeSkin.primary(this))
         })
         // 行内「删除」（v205）：子视图可点击会先消费触摸事件，不会误触发整行的转发
         row.addView(TextView(this).apply {
@@ -198,7 +200,7 @@ class FilePanelActivity : Activity() {
 
     /** 行内「删除」：文件删除不可恢复，必须弹确认（用户反馈"文件管理里没有删除"） */
     private fun confirmDelete(f: File) {
-        AlertDialog.Builder(this, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_filepanel_delete_title))
             .setMessage(getString(R.string.ui_filepanel_delete_msg, f.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->

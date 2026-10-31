@@ -423,11 +423,11 @@ class SettingsFragment : Fragment() {
             text = getString(R.string.ui_main_text_hotkey_template)
             textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(resources.getColor(R.color.md_primary))
+            setTextColor(ThemeSkin.primary(context))
             background = h.strokeCard(
-                resources.getColor(R.color.md_primary_container),
+                ThemeSkin.primaryContainer(context),
                 h.dp(999),
-                (resources.getColor(R.color.md_primary) and 0x00FFFFFF) or (0x40 shl 24),
+                (ThemeSkin.primary(context) and 0x00FFFFFF) or (0x40 shl 24),
             )
             setPadding(h.dp(16), h.dp(14), h.dp(16), h.dp(14))
             isClickable = true
@@ -481,7 +481,7 @@ class SettingsFragment : Fragment() {
             setTextColor(resources.getColor(R.color.md_on_surface_variant))
         }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = h.dp(14) })
 
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_template_new))
             .setView(box)
             .setPositiveButton(getString(R.string.ui_common_save), null)
@@ -515,7 +515,7 @@ class SettingsFragment : Fragment() {
 
     private fun confirmDeleteTemplate(t: HotkeyTemplates.Template) {
         val act = activity ?: return
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_template_delete))
             .setMessage(getString(R.string.ui_main_dialog_hotkey_delete, t.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
@@ -552,9 +552,9 @@ class SettingsFragment : Fragment() {
                 isClickable = true
                 isFocusable = true
                 background = h.pill(
-                    resources.getColor(if (on) R.color.md_primary else R.color.md_primary_container)
+                    if (on) ThemeSkin.primary(act) else ThemeSkin.primaryContainer(act)
                 )
-                setTextColor(resources.getColor(if (on) R.color.md_on_primary else R.color.md_primary))
+                setTextColor(if (on) ThemeSkin.onPrimary(act) else ThemeSkin.primary(act))
                 typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
                 setOnClickListener {
                     if (i != ThemePref.get(act)) {
@@ -584,8 +584,25 @@ class SettingsFragment : Fragment() {
     fun renderFx() {
         if (!ensureViews()) return
         val h = host ?: return
+        val act = activity ?: return
         fxBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
+        val accent = ThemeSkin.primary(act)
+
+        // 取色方案（issue #52 建议 3）：品牌蓝 / 跟随系统取色（莫奈）
+        fxBox.addView(settingRow(
+            getString(R.string.ui_main_label_color_source),
+            ThemeSkin.COLOR_SOURCE_LABELS[ThemeSkin.colorSource(act)],
+            accent,
+        ) {
+            h.pickChoice(
+                getString(R.string.ui_main_label_color_source_2),
+                ThemeSkin.COLOR_SOURCE_LABELS,
+                ThemeSkin.colorSource(act),
+            ) { i ->
+                ThemeSkin.setColorSource(act, i)
+                h.recreateActivity()
+            }
+        })
 
         val bg = ThemeSkin.BG_PRESETS.firstOrNull { it.id == ThemeSkin.bgId(activity) } ?: ThemeSkin.BG_PRESETS[0]
         val img = ThemeSkin.bgImage(activity)
@@ -718,7 +735,7 @@ class SettingsFragment : Fragment() {
         if (!ensureViews()) return
         val h = host ?: return
         tvBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
+        val accent = ThemeSkin.primary(activity)
         // 分组（v206）：「连接」小节 = 选设备/断开/最近设备/状态；「工具」小节 = 遥控面板/全屏/自检/日志
         // v223：进入下级（打开弹窗/跳页）的行改用行尾箭头，取值行才用胶囊 ——
         // 「打开」「自检」这类胶囊在 190dp 的窄列里要吃掉 60dp，标题只能折行。
@@ -801,7 +818,7 @@ class SettingsFragment : Fragment() {
      */
     private fun showGestureShieldHelp() {
         val act = activity ?: return
-        AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_gesture_shield_dialog_title))
             .setMessage(getString(R.string.ui_gesture_shield_dialog_msg))
             .setPositiveButton(getString(R.string.ui_gesture_shield_btn_settings)) { _, _ ->
@@ -817,7 +834,7 @@ class SettingsFragment : Fragment() {
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
         val running = com.allperiph.controlled.ControlledService.isRunning()
-        AlertDialog.Builder(activity, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(activity, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_label_state_channel_inject))
             .setMessage(
                 "当前通道：${inj.channelText()}\n" +
@@ -838,7 +855,7 @@ class SettingsFragment : Fragment() {
         } else {
             snap.takeLast(120).joinToString("\n") { e -> "${e.level} ${e.tag}: ${e.msg}" }
         }
-        AlertDialog.Builder(activity, R.style.Theme_AllPeriph_Miuix_Dialog)
+        AlertDialog.Builder(activity, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_log, minOf(snap.size, 120)))
             .setMessage(text)
             // 真机反馈「两个日志都没有导出和复制的功能」：日志对话框此前只能看、带不走。
@@ -859,7 +876,7 @@ class SettingsFragment : Fragment() {
         // 抓取在后台（root logcat 可能要几秒），而「复制 / 导出」按钮**点开时就绑定**了内容 ——
         // 所以最新文本放字段里，按钮读字段而不是闭包捕获的初值（否则永远只能复制到「读取中…」）。
         logcatText = ""
-        val dlg = AlertDialog.Builder(act, R.style.Theme_AllPeriph_Miuix_Dialog)
+        val dlg = AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(getString(R.string.ui_main_label_logcat))
             .setMessage(getString(R.string.ui_loading))
             .setNeutralButton(getString(R.string.ui_common_copy)) { _, _ -> copyLog(logcatText) }
@@ -984,7 +1001,7 @@ class SettingsFragment : Fragment() {
     fun renderFile() {
         if (!ensureViews()) return
         fileBox.removeAllViews()
-        val accent = resources.getColor(R.color.md_primary)
+        val accent = ThemeSkin.primary(activity)
         fileBox.addView(settingRow(getString(R.string.ui_main_label_file_send), getString(R.string.ui_main_btn_file), accent) { pickFileToSend() })
         fileBox.addView(settingRow(
             getString(R.string.ui_main_label_file_panel), null, accent,
@@ -1023,7 +1040,7 @@ class SettingsFragment : Fragment() {
         keymapBox.addView(settingRow(
             getString(R.string.lay_settings_keymap_to_help),
             null,
-            resources.getColor(R.color.md_primary),
+            ThemeSkin.primary(activity),
         ) { showCategory("help") })
     }
 

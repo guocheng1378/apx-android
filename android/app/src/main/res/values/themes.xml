@@ -11,6 +11,10 @@
         <item name="android:colorBackground">@color/md_background</item>
         <item name="android:colorPrimary">@color/md_primary</item>
         <item name="android:colorAccent">@color/md_primary</item>
+        <item name="apPrimary">@color/md_primary</item>
+        <item name="apPrimaryPressed">@color/md_primary_pressed</item>
+        <item name="apPrimaryContainer">@color/md_primary_container</item>
+        <item name="apOnPrimary">@color/md_on_primary</item>
         <item name="android:statusBarColor">@color/md_background</item>
         <item name="android:navigationBarColor">@color/md_background</item>
         <item name="android:windowLightStatusBar">true</item>
@@ -32,7 +36,24 @@
 
     <!-- 快捷键编辑弹窗：亮色 + 蓝强调（供 AlertDialog.Builder(ctx, R.style...)） -->
     <style name="Theme.AllPeriph.Miuix.Dialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="apPrimary">@color/md_primary</item>
+        <item name="apPrimaryPressed">@color/md_primary_pressed</item>
+        <item name="apPrimaryContainer">@color/md_primary_container</item>
+        <item name="apOnPrimary">@color/md_on_primary</item>
         <item name="android:colorAccent">@color/md_primary</item>
         <item name="android:windowBackground">@color/md_surface</item>
+    </style>
+
+    <!--
+      对话框的莫奈变体（建议 3）：AlertDialog.Builder(ctx, themeRes) 拿到的是「从资源新建」的
+      主题，不会继承 Activity 上已叠加的 APMonetOverlay，所以这里单开一个变体，
+      由 ThemeSkin.dialogStyle() 按开关挑。
+    -->
+    <style name="Theme.AllPeriph.Miuix.Dialog.Monet" parent="Theme.AllPeriph.Miuix.Dialog">
+        <item name="apPrimary">@android:color/system_accent1_600</item>
+        <item name="apPrimaryPressed">@android:color/system_accent1_700</item>
+        <item name="apPrimaryContainer">@android:color/system_accent1_100</item>
+        <item name="apOnPrimary">@android:color/system_accent1_0</item>
+        <item name="android:colorAccent">@android:color/system_accent1_600</item>
     </style>
 </resources>

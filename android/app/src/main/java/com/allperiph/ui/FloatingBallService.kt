@@ -116,6 +116,7 @@ class FloatingBallService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ThemeSkin.applyRuntimeTheme(this)   // 菜单/面板的 ?attr 强调色（建议 3）
         Log.i(TAG, "onCreate")
         NotificationChannels.ensure(this)
         startForeground(
@@ -398,7 +399,7 @@ class FloatingBallService : Service() {
         )) {
             val btn = m.findViewById<TextView>(id) ?: continue
             val on = AgentController.isTransportEnabled(this, kind)
-            btn.setTextColor(getColor(if (on) R.color.md_on_primary else R.color.md_primary))
+            btn.setTextColor(if (on) ThemeSkin.onPrimary(this) else ThemeSkin.primary(this))
             btn.setBackgroundResource(
                 if (on) R.drawable.bg_btn_primary else R.drawable.bg_btn_ghost
             )

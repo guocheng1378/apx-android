@@ -1,6 +1,7 @@
 package com.allperiph.ui
 
 import android.content.Context
+import android.util.TypedValue
 import com.allperiph.R
 import org.json.JSONArray
 import org.json.JSONObject
@@ -45,6 +46,82 @@ object ThemeSkin {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
+    // —————————————————————————— 取色来源（建议 3：莫奈取色） ——————————————————————————
+
+    private const val KEY_COLOR_SOURCE = "color_source"
+
+    /** 品牌蓝：沿用 md_* 令牌里写死的强调色（默认，与改动前完全一致） */
+    const val COLOR_BRAND = 0
+
+    /** 系统取色：强调色跟随系统壁纸取色（Android 12+ 的莫奈），中性色仍走 md_* */
+    const val COLOR_SYSTEM = 1
+
+    val COLOR_SOURCE_LABELS = listOf("品牌蓝", "跟随系统取色")
+
+    fun colorSource(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_COLOR_SOURCE, COLOR_BRAND).coerceIn(COLOR_BRAND, COLOR_SYSTEM)
+
+    fun setColorSource(ctx: Context, i: Int) {
+        prefs(ctx).edit().putInt(KEY_COLOR_SOURCE, i.coerceIn(COLOR_BRAND, COLOR_SYSTEM)).apply()
+        monetCache = i.coerceIn(COLOR_BRAND, COLOR_SYSTEM) == COLOR_SYSTEM
+    }
+
+    /**
+     * 当前是否「跟随系统取色」。
+     *
+     * 顺手把结果缓存到 [monetCache]：对话框样式要在**没有 Context 可查**的地方（
+     * `AlertDialog.Builder(ctx, themeRes)` 的第二个参数）也能挑对，见 [dialogStyle]。
+     * 缓存由 Activity onCreate / ThemePref.wrap 每次进入界面时刷新，不会长期失真。
+     */
+    fun monet(ctx: Context): Boolean {
+        val on = colorSource(ctx) == COLOR_SYSTEM
+        monetCache = on
+        return on
+    }
+
+    @Volatile
+    private var monetCache = false
+
+    /**
+     * 把当前选择叠加到 [ctx] 的主题上（只叠加，不替换）。
+     *
+     * 为什么必须在 Activity.onCreate 里显式调：`android:theme` 是清单里写死的，
+     * Activity 初始化时用 `resources.newTheme()` **新建**一个主题再套清单样式，
+     * 所以父上下文上做过的 applyStyle 一律丢 —— 只有叠到正在用的那个主题对象上才算数。
+     */
+    fun applyRuntimeTheme(ctx: Context) {
+        if (!monet(ctx)) return
+        runCatching { ctx.theme.applyStyle(R.style.APMonetOverlay, true) }
+            .onFailure { android.util.Log.w("ThemeSkin", "莫奈叠加失败：${it.message}") }
+    }
+
+    /** 对话框主题：开着莫奈就用带系统取色的变体（对话框主题不继承 Activity 的叠加层） */
+    fun dialogStyle(): Int = if (monetCache) R.style.Theme_AllPeriph_Miuix_Dialog_Monet
+                             else R.style.Theme_AllPeriph_Miuix_Dialog
+
+    /**
+     * 读一个「强调色主题属性」，读不到就退回 [fallback] 颜色资源。
+     *
+     * `?attr/apPrimary` 这类属性由主题提供：默认主题指到 md_* 令牌，莫奈叠加层指到
+     * system_accent1_*。Kotlin 侧原来直接 `getColor(R.color.md_primary)` 拿到的是
+     * 编译期常量，换主题不会变 —— 所以三处强调色一律走这里。
+     */
+    fun tok(ctx: Context, attr: Int, fallback: Int): Int {
+        val tv = TypedValue()
+        val ok = runCatching { ctx.theme.resolveAttribute(attr, tv, true) }.getOrDefault(false)
+        val isColor = tv.type >= TypedValue.TYPE_FIRST_COLOR_INT &&
+            tv.type <= TypedValue.TYPE_LAST_COLOR_INT
+        return if (ok && isColor) tv.data else ctx.getColor(fallback)
+    }
+
+    fun primary(ctx: Context): Int = tok(ctx, R.attr.apPrimary, R.color.md_primary)
+
+    fun primaryPressed(ctx: Context): Int = tok(ctx, R.attr.apPrimaryPressed, R.color.md_primary_pressed)
+
+    fun primaryContainer(ctx: Context): Int = tok(ctx, R.attr.apPrimaryContainer, R.color.md_primary_container)
+
+    fun onPrimary(ctx: Context): Int = tok(ctx, R.attr.apOnPrimary, R.color.md_on_primary)
+
     data class Skin(
         val id: String,
         val name: String,
@@ -81,14 +158,14 @@ object ThemeSkin {
 
     // —————————————————————————— 读取 ——————————————————————————
 
-    /** 跟随主题：直接用资源令牌（等价于改动之前的行为） */
+    /** 跟随主题：走 md_* 令牌 —— 开了「跟随系统取色」时这几项由主题叠加层指到系统取色 */
     fun followTheme(ctx: Context) = Skin(
         id = "",
         name = "跟随主题",
-        accent = ctx.getColor(R.color.md_primary),
-        accentSoft = ctx.getColor(R.color.md_primary_container),
-        onAccent = ctx.getColor(R.color.md_on_primary),
-        cursor = ctx.getColor(R.color.md_primary),
+        accent = primary(ctx),
+        accentSoft = primaryContainer(ctx),
+        onAccent = onPrimary(ctx),
+        cursor = primary(ctx),
     )
 
     /** 当前作用域生效的皮肤（没选 / 找不到 → 跟随主题） */
@@ -216,6 +293,7 @@ object ThemeSkin {
             .put("motion", motionIndex(ctx))
             .put("haptic", hapticIndex(ctx))
             .put("sound", soundIndex(ctx))
+            .put("colorSource", colorSource(ctx))
         return obj.toString(2)
     }
 
@@ -248,6 +326,7 @@ object ThemeSkin {
         if (obj.has("motion")) setMotion(ctx, obj.optInt("motion", 2))
         if (obj.has("haptic")) setHaptic(ctx, obj.optInt("haptic", 2))
         if (obj.has("sound")) setSound(ctx, obj.optInt("sound", 1))
+        if (obj.has("colorSource")) setColorSource(ctx, obj.optInt("colorSource", COLOR_BRAND))
         return incoming.size
     }
 
