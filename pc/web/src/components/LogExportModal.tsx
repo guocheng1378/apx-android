@@ -43,6 +43,12 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
   const [kind, setKind] = useState('');
   const [since, setSince] = useState('');
   const [until, setUntil] = useState('');
+  /** 导出文件名里的设备标识（issue #52 第 3 条）：留空 = 本机主机名 */
+  const [note, setNote] = useState('');
+  /** 后端能不能弹原生「选择文件夹」对话框（Windows 能，macOS/Linux 不能） */
+  const [canPickDir, setCanPickDir] = useState(false);
+  /** 常用目录候选（不能被弹窗时的一键降级路径） */
+  const [dirPresets, setDirPresets] = useState<{ name: string; path: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -56,6 +62,10 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
       setFiles(d.files ?? []);
       setLogDir(d.dir ?? '');
       setExportDir(d.exportDir ?? '');
+      /** 后端如实上报能力：canPickDir=true 才显示「选择目录…」按钮，
+       *  否则退回「常用目录」候选 —— 不假装能弹框。 */
+      setCanPickDir(d.canPickDir === true);
+      setDirPresets(Array.isArray(d.dirPresets) ? d.dirPresets : []);
     }).catch((e: any) => setErr(String(e?.message ?? e)));
   }, [open]);
 
@@ -91,6 +101,7 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
       const r = await bridge.act('log.export', {
         dest: exportDir,
         kind,
+        note,
         since: toEpoch(since),
         until: toEpoch(until),
       });
@@ -101,6 +112,25 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** 拉起「选择目录」对话框（issue #52 第 3 条）。
+   *
+   * 原来只有一条「手动填目录」，用户得自己敲路径。现在统一问后端 `log.pickDir`：
+   *  · Windows 桌面壳（WebView2）→ 后端在 UI 线程弹 IFileOpenDialog，真能选；
+   *  · macOS / Linux 浏览器面板 → 后端如实回 ok=false（面板主线程被 accept 循环
+   *    占着，弹不了模态框），前端就把按钮换成「常用目录」下拉，一键换目录。
+   *  取消选择时后端回 ok=true + dir 为空，这里显示「已取消」而不是红字报错。
+   */
+  const pickDir = async () => {
+    setErr(''); setMsg('');
+    try {
+      const r = await bridge.act('log.pickDir');
+      if (r?.ok === false) { setErr(r.message || '选择目录失败'); return; }
+      const d = r?.data?.dir;
+      if (d) { setExportDir(d); setMsg('导出目录已更新'); }
+      else setMsg('已取消（未改变目录）');
+    } catch (e: any) { setErr(String(e?.message ?? e)); }
   };
 
   const quick = (hours: number) => {
@@ -155,13 +185,36 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
           </div>
         </div>
 
+        {/* 文件名标识（device 型号 / 自定义） */}
+        <div className="py-3 border-b border-stroke">
+          <div className="body-text mb-2">文件名标识（设备型号 / 备注）</div>
+          <input className="input-field h-[36px] text-[13px] w-full" value={note}
+                 placeholder="留空 = 用本机主机名"
+                 onChange={e => setNote(e.target.value)} />
+          <div className="data-text text-on-tertiary mt-2">
+            拼进文件名，例如 apx-logs-apxdesktop@TurnsMacBookAir-20261031-005912.log
+          </div>
+        </div>
+
         {/* 导出目录 */}
         <div className="py-3 gap-3">
           <div className="body-text mb-2">导出到</div>
-          <input className="input-field h-[36px] text-[13px] w-full" value={exportDir}
-                 onChange={e => setExportDir(e.target.value)} />
+          <div className="flex items-center gap-2">
+            <input className="input-field h-[36px] text-[13px] flex-1" value={exportDir}
+                   onChange={e => setExportDir(e.target.value)} />
+            {canPickDir ? (
+              <button className="btn-ghost h-[36px] text-[13px] shrink-0" onClick={pickDir}>选择目录…</button>
+            ) : (
+              <select className="input-field h-[36px] text-[13px] shrink-0 max-w-[140px]"
+                      value="" onChange={e => { if (e.target.value) setExportDir(e.target.value); }}>
+                <option value="">常用目录…</option>
+                {dirPresets.map(p => <option key={p.path} value={p.path}>{p.name}</option>)}
+              </select>
+            )}
+          </div>
           <div className="data-text text-on-tertiary mt-2">
-            文件名自动带类型与时间戳，例如 apx-logs-apxdesktop-20261031-005912.log
+            文件名自动带类型、设备标识与时间戳（保留原始文件，不覆盖）
+            {!canPickDir && ' · 当前平台不支持弹出系统目录框，请用「常用目录」或手动填写路径'}
           </div>
         </div>
 

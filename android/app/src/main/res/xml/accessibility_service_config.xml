@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  无障碍服务配置。
+
+  ⚠️ 物理键盘全局转发（issue #52 建议 6，见 GlobalKeyForwarder）：
+  `onKeyEvent` 走的是**按键过滤**（key event filter）通道，光在 accessibilityFlags 里写
+  flagRequestFilterKeyEvents 是**不够**的（那只声明「能过滤」），必须**同时**声明
+  canRequestFilterKeyEvents="true"，系统才会把按键路由到本服务。两处缺一，真机表现就是
+  「无障碍开了、开关也开了，一退到后台却收不到任何按键」。
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeAllMask"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagRequestFilterKeyEvents"
+    android:canRequestFilterKeyEvents="true"
     android:canRetrieveWindowContent="true"
     android:canPerformGestures="true"
     android:notificationTimeout="0"

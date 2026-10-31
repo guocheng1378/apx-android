@@ -41,10 +41,19 @@
     </style>
 
     <!-- 次按钮：MIUIX 胶囊描边（蓝字细描边） -->
+    <!--
+      真机反馈（issue #52 第 10 条）「部分按钮内文字没有居中对齐」：
+      原样式只给了 padding、没给 gravity —— framework 的 Button 默认 gravity 是
+      `left|center_vertical`，短文字看着还行，多字或带上下内边距时文字就贴左，
+      视觉上正是「没居中」。这里显式居中，一次修掉整仓用该样式的按钮。
+      顺带补 minHeight 48dp（45dp 是可点面积下限；pad 上手指更大，48dp 更稳）。
+    -->
     <style name="APButtonGhost">
         <item name="android:background">@drawable/bg_btn_ghost</item>
         <item name="android:textColor">?attr/apPrimary</item>
         <item name="android:textSize">15sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minHeight">48dp</item>
         <item name="android:paddingStart">22dp</item>
         <item name="android:paddingEnd">22dp</item>
         <item name="android:paddingTop">13dp</item>

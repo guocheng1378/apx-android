@@ -20,6 +20,7 @@
     <string name="tv_action_screen">看电脑画面</string>
     <string name="tv_action_selfcheck">检查控制能力</string>
     <string name="tv_action_a11y">开启无障碍</string>
+    <string name="tv_action_export_log">导出日志</string>
     <string name="tv_a11y_already">无障碍已开启，点按 / 滑动 / 打字都能用</string>
     <string name="tv_a11y_root_tried">已尝试用 root 自动开启无障碍，若未生效请到系统设置里手动开启</string>
     <string name="tv_a11y_open_failed">这台电视打不开系统无障碍设置，请到「设置 → 无障碍」里手动开启</string>
@@ -39,6 +40,14 @@
     <!-- 收到的文件（空态要说清「怎么让它不空」） -->
     <string name="tv_files_title">收到的文件</string>
     <string name="tv_files_empty">还没有收到文件。手机或电脑在「文件传输」里选这台电视就能发过来。</string>
+
+    <!-- 导出日志（issue #52 第 3 条：三端日志导出口径统一） -->
+    <string name="tv_log_title">全能外设 TV 运行日志导出</string>
+    <string name="tv_log_head">=== 全能外设 TV 运行日志导出 ===\n时间: %1$s\n设备: %2$s / 系统 %3$s\n\n</string>
+    <string name="tv_log_collecting">正在收集日志…</string>
+    <string name="tv_log_empty">没有可导出的日志内容</string>
+    <string name="tv_log_exported">日志已保存到 %1$s</string>
+    <string name="tv_log_failed">导出失败：%1$s</string>
 
     <!-- 打字提示 -->
     <string name="tv_ime_hint">想用手机给电视打字（比如搜片名）：先在系统设置里启用「全能外设输入」法。</string>

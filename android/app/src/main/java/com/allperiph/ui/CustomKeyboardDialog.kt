@@ -6,10 +6,10 @@ import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
+import com.allperiph.ui.kit.DialogKit
 
 /**
  * 自定义键盘布局编辑器（v1.33）。
@@ -28,7 +28,9 @@ object CustomKeyboardDialog {
             ?: defaultRows()
         AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
             .setTitle(act.getString(R.string.ui_custom_kbd_title))
-            .setView(buildView(act, rows))
+            // 限高滚动（issue #52 第 2/4 条）：横屏可视高度只剩一半，自绘长列表会把
+            // 标题和底部按钮顶出屏幕。DialogKit 给内容一个屏高比例的上限，超了就滚。
+            .setView(DialogKit.scrollable(act, buildView(act, rows)))
             .setPositiveButton(act.getString(R.string.ui_common_save)) { _, _ ->
                 KeyPref.setCustomRows(act, rows.map { it.toList() })
                 onDone()
@@ -52,7 +54,6 @@ object CustomKeyboardDialog {
     private fun dp(v: View, x: Int) = (v.context.resources.displayMetrics.density * x).toInt()
 
     private fun buildView(act: Activity, rows: MutableList<MutableList<String>>): View {
-        val root = ScrollView(act)
         val col = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(this, 16), dp(this, 16), dp(this, 16), dp(this, 16))
@@ -121,8 +122,7 @@ object CustomKeyboardDialog {
             })
         }
         rebuild()
-        root.addView(col)
-        return root
+        return col
     }
 
     private fun smallBtn(act: Activity, text: String, onClick: () -> Unit) =
@@ -131,6 +131,9 @@ object CustomKeyboardDialog {
             textSize = 11f
             minHeight = 0
             minWidth = 0
+            // framework Button 默认 gravity 是 left|center_vertical（issue #52 第 10 条
+            // 「按钮内文字没有居中」就是这个默认值），代码里 new 出来的按钮也得显式居中。
+            gravity = Gravity.CENTER
             setPadding(dp(this, 8), dp(this, 4), dp(this, 8), dp(this, 4))
             setOnClickListener { onClick() }
         }

@@ -41,6 +41,9 @@ internal object GlobalKeyForwarder {
     var enabled: Boolean = false
         private set
 
+    /** 已就「开关未开」这条提示过一次（避免每颗键都刷日志） */
+    private var warnedDisabled = false
+
     private const val PREF = "apx_ime_bridge"
     private const val KEY_ENABLED = "kb_forward_enabled"
 
@@ -66,7 +69,16 @@ internal object GlobalKeyForwarder {
      *         false = 放行（本地正常使用）
      */
     fun forward(event: KeyEvent): Boolean {
-        if (!enabled) return false
+        if (!enabled) {
+            // 诊断用（只需一次）：能走到这里说明无障碍的按键过滤通道**确实通**，
+            // 只是总开关没开。真机日志里「有物理按键、没 GLOBAL kc」时，这一行就能
+            // 把「通道没通」和「开关没开」区分开 —— 否则只能靠猜（见 issue #52 第 6 条）。
+            if (!warnedDisabled) {
+                warnedDisabled = true
+                Log.i(TAG, "无障碍已收到物理按键，但全局转发开关未打开（按键已放行给手机）")
+            }
+            return false
+        }
         val ret = forwardImpl(event)
         Log.d("ApxBridge", "GLOBAL kc=${event.keyCode} act=${event.action} ret=$ret")
         return ret

@@ -729,8 +729,38 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         Json data = Json::makeObject();
         data["dir"] = dir;
         data["exportDir"] = apxpc::logexport::defaultExportDir();
+        /* 常用目录候选（issue #52 第 3 条）：三端都能「点一下换目录」，
+           不受「原生文件对话框只有 Windows 弹得出来」的平台差异限制。 */
+        {
+            Json presets = Json::makeArray();
+            for (const auto& pr : apxpc::logexport::dirPresets()) {
+                Json o = Json::makeObject();
+                o["name"] = pr.first;
+                o["path"] = pr.second;
+                presets.push(std::move(o));
+            }
+            data["dirPresets"] = std::move(presets);
+        }
+        /* 「选择目录」能力：本文件**只在非 Windows 上编译**（整个实现包在
+           `#if !defined(_WIN32)` 里，Windows 用的是 web_panel.cpp 的 WebView2 壳），
+           所以这里恒为 false —— macOS/Linux 弹不出原生目录对话框（macOS 主线程被面板
+           accept 循环占着，AppKit 的模态对话框必须在主线程，见 log_export.cpp
+           dirPresets() 注释）。前端据此把「选择目录」按钮换成「常用目录」候选。
+           Windows 的真弹窗在 web_panel.cpp 的 log.pickDir 里。 */
+        data["canPickDir"] = false;
         data["files"] = std::move(arr);
         return postResponse(p, id, okResp(data));
+    }
+
+    /* 选择导出目录（issue #52 第 3 条：「自定义导出路径，建议修改为拉起弹窗选择的
+       实现方案，目前只有手动填目录方式」）。
+       本文件只在 macOS / Linux 编译，如实回 ok=false + 原因，前端退回「常用目录候选」，
+       不假装成功。Windows 的真弹窗在 web_panel.cpp 的 log.pickDir（那里能安全弹
+       SHBrowseForFolderW）。 */
+    if (name == "log.pickDir") {
+        return postResponse(p, id, failResp(
+            "当前平台不支持弹出系统目录选择对话框（macOS 的面板主线程为主循环占用，"
+            "模态文件对话框必须在主线程）；请用「常用目录」或手动填写路径"));
     }
     if (name == "log.export") {
         auto sval = [&](const char* k) -> std::string {
@@ -743,8 +773,11 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         };
         const std::string dir = sval("dir").empty() ? apxpc::logexport::defaultLogDir()
                                                     : sval("dir");
+        /* note（issue #52 第 3 条）：导出文件名里的设备标识，用户可自定义；
+           留空则由 exportRange 回落为本机主机名。 */
+
         const apxpc::logexport::Result r = apxpc::logexport::exportRange(
-            dir, sval("dest"), sval("kind"), ival("since"), ival("until"));
+            dir, sval("dest"), sval("kind"), ival("since"), ival("until"), sval("note"));
         if (!r.ok) return postResponse(p, id, failResp(r.error));
         Json d = Json::makeObject();
         d["path"] = r.outPath;
