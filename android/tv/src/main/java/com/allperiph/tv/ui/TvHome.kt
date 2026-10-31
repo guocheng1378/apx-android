@@ -62,7 +62,6 @@ fun TvHome(
     onScreen: () -> Unit,
     onSelfCheck: () -> Unit,
     onAccessibility: () -> Unit,
-    onExportLog: () -> Unit,
     onToggleService: () -> Unit,
 ) {
     val pad = 20.dp
@@ -121,9 +120,6 @@ fun TvHome(
             TvAction(s(ctx, R.string.tv_action_screen), onScreen)
             TvAction(s(ctx, R.string.tv_action_selfcheck), onSelfCheck)
             TvAction(s(ctx, R.string.tv_action_a11y), onAccessibility)
-            // 导出日志：issue #52 第 3 条要求「多端同步」，电视端此前完全没有这个入口 ——
-            // 电视出了问题用户只能拍照，日志根本拿不出来。
-            TvAction(s(ctx, R.string.tv_action_export_log), onExportLog)
             TvAction(
                 s(ctx, 
                     if (state.accepting) R.string.tv_accept_off else R.string.tv_accept_on,
@@ -185,13 +181,10 @@ private fun TvAction(text: String, onClick: () -> Unit) {
             )
             .border(
                 width = 3.dp,
-                // 注意：Color.Transparent 本身已经是 Color，不能再套一层 Color(...)；
-                // 否则 if 两分支的公共类型退化成 Any，Color(Any) 编译不过
-                // （CI 报 TvHome.kt:184:31 Argument type mismatch: actual type is 'Any'）。
-                color = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
+                color = Color(if (focused) TvUi.Pal.accent else Color.Transparent),
                 shape = shape,
             )
-            .defaultMinSize(minWidth = IntrinsicWidthMin)
+            .defaultMinSize(minWidth = ActionMinWidth)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     )
 }
@@ -199,12 +192,14 @@ private fun TvAction(text: String, onClick: () -> Unit) {
 /** 动作卡片最小宽度：远距离也够点得准（旧实现 minimumWidth = 64dp） */
 private val IntrinsicWidthMin = 88.dp
 
-/**
- * 供 [TvHome] 内部取字符串。
- *
- * ⚠️ 必须由调用方传入 Context：早先这里用一个文件级 `appCtx` 变量 + `bindTvHomeContext()`
- * 注入，但**没有任何地方调用过注入**，导致所有文案永远返回空串（编译能过、界面全空）。
- * 改为直接走参数，[TvHome] 本来就持有 `ctx`。
- */
-internal fun s(ctx: android.content.Context, resId: Int, vararg args: Any): String =
-    if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+private var appCtx: android.content.Context? = null
+
+/** 供 [TvHome] 内部取字符串（Composable 里不方便拿 Context 时用，由 Activity 注入） */
+internal fun s(ctx, resId: Int, vararg args: Any): String {
+    val ctx = appCtx ?: return ""
+    return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+}
+
+internal fun bindTvHomeContext(ctx: android.content.Context) {
+    appCtx = ctx.applicationContext
+}

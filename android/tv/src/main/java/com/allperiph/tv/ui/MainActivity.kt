@@ -17,7 +17,6 @@ import com.allperiph.shared.accessibility.AccessibilityAutoEnable
 import com.allperiph.shared.inject.TvInjector
 import com.allperiph.shared.net.ControlServer
 import com.allperiph.shared.util.Log
-import com.allperiph.shared.util.LogExport
 import com.allperiph.tv.R
 import com.allperiph.tv.TvServerService
 import com.allperiph.tv.core.TvInjectorPlatform
@@ -176,7 +175,6 @@ class MainActivity : android.app.Activity() {
                         onScreen = { startActivity(Intent(this@MainActivity, TvScreenActivity::class.java)) },
                         onSelfCheck = { showCapabilities() },
                         onAccessibility = { onAccessibilityAction() },
-                        onExportLog = { onExportLog() },
                         onToggleService = { confirmToggleService() },
                     )
                 }
@@ -243,46 +241,6 @@ class MainActivity : android.app.Activity() {
                 }
             }
         }, 1500)
-    }
-
-    /**
-     * 导出日志（issue #52 第 3 条：「安卓/TV、win、Mac 这 3 端一起优化日志导出体验」）。
-     *
-     * 电视端本来没有任何日志导出入口，用户报障只能拍屏。这里与手机端走**同一份**
-     * [LogExport]（同名规则 `apx-logs-<类型>@<机型>-<时间>.txt`、同一落点口径），
-     * 内容取应用自己的环形缓冲（[Log.snapshot]，不读系统 logcat —— 电视上多半没 root，
-     * 也不该让用户为此开 root），再补一段设备信息，够定位「电视为什么连不上」这类问题。
-     *
-     * 落点在电视上不好找，所以提示里把**完整路径**报出来（引导语本身也说了去哪拿）。
-     */
-    private fun onExportLog() {
-        Toast.makeText(this, getString(R.string.tv_log_collecting), Toast.LENGTH_SHORT).show()
-        Thread({
-            val text = Log.snapshot().joinToString("\n") { e ->
-                "${LogExport.timestamp()} ${e.level} ${e.tag}: ${e.msg}"
-            }
-            val msg = try {
-                if (text.isBlank()) {
-                    getString(R.string.tv_log_empty)
-                } else {
-                    val saved = LogExport.saveToReceivedDir(
-                        applicationContext,
-                        LogExport.fileName("tvlog"),
-                        // 文件头走字符串资源（与手机端同一份文案结构：时间 / 设备 / 系统版本）
-                        getString(
-                            R.string.tv_log_head, LogExport.timestamp(),
-                            Build.MODEL, Build.VERSION.SDK_INT.toString(),
-                        ) + text,
-                    )
-                    getString(R.string.tv_log_exported, saved)
-                }
-            } catch (e: Throwable) {
-                getString(R.string.tv_log_failed, e.message ?: "")
-            }
-            runOnUiThread {
-                if (!isFinishing) Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-            }
-        }, "apx-tv-log-export").apply { isDaemon = true; start() }
     }
 
     /** 「停止接受控制」会立刻断开所有控制端，先确认再执行 */
