@@ -225,6 +225,8 @@ build_host\Release\arbiter_test.exe
   `miuix-ui` / `miuix-blur` / `miuix-preference` / `miuix-icons`），顶栏渐进模糊用 Haze。
   逻辑层（`core/`、`gadget/`、`shared/` 的 C++、`pc/` 全部）仍**零第三方依赖**，
   界面层新增的依赖已收敛在上一节列出的 6 个坐标里，不得再扩。
+  截至 2026-11-01，手机端与电视端界面已基本迁完（详见 `docs/ROADMAP.md` §2.6 的进度表），
+  仅 `RemoteInputActivity` 的输入面板因 `EditText`+IME 链路判定为 `AndroidView` 互操作而非重写。
 - **可离线构建**：所有依赖都走 Maven 本地/代理缓存，构建过程不需要联网授权；
   新增依赖必须同时说明「离线可用性」与许可证（现有一律 Apache-2.0）。
 - **如实降级**：不可用的能力明确标注，绝不伪装成功
