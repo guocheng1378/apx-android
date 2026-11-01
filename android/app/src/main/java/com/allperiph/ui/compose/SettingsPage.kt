@@ -610,33 +610,33 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         val keyCode = pair.second
                         val cur = overrides[keyCode]
                         val def = com.allperiph.ui.HidKeyMap.usageOf(keyCode)
-                        val curLabel = if (cur != null) {
-                            HidKeyOverrides.USAGE_CHOICES.firstOrNull { it.second == cur }?.first
-                                ?: "0x%02X".format(cur)
-                        } else {
-                            if (def == 0) "默认（不转发）" else "默认（0x%02X）".format(def)
+                        // 成宇 2026-11-02「能用下拉列表的不用」：一个键位原来是三行
+                        // （值行 + 换下一个候选 + 恢复默认），11 个键位就是 33 行。
+                        // 候选本身是枚举，改成一行下拉：第 0 项是「恢复默认」，其余是 20 个 usage。
+                        val defLabel = if (def == 0) "默认（不转发）" else "默认（0x%02X）".format(def)
+                        val items = listOf(defLabel) + HidKeyOverrides.USAGE_CHOICES.map {
+                            "${it.first}（0x%02X）".format(it.second)
                         }
-                        ApComponents.ValueRow(title = label, value = curLabel)
-                        ApComponents.ActionButton(
-                            text = "「$label」换成下一个候选",
-                            onClick = {
-                                val choices = HidKeyOverrides.USAGE_CHOICES
-                                val idx = choices.indexOfFirst { it.second == cur }
-                                val next = choices[(idx + 1).mod(choices.size)].second
-                                HidKeyOverrides.set(overridePrefs, keyCode, next)
+                        val curIdx = if (cur == null) 0 else {
+                            HidKeyOverrides.USAGE_CHOICES.indexOfFirst { it.second == cur } + 1
+                        }
+                        WindowDropdownPreference(
+                            title = label,
+                            summary = if (cur == null) defLabel else "已改（0x%02X）".format(cur),
+                            items = items,
+                            selectedIndex = curIdx.coerceAtLeast(0),
+                            onSelectedIndexChange = { i ->
+                                if (i == 0) {
+                                    HidKeyOverrides.clear(overridePrefs, keyCode)
+                                } else {
+                                    HidKeyOverrides.set(
+                                        overridePrefs, keyCode, HidKeyOverrides.USAGE_CHOICES[i - 1].second,
+                                    )
+                                }
                                 overrides = HidKeyOverrides.current()
-                                Toast.makeText(ctx, label + " → 0x%02X".format(next), Toast.LENGTH_SHORT).show()
+                                Feedback.haptic(ctx)
                             },
                         )
-                        if (cur != null) {
-                            ApComponents.ActionButton(
-                                text = "「$label」恢复默认",
-                                onClick = {
-                                    HidKeyOverrides.clear(overridePrefs, keyCode)
-                                    overrides = HidKeyOverrides.current()
-                                },
-                            )
-                        }
                     }
                 }
             }

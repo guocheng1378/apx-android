@@ -31,6 +31,9 @@ import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Switch
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 
 /**
  * 状态页（**第一个完成 Compose + Miuix 迁移的屏**）。
@@ -123,13 +126,31 @@ fun StatusPage(
         // —— 模块状态 ——
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
             Column {
+                // 成宇 2026-11-02「第一页的开关，开了，为什么以前的子开关没了」：
+                // 旧布局 item_module_row.xml 每行是「名称 + 副标题 + 状态点 + Switch」，
+                // 迁 Compose 时只留下状态 Pill，每模块的启停开关整个丢了。
+                // 按旧布局补回：开关直接读写 AgentController.isEnabled / setModuleEnabled，
+                // 与「传输通道」段的开关同一份状态，不另造状态。
                 state.modules.forEach { row ->
                     ApComponents.ItemRow(
                         title = row.label,
                         summary = row.detail,
                         showDivider = true,
                         trailing = {
-                            ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state))
+                                Switch(
+                                    checked = row.enabled,
+                                    onCheckedChange = { on ->
+                                        Feedback.haptic(ctx)
+                                        AgentController.setModuleEnabled(ctx, row.id, on)
+                                        tick++
+                                    },
+                                )
+                            }
                         },
                     )
                 }
@@ -193,6 +214,7 @@ fun StatusPage(
 // ————————————————————— 快照 —————————————————————
 
 private class ModuleRowVm(
+    val id: String,
     val label: String,
     val detail: String,
     val state: ModuleState,
@@ -242,9 +264,11 @@ private fun snapshot(ctx: Context): StatusVm {
     val modules = AgentController.ORDER.mapNotNull { id ->
         val m = AgentController.module(id) ?: return@mapNotNull null
         ModuleRowVm(
+            id = id,
             label = AgentController.label(id),
             detail = AgentController.detailOf(m),
             state = m.state,
+            enabled = AgentController.isEnabled(ctx, id),
         )
     }
     val link: LinkSpeed = AgentController.linkSpeed
