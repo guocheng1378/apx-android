@@ -74,6 +74,24 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
 
     // 大屏（平板 / 折叠展开 / 横屏）不再把设置项拉满整屏：限宽 680dp 并水平居中；
     // 手机宽度本来就 < 680dp，限宽不生效，观感与之前一致。
+    // 分类导航（旧版设置就是「分类 → 二级页」；Compose 迁移后一度退化成 16 段平铺）
+    // 这里按**连续区间**分组，不搬动 section 代码本身，避免大范围挪动引入编译错误。
+    var cat by remember { mutableIntStateOf(0) }
+    val catLabels = listOf(
+        ctx.getString(R.string.ui_set_cat_theme), ctx.getString(R.string.ui_set_cat_keys),
+        ctx.getString(R.string.ui_set_cat_tools), ctx.getString(R.string.ui_set_cat_data),
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        catLabels.forEachIndexed { idx, name ->
+            TextButton(text = name, onClick = { cat = idx })
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
@@ -89,6 +107,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             // ———————————————— 外观 ————————————————
+        if (cat == 0) {
             ApComponents.Section(title = ctx.getString(R.string.ui_main_label_theme)) {
                 Column {
                     WindowDropdownPreference(
@@ -220,6 +239,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     )
                 }
             }
+        }
 
             var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
 
@@ -227,6 +247,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
             // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
             // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
+        if (cat == 1) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -301,8 +322,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     }
                 }
             }
+        }
 
             // ———————————————— 环境诊断 ————————————————
+        if (cat == 2) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_env)) {
                 Column {
                     var env by remember { mutableStateOf(com.allperiph.ui.AgentController.env) }
@@ -543,6 +566,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     }
                 }
             }
+        }
 
             // ———————————————— 背景图 ————————————————
             // 沿 ThemeSkin 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ThemeSkin.bgImage(ctx)、
@@ -564,6 +588,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
                 }
             }
+        if (cat == 3) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_bg)) {
                 Column {
                     ApComponents.ValueRow(
@@ -753,6 +778,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     )
                 }
             }
+        }
         }
     }
 
