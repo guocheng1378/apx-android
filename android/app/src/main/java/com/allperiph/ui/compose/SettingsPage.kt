@@ -21,6 +21,7 @@ import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.IssueLauncher
+import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.ui.UpdateChecker
