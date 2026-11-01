@@ -131,6 +131,23 @@ class ApShellActivity : ComponentActivity() {
                 com.allperiph.touchpad.GestureShield.releaseSoon(this@ApShellActivity, "main")
             }
         }
+        // 横持 / 竖持自动切页（旧 Views 版的既有行为，迁 Compose 时整段丢了）：
+        // 横持 → 键盘页，竖持 → 触控板页；**停在状态页（0）与设置页（3）时不抢方向**，
+        // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
+        // 节流 1.5s：系统在旋转过程中会连发几次 configuration 变化，不节流会来回抖。
+        androidx.compose.runtime.LaunchedEffect(landscape) {
+            val target = when {
+                landscape && (page == 0 || page == 1) -> 2
+                !landscape && page == 2 -> 1
+                else -> -1
+            }
+            if (target >= 0 && target != page) {
+                kotlinx.coroutines.delay(1500)
+                page = target
+                pageState = target
+            }
+        }
+
         var running by remember { mutableStateOf(AgentController.running) }
 
         Box(

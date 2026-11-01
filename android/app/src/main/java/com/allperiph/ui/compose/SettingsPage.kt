@@ -33,6 +33,10 @@ import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.rememberApInsets
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+import androidx.compose.ui.unit.sp
+import com.allperiph.ui.BallConfig
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 设置页（阶段 4，**本轮只迁核心分组**）。
@@ -232,6 +236,35 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         Feedback.haptic(ctx)
                     },
                 )
+                // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
+                //    ALL/getEnabled/setEnabled/labelRes 都在，界面上没有任何入口，
+                //    菜单项永远停在 DEFAULT 四项）——
+                var ballItems by remember { mutableStateOf(BallConfig.getEnabled(ctx)) }
+                Text(
+                    text = ctx.getString(R.string.ui_ball_items_title),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+                )
+                BallConfig.ALL.forEach { id ->
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(BallConfig.labelRes(id)),
+                        summary = if (id == BallConfig.QUIT) ctx.getString(R.string.ui_ball_item_quit_summary) else null,
+                        checked = ballItems.contains(id),
+                        onCheckedChange = { on ->
+                            val next = if (on) ballItems + id else ballItems - id
+                            // 兜底：全都不勾会让扇形菜单没有可点项，强制保留至少一项
+                            if (next.isNotEmpty()) {
+                                ballItems = next
+                                BallConfig.setEnabled(ctx, next)
+                                // 悬浮球服务把菜单缓存在内存里，重启服务让扇形按新配置重建
+                                ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                                ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+                            }
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
             }
         }
 
