@@ -176,7 +176,6 @@ class FilePanelActivity : Activity() {
             Text(
                 text = getString(R.string.ui_common_delete),
                 fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
                 color = Color(0xFFD32F2F),
                 modifier = Modifier
                     .padding(start = 14.dp)
