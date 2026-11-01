@@ -46,7 +46,7 @@ R_USE = re.compile(
 # 中文文案棘轮基线：只许降不许升。降下来之后把这里调成新值即可锁住战果。
 # 530 → 578（miuix-ui）：Miuix 0.9.4 迁移新增 MiuixShowcase 组件总览演示页（纯 demo，
 # 不碰业务状态），演示文案暂留 Kotlin；后续资源化时把这里降回并锁住。
-TEXT_BASELINE = 634
+TEXT_BASELINE = 611
 
 
 def strip_comments(text):

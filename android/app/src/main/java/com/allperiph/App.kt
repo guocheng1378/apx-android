@@ -35,7 +35,7 @@ class App : Application() {
          * 真要截图随时可以用音量下 + 电源键（那条系统组合键没动）。
          */
         private val SHIELD_ACTIVITIES = setOf(
-            "com.allperiph.ui.MainActivity",
+            "com.allperiph.ui.compose.ApShellActivity",
             "com.allperiph.touchpad.TouchpadActivity",
         )
     }

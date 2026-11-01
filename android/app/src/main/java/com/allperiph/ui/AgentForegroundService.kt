@@ -114,7 +114,7 @@ class AgentForegroundService : Service() {
     private fun buildNotification(): Notification {
         val openPi = PendingIntent.getActivity(
             this, 1,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(this, com.allperiph.ui.compose.ApShellActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val stopPi = PendingIntent.getService(
