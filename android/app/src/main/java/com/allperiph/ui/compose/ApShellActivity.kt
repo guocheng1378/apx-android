@@ -164,7 +164,7 @@ class ApShellActivity : ComponentActivity() {
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                         )
-                        2 -> KeyboardPage(this@ApShellActivity)
+                        2 -> ApKeyboardPage()
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
