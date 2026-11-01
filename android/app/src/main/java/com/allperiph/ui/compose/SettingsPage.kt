@@ -373,6 +373,91 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
 
+        // ———————————————— 模板管理（自定义） ————————————————
+        // 增：从内置模板复制一份可改的；删：直接移除；序：上移/下移（手机上按钮比拖动更稳，
+        // 拖动排序留给平板/电视端的手势实现）。数据全部落在 HotkeyStore.loadCustom/saveCustom，
+        // 与旧设置页同一份存储，不会出现"两套模板"。
+        var customs by remember { mutableStateOf(HotkeyStore.loadCustom(ctx)) }
+        ApComponents.Section(title = "模板管理（自定义）") {
+            Column {
+                if (customs.isEmpty()) {
+                    ApComponents.ValueRow(title = "还没有自定义模板", value = "点下面按钮从内置模板复制一份")
+                }
+                customs.forEachIndexed { index, t ->
+                    ApComponents.ValueRow(title = "${index + 1}. ${t.name}", value = t.desc)
+                    ApComponents.ActionButton(
+                        text = "应用「${t.name}」",
+                        onClick = {
+                            HotkeyStore.applyTemplate(ctx, t)
+                            Toast.makeText(ctx, "已应用：${t.name}", Toast.LENGTH_SHORT).show()
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    if (index > 0) {
+                        ApComponents.ActionButton(
+                            text = "「${t.name}」上移",
+                            onClick = {
+                                val l = customs.toMutableList()
+                                val v = l.removeAt(index)
+                                l.add(index - 1, v)
+                                customs = l
+                                HotkeyStore.saveCustom(ctx, l)
+                            },
+                        )
+                    }
+                    ApComponents.ActionButton(
+                        text = "删除「${t.name}」",
+                        onClick = {
+                            val l = customs.toMutableList()
+                            l.removeAt(index)
+                            customs = l
+                            HotkeyStore.saveCustom(ctx, l)
+                        },
+                    )
+                }
+                ApComponents.ActionButton(
+                    text = "从内置模板新建一份可改的",
+                    onClick = {
+                        val used = customs.map { it.name }.toSet()
+                        val src = com.allperiph.hid.HotkeyTemplates.ALL.firstOrNull { it.name !in used }
+                        if (src == null) {
+                            Toast.makeText(ctx, "内置模板都已经复制过了", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val copy = src.copy(
+                                key = "custom_" + System.currentTimeMillis(),
+                                name = src.name + "（自定义）",
+                                desc = "由内置模板「${src.name}」复制，可改",
+                            )
+                            val l = customs.toMutableList().also { it.add(copy) }
+                            customs = l
+                            HotkeyStore.saveCustom(ctx, l)
+                            Toast.makeText(ctx, "已新建：${copy.name}", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 传输分类 ————————————————
+        // 三个分类入口：文件（LocalSend 发送）、屏幕（投屏/被控）、接收开关（已在通用组）。
+        // 之前只有"文件面板"一个入口，屏幕与发送各自藏在别的页面里。
+        ApComponents.Section(title = "传输分类") {
+            Column {
+                ApComponents.ActionButton(
+                    text = "发送文件（选文件 → 发给目标）",
+                    onClick = {
+                        ctx.startActivity(Intent(ctx, com.allperiph.localsend.SendActivity::class.java))
+                    },
+                )
+                ApComponents.ActionButton(
+                    text = "屏幕（投屏 / 被控）",
+                    onClick = {
+                        ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
+                    },
+                )
+            }
+        }
+
         // ———————————————— 关于 ————————————————
         ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
             Column {
