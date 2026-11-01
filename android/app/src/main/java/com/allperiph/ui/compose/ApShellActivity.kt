@@ -59,6 +59,24 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 class ApShellActivity : ComponentActivity() {
 
+    /** 四指切页的中间状态（dispatchTouchEvent 在 Compose 之外，只能用字段传） */
+    private var pickOnStart = false
+    private var fourStartX = -1f
+    private var fourSwiped = false
+
+    /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写 */
+    @Volatile
+    private var pageState = 0
+
+    /** 横竖屏标志（Compose 侧写入，dispatchTouchEvent 读） */
+    @Volatile
+    private var adaptiveState: com.allperiph.ui.miuix.ApAdaptiveLayout? = null
+
+    companion object {
+        /** 「只来选设备」模式：遥控器页带这个 extra 启动时立刻弹设备选择器 */
+        const val EXTRA_PICK_DEVICE = "com.allperiph.extra.PICK_DEVICE"
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(ThemePref.wrap(newBase))
     }
@@ -68,6 +86,8 @@ class ApShellActivity : ComponentActivity() {
         ThemeSkin.applyRuntimeTheme(this)
         ApAccentSync.apply(this)
         applyImmersive()
+        pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
+        intent?.removeExtra(EXTRA_PICK_DEVICE)
         setContent {
             ApMiuixTheme { Shell() }
         }
@@ -80,17 +100,23 @@ class ApShellActivity : ComponentActivity() {
         // 竖屏 88dp（底栏自身高度 + 一点呼吸）
         // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
         val adaptive = rememberApAdaptiveLayout()
+        adaptiveState = adaptive
+        androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
+        androidx.compose.runtime.LaunchedEffect(pageState) {
+            if (page != pageState) page = pageState
+        }
         val landscape = adaptive.landscape
         val bottomGap = if (landscape) 96.dp else 88.dp
         // 「横屏覆盖状态栏」（成宇 2026-11-01）：横屏下内容画到状态栏区域之下，
         // 不预留顶部空档；竖屏仍然垫状态栏，否则第一张卡片会被时间/电量压住。
         // 需要垫的只剩挖孔：横屏时刘海在左右，所以左右 inset 照旧生效。
         val topPad = if (landscape) 0.dp else insets.top
-        val sidePad = if (adaptive.padCutout) insets.horizontal else 0.dp
+        val sidePad = if (adaptive.padCutout) maxOf(insets.left, insets.right) else 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         var page by remember { mutableIntStateOf(0) }
-        var pickerOpen by remember { mutableStateOf(false) }
+        var pickerOpen by remember { mutableStateOf(pickOnStart) }
+        androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
         androidx.compose.runtime.LaunchedEffect(landscape, page) {
             if (landscape && page == 1) {

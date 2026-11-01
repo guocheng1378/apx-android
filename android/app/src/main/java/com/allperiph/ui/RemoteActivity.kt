@@ -494,14 +494,14 @@ class RemoteActivity : Activity() {
 
     /**
      * 选设备：交给主页的选择器（发现 / 连接逻辑只保留一处实现），
-     * 但**必须带 [MainActivity.EXTRA_PICK_DEVICE]** ——
+     * 但**必须带 [com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE]** ——
      * 否则 MainActivity 只会停在默认的触控板页，用户看到的就是"点选择设备跳回触控页"。
      * 带上之后它会直接弹出选择器，选完/取消自动 finish 回到本页，本页 onResume 再刷新目标。
      */
     private fun pickTarget() {
         startActivity(
-            Intent(this, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
+            Intent(this, com.allperiph.ui.compose.ApShellActivity::class.java)
+                .putExtra(com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE, true),
         )
     }
 
