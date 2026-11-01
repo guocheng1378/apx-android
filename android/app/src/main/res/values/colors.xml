@@ -8,22 +8,22 @@
     -->
 
     <!-- 主色：HyperOS 蓝 -->
-    <color name="md_primary">#FF3482FF</color>
+    <color name="md_primary">#FF5E6AD2</color>
     <color name="md_on_primary">#FFFFFFFF</color>
-    <color name="md_primary_container">#FFE8F0FF</color>
+    <color name="md_primary_container">#FFEDEFFB</color>
     <!-- 主按钮按下态：比 md_primary 更深一档（bg_btn_primary 的 pressed 分支持它） -->
-    <color name="md_primary_pressed">#FF2B6BE0</color>
+    <color name="md_primary_pressed">#FF4B55B8</color>
 
     <color name="md_error_container">#FFFDECEA</color>
 
     <!-- 表面层级：#F2F3F5 底 + 纯白卡片 + 灰阶文字 -->
-    <color name="md_background">#FFF2F3F5</color>
-    <color name="md_on_background">#FF191919</color>
+    <color name="md_background">#FFF5F6F6</color>
+    <color name="md_on_background">#FF101113</color>
     <color name="md_surface">#FFFFFFFF</color>
-    <color name="md_on_surface">#FF191919</color>
-    <color name="md_surface_variant">#FFEDEFF2</color>
-    <color name="md_on_surface_variant">#FF6E6E6E</color>
-    <color name="md_outline">#FFE8E8E8</color>
+    <color name="md_on_surface">#FF101113</color>
+    <color name="md_surface_variant">#FFF6F7F7</color>
+    <color name="md_on_surface_variant">#FF5C6066</color>
+    <color name="md_outline">#FFE3E5E8</color>
 
     <!-- 状态语义色（亮底可读版） -->
     <color name="state_ok">#FF12B76A</color>

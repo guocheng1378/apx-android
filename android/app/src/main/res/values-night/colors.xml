@@ -5,20 +5,20 @@
   下面这些值自动覆盖，布局 / 样式 / drawable 一律不用改。
 -->
 <resources>
-    <color name="md_primary">#FF4C93FF</color>
+    <color name="md_primary">#FF5E6AD2</color>
     <color name="md_on_primary">#FFFFFFFF</color>
-    <color name="md_primary_container">#FF1B3A6B</color>
-    <color name="md_primary_pressed">#FF3D7FE0</color>
+    <color name="md_primary_container">#FF1D2040</color>
+    <color name="md_primary_pressed">#FF828FFF</color>
 
     <color name="md_error_container">#FF4A1A16</color>
 
-    <color name="md_background">#FF000000</color>
-    <color name="md_on_background">#FFEDEDED</color>
-    <color name="md_surface">#FF1C1C1E</color>
-    <color name="md_on_surface">#FFEDEDED</color>
-    <color name="md_surface_variant">#FF2C2C2E</color>
-    <color name="md_on_surface_variant">#FF9BA1A6</color>
-    <color name="md_outline">#FF2C2C2E</color>
+    <color name="md_background">#FF010102</color>
+    <color name="md_on_background">#FFF7F8F8</color>
+    <color name="md_surface">#FF0F1011</color>
+    <color name="md_on_surface">#FFF7F8F8</color>
+    <color name="md_surface_variant">#FF141516</color>
+    <color name="md_on_surface_variant">#FF8A8F98</color>
+    <color name="md_outline">#FF23252A</color>
 
     <color name="state_ok">#FF34C77B</color>
     <color name="state_warn">#FFF7B45C</color>
