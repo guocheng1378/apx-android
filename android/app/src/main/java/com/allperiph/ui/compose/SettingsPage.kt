@@ -323,6 +323,48 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                             },
                         )
                     }
+                    // 顺序调整：BallConfig 存的是**逗号串**（见其注释：Set 无序，顺序就是用户
+                    // 看到的扇形展开顺序）。之前只有勾选、没有排序入口，等于这个设计意图用户碰不到。
+                    if (ballItems.size > 1) {
+                        Text(
+                            text = ctx.getString(R.string.ui_ball_order_title),
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+                        )
+                        ballItems.forEachIndexed { idx, id ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = "${idx + 1}. " + ctx.getString(BallConfig.labelRes(id)),
+                                    fontSize = 14.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (idx > 0) {
+                                    TextButton(text = "\u2191", onClick = {
+                                        val next = ballItems.toMutableList()
+                                        val t = next[idx]; next[idx] = next[idx - 1]; next[idx - 1] = t
+                                        ballItems = next
+                                        BallConfig.setEnabled(ctx, next)
+                                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+                                    })
+                                }
+                                if (idx < ballItems.lastIndex) {
+                                    TextButton(text = "\u2193", onClick = {
+                                        val next = ballItems.toMutableList()
+                                        val t = next[idx]; next[idx] = next[idx + 1]; next[idx + 1] = t
+                                        ballItems = next
+                                        BallConfig.setEnabled(ctx, next)
+                                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+                                    })
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
