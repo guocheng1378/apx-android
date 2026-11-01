@@ -553,4 +553,8 @@
     <string name="ui_set_sec_keymap">键映射</string>
     <string name="ui_set_sec_bg">背景图</string>
     <string name="ui_set_sec_log">运行日志</string>
+    <string name="ui_set_cat_theme">主题与外观</string>
+    <string name="ui_set_cat_keys">快捷键与外设</string>
+    <string name="ui_set_cat_tools">工具与传输</string>
+    <string name="ui_set_cat_data">数据与维护</string>
 </resources>
