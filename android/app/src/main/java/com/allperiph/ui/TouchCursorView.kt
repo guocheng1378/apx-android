@@ -123,7 +123,7 @@ class TouchCursorView(context: Context) : View(context) {
 
     private fun startAnim(from: Float, to: Float) {
         animator?.cancel()
-        val dur = ThemeSkin.motionMs(context, if (to > from) 220L else 320L)
+        val dur = ApTiming.motionMs(context, if (to > from) 220L else 320L)
         if (dur <= 0L) { // 动效关闭：直接到位，不做插值
             energy = to
             invalidate()
@@ -142,7 +142,7 @@ class TouchCursorView(context: Context) : View(context) {
     }
 
     private fun startRipple() {
-        val dur = ThemeSkin.motionMs(context, 520L)
+        val dur = ApTiming.motionMs(context, 520L)
         if (dur <= 0L) { // 动效关闭：不铺涟漪
             ripple = -1f
             return
@@ -163,7 +163,7 @@ class TouchCursorView(context: Context) : View(context) {
     /** 多指波纹：0→1 线性循环，配合两圈相位错开形成连续外扩 */
     private fun startWave() {
         if (waveAnimator?.isRunning == true) return
-        val dur = ThemeSkin.motionMs(context, 700L)
+        val dur = ApTiming.motionMs(context, 700L)
         if (dur <= 0L) return // 动效关闭：多指不再循环扩散
         waveAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = dur
@@ -188,7 +188,7 @@ class TouchCursorView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         if (!visible && ripple < 0f) return
         // 触控板配色：设置页可单独选一套皮肤（不选 = 跟随主题）
-        val accent = ThemeSkin.current(context, ThemeSkin.TOUCHPAD).cursor
+        val accent = ApSkin.current(context, ApSkin.TOUCHPAD).cursor
         val multi = pointers > 1
         // 多指时液滴本身也放大一圈，一眼能看出"现在不是单指"
         val coreR = (7f + 7f * energy) * density * (if (multi) 1.25f else 1f)

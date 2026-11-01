@@ -91,6 +91,7 @@
 
 - [ ] `python3 scripts/check_ui_tokens.py` 通过（色值与文案两条硬规则）
 - [ ] `python3 scripts/check_manifest_classes.py` 通过（动过 AndroidManifest 时）
+- [ ] `python3 scripts/check_appearance.py` 通过（动过配色 / 动效 / 震动音效 / 背景时）
 - [ ] 深色模式实测一遍改动的页面（系统设置切深色，或 App 内「外观 → 深色」）
 - [ ] 横屏看一眼（`layout-land` 是否也需要同步改）
 - [ ] 文案改动同步到 `strings.xml`，不留 `android:text="中文"`

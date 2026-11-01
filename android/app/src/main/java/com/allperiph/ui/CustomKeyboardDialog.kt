@@ -26,7 +26,7 @@ object CustomKeyboardDialog {
     fun show(act: Activity, onDone: () -> Unit) {
         val rows = KeyPref.customRows(act)?.map { it.toMutableList() }?.toMutableList()
             ?: defaultRows()
-        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(act, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(act.getString(R.string.ui_custom_kbd_title))
             // 限高滚动（issue #52 第 2/4 条）：横屏可视高度只剩一半，自绘长列表会把
             // 标题和底部按钮顶出屏幕。DialogKit 给内容一个屏高比例的上限，超了就滚。
@@ -141,11 +141,11 @@ object CustomKeyboardDialog {
     /** 两段选键：先选分组，再选该组下的键 */
     private fun pickKey(act: Activity, onPick: (String) -> Unit) {
         val groups = HidKeys.KEY_GROUPS
-        AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(act, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(act.getString(R.string.ui_custom_kbd_pick_group))
             .setItems(groups.map { it.first }.toTypedArray()) { d1, gi ->
                 d1.dismiss()
-                AlertDialog.Builder(act, com.allperiph.ui.ThemeSkin.dialogStyle())
+                AlertDialog.Builder(act, com.allperiph.ui.ApPalette.dialogStyle())
                     .setTitle(groups[gi].first)
                     .setItems(groups[gi].second.map { it.first }.toTypedArray()) { _, ki ->
                         onPick(groups[gi].second[ki].first)

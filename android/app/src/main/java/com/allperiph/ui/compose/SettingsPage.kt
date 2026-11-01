@@ -28,7 +28,11 @@ import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.GlobalKeyForwarder
 import com.allperiph.ui.HidKeyOverrides
-import com.allperiph.ui.ThemeSkin
+import com.allperiph.ui.ApBackdrop
+import com.allperiph.ui.ApFeel
+import com.allperiph.ui.ApPalette
+import com.allperiph.ui.ApSkin
+import com.allperiph.ui.ApTiming
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
 import androidx.compose.ui.window.Dialog
@@ -76,10 +80,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     var tplVersion by remember { mutableIntStateOf(0) }
     // 档位值放在 state 里：下拉组件是受控的，改完要立刻反映到界面
     var themeMode by remember { mutableIntStateOf(ThemePref.get(ctx)) }
-    var colorSource by remember { mutableIntStateOf(ThemeSkin.colorSource(ctx)) }
-    var motion by remember { mutableIntStateOf(ThemeSkin.motionIndex(ctx)) }
-    var haptic by remember { mutableIntStateOf(ThemeSkin.hapticIndex(ctx)) }
-    var sound by remember { mutableIntStateOf(ThemeSkin.soundIndex(ctx)) }
+    var colorSource by remember { mutableIntStateOf(ApPalette.colorSource(ctx)) }
+    var motion by remember { mutableIntStateOf(ApTiming.motionIndex(ctx)) }
+    var haptic by remember { mutableIntStateOf(ApFeel.hapticIndex(ctx)) }
+    var sound by remember { mutableIntStateOf(ApFeel.soundIndex(ctx)) }
 
     val apxPrefs = remember { ctx.getSharedPreferences("apx", Context.MODE_PRIVATE) }
     var cursorLock by remember { mutableStateOf(apxPrefs.getBoolean("cursor_lock", true)) }
@@ -165,14 +169,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     )
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_main_label_color_source),
-                        summary = ThemeSkin.COLOR_SOURCE_LABELS.getOrElse(colorSource) { "" },
-                        items = ThemeSkin.COLOR_SOURCE_LABELS,
+                        summary = ApPalette.COLOR_SOURCE_LABELS.getOrElse(colorSource) { "" },
+                        items = ApPalette.COLOR_SOURCE_LABELS,
                         selectedIndex = colorSource,
                         onSelectedIndexChange = { i ->
                             Feedback.haptic(ctx)
                             colorSource = i
-                            ThemeSkin.setColorSource(ctx, i)
-                            ThemeSkin.applyRuntimeTheme(ctx)
+                            ApPalette.setColorSource(ctx, i)
+                            ApPalette.applyRuntimeTheme(ctx)
                             onRecreate()
                         },
                     )
@@ -181,19 +185,19 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
 
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_skin)) {
                 Column {
-                    ThemeSkin.SCOPES.forEach { (scope, title) ->
-                        val current = ThemeSkin.current(ctx, scope)
-                        val names = ThemeSkin.PRESETS.map { it.name }
-                        val selected = ThemeSkin.PRESETS.indexOfFirst { it.id == current.id }
+                    ApSkin.SCOPES.forEach { (scope, title) ->
+                        val current = ApSkin.current(ctx, scope)
+                        val names = ApSkin.PRESETS.map { it.name }
+                        val selected = ApSkin.PRESETS.indexOfFirst { it.id == current.id }
                             .coerceAtLeast(0)
                         WindowDropdownPreference(
                             title = title,
-                            summary = if (ThemeSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
+                            summary = if (ApSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
                             items = names,
                             selectedIndex = selected,
                             onSelectedIndexChange = { i ->
                                 Feedback.haptic(ctx)
-                                ThemeSkin.set(ctx, scope, ThemeSkin.PRESETS[i].id)
+                                ApSkin.set(ctx, scope, ApSkin.PRESETS[i].id)
                                 ApAccentSync.apply(ctx)
                                 onRecreate()
                             },
@@ -206,34 +210,34 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                 Column {
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_main_label_motion),
-                        summary = ThemeSkin.MOTION_LABELS.getOrElse(motion) { "" },
-                        items = ThemeSkin.MOTION_LABELS,
+                        summary = ApTiming.MOTION_LABELS.getOrElse(motion) { "" },
+                        items = ApTiming.MOTION_LABELS,
                         selectedIndex = motion,
                         onSelectedIndexChange = { i ->
                             motion = i
-                            ThemeSkin.setMotion(ctx, i)
+                            ApTiming.setMotion(ctx, i)
                             Feedback.haptic(ctx)
                         },
                     )
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_main_label_haptic),
-                        summary = ThemeSkin.HAPTIC_LABELS.getOrElse(haptic) { "" },
-                        items = ThemeSkin.HAPTIC_LABELS,
+                        summary = ApFeel.HAPTIC_LABELS.getOrElse(haptic) { "" },
+                        items = ApFeel.HAPTIC_LABELS,
                         selectedIndex = haptic,
                         onSelectedIndexChange = { i ->
                             haptic = i
-                            ThemeSkin.setHaptic(ctx, i)
+                            ApFeel.setHaptic(ctx, i)
                             Feedback.haptic(ctx)
                         },
                     )
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_main_label_sound),
-                        summary = ThemeSkin.SOUND_LABELS.getOrElse(sound) { "" },
-                        items = ThemeSkin.SOUND_LABELS,
+                        summary = ApFeel.SOUND_LABELS.getOrElse(sound) { "" },
+                        items = ApFeel.SOUND_LABELS,
                         selectedIndex = sound,
                         onSelectedIndexChange = { i ->
                             sound = i
-                            ThemeSkin.setSound(ctx, i)
+                            ApFeel.setSound(ctx, i)
                         },
                     )
                 }
@@ -655,7 +659,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     ApComponents.ActionButton(
                         text = "导出当前主题（复制到剪贴板）",
                         onClick = {
-                            val json = runCatching { ThemeSkin.exportJson(ctx) }.getOrNull().orEmpty()
+                            val json = runCatching { ApSkin.exportJson(ctx) }.getOrNull().orEmpty()
                             val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                             if (json.isNotBlank()) {
                                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("apx-theme", json))
@@ -671,7 +675,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                             val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                             val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }
                                 ?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
-                            val n = if (text.isBlank()) 0 else runCatching { ThemeSkin.importJson(ctx, text) }.getOrDefault(0)
+                            val n = if (text.isBlank()) 0 else runCatching { ApSkin.importJson(ctx, text) }.getOrDefault(0)
                             Toast.makeText(
                                 ctx,
                                 if (n > 0) "已导入 $n 套主题" else "剪贴板里没有可识别的主题 JSON",
@@ -812,10 +816,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
         }
 
             // ———————————————— 背景图 ————————————————
-            // 沿 ThemeSkin 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ThemeSkin.bgImage(ctx)、
-            // 写 ThemeSkin.setBgImage(ctx, uri)；解码由 Backdrop.decode() 做（采样到两倍屏宽）。
+            // 沿 ApBackdrop 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ApBackdrop.bgImage(ctx)、
+            // 写 ApBackdrop.setBgImage(ctx, uri)；解码由 Backdrop.decode() 做（采样到两倍屏宽）。
             // 选图必须 takePersistableUriPermission，否则重启后 URI 失效、背景变回纯色。
-            var bgUri by remember { mutableStateOf(ThemeSkin.bgImage(ctx).orEmpty()) }
+            var bgUri by remember { mutableStateOf(ApBackdrop.bgImage(ctx).orEmpty()) }
             val bgPicker = androidx.activity.compose.rememberLauncherForActivityResult(
                 androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
             ) { uri ->
@@ -826,7 +830,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                             Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
                     }
-                    ThemeSkin.setBgImage(ctx, uri.toString())
+                    ApBackdrop.setBgImage(ctx, uri.toString())
                     bgUri = uri.toString()
                     Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
                 }
@@ -846,7 +850,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         ApComponents.ActionButton(
                             text = "清除背景图",
                             onClick = {
-                                ThemeSkin.setBgImage(ctx, null)
+                                ApBackdrop.setBgImage(ctx, null)
                                 bgUri = ""
                                 Toast.makeText(ctx, "已清除", Toast.LENGTH_SHORT).show()
                             },

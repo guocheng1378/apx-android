@@ -73,13 +73,13 @@ class TouchpadActivity : Activity() {
     private val cStroke get() = getColor(R.color.miuix_stroke)
     /** 键盘配色：设置页可单独选一套皮肤；不选时保持原来的 miuix_accent 系列 */
     private val kbSkinPicked get() =
-        com.allperiph.ui.ThemeSkin.picked(this, com.allperiph.ui.ThemeSkin.KEYBOARD).isNotBlank()
+        com.allperiph.ui.ApSkin.picked(this, com.allperiph.ui.ApSkin.KEYBOARD).isNotBlank()
     private val cAccent get() =
-        if (kbSkinPicked) com.allperiph.ui.ThemeSkin.current(this, com.allperiph.ui.ThemeSkin.KEYBOARD).accent
-        else com.allperiph.ui.ThemeSkin.primary(this)
+        if (kbSkinPicked) com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accent
+        else com.allperiph.ui.ApPalette.primary(this)
     private val cAccentSoft get() =
-        if (kbSkinPicked) com.allperiph.ui.ThemeSkin.current(this, com.allperiph.ui.ThemeSkin.KEYBOARD).accentSoft
-        else com.allperiph.ui.ThemeSkin.primaryContainer(this)
+        if (kbSkinPicked) com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accentSoft
+        else com.allperiph.ui.ApPalette.primaryContainer(this)
 
     /** 键帽密度（设置页可换） */
     private val dens get() = com.allperiph.ui.KeyPref.density(this)
@@ -202,7 +202,7 @@ class TouchpadActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
+        com.allperiph.ui.ApPalette.applyRuntimeTheme(this)
         // 截屏已放开（与 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，
         // 截图/录屏一片黑，用户没法截图反馈界面问题，排查只能靠口述。
         // 快捷键列表由 HotkeyBoard 自己从盘上读（见 buildChipsPanel）
@@ -746,7 +746,7 @@ class TouchpadActivity : Activity() {
             Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
             .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
@@ -763,7 +763,7 @@ class TouchpadActivity : Activity() {
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
             .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
             .setPositiveButton(getString(R.string.ui_common_close), null)
@@ -969,7 +969,7 @@ class TouchpadActivity : Activity() {
 
     private fun rippleOn(v: View, x: Float, y: Float) {
         if (v.width <= 0 || v.height <= 0) return
-        val dur = com.allperiph.ui.ThemeSkin.motionMs(this, 620L)
+        val dur = com.allperiph.ui.ApTiming.motionMs(this, 620L)
         if (dur <= 0L) return // 动效关闭时只留震动 / 音效
         val ripple = com.allperiph.ui.GlassRipple(
             x, y,
@@ -1114,7 +1114,7 @@ class TouchpadActivity : Activity() {
         val tvBtn = Button(this).apply {
             text = getString(R.string.ui_main_item_link)
             setBackgroundResource(R.drawable.bg_btn_primary)
-            setTextColor(com.allperiph.ui.ThemeSkin.onPrimary(this@TouchpadActivity))
+            setTextColor(com.allperiph.ui.ApPalette.onPrimary(this@TouchpadActivity))
             textSize = 15f; typeface = Typeface.DEFAULT_BOLD
             // framework Button 默认 gravity = left|center_vertical，宽按钮上文字会贴左
             // （issue#52 第 10 条「部分按钮内文字没有居中」剩下的就是这种代码里 new 出来的按钮）。
@@ -1356,7 +1356,7 @@ class TouchpadActivity : Activity() {
         // 全屏时返回键先退出全屏（这里连确认框都不该弹：用户只是想回到控制面）
         if (fullscreen) { setFullscreen(false); return }
         if (backDialog?.isShowing == true) return
-        backDialog = AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        backDialog = AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
             .setMessage(getString(R.string.ui_touchpad_dialog_home))
             .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
@@ -1434,7 +1434,7 @@ class TouchpadActivity : Activity() {
         val tvs = TvDiscovery.list()
         tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
         items.add(getString(R.string.ui_main_item_input_manual))
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setItems(items.toTypedArray()) { _, which ->
                 when {
@@ -1459,7 +1459,7 @@ class TouchpadActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_touchpad_dialog_input))
             .setView(edit)
             .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->

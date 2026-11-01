@@ -7,7 +7,7 @@
   （tone 90 → _100、tone 80 → _200、tone 10 → _900，靠 material3 源码核过）。
   所以亮色 primary 取 tone 40 → system_accent1_600，深色 primary 取 tone 80 → _200。
 
-  应用方式：ThemeSkin.applyRuntimeTheme() 里 `theme.applyStyle(APMonetOverlay, true)`，
+  应用方式：ApPalette.applyRuntimeTheme() 里 `theme.applyStyle(APMonetOverlay, true)`，
   只叠加不替换 —— 其余令牌（surface / outline / error…）仍走 md_*，不会把界面搞花。
 -->
 <resources>

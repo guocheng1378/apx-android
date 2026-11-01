@@ -13,9 +13,9 @@ import com.allperiph.R
 /**
  * 按键反馈（v1.31）：震动 + 声音，**强度与音色都能在设置页换**。
  *
- * · 震动档位（[ThemeSkin.HAPTIC_LABELS]）：关 / 轻 / 标准 / 强 —— 用 [VibrationEffect.createOneShot]
+ * · 震动档位（[ApFeel.HAPTIC_LABELS]）：关 / 轻 / 标准 / 强 —— 用 [VibrationEffect.createOneShot]
  *   直接给时长与振幅，比预置 EFFECT_CLICK 更可控（也不受各家 ROM 效果表的差异影响）；
- * · 音效档位（[ThemeSkin.SOUND_LABELS]）：关 / 点击 / 键盘敲击 ——
+ * · 音效档位（[ApFeel.SOUND_LABELS]）：关 / 点击 / 键盘敲击 ——
  *   `View.playSoundEffect` 跟随系统「触摸音效」开关与通知音量。
  *
  * 需要 `android.permission.VIBRATE`（已在 AndroidManifest 声明）。
@@ -37,14 +37,14 @@ object Feedback {
      * ★ 全项目只有这一处真正调 Vibrator，别处不要再自己拿 Vibrator：
      * 此前触控板长按走的是 `createPredefined(EFFECT_CLICK)` 的旁路，两个后果 ——
      *   1. 预置效果各 ROM 支持不一，不少机型直接没反应（用户报"长按没震动"）；
-     *   2. 它绕开了 [ThemeSkin.hapticIndex] 档位，设置里选了"关"照样震。
+     *   2. 它绕开了 [ApFeel.hapticIndex] 档位，设置里选了"关"照样震。
      * 统一走这里：振幅/时长自己给（不受 ROM 效果表影响），且尊重用户的档位设置。
      */
     fun haptic(context: Context) {
         // (时长 ms, 振幅 1..255)：轻 / 标准 / 强；"关"直接返回
         val ms: Long
         val amp: Int
-        when (ThemeSkin.hapticIndex(context)) {
+        when (ApFeel.hapticIndex(context)) {
             1 -> { ms = 12L; amp = 70 }
             2 -> { ms = 18L; amp = 150 }
             3 -> { ms = 28L; amp = 255 }
@@ -70,9 +70,9 @@ object Feedback {
         }
     }
 
-    /** 按键音：随 [ThemeSkin] 的音效档位（"键盘"用系统键盘敲击音） */
+    /** 按键音：随 [ApFeel] 的音效档位（"键盘"用系统键盘敲击音） */
     fun sound(v: View) {
-        when (ThemeSkin.soundIndex(v.context)) {
+        when (ApFeel.soundIndex(v.context)) {
             1 -> v.playSoundEffect(SoundEffectConstants.CLICK)
             2 -> v.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
             3 -> mechSound(v.context)

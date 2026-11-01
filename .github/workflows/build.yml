@@ -528,6 +528,13 @@ jobs:
       - name: 能力入口（无入口 / 零调用 / 手写偏好键）
         run: python3 scripts/check_entrypoints.py
 
+      # 外观门面：2026-11-02 把 380 行的 ThemeSkin 拆成五个门面（皮肤 / 取色 / 背景 /
+      # 动效 / 手感），共用 ApAppearancePrefs 落盘。拆分之后最容易发生的退化，编译器全都
+      # 等权通过：旧名复活、某处自己另摸一遍偏好文件、绕过门面直接取 R.color.md_primary
+      # （那是编译期常量，皮肤与莫奈会静默失效，只在真机上表现为「换了皮肤这块没变」）。
+      - name: 外观门面（旧名 / 偏好落盘 / 强调色常量）
+        run: python3 scripts/check_appearance.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   # macOS 资产由 macos.yml 的 tag 构建独立上传（两边对同一 Release 幂等协作：

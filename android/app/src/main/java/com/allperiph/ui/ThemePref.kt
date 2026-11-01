@@ -22,14 +22,13 @@ object ThemePref {
 
     val LABELS = listOf("跟随系统", "浅色", "深色")
 
-    private const val PREF = "apx_theme"
     private const val KEY_MODE = "mode"
 
     fun get(ctx: Context): Int =
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getInt(KEY_MODE, AUTO)
+        ApAppearancePrefs.of(ctx).getInt(ApAppearancePrefs.KEY_MODE, AUTO)
 
     fun set(ctx: Context, mode: Int) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putInt(KEY_MODE, mode).apply()
+        ApAppearancePrefs.of(ctx).edit().putInt(ApAppearancePrefs.KEY_MODE, mode).apply()
     }
 
     /**
@@ -41,7 +40,7 @@ object ThemePref {
      */
     fun wrap(base: Context): Context {
         val ctx = wrapNight(base)
-        ThemeSkin.applyRuntimeTheme(ctx)
+        ApPalette.applyRuntimeTheme(ctx)
         return ctx
     }
 
@@ -65,7 +64,7 @@ object ThemePref {
     fun wrapService(base: Context): Context {
         val ctx = wrapNight(base)
         val themed = ContextThemeWrapper(ctx, R.style.Theme_AllPeriph)
-        ThemeSkin.applyRuntimeTheme(themed)
+        ApPalette.applyRuntimeTheme(themed)
         return themed
     }
 

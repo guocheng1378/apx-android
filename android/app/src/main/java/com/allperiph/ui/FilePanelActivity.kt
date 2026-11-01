@@ -54,9 +54,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 与 TV 端 `com.allperiph.tv.ui.TvFileActivity` 是同一份交互设计（收/发、目标自动）。
  *
  * **本轮迁 Compose**（旧主题栈下线的一步）：`LinearLayout + ScrollView + removeAllViews/addView`
- * 换成 `LazyColumn` + `mutableStateOf`；按钮强调色从 `ThemeSkin.primary/onPrimary` 换成
- * Compose 侧常量色，`AlertDialog` 不再走 `ThemeSkin.dialogStyle()`（用 Activity 自身主题）。
- * 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ThemeSkin.applyRuntimeTheme`。
+ * 换成 `LazyColumn` + `mutableStateOf`；按钮强调色从 `ApPalette.primary/onPrimary` 换成
+ * Compose 侧常量色，`AlertDialog` 不再走 `ApPalette.dialogStyle()`（用 Activity 自身主题）。
+ * 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ApPalette.applyRuntimeTheme`。
  * 发送/接收逻辑（`FileSender.send`、`TvDiscovery`、`ControlTarget`、`AtomicBoolean busy`）未改。
  */
 class FilePanelActivity : Activity() {
@@ -186,7 +186,7 @@ class FilePanelActivity : Activity() {
 
     /**
      * 行内「删除」：文件删除不可恢复，必须弹确认（用户反馈"文件管理里没有删除"）。
-     * 本轮去掉了 `ThemeSkin.dialogStyle()`，改用 Activity 自身主题——旧主题栈正在下线，
+     * 本轮去掉了 `ApPalette.dialogStyle()`，改用 Activity 自身主题——旧主题栈正在下线，
      * 对话框不该是它最后一个依赖点。
      */
     private fun confirmDelete(f: File) {

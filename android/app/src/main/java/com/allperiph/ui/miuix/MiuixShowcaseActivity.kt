@@ -82,7 +82,7 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  * Miuix **组件总览**（开发页，miuix-ui 分支）—— 回答「框架能不能对接所有组件」。
  *
  * 把 [top.yukonga.miuix.kmp] 的常用组件各放一个实例、全部走 [ApMiuixTheme]
- * （配色 = res/values/colors.xml 的 md_* 令牌 + ThemeSkin 皮肤）。
+ * （配色 = res/values/colors.xml 的 md_* 令牌 + ApSkin 皮肤）。
  * 组件签名对 miuix v0.9.4 源码核对（0.9.4 起为模块化坐标 + 偏好组件改名）。
  *
  * 本页同时验证三样 0.9.x 新能力：
