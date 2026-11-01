@@ -68,4 +68,8 @@
     <color name="hotkey_tpl_term">#FFAEB6C2</color>
     <color name="hotkey_tpl_sheet">#FF35C98A</color>
 
+    <!-- 悬浮球仿玻璃（v223.22）：overlay 窗口拿不到下层画面，真模糊做不了，用渐变+高光近似 -->
+    <color name="ball_glass_top">#CC26262A</color>
+    <color name="ball_glass_bottom">#8C1C1C1E</color>
+    <color name="ball_glass_hi">#40FFFFFF</color>
 </resources>
