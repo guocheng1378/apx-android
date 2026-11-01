@@ -43,6 +43,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.runtime.DisposableEffect
 
 /**
  * 迁移期的**并行宿主**（阶段 2/3 的落点）。
@@ -131,14 +132,43 @@ class ApShellActivity : ComponentActivity() {
                 com.allperiph.touchpad.GestureShield.releaseSoon(this@ApShellActivity, "main")
             }
         }
+        // 重力方向判读：旧版「横持 / 竖持自动切页**不受系统方向锁限制**」靠的就是自己判重力，
+        // 而不是读 configuration（读 configuration 时开方向锁就永远不切）。这里补上：
+        // ACCELEROMETER 的 x/y 绝对值谁大就是横/竖，翻转要过 1.5 m/s² 余量（约 45°±5° 滞回），
+        // 传感器缺失时退回 configuration（`gravityLandscape == null`）。
+        var gravityLandscape by remember { mutableStateOf<Boolean?>(null) }
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            val sm = getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+            val acc = sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+            val listener = if (acc == null) null else object : android.hardware.SensorEventListener {
+                override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                    val ax = kotlin.math.abs(e.values[0])
+                    val ay = kotlin.math.abs(e.values[1])
+                    if (ax + ay < 5f) return          // 手机平放/晃得太厉害时不判方向
+                    gravityLandscape = when (gravityLandscape) {
+                        null -> ax > ay
+                        true -> !(ay > ax + 1.5f)
+                        false -> ax > ay + 1.5f
+                    }
+                }
+
+                override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+            }
+            if (sm != null && listener != null) {
+                sm.registerListener(listener, acc, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+            }
+            onDispose { if (sm != null && listener != null) sm.unregisterListener(listener) }
+        }
+        val orientationLandscape = gravityLandscape ?: landscape
+
         // 横持 / 竖持自动切页（旧 Views 版的既有行为，迁 Compose 时整段丢了）：
         // 横持 → 键盘页，竖持 → 触控板页；**停在状态页（0）与设置页（3）时不抢方向**，
         // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
-        // 节流 1.5s：系统在旋转过程中会连发几次 configuration 变化，不节流会来回抖。
-        androidx.compose.runtime.LaunchedEffect(landscape) {
+        // 节流 1.5s：旋转过程中传感器会连报，不节流会来回抖。
+        androidx.compose.runtime.LaunchedEffect(orientationLandscape) {
             val target = when {
-                landscape && (page == 0 || page == 1) -> 2
-                !landscape && page == 2 -> 1
+                orientationLandscape && (page == 0 || page == 1) -> 2
+                !orientationLandscape && page == 2 -> 1
                 else -> -1
             }
             if (target >= 0 && target != page) {
