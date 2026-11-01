@@ -75,7 +75,7 @@ fun ApKeyboardPage() {
             Text(text = "快捷键（长按可编辑）", fontSize = 13.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 全键盘：旧版 KeyboardPanels 里那块完整 QWERTY 打字面板，迁 Compose 时整块丢了
-                TextButton(text = "全键盘", onClick = { fullOpen = true })
+                TextButton(text = ctx.getString(R.string.ui_kb_full), onClick = { fullOpen = true })
                 TextButton(text = "新增", onClick = { addOpen = true })
             }
         }
@@ -206,6 +206,7 @@ private val CANDIDATES = listOf(
  */
 @Composable
 private fun ApFullKeyboard(onClose: () -> Unit) {
+    val ctx = LocalContext.current
     var shift by remember { mutableStateOf(false) }
     var caps by remember { mutableStateOf(false) }
 
@@ -221,8 +222,8 @@ private fun ApFullKeyboard(onClose: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = "全键盘", fontSize = 15.sp)
-            TextButton(text = "关闭", onClick = onClose)
+            Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
+            TextButton(text = ctx.getString(R.string.ui_kb_close), onClick = onClose)
         }
         // 数字行
         KeyRow(letterRow("1234567890"), shift = shift, onKey = { label ->
@@ -242,7 +243,7 @@ private fun ApFullKeyboard(onClose: () -> Unit) {
         })
         // ⇧ zxcvbnm ⌫
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (shift) "⇧(开)" else "⇧", Modifier.weight(1.2f)) { shift = !shift }
+            WideKey(if (shift) ctx.getString(R.string.ui_kb_shift_on) else "⇧", Modifier.weight(1.2f)) { shift = !shift }
             "zxcvbnm".forEach { ch ->
                 KeyBox(ch.toString(), Modifier.weight(1f)) {
                     val upper = caps xor shift
@@ -253,9 +254,9 @@ private fun ApFullKeyboard(onClose: () -> Unit) {
         }
         // ⇪ Tab 空格 Enter
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (caps) "⇪(开)" else "⇪", Modifier.weight(1f)) { caps = !caps }
+            WideKey(if (caps) ctx.getString(R.string.ui_kb_caps_on) else "⇪", Modifier.weight(1f)) { caps = !caps }
             WideKey("Tab", Modifier.weight(1f)) { send(android.view.KeyEvent.KEYCODE_TAB, "Tab") }
-            WideKey("空格", Modifier.weight(3f)) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
+            WideKey(ctx.getString(R.string.ui_kb_space), Modifier.weight(3f)) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
             WideKey("Enter", Modifier.weight(1.4f)) { send(android.view.KeyEvent.KEYCODE_ENTER, "Enter") }
         }
     }
