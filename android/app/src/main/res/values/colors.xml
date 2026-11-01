@@ -124,4 +124,8 @@
     <color name="hotkey_tpl_sheet">#FF1E9E5A</color>   <!-- 表格数据 -->
     <color name="hotkey_tpl_tv">#FFE0457B</color>   <!-- TV 遥控 -->
 
+    <!-- 悬浮球仿玻璃（v223.22）：overlay 窗口拿不到下层画面，真模糊做不了，用渐变+高光近似 -->
+    <color name="ball_glass_top">#CCFFFFFF</color>
+    <color name="ball_glass_bottom">#8CFFFFFF</color>
+    <color name="ball_glass_hi">#59FFFFFF</color>
 </resources>

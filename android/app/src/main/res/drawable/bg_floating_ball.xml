@@ -12,17 +12,33 @@
             <solid android:color="@color/ball_halo" />
         </shape>
     </item>
-    <!-- 球身 -->
+    <!-- 球身：仿玻璃 —— 上亮下暗的线性渐变 + 1dp 外沿描边。
+         overlay 窗口拿不到下层画面，真模糊（Haze / RuntimeShader）在这里无效，
+         所以用「渐变 + 高光 + 柔光」三件套近似玻璃质感。 -->
     <item
         android:bottom="2dp"
         android:left="2dp"
         android:right="2dp"
         android:top="2dp">
         <shape android:shape="oval">
-            <solid android:color="@color/ball_bg" />
+            <gradient
+                android:angle="270"
+                android:endColor="@color/ball_glass_bottom"
+                android:startColor="@color/ball_glass_top"
+                android:type="linear" />
             <stroke
                 android:width="1dp"
                 android:color="@color/ball_stroke" />
+        </shape>
+    </item>
+    <!-- 顶部高光：偏心小球，模拟玻璃的反光点（inset 把它压到球体上部） -->
+    <item
+        android:bottom="20dp"
+        android:left="10dp"
+        android:right="18dp"
+        android:top="6dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/ball_glass_hi" />
         </shape>
     </item>
 </layer-list>
