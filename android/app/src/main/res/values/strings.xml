@@ -557,4 +557,5 @@
     <string name="ui_set_cat_keys">快捷键与外设</string>
     <string name="ui_set_cat_tools">工具与传输</string>
     <string name="ui_set_cat_data">数据与维护</string>
+    <string name="ui_kb_tpl_default">默认</string>
 </resources>

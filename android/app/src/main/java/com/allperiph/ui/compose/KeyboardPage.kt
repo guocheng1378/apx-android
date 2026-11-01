@@ -39,6 +39,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxHeight
 import com.allperiph.R
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import com.allperiph.hid.HotkeyTemplates
 
 /**
  * 键盘页（Compose + Miuix）：把原来 `KeyboardPanels` 的 8 套程序化 View 换成一套
@@ -78,6 +81,33 @@ fun ApKeyboardPage() {
                 // 全键盘：旧版 KeyboardPanels 里那块完整 QWERTY 打字面板，迁 Compose 时整块丢了
                 TextButton(text = ctx.getString(R.string.ui_kb_full), onClick = { fullOpen = true })
                 TextButton(text = "新增", onClick = { addOpen = true })
+            }
+        }
+        // 模板行：旧 `KeyboardPanels` 有 8 套现成键位布局，迁 Compose 后只剩用户自己那份，
+        // 想换布局只能手动一个个改键。这里把 `HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，
+        // 存储仍是 HotkeyStore（与设置页「快捷键模板」同一份，两边互不打架）。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TextButton(
+                text = ctx.getString(R.string.ui_kb_tpl_default),
+                onClick = {
+                    items = HidKeys.DEFAULTS.toMutableList()
+                    HotkeyStore.save(ctx, HidKeys.DEFAULTS)
+                },
+            )
+            HotkeyTemplates.ALL.forEach { t ->
+                TextButton(
+                    text = t.name,
+                    onClick = {
+                        HotkeyStore.applyTemplate(ctx, t)
+                        items = HotkeyStore.load(ctx)
+                    },
+                )
             }
         }
         LazyVerticalGrid(
