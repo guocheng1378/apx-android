@@ -79,6 +79,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     // 分类导航（旧版设置就是「分类 → 二级页」；Compose 迁移后一度退化成 16 段平铺）
     // 这里按**连续区间**分组，不搬动 section 代码本身，避免大范围挪动引入编译错误。
     var cat by remember { mutableIntStateOf(0) }
+    // 切分类必须回到顶部：四类的段数与高度都不同，沿用上一类的滚动偏移会直接落到空白处
+    val pageScroll = rememberScrollState()
+    androidx.compose.runtime.LaunchedEffect(cat) { pageScroll.scrollTo(0) }
     val catLabels = listOf(
         ctx.getString(R.string.ui_set_cat_theme), ctx.getString(R.string.ui_set_cat_keys),
         ctx.getString(R.string.ui_set_cat_tools), ctx.getString(R.string.ui_set_cat_data),
@@ -99,7 +102,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .widthIn(max = 680.dp)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScroll)
                 .padding(
                     start = 16.dp + insets.left,
                     end = 16.dp + insets.right,
