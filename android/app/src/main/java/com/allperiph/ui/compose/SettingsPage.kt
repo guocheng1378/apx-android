@@ -21,6 +21,7 @@ import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.IssueLauncher
+import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.ui.UpdateChecker
@@ -203,6 +204,32 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
 
+        var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
+
+        // ———————————————— 悬浮栏 ————————————————
+        // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
+        // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
+        // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
+        ApComponents.Section(title = "悬浮栏") {
+            Column {
+                ApComponents.SwitchRow(
+                    title = "显示悬浮球",
+                    summary = "关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响",
+                    checked = ballVisible,
+                    onCheckedChange = { on ->
+                        ballVisible = on
+                        val it = Intent(ctx, FloatingBallService::class.java)
+                        if (on) {
+                            ctx.startForegroundService(it)
+                        } else {
+                            ctx.stopService(it)
+                        }
+                        Feedback.haptic(ctx)
+                    },
+                )
+            }
+        }
+
         // ———————————————— 关于 ————————————————
         ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
             Column {
@@ -226,14 +253,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.about_feedback),
                     onClick = { IssueLauncher.open(ctx) },
-                )
-                ApComponents.ActionButton(
-                    text = "组件总览（Miuix）",
-                    onClick = {
-                        ctx.startActivity(
-                            Intent(ctx, com.allperiph.ui.miuix.MiuixShowcaseActivity::class.java),
-                        )
-                    },
                 )
             }
         }

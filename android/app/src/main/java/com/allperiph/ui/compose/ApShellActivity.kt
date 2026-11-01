@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -28,7 +30,11 @@ import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
+import com.allperiph.ui.miuix.ApGlassTopBar
+import com.allperiph.ui.miuix.apHazeSource
+import com.allperiph.ui.miuix.rememberApHazeState
 import com.allperiph.ui.miuix.rememberApInsets
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
@@ -53,6 +59,24 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 class ApShellActivity : ComponentActivity() {
 
+    /** 四指切页的中间状态（dispatchTouchEvent 在 Compose 之外，只能用字段传） */
+    private var pickOnStart = false
+    private var fourStartX = -1f
+    private var fourSwiped = false
+
+    /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写 */
+    @Volatile
+    private var pageState = 0
+
+    /** 横竖屏标志（Compose 侧写入，dispatchTouchEvent 读） */
+    @Volatile
+    private var adaptiveState: com.allperiph.ui.miuix.ApAdaptiveLayout? = null
+
+    companion object {
+        /** 「只来选设备」模式：遥控器页带这个 extra 启动时立刻弹设备选择器 */
+        const val EXTRA_PICK_DEVICE = "com.allperiph.extra.PICK_DEVICE"
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(ThemePref.wrap(newBase))
     }
@@ -62,6 +86,8 @@ class ApShellActivity : ComponentActivity() {
         ThemeSkin.applyRuntimeTheme(this)
         ApAccentSync.apply(this)
         applyImmersive()
+        pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
+        intent?.removeExtra(EXTRA_PICK_DEVICE)
         setContent {
             ApMiuixTheme { Shell() }
         }
@@ -70,7 +96,38 @@ class ApShellActivity : ComponentActivity() {
     @Composable
     private fun Shell() {
         val insets = rememberApInsets()
-        var page by remember { mutableIntStateOf(0) }
+        // 反馈 #52（新一轮）第 4 条：横屏底部留白按 96dp 统一，不再让底栏压住页面内容；
+        // 竖屏 88dp（底栏自身高度 + 一点呼吸）
+        // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
+        val adaptive = rememberApAdaptiveLayout()
+        adaptiveState = adaptive
+        val landscape = adaptive.landscape
+        val bottomGap = if (landscape) 96.dp else 88.dp
+        // 「横屏覆盖状态栏」（成宇 2026-11-01）：横屏下内容画到状态栏区域之下，
+        // 不预留顶部空档；竖屏仍然垫状态栏，否则第一张卡片会被时间/电量压住。
+        // 需要垫的只剩挖孔：横屏时刘海在左右，所以左右 inset 照旧生效。
+        val topPad = if (landscape) 0.dp else insets.top
+        val sidePad = if (adaptive.padCutout) maxOf(insets.left, insets.right) else 0.dp
+        // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
+        val hazeState = rememberApHazeState()
+        var page by remember { mutableIntStateOf(pageState) }
+        // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
+        androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
+        androidx.compose.runtime.LaunchedEffect(pageState) {
+            if (page != pageState) page = pageState
+        }
+        var pickerOpen by remember { mutableStateOf(pickOnStart) }
+        androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
+        // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
+        androidx.compose.runtime.LaunchedEffect(landscape, page) {
+            if (landscape && page == 1) {
+                com.allperiph.touchpad.GestureShield.acquireWithHint(
+                    this@ApShellActivity, "main",
+                )
+            } else {
+                com.allperiph.touchpad.GestureShield.releaseSoon(this@ApShellActivity, "main")
+            }
+        }
         var running by remember { mutableStateOf(AgentController.running) }
 
         Box(
@@ -83,7 +140,15 @@ class ApShellActivity : ComponentActivity() {
                     .fillMaxSize()
                     .padding(top = if (insets.top > 0.dp) insets.top else 0.dp),
             ) {
-                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                // 顶栏是玻璃叠层、底栏是浮动导航条，两者都盖在内容之上：
+                // 这里给内容留出 64dp（顶栏高）+ 96dp（底栏 + 反馈 #52 第 4 条要求的横屏留白）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .apHazeSource(hazeState)
+                        .padding(top = 64.dp, bottom = insets.bottom + bottomGap),
+                ) {
                     when (page) {
                         0 -> StatusPage(
                             ctx = this@ApShellActivity,
@@ -99,12 +164,32 @@ class ApShellActivity : ComponentActivity() {
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                         )
+                        2 -> KeyboardPage(this@ApShellActivity)
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
                         )
                     }
                 }
+            }
+
+            // 顶栏：玻璃渐进模糊 + 当前页标题（内容从栏下滚过）
+            ApGlassTopBar(
+                title = when (page) {
+                    0 -> "状态"
+                    1 -> "触控板"
+                    2 -> "键盘"
+                    else -> "设置"
+                },
+                hazeState = hazeState,
+                onDeviceClick = { pickerOpen = true },
+                modifier = Modifier.align(Alignment.TopCenter).padding(start = sidePad, end = sidePad),
+            )
+
+            // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
+            // TvDiscovery 的广播发现，选中即连入 9511；「本机 / PC」走 ControlTarget.clear()
+            if (pickerOpen) {
+                ApDevicePicker(onDismiss = { pickerOpen = false })
             }
 
             // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
@@ -125,11 +210,18 @@ class ApShellActivity : ComponentActivity() {
                         label = "触控板",
                         enabled = true,
                     )
-                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
-                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
                     FloatingNavigationBarItem(
                         selected = page == 2,
                         onClick = { page = 2 },
+                        icon = MiuixIcons.ListView,
+                        label = "键盘",
+                        enabled = true,
+                    )
+                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
+                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
+                    FloatingNavigationBarItem(
+                        selected = page == 3,
+                        onClick = { page = 3 },
                         icon = MiuixIcons.ListView,
                         label = "设置",
                         enabled = true,
@@ -137,6 +229,44 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 四指左右滑切页（横屏换页方式，避开触控板自身一到三指手势）。
+     *
+     * 走 [dispatchTouchEvent] 而不是 Compose 的 pointerInput：键盘页是 AndroidView 包着的
+     * `KeyboardPanels`，按键会吃掉事件序列，只有分发第一站能稳定看到四指。
+     * 与旧 `MainActivity` 同一套阈值（56dp）与循环顺序。
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (adaptiveState?.landscape == true) {
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    fourStartX = -1f
+                    fourSwiped = false
+                }
+                android.view.MotionEvent.ACTION_POINTER_DOWN ->
+                    if (ev.pointerCount >= 4 && fourStartX < 0f) {
+                        fourStartX = ev.x
+                        fourSwiped = false
+                    }
+                android.view.MotionEvent.ACTION_MOVE ->
+                    if (fourStartX >= 0f && !fourSwiped && ev.pointerCount >= 4) {
+                        val dx = ev.x - fourStartX
+                        if (kotlin.math.abs(dx) > 56f * resources.displayMetrics.density) {
+                            fourSwiped = true
+                            val order = intArrayOf(1, 2, 3)   // 触控板 → 键盘 → 设置
+                            val cur = order.indexOf(pageState).coerceAtLeast(0)
+                            pageState = if (dx < 0) {
+                                order[(cur + 1) % order.size]
+                            } else {
+                                order[(cur + order.size - 1) % order.size]
+                            }
+                        }
+                    }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun touchpadModule(): TouchpadModule? =
@@ -156,7 +286,28 @@ class ApShellActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 剪贴板同步（旧主壳里由 MainActivity 挂载，迁到新宿主后同一个入口）
+        com.allperiph.ui.ClipboardSync.register(this)
+    }
+
+    override fun onPause() {
+        com.allperiph.ui.ClipboardSync.unregister(this)
+        super.onPause()
+    }
+
     private fun applyImmersive() {
+        // 横屏覆盖状态栏的前提（framework API，minSdk 34 无需兼容分支）：
+        // ① 装饰视图不再替我们让位 —— 让位由 ApInsets 按边算，横屏顶部按 0 处理；
+        // ② 状态栏颜色透明；③ 允许布局延伸到挖孔短边（横屏时刘海在左右侧）。
+        window.setDecorFitsSystemWindows(false)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         val c = window.insetsController ?: return
         c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         c.show(WindowInsets.Type.statusBars())
@@ -172,6 +323,81 @@ internal object ApAccentSync {
             androidx.compose.ui.graphics.Color(ThemeSkin.current(ctx, ThemeSkin.TOUCHPAD).accent)
         } else {
             null
+        }
+    }
+}
+
+/**
+ * 键盘页（阶段 6 第一版）：`KeyboardPanels` 是 598 行程序化 View（8 套键位：快捷/遥控/游戏/
+ * 数字/九宫格/方向/F 区/自定义），先整体用 `AndroidView` 挂进来，保证功能不断；
+ * 逐套换成 Compose + Miuix 是下一步（届时按「按钮用按钮、列表用列表、长按长按、弹窗弹窗」重做）。
+ */
+@Composable
+private fun KeyboardPage(activity: android.app.Activity) {
+    val panels = remember { com.allperiph.ui.KeyboardPanels(activity) }
+    androidx.compose.ui.viewinterop.AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { ctx ->
+            android.widget.FrameLayout(ctx).apply {
+                addView(
+                    panels.build(),
+                    android.widget.FrameLayout.LayoutParams(-1, -1),
+                )
+            }
+        },
+    )
+}
+
+/**
+ * 受控设备选择器（`showDevicePicker` 的 Compose 版）。
+ *
+ * 数据源是 [com.allperiph.wireless.TvDiscovery] 的广播列表（电视/PC/手机三类都在这张表里），
+ * 选中即 `ControlTarget` 连入；`本机 / PC` 一行等于 `ControlTarget.clear()`。
+ * 用 Compose 的 `Dialog` 承载 Miuix `Card` —— Miuix 0.9.4 的 `WindowDialog` 是 preference 侧
+ * 的窗口级弹窗，这里要的是应用内弹窗，用系统 Dialog + Miuix 卡片更稳。
+ */
+@Composable
+private fun ApDevicePicker(onDismiss: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        com.allperiph.wireless.TvDiscovery.start()
+        devices = com.allperiph.wireless.TvDiscovery.list()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        top.yukonga.miuix.kmp.basic.Card {
+            Column(modifier = Modifier.padding(16.dp)) {
+                top.yukonga.miuix.kmp.basic.Text(
+                    text = "选择受控设备",
+                    fontSize = 17.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "本机 / PC（默认）",
+                    onClick = {
+                        com.allperiph.wireless.ControlTarget.clear()
+                        onDismiss()
+                    },
+                )
+                devices.forEach { d ->
+                    top.yukonga.miuix.kmp.basic.TextButton(
+                        text = "${d.name} ${d.typeLabel}  ${d.ip}",
+                        onClick = {
+                            com.allperiph.wireless.ControlTarget.host = d.ip
+                            com.allperiph.wireless.ControlTarget.label = d.name
+                            com.allperiph.wireless.ControlTarget.type = d.type
+                            onDismiss()
+                        },
+                    )
+                }
+                if (devices.isEmpty()) {
+                    top.yukonga.miuix.kmp.basic.Text(
+                        text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
         }
     }
 }
