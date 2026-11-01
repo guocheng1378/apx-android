@@ -533,4 +533,11 @@
     <string name="ui_home_section_modules">模块</string>
     <string name="ui_home_label_env">环境自检</string>
     <string name="ui_home_btn_start">启动</string>
+    <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
+    <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
+    <string name="ui_kb_full">全键盘</string>
+    <string name="ui_kb_close">关闭</string>
+    <string name="ui_kb_shift_on">⇧(开)</string>
+    <string name="ui_kb_caps_on">⇪(开)</string>
+    <string name="ui_kb_space">空格</string>
 </resources>

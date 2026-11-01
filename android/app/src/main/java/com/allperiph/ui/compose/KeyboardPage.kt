@@ -35,6 +35,10 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.fillMaxHeight
+import com.allperiph.R
 
 /**
  * 键盘页（Compose + Miuix）：把原来 `KeyboardPanels` 的 8 套程序化 View 换成一套
@@ -54,6 +58,8 @@ fun ApKeyboardPage() {
     var items by remember { mutableStateOf(HotkeyStore.load(ctx)) }
     var editIndex by remember { mutableIntStateOf(-1) }
     var addOpen by remember { mutableStateOf(false) }
+    /** 全键盘面板开关：与原快捷键网格并存，不替换（两块都要） */
+    var fullOpen by remember { mutableStateOf(false) }
 
     fun commit(next: List<HidKeys.Combo>) {
         items = next.toMutableList()
@@ -68,7 +74,11 @@ fun ApKeyboardPage() {
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(text = "快捷键（长按可编辑）", fontSize = 13.sp)
-            TextButton(text = "新增", onClick = { addOpen = true })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 全键盘：旧版 KeyboardPanels 里那块完整 QWERTY 打字面板，迁 Compose 时整块丢了
+                TextButton(text = ctx.getString(R.string.ui_kb_full), onClick = { fullOpen = true })
+                TextButton(text = "新增", onClick = { addOpen = true })
+            }
         }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(104.dp),
@@ -96,6 +106,14 @@ fun ApKeyboardPage() {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    if (fullOpen) {
+        Dialog(onDismissRequest = { fullOpen = false }) {
+            Card(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
+                ApFullKeyboard(onClose = { fullOpen = false })
             }
         }
     }
@@ -179,3 +197,96 @@ private val CANDIDATES = listOf(
     HidKeys.Combo("静音", 0, HidKeys.usageOf("Mute")),
     HidKeys.Combo("全屏", 0, HidKeys.usageOf("F11")),
 )
+
+/**
+ * 全键盘（旧 `KeyboardPanels` 里那块完整 QWERTY 面板，迁 Compose 时整块丢了）。
+ *
+ * 每个键按 Android keycode 换成 HID usage（`HidKeyMap.usageOf`）后走 `HidKeys.combo`，
+ * 与快捷键网格同一条发送链路；Shift 只对**下一次**按键生效（打一个大写就自动松开，
+ * 与手机输入法的高频用法一致），长按 Shift 不做锁定 —— 需要连打大写时用「⇪」。
+ */
+@Composable
+private fun ApFullKeyboard(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var shift by remember { mutableStateOf(false) }
+    var caps by remember { mutableStateOf(false) }
+
+    fun send(kc: Int, label: String, mod: Int = 0) {
+        val usage = com.allperiph.ui.HidKeyMap.usageOf(kc)
+        if (usage == 0) return
+        val m = mod or (if (caps) 0x02 else 0) or (if (shift) 0x02 else 0)
+        HidKeys.combo(HidKeys.Combo(label, m, usage))
+        if (shift) shift = false
+    }
+
+    fun letterRow(chars: String) = chars.map { it.toString() }
+
+    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
+            TextButton(text = ctx.getString(R.string.ui_kb_close), onClick = onClose)
+        }
+        // 数字行
+        KeyRow(letterRow("1234567890"), shift = shift, onKey = { label ->
+            val kc = if (label == "0") android.view.KeyEvent.KEYCODE_0
+            else android.view.KeyEvent.KEYCODE_1 + (label.toInt() - 1)
+            send(kc, label)
+        })
+        // qwertyuiop
+        KeyRow(letterRow("qwertyuiop"), shift = shift, onKey = { label ->
+            val upper = caps xor shift
+            send(android.view.KeyEvent.KEYCODE_A + (label[0] - 'a'), if (upper) label.uppercase() else label)
+        })
+        // asdfghjkl
+        KeyRow(letterRow("asdfghjkl"), shift = shift, onKey = { label ->
+            val upper = caps xor shift
+            send(android.view.KeyEvent.KEYCODE_A + (label[0] - 'a'), if (upper) label.uppercase() else label)
+        })
+        // ⇧ zxcvbnm ⌫
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            WideKey(if (shift) ctx.getString(R.string.ui_kb_shift_on) else "⇧", Modifier.weight(1.2f)) { shift = !shift }
+            "zxcvbnm".forEach { ch ->
+                KeyBox(ch.toString(), Modifier.weight(1f)) {
+                    val upper = caps xor shift
+                    send(android.view.KeyEvent.KEYCODE_A + (ch - 'a'), if (upper) ch.uppercase() else ch.toString())
+                }
+            }
+            WideKey("⌫", Modifier.weight(1.2f)) { send(android.view.KeyEvent.KEYCODE_DEL, "⌫") }
+        }
+        // ⇪ Tab 空格 Enter
+        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            WideKey(if (caps) ctx.getString(R.string.ui_kb_caps_on) else "⇪", Modifier.weight(1f)) { caps = !caps }
+            WideKey("Tab", Modifier.weight(1f)) { send(android.view.KeyEvent.KEYCODE_TAB, "Tab") }
+            WideKey(ctx.getString(R.string.ui_kb_space), Modifier.weight(3f)) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
+            WideKey("Enter", Modifier.weight(1.4f)) { send(android.view.KeyEvent.KEYCODE_ENTER, "Enter") }
+        }
+    }
+}
+
+@Composable
+private fun KeyRow(keys: List<String>, shift: Boolean, onKey: (String) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        keys.forEach { k ->
+            if (k == "a" ) {
+                // 第二行起左侧留白，模拟键盘错位（视觉上更像实体键盘）
+            }
+            KeyBox(k, Modifier.weight(1f)) { onKey(k) }
+        }
+    }
+}
+
+@Composable
+private fun KeyBox(label: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .padding(horizontal = 2.dp)
+            .height(44.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainer)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) { Text(text = label, fontSize = 15.sp) }
+}
+
+@Composable
+private fun WideKey(label: String, modifier: Modifier, onClick: () -> Unit) = KeyBox(label, modifier, onClick)
