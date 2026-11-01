@@ -1,99 +1,273 @@
 package com.allperiph.tv.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.StrictMode
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
-import com.allperiph.tv.R
-import com.allperiph.shared.util.Log
+import android.view.KeyEvent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.platform.ComposeView
 import com.allperiph.shared.net.FileSender
+import com.allperiph.shared.util.Log
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 电视端文件页（Compose 重写）。
+ *
+ * 逻辑（扫描目录 / 目标切换 / 发送 / 安装 APK / 系统选择器）原样保留，只把 `buildUi()` 那套
+ * 手工 `LinearLayout + TextView` 换成 Compose：
+ * - 状态用 `mutableStateOf` 持有，UI 只读，不再持有 `lateinit var xxxView`；
+ * - 列表用 `LazyColumn`，每行可聚焦（DPAD 上下走位 + 焦点描边）；
+ * - 文件操作从 `AlertDialog` 换成 Compose `Dialog`（焦点留在 Compose 树里，DPAD 不会丢）。
+ */
 class TvFileActivity : Activity() {
-    private lateinit var statusView: TextView
-    private lateinit var listBox: LinearLayout
-    private lateinit var targetView: TextView
-    private lateinit var countView: TextView
-    private lateinit var dirView: TextView
-    private lateinit var progressBar: ProgressBar
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
-    /** 当前弹窗：Activity 销毁时要 dismiss，否则 WindowLeaked */
-    private var dialog: AlertDialog? = null
     private var targets: List<String> = emptyList()
     private var targetIndex = 0
     private val pad get() = TvUi.safeInset(this)
     private val gap get() = TvUi.dp(this, 10f)
 
+    // —— Compose 状态（UI 只读这些）——
+    private var filesState by mutableStateOf<List<File>>(emptyList())
+    private var targetLabel by mutableStateOf("")
+    private var dirLabel by mutableStateOf("")
+    private var statusText by mutableStateOf("")
+    private var statusColor by mutableIntStateOf(0)
+    private var progress by mutableIntStateOf(0)
+    private var actionTarget by mutableStateOf<File?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TvUi.bindColors(this)
-        // 以前这里清空 StrictMode.VmPolicy 来允许跨应用传 file://，那是**进程级且不可逆**的
-        // （没有任何地方恢复），之后全 App 的 file:// 暴露 / SQLite 泄漏检测都失效了。
-        // 现在改走 ApxFileProvider 的 content:// + 一次性读授权。
+        // 跨应用传递改走 ApxFileProvider 的 content:// + 一次性读授权，不再清 StrictMode 的进程级策略。
         window.setBackgroundDrawableResource(android.R.color.black)
-        setContentView(buildUi()); refreshTargets(); refreshList()
+        statusColor = TvUi.Pal.textDim
+        setContentView(
+            ComposeView(this).apply {
+                setContent { TvFileScreen() }
+            },
+        )
+        refreshTargets()
+        refreshList()
     }
-    override fun onResume() { super.onResume(); refreshTargets(); refreshList() }
 
-    private fun buildUi(): View {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(TvUi.Pal.bg); setPadding(pad, pad / 2, pad, pad / 2) }
-        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val backBtn = button("← 返回") { finish() }
-        TvUi.contentDescription(backBtn, "返回")
-        head.addView(backBtn)
-        val titleView = TextView(this).apply { text = "文件传输"; setTextColor(TvUi.Pal.text); typeface = Typeface.DEFAULT_BOLD; TvUi.applyTextSize(this, TvUi.Type.DISPLAY); setPadding(gap, 0, 0, 0) }
-        TvUi.contentDescription(titleView, "文件传输页面")
-        head.addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        targetView = TextView(this).apply { isFocusable = true; isClickable = true; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, TvUi.dp(this@TvFileActivity, TvUi.Radius.CONTROL), TvUi.dp(this@TvFileActivity, 2f)); setPadding(gap, gap / 2, gap, gap / 2); setOnClickListener { switchTarget() } }
-        head.addView(targetView); root.addView(head, LinearLayout.LayoutParams(-1, -2))
-        dirView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.MICRO); setPadding(0, gap / 2, 0, 0) }; root.addView(dirView)
-        countView = TextView(this).apply { setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, gap / 3, 0, gap / 3) }; root.addView(countView)
-        progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100; progress = 0; visibility = View.GONE; setPadding(0, gap / 2, 0, gap / 2)
-        }
-        root.addView(progressBar, LinearLayout.LayoutParams(-1, TvUi.dp(this, 8f)))
-        listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(listBox, LinearLayout.LayoutParams(-1, -2)); isFillViewport = false }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, gap / 2, 0, 0) }
-        val sendBtn = button("发送本机其它文件…") { pickFromSystem() }
-        TvUi.contentDescription(sendBtn, "发送本机其它文件")
-        foot.addView(sendBtn)
-        statusView = TextView(this).apply { setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION); setPadding(gap, 0, 0, 0) }
-        foot.addView(statusView, LinearLayout.LayoutParams(0, -2, 1f)); root.addView(foot, LinearLayout.LayoutParams(-1, -2))
-        status("点一个文件可以打开，或发回给手机 / 电脑", TvUi.Pal.textDim); return root
+    override fun onResume() {
+        super.onResume()
+        refreshTargets()
+        refreshList()
     }
-    private fun button(text: String, onClick: () -> Unit): TextView = TextView(this).apply { this.text = text; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); gravity = Gravity.CENTER; isFocusable = true; isClickable = true; background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, TvUi.dp(this@TvFileActivity, TvUi.Radius.CONTROL), TvUi.dp(this@TvFileActivity, 2f)); setPadding(gap * 2, gap, gap * 2, gap); setOnClickListener { onClick() } }
-    private fun refreshTargets() { targets = TvFiles.targets(); if (targetIndex >= targets.size) targetIndex = 0; val cur = targets.getOrNull(targetIndex); targetView.text = when { cur == null -> "发给：还没有设备连过本机"; targets.size == 1 -> "发给：$cur"; else -> "发给：$cur · 点这里换设备（${targetIndex + 1}/${targets.size}）" }; targetView.contentDescription = when { cur == null -> "发送目标：还没有设备连过本机"; targets.size == 1 -> "发送目标：$cur"; else -> "发送目标：$cur，点击切换设备（${targetIndex + 1}/${targets.size}）" } }
-    private fun switchTarget() { if (targets.size <= 1) { toast(if (targets.isEmpty()) NO_TARGET_HINT else "只有一台设备连过本机，没有别的可选"); return }; targetIndex = (targetIndex + 1) % targets.size; refreshTargets() }
+
+    @Composable
+    private fun TvFileScreen() {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(TvUi.Pal.bg))
+                .padding(horizontal = pad.dp, vertical = gap.dp),
+        ) {
+            TvText("收到的文件", size = TvUi.Type.TITLE)
+            TvText(dirLabel, size = TvUi.Type.MICRO, color = TvUi.Pal.textDim)
+            TvText(targetLabel, size = TvUi.Type.BODY, color = TvUi.Pal.text)
+            Row(horizontalArrangement = Arrangement.spacedBy(gap.dp)) {
+                TvButton("换设备") { switchTarget() }
+                TvButton("选择文件发送") { pickFromSystem() }
+            }
+            if (statusText.isNotEmpty()) {
+                TvText(statusText, size = TvUi.Type.MICRO, color = statusColor)
+            }
+            if (progress in 1..99) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = gap.dp / 2)
+                        .background(Color(TvUi.Pal.card), RoundedCornerShape(4.dp)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress / 100f)
+                            .background(Color(TvUi.Pal.accent), RoundedCornerShape(4.dp))
+                            .padding(vertical = 3.dp),
+                    )
+                }
+            }
+            if (filesState.isEmpty()) {
+                TvText(getString(com.allperiph.tv.R.string.tv_files_empty), size = TvUi.Type.BODY, color = TvUi.Pal.textDim)
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(filesState, key = { it.absolutePath }) { f ->
+                        TvFileRow(f) { actionTarget = f }
+                    }
+                }
+            }
+        }
+
+        actionTarget?.let { f ->
+            Dialog(onDismissRequest = { actionTarget = null }) {
+                Column(
+                    modifier = Modifier
+                        .background(Color(TvUi.Pal.card), RoundedCornerShape(TvUi.Radius.CONTROL.dp))
+                        .padding(gap.dp * 2),
+                ) {
+                    TvText(f.name, size = TvUi.Type.BODY)
+                    TvText("${TvFiles.fileIcon(f.name)} ${TvFiles.sizeText(f.length())}", size = TvUi.Type.MICRO, color = TvUi.Pal.textDim)
+                    TvButton("打开") {
+                        actionTarget = null
+                        openFile(f)
+                    }
+                    if (currentTarget() != null) {
+                        TvButton("发回给手机 / 电脑") {
+                            actionTarget = null
+                            sendFile(f)
+                        }
+                    }
+                    TvButton("取消") { actionTarget = null }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun TvFileRow(f: File, onClick: () -> Unit) {
+        var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 3.dp)
+                .background(
+                    Color(if (focused) TvUi.Pal.cardFocus else TvUi.Pal.card),
+                    RoundedCornerShape(TvUi.Radius.CONTROL.dp),
+                )
+                .border(
+                    width = 2.dp,
+                    color = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
+                    shape = RoundedCornerShape(TvUi.Radius.CONTROL.dp),
+                )
+                .focusable()
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { onClick() }
+                .padding(horizontal = gap.dp * 2, vertical = gap.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TvText(
+                "${TvFiles.fileIcon(f.name)}  ${f.name}",
+                size = TvUi.Type.BODY,
+                color = if (focused) TvUi.Pal.text else TvUi.Pal.textDim,
+            )
+            TvText("  ${TvFiles.sizeText(f.length())}", size = TvUi.Type.MICRO, color = TvUi.Pal.textDim)
+        }
+    }
+
+    @Composable
+    private fun TvText(text: String, size: Float, color: Int = TvUi.Pal.text) {
+        top.yukonga.miuix.kmp.basic.Text(
+            text = text,
+            color = Color(color),
+            fontSize = size.sp,
+            fontWeight = FontWeight.Normal,
+        )
+    }
+
+    @Composable
+    private fun TvButton(text: String, onClick: () -> Unit) {
+        var focused by remember { androidx.compose.runtime.mutableStateOf(false) }
+        Box(
+            modifier = Modifier
+                .padding(vertical = 3.dp)
+                .background(
+                    Color(if (focused) TvUi.Pal.cardFocus else TvUi.Pal.card),
+                    RoundedCornerShape(TvUi.Radius.CONTROL.dp),
+                )
+                .border(
+                    width = 2.dp,
+                    color = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
+                    shape = RoundedCornerShape(TvUi.Radius.CONTROL.dp),
+                )
+                .focusable()
+                .onFocusChanged { focused = it.isFocused }
+                .clickable { onClick() }
+                .padding(horizontal = gap.dp * 2, vertical = gap.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            TvText(text, size = TvUi.Type.BODY, color = if (focused) TvUi.Pal.text else TvUi.Pal.textDim)
+        }
+    }
+
+    // ———————————————— 以下是原有逻辑，只把"写 View"换成"写状态" ————————————————
+
+    private fun refreshTargets() {
+        targets = TvFiles.targets()
+        if (targetIndex >= targets.size) targetIndex = 0
+        val cur = targets.getOrNull(targetIndex)
+        targetLabel = when {
+            cur == null -> "发给：还没有设备连过本机"
+            targets.size == 1 -> "发给：$cur"
+            else -> "发给：$cur · 点这里换设备（${targetIndex + 1}/${targets.size}）"
+        }
+    }
+
+    private fun switchTarget() {
+        if (targets.size <= 1) {
+            toast(if (targets.isEmpty()) NO_TARGET_HINT else "只有一台设备连过本机，没有别的可选")
+            return
+        }
+        targetIndex = (targetIndex + 1) % targets.size
+        refreshTargets()
+    }
+
     private fun currentTarget(): String? = targets.getOrNull(targetIndex)
-    private fun refreshList() { val dir = TvFiles.recvDir(this); dirView.text = "存到：${dir.absolutePath}"; val files = TvFiles.listReceived(this); countView.text = "共 ${files.size} 个"; listBox.removeAllViews(); if (files.isEmpty()) { listBox.addView(TextView(this).apply { text = getString(R.string.tv_files_empty); setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, gap, 0, 0) }); return }; files.forEach { f -> listBox.addView(fileRow(f), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = TvUi.dp(this@TvFileActivity, 6f) }) } }
-    private fun fileRow(f: File): View { val radius = TvUi.dp(this, TvUi.Radius.CONTROL); val stroke = TvUi.dp(this, 2f); val icon = TvFiles.fileIcon(f.name); val size = TvFiles.sizeText(f.length()); val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true; setPadding(gap * 2, gap, gap * 2, gap); background = TvUi.focusBg(TvUi.Pal.card, TvUi.Pal.cardFocus, radius, stroke); setOnClickListener { showFileActions(f) } }; TvUi.contentDescription(row, "$icon ${f.name}, $size，点击打开")
-        row.addView(TextView(this).apply { text = icon; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); setPadding(0, 0, gap, 0) })
-        row.addView(TextView(this).apply { text = f.name; setTextColor(TvUi.Pal.text); TvUi.applyTextSize(this, TvUi.Type.BODY); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE }, LinearLayout.LayoutParams(0, -2, 1f)); row.addView(TextView(this).apply { text = size; setTextColor(TvUi.Pal.textDim); TvUi.applyTextSize(this, TvUi.Type.CAPTION) }); row.addView(TextView(this).apply { text = "  打开"; setTextColor(TvUi.Pal.accent); TvUi.applyTextSize(this, TvUi.Type.BODY); typeface = Typeface.DEFAULT_BOLD }); return row }
-    private fun showFileActions(f: File) { val options = if (currentTarget() != null) arrayOf("打开", "发回给手机 / 电脑") else arrayOf("打开"); dialog = AlertDialog.Builder(this).setTitle(f.name).setItems(options) { _, which -> when (which) { 0 -> openFile(f); 1 -> sendFile(f) } }.setNegativeButton("取消", null).show() }
-    private fun openFile(f: File) { if (f.name.endsWith(".apk", ignoreCase = true)) installApk(f) else openGeneric(f) }
+
+    private fun refreshList() {
+        val dir = TvFiles.recvDir(this)
+        dirLabel = "存到：${dir.absolutePath}（共 ${TvFiles.listReceived(this).size} 个）"
+        filesState = TvFiles.listReceived(this)
+    }
+
+    private fun openFile(f: File) {
+        if (f.name.endsWith(".apk", ignoreCase = true)) installApk(f) else openGeneric(f)
+    }
+
     private fun installApk(f: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
             status("要先允许这台电视安装应用（接下来会打开开关页）", TvUi.Pal.accent)
-            try { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))) } catch (_: ActivityNotFoundException) {}
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } catch (_: ActivityNotFoundException) {
+            }
             return
         }
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -101,20 +275,158 @@ class TvFileActivity : Activity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (e: ActivityNotFoundException) { status("这台电视没有安装程序，打不开这个安装包", TvUi.Pal.warn) }
+        try {
+            startActivity(intent)
+            @Suppress("DEPRECATION") overridePendingTransition(com.allperiph.tv.R.anim.liquid_in, com.allperiph.tv.R.anim.liquid_out)
+        } catch (e: ActivityNotFoundException) {
+            status("这台电视没有安装程序，打不开这个安装包", TvUi.Pal.warn)
+        }
     }
-    private fun openGeneric(f: File) { val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(ApxFileProvider.uriFor(this@TvFileActivity, f), TvFiles.mimeOf(f.name)); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }; try { startActivity(intent); @Suppress("DEPRECATION") overridePendingTransition(R.anim.liquid_in, R.anim.liquid_out) } catch (_: ActivityNotFoundException) { status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn) } }
-    private fun showProgress(p: Int) { progressBar.progress = p; progressBar.visibility = if (p in 1..99) View.VISIBLE else View.GONE }
-    private fun sendFile(f: File) { val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) { status("正在发送上一个文件，等它发完", TvUi.Pal.warn); return }; status("正在发送 ${f.name}", TvUi.Pal.accent); showProgress(0); Thread({ val ok = FileSender.send(target, f) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-send").start() }
-    private fun pickFromSystem() { if (currentTarget() == null) { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "*/*" }, REQ_PICK) } catch (_: ActivityNotFoundException) { status("这台电视没有文件选择器，可以改从手机 / 电脑发过来", TvUi.Pal.warn) } }
-    @Deprecated("电视端沿用传统回调") override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) { super.onActivityResult(requestCode, resultCode, data); if (requestCode != REQ_PICK || resultCode != RESULT_OK) return; val uri: Uri = data?.data ?: return; val target = currentTarget() ?: run { status(NO_TARGET_HINT, TvUi.Pal.warn); return }; if (!busy.compareAndSet(false, true)) return; val (name, size) = queryNameSize(uri); status("正在发送 $name", TvUi.Pal.accent); showProgress(0); Thread({ val ok = try { contentResolver.openInputStream(uri)?.use { ins -> FileSender.send(target, name, size, ins) { p -> mainHandler.post { status("正在发送 ${p}%", TvUi.Pal.accent); showProgress(p) } } } ?: false } catch (t: Throwable) { Log.e("发送失败：${t.message}"); false }; mainHandler.post { busy.set(false); showProgress(if (ok) 100 else 0); status(if (ok) "已发送：$name" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn); if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000) } }, "apxtv-file-pick").start() }
-    private fun queryNameSize(uri: Uri): Pair<String, Long> { var name = "file.bin"; var size = -1L; runCatching { contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { c -> if (c.moveToFirst()) { c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) ?: name }; c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !c.isNull(it) }?.let { size = c.getLong(it) } } } }; return name to size }
-    private fun status(text: String, color: Int) { statusView.text = text; statusView.setTextColor(color) }
-    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
-    override fun onDestroy() { mainHandler.removeCallbacksAndMessages(null); dialog?.dismiss(); dialog = null; super.onDestroy() }
-    companion object {
-        private const val REQ_PICK = 9001
-        private const val NO_TARGET_HINT = "还没有手机 / 电脑连过本机 —— 先让对方连上来，再回来发文件"
-        private const val SEND_FAIL_HINT = "发送失败 —— 确认两边还在同一网络，再试一次"
+
+    private fun openGeneric(f: File) {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(ApxFileProvider.uriFor(this@TvFileActivity, f), TvFiles.mimeOf(f.name))
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(intent)
+            @Suppress("DEPRECATION") overridePendingTransition(com.allperiph.tv.R.anim.liquid_in, com.allperiph.tv.R.anim.liquid_out)
+        } catch (_: ActivityNotFoundException) {
+            status("这台电视没有能打开它的应用（可以先发回给手机打开）", TvUi.Pal.warn)
+        }
+    }
+
+    private fun showProgress(p: Int) {
+        progress = p
+    }
+
+    private fun sendFile(f: File) {
+        val target = currentTarget() ?: run {
+            status(NO_TARGET_HINT, TvUi.Pal.warn)
+            return
+        }
+        if (!busy.compareAndSet(false, true)) {
+            status("正在发送上一个文件，等它发完", TvUi.Pal.warn)
+            return
+        }
+        status("正在发送 ${f.name}", TvUi.Pal.accent)
+        showProgress(0)
+        Thread({
+            val ok = FileSender.send(target, f) { p ->
+                mainHandler.post {
+                    status("正在发送 ${p}%", TvUi.Pal.accent)
+                    showProgress(p)
+                }
+            }
+            mainHandler.post {
+                busy.set(false)
+                showProgress(if (ok) 100 else 0)
+                status(if (ok) "已发送：${f.name} → $target" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn)
+                if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000)
+            }
+        }, "apxtv-file-send").start()
+    }
+
+    private fun pickFromSystem() {
+        if (currentTarget() == null) {
+            status(NO_TARGET_HINT, TvUi.Pal.warn)
+            return
+        }
+        try {
+            startActivityForResult(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                },
+                REQ_PICK,
+            )
+        } catch (_: ActivityNotFoundException) {
+            status("这台电视没有文件选择器，可以改从手机 / 电脑发过来", TvUi.Pal.warn)
+        }
+    }
+
+    @Deprecated("电视端沿用传统回调")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_PICK || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        val target = currentTarget() ?: run {
+            status(NO_TARGET_HINT, TvUi.Pal.warn)
+            return
+        }
+        if (!busy.compareAndSet(false, true)) return
+        val (name, size) = queryNameSize(uri)
+        status("正在发送 $name", TvUi.Pal.accent)
+        showProgress(0)
+        Thread({
+            val ok = try {
+                contentResolver.openInputStream(uri)?.use { ins ->
+                    FileSender.send(target, name, size, ins) { p ->
+                        mainHandler.post {
+                            status("正在发送 ${p}%", TvUi.Pal.accent)
+                            showProgress(p)
+                        }
+                    }
+                } ?: false
+            } catch (t: Throwable) {
+                Log.e("发送失败：${t.message}")
+                false
+            }
+            mainHandler.post {
+                busy.set(false)
+                showProgress(if (ok) 100 else 0)
+                status(if (ok) "已发送：$name" else SEND_FAIL_HINT, if (ok) TvUi.Pal.ok else TvUi.Pal.warn)
+                if (ok) mainHandler.postDelayed({ showProgress(0) }, 2000)
+            }
+        }, "apxtv-file-pick").start()
+    }
+
+    private fun queryNameSize(uri: Uri): Pair<String, Long> {
+        var name = "file.bin"
+        var size = -1L
+        runCatching {
+            contentResolver.query(
+                uri,
+                arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE),
+                null, null, null,
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let {
+                        name = c.getString(it) ?: name
+                    }
+                    c.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !c.isNull(it) }?.let {
+                        size = c.getLong(it)
+                    }
+                }
+            }
+        }
+        return name to size
+    }
+
+    private fun status(text: String, color: Int) {
+        statusText = text
+        statusColor = color
+    }
+
+    private fun toast(text: String) = android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show()
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && actionTarget != null) {
+            actionTarget = null
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private companion object {
+        const val REQ_PICK = 9001
+        const val NO_TARGET_HINT = "还没有设备连过本机，先在手机端发起一次连接"
+        const val SEND_FAIL_HINT = "发送失败，检查两台设备是否在同一网络"
     }
 }
