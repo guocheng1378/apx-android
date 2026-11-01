@@ -26,6 +26,35 @@
 
 只动 Android 手机端的 `ApShellActivity`（主入口）。逻辑层、PC 端、电视端无改动。
 
+## v223.21（2026-11-01）
+
+本版只做一件事：**把主页丢掉的「帮助与说明」补回来**。
+
+界面层迁 Compose 时，旧设置页那层「帮助与说明」没被搬过来，但 `strings.xml` 里 `ui_help_*`
+十几个键（项目说明 / 链路与延迟 / 手势与操作 / 功能说明 / 常见问题 / 三步上手 / 开关与日志）
+文案全都还在，**代码里一处引用都没有** —— 用户看到的就是「主页什么说明都没有」。
+本轮新增 `ui/compose/HelpSheet.kt`，状态页末尾加「帮助与说明」卡（三步上手摘要 + 查看完整说明），
+文案全部复用既有 strings；另补一条 `ui_help_howto` 正文（三步：装 PC 端 → 开运行状态 → 选设备）。
+顺手把状态页残留的硬编码标题挪进 `strings.xml`，中文文案棘轮基线 708 → 703。
+
+## v223.20（2026-11-01）
+
+**界面层整体迁到 Jetpack Compose + Miuix**（手机端 + 电视端），并开始收口旧主题栈。
+
+- 设计系统落成：`ui/miuix/` 的 `ApInsets`（框架 `WindowInsets` 手动垫边）/`ApMotion`/`ApAccent`
+  （模板色只拉色相向 `system_accent*_600`）/`ApComponents`/`ApEffects`/`ApAdaptive`/`ApMiuixTheme`；
+- 手机端：`ApShellActivity` 接管 LAUNCHER（四页签 / 四指切页 / 设备选择器 / 横屏手势盾），
+  状态页、触控板页、键盘页、设置页（十组）全部 Compose；发送页、手柄页、投屏页、
+  被控端输入面板、文件面板逐个迁完；
+- 电视端：`TvHome`、`TvFileActivity`、`TvOverlayHost` + 通知浮窗改 Compose；`TvOverlay` 与
+  `RemoteInputOverlay` 在文件头写明**保留 View** 的理由；
+- 旧主题栈：`ControlShortcutActivity` 去掉 `ThemePref.wrap`，`ApShellActivity` 去掉
+  `ThemeSkin.applyRuntimeTheme`（保留 `wrap` —— `ApMiuixTheme` 的明暗正是它注入的 `uiMode`）；
+- macOS CI smoke 判据由「`open` + pgrep」改为**直接 exec 存活**（ad-hoc 签名下 `spctl` 必然
+  rejected，旧判据会把「签名等级不够」误报成「程序起不来」）。
+
+仍未迁：`TouchpadActivity`（全屏操控面）、`RemoteActivity`。真机未逐页回归。
+
 ## v223.19（2026-11-01）
 
 本版接 issue #52 的**第 13 条**里被漏掉的一半：**电脑端的按键映射表**，以及第 10 条
