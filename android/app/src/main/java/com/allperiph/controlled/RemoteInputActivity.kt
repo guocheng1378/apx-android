@@ -12,23 +12,38 @@ import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.allperiph.ui.miuix.ApMiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 
 class RemoteInputActivity : Activity() {
 
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
     private var editText: EditText? = null
     /** 程序性改写输入框时置 true：TextWatcher 会把“删字”当成退格发往电脑，
      *  发送后清空输入框绝不能触发它（否则刚发出去的字会被逐个删掉）。 */
@@ -85,7 +100,6 @@ class RemoteInputActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
         // 本机正在替对端输入：此时本机的输入框获焦**不能**再反向请求对端，
         // 否则两边互相 0x25 来回弹输入法（remoteInputMode 此前是个零赋值的死标记）
         com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = true
@@ -99,22 +113,95 @@ class RemoteInputActivity : Activity() {
         }
     }
 
+    /** 编辑键排（文字修改一律走特殊键链路，发送框只负责新增文本） */
+    private val editKeys = listOf(
+        "⌫" to (0 to 0x08), "Del" to (0 to 0x2E),
+        "←" to (0 to 0x25), "↑" to (0 to 0x26), "↓" to (0 to 0x28), "→" to (0 to 0x27),
+        "Home" to (0 to 0x24), "End" to (0 to 0x23),
+        "Tab" to (0 to 0x09), "Enter" to (0 to 0x0D),
+        "全选" to (1 to 0x41), "复制" to (1 to 0x43), "粘贴" to (1 to 0x56), "剪切" to (1 to 0x58),
+    )
+
+    /**
+     * 迁 Compose（`ThemeSkin`/`ThemePref` 下线的最后一步）：外壳、标题行、编辑键排、底部按钮
+     * 换成 Compose；**输入框与内嵌触控板用 `AndroidView` 互操作保留** —— 前者是
+     * `EditText` + `TextWatcher` 逐字增量上屏 + 平台 IME（文字到对端的唯一通道），
+     * 后者是每帧起帧节流、±127 分帧、长按 400ms 进拖拽的原始触摸逻辑，
+     * 搬进 Compose 属于拿「能不能打出字 / 光标动不动」换一致性。
+     */
     private fun buildUi(): View {
-        val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(getColor(R.color.remote_panel_bg))
-            setPadding(dp(24f), dp(16f), dp(24f), dp(16f))
+        val bg = getColor(R.color.remote_panel_bg)
+        val accent = getColor(R.color.remote_panel_accent)
+        val dim = getColor(R.color.remote_panel_text_dim)
+        val neutral = getColor(R.color.remote_panel_neutral)
+        return ComposeView(this).apply {
+            setContent {
+                ApMiuixTheme {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color(bg))
+                            .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = getString(R.string.ui_remoteinput_title),
+                                color = androidx.compose.ui.graphics.Color(accent),
+                                fontSize = 14.sp,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = getString(R.string.ui_remoteinput_from, sourceDevice),
+                                color = androidx.compose.ui.graphics.Color(dim),
+                                fontSize = 13.sp,
+                            )
+                        }
+                        AndroidView(
+                            factory = { buildInput() },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(top = 4.dp, bottom = 8.dp),
+                        ) {
+                            for ((label, mk) in editKeys) {
+                                KeyButton(label) { sendSpecial(mk.first, mk.second) }
+                            }
+                        }
+                        AndroidView(
+                            factory = { buildTouchpad() },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(top = 4.dp, bottom = 10.dp),
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            ActionPill(getString(R.string.ui_common_cancel), neutral) { cancelAndFinish() }
+                            Spacer(Modifier.width(12.dp))
+                            ActionPill(getString(R.string.ui_common_send), accent) { sendCurrent() }
+                        }
+                    }
+                }
+            }
         }
-        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(TextView(this).apply { text = getString(R.string.ui_remoteinput_title); setTextColor(getColor(R.color.remote_panel_accent)); textSize = 14f })
-        titleRow.addView(View(this), LinearLayout.LayoutParams(0, 0, 1f))
-        titleRow.addView(TextView(this).apply { text = getString(R.string.ui_remoteinput_from, sourceDevice); setTextColor(getColor(R.color.remote_panel_text_dim)); textSize = 13f })
-        root.addView(titleRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8f) })
+    }
+
+    /** 输入框本体（互操作保留）：逐字增量上屏、删字退格、失焦提示都还在这里 */
+    private fun buildInput(): View {
+        val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
         val input = EditText(this).apply {
-            setTextColor(getColor(R.color.remote_panel_on));
+            setTextColor(getColor(R.color.remote_panel_on))
             setHintTextColor(getColor(R.color.remote_panel_text_faint))
-            hint = hintText.ifEmpty { getString(R.string.ui_remoteinput_hint) }; setBackgroundColor(getColor(R.color.remote_panel_field))
+            hint = hintText.ifEmpty { getString(R.string.ui_remoteinput_hint) }
+            setBackgroundColor(getColor(R.color.remote_panel_field))
             setPadding(dp(16f), dp(12f), dp(16f), dp(12f)); textSize = 18f; typeface = Typeface.DEFAULT
             isFocusable = true; isFocusableInTouchMode = true; setSingleLine()
             addTextChangedListener(object : TextWatcher {
@@ -146,13 +233,12 @@ class RemoteInputActivity : Activity() {
             })
         }
         editText = input
-        root.addView(input, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12f) })
+        return input
+    }
 
-        // v184：内嵌触控板 —— 输入的同时直接移动对端光标，不用退出输入面板。
-        // 手势 → 0x01 鼠标帧（与触摸板模块同一链路；经客户端时走 controlClient.mouse）：
-        //   滑动 = 移动光标（相对位移，分帧限幅 ±127）
-        //   轻点 = 左键点击（按下/抬起两帧）
-        //   长按 400ms 后拖动 = 左键拖拽
+    /** 内嵌触控板（互操作保留）：滑动=移动光标、轻点=左键、长按 400ms 进拖拽 */
+    private fun buildTouchpad(): View {
+        val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
         var lastTouchLogAt = 0L
         fun mouseFrame(buttons: Int, dx: Int, dy: Int) {
             val now = android.os.SystemClock.uptimeMillis()
@@ -174,6 +260,7 @@ class RemoteInputActivity : Activity() {
                 setTextColor(getColor(R.color.remote_panel_text_faint)); textSize = 12f
                 gravity = Gravity.CENTER
             }, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+            minimumHeight = dp(150f)
         }
         val dragArm = Runnable {
             if (tpDown && !tpDrag) { tpDrag = true; mouseFrame(0x01, 0, 0) }
@@ -215,79 +302,71 @@ class RemoteInputActivity : Activity() {
                 else -> false
             }
         }
-        // 触控板不再插在输入框和编辑键排之间：挪到编辑键排之后、占满剩余高度（见下方 addView），
-        // 这样它落在屏幕中部、拇指最好按的位置，键盘弹出时也处在可视区中央。
-        // v184：文字编辑快捷键排 —— 退格/方向/跳转/组合键经特殊键链路直达对端
-        //（手机输入框只负责新增文本；对对端已有内容的修改全走这里）
-        fun editKey(label: String, mod: Int, vk: Int) = TextView(this).apply {
-            text = label; setTextColor(getColor(R.color.remote_panel_on)); textSize = 13f; gravity = Gravity.CENTER
-            setPadding(dp(14f), dp(10f), dp(14f), dp(10f))
-            setBackgroundColor(getColor(R.color.remote_panel_field))
-            isFocusable = true; contentDescription = label
-            setOnClickListener { sendSpecial(mod, vk) }
+        return touchpad
+    }
+
+    /** 编辑键排的一个键 */
+    @Composable
+    private fun KeyButton(label: String, onClick: () -> Unit) {
+        Box(
+            modifier = Modifier
+                .padding(end = 6.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_field)))
+                .clickable { onClick() }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = label,
+                color = androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_on)),
+                fontSize = 13.sp,
+            )
         }
-        val editKeys = listOf(
-            "⌫" to (0 to 0x08), "Del" to (0 to 0x2E),
-            "←" to (0 to 0x25), "↑" to (0 to 0x26), "↓" to (0 to 0x28), "→" to (0 to 0x27),
-            "Home" to (0 to 0x24), "End" to (0 to 0x23),
-            "Tab" to (0 to 0x09), "Enter" to (0 to 0x0D),
-            "全选" to (1 to 0x41), "复制" to (1 to 0x43), "粘贴" to (1 to 0x56), "剪切" to (1 to 0x58),
-        )
-        val keyRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        for ((label, mk) in editKeys) keyRow.addView(editKey(label, mk.first, mk.second))
-        val keyScroll = android.widget.HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(keyRow)
+    }
+
+    /** 底部按钮（取消 / 发送） */
+    @Composable
+    private fun ActionPill(label: String, bg: Int, onClick: () -> Unit) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(androidx.compose.ui.graphics.Color(bg))
+                .clickable { onClick() }
+                .padding(horizontal = 24.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = label,
+                color = androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_on)),
+                fontSize = 14.sp,
+            )
         }
-        root.addView(keyScroll, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4f); bottomMargin = dp(8f) })
-        // 触控板 = 本页中部的主区域：weight 占满输入区与按钮排之间的剩余空间
-        root.addView(touchpad, LinearLayout.LayoutParams(-1, 0, 1f).apply {
-            topMargin = dp(4f); bottomMargin = dp(10f)
-            touchpad.minimumHeight = dp(150f)
-        })
-        val btnRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-        btnRow.addView(TextView(this).apply {
-            text = getString(R.string.ui_common_cancel); setTextColor(getColor(R.color.remote_panel_on)); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER; setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
-            setBackgroundColor(getColor(R.color.remote_panel_neutral))
-            setOnClickListener {
-                // ★ 0x08（CANCEL）三端接收侧全是空实现（ControlledService / TvServerService
-                //   里都写着 `-> Unit`），光发这一帧不会删掉对端已上屏的字 —— 点「取消」
-                //   等于白点。与 PC / TV 同口径：按剩余字数逐个发 0x02 退格（TV 端 undoOnPeer）。
-                val n = editText?.text?.length ?: 0
-                repeat(n) { sendText("", ApxFrame.INPUT_FLAG_BACKSPACE) }
-                // 0x08 仍照发：语义保留，将来三端若实现「整段撤销」，这一帧就是信号
-                sendText("", ApxFrame.INPUT_FLAG_CANCEL)
-                finish()
-            }
-        }.also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } })
-        btnRow.addView(TextView(this).apply {
-            text = getString(R.string.ui_common_send); setTextColor(getColor(R.color.remote_panel_on)); textSize = 14f; typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER; setPadding(dp(24f), dp(10f), dp(24f), dp(10f))
-            setBackgroundColor(getColor(R.color.remote_panel_accent))
-            // 发送后**留在面板**（清空输入框接着打下一句）；收起整个面板走「取消」或系统返回。
-            // 以前发完就 finish()，想连着打就得重新唤起 —— 手机端反馈“一点发送就跳出界面”。
-            //
-            // 这里**绝不发 COMMIT 整段帧**：打字时 TextWatcher 已把每个字符以 INCREMENTAL
-            // 逐字送到对端并即时上屏；COMMIT 的语义是“整段再粘一遍”，PC 端两种帧都注入，
-            // 结果就是用户报的“发送后文字重复两次”。发送只负责收尾：DONE 帧 + 清空继续。
-            setOnClickListener {
-                val t = editText?.text?.toString() ?: ""
-                if (t.isEmpty()) {
-                    Toast.makeText(this@RemoteInputActivity, getString(R.string.ui_remoteinput_need_text), Toast.LENGTH_SHORT).show()
-                } else {
-                    sendDone()
-                    suppressInputWatcher = true          // 清空动作绝不能被当成退格发给对端
-                    editText?.setText("")
-                    suppressInputWatcher = false
-                    editText?.requestFocus()             // 焦点回到输入框，键盘保持弹出
-                    // 文案不再硬编“电脑”：经客户端链路时对端是手机/TV（fromClient 场景）
-                    Toast.makeText(this@RemoteInputActivity, getString(R.string.ui_remoteinput_sent), Toast.LENGTH_SHORT).show()
-                }
-            }
-        }.also { it.layoutParams = LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(12f) } })
-        root.addView(btnRow)
-        return root
+    }
+
+    /** 取消：按剩余字数逐个发退格再 finish（0x08 三端接收侧是空实现，光发它等于白点） */
+    private fun cancelAndFinish() {
+        val n = editText?.text?.length ?: 0
+        repeat(n) { sendText("", ApxFrame.INPUT_FLAG_BACKSPACE) }
+        // 0x08 仍照发：语义保留，将来三端若实现「整段撤销」，这一帧就是信号
+        sendText("", ApxFrame.INPUT_FLAG_CANCEL)
+        finish()
+    }
+
+    /**
+     * 发送：只发 DONE 帧 + 清空输入框接着打下一句，**绝不发 COMMIT 整段帧**
+     *（打字时 TextWatcher 已逐字上屏，再粘一遍就是用户报的“文字重复两次”）。
+     */
+    private fun sendCurrent() {
+        val t = editText?.text?.toString() ?: ""
+        if (t.isEmpty()) {
+            Toast.makeText(this, getString(R.string.ui_remoteinput_need_text), Toast.LENGTH_SHORT).show()
+            return
+        }
+        sendDone()
+        suppressInputWatcher = true          // 清空动作绝不能被当成退格发给对端
+        editText?.setText("")
+        suppressInputWatcher = false
+        editText?.requestFocus()             // 焦点回到输入框，键盘保持弹出
+        Toast.makeText(this, getString(R.string.ui_remoteinput_sent), Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {
