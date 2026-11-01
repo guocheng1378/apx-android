@@ -373,24 +373,27 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             // 数据与旧页共用 HotkeyTemplates.ALL / HotkeyStore.loadTemplate|applyTemplate，不另立存储。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl)) {
                 Column {
-                    ApComponents.ValueRow(
-                        title = "当前模板",
-                        value = HotkeyStore.loadTemplate(ctx)?.let { key ->
-                            com.allperiph.hid.HotkeyTemplates.byKey(key)?.name ?: key
-                        } ?: "未设置（默认）",
+                    // 成宇 2026-11-02「设置页太多了，能用下拉列表的不用」：
+                    // 原来「当前模板」一行 + 六个模板各一枚 ActionButton，七行占满一屏；
+                    // 模板是互斥枚举，改用下拉一个组件就装下全部（含未设置态回显）。
+                    val tplAll = com.allperiph.hid.HotkeyTemplates.ALL
+                    val tplKey = HotkeyStore.loadTemplate(ctx)
+                    val tplIdx = tplAll.indexOfFirst { it.key == tplKey }
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_sec_tpl),
+                        summary = if (tplIdx >= 0) {
+                            "${tplAll[tplIdx].name} · ${tplAll[tplIdx].desc}"
+                        } else {
+                            "未设置（默认）"
+                        },
+                        items = tplAll.map { "${it.name} · ${it.desc}" },
+                        selectedIndex = if (tplIdx >= 0) tplIdx else 0,
+                        onSelectedIndexChange = { i ->
+                            HotkeyStore.applyTemplate(ctx, tplAll[i])
+                            tplVersion++
+                            Feedback.haptic(ctx)
+                        },
                     )
-                    com.allperiph.hid.HotkeyTemplates.ALL.take(6).forEach { t ->
-                        ApComponents.ActionButton(
-                            text = "${t.name} · ${t.desc}",
-                            onClick = {
-                                com.allperiph.hid.HotkeyTemplates.byKey(t.key)?.let {
-                                    HotkeyStore.applyTemplate(ctx, it)
-                                }
-                                tplVersion++
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                    }
                 }
             }
         }
