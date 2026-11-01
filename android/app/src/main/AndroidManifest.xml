@@ -106,10 +106,6 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AllPeriph">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
         <!-- miuix-ui 分支：组件总览（开发页，从设置页「关于」卡进入） -->
         <activity
@@ -124,10 +120,15 @@
         -->
         <activity
             android:name=".ui.compose.ApShellActivity"
-            android:label="全能外设（Miuix 迁移预览）"
-            android:exported="false"
+            android:label="全能外设"
+            android:exported="true"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.AllPeriph" />
+            android:theme="@style/Theme.AllPeriph" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <!--
           ② 触控板（手势捕捉面，v1.19）
