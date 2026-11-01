@@ -126,6 +126,7 @@ class ApShellActivity : ComponentActivity() {
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                         )
+                        2 -> KeyboardPage(this@ApShellActivity)
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
@@ -139,6 +140,7 @@ class ApShellActivity : ComponentActivity() {
                 title = when (page) {
                     0 -> "状态"
                     1 -> "触控板"
+                    2 -> "键盘"
                     else -> "设置"
                 },
                 hazeState = hazeState,
@@ -163,11 +165,18 @@ class ApShellActivity : ComponentActivity() {
                         label = "触控板",
                         enabled = true,
                     )
-                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
-                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
                     FloatingNavigationBarItem(
                         selected = page == 2,
                         onClick = { page = 2 },
+                        icon = MiuixIcons.ListView,
+                        label = "键盘",
+                        enabled = true,
+                    )
+                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
+                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
+                    FloatingNavigationBarItem(
+                        selected = page == 3,
+                        onClick = { page = 3 },
                         icon = MiuixIcons.ListView,
                         label = "设置",
                         enabled = true,
@@ -175,6 +184,44 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 四指左右滑切页（横屏换页方式，避开触控板自身一到三指手势）。
+     *
+     * 走 [dispatchTouchEvent] 而不是 Compose 的 pointerInput：键盘页是 AndroidView 包着的
+     * `KeyboardPanels`，按键会吃掉事件序列，只有分发第一站能稳定看到四指。
+     * 与旧 `MainActivity` 同一套阈值（56dp）与循环顺序。
+     */
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        if (adaptiveState?.landscape == true) {
+            when (ev.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    fourStartX = -1f
+                    fourSwiped = false
+                }
+                android.view.MotionEvent.ACTION_POINTER_DOWN ->
+                    if (ev.pointerCount >= 4 && fourStartX < 0f) {
+                        fourStartX = ev.x
+                        fourSwiped = false
+                    }
+                android.view.MotionEvent.ACTION_MOVE ->
+                    if (fourStartX >= 0f && !fourSwiped && ev.pointerCount >= 4) {
+                        val dx = ev.x - fourStartX
+                        if (kotlin.math.abs(dx) > 56f * resources.displayMetrics.density) {
+                            fourSwiped = true
+                            val order = intArrayOf(1, 2, 3)   // 触控板 → 键盘 → 设置
+                            val cur = order.indexOf(pageState).coerceAtLeast(0)
+                            pageState = if (dx < 0) {
+                                order[(cur + 1) % order.size]
+                            } else {
+                                order[(cur + order.size - 1) % order.size]
+                            }
+                        }
+                    }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun touchpadModule(): TouchpadModule? =
@@ -192,6 +239,17 @@ class ApShellActivity : ComponentActivity() {
             AgentController.stopAll()
             AgentForegroundService.stop(this)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 剪贴板同步（旧主壳里由 MainActivity 挂载，迁到新宿主后同一个入口）
+        com.allperiph.ui.ClipboardSync.register(this)
+    }
+
+    override fun onPause() {
+        com.allperiph.ui.ClipboardSync.unregister(this)
+        super.onPause()
     }
 
     private fun applyImmersive() {
@@ -222,4 +280,25 @@ internal object ApAccentSync {
             null
         }
     }
+}
+
+/**
+ * 键盘页（阶段 6 第一版）：`KeyboardPanels` 是 598 行程序化 View（8 套键位：快捷/遥控/游戏/
+ * 数字/九宫格/方向/F 区/自定义），先整体用 `AndroidView` 挂进来，保证功能不断；
+ * 逐套换成 Compose + Miuix 是下一步（届时按「按钮用按钮、列表用列表、长按长按、弹窗弹窗」重做）。
+ */
+@Composable
+private fun KeyboardPage(activity: android.app.Activity) {
+    val panels = remember { com.allperiph.ui.KeyboardPanels(activity) }
+    androidx.compose.ui.viewinterop.AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { ctx ->
+            android.widget.FrameLayout(ctx).apply {
+                addView(
+                    panels.build(),
+                    android.widget.FrameLayout.LayoutParams(-1, -1),
+                )
+            }
+        },
+    )
 }
