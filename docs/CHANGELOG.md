@@ -4,6 +4,55 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.19（2026-11-01）
+
+本版接 issue #52 的**第 13 条**里被漏掉的一半：**电脑端的按键映射表**，以及第 10 条
+剩下的最后一处按钮居中。三份注入器（Windows / Linux / macOS）各有一张
+HID usage → 宿主键码表，漏一条 case **编译器不会报错**，只会落 `default` 被静默丢弃，
+用户看到的是「按了没反应」而日志里一片干净 —— 本轮就是这么漏掉的。
+
+### 修了什么
+
+- **macOS：小键盘整块错位一格**（input_injector_mac.mm）。从 `0x53` 起，每一行都被
+  挪到了**相邻**的键上：按 KP 1 出来的是 Keypad2、按 KP Enter 出来的是 Keypad1、
+  按 KP `*` 出来的是 KeypadMinus……末尾还漏了 **KP 2** 与 **KP =**。
+  现已按 Apple `HIToolbox/Events.h` 的 kVK 值逐键重排
+  （Clear / Divide / Multiply / Minus / Plus / Enter / 1–9 / 0 / . / = 共 18 键）。
+- **macOS：补上原先整段缺失的键** —— PrtSc / ScrLk / Pause 折到 F13–F15；
+  「菜单」键（HID 0x65）改用**右键事件**表达（macOS 公开头文件里没有
+  `kVK_ContextualMenu`，**不猜键码**）；非美键盘 `\|`（0x64）按反斜杠兜底。
+  「按键未映射」日志从 `DEBUG` 升到 **`WARN`** —— 原先 Release 构建下这行被全关掉，
+  用户报「按了没反应」时日志里查不到任何线索。
+- **Windows：补上同一批缺失键** —— PrtSc(`VK_SNAPSHOT`) / ScrLk / Pause /
+  菜单(`VK_APPS`) / 键盘 Power(`VK_SLEEP`) / 小键盘 `=` / 非美 `\|`。
+- **Linux：补上同一批 + 小键盘数字 KP1–KP9**（原先只有 KP0 与 KP .）
+  —— 数字小键盘在 Linux 上此前整片按不动。
+- **两处「够不着 / 编译不过」的错误映射**（同一批排查里查出来的）：
+  - Linux：`case 0x5A → KEY_CLEAR` 与下面的 `case 0x5A → KEY_KP2` 构成
+    **重复 case 标签 → C++ 直接编译失败**。0x5A 是**小键盘 2**，`KEY_CLEAR` 那条已删。
+  - Windows：`case 0x5A → VK_OEM_CLEAR` 被函数开头的 `0x59–0x61` 范围分支**提前拦下**，
+    永远执行不到，既是死代码又语义错，已删。
+- **第 10 条剩余**：代码 `new` 出来的按钮（触控板页的「电视 / 电脑」按钮、「编辑」chip、
+  按键选择器）文字未居中 —— framework `Button` 默认 `gravity=left|center_vertical`，
+  宽按钮上文字贴左。已逐处补 `CENTER`。
+
+### 实现方式
+
+- 新增 `scripts/check_keymap.py` 并接入 CI 的 protocol job。三张表**没有编译器管**，
+  所以做静态关卡：① 覆盖率（100 项必需 usage 全覆盖，不映射必须进白名单并写明理由）；
+  ② **重复 case**（会编译失败）；③ **范围分支之后的死代码**；④ macOS 小键盘
+  18 键 kVK 锚点逐键核对（就是本轮错位的地方，钉死它）。
+  已做反向验证：往 macOS 表里注入一处错位能立刻报出。
+- 三端共用同一份 usage 全集，避免以后再出现「Windows 补了、Linux 没补」。
+
+### 需要确认
+
+1. **macOS 用户**：小键盘数字与四则运算键现在是否**对应正确**（此前会串到相邻键）。
+2. **Windows / Linux 用户**：遥控器上的「菜单」键、键盘的 PrtSc / ScrLk / Pause
+   现在是否有反应。
+3. 若仍有按键无反应，请把日志里的 **`按键未映射：HID usage=0x…`** 那行发上来
+   —— 本版起它一定会出现在日志里（原先 Release 下不输出），能直接定位到是哪一键。
+
 ## v223.18（2026-11-01）
 
 本版接 issue #52 的**第 13 条**（遥控器页）与**第 5 条**（蓝牙不成 HID 键鼠），两条都有源码级根因。
