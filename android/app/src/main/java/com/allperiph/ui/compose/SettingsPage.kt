@@ -24,6 +24,7 @@ import com.allperiph.ui.IssueLauncher
 import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
+import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.MiuixTokens
@@ -47,6 +48,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 @Composable
 fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     val insets = rememberApInsets()
+    var tplVersion by remember { mutableIntStateOf(0) }
     // 档位值放在 state 里：下拉组件是受控的，改完要立刻反映到界面
     var themeMode by remember { mutableIntStateOf(ThemePref.get(ctx)) }
     var colorSource by remember { mutableIntStateOf(ThemeSkin.colorSource(ctx)) }
@@ -225,6 +227,74 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                             ctx.stopService(it)
                         }
                         Feedback.haptic(ctx)
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 快捷键模板 ————————————————
+        // 从旧 MainActivity 的设置页迁来：模板列表 + 应用 + 当前模板回显。
+        // 数据与旧页共用 HotkeyTemplates.ALL / HotkeyStore.loadTemplate|applyTemplate，不另立存储。
+        ApComponents.Section(title = "快捷键模板") {
+            Column {
+                ApComponents.ValueRow(
+                    title = "当前模板",
+                    value = HotkeyStore.loadTemplate(ctx)?.let { key ->
+                        com.allperiph.hid.HotkeyTemplates.byKey(key)?.name ?: key
+                    } ?: "未设置（默认）",
+                )
+                com.allperiph.hid.HotkeyTemplates.ALL.take(6).forEach { t ->
+                    ApComponents.ActionButton(
+                        text = "${t.name} · ${t.desc}",
+                        onClick = {
+                            com.allperiph.hid.HotkeyTemplates.byKey(t.key)?.let {
+                                HotkeyStore.applyTemplate(ctx, it)
+                            }
+                            tplVersion++
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+            }
+        }
+
+        // ———————————————— 环境诊断 ————————————————
+        ApComponents.Section(title = "环境诊断") {
+            Column {
+                var env by remember { mutableStateOf(com.allperiph.ui.AgentController.env) }
+                ApComponents.ActionButton(
+                    text = "重新检测",
+                    onClick = { com.allperiph.ui.AgentController.refreshEnv(ctx) { env = it } },
+                )
+                env?.let { e ->
+                    ApComponents.ValueRow(title = "root", value = if (e.rooted) "已就绪" else "未获取")
+                    ApComponents.ValueRow(title = "链路", value = e.rawSpeed.ifEmpty { e.linkSpeed.toString() })
+                    ApComponents.ValueRow(title = "UDC", value = e.udc ?: "未找到")
+                    ApComponents.ValueRow(
+                        title = "电池优化",
+                        value = if (e.batteryOptimized) "已忽略（推荐）" else "未忽略",
+                    )
+                    ApComponents.ValueRow(
+                        title = "通知权限",
+                        value = if (e.notificationGranted) "已授予" else "未授予",
+                    )
+                }
+            }
+        }
+
+        // ———————————————— 文件与传输 ————————————————
+        ApComponents.Section(title = "文件与传输") {
+            Column {
+                ApComponents.ActionButton(
+                    text = "文件面板",
+                    onClick = { ctx.startActivity(Intent(ctx, com.allperiph.ui.FilePanelActivity::class.java)) },
+                )
+                ApComponents.ActionButton(
+                    text = "发送文件（LocalSend）",
+                    onClick = {
+                        ctx.startActivity(
+                            Intent(ctx, com.allperiph.localsend.SendActivity::class.java),
+                        )
                     },
                 )
             }
