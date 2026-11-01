@@ -54,6 +54,10 @@ class App : Application() {
         com.allperiph.ui.GlobalKeyForwarder.loadPref(
             getSharedPreferences("apx_ime_bridge", Context.MODE_PRIVATE)
         )
+        // 键映射覆盖层：与转发开关一样在进程起点灌进去，无障碍服务随时被拉起也能读到。
+        com.allperiph.ui.HidKeyOverrides.load(
+            getSharedPreferences("apx_key_overrides", Context.MODE_PRIVATE)
+        )
         com.allperiph.shared.accessibility.ApxAccessibilityService.keyForwarder =
             com.allperiph.ui.GlobalKeyForwarder::forward
         // issue #52 建议 6 第二条腿：外接触控板的 root 直读（默认关）—— 同样在进程

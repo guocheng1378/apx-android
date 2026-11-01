@@ -24,6 +24,7 @@ import com.allperiph.ui.IssueLauncher
 import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.GlobalKeyForwarder
+import com.allperiph.ui.HidKeyOverrides
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
@@ -455,6 +456,49 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
                     },
                 )
+            }
+        }
+
+        // ———————————————— 键映射 ————————————————
+        // HidKeyMap 是「Android keyCode → HID usage」的静态真源；这里只加稀疏的用户覆盖层
+        // （HidKeyOverrides），查表顺序是「覆盖 → 默认」，转发链路已在 GlobalKeyForwarder 接好。
+        var overrides by remember { mutableStateOf(HidKeyOverrides.current()) }
+        val overridePrefs = remember { ctx.getSharedPreferences("apx_key_overrides", Context.MODE_PRIVATE) }
+        ApComponents.Section(title = "键映射") {
+            Column {
+                HidKeyOverrides.KEY_CHOICES.forEach { pair ->
+                    val label = pair.first
+                    val keyCode = pair.second
+                    val cur = overrides[keyCode]
+                    val def = com.allperiph.ui.HidKeyMap.usageOf(keyCode)
+                    val curLabel = if (cur != null) {
+                        HidKeyOverrides.USAGE_CHOICES.firstOrNull { it.second == cur }?.first
+                            ?: "0x%02X".format(cur)
+                    } else {
+                        if (def == 0) "默认（不转发）" else "默认（0x%02X）".format(def)
+                    }
+                    ApComponents.ValueRow(title = label, value = curLabel)
+                    ApComponents.ActionButton(
+                        text = "「$label」换成下一个候选",
+                        onClick = {
+                            val choices = HidKeyOverrides.USAGE_CHOICES
+                            val idx = choices.indexOfFirst { it.second == cur }
+                            val next = choices[(idx + 1).mod(choices.size)].second
+                            HidKeyOverrides.set(overridePrefs, keyCode, next)
+                            overrides = HidKeyOverrides.current()
+                            Toast.makeText(ctx, label + " → 0x%02X".format(next), Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                    if (cur != null) {
+                        ApComponents.ActionButton(
+                            text = "「$label」恢复默认",
+                            onClick = {
+                                HidKeyOverrides.clear(overridePrefs, keyCode)
+                                overrides = HidKeyOverrides.current()
+                            },
+                        )
+                    }
+                }
             }
         }
 
