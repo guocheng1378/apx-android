@@ -34,6 +34,7 @@ import com.allperiph.ui.miuix.ApGlassTopBar
 import com.allperiph.ui.miuix.apHazeSource
 import com.allperiph.ui.miuix.rememberApHazeState
 import com.allperiph.ui.miuix.rememberApInsets
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
@@ -78,8 +79,14 @@ class ApShellActivity : ComponentActivity() {
         // 反馈 #52（新一轮）第 4 条：横屏底部留白按 96dp 统一，不再让底栏压住页面内容；
         // 竖屏 88dp（底栏自身高度 + 一点呼吸）
         // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
-        val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val adaptive = rememberApAdaptiveLayout()
+        val landscape = adaptive.landscape
         val bottomGap = if (landscape) 96.dp else 88.dp
+        // 「横屏覆盖状态栏」（成宇 2026-11-01）：横屏下内容画到状态栏区域之下，
+        // 不预留顶部空档；竖屏仍然垫状态栏，否则第一张卡片会被时间/电量压住。
+        // 需要垫的只剩挖孔：横屏时刘海在左右，所以左右 inset 照旧生效。
+        val topPad = if (landscape) 0.dp else insets.top
+        val sidePad = if (adaptive.padCutout) insets.horizontal else 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         var page by remember { mutableIntStateOf(0) }
@@ -135,7 +142,7 @@ class ApShellActivity : ComponentActivity() {
                     else -> "设置"
                 },
                 hazeState = hazeState,
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier.align(Alignment.TopCenter).padding(start = sidePad, end = sidePad),
             )
 
             // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
@@ -188,6 +195,16 @@ class ApShellActivity : ComponentActivity() {
     }
 
     private fun applyImmersive() {
+        // 横屏覆盖状态栏的前提（framework API，minSdk 34 无需兼容分支）：
+        // ① 装饰视图不再替我们让位 —— 让位由 ApInsets 按边算，横屏顶部按 0 处理；
+        // ② 状态栏颜色透明；③ 允许布局延伸到挖孔短边（横屏时刘海在左右侧）。
+        window.setDecorFitsSystemWindows(false)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode =
+                android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
         val c = window.insetsController ?: return
         c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         c.show(WindowInsets.Type.statusBars())
