@@ -545,6 +545,89 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
 
+        // ———————————————— 运行日志 ————————————————
+        // 日志不是新造的：com.allperiph.shared.util.Log 已有 512 条环形缓冲（Log.snapshot），
+        // 落盘口径在 LogExport（文件名 apx-logs-<kind>@<型号>-<stamp>.txt，手机端写
+        // 下载/AllPeriph，API 29+ 走 MediaStore 不要权限）。这里只做筛选 + 触发导出。
+        var logMin by remember { mutableIntStateOf(1) }
+        var logSpan by remember { mutableIntStateOf(1) }
+        val logLevels = listOf("全部（含调试）", "Debug 以上", "Info 以上", "只看警告", "只看错误")
+        val logSpans = listOf("最近 5 分钟", "最近 15 分钟", "最近 1 小时", "全部缓冲")
+        ApComponents.Section(title = "运行日志") {
+            Column {
+                ApComponents.ValueRow(
+                    title = "缓冲",
+                    value = "${com.allperiph.shared.util.Log.snapshot().size} 条（上限 512，超出滚动丢弃）",
+                )
+                WindowDropdownPreference(
+                    title = "级别筛选",
+                    summary = logLevels.getOrElse(logMin) { logLevels[0] },
+                    items = logLevels,
+                    selectedIndex = logMin,
+                    onSelectedIndexChange = { logMin = it },
+                )
+                WindowDropdownPreference(
+                    title = "时间范围",
+                    summary = logSpans.getOrElse(logSpan) { logSpans[0] },
+                    items = logSpans,
+                    selectedIndex = logSpan,
+                    onSelectedIndexChange = { logSpan = it },
+                )
+                ApComponents.ActionButton(
+                    text = "导出日志（下载/AllPeriph）",
+                    onClick = {
+                        val minLevel = when (logMin) {
+                            0 -> com.allperiph.shared.util.Log.Level.V
+                            1 -> com.allperiph.shared.util.Log.Level.D
+                            2 -> com.allperiph.shared.util.Log.Level.I
+                            3 -> com.allperiph.shared.util.Log.Level.W
+                            else -> com.allperiph.shared.util.Log.Level.E
+                        }
+                        val windowMs = when (logSpan) {
+                            0 -> 5 * 60_000L
+                            1 -> 15 * 60_000L
+                            2 -> 60 * 60_000L
+                            else -> Long.MAX_VALUE
+                        }
+                        val now = System.currentTimeMillis()
+                        val rows = com.allperiph.shared.util.Log.snapshot().filter { e ->
+                            e.level.ordinal >= minLevel.ordinal && now - e.wallMs <= windowMs
+                        }
+                        if (rows.isEmpty()) {
+                            Toast.makeText(ctx, "该条件下没有日志", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val body = buildString {
+                                appendLine("# apx-android 日志导出")
+                                appendLine("# 时间：${com.allperiph.shared.util.LogExport.timestamp()}")
+                                appendLine("# 级别：${logLevels[logMin]} / 范围：${logSpans[logSpan]}")
+                                appendLine("# 条数：${rows.size}")
+                                rows.forEach { e ->
+                                    append('[').append(e.level.name).append("] ")
+                                    append(e.tag).append(": ").appendLine(e.msg)
+                                }
+                            }
+                            val name = com.allperiph.shared.util.LogExport.fileName("log")
+                            val saved = runCatching {
+                                com.allperiph.shared.util.LogExport.saveToDownloads(ctx, name, body)
+                            }
+                            Toast.makeText(
+                                ctx,
+                                saved.getOrElse { "导出失败：${it.message}" },
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
+                )
+                ApComponents.ActionButton(
+                    text = "清空日志缓冲",
+                    onClick = {
+                        com.allperiph.shared.util.Log.clear()
+                        Toast.makeText(ctx, "已清空", Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+        }
+
         // ———————————————— 关于 ————————————————
         ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
             Column {
