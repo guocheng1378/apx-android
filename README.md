@@ -152,8 +152,9 @@ cmake --build build_display --config Release
 │  ├─ host/             常驻宿主 + 桌面面板源码
 │  └─ display/          副屏推流与触控注入
 ├─ android/             手机端 + TV 端（Kotlin）
-│  ├─ app/              手机端 App
-│  └─ tv/               TV 端 App
+│  ├─ app/              手机端 App（界面层 Compose + Miuix）
+│  │  └─ .../ui/        compose/ 页面 · miuix/ 设计系统 · 其余为旧 Views 页与服务
+│  └─ tv/               TV 端 App（TvHome / TvFileActivity / TvOverlayHost 已是 Compose）
 ├─ scripts/             构建与辅助脚本
 ├─ docs/                设计与协议文档
 ├─ release/             发布产物

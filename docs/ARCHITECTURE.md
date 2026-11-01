@@ -122,7 +122,12 @@
 │   │   ├─ hid/          HID 报告描述符 + 键码映射
 │   │   ├─ touchpad/     触控板（相对鼠标手势）
 │   │   ├─ wireless/     受控目标/TV 控制（ControlTarget·TvControllerClient·TvDiscovery；旧9500服务端已移 .attic）
-│   │   └─ ui/           【M6】App UI 与服务编排
+│   │   ├─ ui/compose/    【M6】Compose 页面：ApShellActivity(四页签宿主)/StatusPage/TouchpadPage/
+│   │   │                 SettingsPage/KeyboardPage/HelpSheet
+│   │   ├─ ui/miuix/      设计系统：ApMiuixTheme(ApTheme)/ApInsets/ApMotion/ApAccent/ApComponents/
+│   │   │                 ApEffects/ApAdaptive/ApOverlayHost + MiuixTokens
+│   │   └─ ui/            【M6】App UI 与服务编排（旧 Views 页仍在：TouchpadActivity/RemoteActivity/
+│   │                     FilePanelActivity(已迁)/FloatingBallService；ThemeSkin·ThemePref 待下线）
 │   ├─ app/src/disabled/ 历史停用区（**不参与编译**；camera/ 已随 v0.3.2 整体移除，screen/ 现位于主源码树）
 │   └─ app/src/main/cpp/ NDK 桥（复用 shared/）
 ├─ pc/
@@ -131,6 +136,10 @@
 │   └─ tools/            【M11】验证工具（链路测速等）
 └─ scripts/              ConfigFS 挂载脚本、构建脚本
 ```
+
+**界面层口径（2026-11-01）**：`android/app` 与 `android/tv` 的界面统一用 Jetpack Compose + Miuix
+渲染（`ui/compose/` 放页面、`ui/miuix/` 放设计系统），旧的 Views/XML 逐步退场。逻辑层
+（`core/`/`hid/`/`audio/`/`bt/`/`gadget/`/`wireless/`/`localsend/`）、`shared/` 的 C++、`pc/` 全部不受影响。
 
 ---
 
