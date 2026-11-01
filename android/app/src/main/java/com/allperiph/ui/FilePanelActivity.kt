@@ -1,27 +1,43 @@
 package com.allperiph.ui
 
 import android.app.Activity
-import android.content.Context
 import android.app.AlertDialog
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.TextUtils
-import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.allperiph.R
 import com.allperiph.shared.net.FileReceiver
 import com.allperiph.shared.net.FileSender
+import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
+import top.yukonga.miuix.kmp.basic.Text
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -36,21 +52,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  · 目标：当前受控设备优先，其次是局域网发现到的设备 —— 点一下即可切换，不用输 IP。
  *
  * 与 TV 端 `com.allperiph.tv.ui.TvFileActivity` 是同一份交互设计（收/发、目标自动）。
+ *
+ * **本轮迁 Compose**（旧主题栈下线的一步）：`LinearLayout + ScrollView + removeAllViews/addView`
+ * 换成 `LazyColumn` + `mutableStateOf`；按钮强调色从 `ThemeSkin.primary/onPrimary` 换成
+ * Compose 侧常量色，`AlertDialog` 不再走 `ThemeSkin.dialogStyle()`（用 Activity 自身主题）。
+ * 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ThemeSkin.applyRuntimeTheme`。
+ * 发送/接收逻辑（`FileSender.send`、`TvDiscovery`、`ControlTarget`、`AtomicBoolean busy`）未改。
  */
 class FilePanelActivity : Activity() {
-
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
-
-    private lateinit var listBox: LinearLayout
-    private lateinit var statusView: TextView
-    private lateinit var targetView: TextView
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)
@@ -59,13 +68,81 @@ class FilePanelActivity : Activity() {
     private var targets: List<Pair<String, String>> = emptyList()
     private var targetIndex = 0
 
-    private fun dp(v: Float): Int = (v * resources.displayMetrics.density).toInt()
+    // ———— Compose 状态 ————
+    private var targetLine by mutableStateOf("目标：暂无")
+    private var recvPath by mutableStateOf("")
+    private var files by mutableStateOf<List<File>>(emptyList())
+    private var statusText by mutableStateOf("")
+    private var statusWarn by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        ThemeSkin.applyRuntimeTheme(this)
-        setContentView(buildUi())
+        setContentView(
+            ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                            Text(
+                                text = getString(R.string.ui_filepanel_text_file),
+                                fontSize = 20.sp,
+                            )
+                            Text(
+                                text = targetLine,
+                                fontSize = 13.sp,
+                                color = Color(0xFF3482FF),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp, bottom = 4.dp)
+                                    .clickable { switchTarget() },
+                            )
+                            Text(
+                                text = getString(R.string.ui_filepanel_text_file_forward),
+                                fontSize = 14.sp,
+                                modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
+                            )
+                            // 说明（v205）：文件存哪 + 行内按钮怎么用（用户反馈"说明也没写，文件在哪"）
+                            Text(
+                                text = getString(R.string.ui_filepanel_where, recvPath),
+                                fontSize = 11.sp,
+                                color = Color(0xFF6B7280),
+                            )
+                            if (files.isEmpty()) {
+                                Text(
+                                    text = getString(R.string.ui_filepanel_text_file_no_local),
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF6B7280),
+                                    modifier = Modifier.padding(top = 8.dp),
+                                )
+                            } else {
+                                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    items(files) { f -> fileRow(f) }
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF3482FF))
+                                    .clickable { pickFromSystem() }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(text = "发送本机其它文件…", fontSize = 14.sp, color = Color.White)
+                            }
+                            if (statusText.isNotEmpty()) {
+                                Text(
+                                    text = statusText,
+                                    fontSize = 12.sp,
+                                    color = if (statusWarn) Color(0xFFD32F2F) else Color(0xFF6B7280),
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+        )
         refreshTargets()
         refreshList()
     }
@@ -78,129 +155,42 @@ class FilePanelActivity : Activity() {
 
     // ————————————————————————————— 界面 —————————————————————————————
 
-    private fun buildUi(): ViewGroup {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(resources.getColor(android.R.color.white))
-            setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+    @androidx.compose.runtime.Composable
+    private fun fileRow(f: File) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { sendFile(f) }
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = f.name,
+                fontSize = 14.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Text(text = sizeText(f.length()), fontSize = 12.sp, color = Color(0xFF6B7280))
+            Spacer(Modifier.width(10.dp))
+            Text(text = getString(R.string.ui_filepanel_text_forward), fontSize = 14.sp, color = Color(0xFF3482FF))
+            // 行内「删除」：子视图可点击会先消费触摸事件，不会误触发整行的转发
+            Text(
+                text = getString(R.string.ui_common_delete),
+                fontSize = 14.sp,
+                color = Color(0xFFD32F2F),
+                modifier = Modifier
+                    .padding(start = 14.dp)
+                    .clickable { confirmDelete(f) },
+            )
         }
-
-        root.addView(TextView(this).apply {
-            text = getString(R.string.ui_filepanel_text_file)
-            textSize = 20f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(resources.getColor(R.color.md_on_surface))
-        })
-
-        targetView = TextView(this).apply {
-            textSize = 13f
-            setTextColor(ThemeSkin.primary(this@FilePanelActivity))
-            setPadding(0, dp(8f), 0, dp(4f))
-            setOnClickListener { switchTarget() }
-        }
-        root.addView(targetView)
-
-        root.addView(TextView(this).apply {
-            text = getString(R.string.ui_filepanel_text_file_forward)
-            textSize = 14f
-            setTextColor(resources.getColor(R.color.md_on_surface))
-            setPadding(0, dp(6f), 0, dp(4f))
-        })
-
-        // 说明（v205）：文件存哪 + 行内按钮怎么用（用户反馈"说明也没写，文件在哪"）
-        root.addView(TextView(this).apply {
-            text = getString(R.string.ui_filepanel_where, recvDir().absolutePath)
-            textSize = 11f
-            setTextColor(resources.getColor(R.color.md_on_surface_variant))
-            setPadding(0, 0, 0, dp(4f))
-        })
-
-        listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        root.addView(ScrollView(this).apply { addView(listBox) },
-            LinearLayout.LayoutParams(-1, 0, 1f))
-
-        root.addView(button("发送本机其它文件…") { pickFromSystem() })
-        statusView = TextView(this).apply {
-            textSize = 12f
-            setTextColor(resources.getColor(R.color.md_on_surface_variant))
-            setPadding(0, dp(6f), 0, 0)
-        }
-        root.addView(statusView)
-        return root
     }
 
-    private fun button(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
-        this.text = text
-        textSize = 14f
-        gravity = Gravity.CENTER
-        setTextColor(ThemeSkin.onPrimary(this@FilePanelActivity))
-        setBackgroundColor(ThemeSkin.primary(this@FilePanelActivity))
-        setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
-        setOnClickListener { onClick() }
-    }
-
-    // ————————————————————————————— 数据 —————————————————————————————
-
-    /** 接收目录：与 [FileReceiver] 落盘位置一致（<外部文件>/APX） */
-    private fun recvDir(): File = File(getExternalFilesDir(null) ?: filesDir, "APX")
-
-    private fun refreshList() {
-        val dir = recvDir()
-        val files = (dir.listFiles() ?: emptyArray()).filter { it.isFile }
-            .sortedByDescending { it.lastModified() }
-        listBox.removeAllViews()
-        if (files.isEmpty()) {
-            listBox.addView(TextView(this).apply {
-                text = getString(R.string.ui_filepanel_text_file_no_local)
-                textSize = 13f
-                setTextColor(resources.getColor(R.color.md_on_surface_variant))
-                setPadding(0, dp(8f), 0, 0)
-            })
-            return
-        }
-        files.forEach { f -> listBox.addView(fileRow(f)) }
-    }
-
-    private fun fileRow(f: File): ViewGroup {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10f), dp(10f), dp(10f), dp(10f))
-            setOnClickListener { sendFile(f) }
-        }
-        row.addView(TextView(this).apply {
-            text = f.name
-            textSize = 14f
-            setTextColor(resources.getColor(R.color.md_on_surface))
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.MIDDLE
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(TextView(this).apply {
-            text = sizeText(f.length())
-            textSize = 12f
-            setTextColor(resources.getColor(R.color.md_on_surface_variant))
-        })
-        row.addView(TextView(this).apply {
-            text = getString(R.string.ui_filepanel_text_forward)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(ThemeSkin.primary(this@FilePanelActivity))
-        })
-        // 行内「删除」（v205）：子视图可点击会先消费触摸事件，不会误触发整行的转发
-        row.addView(TextView(this).apply {
-            text = getString(R.string.ui_common_delete)
-            textSize = 14f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(getColor(R.color.md_error))
-            setPadding(dp(14f), 0, 0, 0)
-            setOnClickListener { confirmDelete(f) }
-        })
-        return row
-    }
-
-    /** 行内「删除」：文件删除不可恢复，必须弹确认（用户反馈"文件管理里没有删除"） */
+    /**
+     * 行内「删除」：文件删除不可恢复，必须弹确认（用户反馈"文件管理里没有删除"）。
+     * 本轮去掉了 `ThemeSkin.dialogStyle()`，改用 Activity 自身主题——旧主题栈正在下线，
+     * 对话框不该是它最后一个依赖点。
+     */
     private fun confirmDelete(f: File) {
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this)
             .setTitle(getString(R.string.ui_filepanel_delete_title))
             .setMessage(getString(R.string.ui_filepanel_delete_msg, f.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
@@ -210,6 +200,18 @@ class FilePanelActivity : Activity() {
             }
             .setNegativeButton(getString(R.string.ui_common_cancel), null)
             .show()
+    }
+
+    // ————————————————————————————— 数据 —————————————————————————————
+
+    /** 接收目录：与 [FileReceiver] 落盘位置一致（<外部文件>/APX） */
+    private fun recvDir(): File = File(getExternalFilesDir(null) ?: filesDir, "APX")
+
+    private fun refreshList() {
+        val dir = recvDir()
+        recvPath = dir.absolutePath
+        files = (dir.listFiles() ?: emptyArray()).filter { it.isFile }
+            .sortedByDescending { it.lastModified() }
     }
 
     private fun refreshTargets() {
@@ -225,7 +227,7 @@ class FilePanelActivity : Activity() {
         targets = out.map { it.key to it.value }
         if (targetIndex >= targets.size) targetIndex = 0
         val cur = targets.getOrNull(targetIndex)
-        targetView.text = when {
+        targetLine = when {
             cur == null -> "目标：暂无（先连一台设备，或等发现到设备）"
             targets.size == 1 -> "目标：${cur.second}  ${cur.first}"
             else -> "目标：${cur.second}  ${cur.first}（${targetIndex + 1}/${targets.size}，点击切换）"
@@ -309,11 +311,8 @@ class FilePanelActivity : Activity() {
     // ————————————————————————————— 小工具 —————————————————————————————
 
     private fun status(text: String, warn: Boolean) {
-        statusView.text = text
-        statusView.setTextColor(
-            if (warn) getColor(R.color.md_error)
-            else resources.getColor(R.color.md_on_surface_variant)
-        )
+        statusText = text
+        statusWarn = warn
     }
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
