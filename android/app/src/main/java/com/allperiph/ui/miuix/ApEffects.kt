@@ -59,11 +59,13 @@ fun ApGlassTopBar(
             .then(
                 if (hazeState != null) {
                     Modifier.hazeEffect(state = hazeState) {
-                        blurRadius = 15.dp
-                        // 模糊层必须不透明，否则下层卡片硬边缘会从模糊里透出来
-                        backgroundColor = surface
-                        noiseFactor = 0f
-                        tints = listOf(HazeTint(surface.copy(alpha = 0.3f)))
+                        blurRadius = 18.dp
+                        // 液态玻璃：底色必须**半透明**，完全不透明时顶栏就是一块纯色板，
+                        // 下层内容滚过去看不出玻璃感（用户反馈「上栏不透明」就是这个）。
+                        // 代价是下层卡片的硬边缘会在模糊里留一点形，靠 0.55 的底色 + tint 压住。
+                        backgroundColor = surface.copy(alpha = 0.55f)
+                        noiseFactor = 0.02f
+                        tints = listOf(HazeTint(surface.copy(alpha = 0.18f)))
                         progressive = HazeProgressive.Brush(
                             Brush.verticalGradient(
                                 0f to Color.Black,
