@@ -42,6 +42,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.ListView
+import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 
@@ -267,12 +268,12 @@ class ApShellActivity : ComponentActivity() {
                         label = "键盘",
                         enabled = true,
                     )
-                    // 图标：0.9.4 目前只核实过 Home / ListView 两个扩展图标，
-                    // 设置页先复用 ListView，待 ui/miuix 补充图标后再换
+                    // 图标：Miuix 官方文档只给出 Ok / Settings 两个明确可用的扩展图标名，
+                    // 所以设置页用 Settings；触控板与键盘暂时都还是 ListView（猜名字会编译红）
                     FloatingNavigationBarItem(
                         selected = page == 3,
                         onClick = { page = 3 },
-                        icon = MiuixIcons.ListView,
+                        icon = MiuixIcons.Settings,
                         label = "设置",
                         enabled = true,
                     )
