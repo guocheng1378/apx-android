@@ -494,6 +494,11 @@ jobs:
       - name: UI 一致性（色值令牌化 + 文案入资源）
         run: python3 scripts/check_ui_tokens.py
 
+      # 按钮文字居中（issue#52 第 10 条）：framework Button 默认 gravity=left|center_vertical，
+      # 宽按钮上文字贴左；编译器不报、只在真机上看得出。自绘按钮逐个体检。
+      - name: UI 一致性（按钮文字居中）
+        run: python3 scripts/check_button_gravity.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   # macOS 资产由 macos.yml 的 tag 构建独立上传（两边对同一 Release 幂等协作：
