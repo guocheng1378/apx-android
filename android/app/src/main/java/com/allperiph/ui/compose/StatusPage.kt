@@ -218,6 +218,8 @@ private class ModuleRowVm(
     val label: String,
     val detail: String,
     val state: ModuleState,
+    /** 该模块当前是否启用（可信源是 AgentController.isEnabled，这里只是快照） */
+    val enabled: Boolean = true,
 ) {
     val stateLabel: String get() = when (state) {
         ModuleState.RUNNING -> "运行中"
