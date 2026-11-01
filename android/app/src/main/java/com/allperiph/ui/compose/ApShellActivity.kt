@@ -101,10 +101,6 @@ class ApShellActivity : ComponentActivity() {
         // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
         val adaptive = rememberApAdaptiveLayout()
         adaptiveState = adaptive
-        androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
-        androidx.compose.runtime.LaunchedEffect(pageState) {
-            if (page != pageState) page = pageState
-        }
         val landscape = adaptive.landscape
         val bottomGap = if (landscape) 96.dp else 88.dp
         // 「横屏覆盖状态栏」（成宇 2026-11-01）：横屏下内容画到状态栏区域之下，
@@ -114,7 +110,12 @@ class ApShellActivity : ComponentActivity() {
         val sidePad = if (adaptive.padCutout) maxOf(insets.left, insets.right) else 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
-        var page by remember { mutableIntStateOf(0) }
+        var page by remember { mutableIntStateOf(pageState) }
+        // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
+        androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
+        androidx.compose.runtime.LaunchedEffect(pageState) {
+            if (page != pageState) page = pageState
+        }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
