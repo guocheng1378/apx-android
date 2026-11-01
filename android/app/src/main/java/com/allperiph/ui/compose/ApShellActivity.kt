@@ -48,6 +48,8 @@ import androidx.compose.runtime.DisposableEffect
 import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.icon.extended.GridView
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 
 /**
  * 迁移期的**并行宿主**（阶段 2/3 的落点）。
@@ -252,9 +254,15 @@ class ApShellActivity : ComponentActivity() {
             // 这里在容器上加 hazeEffect（同一份 hazeState，和顶栏共用），底色降到 0.5 透明度，
             // 内容从底栏后面滚过时能看到模糊透出来的颜色。
             val navSurface = MiuixTheme.colorScheme.surfaceContainer
+            // 成宇 2026-11-02「低栏要的是液态悬浮玻璃，现在底下还有东西」的成因：
+            // 模糊层贴在**外层 Box** 上，而 Box 是按组件包围盒测量的 —— 里面还含
+            // FloatingNavigationBar 自带的离底间距与导航栏 inset，于是胶囊下面又多出
+            // 一条半透明模糊带。改成先把外层裁成胶囊（percent=50 → 纯药丸），再上模糊，
+            // 玻璃就只跟着胶囊走，栏下不再有任何东西。
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(percent = 50))
                     .then(
                         if (hazeState != null) {
                             Modifier.hazeEffect(state = hazeState) {
@@ -264,7 +272,8 @@ class ApShellActivity : ComponentActivity() {
                                 tints = listOf(dev.chrisbanes.haze.HazeTint(navSurface.copy(alpha = 0.16f)))
                             }
                         } else {
-                            Modifier.background(navSurface.copy(alpha = 0.96f))
+                            // 无 RuntimeShader 的机器：同样只画药丸，半透明（0.96 太实，看不出悬浮）
+                            Modifier.background(navSurface.copy(alpha = 0.72f))
                         }
                     ),
             ) {
