@@ -181,7 +181,7 @@ private fun TvAction(text: String, onClick: () -> Unit) {
             )
             .border(
                 width = 3.dp,
-                color = Color(if (focused) TvUi.Pal.accent else Color.Transparent),
+                color = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
                 shape = shape,
             )
             .defaultMinSize(minWidth = IntrinsicWidthMin)
