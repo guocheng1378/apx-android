@@ -1,7 +1,6 @@
 package com.allperiph.ui
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 
@@ -20,15 +19,9 @@ import android.os.Bundle
  */
 class ControlShortcutActivity : Activity() {
 
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
-
+    // 本轮去掉 attachBaseContext(ThemePref.wrap)：本类是**没有任何界面**的中转页
+    // （onCreate 里先 finish 再起 ApShellActivity），旧主题栈的换肤对它零收益，
+    // 而它此前是 ThemePref 的调用方之一，留着只会挡住下线。
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 先结束自己：中转页不该有任何可见界面

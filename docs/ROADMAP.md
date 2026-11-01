@@ -380,7 +380,7 @@ README 里的「零第三方依赖」不再是界面层的否决理由，改为�
 | 3 手机端触控板页 | 已完成 | `TouchpadPage`，手势面用 `pointerInteropFilter` 保原始 MotionEvent |
 | 4 手机端设置页 | 已完成 | 模板/模板管理/环境诊断/文件与传输/传输分类/遥控与键盘/主题数据/键映射/背景图/运行日志（筛选·查看·导出） |
 | 5 电视端主屏 + 文件页 | 已完成 | `TvHome`、`TvFileScreen`、`TvOverlayHost` + 通知浮窗；`TvOverlay`/`RemoteInputOverlay` 有书面理由留 View |
-| 6 切换默认入口、删除遗留 Views/XML | 进行中 | 已删 `MainActivity.kt`/三个 Fragment/`KeyboardPanels`/`TouchpadSplit`/`activity_main` 等；`SendActivity`、`GamepadActivity`、`ScreenActivity` 已迁 Compose 并脱钩 `ThemeSkin`/`ThemePref`；**剩 `RemoteInputActivity`** |
+| 6 切换默认入口、删除遗留 Views/XML | 进行中 | 已删 `MainActivity.kt`/三个 Fragment/`KeyboardPanels`/`TouchpadSplit`/`activity_main`/`activity_screen` 等；`SendActivity`、`GamepadActivity`、`ScreenActivity`、`RemoteInputActivity`、`FilePanelActivity` 已迁 Compose 并脱钩旧主题栈；**旧主题栈剩余调用方**：`TouchpadActivity`、`RemoteActivity`、`ApShellActivity`（仅 `ThemePref.wrap` 提供明暗，`ThemeSkin.applyRuntimeTheme` 已去）、`FloatingBallService`（`wrapService` 还要给 Service 挂 `Theme.AllPeriph`）、`SettingsPage` 切皮肤后的同步调用 |
 
 **剩余一处口径**：`RemoteInputActivity`（被控端输入面板）仍是 View 实现，冻结在
 `EditText` + `TextWatcher` + 平台 IME 这条链路上——逐字增量上屏是文字到对端的**唯一**通道，

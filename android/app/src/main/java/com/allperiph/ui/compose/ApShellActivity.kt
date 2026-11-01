@@ -83,7 +83,10 @@ class ApShellActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ThemeSkin.applyRuntimeTheme(this)
+        // 不再调 ThemeSkin.applyRuntimeTheme：Compose 侧的强调色已由 ApMiuixTheme 的
+        // colorScheme 给全，这个调用是「给 View 层 ?attr 叠运行时强调色」的遗产，
+        // 宿主页已经没有任何 View 需要它；保持 attachBaseContext(ThemePref.wrap)，
+        // 因为 ApMiuixTheme 的明暗取值来自 configuration.uiMode —— 正是 wrap 注入的用户选择。
         ApAccentSync.apply(this)
         applyImmersive()
         pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
