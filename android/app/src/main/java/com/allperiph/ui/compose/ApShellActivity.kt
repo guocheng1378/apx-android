@@ -327,26 +327,6 @@ internal object ApAccentSync {
     }
 }
 
-/**
- * 键盘页（阶段 6 第一版）：`KeyboardPanels` 是 598 行程序化 View（8 套键位：快捷/遥控/游戏/
- * 数字/九宫格/方向/F 区/自定义），先整体用 `AndroidView` 挂进来，保证功能不断；
- * 逐套换成 Compose + Miuix 是下一步（届时按「按钮用按钮、列表用列表、长按长按、弹窗弹窗」重做）。
- */
-@Composable
-private fun KeyboardPage(activity: android.app.Activity) {
-    val panels = remember { com.allperiph.ui.KeyboardPanels(activity) }
-    androidx.compose.ui.viewinterop.AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { ctx ->
-            android.widget.FrameLayout(ctx).apply {
-                addView(
-                    panels.build(),
-                    android.widget.FrameLayout.LayoutParams(-1, -1),
-                )
-            }
-        },
-    )
-}
 
 /**
  * 受控设备选择器（`showDevicePicker` 的 Compose 版）。
