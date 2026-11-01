@@ -494,6 +494,18 @@ jobs:
       - name: UI 一致性（色值令牌化 + 文案入资源）
         run: python3 scripts/check_ui_tokens.py
 
+      # 按钮文字居中（issue#52 第 10 条）：framework Button 默认 gravity=left|center_vertical，
+      # 宽按钮上文字贴左；编译器不报、只在真机上看得出。自绘按钮逐个体检。
+      - name: UI 一致性（按钮文字居中）
+        run: python3 scripts/check_button_gravity.py
+
+      # PC 侧三张 HID→宿主键码表（win/lin/mac）没有编译器管：漏 case 只落 default 被静默
+      # 丢弃，用户看到「按了没反应」而日志干净（issue#52 第 13 条就是这么漏掉
+      # PrtSc/菜单/小键盘 1–9，macOS 还把整段小键盘错位了一格）。这里做覆盖率 +
+      # 重复 case（会编译失败）+ 死代码 + macOS 小键盘 kVK 锚点核对。
+      - name: 键映射覆盖率（win/lin/mac 三张表）
+        run: python3 scripts/check_keymap.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   # macOS 资产由 macos.yml 的 tag 构建独立上传（两边对同一 Release 幂等协作：

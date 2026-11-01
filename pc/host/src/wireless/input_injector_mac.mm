@@ -83,13 +83,29 @@ int hidToMacKey(uint8_t u) {
         case 0x4B: return 0x74;   // PageUp
         case 0x4D: return 0x77;   // End
         case 0x4E: return 0x79;   // PageDown
-        // —— 小键盘 ——
-        case 0x53: return 0x4B; case 0x54: return 0x43; case 0x55: return 0x4E;
-        case 0x56: return 0x45; case 0x57: return 0x4C;                        // / * - + Enter
-        case 0x58: return 0x53; case 0x59: return 0x54; case 0x5A: return 0x55;
-        case 0x5B: return 0x56; case 0x5C: return 0x57; case 0x5D: return 0x58;
-        case 0x5E: return 0x59; case 0x5F: return 0x5B; case 0x60: return 0x5C;
-        case 0x61: return 0x52; case 0x62: return 0x41; case 0x63: return 0x51;  // 1–9 0 . =
+        // —— 小键盘（kVK 值对着 Apple HIToolbox/Events.h 逐个核对过）——
+        // ⚠️ 此前整段**错位一格**：0x53 起每一行都被挪到相邻键上
+        //   （KP1→Keypad2、KP Enter→Keypad1、KP *→KeypadMinus…），末尾还漏了 KP = 与 KP 2。
+        //   用户现象就是「小键盘按下去出来的是别的键」（issue #52 第 13 条）。
+        case 0x53: return 0x4A;   // NumLock → KeypadClear
+        case 0x54: return 0x4B;   // KP /
+        case 0x55: return 0x43;   // KP *
+        case 0x56: return 0x4E;   // KP -
+        case 0x57: return 0x45;   // KP +
+        case 0x58: return 0x4C;   // KP Enter
+        case 0x59: return 0x53;   // KP 1
+        case 0x5A: return 0x54;   // KP 2
+        case 0x5B: return 0x55;   // KP 3
+        case 0x5C: return 0x56;   // KP 4
+        case 0x5D: return 0x57;   // KP 5
+        case 0x5E: return 0x58;   // KP 6
+        case 0x5F: return 0x59;   // KP 7
+        case 0x60: return 0x5B;   // KP 8
+        case 0x61: return 0x5C;   // KP 9
+        case 0x62: return 0x52;   // KP 0
+        case 0x63: return 0x41;   // KP .
+        case 0x64: return 0x2A;   // 非美键盘 \|（按反斜杠兜底）
+        case 0x67: return 0x51;   // KP =（此前整条缺失）
         default: return -1;
     }
 }
@@ -289,9 +305,32 @@ public:
         kbMod_ = mod;
         for (uint8_t i = 0; i < 6; ++i) kbKeys_[i] = (i < n) ? keys[i] : 0;
     }
+    /// 「菜单」键（HID usage 0x65 / Application）在 macOS 上没有可靠的 CGKeyCode：
+    /// `kVK_ContextualMenu` 只在第三方清单里出现，Apple 公开的 HIToolbox/Events.h 里
+    /// 查不到它（已核对 MacOSX10.6/11/12/13/14 SDK 的 Events.h，均无该常量）——
+    /// 所以**不猜键码**，改用有文档的右键事件表达「打开上下文菜单」这个语义。
+    /// 只发一次右键按下+抬起（不移动光标），等价于宿主键盘上的菜单键。
+    void postContextMenu() {
+        const CGPoint p = currentCursorPos();
+        for (const auto type : {kCGEventRightMouseDown, kCGEventRightMouseUp}) {
+            CGEventRef e = CGEventCreateMouseEvent(nullptr, type, p, kCGMouseButtonRight);
+            if (!e) continue;
+            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+        }
+    }
+
     void postKey(uint8_t usage, bool down) {
+        if (usage == 0x65) {
+            // 「菜单」：只在「按下」那一拍发右键，抬起不再发第二次
+            if (down) postContextMenu();
+            return;
+        }
         const int cg = hidToMacKey(usage);
-        if (cg < 0) { APX_LOGD("按键未映射：HID usage=0x{:02x} 已跳过", usage); return; }
+        if (cg < 0) {
+            // 原先这里只有 DEBUG 一行，Release 构建下全被关掉 → 用户「按了没反应」时无从查起
+            APX_LOGW("按键未映射：HID usage=0x{:02x} 已跳过（misc/小键盘等冷门键）", usage);
+            return;
+        }
         postCode(cg, down);
     }
 

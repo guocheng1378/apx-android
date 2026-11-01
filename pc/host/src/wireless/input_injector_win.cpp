@@ -90,6 +90,18 @@ int usageToVk(uint8_t u) {
         case 0x37: return VK_OEM_PERIOD;
         case 0x38: return VK_OEM_2;
         case 0x39: return VK_CAPITAL;
+        // —— 以下这批原先整段缺失，落 default → 0 被 SendInput 静默丢弃 ——
+        // 用户按遥控器「菜单」/「截图」在电脑上毫无反应，日志里也一片干净。
+        case 0x46: return VK_SNAPSHOT;        // PrtSc
+        case 0x47: return VK_SCROLL;          // ScrLk
+        case 0x48: return VK_PAUSE;           // Pause/Break
+        case 0x65: return VK_APPS;            // 「菜单」= Application/Menu 键（HID usage 0x65）
+        case 0x66: return VK_SLEEP;           // 键盘 Power（软电源：锁屏/待机）
+        case 0x64: return VK_OEM_102;         // 非美键盘 \|（ISO 102 键）
+        case 0x67: return VK_OEM_NEC_EQUAL;   // 小键盘 =
+        // 小键盘 1–9（0x59–0x61）由函数开头的范围分支 VK_NUMPAD1 + offset 统一处理。
+        // 0x5A 是**小键盘 2**、不是 Clear：这里曾写 case 0x5A: VK_OEM_CLEAR，
+        // 既够不着（被上面的范围分支先拦下）又语义错，已删。
         case 0x49: return VK_INSERT;
         case 0x4A: return VK_HOME;
         case 0x4B: return VK_PRIOR;

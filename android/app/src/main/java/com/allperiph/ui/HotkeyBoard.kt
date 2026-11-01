@@ -450,7 +450,9 @@ class HotkeyBoard(
         val keyBtn = TextView(act).apply {
             text = picked.first
             textSize = 15f
-            gravity = Gravity.CENTER_VERTICAL
+            // 整行宽的按键选择器：只给 CENTER_VERTICAL 等于文字贴左（Gravity.CENTER_VERTICAL
+            // 的 horizontal 位是 0 = left）。issue#52 第 10 条「部分按钮文字没居中」。
+            gravity = Gravity.CENTER
             setTextColor(s.accent)
             setPadding(dp(14), dp(12), dp(14), dp(12))
             background = rounded(s.chipBg, dp(12), s.chipStroke)

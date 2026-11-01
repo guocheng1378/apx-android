@@ -546,6 +546,9 @@ class TouchpadActivity : Activity() {
             text = getString(R.string.ui_common_edit); setTextColor(cAccent); textSize = 12f
             isClickable = true
             isFocusable = true
+            // 它是个带背景的胶囊式入口，不是行内纯文字：居中才与其它胶囊一致
+            // （右侧 4dp 是留给标题行的呼吸位，文字本身仍居中）。
+            gravity = Gravity.CENTER
             setPadding(dp(10), dp(4), dp(4), dp(4))
             setOnClickListener { hotkeyBoard.managerDialog() }
         })
@@ -1112,6 +1115,9 @@ class TouchpadActivity : Activity() {
             setBackgroundResource(R.drawable.bg_btn_primary)
             setTextColor(com.allperiph.ui.ThemeSkin.onPrimary(this@TouchpadActivity))
             textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            // framework Button 默认 gravity = left|center_vertical，宽按钮上文字会贴左
+            // （issue#52 第 10 条「部分按钮内文字没有居中」剩下的就是这种代码里 new 出来的按钮）。
+            gravity = Gravity.CENTER
             setPadding(0, dp(14), 0, dp(14))
             setOnClickListener { showDevicePicker() }
         }
@@ -1121,6 +1127,7 @@ class TouchpadActivity : Activity() {
             setBackgroundResource(R.drawable.bg_btn_ghost)
             setTextColor(cAccent)
             textSize = 15f
+            gravity = Gravity.CENTER   // 同上：默认靠左，宽按钮上看着就是没对齐
             setPadding(0, dp(13), 0, dp(13))
             setOnClickListener {
                 startActivity(Intent(this@TouchpadActivity, com.allperiph.screen.ScreenActivity::class.java))

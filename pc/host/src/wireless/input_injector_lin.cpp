@@ -45,7 +45,20 @@ int hidToLinuxKey(uint8_t u) {
         case 0x33: return KEY_SEMICOLON;case 0x34: return KEY_APOSTROPHE;
         case 0x35: return KEY_GRAVE;    case 0x36: return KEY_COMMA;
         case 0x37: return KEY_DOT;      case 0x38: return KEY_SLASH;
-        case 0x39: return KEY_CAPSLOCK; case 0x49: return KEY_INSERT;
+        case 0x39: return KEY_CAPSLOCK;
+        case 0x32: return 0;                    // 非美 #~：宿主键位无独立键，有意不映射（同 win）
+        // —— 以下整段原先缺失，落 default → 0 被静默丢弃（与 Windows 侧同一批）——
+        case 0x46: return KEY_SYSRQ;            // PrtSc
+        case 0x47: return KEY_SCROLLLOCK;       // ScrLk
+        case 0x48: return KEY_PAUSE;            // Pause/Break
+        case 0x65: return KEY_COMPOSE;          // 「菜单」= Application/Menu 键
+        case 0x66: return KEY_POWER;            // 键盘 Power（软电源）
+        case 0x64: return KEY_102ND;            // 非美键盘 \|（ISO 102 键）
+        case 0x67: return KEY_KPEQUAL;          // 小键盘 =
+        // 0x5A 是**小键盘 2**（下面小键盘数字段已映射 KEY_KP2），不是 Clear。
+        // 原来这里还留了一条 case 0x5A: KEY_CLEAR —— 与下面的 KP2 构成重复 case 标签，
+        // C++ 直接编译失败，已删。
+        case 0x49: return KEY_INSERT;
         case 0x4A: return KEY_HOME;     case 0x4B: return KEY_PAGEUP;
         case 0x4C: return KEY_DELETE;   case 0x4D: return KEY_END;
         case 0x4E: return KEY_PAGEDOWN; case 0x4F: return KEY_RIGHT;
@@ -53,7 +66,13 @@ int hidToLinuxKey(uint8_t u) {
         case 0x52: return KEY_UP;       case 0x53: return KEY_NUMLOCK;
         case 0x54: return KEY_KPSLASH;  case 0x55: return KEY_KPASTERISK;
         case 0x56: return KEY_KPMINUS;  case 0x57: return KEY_KPPLUS;
-        case 0x58: return KEY_KPENTER;  case 0x62: return KEY_KP0;
+        case 0x58: return KEY_KPENTER;
+        // 小键盘数字 1..9 原先整段缺失（只有 KP0/KPDOT）→ 数字小键盘在 Linux 上按了没反应。
+        case 0x59: return KEY_KP1;      case 0x5A: return KEY_KP2;
+        case 0x5B: return KEY_KP3;      case 0x5C: return KEY_KP4;
+        case 0x5D: return KEY_KP5;      case 0x5E: return KEY_KP6;
+        case 0x5F: return KEY_KP7;      case 0x60: return KEY_KP8;
+        case 0x61: return KEY_KP9;      case 0x62: return KEY_KP0;
         case 0x63: return KEY_KPDOT;
         default: return 0;
     }
