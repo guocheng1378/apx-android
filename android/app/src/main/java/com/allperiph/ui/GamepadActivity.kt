@@ -1,44 +1,59 @@
 package com.allperiph.ui
 
 import android.app.Activity
-import android.content.Context
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.core.Uplink
 import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
+import com.allperiph.ui.miuix.ApMiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
  * 全屏游戏手柄（v1.x）：双虚拟摇杆 + 常用按键，经 [GamepadController]
  * 送上 USB HID（Report ID 22）／ 蓝牙 HID（rid=4）／ 无线 0x07。
  *
- * v223.6 起补两件此前缺的东西 —— 用户报「手柄功能实测不可用」，而按下去
- * 手机端没反馈、PC 端没动静、界面也不解释，只能得出「坏了」：
- *   1) **出口状态行 + 指引**：实时显示这帧会发去哪（[Uplink] 的唯一判据），
- *      无出口时直接写清怎么给它一个出口；无线出口额外说明对端平台差异
- *      （见 [GamepadExit] 的注释：macOS 注入不了真手柄是 Apple 的权限限制）。
- *   2) **按下反馈**：按钮此前是个没有按下态的 TextView，按下去外观不变。
- *      现在按下换底色/描边，手指不动也能确认「触摸被识别了」。
+ * **本轮迁 Compose**（`ThemeSkin`/`ThemePref` 下线的一步）：
+ *  - 根布局从 `FrameLayout + addView + FrameLayout.LayoutParams.gravity/margins` 换成
+ *    `Box + Modifier.align/offset`；
+ *  - 按键从「无按下态的 TextView + OnTouchListener + GradientDrawable」换成
+ *    `Box + pointerInput(detectTapGestures(onPress = { … tryAwaitRelease() … }))`，
+ *    按下态由 `mutableStateOf` 驱动，圆形底/描边用 `background` + `border` + `CircleShape`；
+ *  - 出口状态行的 500ms 轮询与 `EventBus.onMain<UplinkEvent>` 订阅保持原样，只是把
+ *    结果写进 `mutableStateOf` 而不是 `TextView.text`；
+ *  - **摇杆仍是 [JoystickView]**（`AndroidView` 包裹）：它是自定义 `View`、带自己的触摸
+ *    采样与阻尼逻辑，整块重写属于「拿可用性换一致性」，本轮不动；
+ *  - 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ThemeSkin.applyRuntimeTheme`，
+ *    取色走 `ApMiuixTheme`。
  */
 class GamepadActivity : Activity() {
-
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
 
     /** 出口状态行（每 500ms 兜底刷新一次；出口变化不一定会发输入）。 */
     private val ui = Handler(Looper.getMainLooper())
@@ -49,16 +64,26 @@ class GamepadActivity : Activity() {
         }
     }
 
-    private var statusView: TextView? = null
-    private var adviceView: TextView? = null
     private var uplinkSub: EventBus.Disposable? = null
+
+    /** 状态行/指引行文案与颜色，Compose 侧直接读这两个状态 */
+    private var statusLine by mutableStateOf("")
+    private var adviceLine by mutableStateOf("")
+    private var statusOk by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        ThemeSkin.applyRuntimeTheme(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        buildUi()
+        setContentView(
+            ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        GamepadScreen()
+                    }
+                }
+            },
+        )
+        refreshStatus()
     }
 
     override fun onResume() {
@@ -78,161 +103,147 @@ class GamepadActivity : Activity() {
         GamepadController.releaseAll() // 离开时复位，避免按键卡在按下态
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
     /** 状态行 + 指引行：按当前出口刷新（发过输入看真实出口，否则看预计出口）。 */
     private fun refreshStatus() {
-        val s = statusView ?: return
-        val a = adviceView ?: return
         val path = if (Uplink.observed) Uplink.current else GamepadController.predictedPath()
         val info = GamepadExit.describe(path)
-        s.text = info.headline
+        statusLine = info.headline
+        adviceLine = info.advice
         // 无出口 / 只有降级映射时用告警色，明确「现在按下去没用」或「要看对端」
-        s.setTextColor(if (info.driverlessRealPad) 0xFF8BD450.toInt() else 0xFFFFB44C.toInt())
-        a.text = info.advice
-        a.visibility = if (info.advice.isEmpty()) View.GONE else View.VISIBLE
+        statusOk = info.driverlessRealPad
     }
 
-    private fun buildUi() {
-        val root = FrameLayout(this).apply { setBackgroundColor(0xFF14161B.toInt()) }
-        setContentView(root)
-
-        // 退出
-        val exit = addLabel(root, "✕", dp(44)) {
-            it.textSize = 20f
-            it.setOnClickListener { finish() }
-        }
-        (exit.layoutParams as FrameLayout.LayoutParams).apply {
-            gravity = Gravity.TOP or Gravity.START
-            setMargins(dp(16), dp(10), 0, 0)
-        }
-
-        // 出口状态 + 指引（顶部居中；左右各让 100dp 避开 L1 / R1，也避开左上角 ✕）
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val status = TextView(this).apply {
-            textSize = 12f
-            gravity = Gravity.CENTER
-            setTextColor(0xFFFFB44C.toInt())
-        }
-        val advice = TextView(this).apply {
-            textSize = 10.5f
-            gravity = Gravity.CENTER
-            setTextColor(0xFFB9BDC7.toInt())
-            setPadding(0, dp(3), 0, 0)
-            visibility = View.GONE
-        }
-        statusView = status
-        adviceView = advice
-        bar.addView(status)
-        bar.addView(advice)
-        root.addView(bar, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            setMargins(dp(100), dp(12), dp(100), 0)
-        })
-
-        // 左摇杆（左下）
-        val left = JoystickView(this)
-        left.onAxis = { x, y -> GamepadController.setLeftAxis(x, y) }
-        root.addView(left, FrameLayout.LayoutParams(dp(220), dp(220)).apply {
-            gravity = Gravity.BOTTOM or Gravity.START
-            setMargins(dp(28), 0, 0, dp(24))
-        })
-
-        // 右摇杆（右下）
-        val right = JoystickView(this)
-        right.onAxis = { rx, ry -> GamepadController.setRightAxis(rx, ry) }
-        root.addView(right, FrameLayout.LayoutParams(dp(150), dp(150)).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            setMargins(0, 0, dp(22), dp(22))
-        })
-
-        // A/B/X/Y：右摇杆左侧菱形排布（任天堂式）。坐标按 800×360dp 横屏核算，
-        // 与右摇杆（end 24..174 / bottom 24..174）无重叠。
-        pad(root, "A", GamepadController.BTN_A).also {
-            it.gravity = Gravity.BOTTOM or Gravity.END
-            it.setMargins(0, 0, dp(180), dp(102))
-        }
-        pad(root, "B", GamepadController.BTN_B).also {
-            it.gravity = Gravity.BOTTOM or Gravity.END
-            it.setMargins(0, 0, dp(250), dp(60))
-        }
-        pad(root, "X", GamepadController.BTN_X).also {
-            it.gravity = Gravity.BOTTOM or Gravity.END
-            it.setMargins(0, 0, dp(250), dp(144))
-        }
-        pad(root, "Y", GamepadController.BTN_Y).also {
-            it.gravity = Gravity.BOTTOM or Gravity.END
-            it.setMargins(0, 0, dp(320), dp(102))
-        }
-
-        // 肩键 L1 / R1（顶部两角；L1 右移避开左上角的 ✕）
-        pad(root, "L1", GamepadController.BTN_L1, dp(78)).also {
-            it.gravity = Gravity.TOP or Gravity.START
-            it.setMargins(dp(72), dp(14), 0, 0)
-        }
-        pad(root, "R1", GamepadController.BTN_R1, dp(78)).also {
-            it.gravity = Gravity.TOP or Gravity.END
-            it.setMargins(0, dp(14), dp(24), 0)
-        }
-
-        // Select / Start（底部中央）
-        pad(root, "Sel", GamepadController.BTN_SELECT, dp(64)).also {
-            it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            it.setMargins(dp(64), 0, 0, dp(18))
-        }
-        pad(root, "Start", GamepadController.BTN_START, dp(64)).also {
-            it.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            it.setMargins(0, 0, dp(64), dp(18))
-        }
-    }
-
-    /** 一个圆形按钮，按下 setButton(true)、抬起 setButton(false)；按下时换底色作反馈。 */
-    private fun pad(root: FrameLayout, label: String, bit: Int, size: Int = dp(58)): FrameLayout.LayoutParams {
-        val tv = addLabel(root, label, size)
-        tv.setOnTouchListener { _, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    applyPadFace(tv, pressed = true)
-                    GamepadController.setButton(bit, true)
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    applyPadFace(tv, pressed = false)
-                    GamepadController.setButton(bit, false)
+    @Composable
+    private fun GamepadScreen() {
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF14161B))) {
+            // 出口状态 + 指引（顶部居中；左右各让 100dp 避开 L1 / R1，也避开左上角 ✕）
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp, start = 100.dp, end = 100.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = statusLine,
+                    fontSize = 12.sp,
+                    color = if (statusOk) Color(0xFF8BD450) else Color(0xFFFFB44C),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (adviceLine.isNotEmpty()) {
+                    Text(
+                        text = adviceLine,
+                        fontSize = 10.5.sp,
+                        color = Color(0xFFB9BDC7),
+                            modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+                    )
                 }
             }
-            true
-        }
-        return tv.layoutParams as FrameLayout.LayoutParams
-    }
 
-    /** 圆形标签按钮 */
-    private fun addLabel(root: FrameLayout, label: String, size: Int, configure: (TextView) -> Unit = {}): TextView {
-        val tv = TextView(this).apply {
-            text = label
-            textSize = if (label.length > 2) 13f else 17f
-            gravity = Gravity.CENTER
-            setTextColor(0xFFEAEAEA.toInt())
-            applyPadFace(this, pressed = false)
-            configure(this)
+            // 退出
+            Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 16.dp, y = 10.dp)) {
+                Pad(label = "✕", bit = 0, size = 44.dp, onDown = { finish() })
+            }
+
+            // 肩键 L1 / R1（顶部两角；L1 右移避开左上角的 ✕）
+            Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 72.dp, y = 14.dp)) {
+                Pad(label = "L1", bit = GamepadController.BTN_L1, size = 78.dp)
+            }
+            Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-24).dp, y = 14.dp)) {
+                Pad(label = "R1", bit = GamepadController.BTN_R1, size = 78.dp)
+            }
+
+            // Select / Start（底部中央）
+            Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = (-64).dp, y = (-18).dp)) {
+                Pad(label = "Sel", bit = GamepadController.BTN_SELECT, size = 64.dp)
+            }
+            Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = 64.dp, y = (-18).dp)) {
+                Pad(label = "Start", bit = GamepadController.BTN_START, size = 64.dp)
+            }
+
+            // 左摇杆（左下）／右摇杆（右下）—— 自定义 View，走 AndroidView 互操作
+            AndroidView(
+                factory = { ctx ->
+                    JoystickView(ctx).also { v ->
+                        v.onAxis = { x, y -> GamepadController.setLeftAxis(x, y) }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 28.dp, bottom = 24.dp)
+                    .size(220.dp),
+            )
+            AndroidView(
+                factory = { ctx ->
+                    JoystickView(ctx).also { v ->
+                        v.onAxis = { rx, ry -> GamepadController.setRightAxis(rx, ry) }
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 22.dp, bottom = 22.dp)
+                    .size(150.dp),
+            )
+
+            // A/B/X/Y：右摇杆左侧菱形排布（任天堂式），坐标沿用原 View 版实测值
+            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp, y = (-102).dp)) {
+                Pad(label = "A", bit = GamepadController.BTN_A)
+            }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-60).dp)) {
+                Pad(label = "B", bit = GamepadController.BTN_B)
+            }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-144).dp)) {
+                Pad(label = "X", bit = GamepadController.BTN_X)
+            }
+            Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp, y = (-102).dp)) {
+                Pad(label = "Y", bit = GamepadController.BTN_Y)
+            }
         }
-        root.addView(tv, FrameLayout.LayoutParams(size, size))
-        return tv
     }
 
     /**
-     * 按钮外观（未按下 / 按下两态）。
+     * 一个圆形按钮：按下 `setButton(true)`、抬起/取消 `setButton(false)`，
+     * 按下时换底色 + 加粗描边作反馈（原 View 版靠 `GradientDrawable` 做同样的事）。
      *
-     * 此前按钮是个**没有按下态**的 TextView —— 按下去外观完全不变，用户无法判断
-     * 到底是「没识别到触摸」还是「识别了但没发出去」，这正是「手柄不可用」体感的来源之一。
+     * [onDown] 非空时只执行它（✕ 退出键不需要发 HID 帧），此时 [bit] 传 0。
      */
-    private fun applyPadFace(tv: TextView, pressed: Boolean) {
-        tv.background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(if (pressed) 0x66FFFFFF.toInt() else 0x2EFFFFFF.toInt())
-            setStroke(dp(if (pressed) 2 else 1), if (pressed) 0xDDFFFFFF.toInt() else 0x66FFFFFF.toInt())
+    @Composable
+    private fun Pad(
+        label: String,
+        bit: Int,
+        size: Dp = 58.dp,
+        onDown: (() -> Unit)? = null,
+    ) {
+        var pressed by remember { mutableStateOf(false) }
+        Box(
+            modifier = Modifier
+                .size(size)
+                .background(
+                    color = if (pressed) Color(0x66FFFFFF) else Color(0x2EFFFFFF),
+                    shape = CircleShape,
+                )
+                .border(
+                    width = if (pressed) 2.dp else 1.dp,
+                    color = if (pressed) Color(0xDDFFFFFF) else Color(0x66FFFFFF),
+                    shape = CircleShape,
+                )
+                .pointerInput(bit, onDown) {
+                    detectTapGestures(
+                        onPress = {
+                            pressed = true
+                            if (onDown != null) onDown() else GamepadController.setButton(bit, true)
+                            tryAwaitRelease()
+                            pressed = false
+                            if (onDown == null) GamepadController.setButton(bit, false)
+                        },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                fontSize = if (label.length > 2) 13.sp else 17.sp,
+                color = Color(0xFFEAEAEA),
+            )
         }
     }
 }
