@@ -47,6 +47,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.graphics.Color
+import top.yukonga.miuix.kmp.icon.extended.GridView
 
 /**
  * 迁移期的**并行宿主**（阶段 2/3 的落点）。
@@ -278,7 +279,7 @@ class ApShellActivity : ComponentActivity() {
                     FloatingNavigationBarItem(
                         selected = page == 1,
                         onClick = { page = 1 },
-                        icon = MiuixIcons.ListView,
+                        icon = MiuixIcons.GridView,
                         label = "触控板",
                         enabled = true,
                     )
@@ -289,7 +290,10 @@ class ApShellActivity : ComponentActivity() {
                         label = "键盘",
                         enabled = true,
                     )
-                    // 图标：Miuix 官方文档只给出 Ok / Settings 两个明确可用的扩展图标名，
+                    // 图标：miuix-icons 0.9.4 的 extended 共 **156** 个图标（从 maven sources.jar 全量列名，
+                    // 不是靠文档猜）。底栏用到的 Home / ListView / GridView / Settings 都在名单内；
+                    // 触控板用 GridView、键盘用 ListView，两者区分开。该库没有 Touchpad/Keyboard/
+                    // Wifi/Bluetooth/Usb/Terminal 这些设备语义名，所以没硬凑。
                     // 所以设置页用 Settings；触控板与键盘暂时都还是 ListView（猜名字会编译红）
                     FloatingNavigationBarItem(
                         selected = page == 3,
