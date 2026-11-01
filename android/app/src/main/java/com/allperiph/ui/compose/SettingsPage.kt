@@ -502,6 +502,49 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
 
+        // ———————————————— 背景图 ————————————————
+        // 沿 ThemeSkin 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ThemeSkin.bgImage(ctx)、
+        // 写 ThemeSkin.setBgImage(ctx, uri)；解码由 Backdrop.decode() 做（采样到两倍屏宽）。
+        // 选图必须 takePersistableUriPermission，否则重启后 URI 失效、背景变回纯色。
+        var bgUri by remember { mutableStateOf(ThemeSkin.bgImage(ctx).orEmpty()) }
+        val bgPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            if (uri != null) {
+                runCatching {
+                    ctx.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+                ThemeSkin.setBgImage(ctx, uri.toString())
+                bgUri = uri.toString()
+                Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
+            }
+        }
+        ApComponents.Section(title = "背景图") {
+            Column {
+                ApComponents.ValueRow(
+                    title = "当前",
+                    value = if (bgUri.isBlank()) "未设置（沿用预设色）" else "已选图（${bgUri.take(48)}…）",
+                )
+                ApComponents.ActionButton(
+                    text = "选择图片",
+                    onClick = { bgPicker.launch(arrayOf("image/*")) },
+                )
+                if (bgUri.isNotBlank()) {
+                    ApComponents.ActionButton(
+                        text = "清除背景图",
+                        onClick = {
+                            ThemeSkin.setBgImage(ctx, null)
+                            bgUri = ""
+                            Toast.makeText(ctx, "已清除", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+        }
+
         // ———————————————— 关于 ————————————————
         ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
             Column {
