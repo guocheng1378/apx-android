@@ -38,6 +38,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.fillMaxHeight
+import com.allperiph.R
 
 /**
  * 键盘页（Compose + Miuix）：把原来 `KeyboardPanels` 的 8 套程序化 View 换成一套
