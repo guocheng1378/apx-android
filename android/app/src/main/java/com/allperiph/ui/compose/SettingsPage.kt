@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
 import top.yukonga.miuix.kmp.basic.TextButton
+import androidx.compose.foundation.layout.width
 
 /**
  * 设置页（阶段 4，**本轮只迁核心分组**）。
@@ -86,6 +87,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
         ctx.getString(R.string.ui_set_cat_theme), ctx.getString(R.string.ui_set_cat_keys),
         ctx.getString(R.string.ui_set_cat_tools), ctx.getString(R.string.ui_set_cat_data),
     )
+    // 宽屏（≥600dp，ApAdaptiveLayout.twoPane）：分类竖排在左侧当「列表」，内容在右当「详情」。
+    // 这一步只重排外壳，16 个 Section 的代码位置与前一轮完全一致；同类目内再分两栏需要把
+    // 每段拆成可组合函数，属另一轮。
+    val twoPane = com.allperiph.ui.miuix.rememberApAdaptiveLayout().twoPane
+    Column(modifier = Modifier.fillMaxSize()) {
+    if (!twoPane) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -94,6 +101,23 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     ) {
         catLabels.forEachIndexed { idx, name ->
             TextButton(text = name, onClick = { cat = idx })
+        }
+    }
+
+    }
+    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+    if (twoPane) {
+        Column(
+            modifier = Modifier
+                .width(180.dp)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 12.dp + insets.left, top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            catLabels.forEachIndexed { idx, name ->
+                TextButton(text = name, onClick = { cat = idx })
+            }
         }
     }
 
@@ -785,6 +809,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
         }
+    }
+    }
     }
 
 }
