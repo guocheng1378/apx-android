@@ -65,15 +65,21 @@ object LogExport {
      *
      * 写不进去时抛异常 —— 调用方负责提示失败原因，这里不吞（吞掉就成「点了没反应」）。
      */
-    fun saveToDownloads(ctx: Context, fileName: String, body: String): String {
+    /**
+     * [subDir] 为 `null` 时沿用默认目录 `下载/AllPeriph`；给了就用 `下载/<subDir>`。
+     * 只保留 `[A-Za-z0-9._-]` 与一级路径，避免 `..` 之类把文件写到下载目录之外。
+     */
+    fun saveToDownloads(ctx: Context, fileName: String, body: String, subDir: String? = null): String {
+        val relDir = if (subDir.isNullOrBlank()) PUBLIC_DIR else sanitizeSubDir(subDir)
+        val safeName = sanitizeName(fileName)
         val bytes = body.toByteArray(Charsets.UTF_8)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
                 put(
                     MediaStore.MediaColumns.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/" + PUBLIC_DIR,
+                    Environment.DIRECTORY_DOWNLOADS + "/" + relDir,
                 )
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
@@ -89,11 +95,11 @@ object LogExport {
                 null,
                 null,
             )
-            return "${Environment.DIRECTORY_DOWNLOADS}/$PUBLIC_DIR/$fileName"
+            return "${Environment.DIRECTORY_DOWNLOADS}/$relDir/$safeName"
         }
         val dir = appDir(ctx)
-        writeFile(dir, fileName, bytes)
-        return File(dir, fileName).absolutePath
+        writeFile(dir, safeName, bytes)
+        return File(dir, safeName).absolutePath
     }
 
     /**
@@ -116,6 +122,14 @@ object LogExport {
     }
 
     // —— 内部 ——
+
+    /** 目录名只留安全字符，且只允许一级（`a/b` 这类会被压成 `a_b`） */
+    private fun sanitizeSubDir(raw: String): String =
+        raw.trim().replace(Regex("[^A-Za-z0-9._/-]"), "").replace("/", "_").ifBlank { PUBLIC_DIR }
+
+    /** 文件名同理：去掉路径分隔符与控制字符，空名回落默认前缀 */
+    private fun sanitizeName(raw: String): String =
+        raw.trim().replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").ifBlank { "apx-logs.txt" }
 
     private fun appDir(ctx: Context): File =
         File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, PUBLIC_DIR)
