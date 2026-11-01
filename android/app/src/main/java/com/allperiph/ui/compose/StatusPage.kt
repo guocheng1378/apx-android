@@ -75,7 +75,7 @@ fun StatusPage(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // —— 总开关 ——
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_state)) {
+        ApComponents.Section(title = "运行状态") {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = if (running) state.overallLabel else ctx.getString(R.string.hint_idle),
@@ -96,7 +96,7 @@ fun StatusPage(
                 ) {
                     Text(
                         text = if (running) ctx.getString(R.string.notify_action_stop)
-                        else ctx.getString(R.string.ui_home_btn_start),
+                        else "启动",
                         fontSize = 16.sp,
                     )
                 }
@@ -104,7 +104,7 @@ fun StatusPage(
         }
 
         // —— 传输通道 ——
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_transport)) {
+        ApComponents.Section(title = "传输通道") {
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
                     ApComponents.SwitchRow(
@@ -121,7 +121,7 @@ fun StatusPage(
         }
 
         // —— 模块状态 ——
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
+        ApComponents.Section(title = "模块") {
             Column {
                 state.modules.forEach { row ->
                     ApComponents.ItemRow(
@@ -144,7 +144,7 @@ fun StatusPage(
                     value = state.linkLabel,
                 )
                 ApComponents.ValueRow(
-                    title = ctx.getString(R.string.ui_home_label_env),
+                    title = "环境自检",
                     value = state.envSummary,
                 )
                 Text(
@@ -156,37 +156,6 @@ fun StatusPage(
                 )
             }
         }
-
-        // —— 帮助与说明（迁移到 Compose 时这块入口整个丢了：strings 里 ui_help_* 全套文案
-        //    仍在，代码里一处引用都没有。主页在这里补回「三步上手」摘要 + 完整说明入口）——
-        var helpOpen by remember { mutableStateOf(false) }
-        ApComponents.Section(title = ctx.getString(R.string.ui_main_cat_help)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = ctx.getString(R.string.ui_help_title_howto), fontSize = 15.sp)
-                Text(
-                    text = ctx.getString(R.string.ui_help_howto),
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Text(
-                    text = ctx.getString(R.string.ui_main_cat_help_hint),
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                Button(
-                    onClick = {
-                        Feedback.haptic(ctx)
-                        helpOpen = true
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                ) {
-                    Text(text = ctx.getString(R.string.ui_help_open_full), fontSize = 15.sp)
-                }
-            }
-        }
-        if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
     }
 }
 

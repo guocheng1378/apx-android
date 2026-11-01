@@ -311,10 +311,17 @@ class ApShellActivity : ComponentActivity() {
             layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        val c = window.insetsController ?: return
-        c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        c.show(WindowInsets.Type.statusBars())
-        c.hide(WindowInsets.Type.navigationBars())
+        // 闪退修复（v223.20 首启崩溃）：DecorView 还没创建时 `window.insetsController`
+        // **不是返回 null，而是直接抛 NPE** —— Android 15/16 的 PhoneWindow.getInsetsController()
+        // 读的是尚未赋值的 mDecor 字段，`?: return` 挡不住，Launcher 一启就 FATAL。
+        // 改为 decorView.post：它在 DecorView attach 到 Window 之后才跑，那时 controller 已就位；
+        // 未 attach 时先排队，既不会漏执行，也不会再抛。
+        window.decorView.post {
+            val c = window.insetsController ?: return@post
+            c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            c.show(WindowInsets.Type.statusBars())
+            c.hide(WindowInsets.Type.navigationBars())
+        }
     }
 }
 

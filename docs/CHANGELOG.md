@@ -4,6 +4,28 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.20.1（2026-11-01）
+
+热修 v223.20 的**首启闪退**：装上点开就黑屏退出，进不了界面。
+
+### 根因
+
+`ApShellActivity.onCreate` 在 `setContent {}` **之前**调 `applyImmersive()`，里面读
+`window.insetsController`。Android 15/16 的 `PhoneWindow.getInsetsController()` 直接读
+尚未赋值的 `mDecor` 字段 —— DecorView 还没安装时它**抛 NPE，而不是返回 null**，
+所以 `?: return` 这种写法挡不住。v223.20 恰好把 LAUNCHER 从旧主界面切到
+`ApShellActivity`，潜伏的这行就成了「一开就崩」。
+
+### 修法
+
+改成 `window.decorView.post { ... }`：DecorView attach 到 Window 之后再取 controller，
+未 attach 时先排队 —— 不漏执行，也不会再抛。其余 Activity 的同类调用都在
+`setContentView()` 之后，本来就没有这个窗口期。
+
+### 影响面
+
+只动 Android 手机端的 `ApShellActivity`（主入口）。逻辑层、PC 端、电视端无改动。
+
 ## v223.19（2026-11-01）
 
 本版接 issue #52 的**第 13 条**里被漏掉的一半：**电脑端的按键映射表**，以及第 10 条

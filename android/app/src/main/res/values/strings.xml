@@ -524,13 +524,4 @@
     <string name="ui_help_cursor_lock">触摸板光标锁定：连上电脑后本窗隐藏系统光标，触控板点击只转发到电脑（Pad 防误触）。</string>
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
-    <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
-    <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机开「运行状态」开关；③ 点顶栏设备名选「本机 / PC」或发现到的设备。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
-    <string name="ui_help_open_full">查看完整说明</string>
-    <string name="ui_help_close">关闭</string>
-    <string name="ui_home_section_state">运行状态</string>
-    <string name="ui_home_section_transport">传输通道</string>
-    <string name="ui_home_section_modules">模块</string>
-    <string name="ui_home_label_env">环境自检</string>
-    <string name="ui_home_btn_start">启动</string>
 </resources>

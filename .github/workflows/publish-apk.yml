@@ -1,14 +1,19 @@
 name: Publish APK
 
-# 临时用途：把最近一次成功 Build 产出的 app-release.apk 发成公开 Release。
-# 原因：Actions artifact 下载必须带 token，手机端无法匿名下载；
-# Release 资产公开可匿名下载，装到真机验证完即可删除本文件与对应 Release。
-# 触发条件限定为本文件自身变化，避免每次 push 都跑。
+# 临时用途：把指定（或最近一次成功）Build 产出的 app-release.apk 发成公开 Release。
+# 原因：Actions artifact 下载必须带 token，手机端无法匿名下载；Release 资产可经镜像匿名下载，
+# 装到真机验证完即可删除本文件与对应 Release。
+# 只在手动触发时运行（workflow_dispatch 需要 workflow 在默认分支上），避免误跑。
 
 on:
-  push:
-    branches: [master]
-    paths: ['.github/workflows/publish-apk.yml']
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 要转成 Release 的 Build run id（留空 = 最近一次成功的 Build）
+        required: false
+      tag:
+        description: Release tag（留空 = ci-apk-<UTC 时间>）
+        required: false
 
 permissions:
   contents: write
@@ -18,17 +23,23 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Repack latest Build APK into a public Release
+      - name: Repack Build APK into a public Release
         env:
           GH_TOKEN: ${{ github.token }}
+          IN_RID: ${{ inputs.run_id }}
+          IN_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          RID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
-                  --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          RID="$IN_RID"
+          if [ -z "$RID" ]; then
+            RID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build.yml \
+                    --status success --limit 1 --json databaseId -q '.[0].databaseId')
+          fi
           echo "source Build run: $RID"
           gh run download "$RID" --repo "$GITHUB_REPOSITORY" -n apk-app -D dist
           ls -la dist
-          TAG="ci-apk-$(date -u +%Y%m%d-%H%M%S)"
+          TAG="$IN_TAG"
+          if [ -z "$TAG" ]; then TAG="ci-apk-$(date -u +%Y%m%d-%H%M%S)"; fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
             --title "$TAG" --notes "临时真机验证包，来源 Build run $RID；验证完可删" \
             dist/app-release.apk
