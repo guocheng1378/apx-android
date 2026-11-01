@@ -45,6 +45,8 @@ import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
+import dev.chrisbanes.haze.hazeEffect
+import androidx.compose.ui.graphics.Color
 
 /**
  * 迁移期的**并行宿主**（阶段 2/3 的落点）。
@@ -245,8 +247,27 @@ class ApShellActivity : ComponentActivity() {
 
             // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
             // 外层只负责贴底（组件内部 Column 会丢弃 BoxScope.align）
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                FloatingNavigationBar(color = MiuixTheme.colorScheme.surfaceContainer) {
+            // 液态玻璃底栏：之前给的是一块不透明的 surfaceContainer，等于纯色条。
+            // 这里在容器上加 hazeEffect（同一份 hazeState，和顶栏共用），底色降到 0.5 透明度，
+            // 内容从底栏后面滚过时能看到模糊透出来的颜色。
+            val navSurface = MiuixTheme.colorScheme.surfaceContainer
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .then(
+                        if (hazeState != null) {
+                            Modifier.hazeEffect(state = hazeState) {
+                                blurRadius = 20.dp
+                                backgroundColor = navSurface.copy(alpha = 0.5f)
+                                noiseFactor = 0.02f
+                                tints = listOf(dev.chrisbanes.haze.HazeTint(navSurface.copy(alpha = 0.16f)))
+                            }
+                        } else {
+                            Modifier.background(navSurface.copy(alpha = 0.96f))
+                        }
+                    ),
+            ) {
+                FloatingNavigationBar(color = Color.Transparent) {
                     FloatingNavigationBarItem(
                         selected = page == 0,
                         onClick = { page = 0 },
