@@ -1,42 +1,45 @@
 package com.allperiph.localsend
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
-import android.view.View
-import android.widget.ArrayAdapter
-import android.widget.ListView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
 import com.allperiph.R
+import com.allperiph.ui.miuix.ApMiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
- * LocalSend 发送页（MVP2 · issue#45）：
- *  列出 60s 内 announce 过的设备（每 2s 刷新）→ 点设备 → 系统文件选择（多选）→ 后台三步推送。
- *  依赖互传开关打开（LocalSendService 运行中才能收到 announce）。
- *  文件 size 优先 query OpenableColumns.SIZE；拿不到则拷 cache 精确测量（Content-Length 必须准）。
+ * LocalSend 发送页（MVP2 · issue#45）：列出 60s 内 announce 过的设备（每 2s 刷新）→
+ * 点设备 → 系统文件选择（多选）→ 后台三步推送。依赖互传开关打开。
+ *
+ * 本轮迁 Compose：列表从 `ListView + ArrayAdapter + 两个 View 的 VISIBLE/GONE` 换成
+ * `ComposeView` + `LazyColumn` + `mutableStateOf`，**不再需要 attachBaseContext(ThemePref.wrap)
+ * 与 applyRuntimeTheme** —— 取色统一由 `ApMiuixTheme`（Miuix colorScheme）负责，
+ * 这是 `ThemeSkin`/`ThemePref` 下线的一步。
  */
 class SendActivity : Activity() {
 
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
-
     companion object { private const val PICK_CODE = 0x105F }
 
-    private lateinit var listView: ListView
-    private lateinit var emptyText: TextView
-    private var devices: List<LocalSendClient.Discovered> = emptyList()
+    private var devices by mutableStateOf<List<LocalSendClient.Discovered>>(emptyList())
     private val handler = Handler(Looper.getMainLooper())
     private var picked: LocalSendClient.Discovered? = null
     private val tmpFiles = mutableListOf<java.io.File>()
@@ -44,34 +47,56 @@ class SendActivity : Activity() {
     private val refresh = object : Runnable {
         override fun run() {
             devices = LocalSendClient.activeDevices()
-            listView.adapter = ArrayAdapter(
-                this@SendActivity, android.R.layout.simple_list_item_1,
-                devices.map { "${it.alias}（${it.deviceType} · ${it.ip}）" },
-            )
-            val empty = devices.isEmpty()
-            emptyText.visibility = if (empty) View.VISIBLE else View.GONE
-            listView.visibility = if (empty) View.GONE else View.VISIBLE
             handler.postDelayed(this, 2000)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
         title = "发送到设备"
-        setContentView(R.layout.page_localsend_send)
-        listView = findViewById(R.id.lsDeviceList)
-        emptyText = findViewById(R.id.lsEmpty)
-        listView.setOnItemClickListener { _, _, pos, _ ->
-            picked = devices.getOrNull(pos) ?: return@setOnItemClickListener
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "*/*"
-                addCategory(Intent.CATEGORY_OPENABLE)
-                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-            }
-            startActivityForResult(Intent.createChooser(intent, "选择要发送的文件"), PICK_CODE)
+        setContentView(
+            ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                            Text(
+                                text = if (devices.isEmpty()) {
+                                    "附近还没有设备：确认目标端已开启互传，且与本机在同一网络"
+                                } else {
+                                    "点一台设备，然后选要发送的文件（${devices.size} 台在线）"
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            )
+                            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                items(devices) { d ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 8.dp)
+                                            .clickable { pickFile(d) },
+                                    ) {
+                                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                            Text(text = d.alias)
+                                            Text(text = "${d.deviceType} · ${d.ip}")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        )
+    }
+
+    private fun pickFile(target: LocalSendClient.Discovered) {
+        picked = target
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
+        startActivityForResult(Intent.createChooser(intent, "选择要发送的文件"), PICK_CODE)
     }
 
     override fun onResume() { super.onResume(); handler.post(refresh) }
