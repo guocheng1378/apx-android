@@ -2,13 +2,17 @@ package com.allperiph.bt
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHidDevice
 import android.bluetooth.BluetoothHidDevice.Callback
 import android.bluetooth.BluetoothHidDeviceAppQosSettings
 import android.bluetooth.BluetoothHidDeviceAppSdpSettings
 import android.bluetooth.BluetoothProfile
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import com.allperiph.core.ApxNative
@@ -38,6 +42,32 @@ class BtHidDevice(private val appContext: Context) : Module {
     private var hidDevice: BluetoothHidDevice? = null
     private var registered = false
 
+    /** 已挂上蓝牙开关监听（只在 start 里挂一次，stop 里摘掉） */
+    private var listening = false
+
+    /**
+     * 蓝牙开关监听 —— 为什么必须有（issue#52「蓝牙模式直接不能用，配对后系统还是识别为 pad/手机」）：
+     * Android 在蓝牙关闭时会拆掉 profile proxy，注册的 HID SDP 随之失效。旧实现只挂一次监听、
+     * 从不重注册，于是**用户为了配对去关一次蓝牙再开**，之后就永远是「手机」而不是「键鼠」，
+     * 只有杀掉 App 重启模块才恢复。这里开关一动就重新注册，并把状态如实降级/恢复。
+     */
+    private val adapterReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, intent: Intent?) {
+            when (intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
+                BluetoothAdapter.STATE_ON -> {
+                    Log.i(TAG, "蓝牙已开启：重新注册 HID（配对后才会被主机识别为键鼠）")
+                    state = ModuleState.STARTING
+                    openProxy()
+                }
+                BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
+                    hidDevice = null; registered = false; isConnected = false
+                    state = ModuleState.DEGRADED
+                    Log.w(TAG, "蓝牙已关闭：HID 注册失效，待蓝牙开启后自动恢复")
+                }
+            }
+        }
+    }
+
     private val profileListener = object : BluetoothProfile.ServiceListener {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
             if (profile == BluetoothProfile.HID_DEVICE) {
@@ -55,6 +85,9 @@ class BtHidDevice(private val appContext: Context) : Module {
             this@BtHidDevice.registered = registered
             state = if (registered) ModuleState.RUNNING else ModuleState.IDLE
             Log.i(TAG, "蓝牙 HID 注册状态=$registered")
+            // 注册成功才有 SDP 可被主机发现；此时若本机已经配对过电脑 / 电视，主动发起一次
+            // HID 连接 —— 见 connectBondedHost() 的注释（旧实现从来没人调 connect()）。
+            if (registered) connectBondedHost()
         }
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
             isConnected = state == BluetoothProfile.STATE_CONNECTED
@@ -76,10 +109,47 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) { state = ModuleState.ERROR; Log.e(TAG, "无蓝牙适配器"); return }
-        adapter.getProfileProxy(appContext, profileListener, BluetoothProfile.HID_DEVICE)
+        listenAdapter()
+        if (!adapter.isEnabled) {
+            // 旧实现不看开关：蓝牙关着时 getProfileProxy 拿不到回调，模块永远停在 STARTING，
+            // 界面看着「在启动」其实什么都没发生。现在如实降级，开关一打就自动接上。
+            state = ModuleState.DEGRADED
+            Log.w(TAG, "蓝牙未开启：请先打开蓝牙，HID 会在开启后自动注册")
+            return
+        }
+        openProxy()
+    }
+
+    /** 挂蓝牙开关监听（幂等） */
+    private fun listenAdapter() {
+        if (listening) return
+        listening = true
+        val f = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 33) {
+                appContext.registerReceiver(adapterReceiver, f, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                appContext.registerReceiver(adapterReceiver, f)
+            }
+        }.onFailure {
+            listening = false
+            Log.w(TAG, "蓝牙开关监听挂不上：${it.message}")
+        }
+    }
+
+    /** 拿 HID_DEVICE profile proxy（幂等：已经拿到就不重复要，避免代理泄漏） */
+    private fun openProxy() {
+        if (hidDevice != null) { if (!registered) registerApp(); return }
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        runCatching { adapter.getProfileProxy(appContext, profileListener, BluetoothProfile.HID_DEVICE) }
+            .onFailure { Log.w(TAG, "取 HID_DEVICE proxy 失败：${it.message}") }
     }
 
     override fun stop() {
+        if (listening) {
+            listening = false
+            runCatching { appContext.unregisterReceiver(adapterReceiver) }
+        }
         runCatching { hidDevice?.unregisterApp() }
         runCatching { BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDevice) }
         hidDevice = null; registered = false; isConnected = false
@@ -103,6 +173,10 @@ class BtHidDevice(private val appContext: Context) : Module {
             val smi = BluetoothHidDeviceAppSdpSettings(
                 "AllPeriph", "AllPeriph HID", "AllPeriph",
                 BluetoothHidDevice.SUBCLASS1_COMBO, desc)
+            // 主机是靠这四样东西（SDP 名 / 子类 / 描述符里的 TLC 顺序）判断「这是键鼠还是手机」的，
+            // 出问题时要能一眼看出注册了什么，所以逐项落日志（不进 UI 文案）。
+            Log.i(TAG, "注册 HID：subclass=0x%02X(COMBO) 描述符=%d字节 TLC顺序=鼠标1 键盘2 多媒体3 手柄4"
+                .format(BluetoothHidDevice.SUBCLASS1_COMBO, desc.size))
             hidDevice?.registerApp(smi, null, qos, { it.run() }, callback)
         }.onFailure {
             state = ModuleState.ERROR
@@ -110,8 +184,43 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
     }
 
+    /**
+     * 主动发起 HID 连接到指定主机。
+     *
+     * 注意：这个方法长期是**死代码**（全仓无调用点），正是 issue#52「配对之后系统还是识别为
+     * pad/手机，做不了 hid 键鼠」的直接原因之一 —— Android 只把 SDP 注册上去，
+     * HID profile 的连接必须由某一端主动 connect，而两端当时都没人做。
+     */
     fun connect(host: BluetoothDevice) {
         runCatching { if (hasConnect()) hidDevice?.connect(host) }
+    }
+
+    /**
+     * 向「已配对的电脑 / 电视」自动补一次 HID 连接（注册成功后、蓝牙重新打开后各调一次）。
+     *
+     * 只认 majorDeviceClass = COMPUTER 或 AUDIO_VIDEO：不往耳机 / 车机 / 另一部手机上乱连。
+     * 失败不重试 —— 主机可能正忙、可能已删过设备；下一次注册或开关蓝牙会再试。
+     * 系统若仍显示成「手机」，说明那台主机的配对记录是在 App 注册 HID **之前**建立的，
+     * 主机缓存了旧的设备类型：需要在主机端删掉本机再重新配对（App 侧改不了别人的缓存）。
+     */
+    private fun connectBondedHost() {
+        if (!hasConnect()) return
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        val hosts = runCatching { adapter.bondedDevices }.getOrNull().orEmpty().filter { d ->
+            val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull() ?: -1
+            major == BluetoothClass.Device.Major.COMPUTER ||
+                major == BluetoothClass.Device.Major.AUDIO_VIDEO
+        }
+        if (hosts.isEmpty()) {
+            Log.i(TAG, "没有已配对的电脑/电视主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")
+            return
+        }
+        for (h in hosts) {
+            val name = runCatching { h.name }.getOrNull() ?: h.address
+            Log.i(TAG, "向已配对主机发起 HID 连接：$name")
+            runCatching { hidDevice?.connect(h) }
+                .onFailure { Log.w(TAG, "HID 连接 $name 失败：${it.message}") }
+        }
     }
 
     fun reportMouse(buttons: Int, dx: Int, dy: Int, wheel: Int, pan: Int) {

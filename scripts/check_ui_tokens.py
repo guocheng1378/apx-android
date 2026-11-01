@@ -46,7 +46,10 @@ R_USE = re.compile(
 # 中文文案棘轮基线：只许降不许升。降下来之后把这里调成新值即可锁住战果。
 # 530 → 578（miuix-ui）：Miuix 0.9.4 迁移新增 MiuixShowcase 组件总览演示页（纯 demo，
 # 不碰业务状态），演示文案暂留 Kotlin；后续资源化时把这里降回并锁住。
-TEXT_BASELINE = 629
+# 629 → 634（v223.18）：新增 hid/HidMouse.kt —— 鼠标三条出口的错误原因文案与
+# HidKeys/HotkeyController 同构（那些也是 Kotlin 字符串，不是 UI 文案，进 strings.xml 没意义：
+# 它们是 Uplink.reason 的诊断数据，会被通知栏/诊断行拼进句子）。
+TEXT_BASELINE = 634
 
 
 def strip_comments(text):
