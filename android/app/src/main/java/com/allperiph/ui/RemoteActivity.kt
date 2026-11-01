@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,7 +18,7 @@ import android.widget.Toast
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
-import com.allperiph.ui.kit.ApKit
+import com.allperiph.shared.ui.ApKit
 import com.allperiph.wireless.ControlTarget
 
 /**

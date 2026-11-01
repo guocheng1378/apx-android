@@ -1,7 +1,6 @@
 package com.allperiph.ui.compose
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,11 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.allperiph.R
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -33,35 +30,35 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun ApHelpSheet(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     ApMiuixTheme {
-        Dialog(onDismissRequest = onDismiss) {
-            Card(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.82f)) {
-                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                    Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = 18.sp)
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = 8.dp),
-                    ) {
-                        HelpBlock(ctx.getString(R.string.ui_help_title_howto), ctx.getString(R.string.ui_help_howto))
-                        HelpBlock(ctx.getString(R.string.ui_help_title_project), ctx.getString(R.string.ui_help_project))
-                        HelpBlock(ctx.getString(R.string.ui_help_title_link), ctx.getString(R.string.ui_help_link))
-                        HelpBlock(ctx.getString(R.string.ui_help_title_gesture), ctx.getString(R.string.ui_help_gesture))
-                        HelpBlock(
-                            ctx.getString(R.string.ui_help_title_features),
-                            listOf(
-                                ctx.getString(R.string.ui_help_cursor_lock),
-                                ctx.getString(R.string.ui_help_gesture_shield),
-                                ctx.getString(R.string.ui_help_localsend),
-                            ).joinToString("\n"),
-                        )
-                        HelpBlock(ctx.getString(R.string.ui_help_title_faq), ctx.getString(R.string.ui_help_faq))
-                        HelpBlock(ctx.getString(R.string.ui_help_title_switch), ctx.getString(R.string.ui_help_export_log))
-                    }
-                    Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
-                        Text(text = ctx.getString(R.string.ui_help_close), fontSize = 15.sp)
-                    }
+        ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.82f) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = 18.sp)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(top = 8.dp),
+                ) {
+                    HelpBlock(ctx.getString(R.string.ui_help_title_howto), ctx.getString(R.string.ui_help_howto))
+                    HelpBlock(ctx.getString(R.string.ui_help_title_project), ctx.getString(R.string.ui_help_project))
+                    HelpBlock(ctx.getString(R.string.ui_help_title_link), ctx.getString(R.string.ui_help_link))
+                    HelpBlock(ctx.getString(R.string.ui_help_title_gesture), ctx.getString(R.string.ui_help_gesture))
+                    HelpBlock(
+                        ctx.getString(R.string.ui_help_title_features),
+                        listOf(
+                            ctx.getString(R.string.ui_help_cursor_lock),
+                            ctx.getString(R.string.ui_help_gesture_shield),
+                            ctx.getString(R.string.ui_help_localsend),
+                        ).joinToString("\n"),
+                    )
+                    HelpBlock(ctx.getString(R.string.ui_help_title_faq), ctx.getString(R.string.ui_help_faq))
+                    HelpBlock(ctx.getString(R.string.ui_help_title_switch), ctx.getString(R.string.ui_help_export_log))
                 }
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_help_close),
+                    onClick = onDismiss,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
         }
     }

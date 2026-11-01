@@ -49,7 +49,10 @@ R_USE = re.compile(
 # 629 → 634（v223.18）：新增 hid/HidMouse.kt —— 鼠标三条出口的错误原因文案与
 # HidKeys/HotkeyController 同构（那些也是 Kotlin 字符串，不是 UI 文案，进 strings.xml 没意义：
 # 它们是 Uplink.reason 的诊断数据，会被通知栏/诊断行拼进句子）。
-TEXT_BASELINE = 688
+# 690 → 689（2026-11-01 面板重排）→ 687（补入口这一版）：设置页新增的
+# 「键盘外观 / 音频方向 / 输入与外设」三段 17 条文案全部进 strings.xml（不写死在 Kotlin），
+# 合并 master 后实测 687（面板重排把几处 Kotlin 文案换成了资源引用），按实测值收紧锁住战果。
+TEXT_BASELINE = 687
 
 
 def strip_comments(text):

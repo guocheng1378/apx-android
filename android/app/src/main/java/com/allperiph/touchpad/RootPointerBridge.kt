@@ -50,10 +50,23 @@ object RootPointerBridge {
      */
     private var buttons = 0
 
+    /**
+     * 偏好文件出口：`apx_root_pointer` 只由本对象打开。
+     *
+     * 为什么不许调用方自己 `getSharedPreferences("apx_root_pointer")`：偏好文件名与键名
+     * 写错**不会**编译报错，只会静默失效 —— 设置页读的是另一份文件，开关就永远「开了没用」
+     * （同一个坑 `GlobalKeyForwarder` 已经踩过一次）。读值统一走 [isEnabled]。
+     */
+    fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+
+    fun isEnabled(store: android.content.SharedPreferences): Boolean =
+        store.getBoolean(KEY_ENABLED, false)
+
     fun loadPref(store: android.content.SharedPreferences) {
-        enabled = store.getBoolean(KEY_ENABLED, false)
+        enabled = isEnabled(store)
     }
 
+    /** 设置页开关的唯一写入口：落盘 + 立刻起停；拿不到 root 时 [start] 会如实降级。 */
     fun setEnabled(ctx: Context, store: android.content.SharedPreferences, on: Boolean) {
         enabled = on
         store.edit().putBoolean(KEY_ENABLED, on).apply()

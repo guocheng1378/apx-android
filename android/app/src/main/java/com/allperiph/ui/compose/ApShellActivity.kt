@@ -28,6 +28,7 @@ import com.allperiph.ui.AgentController
 import com.allperiph.ui.AgentForegroundService
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.ThemeSkin
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.ApGlassTopBar
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.icon.extended.GridView
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.window.Dialog
 
 /**
  * 迁移期的**并行宿主**（阶段 2/3 的落点）。
@@ -436,39 +438,37 @@ private fun ApDevicePicker(onDismiss: () -> Unit) {
         com.allperiph.wireless.TvDiscovery.start()
         devices = com.allperiph.wireless.TvDiscovery.list()
     }
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        top.yukonga.miuix.kmp.basic.Card {
-            Column(modifier = Modifier.padding(16.dp)) {
-                top.yukonga.miuix.kmp.basic.Text(
-                    text = "选择受控设备",
-                    fontSize = 17.sp,
-                    modifier = Modifier.padding(bottom = 8.dp),
-                )
-                top.yukonga.miuix.kmp.basic.TextButton(
-                    text = "本机 / PC（默认）",
+    Dialog(onDismissRequest = onDismiss) {
+        ApComponents.DialogCard(onDismiss = onDismiss) {
+            Text(
+                text = "选择受控设备",
+                fontSize = 17.sp,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            ApComponents.ActionButton(
+                text = "本机 / PC（默认）",
+                onClick = {
+                    com.allperiph.wireless.ControlTarget.clear()
+                    onDismiss()
+                },
+            )
+            devices.forEach { d ->
+                ApComponents.ActionButton(
+                    text = "${d.name} ${d.typeLabel}  ${d.ip}",
                     onClick = {
-                        com.allperiph.wireless.ControlTarget.clear()
+                        com.allperiph.wireless.ControlTarget.host = d.ip
+                        com.allperiph.wireless.ControlTarget.label = d.name
+                        com.allperiph.wireless.ControlTarget.type = d.type
                         onDismiss()
                     },
                 )
-                devices.forEach { d ->
-                    top.yukonga.miuix.kmp.basic.TextButton(
-                        text = "${d.name} ${d.typeLabel}  ${d.ip}",
-                        onClick = {
-                            com.allperiph.wireless.ControlTarget.host = d.ip
-                            com.allperiph.wireless.ControlTarget.label = d.name
-                            com.allperiph.wireless.ControlTarget.type = d.type
-                            onDismiss()
-                        },
-                    )
-                }
-                if (devices.isEmpty()) {
-                    top.yukonga.miuix.kmp.basic.Text(
-                        text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
+            }
+            if (devices.isEmpty()) {
+                Text(
+                    text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
         }
     }

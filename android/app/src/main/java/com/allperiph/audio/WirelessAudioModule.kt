@@ -137,7 +137,7 @@ class WirelessAudioModule : Module {
 
     /** 运行中热切换：音箱方向 */
     fun applySpeaker(ctx: android.content.Context, on: Boolean) {
-        prefs(ctx).edit().putBoolean(K_SPK, on).apply()
+        setSpeakerPref(ctx, on)
         if (!running) return
         if (on && track == null) {
             spkOn = true
@@ -158,7 +158,7 @@ class WirelessAudioModule : Module {
 
     /** 运行中热切换：麦克风方向 */
     fun applyMic(ctx: android.content.Context, on: Boolean) {
-        prefs(ctx).edit().putBoolean(K_MIC, on).apply()
+        setMicPref(ctx, on)
         if (!running) return
         if (on && micThread == null) {
             micOn = true
@@ -417,6 +417,15 @@ class WirelessAudioModule : Module {
         fun isMicOn(c: android.content.Context): Boolean =
             c.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
                 .getBoolean(K_MIC, true)
+
+        /** 设置页入口：只落盘（模块没起时没有实例可热切换，但选择要记住） */
+        fun setSpeakerPref(c: android.content.Context, on: Boolean) {
+            prefs(c).edit().putBoolean(K_SPK, on).apply()
+        }
+
+        fun setMicPref(c: android.content.Context, on: Boolean) {
+            prefs(c).edit().putBoolean(K_MIC, on).apply()
+        }
 
         /** 与 PC 侧 `media_session.hpp` 的 kAudioSampleRate/kAudioChannels 必须一致 */
         private const val RATE = 48000

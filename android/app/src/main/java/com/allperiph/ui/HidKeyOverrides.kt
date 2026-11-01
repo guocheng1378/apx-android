@@ -25,6 +25,10 @@ internal object HidKeyOverrides {
     @Volatile
     private var snapshot: IntArray = IntArray(0)
 
+    /** 本组件自己的偏好文件；界面经它取，不要手写 `"apx_key_overrides"` */
+    fun prefs(ctx: android.content.Context): SharedPreferences =
+        ctx.getSharedPreferences(PREF, android.content.Context.MODE_PRIVATE)
+
     /** 从持久化读入（App.onCreate 调一次） */
     fun load(store: SharedPreferences) {
         val raw = store.getString(KEY_MAP, "").orEmpty()

@@ -11,7 +11,6 @@
 | `AgentController.kt` | 编排中枢：模块注册顺序、开关持久化、环境自检、链路速度注入 |
 | `EnvChecks.kt` | root / USB 速度 / 电池白名单 / 通知权限自检 |
 | `NotificationChannels.kt` | 通知渠道（状态 LOW、告警 DEFAULT） |
-| `StatusRows.kt` | 主界面状态行的代码化构建（语义色圆点） |
 | `HotkeyController.kt` / `HotkeyBoard.kt` / `KeyLayouts.kt` | 常用快捷键：发送、面板、布局 |
 | `TouchCursorView.kt` | 触控板光标视图（手势事件入口） |
 | `GamepadActivity.kt` / `GamepadController.kt` / `JoystickView.kt` | 手柄页（**仅 USB 出口**） |
@@ -76,16 +75,20 @@
 - **不引入任何第三方依赖**（与 `app/build.gradle.kts` 的零依赖约定一致），使用 framework
   原生控件，卡片用 shape drawable 模拟 M3 Outlined Card；
 - **文案与真实能力必须对齐**：不可用的功能不得写进状态页的「已实现」清单。
-- 状态块（设置页左栏：状态概览 + 三个传输入口）自 miuix-ui 第二刀起由
-  `ui/miuix/ApMiuixStatus.kt` 用 Miuix Compose 渲染，`res/layout/page_status.xml` 已删除；
+- 状态块（状态页：状态概览 + 三个传输入口）现由 `ui/compose/StatusPage.kt` 用 Miuix Compose 渲染，
+  `res/layout/page_status.xml` 已删除；早期过渡件 `ui/miuix/ApMiuixStatus.kt` 从未被任何页面引用，
+  已于 `refactor/ui-kit-unify` 删除。
 
 ### v1.33 起补充的三条硬规则
 
-1. **形状只在 UI Kit 里画**：圆角矩形 / 胶囊 / 圆形统一走 `kit/ApKit.kt` 的
-   `shape() / rect() / pill() / oval()`。此前 `GradientDrawable` 的手写散在 7 个文件共 36 处，
-   改「卡片圆角」要在每处分别落地。Activity 内遗留的 private `card() / strokeCard() / pill()`
-   现在只是转发到 Kit 的薄封装，新代码直接调 Kit。
-   注意：Kit 只接受 **px**，dp 换算仍由调用方的 `dp()` 负责，这样 TV 端（另一套缩放）也能复用。
+1. **形状只在 UI Kit 里画**：圆角矩形 / 胶囊 / 圆形统一走 `com.allperiph.shared.ui.ApKit` 的
+   `shape()` / `rect()` / `pill()` / `oval()`。此前 `GradientDrawable` 的手写散在 7 个文件共 36 处，
+   改「卡片圆角」要在每处分别落地。`TouchpadActivity`、`HotkeyBoard` 内遗留的 private
+   `card()` / `strokeCard()` / `pill()` / `rounded()` 现在只是转发到 Kit 的薄封装（调用点一行未动），
+   新代码直接调 Kit；TV 端 `TvUi.focusBg` / `solidBg` 也走同一份实现。
+   注意两点：① Kit 只接受 **px**，dp 换算仍由调用方的 `dp()` 负责（TV 端是另一套缩放）；
+   ② Kit 在 **`:shared`** 而不是 `:app` —— 两端各存一份同构实现在本仓已经发生过，
+   提到共享模块才能保证「改一处两端都变」。
 2. **颜色只在 XML 里写**：`miuix_*` 一律以 `@color/md_*` 形式**引用**令牌（过去是把值抄一遍，
    于是改一边不动另一边），Kotlin 侧不出现 hex；亮/暗差异靠 `values-night` 镜像覆盖，
    **不要**在代码里判断当前是否夜间模式。

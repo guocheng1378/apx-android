@@ -375,7 +375,7 @@ README 里的「零第三方依赖」不再是界面层的否决理由，改为�
 
 | 阶段 | 状态 | 说明 |
 |---|---|---|
-| 1 设计系统与主题骨架 | 已完成 | `ui/miuix/ApInsets|ApMotion|ApAccent|ApComponents|ApEffects|ApAdaptive|ApOverlayHost` |
+| 1 设计系统与主题骨架 | 已完成 | `ui/miuix/ApInsets|ApMotion|ApAccent|ApComponents|ApEffects|ApAdaptive`（`ApOverlayHost` 交付后从未被调用，已于 `refactor/ui-kit-unify` 删除） |
 | 2 手机端主壳 + 状态页 | 已完成 | `ApShellActivity` 接管 LAUNCHER；四页签、四指切页、设备选择器、横屏手势盾 |
 | 3 手机端触控板页 | 已完成 | `TouchpadPage`，手势面用 `pointerInteropFilter` 保原始 MotionEvent |
 | 4 手机端设置页 | 已完成 | 模板/模板管理/环境诊断/文件与传输/传输分类/遥控与键盘/主题数据/键映射/背景图/运行日志（筛选·查看·导出） |

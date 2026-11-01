@@ -1,8 +1,8 @@
 package com.allperiph.controlled
 
+import com.allperiph.shared.ui.ApKit
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -44,14 +44,11 @@ object TvOverlay : CursorOverlay {
         val dm = ctx.resources.displayMetrics
         size = (10 * dm.density).toInt().coerceAtLeast(8)
         val dot = View(ctx).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xFF1F6FEB.toInt())
-                setStroke(
-                    (2 * dm.density).toInt().coerceAtLeast(1),
-                    0xFFFFFFFF.toInt(),
-                )
-            }
+            background = ApKit.oval(
+                fill = 0xFF1F6FEB.toInt(),
+                strokeColor = 0xFFFFFFFF.toInt(),
+                strokePx = (2 * dm.density).toInt().coerceAtLeast(1),
+            )
         }
         val type = if (Build.VERSION.SDK_INT >= 26) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY

@@ -1,8 +1,8 @@
 package com.allperiph.tv.ui
 
+import com.allperiph.shared.ui.ApKit
 import android.content.Context
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -55,11 +55,11 @@ object TvOverlay : CursorOverlay {
         // 4K 电视上必须按分辨率放大，否则光标点小到看不见（TvUi.dp 内含 1080p 基准缩放）
         size = TvUi.dp(ctx, 24f).coerceAtLeast(8)
         val dot = View(ctx).apply {
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(TvUi.Pal.cardFocus)
-                setStroke(TvUi.dp(ctx, 2f).coerceAtLeast(1), 0xFFFFFFFF.toInt())
-            }
+            background = ApKit.oval(
+                fill = TvUi.Pal.cardFocus,
+                strokeColor = 0xFFFFFFFF.toInt(),
+                strokePx = TvUi.dp(ctx, 2f).coerceAtLeast(1),
+            )
         }
         val type = if (Build.VERSION.SDK_INT >= 26) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY

@@ -91,7 +91,8 @@ import top.yukonga.miuix.kmp.window.WindowDialog
  *  · **OS4 弹簧动效**：底栏切页走 springAnimateToPage（miuix 0.9.x 的 OS4 弹簧）。
  * 模糊能力有门禁：运行时着色器不支持（SDK < 33）时自动退化为纯色栏，不闪退。
  *
- * 入口：设置页「关于」卡（MiuixAboutCard）的「组件总览」按钮。
+ * 入口：设置页「关于」区**长按「当前版本」行**（`ui/compose/SettingsPage.kt` 直接
+ * `startActivity`，不经过任何 View 卡片、也不占用户可见按钮的位置）。
  * 纯演示，不碰任何业务状态。
  */
 class MiuixShowcaseActivity : ComponentActivity() {
