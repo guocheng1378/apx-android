@@ -23,6 +23,7 @@ import com.allperiph.ui.Feedback
 import com.allperiph.ui.IssueLauncher
 import com.allperiph.ui.FloatingBallService
 import com.allperiph.ui.ThemePref
+import com.allperiph.ui.GlobalKeyForwarder
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.ui.UpdateChecker
 import com.allperiph.ui.miuix.ApComponents
@@ -225,6 +226,82 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                             ctx.stopService(it)
                         }
                         Feedback.haptic(ctx)
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 遥控与键盘 ————————————————
+        // 物理键盘全局转发沿用旧页的同一份 pref 开关（GlobalKeyForwarder.loadPref/setEnabled），
+        // 控制目标读 ControlTarget（与设备选择器同一份状态），不新造"当前连接"。
+        var globalKeys by remember { mutableStateOf(apxPrefs.getBoolean("global_keys", false)) }
+        ApComponents.Section(title = "遥控与键盘") {
+            Column {
+                ApComponents.SwitchRow(
+                    title = "物理键盘全局转发",
+                    summary = "接上蓝牙键盘后，按键直接转给被控端（需已连接设备）",
+                    checked = globalKeys,
+                    onCheckedChange = { on ->
+                        globalKeys = on
+                        GlobalKeyForwarder.setEnabled(apxPrefs, on)
+                        Feedback.haptic(ctx)
+                    },
+                )
+                ApComponents.ValueRow(
+                    title = "当前控制",
+                    value = runCatching {
+                        com.allperiph.wireless.ControlTarget.label
+                            ?: com.allperiph.wireless.ControlTarget.host
+                            ?: ""
+                    }.getOrDefault("").ifBlank { "未连接（点顶栏设备名可选择）" },
+                )
+                ApComponents.ActionButton(
+                    text = "断开当前控制",
+                    onClick = {
+                        runCatching { com.allperiph.wireless.ControlTarget.clear() }
+                        Toast.makeText(ctx, "已断开", Toast.LENGTH_SHORT).show()
+                    },
+                )
+                ApComponents.ActionButton(
+                    text = "重新发现局域网设备",
+                    onClick = {
+                        com.allperiph.wireless.TvDiscovery.start()
+                        Toast.makeText(ctx, "已开始搜索，稍候在顶栏设备名里选", Toast.LENGTH_SHORT).show()
+                    },
+                )
+            }
+        }
+
+        // ———————————————— 主题数据 ————————————————
+        // 走 ThemeSkin 既有的 exportJson / importJson，格式与旧页导入导出完全一致，
+        // 交换方式是剪贴板（不落文件、不需要存储权限）。
+        ApComponents.Section(title = "主题数据") {
+            Column {
+                ApComponents.ActionButton(
+                    text = "导出当前主题（复制到剪贴板）",
+                    onClick = {
+                        val json = runCatching { ThemeSkin.exportJson(ctx) }.getOrNull().orEmpty()
+                        val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                        if (json.isNotBlank()) {
+                            cm?.setPrimaryClip(android.content.ClipData.newPlainText("apx-theme", json))
+                            Toast.makeText(ctx, "已复制 ${json.length} 字符", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(ctx, "没有可导出的主题", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+                ApComponents.ActionButton(
+                    text = "从剪贴板导入主题",
+                    onClick = {
+                        val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                        val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
+                        val n = if (text.isBlank()) 0 else runCatching { ThemeSkin.importJson(ctx, text) }.getOrDefault(0)
+                        Toast.makeText(
+                            ctx,
+                            if (n > 0) "已导入 $n 套主题" else "剪贴板里没有可识别的主题 JSON",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     },
                 )
             }
