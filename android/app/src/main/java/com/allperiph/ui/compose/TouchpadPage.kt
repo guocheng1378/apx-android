@@ -70,7 +70,11 @@ fun TouchpadPage(
     val density = LocalDensity.current
     val handler = remember { Handler(Looper.getMainLooper()) }
     var hintVisible by remember { mutableStateOf(true) }
-    var cursor by remember { mutableStateOf<Offset?>(null) }
+    // 用户反馈「触摸板没有画触摸的形状」：旧版只有一个跟随主指针的圆点，
+    // 多指看不到、滑动看不到方向。这里改成**每根手指一个圈 + 最近轨迹尾迹**，
+    // 抬手依旧全部清空（旧的"抬手留蓝点挡显示"问题不能复发）。
+    var fingers by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var trail by remember { mutableStateOf<List<Offset>>(emptyList()) }
     var pressed by remember { mutableStateOf(false) }
     val accent = remember { ApAccent.resolved(ctx) }
 
@@ -112,17 +116,22 @@ fun TouchpadPage(
                         MotionEvent.ACTION_DOWN -> {
                             pressed = true
                             hintVisible = false
-                            cursor = Offset(ev.x, ev.y)
+                            trail = emptyList()
+                            fingers = (0 until ev.pointerCount).map { Offset(ev.getX(it), ev.getY(it)) }
                             downX = ev.x
                             downY = ev.y
                             scrolledAway = false
                             handler.postDelayed(dragTask, 550)
                         }
                         MotionEvent.ACTION_POINTER_DOWN -> {
+                            fingers = (0 until ev.pointerCount).map { Offset(ev.getX(it), ev.getY(it)) }
                             if (ev.pointerCount == 2) handler.postDelayed(rightDragTask, 550)
                         }
                         MotionEvent.ACTION_MOVE -> {
-                            cursor = Offset(ev.x, ev.y)
+                            val now = (0 until ev.pointerCount).map { Offset(ev.getX(it), ev.getY(it)) }
+                            fingers = now
+                            // 尾迹只记主指针，最多 24 个点（约半秒），够看出滑动方向又不糊成一片
+                            now.firstOrNull()?.let { trail = (trail + it).takeLast(24) }
                             // 位移一旦超过 slop，本次触摸就是"滑动/滚动"，不再是长按候选
                             if (!scrolledAway) {
                                 val dx = ev.x - downX
@@ -138,8 +147,9 @@ fun TouchpadPage(
                             pressed = false
                             handler.removeCallbacks(dragTask)
                             handler.removeCallbacks(rightDragTask)
-                            // 抬手即隐光标：旧版被控时屏幕正中留一个蓝点，反馈里被点名"挡显示"
-                            cursor = null
+                            // 抬手即隐：旧版被控时屏幕正中留一个蓝点，反馈里被点名"挡显示"
+                            fingers = emptyList()
+                            trail = emptyList()
                         }
                     }
                     // 先更新光标，再把原始事件交给模块 —— 与旧顺序一致（先画后发）
@@ -147,20 +157,21 @@ fun TouchpadPage(
                     true
                 },
         ) {
-            val pos = cursor
-            if (pos != null) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val r = with(density) { if (pressed) 26.dp.toPx() else 22.dp.toPx() }
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // 尾迹：越旧越淡越细，用来体现滑动方向与速度
+                trail.forEachIndexed { i, p ->
+                    val k = (i + 1f) / trail.size.toFloat()
                     drawCircle(
-                        color = Color(accent).copy(alpha = 0.22f),
-                        radius = r,
-                        center = pos,
+                        color = Color(accent).copy(alpha = 0.12f * k),
+                        radius = with(density) { (12.dp * k).toPx() },
+                        center = p,
                     )
-                    drawCircle(
-                        color = Color(accent).copy(alpha = 0.85f),
-                        radius = r * 0.42f,
-                        center = pos,
-                    )
+                }
+                // 每根手指一个圈：主指最大，其余略小，避免两指重合时看不出是几指
+                fingers.forEachIndexed { i, p ->
+                    val r = with(density) { if (pressed) 26.dp.toPx() else 22.dp.toPx() } * (1f - 0.12f * i)
+                    drawCircle(color = Color(accent).copy(alpha = 0.20f), radius = r, center = p)
+                    drawCircle(color = Color(accent).copy(alpha = 0.85f), radius = r * 0.42f, center = p)
                 }
             }
         }
