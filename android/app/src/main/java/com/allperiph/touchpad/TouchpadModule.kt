@@ -270,7 +270,7 @@ class TouchpadModule : Module {
      * ★ 统一走 [com.allperiph.ui.Feedback]，不再自己拿 Vibrator：
      *   1. 此前用 `createPredefined(EFFECT_CLICK)`，各 ROM 对预置效果支持不一，
      *      不少机型直接没反应 —— 就是用户报的"长按没震动"；
-     *   2. 那条路还绕开了 [com.allperiph.ui.ThemeSkin.hapticIndex] 档位，
+     *   2. 那条路还绕开了 [com.allperiph.ui.ApFeel.hapticIndex] 档位，
      *      设置里选了"关"照样震。
      * 现在振幅/时长自己给，且尊重用户的档位设置。
      */

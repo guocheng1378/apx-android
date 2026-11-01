@@ -41,7 +41,7 @@
     <!--
       对话框的莫奈变体（建议 3）：AlertDialog.Builder(ctx, themeRes) 拿到的是「从资源新建」的
       主题，不会继承 Activity 上已叠加的 APMonetOverlay，所以这里单开一个变体，
-      由 ThemeSkin.dialogStyle() 按开关挑。
+      由 ApPalette.dialogStyle() 按开关挑。
     -->
     <style name="Theme.AllPeriph.Miuix.Dialog.Monet" parent="Theme.AllPeriph.Miuix.Dialog">
         <item name="apPrimary">@android:color/system_accent1_200</item>

@@ -139,7 +139,7 @@ object UpdateChecker {
      */
     fun showUpdateDialog(context: Context, tag: String, url: String) {
         val apkMirror = "$RELEASE_DL/$tag/AllPeriph-$tag-app.apk"
-        AlertDialog.Builder(context, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(context, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(context.getString(R.string.about_update_new, tag))
             .setMessage(context.getString(R.string.about_update_hint, currentTag(), tag))
             .setPositiveButton(context.getString(R.string.about_update_dl_cn)) { _, _ ->

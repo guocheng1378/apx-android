@@ -40,7 +40,7 @@ import top.yukonga.miuix.kmp.basic.Text
  * 全屏游戏手柄（v1.x）：双虚拟摇杆 + 常用按键，经 [GamepadController]
  * 送上 USB HID（Report ID 22）／ 蓝牙 HID（rid=4）／ 无线 0x07。
  *
- * **本轮迁 Compose**（`ThemeSkin`/`ThemePref` 下线的一步）：
+ * **本轮迁 Compose**（`ThemePref` 下线的一步；外观总控已拆成 ApPalette / ApSkin）：
  *  - 根布局从 `FrameLayout + addView + FrameLayout.LayoutParams.gravity/margins` 换成
  *    `Box + Modifier.align/offset`；
  *  - 按键从「无按下态的 TextView + OnTouchListener + GradientDrawable」换成
@@ -50,7 +50,7 @@ import top.yukonga.miuix.kmp.basic.Text
  *    结果写进 `mutableStateOf` 而不是 `TextView.text`；
  *  - **摇杆仍是 [JoystickView]**（`AndroidView` 包裹）：它是自定义 `View`、带自己的触摸
  *    采样与阻尼逻辑，整块重写属于「拿可用性换一致性」，本轮不动；
- *  - 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ThemeSkin.applyRuntimeTheme`，
+ *  - 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ApPalette.applyRuntimeTheme`，
  *    取色走 `ApMiuixTheme`。
  */
 class GamepadActivity : Activity() {

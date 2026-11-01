@@ -30,7 +30,7 @@ Linear 的语言正好是「软件工艺文档」式的：近黑画布、层叠�
 
 **强调色的两条附加规则**（不能被设计语言覆盖）：
 
-1. 走 `ThemeSkin.primary` / `?attr/apPrimary` 解析，系统取色（莫奈）与模块皮肤仍然生效；
+1. 走 `ApPalette.primary` / `?attr/apPrimary` 解析，系统取色（莫奈）与模块皮肤仍然生效；
    `md_primary` 只是**没有运行时叠加时的兜底**。
 2. 模板色仍只做**色相拉向** `system_accent*_600`（`ApAccent.huePull`），不直接吃模板原色。
 

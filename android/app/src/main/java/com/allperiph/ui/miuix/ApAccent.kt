@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import com.allperiph.ui.ThemeSkin
-
+import com.allperiph.ui.ApPalette
+import com.allperiph.ui.ApSkin
 /**
  * 强调色与模板色的**唯一换算处**（Compose 侧）。
  *
@@ -50,20 +50,20 @@ object ApAccent {
 
     /** 模板色换算：跟随系统取色时拉色相，否则原样返回 */
     fun templateTint(ctx: Context, templateColor: Int): Int =
-        if (ThemeSkin.monet(ctx)) huePull(templateColor, systemAccent(ctx)) else templateColor
+        if (ApPalette.monet(ctx)) huePull(templateColor, systemAccent(ctx)) else templateColor
 
     /** 当前强调色：皮肤 > 主题主色（`apPrimary`，跟随系统取色时已经是系统色） */
     fun resolved(ctx: Context): Int =
-        MiuixTokens.skinAccent?.toArgb() ?: ThemeSkin.primary(ctx)
+        MiuixTokens.skinAccent?.toArgb() ?: ApPalette.primary(ctx)
 
-    /** 同色调浅底（12% 不透明度），与 [ThemeSkin.softOf] 同一条口径 */
-    fun soft(color: Int): Int = ThemeSkin.softOf(color)
+    /** 同色调浅底（12% 不透明度），与 [ApPalette.softOf] 同一条口径 */
+    fun soft(color: Int): Int = ApPalette.softOf(color)
 
-    /** 皮肤切换后调用：把 ThemeSkin 当前选择同步给 Miuix 主题，避免两套颜色并存 */
-    fun syncSkin(ctx: Context, scope: String = ThemeSkin.TOUCHPAD) {
-        val picked = ThemeSkin.picked(ctx, scope).isNotBlank()
+    /** 皮肤切换后调用：把 ApSkin 当前选择同步给 Miuix 主题，避免两套颜色并存 */
+    fun syncSkin(ctx: Context, scope: String = ApSkin.TOUCHPAD) {
+        val picked = ApSkin.picked(ctx, scope).isNotBlank()
         MiuixTokens.skinAccent = if (picked) {
-            androidx.compose.ui.graphics.Color(ThemeSkin.current(ctx, scope).accent)
+            androidx.compose.ui.graphics.Color(ApSkin.current(ctx, scope).accent)
         } else {
             null
         }

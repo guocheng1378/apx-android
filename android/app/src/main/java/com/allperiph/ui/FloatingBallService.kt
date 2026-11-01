@@ -652,7 +652,7 @@ class FloatingBallService : Service() {
         val kind = BallConfig.transportOf(id)
         val on = kind != null && AgentController.isTransportEnabled(this, kind)
         cell.setBackgroundResource(if (on) R.drawable.bg_ball_item_on else R.drawable.bg_ball_item)
-        val tint = if (on) ThemeSkin.onPrimary(themed) else themed.resources.getColor(R.color.ball_text)
+        val tint = if (on) ApPalette.onPrimary(themed) else themed.resources.getColor(R.color.ball_text)
         (cell as? FrameLayout)?.getChildAt(0)?.let { (it as? ImageView)?.setImageTintList(ColorStateList.valueOf(tint)) }
     }
 

@@ -91,7 +91,7 @@ class RemoteActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        ThemeSkin.applyRuntimeTheme(this)
+        ApPalette.applyRuntimeTheme(this)
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         val root = FrameLayout(this)
@@ -216,9 +216,9 @@ class RemoteActivity : Activity() {
                 text = "OK"
                 textSize = 20f
                 gravity = Gravity.CENTER
-                setTextColor(ThemeSkin.onPrimary(this@RemoteActivity))
+                setTextColor(ApPalette.onPrimary(this@RemoteActivity))
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
-                background = ApKit.oval(ThemeSkin.primary(this@RemoteActivity))
+                background = ApKit.oval(ApPalette.primary(this@RemoteActivity))
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
@@ -390,7 +390,7 @@ class RemoteActivity : Activity() {
             val fg = when (label) {
                 "关机" -> 0xFFD23F31.toInt()
                 "重启" -> 0xFFF0A020.toInt()
-                "电源" -> ThemeSkin.primary(this@RemoteActivity)
+                "电源" -> ApPalette.primary(this@RemoteActivity)
                 else -> getColor(R.color.md_on_surface)
             }
             setTextColor(fg)
@@ -544,7 +544,7 @@ class RemoteActivity : Activity() {
             Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ThemeSkin.dialogStyle())
+        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
             .setTitle(getString(R.string.ui_remote_dialog_device, label))
             .setMessage(getString(R.string.ui_remote_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
@@ -557,7 +557,7 @@ class RemoteActivity : Activity() {
 
     private fun chip(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
         this.text = text
-        setTextColor(ThemeSkin.primary(this@RemoteActivity))
+        setTextColor(ApPalette.primary(this@RemoteActivity))
         textSize = 12f
         gravity = Gravity.CENTER
         background = ApKit.shape(

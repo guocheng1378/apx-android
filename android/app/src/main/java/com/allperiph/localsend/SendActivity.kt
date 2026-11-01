@@ -33,7 +33,7 @@ import top.yukonga.miuix.kmp.basic.Text
  * 本轮迁 Compose：列表从 `ListView + ArrayAdapter + 两个 View 的 VISIBLE/GONE` 换成
  * `ComposeView` + `LazyColumn` + `mutableStateOf`，**不再需要 attachBaseContext(ThemePref.wrap)
  * 与 applyRuntimeTheme** —— 取色统一由 `ApMiuixTheme`（Miuix colorScheme）负责，
- * 这是 `ThemeSkin`/`ThemePref` 下线的一步。
+ * 这是旧外观总控（已拆成 ApPalette / ApSkin）/ `ThemePref` 下线的一步。
  */
 class SendActivity : Activity() {
 

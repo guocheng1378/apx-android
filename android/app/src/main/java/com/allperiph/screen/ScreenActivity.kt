@@ -61,7 +61,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // 迁 Compose（ThemeSkin/ThemePref 下线的一步）：画面本体仍是 TextureView，
+        // 迁 Compose（ThemePref 下线的一步；外观总控已拆成 ApPalette / ApSkin）：画面本体仍是 TextureView，
         // 用 AndroidView 互操作包进来 —— 解码链路、SurfaceTextureListener、触摸桥
         // （installTouchBridge 里的 setOnTouchListener）全部原样，只把外层容器与状态字换成 Compose。
         setContentView(

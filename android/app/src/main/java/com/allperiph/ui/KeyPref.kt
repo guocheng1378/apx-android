@@ -12,7 +12,7 @@ import org.json.JSONArray
  * · **自定义布局**（[customRows] / [setCustomRows]）：整套行表，留作第 8 套页签
  *   "自定义"渲染；null = 没编辑过，自定义页签会引导去编辑。
  *
- * 与 [ThemeSkin] 正交：主题色 / 背景 / 动效 / 手感在那里，这里是"键盘长什么样、按什么排"。
+ * 与 [ApPalette] / [ApSkin] 正交：主题色 / 背景 / 动效 / 手感在那里，这里是"键盘长什么样、按什么排"。
  */
 object KeyPref {
 

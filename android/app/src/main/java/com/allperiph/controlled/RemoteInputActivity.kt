@@ -123,7 +123,7 @@ class RemoteInputActivity : Activity() {
     )
 
     /**
-     * 迁 Compose（`ThemeSkin`/`ThemePref` 下线的最后一步）：外壳、标题行、编辑键排、底部按钮
+     * 迁 Compose（`ThemePref` 下线的最后一步；外观总控已拆成 ApPalette / ApSkin）：外壳、标题行、编辑键排、底部按钮
      * 换成 Compose；**输入框与内嵌触控板用 `AndroidView` 互操作保留** —— 前者是
      * `EditText` + `TextWatcher` 逐字增量上屏 + 平台 IME（文字到对端的唯一通道），
      * 后者是每帧起帧节流、±127 分帧、长按 400ms 进拖拽的原始触摸逻辑，

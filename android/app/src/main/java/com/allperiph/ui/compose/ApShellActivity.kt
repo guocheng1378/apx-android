@@ -27,7 +27,7 @@ import com.allperiph.core.ModuleId
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.AgentForegroundService
 import com.allperiph.ui.ThemePref
-import com.allperiph.ui.ThemeSkin
+import com.allperiph.ui.ApSkin
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
@@ -92,7 +92,7 @@ class ApShellActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 不再调 ThemeSkin.applyRuntimeTheme：Compose 侧的强调色已由 ApMiuixTheme 的
+        // 不再调 ApPalette.applyRuntimeTheme：Compose 侧的强调色已由 ApMiuixTheme 的
         // colorScheme 给全，这个调用是「给 View 层 ?attr 叠运行时强调色」的遗产，
         // 宿主页已经没有任何 View 需要它；保持 attachBaseContext(ThemePref.wrap)，
         // 因为 ApMiuixTheme 的明暗取值来自 configuration.uiMode —— 正是 wrap 注入的用户选择。
@@ -409,12 +409,12 @@ class ApShellActivity : ComponentActivity() {
     }
 }
 
-/** ThemeSkin → MiuixTokens 的一次性同步（皮肤切换后要重新调用） */
+/** ApSkin → MiuixTokens 的一次性同步（皮肤切换后要重新调用） */
 internal object ApAccentSync {
     fun apply(ctx: Context) {
-        val picked = ThemeSkin.picked(ctx, ThemeSkin.TOUCHPAD).isNotBlank()
+        val picked = ApSkin.picked(ctx, ApSkin.TOUCHPAD).isNotBlank()
         MiuixTokens.skinAccent = if (picked) {
-            androidx.compose.ui.graphics.Color(ThemeSkin.current(ctx, ThemeSkin.TOUCHPAD).accent)
+            androidx.compose.ui.graphics.Color(ApSkin.current(ctx, ApSkin.TOUCHPAD).accent)
         } else {
             null
         }

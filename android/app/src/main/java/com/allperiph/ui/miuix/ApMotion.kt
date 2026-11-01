@@ -7,8 +7,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.unit.Dp
 import com.allperiph.ui.Feedback
-import com.allperiph.ui.ThemeSkin
-
+import com.allperiph.ui.ApTiming
 /**
  * 动效与触感的**统一开关点**（迁移后所有 Compose 动画/震动都必须经过这里）。
  *
@@ -24,7 +23,7 @@ import com.allperiph.ui.ThemeSkin
 object ApMotion {
 
     /** 动效是否开启（「关闭」档位 = 0） */
-    fun enabled(ctx: Context): Boolean = ThemeSkin.motionIndex(ctx) > 0
+    fun enabled(ctx: Context): Boolean = ApTiming.motionIndex(ctx) > 0
 
     /** 弹簧参数：与 Miuix OS4 观感同档（中低刚度、轻微回弹） */
     fun <T> springSpec(
@@ -39,7 +38,7 @@ object ApMotion {
         }
 
     /** 按倍率折算的时长（关闭 = 0ms） */
-    fun durationMs(ctx: Context, base: Long): Int = ThemeSkin.motionMs(ctx, base).toInt()
+    fun durationMs(ctx: Context, base: Long): Int = ApTiming.motionMs(ctx, base).toInt()
 
     /**
      * 按下反馈：震动 + 可选缩放目标的瞬时值。
