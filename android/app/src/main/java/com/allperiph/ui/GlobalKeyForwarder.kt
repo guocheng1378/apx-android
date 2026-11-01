@@ -125,7 +125,8 @@ internal object GlobalKeyForwarder {
         }
 
         // ③ 认不出的键放行（音量/媒体/电源/返回…留给手机）
-        val usage = HidKeyMap.usageOf(event.keyCode)
+        // ③' 用户键映射覆盖：设置页可把某颗键改绑到别的 HID usage（sparse prefs，缺省落回真源）
+        val usage = HidKeyOverrides.resolve(event.keyCode, HidKeyMap.usageOf(event.keyCode))
         if (usage == 0) return false
 
         // ④ 发送：与 PhysKeyBridge ⑤ 逐条对齐 —— 首次按下「按住不放」，抬起才释放；
