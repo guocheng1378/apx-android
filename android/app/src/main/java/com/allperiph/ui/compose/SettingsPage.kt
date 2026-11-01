@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -546,13 +547,34 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
         }
 
         // ———————————————— 运行日志 ————————————————
-        // 日志不是新造的：com.allperiph.shared.util.Log 已有 512 条环形缓冲（Log.snapshot），
-        // 落盘口径在 LogExport（文件名 apx-logs-<kind>@<型号>-<stamp>.txt，手机端写
-        // 下载/AllPeriph，API 29+ 走 MediaStore 不要权限）。这里只做筛选 + 触发导出。
+        // 日志不是新造的：Log 有 512 条环形缓冲（snapshot/clear），LogExport 负责落盘
+        // （apx-logs-<kind>@<型号>-<stamp>.txt，默认目录 下载/AllPeriph，API 29+ 走 MediaStore）。
+        // 本页做三件事：筛选、查看（弹窗限高 62%）、导出（可自定义文件名与子目录）。
         var logMin by remember { mutableIntStateOf(1) }
         var logSpan by remember { mutableIntStateOf(1) }
+        var showLogViewer by remember { mutableStateOf(false) }
         val logLevels = listOf("全部（含调试）", "Debug 以上", "Info 以上", "只看警告", "只看错误")
         val logSpans = listOf("最近 5 分钟", "最近 15 分钟", "最近 1 小时", "全部缓冲")
+        val logNameState = androidx.compose.foundation.text.input.rememberTextFieldState()
+        val logDirState = androidx.compose.foundation.text.input.rememberTextFieldState()
+        fun filteredLogs(): List<com.allperiph.shared.util.Log.Entry> {
+            val minLevel = when (logMin) {
+                0 -> com.allperiph.shared.util.Log.Level.V
+                1 -> com.allperiph.shared.util.Log.Level.D
+                2 -> com.allperiph.shared.util.Log.Level.I
+                3 -> com.allperiph.shared.util.Log.Level.W
+                else -> com.allperiph.shared.util.Log.Level.E
+            }
+            val windowMs = when (logSpan) {
+                0 -> 5 * 60_000L
+                1 -> 15 * 60_000L
+                2 -> 60 * 60_000L
+                else -> Long.MAX_VALUE
+            }
+            val now = System.currentTimeMillis()
+            return com.allperiph.shared.util.Log.snapshot()
+                .filter { it.level.ordinal >= minLevel.ordinal && now - it.wallMs <= windowMs }
+        }
         ApComponents.Section(title = "运行日志") {
             Column {
                 ApComponents.ValueRow(
@@ -574,25 +596,23 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     onSelectedIndexChange = { logSpan = it },
                 )
                 ApComponents.ActionButton(
-                    text = "导出日志（下载/AllPeriph）",
+                    text = "查看最近日志（当前筛选）",
+                    onClick = { showLogViewer = true },
+                )
+                top.yukonga.miuix.kmp.basic.TextField(
+                    state = logNameState,
+                    label = "文件名（留空用 apx-logs-log@型号-时间.txt）",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                top.yukonga.miuix.kmp.basic.TextField(
+                    state = logDirState,
+                    label = "子目录（留空用 下载/AllPeriph）",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                ApComponents.ActionButton(
+                    text = "导出日志",
                     onClick = {
-                        val minLevel = when (logMin) {
-                            0 -> com.allperiph.shared.util.Log.Level.V
-                            1 -> com.allperiph.shared.util.Log.Level.D
-                            2 -> com.allperiph.shared.util.Log.Level.I
-                            3 -> com.allperiph.shared.util.Log.Level.W
-                            else -> com.allperiph.shared.util.Log.Level.E
-                        }
-                        val windowMs = when (logSpan) {
-                            0 -> 5 * 60_000L
-                            1 -> 15 * 60_000L
-                            2 -> 60 * 60_000L
-                            else -> Long.MAX_VALUE
-                        }
-                        val now = System.currentTimeMillis()
-                        val rows = com.allperiph.shared.util.Log.snapshot().filter { e ->
-                            e.level.ordinal >= minLevel.ordinal && now - e.wallMs <= windowMs
-                        }
+                        val rows = filteredLogs()
                         if (rows.isEmpty()) {
                             Toast.makeText(ctx, "该条件下没有日志", Toast.LENGTH_SHORT).show()
                         } else {
@@ -606,9 +626,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                                     append(e.tag).append(": ").appendLine(e.msg)
                                 }
                             }
-                            val name = com.allperiph.shared.util.LogExport.fileName("log")
+                            val customName = logNameState.text.toString().trim()
+                            val name = if (customName.isBlank()) {
+                                com.allperiph.shared.util.LogExport.fileName("log")
+                            } else if (customName.endsWith(".txt")) customName else "$customName.txt"
+                            val subDir = logDirState.text.toString().trim().ifBlank { null }
                             val saved = runCatching {
-                                com.allperiph.shared.util.LogExport.saveToDownloads(ctx, name, body)
+                                com.allperiph.shared.util.LogExport.saveToDownloads(ctx, name, body, subDir)
                             }
                             Toast.makeText(
                                 ctx,
@@ -625,6 +649,40 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         Toast.makeText(ctx, "已清空", Toast.LENGTH_SHORT).show()
                     },
                 )
+            }
+        }
+        if (showLogViewer) {
+            val rows = filteredLogs().takeLast(200)
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showLogViewer = false }) {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // 限高：占屏 62%，再高就滚 —— 遥控器/小屏都不会把弹窗顶出屏外
+                        .fillMaxHeight(0.62f),
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        top.yukonga.miuix.kmp.basic.Text(
+                            text = "最近日志（${rows.size} 条，上限 200）",
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            rows.forEach { e ->
+                                top.yukonga.miuix.kmp.basic.Text(
+                                    text = "[${e.level.name}] ${e.tag}: ${e.msg}",
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                )
+                            }
+                        }
+                        ApComponents.ActionButton(
+                            text = "关闭",
+                            onClick = { showLogViewer = false },
+                        )
+                    }
+                }
             }
         }
 
