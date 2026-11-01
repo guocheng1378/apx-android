@@ -184,7 +184,7 @@ private fun TvAction(text: String, onClick: () -> Unit) {
                 color = Color(if (focused) TvUi.Pal.accent else Color.Transparent),
                 shape = shape,
             )
-            .defaultMinSize(minWidth = ActionMinWidth)
+            .defaultMinSize(minWidth = IntrinsicWidthMin)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     )
 }
@@ -195,9 +195,9 @@ private val IntrinsicWidthMin = 88.dp
 private var appCtx: android.content.Context? = null
 
 /** 供 [TvHome] 内部取字符串（Composable 里不方便拿 Context 时用，由 Activity 注入） */
-internal fun s(ctx, resId: Int, vararg args: Any): String {
-    val ctx = appCtx ?: return ""
-    return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
+internal fun s(ctx: android.content.Context, resId: Int, vararg args: Any): String {
+    val base = appCtx ?: ctx
+    return if (args.isEmpty()) base.getString(resId) else base.getString(resId, *args)
 }
 
 internal fun bindTvHomeContext(ctx: android.content.Context) {

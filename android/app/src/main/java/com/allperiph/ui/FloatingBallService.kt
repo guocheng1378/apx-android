@@ -717,9 +717,9 @@ class FloatingBallService : Service() {
                 // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
                 runCatching {
                     startActivity(
-                        Intent(this, MainActivity::class.java)
+                        Intent(this, com.allperiph.ui.compose.ApShellActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            .putExtra(MainActivity.EXTRA_PICK_DEVICE, true),
+                            .putExtra(com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE, true),
                     )
                 }
             }

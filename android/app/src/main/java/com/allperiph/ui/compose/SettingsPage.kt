@@ -203,6 +203,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
         }
 
+        var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
+
         // ———————————————— 悬浮栏 ————————————————
         // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
         // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
