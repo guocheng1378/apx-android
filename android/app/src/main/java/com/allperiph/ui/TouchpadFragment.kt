@@ -65,9 +65,6 @@ class TouchpadFragment : Fragment() {
     /** 横屏分栏重排器：旋屏不重建 Activity（configChanges），在布局 pass 里换结构 */
     private var touchpadSplit: TouchpadSplit? = null
 
-    /** 物理蓝牙键盘 → 电脑 转发桥（Window.Callback 包装，见 PhysKeyBridge） */
-    private var physKeyBridge: PhysKeyBridge? = null
-
     private var frameCount = 0L
     private var lastShown = 0L
 
@@ -153,7 +150,10 @@ class TouchpadFragment : Fragment() {
             touchpadSplit = TouchpadSplit(a).also { it.bind(a.window.decorView) }
             // 物理蓝牙键盘：包装 Window.Callback 抢先拦 KeyEvent → HidKeys 上行到电脑；
             // 聚焦输入框 / 无出口 / 认不出的键全部放行，手机本地用法不受影响。
-            physKeyBridge = PhysKeyBridge(a).also { it.attach(a.window) }
+            // 物理蓝牙键盘转发桥**不在这里挂**了：改由宿主 MainActivity.onResume 负责
+            // 挂载与每次复核（issue #52 第 6 条 —— 这儿的一次性幂等守卫若首挂拿不到
+            // Activity，桥就永远挂不上，真机日志里「按键全到了 ViewRootImpl、转发桥
+            // 一条都没收到」正是这个）。两处各挂一份还会互相拆包装。
         }
     }
 
@@ -162,8 +162,6 @@ class TouchpadFragment : Fragment() {
         get() = ::touchHint.isInitialized && ::touchArea.isInitialized && ::touchCursor.isInitialized
 
     override fun onDetach() {
-        physKeyBridge?.detach()
-        physKeyBridge = null
         touchpadSplit?.unbind()
         touchpadSplit = null
         handler.removeCallbacks(dragTask)

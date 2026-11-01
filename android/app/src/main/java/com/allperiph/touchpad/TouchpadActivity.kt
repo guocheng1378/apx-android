@@ -285,11 +285,15 @@ class TouchpadActivity : Activity() {
      */
     override fun onResume() {
         super.onResume()
+        // 与主页同口径：每次回前台复核转发桥（窗口回调被换掉就重新包上）
+        physKeyBridge?.ensureAttached(window)
         com.allperiph.touchpad.GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
     }
 
     override fun onPause() {
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_CONSOLE)
+        // 退后台会丢掉后续的「按键抬起」：放掉仍按住的键，避免电脑侧 Ctrl / Shift 粘住
+        physKeyBridge?.releaseStuckKeys()
         super.onPause()
     }
 
