@@ -61,8 +61,8 @@ fun ApKeyboardPage() {
     var items by remember { mutableStateOf(HotkeyStore.load(ctx)) }
     var editIndex by remember { mutableIntStateOf(-1) }
     var addOpen by remember { mutableStateOf(false) }
-    /** 全键盘面板开关：与原快捷键网格并存，不替换（两块都要） */
-    var fullOpen by remember { mutableStateOf(false) }
+    /** 面板切换：0 = 整块虚拟键盘（页面主体），1 = 快捷面板（旧快捷键网格） */
+    var panel by remember { mutableIntStateOf(0) }
 
     fun commit(next: List<HidKeys.Combo>) {
         items = next.toMutableList()
@@ -78,11 +78,26 @@ fun ApKeyboardPage() {
         ) {
             Text(text = "快捷键（长按可编辑）", fontSize = 13.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 全键盘：旧版 KeyboardPanels 里那块完整 QWERTY 打字面板，迁 Compose 时整块丢了
-                TextButton(text = ctx.getString(R.string.ui_kb_full), onClick = { fullOpen = true })
-                TextButton(text = "新增", onClick = { addOpen = true })
+                // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
+                // 原来全键盘是 Dialog 弹窗、页面主体只剩一张网格 —— 主功能被藏在弹窗里。
+                // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
+                TextButton(
+                    text = ctx.getString(R.string.ui_kb_panel_keys),
+                    onClick = { panel = 0 },
+                )
+                TextButton(
+                    text = ctx.getString(R.string.ui_kb_panel_hot),
+                    onClick = { panel = 1 },
+                )
+                if (panel == 1) {
+                    TextButton(text = "新增", onClick = { addOpen = true })
+                }
             }
         }
+        if (panel == 0) {
+            // 虚拟键盘占主体；onClose = null 表示不是弹窗，不画关闭按钮
+            ApFullKeyboard(onClose = null)
+        } else {
         // 模板行：旧 `KeyboardPanels` 有 8 套现成键位布局，迁 Compose 后只剩用户自己那份，
         // 想换布局只能手动一个个改键。这里把 `HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，
         // 存储仍是 HotkeyStore（与设置页「快捷键模板」同一份，两边互不打架）。
@@ -138,13 +153,6 @@ fun ApKeyboardPage() {
                 }
             }
         }
-    }
-
-    if (fullOpen) {
-        Dialog(onDismissRequest = { fullOpen = false }) {
-            Card(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
-                ApFullKeyboard(onClose = { fullOpen = false })
-            }
         }
     }
 
@@ -236,7 +244,7 @@ private val CANDIDATES = listOf(
  * 与手机输入法的高频用法一致），长按 Shift 不做锁定 —— 需要连打大写时用「⇪」。
  */
 @Composable
-private fun ApFullKeyboard(onClose: () -> Unit) {
+private fun ApFullKeyboard(onClose: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     var shift by remember { mutableStateOf(false) }
     var caps by remember { mutableStateOf(false) }
@@ -254,7 +262,9 @@ private fun ApFullKeyboard(onClose: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
-            TextButton(text = ctx.getString(R.string.ui_kb_close), onClick = onClose)
+            if (onClose != null) {
+                TextButton(text = ctx.getString(R.string.ui_kb_close), onClick = { onClose.invoke() })
+            }
         }
         // 数字行
         KeyRow(letterRow("1234567890"), shift = shift, onKey = { label ->

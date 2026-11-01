@@ -559,4 +559,6 @@
     <string name="ui_set_cat_data">数据与维护</string>
     <string name="ui_kb_tpl_default">默认</string>
     <string name="ui_ball_order_title">顺序（从上到下即扇形展开顺序）</string>
+    <string name="ui_kb_panel_keys">虚拟键盘</string>
+    <string name="ui_kb_panel_hot">快捷面板</string>
 </resources>
