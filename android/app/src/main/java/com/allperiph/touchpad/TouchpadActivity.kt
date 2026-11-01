@@ -1,5 +1,6 @@
 package com.allperiph.touchpad
 
+import com.allperiph.shared.ui.ApKit
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ClipboardManager
@@ -1334,16 +1335,14 @@ class TouchpadActivity : Activity() {
         textSize = 12f
     }
 
-    private fun card(color: Int, radius: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(color)
-        cornerRadius = radius.toFloat()
-    }
+    // 形状一律经 ApKit 产出（「画形状的唯一实现处」）：这里保留这三个名字是为了 22 处调用点
+    // 一行不改，但不再各自 new GradientDrawable —— 圆角/描边口径只有 ApKit 一处。
+    private fun card(color: Int, radius: Int): GradientDrawable = ApKit.rect(color, radius.toFloat())
 
     private fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =
-        card(color, radius).apply { setStroke(1, stroke) }
+        ApKit.shape(color, radius.toFloat(), strokeColor = stroke, strokePx = 1)
 
-    private fun pill(color: Int): GradientDrawable = card(color, dp(999))
+    private fun pill(color: Int): GradientDrawable = ApKit.pill(color, dp(999).toFloat())
 
     // ————————————————————————— 返回键 —————————————————————————
 

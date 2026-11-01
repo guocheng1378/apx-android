@@ -16,7 +16,8 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 /**
- * 电视端浮层宿主（对应手机端 `ui/miuix/ApOverlayHost.kt`）。
+ * 电视端浮层宿主。（手机端曾有同名能力的 `ui/miuix/ApOverlayHost.kt`，交付后从未被调用，
+ * 已于 `refactor/ui-kit-unify` 删除；TV 端这一份是真在用的。）
  *
  * 为什么需要它：`ComposeView` 一旦被 `WindowManager.addView` 挂到应用之外的窗口，
  * 它就脱离了 Activity 的 View 树，`ViewTreeLifecycleOwner` / `ViewTreeSavedStateRegistryOwner` /

@@ -28,16 +28,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.allperiph.hid.HidKeys
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.hid.HotkeyStore
-import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.layout.fillMaxHeight
 import com.allperiph.R
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -81,16 +78,16 @@ fun ApKeyboardPage() {
                 // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
                 // 原来全键盘是 Dialog 弹窗、页面主体只剩一张网格 —— 主功能被藏在弹窗里。
                 // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
-                TextButton(
+                ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_panel_keys),
                     onClick = { panel = 0 },
                 )
-                TextButton(
+                ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_panel_hot),
                     onClick = { panel = 1 },
                 )
                 if (panel == 1) {
-                    TextButton(text = "新增", onClick = { addOpen = true })
+                    ApComponents.NarrowButton(text = "新增", onClick = { addOpen = true })
                 }
             }
         }
@@ -108,7 +105,7 @@ fun ApKeyboardPage() {
                 .padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            TextButton(
+            ApComponents.NarrowButton(
                 text = ctx.getString(R.string.ui_kb_tpl_default),
                 onClick = {
                     items = HidKeys.DEFAULTS.toMutableList()
@@ -116,7 +113,7 @@ fun ApKeyboardPage() {
                 },
             )
             HotkeyTemplates.ALL.forEach { t ->
-                TextButton(
+                ApComponents.NarrowButton(
                     text = t.name,
                     onClick = {
                         HotkeyStore.applyTemplate(ctx, t)
@@ -132,7 +129,7 @@ fun ApKeyboardPage() {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(items) { index, combo ->
-                Card(modifier = Modifier.height(64.dp)) {
+                ApComponents.Card(modifier = Modifier.height(64.dp)) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -158,64 +155,56 @@ fun ApKeyboardPage() {
 
     if (editIndex in items.indices) {
         val cur = items[editIndex]
-        Dialog(onDismissRequest = { editIndex = -1 }) {
-            Card {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = HidKeys.comboText(cur), fontSize = 16.sp)
-                    Row(modifier = Modifier.padding(vertical = 8.dp)) {
-                        TextButton(text = "上移", onClick = {
-                            if (editIndex > 0) {
-                                val l = items.toMutableList()
-                                val v = l.removeAt(editIndex)
-                                l.add(editIndex - 1, v)
-                                commit(l)
-                            }
-                            editIndex = -1
-                        })
-                        TextButton(text = "下移", onClick = {
-                            if (editIndex < items.size - 1) {
-                                val l = items.toMutableList()
-                                val v = l.removeAt(editIndex)
-                                l.add(editIndex + 1, v)
-                                commit(l)
-                            }
-                            editIndex = -1
-                        })
+        ApComponents.DialogCard(onDismiss = { editIndex = -1 }) {
+            Text(text = HidKeys.comboText(cur), fontSize = 16.sp)
+            Row(modifier = Modifier.padding(vertical = 8.dp)) {
+                ApComponents.NarrowButton(text = "上移", onClick = {
+                    if (editIndex > 0) {
+                        val l = items.toMutableList()
+                        val v = l.removeAt(editIndex)
+                        l.add(editIndex - 1, v)
+                        commit(l)
                     }
-                    TextButton(text = "改键（循环换下一个候选键）", onClick = {
+                    editIndex = -1
+                })
+                ApComponents.NarrowButton(text = "下移", onClick = {
+                    if (editIndex < items.size - 1) {
                         val l = items.toMutableList()
-                        val next = CANDIDATES[(CANDIDATES.indexOfFirst { it.usage == cur.usage } + 1)
-                            .coerceAtLeast(0) % CANDIDATES.size]
-                        l[editIndex] = HidKeys.Combo(next.label, cur.mod, next.usage)
+                        val v = l.removeAt(editIndex)
+                        l.add(editIndex + 1, v)
                         commit(l)
-                        editIndex = -1
-                    })
-                    TextButton(text = "删除", onClick = {
-                        val l = items.toMutableList()
-                        l.removeAt(editIndex)
-                        commit(l)
-                        editIndex = -1
-                    })
-                    TextButton(text = "取消", onClick = { editIndex = -1 })
-                }
+                    }
+                    editIndex = -1
+                })
             }
+            ApComponents.NarrowButton(text = "改键（循环换下一个候选键）", onClick = {
+                val l = items.toMutableList()
+                val next = CANDIDATES[(CANDIDATES.indexOfFirst { it.usage == cur.usage } + 1)
+                    .coerceAtLeast(0) % CANDIDATES.size]
+                l[editIndex] = HidKeys.Combo(next.label, cur.mod, next.usage)
+                commit(l)
+                editIndex = -1
+            })
+            ApComponents.NarrowButton(text = "删除", onClick = {
+                val l = items.toMutableList()
+                l.removeAt(editIndex)
+                commit(l)
+                editIndex = -1
+            })
+            ApComponents.NarrowButton(text = "取消", onClick = { editIndex = -1 })
         }
     }
 
     if (addOpen) {
-        Dialog(onDismissRequest = { addOpen = false }) {
-            Card {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "新增快捷键", fontSize = 16.sp)
-                    CANDIDATES.take(12).forEach { c ->
-                        TextButton(text = c.label, onClick = {
-                            commit(items + HidKeys.Combo(c.label, 0, c.usage))
-                            addOpen = false
-                        })
-                    }
-                    TextButton(text = "取消", onClick = { addOpen = false })
-                }
+        ApComponents.DialogCard(onDismiss = { addOpen = false }) {
+            Text(text = "新增快捷键", fontSize = 16.sp)
+            CANDIDATES.take(12).forEach { c ->
+                ApComponents.NarrowButton(text = c.label, onClick = {
+                    commit(items + HidKeys.Combo(c.label, 0, c.usage))
+                    addOpen = false
+                })
             }
+            ApComponents.NarrowButton(text = "取消", onClick = { addOpen = false })
         }
     }
 }
@@ -263,7 +252,10 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
             if (onClose != null) {
-                TextButton(text = ctx.getString(R.string.ui_kb_close), onClick = { onClose.invoke() })
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_close),
+                    onClick = { onClose.invoke() },
+                )
             }
         }
         // 数字行

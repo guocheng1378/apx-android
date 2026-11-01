@@ -7,7 +7,7 @@ name: Build
 #   workflow_dispatch  —— 手动构建验证
 on:
   push:
-    branches: [master, 'feat/**']
+    branches: [master, 'feat/**', 'refactor/**']
     tags: ['v*']
   pull_request:
     branches: [master]
@@ -505,6 +505,28 @@ jobs:
       # 重复 case（会编译失败）+ 死代码 + macOS 小键盘 kVK 锚点核对。
       - name: 键映射覆盖率（win/lin/mac 三张表）
         run: python3 scripts/check_keymap.py
+
+      # UI Kit：界面层是分屏迁 Compose 的，先迁的屏各自裸写 Card(/TextButton(，后迁的走
+      # ui/miuix/ApComponents.kt —— 编译器对两种写法等权通过，只会静默长歪（issue#42
+      # 「排版混乱」同一根因）。这里只许页面经 ApComponents 取布局级组件。
+      - name: UI Kit 一致性（页面只经 ApComponents）
+        run: python3 scripts/check_ui_kit.py
+
+      # 形状工厂：圆角 / 描边的口径只在 com.allperiph.shared.ui.ApKit 一处。历史上手机端 7 个
+      # 文件手写 GradientDrawable 共 36 处，Kit 建好后仍有 5 处绕过（两个 TvOverlay、
+      # RemoteActivity、TouchpadActivity、HotkeyBoard），且 :app 与 :tv 各存一份同构实现。
+      # 编译器对「自己 new」与「走 Kit」等权通过，只能在真机上看出圆角不一致。
+      - name: 形状工厂一致性（只许 shared.ui.ApKit 画形状）
+        run: python3 scripts/check_apkit.py
+
+      # 能力入口：真机反馈「有些功能只有提示不执行，有些有功能没入口了」。两类问题编译器
+      # 等权通过 —— 少一次 startActivity、偏好键名拼错、把开关写进另一个偏好文件，都不影响
+      # 编译，只在真机上表现为「找不到 / 开了没用」。这里静态核对：
+      #   ① 清单里 exported=false 又全仓没有类引用（X::class / X.start）的 Activity；
+      #   ② 控制用户可见能力、却零调用的入口函数（含「已登记为暂无入口」的白名单）；
+      #   ③ 页面手写偏好键名（必须走所属组件的读值出口）。
+      - name: 能力入口（无入口 / 零调用 / 手写偏好键）
+        run: python3 scripts/check_entrypoints.py
 
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有

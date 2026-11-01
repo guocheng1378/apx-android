@@ -55,10 +55,28 @@ internal object GlobalKeyForwarder {
     /** 当前按住的修饰位（事件被我们消费后，靠 heldMods + metaState 双保险拼位图） */
     private var heldMods = 0
 
+    /**
+     * 本组件自己的偏好文件。**界面一律经它取**，不要自己写 `"apx_ime_bridge"` ——
+     * 偏好名与键名散落在多处时，改一处忘一处不会编译报错，只会静默失效（见 [isEnabled]）。
+     */
+    fun prefs(ctx: android.content.Context): android.content.SharedPreferences =
+        ctx.getSharedPreferences(PREF, android.content.Context.MODE_PRIVATE)
+
     /** 从持久化读取开关（App.onCreate 调一次；读不到就是 false） */
     fun loadPref(store: android.content.SharedPreferences) {
         enabled = store.getBoolean(KEY_ENABLED, false)
     }
+
+    /**
+     * 只读取值：给界面初始化开关用。
+     *
+     * ⚠️ 必须有这个出口，界面**不要**自己 `getSharedPreferences("apx_ime_bridge")
+     * .getBoolean("kb_forward_enabled")` —— 键名写错不会编译报错，只会静默读到 false：
+     * 本仓真踩过（设置页曾把开关写进 `apx` 而不是 `apx_ime_bridge`，本次会里能用、
+     * 重启后开关自己弹回去，表现就是「开了没用」）。
+     */
+    fun isEnabled(store: android.content.SharedPreferences): Boolean =
+        store.getBoolean(KEY_ENABLED, false)
 
     /** 设置页切换入口 */
     fun setEnabled(store: android.content.SharedPreferences, on: Boolean) {

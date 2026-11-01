@@ -139,7 +139,7 @@ class AudioModule(private val app: Context) : Module {
 
     /** 运行中热切换：扬声器方向（PC → 手机）。模块未运行时只落盘，下次 start 生效。 */
     fun applySpeaker(ctx: Context, on: Boolean) {
-        prefs(ctx).edit().putBoolean(K_SPK, on).apply()
+        setSpeakerPref(ctx, on)
         spkOn = on
         if (!running) return
         if (on && pcToSpk?.isAlive != true) {
@@ -157,7 +157,7 @@ class AudioModule(private val app: Context) : Module {
 
     /** 运行中热切换：麦克风方向（手机 → PC） */
     fun applyMic(ctx: Context, on: Boolean) {
-        prefs(ctx).edit().putBoolean(K_MIC, on).apply()
+        setMicPref(ctx, on)
         micOn = on
         if (!running) return
         if (on && micToPc?.isAlive != true) {
@@ -406,6 +406,21 @@ class AudioModule(private val app: Context) : Module {
         fun isSpeakerOn(c: Context): Boolean = prefs(c).getBoolean(K_SPK, true)
 
         fun isMicOn(c: Context): Boolean = prefs(c).getBoolean(K_MIC, true)
+
+        /**
+         * 设置页入口：**只落盘**，不触碰正在跑的流。
+         *
+         * 模块实例可能压根不存在（服务没起），此时没有 applySpeaker/applyMic 可调；
+         * 开关本身仍必须记住用户的选择，否则下次启动又回到默认的「双向全开」，
+         * 用户看到的就是「关了没用」。热切换由设置页在实例存在时另行调用。
+         */
+        fun setSpeakerPref(c: Context, on: Boolean) {
+            prefs(c).edit().putBoolean(K_SPK, on).apply()
+        }
+
+        fun setMicPref(c: Context, on: Boolean) {
+            prefs(c).edit().putBoolean(K_MIC, on).apply()
+        }
 
         private fun prefs(c: Context) =
             c.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

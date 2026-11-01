@@ -32,7 +32,6 @@ import com.allperiph.ui.miuix.ApAccent
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMotion
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
@@ -226,7 +225,7 @@ private fun HotkeyGrid(ctx: Context) {
 
 @Composable
 private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = Modifier) {
-    TextButton(
+    ApComponents.NarrowButton(
         text = combo.label,
         onClick = {
             ApMotion.tap(ctx)

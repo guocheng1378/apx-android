@@ -1,5 +1,6 @@
 package com.allperiph.ui
 
+import com.allperiph.shared.ui.ApKit
 import android.app.Activity
 import android.app.AlertDialog
 import android.graphics.drawable.GradientDrawable
@@ -529,12 +530,9 @@ class HotkeyBoard(
         setTextColor(s.textSecondary)
     }
 
-    private fun rounded(fill: Int, radius: Int, stroke: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(fill)
-        cornerRadius = radius.toFloat()
-        setStroke(1, stroke)
-    }
+    // 键帽形状经 ApKit（唯一实现处）；保留本名避免 5 处调用点改名，按压/恢复两态共用同一实现。
+    private fun rounded(fill: Int, radius: Int, stroke: Int): GradientDrawable =
+        ApKit.shape(fill, radius.toFloat(), strokeColor = stroke, strokePx = 1)
 
     private fun dp(v: Int): Int = (v * act.resources.displayMetrics.density).toInt()
 }

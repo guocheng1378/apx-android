@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -17,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
@@ -29,9 +31,11 @@ import com.allperiph.ui.HidKeyOverrides
 import com.allperiph.ui.ThemeSkin
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
+import androidx.compose.ui.window.Dialog
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.rememberApInsets
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import androidx.compose.ui.unit.sp
 import com.allperiph.ui.BallConfig
@@ -42,7 +46,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
-import top.yukonga.miuix.kmp.basic.TextButton
 import androidx.compose.foundation.layout.width
 
 /**
@@ -53,11 +56,19 @@ import androidx.compose.foundation.layout.width
  *    动效、震动、音效档位 —— 与旧 `renderTheme` / `renderSkins` / `renderFx` 一一对应；
  *  · 通用：光标锁定（`apx` 偏好里的 `cursor_lock`）、三指手势遮蔽（[GestureShield]）、
  *    LocalSend 互传（`localsend_enabled` + 服务启停）；
- *  · 关于：版本行 + 检查更新 + 意见反馈 + Miuix 组件总览入口。
+ *  · 键盘外观：键帽材质 / 键帽密度 / 键位排列（[com.allperiph.ui.KeyPref]）——
+ *    这三项在迁 Compose 之前只有实现、没有入口，2026-11-01 补回；
+ *  · 音频方向：USB（UAC2）与 Wi‑Fi 两套音频的麦克风 / 音箱方向开关 —— 同理补回，
+ *    模块在跑就热切换，没跑就只落盘；
+ *  · 输入与外设：虚拟手柄（`GamepadActivity`）、外接触控板 root 直读（`RootPointerBridge`）；
+ *  · 关于：版本行 + 检查更新 + 意见反馈；**长按版本行**进入 Miuix 组件总览（开发页）。
  *
- * **未迁移**（仍留在旧设置页）：快捷键模板的增删改与拖动排序、遥控器配对（TV 连接）、
- * 文件发送、键映射、环境诊断、日志查看/导出、主题导入导出与分享、背景图。
- * 这些分组都带对话框或文件选择器，一次迁完风险过大，留给阶段 4 的第二批。
+ * 「补回入口」的判据与把关由 `scripts/check_entrypoints.py` 守（CI 的 protocol job）：
+ * 清单里 exported=false 又全仓零启动的 Activity、零调用的能力 API、页面手写偏好键，都会变红。
+ *
+ * **仍未迁移**（旧 `SettingsFragment` 里还有、本页没有的）：遥控器配对（TV 连接）的旧交互。
+ * 其余分组（快捷键模板与自定义、键映射、环境诊断、文件与投屏、主题导入导出、背景图、
+ * 运行日志）都已在本页落地 —— 此前这段注释一直写着"未迁移"，与本文件实际内容不符。
  */
 @Composable
 fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
@@ -90,7 +101,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     // 宽屏（≥600dp，ApAdaptiveLayout.twoPane）：分类竖排在左侧当「列表」，内容在右当「详情」。
     // 这一步只重排外壳，16 个 Section 的代码位置与前一轮完全一致；同类目内再分两栏需要把
     // 每段拆成可组合函数，属另一轮。
-    val twoPane = com.allperiph.ui.miuix.rememberApAdaptiveLayout().twoPane
+    val twoPane = rememberApAdaptiveLayout().twoPane
     Column(modifier = Modifier.fillMaxSize()) {
     if (!twoPane) {
     Row(
@@ -100,7 +111,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         catLabels.forEachIndexed { idx, name ->
-            TextButton(text = name, onClick = { cat = idx })
+            ApComponents.NarrowButton(text = name, onClick = { cat = idx })
         }
     }
 
@@ -116,7 +127,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             catLabels.forEachIndexed { idx, name ->
-                TextButton(text = name, onClick = { cat = idx })
+                ApComponents.NarrowButton(text = name, onClick = { cat = idx })
             }
         }
     }
@@ -343,7 +354,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                                     modifier = Modifier.weight(1f),
                                 )
                                 if (idx > 0) {
-                                    TextButton(text = "\u2191", onClick = {
+                                    ApComponents.NarrowButton(text = "\u2191", onClick = {
                                         val next = ballItems.toMutableList()
                                         val t = next[idx]; next[idx] = next[idx - 1]; next[idx - 1] = t
                                         ballItems = next
@@ -353,7 +364,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                                     })
                                 }
                                 if (idx < ballItems.lastIndex) {
-                                    TextButton(text = "\u2193", onClick = {
+                                    ApComponents.NarrowButton(text = "\u2193", onClick = {
                                         val next = ballItems.toMutableList()
                                         val t = next[idx]; next[idx] = next[idx + 1]; next[idx + 1] = t
                                         ballItems = next
@@ -391,6 +402,112 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         onSelectedIndexChange = { i ->
                             HotkeyStore.applyTemplate(ctx, tplAll[i])
                             tplVersion++
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+            }
+
+            // ———————————————— 键盘外观 ————————————————
+            // 为什么需要这一段：KeyPref 的三个偏好（键帽材质 / 键帽密度 / 键位排列）此前
+            // **只有实现、没有入口** —— setKeycapStyle / setDensity / setLayout 全仓零调用，
+            // 用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的一组入口，初值直接读
+            // KeyPref 自己的 index（不另立一份状态，避免"界面显示 A、实际渲染 B"）。
+            var kbStyle by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
+            var kbDensity by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
+            var kbLayout by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
+                Column {
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_keycap_style),
+                        summary = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS.getOrElse(kbStyle) { "" },
+                        items = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS,
+                        selectedIndex = kbStyle,
+                        onSelectedIndexChange = { i ->
+                            kbStyle = i
+                            com.allperiph.ui.KeyPref.setKeycapStyle(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_label_keycap_density),
+                        summary = com.allperiph.ui.KeyPref.DENSITY_LABELS.getOrElse(kbDensity) { "" },
+                        items = com.allperiph.ui.KeyPref.DENSITY_LABELS,
+                        selectedIndex = kbDensity,
+                        onSelectedIndexChange = { i ->
+                            kbDensity = i
+                            com.allperiph.ui.KeyPref.setDensity(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_keyrow_arrange),
+                        summary = com.allperiph.ui.KeyPref.LAYOUT_LABELS.getOrElse(kbLayout) { "" },
+                        items = com.allperiph.ui.KeyPref.LAYOUT_LABELS,
+                        selectedIndex = kbLayout,
+                        onSelectedIndexChange = { i ->
+                            kbLayout = i
+                            com.allperiph.ui.KeyPref.setLayout(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    // 如实说明生效时机：这三项在触控板构建键盘面板时读取，改了当场不会重排
+                    ApComponents.ValueRow(
+                        title = ctx.getString(R.string.ui_set_label_apply_when),
+                        value = ctx.getString(R.string.ui_set_value_kb_apply_when),
+                    )
+                }
+            }
+
+            // ———————————————— 音频方向 ————————————————
+            // applyMic / applySpeaker（USB UAC2 与 Wi‑Fi 两套）此前同样是零调用：模块启动时
+            // 读到的永远是默认的「双向全开」，用户没法只留一个方向。这里的口径：
+            // 模块**在跑**就热切换，**没跑**就只落盘（下次连接生效）—— 两种情况都必须记住选择。
+            // 模块实例由 AgentController 的注册表提供；服务没起时它是 null，这很正常，不是错误。
+            // 热切换与落盘的取舍收在 AudioDirections（四个方向各一条规则容易写漏）
+            var usbMic by remember { mutableStateOf(com.allperiph.audio.AudioModule.isMicOn(ctx)) }
+            var usbSpk by remember { mutableStateOf(com.allperiph.audio.AudioModule.isSpeakerOn(ctx)) }
+            var wifiMic by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isMicOn(ctx)) }
+            var wifiSpk by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isSpeakerOn(ctx)) }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_audio_dir)) {
+                Column {
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_usb_mic),
+                        summary = ctx.getString(R.string.ui_set_sum_usb_mic),
+                        checked = usbMic,
+                        onCheckedChange = { on ->
+                            usbMic = on
+                            com.allperiph.ui.AudioDirections.setUsbMic(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_usb_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_usb_spk),
+                        checked = usbSpk,
+                        onCheckedChange = { on ->
+                            usbSpk = on
+                            com.allperiph.ui.AudioDirections.setUsbSpeaker(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_wifi_mic),
+                        summary = ctx.getString(R.string.ui_set_sum_wifi_mic),
+                        checked = wifiMic,
+                        onCheckedChange = { on ->
+                            wifiMic = on
+                            com.allperiph.ui.AudioDirections.setWifiMic(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_wifi_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
+                        checked = wifiSpk,
+                        onCheckedChange = { on ->
+                            wifiSpk = on
+                            com.allperiph.ui.AudioDirections.setWifiSpeaker(ctx, on)
                             Feedback.haptic(ctx)
                         },
                     )
@@ -442,7 +559,11 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
 
             // ———————————————— 遥控与键盘 ————————————————
-            var globalKeys by remember { mutableStateOf(apxPrefs.getBoolean("global_keys", false)) }
+            // ⚠️ 必须用 GlobalKeyForwarder 自己的偏好（`apx_ime_bridge`）：App.onCreate 只从这里
+            // 恢复开关。此前这里读写的都是 `apx` 里的 `global_keys`，内存字段当场改所以本会话有效，
+            // 但进程重启后读不到 → 开关自己弹回关闭，用户看到的就是「开了不生效」。
+            val imePrefs = remember { GlobalKeyForwarder.prefs(ctx) }
+            var globalKeys by remember { mutableStateOf(GlobalKeyForwarder.isEnabled(imePrefs)) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -451,7 +572,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         checked = globalKeys,
                         onCheckedChange = { on ->
                             globalKeys = on
-                            GlobalKeyForwarder.setEnabled(apxPrefs, on)
+                            GlobalKeyForwarder.setEnabled(imePrefs, on)
                             Feedback.haptic(ctx)
                         },
                     )
@@ -475,6 +596,54 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                         onClick = {
                             com.allperiph.wireless.TvDiscovery.start()
                             Toast.makeText(ctx, "已开始搜索，稍候在顶栏设备名里选", Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                    // 全局转发与光标悬浮都依赖 Eta 的无障碍服务；以前这里只有一句提示、
+                    // 用户还得自己翻到系统设置里找 —— 现在直接给出可点的入口。
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_main_btn_a11y_settings),
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS),
+                                )
+                            }.onFailure {
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_toast_a11y_no_settings), Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+            }
+
+            // ———————————————— 输入与外设 ————————————————
+            // GamepadActivity 整页（双虚拟摇杆 + 常用按键，出口 USB HID / 蓝牙 HID / 无线 0x07）
+            // 此前**全仓零 startActivity**：Manifest 声明在、代码在，用户永远打不开。
+            // 外接触控板 root 直读（RootPointerBridge）同理 —— 开关只存在于偏好里。
+            var rootPointer by remember {
+                mutableStateOf(com.allperiph.touchpad.RootPointerBridge.isEnabled(
+                    com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
+                ))
+            }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_input)) {
+                Column {
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_gamepad),
+                        onClick = {
+                            ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_main_label_root_pointer),
+                        summary = ctx.getString(R.string.ui_set_sum_root_pointer),
+                        checked = rootPointer,
+                        onCheckedChange = { on ->
+                            rootPointer = on
+                            com.allperiph.touchpad.RootPointerBridge.setEnabled(
+                                ctx,
+                                com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
+                                on,
+                            )
+                            Feedback.haptic(ctx)
                         },
                     )
                 }
@@ -602,7 +771,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             // HidKeyMap 是「Android keyCode → HID usage」的静态真源；这里只加稀疏的用户覆盖层
             // （HidKeyOverrides），查表顺序是「覆盖 → 默认」，转发链路已在 GlobalKeyForwarder 接好。
             var overrides by remember { mutableStateOf(HidKeyOverrides.current()) }
-            val overridePrefs = remember { ctx.getSharedPreferences("apx_key_overrides", Context.MODE_PRIVATE) }
+            val overridePrefs = remember { HidKeyOverrides.prefs(ctx) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keymap)) {
                 Column {
                     HidKeyOverrides.KEY_CHOICES.forEach { pair ->
@@ -793,35 +962,33 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             }
             if (showLogViewer) {
                 val rows = filteredLogs().takeLast(200)
-                androidx.compose.ui.window.Dialog(onDismissRequest = { showLogViewer = false }) {
-                    top.yukonga.miuix.kmp.basic.Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            // 限高：占屏 62%，再高就滚 —— 遥控器/小屏都不会把弹窗顶出屏外
-                            .fillMaxHeight(0.62f),
+                Dialog(onDismissRequest = { showLogViewer = false }) {
+                    ApComponents.DialogCard(
+                        onDismiss = { showLogViewer = false },
+                        heightRatio = 0.62f,
+                        // 原实现就是 12dp 内边距（比默认 16 更紧凑，一屏能多看几条），保持不变
+                        padding = 12.dp,
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            top.yukonga.miuix.kmp.basic.Text(
-                                text = "最近日志（${rows.size} 条，上限 200）",
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .verticalScroll(rememberScrollState()),
-                            ) {
-                                rows.forEach { e ->
-                                    top.yukonga.miuix.kmp.basic.Text(
-                                        text = "[${e.level.name}] ${e.tag}: ${e.msg}",
-                                        modifier = Modifier.padding(vertical = 2.dp),
-                                    )
-                                }
+                        Text(
+                            text = "最近日志（${rows.size} 条，上限 200）",
+                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            rows.forEach { e ->
+                                Text(
+                                    text = "[${e.level.name}] ${e.tag}: ${e.msg}",
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                )
                             }
-                            ApComponents.ActionButton(
-                                text = "关闭",
-                                onClick = { showLogViewer = false },
-                            )
                         }
+                        ApComponents.ActionButton(
+                            text = "关闭",
+                            onClick = { showLogViewer = false },
+                        )
                     }
                 }
             }
@@ -829,18 +996,39 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
             // ———————————————— 关于 ————————————————
             ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
                 Column {
+                    // 长按版本行 = 组件总览（开发页）。不放入口按钮：这页是给迁移期对照 Miuix
+                    // 组件真实观感用的，普通用户看到「组件总览」只会困惑；长按是刻意低调的入口。
                     ApComponents.ValueRow(
                         title = "当前版本",
                         value = UpdateChecker.currentTag(),
+                        modifier = Modifier.pointerInput(Unit) {
+                            detectTapGestures(
+                                onLongPress = {
+                                    ctx.startActivity(
+                                        android.content.Intent(
+                                            ctx,
+                                            com.allperiph.ui.miuix.MiuixShowcaseActivity::class.java,
+                                        )
+                                    )
+                                }
+                            )
+                        },
                     )
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.about_check_update),
                         onClick = {
                             UpdateChecker.check(ctx) { r ->
+                                // 发现新版必须弹对话框（下载直链 + 打开 Release 页）。
+                                // 此前这里只 Toast 一行「发现新版：vX」就结束 —— 用户看得见提示、
+                                // 却没有任何可点的下一步，正属于「只有提示不执行」。
+                                if (r is UpdateChecker.Result.NewVersion) {
+                                    UpdateChecker.showUpdateDialog(ctx, r.tag, r.url)
+                                    return@check
+                                }
                                 val msg = when (r) {
                                     is UpdateChecker.Result.UpToDate -> "已是最新：${r.tag}"
-                                    is UpdateChecker.Result.NewVersion -> "发现新版：${r.tag}"
                                     is UpdateChecker.Result.Failed -> "检查失败"
+                                    else -> ""
                                 }
                                 Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
                             }

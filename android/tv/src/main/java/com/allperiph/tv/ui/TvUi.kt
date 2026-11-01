@@ -1,9 +1,9 @@
 package com.allperiph.tv.ui
 
+import com.allperiph.shared.ui.ApKit
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.View
@@ -64,15 +64,9 @@ object TvUi {
 
     /** 可聚焦控件的两态背景：默认色 / 聚焦色（聚焦加白描边 + 提亮，远距离也看得清） */
     fun focusBg(normal: Int, focused: Int, radiusPx: Int, strokePx: Int): Drawable {
-        val a = GradientDrawable().apply {
-            setColor(normal)
-            cornerRadius = radiusPx.toFloat()
-        }
-        val b = GradientDrawable().apply {
-            setColor(focused)
-            cornerRadius = radiusPx.toFloat()
-            setStroke(strokePx, Color.WHITE)
-        }
+        // 形状经 :shared 的 ApKit（与手机端同一份实现），这里只负责 TV 的两态语义
+        val a = ApKit.rect(normal, radiusPx.toFloat())
+        val b = ApKit.shape(focused, radiusPx.toFloat(), strokeColor = Color.WHITE, strokePx = strokePx)
         return StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), b)
             addState(intArrayOf(android.R.attr.state_pressed), b)
@@ -81,10 +75,7 @@ object TvUi {
     }
 
     /** 纯色圆角背景（不可聚焦的容器/标签用） */
-    fun solidBg(color: Int, radiusPx: Int): Drawable = GradientDrawable().apply {
-        setColor(color)
-        cornerRadius = radiusPx.toFloat()
-    }
+    fun solidBg(color: Int, radiusPx: Int): Drawable = ApKit.rect(color, radiusPx.toFloat())
 
     /** 无障碍：为控件设置 contentDescription（遥控器读屏使用） */
     fun contentDescription(view: View, text: String) {
