@@ -7,13 +7,28 @@ import android.os.Bundle
 import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
-import android.widget.TextView
 import com.allperiph.R
 import com.allperiph.shared.media.Renderer
 import com.allperiph.shared.util.Log
 import com.allperiph.core.MediaOut
 import com.allperiph.wireless.ControlTarget
 import kotlin.math.hypot
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.allperiph.ui.miuix.ApMiuixTheme
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -27,17 +42,9 @@ import kotlin.math.hypot
  */
 class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
 
-    /**
-     * 主题方案（issue#44）：这些页面此前**没接** ThemePref，用户选「深色」也只按系统走 ——
-     * 于是深色系统下页面还是亮色底、亮色字，或者反过来，看着"字体取色异常"。
-     * 与 MainActivity / TouchpadActivity / RemoteActivity 同一套实现。
-     */
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(com.allperiph.ui.ThemePref.wrap(newBase))
-    }
-
     private lateinit var view: TextureView
-    private lateinit var hint: TextView
+    /** 底部状态字：Compose 侧读这个状态，refreshHint 只写状态不再碰 TextView */
+    private var hintText by mutableStateOf("")
 
     /**
      * 状态字必须**周期刷新**：首帧是在页面打开之后才到的，只在 onCreate 刷一次
@@ -53,14 +60,38 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
-        com.allperiph.ui.ThemeSkin.applyRuntimeTheme(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        setContentView(R.layout.activity_screen)
-        view = findViewById(R.id.surfaceScreen)
-        hint = findViewById(R.id.tvScreenHint)
-        view.surfaceTextureListener = this
-        installTouchBridge()
+        // 迁 Compose（ThemeSkin/ThemePref 下线的一步）：画面本体仍是 TextureView，
+        // 用 AndroidView 互操作包进来 —— 解码链路、SurfaceTextureListener、触摸桥
+        // （installTouchBridge 里的 setOnTouchListener）全部原样，只把外层容器与状态字换成 Compose。
+        setContentView(
+            ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    TextureView(ctx).also { tv ->
+                                        view = tv
+                                        tv.surfaceTextureListener = this@ScreenActivity
+                                        installTouchBridge()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            Text(
+                                text = hintText,
+                                color = Color(0xFFEAEAEA),
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(8.dp),
+                            )
+                        }
+                    }
+                }
+            },
+        )
         refreshHint()
     }
 
@@ -97,7 +128,7 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     override fun onDestroy() {
         ticker.removeCallbacks(tick)
         // 必须先 detach 再让 Surface 失效：否则解码器还持有已销毁的 Surface
-        view.surfaceTextureListener = null
+        if (::view.isInitialized) view.surfaceTextureListener = null
         Renderer.detachSurface()
         super.onDestroy()
     }
@@ -354,12 +385,12 @@ class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
     private fun refreshHint() {
         val rt = com.allperiph.ui.AgentController.runtime
         if (rt == null) {
-            hint.text = getString(R.string.ui_screen_text_open_not_please_state)
+            hintText = getString(R.string.ui_screen_text_open_not_please_state)
             return
         }
         val m = com.allperiph.ui.AgentController.module(com.allperiph.core.ModuleId.SCREEN)
         val txt = m?.let { runCatching { it.statusText() }.getOrDefault("--") } ?: "--"
-        hint.text = txt
+        hintText = txt
         Log.i(TAG, "副屏页：$txt")
     }
 
