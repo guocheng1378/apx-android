@@ -46,6 +46,7 @@ fun hazeSupported(): Boolean = Build.VERSION.SDK_INT >= 33
 @Composable
 fun ApGlassTopBar(
     title: String,
+    onDeviceClick: (() -> Unit)? = null,
     hazeState: HazeState?,
     modifier: Modifier = Modifier,
     height: Dp = 64.dp,

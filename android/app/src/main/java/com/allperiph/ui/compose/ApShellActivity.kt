@@ -90,6 +90,17 @@ class ApShellActivity : ComponentActivity() {
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         var page by remember { mutableIntStateOf(0) }
+        var pickerOpen by remember { mutableStateOf(false) }
+        // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
+        androidx.compose.runtime.LaunchedEffect(landscape, page) {
+            if (landscape && page == 1) {
+                com.allperiph.touchpad.GestureShield.acquireWithHint(
+                    this@ApShellActivity, "main",
+                )
+            } else {
+                com.allperiph.touchpad.GestureShield.releaseSoon(this@ApShellActivity, "main")
+            }
+        }
         var running by remember { mutableStateOf(AgentController.running) }
 
         Box(
@@ -144,8 +155,15 @@ class ApShellActivity : ComponentActivity() {
                     else -> "设置"
                 },
                 hazeState = hazeState,
+                onDeviceClick = { pickerOpen = true },
                 modifier = Modifier.align(Alignment.TopCenter).padding(start = sidePad, end = sidePad),
             )
+
+            // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
+            // TvDiscovery 的广播发现，选中即连入 9511；「本机 / PC」走 ControlTarget.clear()
+            if (pickerOpen) {
+                ApDevicePicker(onDismiss = { pickerOpen = false })
+            }
 
             // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
             // 外层只负责贴底（组件内部 Column 会丢弃 BoxScope.align）
@@ -301,4 +319,58 @@ private fun KeyboardPage(activity: android.app.Activity) {
             }
         },
     )
+}
+
+/**
+ * 受控设备选择器（`showDevicePicker` 的 Compose 版）。
+ *
+ * 数据源是 [com.allperiph.wireless.TvDiscovery] 的广播列表（电视/PC/手机三类都在这张表里），
+ * 选中即 `ControlTarget` 连入；`本机 / PC` 一行等于 `ControlTarget.clear()`。
+ * 用 Compose 的 `Dialog` 承载 Miuix `Card` —— Miuix 0.9.4 的 `WindowDialog` 是 preference 侧
+ * 的窗口级弹窗，这里要的是应用内弹窗，用系统 Dialog + Miuix 卡片更稳。
+ */
+@Composable
+private fun ApDevicePicker(onDismiss: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        com.allperiph.wireless.TvDiscovery.start()
+        devices = com.allperiph.wireless.TvDiscovery.list()
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        top.yukonga.miuix.kmp.basic.Card {
+            Column(modifier = Modifier.padding(16.dp)) {
+                top.yukonga.miuix.kmp.basic.Text(
+                    text = "选择受控设备",
+                    fontSize = 17.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                top.yukonga.miuix.kmp.basic.TextButton(
+                    text = "本机 / PC（默认）",
+                    onClick = {
+                        com.allperiph.wireless.ControlTarget.clear()
+                        onDismiss()
+                    },
+                )
+                devices.forEach { d ->
+                    top.yukonga.miuix.kmp.basic.TextButton(
+                        text = "${d.name} ${d.typeLabel}  ${d.ip}",
+                        onClick = {
+                            com.allperiph.wireless.ControlTarget.host = d.ip
+                            com.allperiph.wireless.ControlTarget.label = d.name
+                            com.allperiph.wireless.ControlTarget.type = d.type
+                            onDismiss()
+                        },
+                    )
+                }
+                if (devices.isEmpty()) {
+                    top.yukonga.miuix.kmp.basic.Text(
+                        text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+            }
+        }
+    }
 }
