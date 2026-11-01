@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
+import com.allperiph.hid.HidMouse
 import com.allperiph.ui.kit.ApKit
 import com.allperiph.wireless.ControlTarget
 
@@ -76,7 +77,13 @@ class RemoteActivity : Activity() {
         prefs().edit().putBoolean(KEY_CURSOR_OVERLAY, cursorOverlayOn).apply()
         cursorChip.text = cursorLabel()
         com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn
-        if (ControlTarget.isControlling()) ControlTarget.controlClient?.overlayToggle(cursorOverlayOn)
+        if (ControlTarget.isControlling()) {
+            ControlTarget.controlClient?.overlayToggle(cursorOverlayOn)
+        } else {
+            // 浮层是**被控端**画的（PC 面板 / TV 端 0x32），USB / 蓝牙出口没有这个能力：
+            // 过去这里静默什么都不做，用户只看到「开了关都没反应」。偏好照样记住，连上再生效。
+            Toast.makeText(this, getString(R.string.ui_remote_cursor_need_target), Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun attachBaseContext(newBase: Context) =
@@ -444,12 +451,15 @@ class RemoteActivity : Activity() {
                     padLastX = e.x; padLastY = e.y
                     padFracX = 0f; padFracY = 0f   // 新的一笔：清掉上一笔的亚像素余数
                     padDownAt = android.os.SystemClock.uptimeMillis()
-                    if (!ControlTarget.isControlling() || ControlTarget.controlClient == null) {
-                        Toast.makeText(this@RemoteActivity, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
+                    // 出口判据统一在 HidMouse / Uplink.resolve：无线有受控目标、有线/蓝牙靠本机
+                    // HID，三条任一可用都能动光标 —— 只有全没有才提示（旧实现只看 ControlTarget，
+                    // 插线 / 蓝牙时这里永远弹「还没连上设备」，触摸条等于废掉）。
+                    if (!HidMouse.available()) {
+                        Toast.makeText(this@RemoteActivity, getString(R.string.ui_remote_toast_no_exit), Toast.LENGTH_SHORT).show()
                     }
                 }
                 android.view.MotionEvent.ACTION_MOVE -> {
-                    if (ControlTarget.isControlling()) {
+                    run {
                         // P1-4：每轴独立累计亚像素 + 钳位。原写法 `if (dx != 0 || dy != 0)`
                         // 两轴耦合：任一轴整数部分为 0 就整帧不更新 last，另一轴也被拖住；
                         // 且 dx.toInt() 截断丢掉 <1px 的移动。现在 last 每帧正常推进，
@@ -460,19 +470,25 @@ class RemoteActivity : Activity() {
                         val dx = padFracX.toInt().coerceIn(-127, 127)
                         val dy = padFracY.toInt().coerceIn(-127, 127)
                         if (dx != 0 || dy != 0) {
-                            ControlTarget.controlClient?.mouse(0, dx, dy, 0)
-                            padFracX -= dx; padFracY -= dy
+                            // 三条链路（无线 9511 / USB HID / 蓝牙 HID）由 HidMouse 统一择路；
+                            // 直连 controlClient 就是「只有无线能拖光标」的根因。
+                            if (HidMouse.move(0, dx, dy)) {
+                                padFracX -= dx; padFracY -= dy
+                            } else {
+                                padFracX = 0f; padFracY = 0f   // 没出口就丢余数，别攒着等出口出现
+                            }
                         }
                     }
                 }
                 android.view.MotionEvent.ACTION_UP -> {
                     val dur = android.os.SystemClock.uptimeMillis() - padDownAt
                     val moved = Math.hypot((e.x - padDownX).toDouble(), (e.y - padDownY).toDouble())
-                    if (ControlTarget.isControlling() && moved < dp(TAP_SLOP_DP) && dur < TAP_MS) {
-                        val cli = ControlTarget.controlClient
-                        cli?.mouse(1, 0, 0, 0)
-                        handler.postDelayed({ cli?.mouse(0, 0, 0, 0) }, 40)
-                        Feedback.tap(v)
+                    if (moved < dp(TAP_SLOP_DP) && dur < TAP_MS) {
+                        // 同样走 HidMouse：按下 → 40ms 后抬起，被控端按边沿识别单击
+                        if (HidMouse.move(1, 0, 0)) {
+                            handler.postDelayed({ HidMouse.move(0, 0, 0) }, 40)
+                            Feedback.tap(v)
+                        }
                     }
                 }
             }
@@ -486,9 +502,20 @@ class RemoteActivity : Activity() {
     private fun refreshTarget() {
         val t = targetView ?: return
         t.text = if (ControlTarget.isControlling()) {
-            "正在控制：${ControlTarget.label}（${ControlTarget.type.uppercase()}）"
+            getString(
+                R.string.ui_remote_target_controlling,
+                ControlTarget.label,
+                ControlTarget.type.uppercase(),
+            )
         } else {
-            "未连接受控设备 —— 按键会走 USB HID（等于本机键盘）；点「选择设备」挑 TV / PC"
+            val ex = HidMouse.exit()
+            if (ex == com.allperiph.core.Uplink.NONE) {
+                getString(R.string.ui_remote_target_no_exit)
+            } else {
+                // 有线 / 蓝牙出口时方向键、确认、触摸条全都通，只是作用在「已配对的主机 / 本机」，
+                // 文案必须说清，否则用户会以为「没连设备 = 这一页没用」。
+                getString(R.string.ui_remote_target_fallback, com.allperiph.core.Uplink.label(ex))
+            }
         }
     }
 
