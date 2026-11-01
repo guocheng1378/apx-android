@@ -57,6 +57,37 @@ internal class PhysKeyBridge(private val act: Activity) {
         window.callback = w
     }
 
+    /**
+     * 幂等（重）挂载：已在链上就什么都不做；**不在链上就重新挂上去**。
+     *
+     * 为什么需要它（issue #52 第 6 条「退后台收不到按键」与第 11 条的真机断点）：
+     * 转发桥靠**包装 `Window.Callback`** 抢先拦按键，而「窗口回调还是不是自己」这件事
+     * 没有任何保证 —— 宿主换壳、`setContentView` 之后有人重设回调、Fragment 重建、
+     * 系统回收 Activity 视图，都会把包装悄悄摘掉。原来的 [attach] 只在挂载那一刻判
+     * `wrapper != null`，而**外层调用点**（TouchpadFragment.ensureViews 的一次性守卫）
+     * 更狠：只要那次调用时 Activity 取不到，就连 attach 都没发生，且此后所有
+     * ensureViews() 都会被守卫挡回，桥**永远**不会挂上 —— 真机表现正是
+     * 「2477 条按键全到了 MainActivity 的 ViewRootImpl，转发桥一条都没收到」。
+     * 所以把「挂没挂」交给本方法自己判断，并在每次界面回到前台时复核一遍。
+     *
+     * @return true = 本次调用真的（重）挂上了；false = 原本就在链上，无需动作
+     */
+    fun ensureAttached(window: Window): Boolean {
+        current = this
+        val orig = original
+        val w = wrapper
+        if (w != null && orig != null && window.callback === w) return false
+        if (w != null && orig != null && window.callback !== w) {
+            // 包装已被别的东西换掉：这里**不还原**（当前回调不是我们，硬塞回 original
+            // 会踩掉别人的包装），只重新包一层，把转发重新接回链上。
+            android.util.Log.w("ApxBridge", "窗口回调已不是转发桥，重新包装（实体键盘转发自愈）")
+        }
+        wrapper = null
+        original = null
+        attach(window)
+        return wrapper != null
+    }
+
     /** 只在窗口回调仍是自己时还原，避免 Fragment 重建后旧桥拆掉新桥的包装 */
     fun detach() {
         val w = wrapper ?: return
@@ -66,6 +97,20 @@ internal class PhysKeyBridge(private val act: Activity) {
         wrapper = null
         original = null
         heldMods = 0
+    }
+
+    /**
+     * 放掉「按住的键」：清修饰位图 + 立即全释放（幂等）。
+     *
+     * 与 [GlobalKeyForwarder.resetKeys] 同一目的：转发是**有状态**链路，
+     * 按下才发、抬起才放，而抬起并不保证送达（退后台、切应用、系统丢帧都可能丢
+     * ACTION_UP）。抬起一旦丢了，电脑侧就一直按着那个 Ctrl / Shift，此后每个字母
+     * 都带修饰发出 —— 正是 issue #52 第 11 条「打快了概率性触发系统功能键」。
+     * 在界面离开前台时调用，让状态回到确定的零点。
+     */
+    fun releaseStuckKeys() {
+        heldMods = 0
+        HidKeys.releaseNow()
     }
 
     private inner class Wrapper(private val delegate: Window.Callback) : Window.Callback by delegate {

@@ -254,8 +254,20 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         if (::pager.isInitialized) outState.putInt(KEY_PAGE, pager.displayedChild)
     }
 
+    /** 物理键盘 → 电脑 转发桥（issue #52 第 6 条的真机断点所在）。
+     *
+     * 以前这条桥**只**在 TouchpadFragment.ensureViews() 里挂一次，而那是幂等的一次性
+     * 守卫：首次调用若拿不到 Activity（时序），此后所有 ensureViews() 都被挡回，
+     * 桥**永远**挂不上 —— 真机日志里「2477 条按键全到了 MainActivity 的
+     * ViewRootImpl、转发桥一条都没收到」正是这个。现在宿主自己持有，并在每次
+     * onResume 复核，与全屏操控面 TouchpadActivity 同口径，不再依赖 Fragment 生命周期。 */
+    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
+
     override fun onResume() {
         super.onResume()
+        // 实体键盘转发自愈：窗口回调被换掉 / 首挂时没接上，都在这里补回来
+        physKeyBridge = (physKeyBridge ?: com.allperiph.ui.PhysKeyBridge(this))
+            .also { it.ensureAttached(window) }
         handler.removeCallbacks(ticker)
         handler.post(ticker)
         // 物理朝向检测启动：竖持=触控板 横持=键盘（无视系统方向锁）
@@ -278,6 +290,9 @@ class MainActivity : ComponentActivity(), TouchpadFragment.Host, SettingsFragmen
         ClipboardSync.unregister(this)
         // 退到后台立刻还原系统手势（遮蔽只服务于前台操控面）
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_MAIN)
+        // 退后台可能丢掉后续的「按键抬起」事件：把仍按住的键放掉，
+        // 否则电脑侧会一直按着 Ctrl / Shift（issue #52 第 11 条误触系统快捷键）。
+        physKeyBridge?.releaseStuckKeys()
         super.onPause()
     }
 

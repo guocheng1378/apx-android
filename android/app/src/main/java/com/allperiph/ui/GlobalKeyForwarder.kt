@@ -20,8 +20,13 @@ import com.allperiph.wireless.ControlTarget
  *  ① 无可用出口 → 放行（没连电脑时键盘就是普通手机键盘）
  *  ② 修饰键（Shift/Ctrl/Alt/Win）→ 消费并自记 heldMods（位图随后续按键发）
  *  ③ 认不出的键（音量/媒体/电源…）→ 放行，系统功能不受影响
- *  ④ 其余映射 USB HID usage → [HidKeys.combo]（与屏上快捷键同链路，60ms 自动释放；
- *     重复事件续期释放定时器 = 电脑侧自然长按/自动重复）
+ *  ④ 其余映射 USB HID usage → [HidKeys.hold] **按住不放**，抬起才 [HidKeys.releaseHold]；
+ *     无线 9511 下对端收到的是合成注入事件、不会自己重复，由本机在每次自动重复时
+ *     补一对「释放 → 按下」造出真实边沿；USB / 蓝牙 HID 下对端是真键盘设备，
+ *     按住不放它自己就会重复，本机忽略重复事件。
+ *     （与 [PhysKeyBridge] ⑤ 逐条对齐 —— 这条路径原先写的是 [HidKeys.combo]，
+ *     60ms 自动释放被重复事件反复续期，于是「按下」只发了一次、又始终没有抬起，
+ *     而 Windows / macOS 对**注入**按键不做自动重复，无线模式下长按恒只出一个字符。）
  *
  * **隐私边界**（用户已确认）：只转发**物理键盘按键**；不读输入框文本、不看剪贴板、
  * 不落盘；由无障碍服务的开启状态 + 本类的 [enabled] 开关双重把关。
@@ -59,8 +64,23 @@ internal object GlobalKeyForwarder {
     fun setEnabled(store: android.content.SharedPreferences, on: Boolean) {
         enabled = on
         store.edit().putBoolean(KEY_ENABLED, on).apply()
-        if (!on) heldMods = 0
+        if (!on) resetKeys()
         Log.i(TAG, "全局键盘转发 enabled=$on")
+    }
+
+    /**
+     * 复位「按住的键」：清修饰位图，并把仍被按住不放的按键放掉。
+     *
+     * 为什么必须有它（issue #52 第 11 条「打快了概率性触发系统功能键」的机制之一）：
+     * 转发是**有状态**链路 —— 按下才发、抬起才放，而「抬起」并不保证一定送达
+     * （无障碍通道被系统回收、按住键时切走应用、系统丢帧都会让 ACTION_UP 丢掉）。
+     * 只要抬起丢了，电脑侧就会一直按着那个 Ctrl / Shift：此后用户敲的每一个字母
+     * 都带着修饰键发出去，表现正是「输入过快时触发系统快捷键 / 输入错乱」。
+     * 所以链路只要中断过，先把残留按键放掉，让状态回到确定的零点。
+     */
+    fun resetKeys() {
+        heldMods = 0
+        if (ready()) HidKeys.releaseNow()
     }
 
     /**
@@ -108,9 +128,21 @@ internal object GlobalKeyForwarder {
         val usage = HidKeyMap.usageOf(event.keyCode)
         if (usage == 0) return false
 
-        // ④ 发送：与屏上快捷键同链路（60ms 自动释放；重复事件续期 = 电脑侧自然长按）
+        // ④ 发送：与 PhysKeyBridge ⑤ 逐条对齐 —— 首次按下「按住不放」，抬起才释放；
+        //    无线 9511 下对端不会自己重复，每次自动重复补一对「释放 → 按下」造边沿；
+        //    USB / 蓝牙 HID 下对端是真键盘设备，重复由对端系统负责，这里忽略。
+        //    （此前这里写的是 HidKeys.combo：60ms 自动释放被重复事件续期，
+        //     只能出第一个字符，且永远不发抬起 —— issue #52「无线长按只出一个字符」。）
+        val combo = HidKeys.Combo("", heldMods or HidKeyMap.metaMod(event.metaState), usage)
         if (action == KeyEvent.ACTION_DOWN) {
-            HidKeys.combo(HidKeys.Combo("", heldMods or HidKeyMap.metaMod(event.metaState), usage))
+            if (event.repeatCount == 0) {
+                HidKeys.hold(combo)
+            } else if (Uplink.current == Uplink.WIRELESS) {
+                HidKeys.releaseNow()
+                HidKeys.hold(combo)
+            }
+        } else {
+            HidKeys.releaseHold()
         }
         return true
     }
