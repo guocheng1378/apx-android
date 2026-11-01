@@ -68,7 +68,7 @@ class TvFileActivity : Activity() {
     private var dirLabel by mutableStateOf("")
     private var statusText by mutableStateOf("")
     private var statusColor by mutableIntStateOf(0)
-    private var progress by mutableIntStateOf(0)
+    private var sendProgress by mutableIntStateOf(0)
     private var actionTarget by mutableStateOf<File?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,7 +110,7 @@ class TvFileActivity : Activity() {
             if (statusText.isNotEmpty()) {
                 TvText(statusText, size = TvUi.Type.MICRO, color = statusColor)
             }
-            if (progress in 1..99) {
+            if (sendProgress in 1..99) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -119,7 +119,7 @@ class TvFileActivity : Activity() {
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress / 100f)
+                            .fillMaxWidth(sendProgress / 100f)
                             .background(Color(TvUi.Pal.accent), RoundedCornerShape(4.dp))
                             .padding(vertical = 3.dp),
                     )
@@ -298,7 +298,7 @@ class TvFileActivity : Activity() {
     }
 
     private fun showProgress(p: Int) {
-        progress = p
+        sendProgress = p
     }
 
     private fun sendFile(f: File) {
