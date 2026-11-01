@@ -237,9 +237,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                     },
                 )
                 // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
-                //    ALL/getEnabled/setEnabled/labelRes 都在，界面上没有任何入口，
+                //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
                 //    菜单项永远停在 DEFAULT 四项）——
-                var ballItems by remember { mutableStateOf(BallConfig.getEnabled(ctx)) }
+                var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
                 Text(
                     text = ctx.getString(R.string.ui_ball_items_title),
                     fontSize = 12.sp,
