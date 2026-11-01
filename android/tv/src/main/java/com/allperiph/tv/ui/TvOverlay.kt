@@ -18,6 +18,13 @@ import com.allperiph.shared.util.Log
  * 本对象实现共享 [CursorOverlay]，供 [com.allperiph.shared.inject.TvInjector] 经
  * [com.allperiph.shared.inject.InjectorPlatform.overlay] 注入。
  *
+
+ * ## 为什么这个浮层**不迁 Compose**（2026-11-01 决策，勿随手改）
+ * 它是"光标点"：每一帧输入都要 `updateViewLayout` 挪位置，且调用方是 apx-inject 后台线程。
+ * Compose 化意味着每帧触发一次重组 + 布局，在 4K 电视上纯属给渲染线程加负担，
+ * 而这个浮层只有**一个圆点**、没有文字、没有状态、没有交互 —— 迁过去零收益、纯风险。
+ * 同理 `TvNotificationPrompt` 那种"多行文字 + 卡片"的才值得迁（已迁）。
+
  * ## 线程纪律（别删）
  * 调用方是 **apx-inject 后台线程**（`ControlServer` 在 `HandlerThread("apx-inject")` 上派发输入帧）。
  * 而 `WindowManager.updateViewLayout` / `View.setVisibility` 必须在创建视图的线程（主线程）执行，

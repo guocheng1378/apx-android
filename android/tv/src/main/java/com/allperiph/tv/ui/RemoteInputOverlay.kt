@@ -16,6 +16,19 @@ import android.widget.TextView
 import android.widget.Toast
 import com.allperiph.shared.util.Log
 
+/**
+ * 远程输入浮层：被控端接收对端打字，展示 + 回传（EditText + IME + TextWatcher）。
+ *
+ * ## 为什么这个浮层**暂不迁 Compose**（2026-11-01 决策）
+ * 1. 核心是一个 `EditText`：要中文输入法、要 `InputMethodManager` 收放、要 TextWatcher 增量回传。
+ *    Compose `BasicTextField` + 平台 IME 在 TV 遥控器场景下（DPAD 进入/退出输入态、软键盘
+ *    与实体键盘混用）行为差异大，用 View 版是**已被真机验证过**的稳定路径；
+ * 2. 它挂在 Activity 的 `FrameLayout` 上，不是 WindowManager 窗口，迁 Compose 需要
+ *    `ComposeView` + 焦点/返回键重新接线，收益仅是"写法统一"。
+ *
+ * 结论：等电视端输入链路整体重做时再动；现在就迁属于拿可用性换一致性。
+ * 需要 Compose 浮层时用 [TvOverlayHost]（已支持三件套 owner）。
+ */
 class RemoteInputOverlay(
     private val activity: Activity,
     private val rootLayout: FrameLayout,
