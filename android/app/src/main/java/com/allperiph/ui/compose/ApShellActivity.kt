@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -155,6 +156,18 @@ class ApShellActivity : ComponentActivity() {
         }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
+        // 返回键（审查条 2.6）：单 Activity 多页，此前全壳零 BackHandler —— 在设置二级页、
+        // 键盘页、触控板页按返回键直接退回桌面。旧设置页有 btnBackHome 回分类首页，
+        // 那条随 page_settings.xml 一起消失了。这里按「先关弹窗 → 回状态页 → 才退出」兜住；
+        // 设置页内部的分类归零由 SettingsPage 自己的 BackHandler 处理（它持有 cat 状态）。
+        BackHandler(enabled = pickerOpen || page != 0) {
+            if (pickerOpen) {
+                pickerOpen = false
+            } else {
+                page = 0
+                pageState = 0
+            }
+        }
         // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
         androidx.compose.runtime.LaunchedEffect(landscape, page) {
             if (landscape && page == 1) {
