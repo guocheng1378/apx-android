@@ -144,6 +144,38 @@ class FloatingBallService : Service() {
         var ballAttachedGlobal: Boolean = false
             private set
 
+        /** 当前活着的服务实例（同进程直调收浮层用；本服务没有 android:process 隔离） */
+        @Volatile
+        private var live: FloatingBallService? = null
+
+        /**
+         * 收起一切展开层：扇形菜单、浮窗面板（触控板 / 键盘 / 手柄 / 设备），
+         * 并把停靠长条恢复成正常圆球。主壳退出（返回确认 / 任务划掉）时调用 ——
+         * 成宇 2026-11-02「退出应用后悬浮窗自动挂起」：主界面一走，展开过的菜单 /
+         * 面板还钉在桌面应用上面，停靠态又是一根 10dp 的半透明细条，看着就是「挂起了」。
+         * 退出主壳后桌面上只应留一颗正常、可见、可点的球。
+         *
+         * @return true 表示确实收起 / 恢复了东西（主壳据此决定返回键要不要吃掉）
+         */
+        fun collapseOverlays(): Boolean {
+            val s = live ?: return false
+            var acted = false
+            if (s.menu != null) {
+                s.closeMenu()
+                acted = true
+            }
+            if (s.panel != null) {
+                s.collapse()   // 内部会 addBall() 还球
+                acted = true
+            }
+            val b = s.ball
+            if (s.docked && b != null) {
+                s.undock(b)
+                acted = true
+            }
+            return acted
+        }
+
         /**
          * 设置页入口：无悬浮窗权限 → 跳系统授权页（HyperOS：设置→隐私保护→显示悬浮窗）；
          * 有权限 → 开/关切换（服务未活 = 开，已活 = 停）。
@@ -225,6 +257,7 @@ class FloatingBallService : Service() {
         // 菜单／面板的 ?attr 强调色由 [themed]（ThemePref.wrapService）负责，
         // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
+        live = this
         // v223.25 起菜单多了 键盘 / 手柄：老用户存过勾选清单时补挂一次（见 BallConfig.ensureNewItems）
         BallConfig.ensureNewItems(this)
         NotificationChannels.ensure(this)
@@ -268,6 +301,7 @@ class FloatingBallService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
+        live = null
         shutdown()
         isRunning = false
         super.onDestroy()

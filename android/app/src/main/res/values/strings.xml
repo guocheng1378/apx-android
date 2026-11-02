@@ -301,9 +301,8 @@
     <string name="ui_set_sec_general">通用</string>
     <string name="ui_set_sec_ball">悬浮栏</string>
     <string name="ui_set_sec_tpl">快捷键模板</string>
-    <string name="ui_set_sec_env">环境诊断</string>
     <string name="ui_set_sec_files">文件与传输</string>
-    <string name="ui_set_sec_remote">遥控与键盘</string>
+    <string name="ui_set_sec_remote">键盘与无障碍</string>
     <string name="ui_set_sec_theme">主题数据</string>
     <string name="ui_set_sec_tpl_custom">模板管理（自定义）</string>
     <string name="ui_set_sec_transport">传输与投屏</string>
@@ -350,5 +349,34 @@
     <string name="ui_set_btn_disconnect_control">断开当前控制</string>
     <string name="ui_set_toast_disconnected">已断开</string>
     <string name="ui_touchpad_hint_service_off">服务未启动：手势发不出去。先到「状态」页打开启动开关。</string>
-    <string name="ui_touchpad_hint_no_uplink">没有出口：手势发不出去。先在「设置 → 遥控与键盘」选受控设备，或接上 USB / 蓝牙。</string>
+    <string name="ui_touchpad_hint_no_uplink">没有出口：手势发不出去。先到「状态 → 受控与出口」选受控设备，或接上 USB / 蓝牙。</string>
+    <!-- v223.28 「当前控制」整体上移状态页（成宇 2026-11-02「本应该在状态页的内容却在设置页」） -->
+    <string name="ui_home_section_control">受控与出口</string>
+    <string name="ui_home_label_uplink">当前出口</string>
+    <string name="ui_home_uplink_wireless">无线 9511（受控设备）</string>
+    <string name="ui_home_uplink_usb">USB（本机 HID）</string>
+    <string name="ui_home_uplink_bt">蓝牙 HID</string>
+    <string name="ui_home_uplink_none">无出口：输入会被丢弃</string>
+    <string name="ui_home_uplink_pending">尚未发送输入（出口待观测）</string>
+    <string name="ui_home_label_controlled">本机被控</string>
+    <string name="ui_home_controlled_on">运行中（对端可连入 9511）</string>
+    <string name="ui_home_controlled_off">未开启</string>
+    <string name="ui_home_env_recheck">重新检测</string>
+    <string name="ui_home_env_root">root</string>
+    <string name="ui_home_env_root_ok">已就绪</string>
+    <string name="ui_home_env_root_no">未获取</string>
+    <string name="ui_home_env_udc">UDC</string>
+    <string name="ui_home_env_udc_none">未找到</string>
+    <string name="ui_home_env_battery">电池优化</string>
+    <string name="ui_home_env_battery_ok">已忽略（推荐）</string>
+    <string name="ui_home_env_battery_no">未忽略</string>
+    <string name="ui_home_env_notify">通知权限</string>
+    <string name="ui_home_env_notify_ok">已授予</string>
+    <string name="ui_home_env_notify_no">未授予</string>
+    <!-- v223.28 主壳返回键语义：先收悬浮层，再弹退出确认 -->
+    <string name="ui_exit_title">退出全能外设？</string>
+    <string name="ui_exit_msg">外设服务仍在后台运行，悬浮球继续可用。</string>
+    <string name="ui_exit_keep">退出（后台继续）</string>
+    <string name="ui_exit_stop">停止外设并退出</string>
+    <string name="ui_exit_cancel">取消</string>
 </resources>

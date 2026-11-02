@@ -560,32 +560,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
         }
 
-            // ———————————————— 环境诊断 ————————————————
-        if (cat == 2) {
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_env)) {
-                Column {
-                    var env by remember { mutableStateOf(com.allperiph.ui.AgentController.env) }
-                    ApComponents.ActionButton(
-                        text = "重新检测",
-                        onClick = { com.allperiph.ui.AgentController.refreshEnv(ctx) { env = it } },
-                    )
-                    env?.let { e ->
-                        ApComponents.ValueRow(title = "root", value = if (e.rooted) "已就绪" else "未获取")
-                        ApComponents.ValueRow(title = "链路", value = e.rawSpeed.ifEmpty { e.linkSpeed.toString() })
-                        ApComponents.ValueRow(title = "UDC", value = e.udc ?: "未找到")
-                        ApComponents.ValueRow(
-                            title = "电池优化",
-                            value = if (e.batteryOptimized) "已忽略（推荐）" else "未忽略",
-                        )
-                        ApComponents.ValueRow(
-                            title = "通知权限",
-                            value = if (e.notificationGranted) "已授予" else "未授予",
-                        )
-                    }
-                }
-            }
-
             // ———————————————— 文件与传输 ————————————————
+            // v223.28：「环境诊断」整块上移到状态页「连接状态」（同一份 EnvChecks 数据
+            // 此前两页各显示一半，双源；成宇 2026-11-02「本应该在状态页的内容却在设置页」）。
+        if (cat == 2) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files)) {
                 Column {
                     ApComponents.ActionButton(
@@ -609,10 +587,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 但进程重启后读不到 → 开关自己弹回关闭，用户看到的就是「开了不生效」。
             val imePrefs = remember { GlobalKeyForwarder.prefs(ctx) }
             var globalKeys by remember { mutableStateOf(GlobalKeyForwarder.isEnabled(imePrefs)) }
-            // 受控设备选择器（v223.27）：顶栏整块去除后，本页「遥控与键盘」就是**唯一常驻的
-            // 连接入口**（另一处是悬浮球的「设备」扇项）。弹的是与悬浮球面板同一份
-            // ApDevicePickerBody，连接逻辑也只有 connectControlledDevice 一处。
-            var pickerOpen by remember { mutableStateOf(false) }
+            // 受控设备选择器（v223.28）：「当前控制 / 选择受控设备 / 断开」三行整体上移到
+            // 状态页「受控与出口」——链路状态属于运行时信息；本段只留偏好类：
+            // 物理键盘全局转发 + 无障碍设置入口。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -625,44 +602,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    // 三行过时说明整块换掉（成宇 2026-11-02「说明也落后了，可以去除」）。
-                    // 旧的三行只会清字段 / 起发现线程，**从不建立 9511 连接**：
-                    // 选完设备 controlClient 还是 null，TouchpadModule.dispatch 里
-                    // wirelessReady 恒为 false，手势静默落到 USB/蓝牙/NONE
-                    //（用户报的「触摸板控制不了、界面不动」、「手机控制手机不能用」）。
-                    // 现在这里弹真正会 connect() 的选择器（见 connectControlledDevice）。
-                    ApComponents.ValueRow(
-                        title = ctx.getString(R.string.ui_set_label_current_control),
-                        value = if (com.allperiph.wireless.ControlTarget.isControlling()) {
-                            com.allperiph.wireless.ControlTarget.label
-                        } else {
-                            ctx.getString(R.string.ui_set_label_current_control_none)
-                        },
-                    )
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_pick_device_button),
-                        onClick = { pickerOpen = true },
-                    )
-                    if (pickerOpen) {
-                        Dialog(onDismissRequest = { pickerOpen = false }) {
-                            ApComponents.DialogCard(onDismiss = { pickerOpen = false }) {
-                                ApDevicePickerBody(onDone = { pickerOpen = false })
-                            }
-                        }
-                    }
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_btn_disconnect_control),
-                        onClick = {
-                            runCatching { com.allperiph.wireless.ControlTarget.clear() }
-                            Toast.makeText(
-                                ctx,
-                                ctx.getString(R.string.ui_set_toast_disconnected),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        },
-                    )
-                    // 全局转发与光标悬浮都依赖 Eta 的无障碍服务；以前这里只有一句提示、
-                    // 用户还得自己翻到系统设置里找 —— 现在直接给出可点的入口。
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.ui_main_btn_a11y_settings),
                         onClick = {

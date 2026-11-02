@@ -35,6 +35,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Switch
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
+import android.widget.Toast
+import com.allperiph.controlled.ControlledService
+import com.allperiph.core.Uplink
+import com.allperiph.wireless.ControlTarget
 
 /**
  * 状态页（**第一个完成 Compose + Miuix 迁移的屏**）。
@@ -129,6 +133,53 @@ fun StatusPage(
             }
         }
 
+        // —— 受控与出口（v223.28 从设置页「遥控与键盘」整体上移：成宇 2026-11-02
+        //    「本应该在状态页的内容却在设置页」——链路状态属于运行时信息，就该在状态页。
+        //    数据源：ControlTarget（当前控制谁）+ Uplink（唯一出口判据）+ ControlledService
+        //    （本机被控）。选择器弹的是与悬浮球面板同一份 ApDevicePickerBody，连接逻辑
+        //    仍只有 connectControlledDevice 一处）——
+        var pickerOpen by remember { mutableStateOf(false) }
+        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_control)) {
+            Column {
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_set_label_current_control),
+                    value = state.controlLabel,
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_label_uplink),
+                    value = state.uplinkLabel,
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_label_controlled),
+                    value = state.controlledLabel,
+                )
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_pick_device_button),
+                    onClick = { pickerOpen = true },
+                )
+                if (pickerOpen) {
+                    // DialogCard 内部已包一层 androidx.compose.ui.window.Dialog，
+                    // 外面再套 Dialog = 「弹窗里再开一个窗口」（双层遮罩）。
+                    ApComponents.DialogCard(onDismiss = { pickerOpen = false }) {
+                        ApDevicePickerBody(onDone = { pickerOpen = false })
+                    }
+                }
+                if (state.controlling) {
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_disconnect_control),
+                        onClick = {
+                            runCatching { ControlTarget.clear() }
+                            Toast.makeText(
+                                ctx,
+                                ctx.getString(R.string.ui_set_toast_disconnected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        },
+                    )
+                }
+            }
+        }
+
         // —— 模块状态 ——
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
             Column {
@@ -163,9 +214,14 @@ fun StatusPage(
             }
         }
 
-        // —— 链路诊断 ——
+        // —— 链路诊断（v223.28 吸收设置页「环境诊断」整块：同一份 EnvChecks 数据
+        //    此前两页各显示一半，属于双源。现在环境明细与重新检测都在这里，设置页删掉）——
         ApComponents.Section(title = ctx.getString(R.string.card_link)) {
             Column {
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_home_env_recheck),
+                    onClick = { AgentController.refreshEnv(ctx) {} },
+                )
                 ApComponents.ValueRow(
                     title = ctx.getString(R.string.label_usb_speed),
                     value = state.linkLabel,
@@ -173,6 +229,23 @@ fun StatusPage(
                 ApComponents.ValueRow(
                     title = ctx.getString(R.string.ui_home_label_env),
                     value = state.envSummary,
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_env_root),
+                    value = if (state.rooted) ctx.getString(R.string.ui_home_env_root_ok)
+                    else ctx.getString(R.string.ui_home_env_root_no),
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_env_udc),
+                    value = state.udc,
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_env_battery),
+                    value = state.batteryLabel,
+                )
+                ApComponents.ValueRow(
+                    title = ctx.getString(R.string.ui_home_env_notify),
+                    value = state.notifyLabel,
                 )
                 Text(
                     text = if (state.rooted) ctx.getString(R.string.hint_usb_ok)
@@ -247,6 +320,14 @@ private class StatusVm(
     val linkLabel: String,
     val envSummary: String,
     val rooted: Boolean,
+    // v223.28 受控与出口 + 环境明细（吸收设置页「环境诊断」）
+    val controlLabel: String,
+    val controlling: Boolean,
+    val uplinkLabel: String,
+    val controlledLabel: String,
+    val udc: String,
+    val batteryLabel: String,
+    val notifyLabel: String,
 )
 
 private fun stateColor(s: ModuleState): Color = when (s) {
@@ -280,6 +361,18 @@ private fun snapshot(ctx: Context): StatusVm {
         )
     }
     val link: LinkSpeed = AgentController.linkSpeed
+    // v223.28：当前控制 / 出口 / 本机被控（快照现读，随 1s 轮询刷新）
+    val controlling = ControlTarget.isControlling()
+    val uplinkLabel = if (!Uplink.observed) {
+        ctx.getString(R.string.ui_home_uplink_pending)
+    } else {
+        when (Uplink.current) {
+            Uplink.WIRELESS -> ctx.getString(R.string.ui_home_uplink_wireless)
+            Uplink.USB -> ctx.getString(R.string.ui_home_uplink_usb)
+            Uplink.BLUETOOTH -> ctx.getString(R.string.ui_home_uplink_bt)
+            else -> ctx.getString(R.string.ui_home_uplink_none)
+        }
+    }
     return StatusVm(
         overallLabel = if (running) "外设已启动" else "未启动",
         overallDetail = if (running) {
@@ -293,5 +386,16 @@ private fun snapshot(ctx: Context): StatusVm {
         linkLabel = if (link == LinkSpeed.UNKNOWN) "--" else link.name,
         envSummary = env?.summary ?: "未检测",
         rooted = env?.rooted ?: false,
+        controlLabel = if (controlling) ControlTarget.label
+        else ctx.getString(R.string.ui_set_label_current_control_none),
+        controlling = controlling,
+        uplinkLabel = uplinkLabel,
+        controlledLabel = if (ControlledService.running) ctx.getString(R.string.ui_home_controlled_on)
+        else ctx.getString(R.string.ui_home_controlled_off),
+        udc = env?.udc ?: ctx.getString(R.string.ui_home_env_udc_none),
+        batteryLabel = if (env?.batteryOptimized == true) ctx.getString(R.string.ui_home_env_battery_ok)
+        else ctx.getString(R.string.ui_home_env_battery_no),
+        notifyLabel = if (env?.notificationGranted == true) ctx.getString(R.string.ui_home_env_notify_ok)
+        else ctx.getString(R.string.ui_home_env_notify_no),
     )
 }
