@@ -326,6 +326,11 @@
     <string name="ui_set_sum_wifi_spk">Wi‑Fi 与 USB 音频可并存，各自独立开关</string>
     <string name="ui_set_sec_input">输入与外设</string>
     <string name="ui_set_btn_gamepad">虚拟手柄（全屏双摇杆）</string>
+    <!-- v223.27（2026-11-02 审查条 1.1）：方向锁定整条能力在迁 Compose 主壳时丢了，
+         设置页开关随 page_settings.xml 在 401e080 删除、restoreOrientLock 随旧 MainActivity
+         在 c6734c8 删除。文案沿用旧页口径（旧 lay_settings_text_orient_lock 已于 0ca1798 清理）。 -->
+    <string name="ui_set_orient_lock_title">锁定屏幕方向</string>
+    <string name="ui_set_orient_lock_sum">把界面钉在当前朝向；锁定后不再随重力自动切页，关闭后横持手机自动切到键盘页</string>
     <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>
     <string name="ui_set_cat_theme">主题与外观</string>
