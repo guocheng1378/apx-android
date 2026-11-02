@@ -32,7 +32,7 @@ internal object HidKeyOverrides {
     /** 从持久化读入（App.onCreate 调一次） */
     fun load(store: SharedPreferences) {
         val raw = store.getString(KEY_MAP, "").orEmpty()
-        snapshot = decode(raw)
+        snapshot = decodeKeyOverrides(raw)
     }
 
     /** 当前覆盖（keyCode → usage），供设置页展示 */
@@ -52,7 +52,7 @@ internal object HidKeyOverrides {
         val map = current().toMutableMap()
         if (usage <= 0) map.remove(keyCode) else map[keyCode] = usage
         snapshot = encode(map)
-        store.edit().putString(KEY_MAP, encodeString(map)).apply()
+        store.edit().putString(KEY_MAP, encodeKeyOverrides(map)).apply()
     }
 
     /** 清除某颗键的覆盖，回到 `HidKeyMap` 默认 */
@@ -68,15 +68,6 @@ internal object HidKeyOverrides {
         }
         return defaultUsage
     }
-
-    private fun decode(raw: String): IntArray {
-        if (raw.isBlank()) return IntArray(0)
-        val parts = raw.split(',', ';').mapNotNull { it.trim().toIntOrNull() }
-        return parts.toIntArray()
-    }
-
-    private fun encodeString(map: Map<Int, Int>): String =
-        map.entries.joinToString(";") { "${it.key}=${it.value}" }
 
     private fun encode(map: Map<Int, Int>): IntArray {
         val out = IntArray(map.size * 2)
@@ -126,4 +117,61 @@ internal object HidKeyOverrides {
         "Tab" to KeyEvent.KEYCODE_TAB,
         "Esc" to KeyEvent.KEYCODE_ESCAPE,
     )
+}
+
+// ———————————————— 落盘编解码（纯字符串，可 JVM 单测） ————————————————
+
+/**
+ * 覆盖层落盘格式：`"4=40;5=41"`（`Android keyCode = HID usage`，分号分隔，键按 keyCode 升序）。
+ *
+ * **为什么单独抽成顶层函数**：2026-11-02 审查确认的回归是「写进去读不回」——
+ * 写入用 `keyCode=usage` 的带等号字符串，读取却按纯整数切分（`"4=40".toIntOrNull()` = null，
+ * 被 `mapNotNull` 丢掉），于是每次 `App.onCreate` 的 `load()` 都得到空数组：改键当次有效、
+ * 重启全丢。两个方向现在共用本文件的一对函数，并由
+ * `app/src/test/.../HidKeyOverridesCodecTest.kt` 钉死往返一致（纯 JVM，不需要设备）。
+ */
+internal fun encodeKeyOverrides(map: Map<Int, Int>): String =
+    map.entries.sortedBy { it.key }.joinToString(";") { "${it.key}=${it.value}" }
+
+/**
+ * 解析 [encodeKeyOverrides] 的落盘串 → 交错快照（keyCode, usage, keyCode, usage…）。
+ *
+ * 同时兼容两种历史写法，避免存量值被静默丢弃：
+ *  · `"4,40;5,41"` —— 交错整数、逗号/分号分隔；
+ *  · `"4,40,5,41"` —— 早期内内存快照的直接拼接（`encode(map)` 的 join 形式）。
+ * 认不出的 token 跳过（不抛异常：坏的偏好值不能让 App 起不来）。
+ */
+internal fun decodeKeyOverrides(raw: String): IntArray {
+    if (raw.isBlank()) return IntArray(0)
+    val pairs = LinkedHashMap<Int, Int>()
+    val loose = ArrayList<Int>()
+    for (token in raw.split(';', ',')) {
+        val t = token.trim()
+        if (t.isEmpty()) continue
+        val eq = t.indexOf('=')
+        if (eq > 0) {
+            val k = t.substring(0, eq).trim().toIntOrNull() ?: continue
+            val v = t.substring(eq + 1).trim().toIntOrNull() ?: continue
+            // usage <= 0 表示「清除」，落盘里不该出现；真出现了按未覆盖处理
+            if (v > 0) pairs[k] = v else pairs.remove(k)
+        } else {
+            t.toIntOrNull()?.let { loose.add(it) }
+        }
+    }
+    if (pairs.isEmpty()) {
+        var i = 0
+        while (i + 1 < loose.size) {
+            val k = loose[i]
+            val v = loose[i + 1]
+            if (v > 0) pairs[k] = v
+            i += 2
+        }
+    }
+    val out = IntArray(pairs.size * 2)
+    var i = 0
+    for ((k, v) in pairs) {
+        out[i++] = k
+        out[i++] = v
+    }
+    return out
 }
