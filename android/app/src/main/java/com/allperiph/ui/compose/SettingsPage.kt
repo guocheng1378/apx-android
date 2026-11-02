@@ -832,7 +832,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
 
             // ———————————————— 键映射 ————————————————
             // HidKeyMap 是「Android keyCode → HID usage」的静态真源；这里只加稀疏的用户覆盖层
-            // （HidKeyOverrides），查表顺序是「覆盖 → 默认」，转发链路已在 GlobalKeyForwarder 接好。
+            // （HidKeyOverrides），查表顺序是「覆盖 → 默认」。
+            // 两条转发路径都已接：GlobalKeyForwarder（无障碍全局）与 PhysKeyBridge（应用内窗口回调），
+            // 后者此前直接查静态表——不开全局转发时改键等于没改（2026-11-02 审查条 1.4）。
             var overrides by remember { mutableStateOf(HidKeyOverrides.current()) }
             val overridePrefs = remember { HidKeyOverrides.prefs(ctx) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keymap)) {
