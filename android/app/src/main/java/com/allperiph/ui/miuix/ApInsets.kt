@@ -65,15 +65,14 @@ fun rememberApInsets(): ApInsets {
     var state by remember { mutableStateOf(ApInsets()) }
 
     DisposableEffect(view) {
-        val listener = View.OnApplyWindowInsetsListener { v, insets ->
-            val density = v.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
-            fun pxToDp(px: Int): Dp = (px / density).dp
+        val density = view.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        fun pxToDp(px: Int): Dp = (px / density).dp
 
+        fun convert(insets: WindowInsets): ApInsets {
             val bars = insets.getInsets(WindowInsets.Type.systemBars())
             val cut = insets.getInsets(WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
-
-            val next = ApInsets(
+            return ApInsets(
                 bars = ApEdgeInsets(
                     pxToDp(bars.left), pxToDp(bars.top), pxToDp(bars.right), pxToDp(bars.bottom),
                 ),
@@ -82,11 +81,28 @@ fun rememberApInsets(): ApInsets {
                 ),
                 imeBottom = pxToDp(ime.bottom),
             )
+        }
+
+        // 兜底：listener 之外再直接读一次根窗口 insets。
+        // 真机（v223.23）上 OnApplyWindowInsetsListener 从未被分发过 —— top 恒为 0，
+        // 表现是主壳内容从 y=0 起、顶栏标题压着系统时间（状态栏 144px 完全没算进去）。
+        // rootWindowInsets 是 DecorView 上那份权威值，attach/layout 后一定有。
+        fun readRoot() {
+            val wi = view.rootWindowInsets ?: return
+            val next = convert(wi)
+            if (next != state) state = next
+        }
+
+        val listener = View.OnApplyWindowInsetsListener { v, insets ->
+            val next = convert(insets)
             if (next != state) state = next
             insets
         }
         view.setOnApplyWindowInsetsListener(listener)
         view.requestApplyInsets()
+        readRoot()
+        // attach 之前 rootWindowInsets 还是 null：排到一帧之后再读一次
+        view.post { readRoot() }
         onDispose { view.setOnApplyWindowInsetsListener(null) }
     }
     return state

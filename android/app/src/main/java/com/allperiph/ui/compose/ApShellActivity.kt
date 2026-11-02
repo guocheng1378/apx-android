@@ -249,7 +249,10 @@ class ApShellActivity : ComponentActivity() {
                 },
                 hazeState = hazeState,
                 onDeviceClick = { pickerOpen = true },
-                modifier = Modifier.align(Alignment.TopCenter).padding(start = sidePad, end = sidePad),
+                // 顶栏让出状态栏：竖屏 topPad = 状态栏高，横屏 topPad = 0（设计上盖住状态栏）。
+                // 此前顶栏从 root Box 顶部起画，标题直接压在系统时间那一行（v223.23 真机）。
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .padding(start = sidePad, end = sidePad, top = topPad),
             )
 
             // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
