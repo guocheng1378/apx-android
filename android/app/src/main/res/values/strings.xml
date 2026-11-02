@@ -381,6 +381,8 @@
     <string name="ui_home_env_root_no">未获取</string>
     <string name="ui_home_env_udc">UDC</string>
     <string name="ui_home_env_udc_none">未找到</string>
+    <string name="ui_set_btn_battery_whitelist">去加入电池优化白名单</string>
+    <string name="ui_set_btn_notify_settings">去开启通知权限</string>
     <string name="ui_home_env_battery">电池优化</string>
     <string name="ui_home_env_battery_ok">已忽略（推荐）</string>
     <string name="ui_home_env_battery_no">未忽略</string>
