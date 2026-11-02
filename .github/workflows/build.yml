@@ -544,6 +544,13 @@ jobs:
       - name: 组件声明（实现了但没注册 → 永不启动）
         run: python3 scripts/check_components.py
 
+      # 资源使用：定义了却没人用的 string / color / dimen / style / drawable / layout。
+      # 功能页一页页迁 Compose 之后，绑在旧 View 上的资源不会自己消失，编译器和 lint
+      # 对此完全沉默（只会被 AAPT2 编进包里），于是仓库和包体只涨不落。2026-11-02 一次
+      # 清理就删掉 276 处（691 → 415）。本关把「零欠债」钉住，新资源必须是用得上的。
+      - name: 资源使用（定义了没人用 → 只涨包体）
+        run: python3 scripts/check_resources.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   # macOS 资产由 macos.yml 的 tag 构建独立上传（两边对同一 Release 幂等协作：

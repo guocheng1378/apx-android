@@ -25,27 +25,17 @@
     <color name="md_on_surface_variant">#FF5C6066</color>
     <color name="md_outline">#FFE3E5E8</color>
 
-    <!-- 状态语义色（亮底可读版） -->
-    <color name="state_ok">#FF12B76A</color>
-    <color name="state_warn">#FFF79009</color>
     <color name="state_error">#FFF04438</color>
     <color name="state_idle">#FF98A2B3</color>
 
-    <!-- 卡片描边 / 徽章底 -->
+    <!-- 卡片描边 -->
     <color name="card_stroke">#FFEDEDED</color>
 
     <!--
-      MIUIX 液态玻璃底栏（v1.23）：**底栏不铺底板**，玻璃只做在选中的那个胶囊上 ——
-      半透明白主体 + 顶部高光 + 极细亮边；颜色由 values-night 镜像覆盖。
+      触控板页玻璃胶囊（v1.23）顶部的镜面高光；旧底栏的 nav_pill / nav_pill_stroke /
+      nav_pill_shade / nav_pill_halo 已随 View 底栏一起删除（现由 Compose 底栏自绘）。
     -->
-    <!-- 选中胶囊：玻璃主体 / 高光 / 边缘亮线 / 外圈柔光 / 底部内阴影 -->
-    <color name="nav_pill">#D9FFFFFF</color>
     <color name="nav_pill_shine">#59FFFFFF</color>
-    <color name="nav_pill_stroke">#1A000000</color>
-    <color name="nav_pill_halo">#24FFFFFF</color>
-    <color name="nav_pill_shade">#12000000</color>
-    <color name="badge_bg">#FFE8F0FF</color>
-
     <!--
       MIUIX 显式别名（v1.14 引入）：**一律改用 `@color/md_*` 引用**（v1.33）。
       此前是抄一遍同值字面量，等于给漂移留了两个可改点 —— 改 md_* 不会同步到 miuix_*，
@@ -60,8 +50,6 @@
     <color name="miuix_text_tertiary">#FFBDBDBD</color>
     <color name="miuix_divider">@color/md_outline</color>
     <color name="miuix_stroke">@color/card_stroke</color>
-    <color name="miuix_accent">@color/md_primary</color>
-    <color name="miuix_accent_soft">@color/md_primary_container</color>
     <color name="miuix_danger">@color/state_error</color>
 
     <!--
@@ -72,10 +60,6 @@
     <color name="widget_bg">#FF1F2228</color>
     <color name="widget_dot">#FF6E747C</color>
     <color name="widget_text">#FF9BA1AA</color>
-
-    <!-- 副屏全屏页：浮层压在视频画面上，固定黑底半透 + 白字，不随主题 -->
-    <color name="screen_scrim">#99000000</color>
-    <color name="screen_hint_text">#FFFFFFFF</color>
 
     <!--
       被控端输入面板（RemoteInputActivity）：这层是**浮在任意应用之上的深色面板**，
@@ -90,18 +74,9 @@
     <color name="remote_panel_text_dim">#99FFFFFF</color>
     <color name="remote_panel_text_faint">#66FFFFFF</color>
 
-    <!-- 语义红（Material 的 error 红，用于白卡上的「删除」文字与失败态文字） -->
-    <color name="md_error">#FFB3261E</color>
-
-    <!-- 配色方案选择器的色点描边（选中时加粗深描边） -->
-    <color name="dot_stroke_selected">#FF191919</color>
-    <color name="dot_stroke_normal">#33000000</color>
-
     <!-- 桌面小组件：连接正常时的状态色（与 widget_text/widget_dot 同组） -->
     <color name="widget_ok">#FF34D399</color>
 
-    <!-- 悬浮球（issue#44）：此前是写死的亮色白球，深色下不跟随主题 -->
-    <color name="ball_bg">#F2FFFFFF</color>
     <color name="ball_text">#CC000000</color>
     <color name="ball_stroke">#33000000</color>
     <!-- v223.15 MIUI 快捷球：球身外一圈极淡柔光（overlay 无父容器，elevation 画不出阴影） -->
