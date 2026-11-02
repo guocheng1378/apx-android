@@ -104,6 +104,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // 切分类必须回到顶部：四类的段数与高度都不同，沿用上一类的滚动偏移会直接落到空白处
     val pageScroll = rememberScrollState()
     androidx.compose.runtime.LaunchedEffect(cat) { pageScroll.scrollTo(0) }
+    // 返回键（审查条 2.6）：旧设置页有 btnBackHome 回分类首页，随 page_settings.xml 一起丢了。
+    // 分类非 0 时先归零（与上面切分类回顶同一层），归零后让交给外层壳处理页签。
+    androidx.activity.compose.BackHandler(enabled = cat != 0) { cat = 0 }
     val catLabels = listOf(
         ctx.getString(R.string.ui_set_cat_theme), ctx.getString(R.string.ui_set_cat_keys),
         ctx.getString(R.string.ui_set_cat_tools), ctx.getString(R.string.ui_set_cat_data),
