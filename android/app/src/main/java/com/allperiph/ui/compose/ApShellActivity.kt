@@ -54,17 +54,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.window.Dialog
 
 /**
- * 迁移期的**并行宿主**（阶段 2/3 的落点）。
+ * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
  *
- * 已迁移至此的屏：状态页、触控板页。主壳（横竖屏策略、四指切页、键盘页、剪贴板同步、
- * 三指手势遮蔽、设备选择）仍在 [com.allperiph.ui.MainActivity]，等阶段 6 一次性接过来
- * 并切换默认入口 —— 本轮不切 launcher，保证「迁移动码编不过」时整机仍有可用入口。
- *
- * 与旧界面的行为差异：
- *  · 只有两个页签（状态 / 触控板），没有键盘页与设置页；键盘页入口仍走旧主界面；
- *  · 四指左右滑切页未实现（旧逻辑依赖 `Activity.dispatchTouchEvent` + ViewFlipper，
- *    迁移版改为状态驱动的底栏切换，手势切页随主壳一起做）；
- *  · 触控板页不再挂 `PhysKeyBridge`（物理蓝牙键盘转发），该桥接在旧主壳里。
+ * 旧主壳 `com.allperiph.ui.MainActivity` 已删（迁移完成后清理），它承担的职责都在本类落地：
+ * 横竖屏策略（`sensor` + [rememberApAdaptiveLayout] 两栏、重力判读自动切页）、
+ * 剪贴板同步（onResume/onPause 挂 [com.allperiph.ui.ClipboardSync]）、
+ * 横屏触控板页的三指手势遮蔽持有、受控设备选择器（[ApDevicePicker]）。
  */
 class ApShellActivity : ComponentActivity() {
 
@@ -196,7 +191,10 @@ class ApShellActivity : ComponentActivity() {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = if (insets.top > 0.dp) insets.top else 0.dp),
+                    // topPad 此前定义了却没接到这里：真机（v223.22）横屏顶部因此多垫了一条状态栏高的空档。
+                    // 这里回到 topPad 的意图：横屏为 0（内容画到状态栏之下，顶栏是玻璃叠层），
+                    // 竖屏才垫状态栏，否则第一张卡片会被时间/电量压住。
+                    .padding(top = topPad),
             ) {
                 // 顶栏是玻璃叠层、底栏是浮动导航条，两者都盖在内容之上：
                 // 这里给内容留出 64dp（顶栏高）+ 96dp（底栏 + 反馈 #52 第 4 条要求的横屏留白）
