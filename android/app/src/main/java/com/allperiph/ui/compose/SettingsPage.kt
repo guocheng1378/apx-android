@@ -624,6 +624,15 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             )
                         },
                     )
+                    // 审查条 1.9：原来另有一段叫「传输与投屏」，里面只有两枚跳转按钮、没有分类，
+                    // 且「发送文件」与本节重复（两个文案指向同一个 SendActivity）。合并后本节
+                    // 名副其实：文件面板 / 发送文件 / 屏幕，各一枚，文案不重复。
+                    ApComponents.ActionButton(
+                        text = "屏幕（投屏 / 被控）",
+                        onClick = {
+                            ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
+                        },
+                    )
                 }
             }
 
@@ -837,26 +846,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 HotkeyStore.saveCustom(ctx, l)
                                 Toast.makeText(ctx, "已新建：${copy.name}", Toast.LENGTH_SHORT).show()
                             }
-                        },
-                    )
-                }
-            }
-
-            // ———————————————— 传输分类 ————————————————
-            // 三个分类入口：文件（LocalSend 发送）、屏幕（投屏/被控）、接收开关（已在通用组）。
-            // 之前只有"文件面板"一个入口，屏幕与发送各自藏在别的页面里。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_transport)) {
-                Column {
-                    ApComponents.ActionButton(
-                        text = "发送文件（选文件 → 发给目标）",
-                        onClick = {
-                            ctx.startActivity(Intent(ctx, com.allperiph.localsend.SendActivity::class.java))
-                        },
-                    )
-                    ApComponents.ActionButton(
-                        text = "屏幕（投屏 / 被控）",
-                        onClick = {
-                            ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
                         },
                     )
                 }
