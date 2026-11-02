@@ -61,7 +61,10 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -96,6 +99,11 @@ class ApShellActivity : ComponentActivity() {
     companion object {
         /** 「只来选设备」模式：遥控器页带这个 extra 启动时立刻弹设备选择器 */
         const val EXTRA_PICK_DEVICE = "com.allperiph.extra.PICK_DEVICE"
+
+        /** 页签存档键：Activity 万一被重建（进程回收后返回、系统改配置等），
+         *  用它把用户当时停的那一页还原，而不是一律归零到状态页 ——
+         *  归零的表现就是成宇 2026-11-02 反馈的「横屏切换后会先跳状态页再跳回」。 */
+        private const val STATE_PAGE = "com.allperiph.state.PAGE"
     }
 
     override fun attachBaseContext(newBase: Context) {
@@ -115,9 +123,27 @@ class ApShellActivity : ComponentActivity() {
         OrientLock.apply(this)
         pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
         intent?.removeExtra(EXTRA_PICK_DEVICE)
+        // 同上：能在 onSaveInstanceState 保住时优先用存档值（比 intent extra 更贴近
+        // 「用户刚才看的是哪一页」；extra 只在冷启动带参时才有）。
+        savedInstanceState?.getInt(STATE_PAGE, -1)?.takeIf { it >= 0 }?.let { pageState = it }
         setContent {
             ApMiuixTheme { Shell() }
         }
+    }
+
+    /**
+     * 页签存档（v223.29.1 第 3 条「横屏切换后会先跳状态页再跳回」的机制保证）。
+     *
+     * 修法有两层，缺一层都还有可能漏：
+     *   · 声明层：[AndroidManifest] 给本 Activity 列了 orientation、screenSize 等
+     *     configChanges，旋转不重建 Activity，页签自然不丢 —— 这是主路径；
+     *   · 兜底层：万一还是被重建（进程被回收后返回、系统改语言或密度、分屏等），
+     *     把页签存进 Bundle 还原。此前 [pageState] 只是普通字段，重建即归零，
+     *     表现就是「先跳一下状态页，再跳回原来那页」。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(STATE_PAGE, pageState)
     }
 
     @Composable
@@ -387,8 +413,41 @@ class ApShellActivity : ComponentActivity() {
                     .align(barAlign)
                     .then(if (landscape) Modifier.padding(top = 8.dp) else Modifier)
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onLongPress = {
+                        awaitEachGesture {
+                            // ⚠️ 必须走 Initial pass：低栏四个页签都是 clickable，事件在
+                            // Main pass 里会被页签先消费掉 —— 上一版把 detectTapGestures
+                            // 挂在父 Box 上走 Main pass，永远等不到未消费的 down，于是
+                            // 「长按悬浮低栏」在页签上完全没有反应（真机 2026-11-02）。
+                            // Initial pass 是父级先看：这里只观察、不抢先消费，
+                            // 正常点按依旧归页签；长按成立后才把剩余序列吃掉。
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial,
+                            )
+                            val start = down.position
+                            // 650ms 内没等到「抬手 / 位移超 slop」→ 长按成立
+                            val released = withTimeoutOrNull(650L) {
+                                var lifted = false
+                                while (true) {
+                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                    val c = ev.changes.firstOrNull { it.id == down.id }
+                                        ?: ev.changes.firstOrNull()
+                                    if (c == null) continue
+                                    if (!c.pressed) { lifted = true; break }
+                                    if ((c.position - start).getDistance() >
+                                        viewConfiguration.touchSlop
+                                    ) { lifted = true; break }
+                                }
+                                lifted
+                            }
+                            if (released == null) {
+                                // 长按成立：把剩余序列在 Initial pass 里标记消费，
+                                // 页签的 clickable 在 Main pass 看到已消费就不会再当点击
+                                while (true) {
+                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                    ev.changes.forEach { it.consume() }
+                                    if (ev.changes.none { it.pressed }) break
+                                }
                                 // Shell() 里没有 LocalContext 的 `ctx`：这个函数有自己的
                                 // this@ApShellActivity（Activity 本身就是 Context），
                                 // 直接用它，别再引入一个可能为 null 的局部变量。
@@ -400,8 +459,8 @@ class ApShellActivity : ComponentActivity() {
                                         android.widget.Toast.LENGTH_SHORT,
                                     ).show()
                                 }
-                            },
-                        )
+                            }
+                        }
                     },
             ) {
                 FloatingNavigationBar(

@@ -82,9 +82,34 @@ fun ApTouchpadSurface(
 
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val accent = remember { ApAccent.resolved(ctx) }
-    // 服务在跑也未必有出口：没选受控设备、USB 没挂上、蓝牙没连 —— 手势同样发不出去。
+    // ★ 判据是**触控板模块是否真的在跑**，而不是编排层的意愿位
+    //   `AgentController.running`。两者会分叉，且分叉出来的正是本轮的现场：
+    //   主界面被系统回收 / 被划掉之后，进程由悬浮球的闹钟自愈单起
+    //   （见 FloatingBallKeepAlive），球与浮窗都在，模块也已由
+    //   [com.allperiph.ui.FloatingBallService.ensureTouchpadReady] 拉起 ——
+    //   可 `running` 仍是 false，旧判据于是让浮窗顶着「服务未启动」的提示，
+    //   而手势其实发得出去（成宇 2026-11-02「触控板页提示服务未启动，与状态页
+    //   显示运行中不一致」）。改成读模块状态：它既是「手势能不能发」的真正判据，
+    //   也和状态页显示的是同一件事。
+    //   另外轮询一次：模块起来得比首帧晚（start 含 root/configfs 阻塞操作，
+    //   走 io 线程），不轮询的话提示会一直停在「服务未启动」。
+    var moduleOn by remember {
+        mutableStateOf(
+            (com.allperiph.ui.AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD)
+                as? com.allperiph.touchpad.TouchpadModule)?.state?.isActive == true
+        )
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            val on = (com.allperiph.ui.AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD)
+                as? com.allperiph.touchpad.TouchpadModule)?.state?.isActive == true
+            if (on != moduleOn) moduleOn = on
+            kotlinx.coroutines.delay(700L)
+        }
+    }
+    val serviceOff = !moduleOn
+    // 模块在跑也未必有出口：没选受控设备、USB 没挂上、蓝牙没连 —— 手势同样发不出去。
     // [HidMouse.exit] 只是预计出口（读内存，不发送），正是这里要的判据。
-    val serviceOff = !com.allperiph.ui.AgentController.running
     val noExit = !serviceOff && !com.allperiph.hid.HidMouse.available()
     val autoHint = when {
         serviceOff -> ctx.getString(R.string.ui_touchpad_hint_service_off)
