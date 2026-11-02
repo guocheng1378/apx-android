@@ -45,6 +45,17 @@ class LocalSendService : Service() {
         private const val NOTIFY_FGS = 0x105E
         private const val ANNOUNCE_PERIOD_MS = 30_000L
         private const val REGISTER_DEDUP_MS = 30_000L
+        /**
+         * 接收端此刻是否真的在跑（进程内静态）。
+         *
+         * 设置页此前只看 `localsend_enabled` 这个**意愿位**，于是重启后开关还是「开」，
+         * 服务却早就没了；这一位给它一个能对账的事实来源（审查 v5 §9.3 的补丁 0004）。
+         * 与 `FloatingBallService.isRunning` 同一套写法：意愿位、实况位分开。
+         */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
+
         fun start(context: Context) = context.startForegroundService(Intent(context, LocalSendService::class.java).setAction(ACTION_START))
         fun stop(context: Context) = context.startService(Intent(context, LocalSendService::class.java).setAction(ACTION_STOP))
     }
@@ -94,6 +105,7 @@ class LocalSendService : Service() {
 
     private fun startAll() {
         running = true
+        isRunning = true
         val n = Notification.Builder(this, CHAN_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("LocalSend 互传")
@@ -139,6 +151,7 @@ class LocalSendService : Service() {
 
     private fun teardown() {
         running = false
+        isRunning = false
         mainHandler.removeCallbacksAndMessages(null)
         try { multicast?.leaveGroup(InetSocketAddress(LocalSendProtocol.MULTICAST_GROUP, LocalSendProtocol.MULTICAST_PORT), null) } catch (_: Throwable) {}
         try { multicast?.close() } catch (_: Throwable) {}
