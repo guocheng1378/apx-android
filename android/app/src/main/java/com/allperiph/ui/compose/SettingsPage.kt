@@ -94,7 +94,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     val apxPrefs = remember { ctx.getSharedPreferences("apx", Context.MODE_PRIVATE) }
     var cursorLock by remember { mutableStateOf(apxPrefs.getBoolean("cursor_lock", true)) }
     var shield by remember { mutableStateOf(GestureShield.isEnabled(ctx)) }
-    var localSend by remember { mutableStateOf(apxPrefs.getBoolean("localsend_enabled", false)) }
+    // 开关显示**实况**，不显示意愿位：`localsend_enabled` 只是「用户希望开着」的记录，
+    // 进程一死服务就没了，重启后开关却还是「开」（审查 v5 §9.3 的补丁 0004）。
+    var localSend by remember { mutableStateOf(com.allperiph.localsend.LocalSendService.isRunning) }
+    val localSendWanted = apxPrefs.getBoolean("localsend_enabled", false)
 
     // 大屏（平板 / 折叠展开 / 横屏）不再把设置项拉满整屏：限宽 680dp 并水平居中；
     // 手机宽度本来就 < 680dp，限宽不生效，观感与之前一致。
@@ -308,7 +311,11 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                     ApComponents.SwitchRow(
                         title = "LocalSend 互传",
-                        summary = "开启后在局域网内接收文件",
+                        summary = if (localSendWanted && !localSend) {
+                            ctx.getString(R.string.ui_set_sum_localsend_stale)
+                        } else {
+                            "开启后在局域网内接收文件"
+                        },
                         checked = localSend,
                         onCheckedChange = { on ->
                             localSend = on

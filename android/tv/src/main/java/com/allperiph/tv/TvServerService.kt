@@ -68,7 +68,7 @@ class TvServerService : Service() {
         TvInjector.init(applicationContext, TvInjectorPlatform)
         // 审查条 1.10：电视端两个浮层都靠悬浮窗权限，没权限时以前只在 addView 那一步静默失败。
         // 服务每次起来都测一次（同一进程只提示一次），把「装了不一定看得见」变成能自查的问题。
-        com.allperiph.tv.ui.TvOverlayPermission.checkAndGuide(this, "通知与收文件浮窗")
+        com.allperiph.tv.ui.TvOverlayPermission.checkAndGuide(this, getString(R.string.tv_overlay_scene))
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
     private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }

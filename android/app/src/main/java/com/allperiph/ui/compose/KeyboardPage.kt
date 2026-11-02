@@ -365,7 +365,10 @@ private fun CustomLayout(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = ctx.getString(R.string.ui_touchpad_text_edit_longpress), fontSize = 14.sp)
+                // 原来复用的是触控板页那句「长按「自定义」页签编辑布局」—— 可这一页的页签
+                // 只接了 clickable，全仓也没有长按处理，照着提示做永远没反应（审查 v5
+                // 初稿把这里算成死路；复核后确认下方那枚「编辑」按钮是能用的，所以只是文案错）。
+                Text(text = ctx.getString(R.string.ui_kb_custom_empty_hint), fontSize = 14.sp)
             }
         } else {
             rows.forEach { labels ->

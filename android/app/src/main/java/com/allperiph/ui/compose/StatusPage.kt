@@ -163,7 +163,9 @@ fun StatusPage(
                     R.string.ui_remote_text_remote to {
                         ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
                     },
-                    R.string.ui_hotkey_title_edit to { onNavigate(2) },
+                    // 组合键的编辑弹窗在触控板页的网格下方（v223.27 之后主壳唯一入口），
+                    // 不在键盘页 —— 键盘页只编辑「自定义布局」行表（审查 v5 §9.2-B）。
+                    R.string.ui_hotkey_title_edit to { onNavigate(1) },
                 )
                 quick.chunked(3).forEach { row ->
                     Row(
@@ -317,10 +319,50 @@ fun StatusPage(
                     title = ctx.getString(R.string.ui_home_env_battery),
                     value = state.batteryLabel,
                 )
+                // 只读文字是这次迁移丢掉的一步：旧主界面有 btnBattery（ACTION_IGNORE_BATTERY_
+                // OPTIMIZATION），迁 Compose 后只剩「未忽略」四个字，用户知道有问题却没处点。
+                // 这里给一枚按钮进「电池优化」列表页；不用带包名的直接请求，那需要多一条
+                // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 权限（审查 v5 §9.3）。
+                if (!state.batteryWhitelisted) {
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_battery_whitelist),
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                                )
+                            }
+                        },
+                    )
+                }
                 ApComponents.ValueRow(
                     title = ctx.getString(R.string.ui_home_env_notify),
                     value = state.notifyLabel,
                 )
+                // 同一屏里无障碍那行本来就能跳（设置页 :651），通知权限却只有四个字，
+                // 不一致比整段缺失更像故障（审查 v5 §9.3）。
+                if (!state.notifyGranted) {
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_notify_settings),
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName),
+                                )
+                            }.onFailure {
+                                runCatching {
+                                    ctx.startActivity(
+                                        Intent(
+                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            android.net.Uri.fromParts("package", ctx.packageName, null),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                }
                 Text(
                     text = if (state.rooted) ctx.getString(R.string.hint_usb_ok)
                     else ctx.getString(R.string.hint_usb2),
@@ -402,6 +444,10 @@ private class StatusVm(
     val udc: String,
     val batteryLabel: String,
     val notifyLabel: String,
+    /** 是否已加入电池优化白名单（true 才不需要提示去设置） */
+    val batteryWhitelisted: Boolean,
+    /** 通知权限是否已授予 */
+    val notifyGranted: Boolean,
 )
 
 /**
@@ -498,9 +544,16 @@ private fun snapshot(ctx: Context): StatusVm {
         controlledLabel = if (ControlledService.running) ctx.getString(R.string.ui_home_controlled_on)
         else ctx.getString(R.string.ui_home_controlled_off),
         udc = env?.udc ?: ctx.getString(R.string.ui_home_env_udc_none),
-        batteryLabel = if (env?.batteryOptimized == true) ctx.getString(R.string.ui_home_env_battery_ok)
+        // EnvChecks.batteryOptimized == true 表示**没有**加白名单（它取的是
+        // !isIgnoringBatteryOptimizations，摘要里也写「没加入省电白名单」），所以
+        // 「已忽略（推荐）」要在它为 false 时显示。原来看反了：没加白名单时反而告诉
+        // 用户「已忽略（推荐）」，等于把该处理的事说成已处理（审查 v5 §9.3）。
+        // env 为 null（还没检测）时不给绿灯。
+        batteryLabel = if (env != null && !env.batteryOptimized) ctx.getString(R.string.ui_home_env_battery_ok)
         else ctx.getString(R.string.ui_home_env_battery_no),
         notifyLabel = if (env?.notificationGranted == true) ctx.getString(R.string.ui_home_env_notify_ok)
         else ctx.getString(R.string.ui_home_env_notify_no),
+        batteryWhitelisted = env != null && !env.batteryOptimized,
+        notifyGranted = env?.notificationGranted == true,
     )
 }

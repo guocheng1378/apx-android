@@ -91,12 +91,6 @@ class ApShellActivity : ComponentActivity() {
     @Volatile
     private var adaptiveState: com.allperiph.ui.miuix.ApAdaptiveLayout? = null
 
-    /**
-     * 方向锁定开关的 Compose 镜像：偏好本身是普通 SharedPreferences，读不出「变了」，
-     * 所以 onResume 现读一次写进这个 State，Shell 里的重力切页据此暂停/恢复。
-     */
-    private var orientLocked = mutableStateOf(false)
-
     companion object {
         /** 「只来选设备」模式：遥控器页带这个 extra 启动时立刻弹设备选择器 */
         const val EXTRA_PICK_DEVICE = "com.allperiph.extra.PICK_DEVICE"
@@ -117,20 +111,6 @@ class ApShellActivity : ComponentActivity() {
         // 方向锁定（审查条 1.1）：按偏好钉住/放开本 Activity 的朝向。必须在 setContent 之前，
         // 否则首帧会按系统朝向排版一次再被改回来（真机上表现为「闪一下才转」）。
         OrientLock.apply(this)
-        // v223.28 返回键语义（成宇 2026-11-02 两条真机反馈合在这里）：
-        // ① 悬浮球有展开层（扇形菜单 / 触控板·键盘·手柄·设备浮窗面板）时先收它并吃掉这次返回 ——
-        //    那些是 overlay 窗口，BACK 永远轮不到它们，此前在主壳按返回会把整个界面退掉；
-        // ② 没有展开层才弹退出确认 —— 旧 MainActivity 的退出确认在 Compose 迁移时整块丢了，
-        //    现在按返回直接 finish，用户既没机会知道「外设还在后台跑」，也没机会停掉它。
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : androidx.activity.OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return
-                    showExitAsk.value = true
-                }
-            },
-        )
         pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
         intent?.removeExtra(EXTRA_PICK_DEVICE)
         setContent {
@@ -172,17 +152,26 @@ class ApShellActivity : ComponentActivity() {
         }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
-        // 返回键（审查条 2.6）：单 Activity 多页，此前全壳零 BackHandler —— 在设置二级页、
-        // 键盘页、触控板页按返回键直接退回桌面。旧设置页有 btnBackHome 回分类首页，
-        // 那条随 page_settings.xml 一起消失了。这里按「先关弹窗 → 回状态页 → 才退出」兜住；
-        // 设置页内部的分类归零由 SettingsPage 自己的 BackHandler 处理（它持有 cat 状态）。
-        BackHandler(enabled = pickerOpen || page != 0) {
+        // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
+        //
+        // 前一版把「先收悬浮层、否则弹退出确认」注册在 onCreate 的 onBackPressedDispatcher 上，
+        // 而这里的 Compose BackHandler 是组合期后注册的 —— OnBackPressedDispatcher 后注册先响应，
+        // 于是只要不在状态页，返回键只做了「回状态页」，扇形菜单与触控板/键盘浮窗留在屏幕上；
+        // 只有恰好停在状态页时才会走到收层逻辑。现在按优先级在一处走完：
+        //   悬浮层 → 设备选择器 → 回状态页 → 退出确认。
+        // 设置页内部的分类归零仍由 SettingsPage 自己的 BackHandler 处理（它持有 cat 状态）。
+        BackHandler(enabled = true) {
+            if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return@BackHandler
             if (pickerOpen) {
                 pickerOpen = false
-            } else {
+                return@BackHandler
+            }
+            if (page != 0) {
                 page = 0
                 pageState = 0
+                return@BackHandler
             }
+            showExitAsk.value = true
         }
         // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
         androidx.compose.runtime.LaunchedEffect(landscape, page) {
@@ -228,8 +217,11 @@ class ApShellActivity : ComponentActivity() {
         // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
         // 节流 1.5s：旋转过程中传感器会连报，不节流会来回抖。
         // 方向锁定：开启时重力判读不再抢页（见 OrientLock 的 KDoc：锁 = 什么都别动）。
-        // 放在 LaunchedEffect 之前读：它既是 key，也是门禁。
-        val locked = orientLocked.value
+        // **每次组合都现读偏好**，不要缓存成字段：设置页是在同一个 Activity 里拨开关的，
+        // 缓存只在 onResume 更新的话，本会话里重力判读还按旧值跑 —— 用户开了「锁定」、
+        // 回到触控板页一转手机，页面照样被换成键盘页，得退到后台再回来才生效
+        // （审查 v5 §9.2-A）。切页会重组 Shell，所以现读的值能跟上开关。
+        val locked = OrientLock.isOn(this@ApShellActivity)
         androidx.compose.runtime.LaunchedEffect(orientationLandscape, locked) {
             if (locked) return@LaunchedEffect
             val target = when {
@@ -394,21 +386,21 @@ class ApShellActivity : ComponentActivity() {
                         selected = page == 0,
                         onClick = { page = 0 },
                         icon = MiuixIcons.Home,
-                        label = "状态",
+                        label = stringResource(R.string.ui_nav_status),
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
                         selected = page == 1,
                         onClick = { page = 1 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_touchpad),
-                        label = "触控板",
+                        label = stringResource(R.string.ui_nav_touchpad),
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
                         selected = page == 2,
                         onClick = { page = 2 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_keyboard),
-                        label = "键盘",
+                        label = stringResource(R.string.ui_nav_keyboard),
                         enabled = true,
                     )
                     // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表，
@@ -420,7 +412,7 @@ class ApShellActivity : ComponentActivity() {
                         selected = page == 3,
                         onClick = { page = 3 },
                         icon = MiuixIcons.Settings,
-                        label = "设置",
+                        label = stringResource(R.string.ui_nav_settings),
                         enabled = true,
                     )
                 }
@@ -485,8 +477,8 @@ class ApShellActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 方向锁定：设置页改完返回时偏好已变，这里现读一次并同步给 Compose（幂等）
-        orientLocked.value = OrientLock.isOn(this)
+        // 方向锁定：设置页改完返回时偏好已变，这里按偏好重新钉/放（幂等）。
+        // 重力判读的门禁在 Shell 组合期现读偏好，不经过这里。
         OrientLock.apply(this)
         // 剪贴板同步（旧主壳里由 MainActivity 挂载，迁到新宿主后同一个入口）
         com.allperiph.ui.ClipboardSync.register(this)
