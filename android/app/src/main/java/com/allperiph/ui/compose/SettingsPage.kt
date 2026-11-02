@@ -581,7 +581,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 }
             }
 
-            // ———————————————— 遥控与键盘 ————————————————
+            // ———————————————— 键盘与无障碍 ————————————————
             // ⚠️ 必须用 GlobalKeyForwarder 自己的偏好（`apx_ime_bridge`）：App.onCreate 只从这里
             // 恢复开关。此前这里读写的都是 `apx` 里的 `global_keys`，内存字段当场改所以本会话有效，
             // 但进程重启后读不到 → 开关自己弹回关闭，用户看到的就是「开了不生效」。

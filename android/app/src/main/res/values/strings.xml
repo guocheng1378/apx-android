@@ -267,7 +267,7 @@
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
     <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
-    <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 到「设置 → 遥控与键盘 → 选择受控设备」里选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
+    <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 在「状态 → 受控与出口」点「选择受控设备」选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
     <string name="ui_help_open_full">查看完整说明</string>
     <string name="ui_help_close">关闭</string>
     <string name="ui_home_section_state">运行状态</string>
@@ -338,7 +338,7 @@
     <string name="ui_set_audio_group_count">已开 %1$d / 2 路</string>
     <string name="ui_set_audio_chevron_closed">▸</string>
     <string name="ui_set_audio_chevron_open">▾</string>
-    <!-- v223.27 顶栏整块去除后，设备选择器的常驻入口落在设置页「遥控与键盘」 -->
+    <!-- v223.27 顶栏整块去除后的选择器常驻入口；v223.28 已上移到状态页「受控与出口」 -->
     <string name="ui_pick_device_title">选择受控设备</string>
     <string name="ui_pick_device_local">本机 / PC（默认：不控制别的设备）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>
