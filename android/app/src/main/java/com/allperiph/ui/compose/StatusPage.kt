@@ -277,14 +277,21 @@ fun StatusPage(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
                                 ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state, dark))
-                                Switch(
-                                    checked = row.enabled,
-                                    onCheckedChange = { on ->
-                                        Feedback.haptic(ctx)
-                                        AgentController.setModuleEnabled(ctx, row.id, on)
-                                        tick++
-                                    },
-                                )
+                                // 成宇 2026-11-03「状态页给个开关不能控制子开关，
+                                // 总开关关了应该隐藏下面的子开关」：总开关没开时这一行只留状态点。
+                                // 以前总开关关着、子开关还亮着可拨，拔了也不会有任何效果
+                                // （模块只在 Agent 运行时才注册），等于给用户一个假开关。
+                                // 子开关的启用态仍记在 AgentController 里，总开关一开就按原样回显。
+                                if (running) {
+                                    Switch(
+                                        checked = row.enabled,
+                                        onCheckedChange = { on ->
+                                            Feedback.haptic(ctx)
+                                            AgentController.setModuleEnabled(ctx, row.id, on)
+                                            tick++
+                                        },
+                                    )
+                                }
                             }
                         },
                     )

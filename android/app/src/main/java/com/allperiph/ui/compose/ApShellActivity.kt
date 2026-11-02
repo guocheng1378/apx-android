@@ -322,7 +322,13 @@ class ApShellActivity : ComponentActivity() {
                             topBar = topGap,
                             bottomGap = bottomGap,
                         )
-                        2 -> ApKeyboardPage(topBar = topGap, bottomGap = bottomGap)
+                        // 成宇 2026-11-03「键盘页可以再往上点」：横屏 96dp 的顶部让位是给
+                        // **右上角**那枚低栏留的，但低栏只占右半屏，键盘页整块跟着下移 96dp
+                        // 白白丢掉一截高度。这里横屏只留 24dp（页签行仍在低栏左侧，不会被压住）。
+                        2 -> ApKeyboardPage(
+                            topBar = if (landscape) 24.dp else topGap,
+                            bottomGap = bottomGap,
+                        )
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
@@ -408,10 +414,16 @@ class ApShellActivity : ComponentActivity() {
             // 才加 36dp 内侧留白）。所以横屏必须把 End 一起传下去，否则「挪到右上角」
             // 只会变成「贴到最上面、仍然水平居中」。
             val barHorizontal = if (landscape) Alignment.End else Alignment.CenterHorizontally
+            // ⚠️ 这层 Box 必须自己限宽：FloatingNavigationBar 的根 Column 是 fillMaxWidth，
+            // 在不受限的 Box 里会把宽度撑满整行 —— 于是这枚带长按手势的 Box 在横屏时变成
+            // 「整条顶部横带」，把左上角设置页分类列的点击全吃了（成宇 2026-11-03
+            // 「横屏时设置页分组不能切换了」，真机 input tap 复现：页签能点、分组点不动）。
+            // 限到 440dp 后触摸判定跟胶囊走，横屏左列、竖屏底栏两侧的内容恢复可点。
             Box(
                 modifier = Modifier
                     .align(barAlign)
                     .then(if (landscape) Modifier.padding(top = 8.dp) else Modifier)
+                    .widthIn(max = 440.dp)
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             // ⚠️ 必须走 Initial pass：低栏四个页签都是 clickable，事件在
