@@ -99,7 +99,15 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(text = ctx.getString(R.string.ui_kb_hotkeys_longpress), fontSize = 13.sp)
+            // 标题跟随面板（成宇 2026-11-02「快捷键字应该和全键盘一起的」）：此前这里固定写
+            // 「快捷键（长按可编辑）」，切到虚拟键盘时和面板自己的「全键盘」标题叠着，
+            // 两个名字指一页；现在全键盘态显示「全键盘」，快捷面板态显示「快捷键（长按可编辑）」。
+            Text(
+                text = ctx.getString(
+                    if (panel == 0) R.string.ui_kb_full else R.string.ui_kb_hotkeys_longpress,
+                ),
+                fontSize = 13.sp,
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
                 // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
@@ -353,10 +361,12 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
         modifier = Modifier.fillMaxSize()
             .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + bottomGap),
     ) {
-        // —— 第 1 行：标题 + 关闭（弹窗形态才画）——
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
-            if (onClose != null) {
+        // —— 第 1 行：标题 + 关闭 ——
+        // 只在弹窗形态画：主屏面板形态的标题由页首那行面板标题承担（v223.25 起
+        // 页首标题跟随面板），这里再画一遍就是「全键盘」出现两次。
+        if (onClose != null) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
                 ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_close),
                     onClick = { onClose.invoke() },

@@ -42,10 +42,13 @@ fun hazeSupported(): Boolean = Build.VERSION.SDK_INT >= 33
 /**
  * 顶栏渐进模糊：满强度模糊 → 底边渐隐，内容从栏下滚过。
  * 不能用的机器退化为纯色底（不是"不显示顶栏"）。
+ *
+ * [title] 可空：横屏时顶栏按设计盖住状态栏（topPad = 0），再画标题会和系统时间/电量
+ * 叠字（成宇 2026-11-02「横屏时顶栏的标题不要」）—— 横屏传 null，只留玻璃底。
  */
 @Composable
 fun ApGlassTopBar(
-    title: String,
+    title: String?,
     onDeviceClick: (() -> Unit)? = null,
     hazeState: HazeState?,
     modifier: Modifier = Modifier,
@@ -80,12 +83,15 @@ fun ApGlassTopBar(
             ),
         contentAlignment = Alignment.BottomStart,
     ) {
-        Text(
-            text = title,
-            fontSize = 20.sp,
-            color = MiuixTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 20.dp, bottom = 10.dp),
-        )
+        // 标题为空（横屏盖状态栏）就不画文字，玻璃底照常模糊状态栏那一条
+        if (title != null) {
+            Text(
+                text = title,
+                fontSize = 20.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 20.dp, bottom = 10.dp),
+            )
+        }
     }
 }
 

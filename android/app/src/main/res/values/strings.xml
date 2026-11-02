@@ -332,11 +332,11 @@
     <string name="ui_set_sec_audio_dir">音频方向</string>
     <string name="ui_set_label_usb_mic">USB 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_usb_mic">走 UAC2 声卡；运行中立即生效，否则下次连接生效</string>
-    <string name="ui_set_label_usb_spk">USB 音频 · 音箱（电脑 → 手机）</string>
+    <string name="ui_set_label_usb_spk">USB 音频 · 音响（电脑 → 手机）</string>
     <string name="ui_set_sum_usb_spk">两个方向都关掉时模块挂起待命，不会报错</string>
     <string name="ui_set_label_wifi_mic">Wi‑Fi 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_wifi_mic">走局域网媒体连接，需要电脑端已连入</string>
-    <string name="ui_set_label_wifi_spk">Wi‑Fi 音频 · 音箱（电脑 → 手机）</string>
+    <string name="ui_set_label_wifi_spk">Wi‑Fi 音频 · 音响（电脑 → 手机）</string>
     <string name="ui_set_sum_wifi_spk">Wi‑Fi 与 USB 音频可并存，各自独立开关</string>
     <string name="ui_set_sec_input">输入与外设</string>
     <string name="ui_set_btn_gamepad">虚拟手柄（全屏双摇杆）</string>
@@ -350,4 +350,10 @@
     <string name="ui_ball_order_title">顺序（从上到下即扇形展开顺序）</string>
     <string name="ui_kb_panel_keys">虚拟键盘</string>
     <string name="ui_kb_panel_hot">快捷面板</string>
+    <!-- v223.25 音频方向折叠分组（成宇 2026-11-02）：按 麦克风 / 音响 两组收起，点组头展开才出现子开关 -->
+    <string name="ui_set_audio_group_mic">麦克风（手机 → 电脑）</string>
+    <string name="ui_set_audio_group_spk">音响（电脑 → 手机）</string>
+    <string name="ui_set_audio_group_count">已开 %1$d / 2 路</string>
+    <string name="ui_set_audio_chevron_closed">▸</string>
+    <string name="ui_set_audio_chevron_open">▾</string>
 </resources>
