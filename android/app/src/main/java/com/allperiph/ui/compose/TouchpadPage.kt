@@ -103,7 +103,12 @@ fun TouchpadPage(
     var scrolledAway by remember { mutableStateOf(false) }
     val rightDragTask = remember { Runnable { if (!scrolledAway) onLongPressRightDrag() } }
 
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    // 审查条 2.3：侧列此前固定 320dp，600dp 屏上手势面只剩 280dp（手机横屏正好落在
+    // 640–720dp 这一段）。改成按宽度取比例并夹在 180–320dp：600dp → 228dp（手势面 372dp），
+    // 842dp 以上才回到 320dp 的旧观感。
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val wide = screenWidthDp >= 600
+    val sideWidth = (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
     Row(modifier = Modifier.fillMaxSize()) {
       Column(modifier = Modifier.weight(1f)) {
         // —— 手势面 ——
@@ -206,7 +211,7 @@ fun TouchpadPage(
       // 横屏（issue #52 建议 4）：保持顶栏与底栏不变，只把快捷键挪到右侧窄列，
       // 主区仍是手势面 —— 不做"右上角按钮组"，也不隐藏底栏
       if (wide) {
-          Box(modifier = Modifier.width(320.dp).fillMaxHeight()) {
+          Box(modifier = Modifier.width(sideWidth).fillMaxHeight()) {
               HotkeyGrid(ctx = ctx, topBar = topBar, bottomGap = bottomGap)
           }
       }
