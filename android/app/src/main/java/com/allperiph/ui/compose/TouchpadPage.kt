@@ -257,8 +257,18 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
 
 @Composable
 private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = Modifier) {
-    ApComponents.NarrowButton(
+    // 快捷键皮肤（审查条 1.2）：`ApSkin.HOTKEY` 此前全仓零消费者——设置页「皮肤」段有
+    // 「快捷键」一行，选了任何预设都没有任何界面变化。迁移前是有的（旧 MainActivity:871
+    // 与 TouchpadFragment:271 用 ThemeSkin.HOTKEY 的强调色给 chip 上色）。这里接回：
+    // 走 ApPalette.accentOf(ctx, ApSkin.HOTKEY)——选了皮肤取它，没选就落回主题主色，
+    // 与全局 MiuixTheme 同一取色口径（不含另一套 ThemeSkin 值）。
+    val tint = remember(ctx) {
+        Color(com.allperiph.ui.ApPalette.accentOf(ctx, com.allperiph.ui.ApSkin.HOTKEY))
+    }
+    ApComponents.TabChip(
         text = combo.label,
+        selected = false,
+        accent = tint,
         onClick = {
             ApMotion.tap(ctx)
             HidKeys.combo(combo)
