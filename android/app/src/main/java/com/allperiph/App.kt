@@ -66,6 +66,15 @@ class App : Application() {
             com.allperiph.touchpad.RootPointerBridge.prefs(this)
         )
         registerActivityLifecycleCallbacks(ShieldLifecycle)
+        // 成宇 2026-11-02「悬浮窗不会自动拉起」：悬浮球此前是纯手动开关 ——
+        // 用户开着球，进程被系统回收 / 手机重启后，球就再也不回来，得手动去设置页再打开一次。
+        // 这里在进程起点做自愈（只认「用户意愿位」[FloatingBallService.isOn]，
+        // 关过悬浮球的用户不会被强行拉起）：
+        //   · 有悬浮窗权限 → 直接重新起前台服务，球立刻回来；
+        //   · 没有权限 → 只能等用户下次开界面时再要（这里不弹系统页，进程起点弹窗很唐突）。
+        // 冷却判定放在服务里：进程若是被反复拉起，也不会把球切成一条闪烁的动画。
+        runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this) }
+            .onFailure { com.allperiph.shared.util.Log.w("App", "悬浮球自愈失败：${'$'}{it.message}") }
     }
 
     /**

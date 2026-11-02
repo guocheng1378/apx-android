@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快捷项图标：副屏 / 投屏（显示器 + 底座）
+     单色遮罩（strokeColor 固定 #FF000000），实际颜色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.8,5.4 a1.6,1.6 0 0 1 1.6,-1.6 h15.2 a1.6,1.6 0 0 1 1.6,1.6 v9.2 a1.6,1.6 0 0 1 -1.6,1.6 h-15.2 a1.6,1.6 0 0 1 -1.6,-1.6 z" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,20 h6 M12,16.2 v3.8" />
+</vector>

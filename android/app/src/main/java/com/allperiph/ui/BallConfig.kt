@@ -26,15 +26,18 @@ object BallConfig {
     const val CONSOLE = "console"
     const val KEYBOARD = "keyboard"
     const val GAMEPAD = "gamepad"
+    const val CLIPBOARD = "clipboard"
+    const val SCREEN = "screen"
     const val QUIT = "quit"
 
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
-        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
+        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN,
+        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
     )
 
     /** 首次打开时的默认四项 —— 与旧版写死菜单的主干一致 */
-    val DEFAULT: List<String> = listOf(TOUCHPAD, DEVICES, FILES, QUIT)
+    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, QUIT)
 
     /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏 */
     const val ITEM_DP = 52
@@ -57,6 +60,8 @@ object BallConfig {
         CONSOLE -> R.string.ui_ball_fn_console
         KEYBOARD -> R.string.ui_ball_fn_keyboard
         GAMEPAD -> R.string.ui_ball_fn_gamepad
+        CLIPBOARD -> R.string.ui_ball_fn_clipboard
+        SCREEN -> R.string.ui_ball_fn_screen
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
@@ -71,6 +76,8 @@ object BallConfig {
         CONSOLE -> R.drawable.ic_apx_expand
         KEYBOARD -> R.drawable.ic_apx_keyboard
         GAMEPAD -> R.drawable.ic_apx_gamepad
+        CLIPBOARD -> R.drawable.ic_apx_clipboard
+        SCREEN -> R.drawable.ic_apx_screen
         QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
@@ -103,6 +110,9 @@ object BallConfig {
             .apply()
     }
 
+    /** v223.29 升级补挂标记：剪贴板 / 副屏两项加入菜单后只补一次 */
+    private const val KEY_MIGRATED_V3 = "migrated_v3"
+
     /**
      * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
      * 这里只把**清单里没有**的两项追加到尾部，一次即可（标记位防重复）；用户之后删掉
@@ -110,15 +120,29 @@ object BallConfig {
      */
     fun ensureNewItems(ctx: Context) {
         val p = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        if (p.getBoolean(KEY_MIGRATED_V2, false)) return
-        val cur = p.getString(KEY_ITEMS, null)
-        if (cur != null) {
-            val kept = cur.split(",").map { it.trim() }
-            val add = listOf(KEYBOARD, GAMEPAD).filter { it !in kept }
-            if (add.isNotEmpty()) {
-                p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+        if (!p.getBoolean(KEY_MIGRATED_V2, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                val add = listOf(KEYBOARD, GAMEPAD).filter { it !in kept }
+                if (add.isNotEmpty()) {
+                    p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+                }
             }
+            p.edit().putBoolean(KEY_MIGRATED_V2, true).apply()
         }
-        p.edit().putBoolean(KEY_MIGRATED_V2, true).apply()
+        // v223.29：成宇反馈「悬浮窗要加剪贴板，副屏功能」—— 同样只补一次，
+        // 且仍尊重用户之后的手工增删（删了就删了，不再回补）
+        if (!p.getBoolean(KEY_MIGRATED_V3, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                val add = listOf(CLIPBOARD, SCREEN).filter { it !in kept }
+                if (add.isNotEmpty()) {
+                    p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+                }
+            }
+            p.edit().putBoolean(KEY_MIGRATED_V3, true).apply()
+        }
     }
 }

@@ -5,17 +5,16 @@
 
   梯度含义（沿用 4dp 基准）：
     space_2  发丝缝（徽章与文字、勾选与标签）
-    space_4  紧凑内缩（行内元素之间）
     space_8  常规小间距（行与行之间）
     space_12 卡片下边距 / 组与组之间
 
   注：v223.23 起界面主体已迁 Compose，那侧直接用 dp 字面量（Compose 里没法引用
-  XML dimen）；这里的 token 只服务剩下三处 XML 视图：浮动球、触控板面板、桌面小组件。
+  XML dimen）；这里的 token 只服务剩下两处 XML 视图：浮动球、桌面小组件。
+  （触控板悬浮面板 v223.29 迁 Compose 后不再引用 dimen，space_4 随之无人引用、一并删除。）
   空态提示那类大留白随旧设置页一起消失后，space_24 已无人引用，v223.23 一并删除。
 -->
 <resources>
     <dimen name="space_2">2dp</dimen>
-    <dimen name="space_4">4dp</dimen>
     <dimen name="space_8">8dp</dimen>
     <dimen name="space_12">12dp</dimen>
 </resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快捷项图标：剪贴板同步（夹板 + 顶部卡扣）
+     单色遮罩（strokeColor 固定 #FF000000），实际颜色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,4.6 h6 a1.6,1.6 0 0 1 1.6,1.6 v0.4 h1.4 a1.6,1.6 0 0 1 1.6,1.6 v11.2 a1.6,1.6 0 0 1 -1.6,1.6 h-12 a1.6,1.6 0 0 1 -1.6,-1.6 v-11.2 a1.6,1.6 0 0 1 1.6,-1.6 h1.4 v-0.4 a1.6,1.6 0 0 1 1.6,-1.6 z" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9.2,7.4 v0.6 h5.6 v-0.6 z" />
+</vector>
