@@ -676,6 +676,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             ).show()
                         },
                     )
+                    // 遥控器（审查条 1.6）：此前全仓只有旧控制台 TouchpadActivity 的 pill 能拉起，
+                    // 主壳（唯一 launcher 入口）没有任何路径 —— 用户不开悬浮球就进不去。
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_remote),
+                        onClick = {
+                            ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
+                        },
+                    )
                     // 全局转发与光标悬浮都依赖 Eta 的无障碍服务；以前这里只有一句提示、
                     // 用户还得自己翻到系统设置里找 —— 现在直接给出可点的入口。
                     ApComponents.ActionButton(

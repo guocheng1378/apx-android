@@ -1,7 +1,10 @@
 package com.allperiph.ui.compose
 
 import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -51,6 +54,8 @@ import androidx.compose.ui.Alignment
 @Composable
 fun StatusPage(
     ctx: Context,
+    /** 切到底栏某一页（0 状态 / 1 触控板 / 2 键盘 / 3 设置）。首页的「编辑快捷键」走它。 */
+    onNavigate: (Int) -> Unit = {},
     running: Boolean,
     onToggleRunning: (Boolean) -> Unit,
     topBar: Dp = 0.dp,
@@ -109,6 +114,74 @@ fun StatusPage(
                         fontSize = 16.sp,
                     )
                 }
+            }
+        }
+
+        // —— 快捷入口（审查条 1.6）——
+        // 旧触控板页（`pageTouchpad`）有一排「发送文件 / 发送剪贴板 / 副屏 / 手柄 / 遥控器 /
+        // 编辑快捷键」六个入口，迁 Compose 主壳时一个都没留在原位：发送文件退到设置两层、
+        // 手柄只剩设置一处、遥控器只活在旧控制台的悬浮球路径、剪贴板手动发送连路径都没有。
+        // 这里按新壳的信息架构放回「首页一排、一眼可达」的位置，六个各一枚：
+        // 前三枚是动作（文件 / 剪贴板 / 副屏），后三枚是入口（手柄 / 遥控器 / 编辑快捷键）。
+        // 不放进触控板页是刻意的：那一页的手势面要全屏（v223.23 真机反馈「可操作区域太小」），
+        // 再叠一排按钮就等于把刚修好的问题还回去。
+        ApComponents.Section(title = ctx.getString(R.string.ui_home_sec_quick)) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                val quick: List<Pair<Int, () -> Unit>> = listOf(
+                    R.string.ui_home_quick_file to {
+                        ctx.startActivity(
+                            Intent(ctx, com.allperiph.localsend.SendActivity::class.java),
+                        )
+                    },
+                    R.string.ui_home_quick_clip to {
+                        val r = com.allperiph.ui.ClipboardSync.sendNow(ctx)
+                        val msg = when (r) {
+                            com.allperiph.ui.ClipboardSync.SendResult.NO_DEVICE ->
+                                R.string.ui_main_toast_device_not
+                            com.allperiph.ui.ClipboardSync.SendResult.EMPTY ->
+                                R.string.ui_touchpad_toast_clipboard_empty
+                            com.allperiph.ui.ClipboardSync.SendResult.OK ->
+                                R.string.ui_touchpad_text_clipboard_send_done
+                            com.allperiph.ui.ClipboardSync.SendResult.FAIL ->
+                                R.string.ui_touchpad_text_send_failed
+                        }
+                        Toast.makeText(ctx, ctx.getString(msg), Toast.LENGTH_SHORT).show()
+                    },
+                    R.string.ui_home_quick_screen to {
+                        ctx.startActivity(
+                            Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
+                        )
+                    },
+                    R.string.ui_ball_fn_gamepad to {
+                        ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
+                    },
+                    R.string.ui_remote_text_remote to {
+                        ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
+                    },
+                    R.string.ui_hotkey_title_edit to { onNavigate(2) },
+                )
+                quick.chunked(3).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        row.forEach { (label, action) ->
+                            ApComponents.NarrowButton(
+                                text = ctx.getString(label),
+                                onClick = action,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        // 补空格：三列网格形状稳定
+                        repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }
+                    }
+                }
+                Text(
+                    text = ctx.getString(R.string.ui_home_quick_hint),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 6.dp, start = 8.dp),
+                )
             }
         }
 
