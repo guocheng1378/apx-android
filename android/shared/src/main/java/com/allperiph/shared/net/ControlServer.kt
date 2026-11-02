@@ -44,8 +44,9 @@ class ControlServer(
 
     /**
      * 0x10 模块开关（v184 新增协议）：PC 面板拨"无线"开关时通知本机挂起/恢复控制面。
-     * 语义是**挂起**而非停服务 —— 监听保持，仅拒绝/断开连接；这样 PC 端重新拨 ON
-     * 后 3s 重连即可恢复，不会出现"关了就再也打不开"的单程门。
+     * 语义是**挂起**而非停服务 —— 监听保持，断开当前连接、挂起期只收不执行输入
+     * （ping/0x10 除外）；这样 PC 端重新拨 ON 后 3s 重连即可恢复，
+     * 不会出现"关了就再也打不开"的单程门。
      */
     @Volatile var onModuleToggle: ((String, Boolean) -> Unit)? = null
 
@@ -64,7 +65,11 @@ class ControlServer(
 
     @Volatile private var suspended = false
 
-    /** PC 请求挂起控制面：断开当前连接并拒绝新连接（监听保留，可随时恢复） */
+    /**
+     * PC 请求挂起控制面：断开当前连接（监听保留，可随时恢复）。
+     * 挂起期新连接**仍握手保持**（见 [activate] 的 suspended 分支），只在 pump 里忽略
+     * 输入帧 —— 0x10 恢复开关必须靠这条活着的连接送达，全拒就是单程门。
+     */
     fun suspendAccept() {
         suspended = true
         Log.i("控制面", "控制面已挂起（PC 请求）")
@@ -86,6 +91,8 @@ class ControlServer(
     private var writerThread: Thread? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val writeLock = Any()
+    /** 会话接管锁：并发握手在鉴权通过后串行收口，防止 client / out 被交叉写成两条连接 */
+    private val activateLock = Any()
     private var seq = 0
     private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
     private val rxLock = Any()
@@ -136,11 +143,10 @@ class ControlServer(
             val sock = try { ss.accept() } catch (t: Throwable) {
                 if (!running.get()) break; try { Thread.sleep(200) } catch (_: InterruptedException) { break }; continue
             }
-            if (ready) {
-                Log.w("控制面", "新连接接管，顶掉旧连接 $peerText")
-                val old = client; runCatching { old?.close() }
-                if (client === old) { ready = false; client = null; out = null; peerText = ""; outQueue.clear() }
-            }
+            // v-fix（link-hardening）：**先握手鉴权、后接管**。旧实现在 accept 时见 ready
+            // 就顶掉旧连接、再异步握手 —— 于是任何一次 TCP 探连（哪怕令牌不符被拒）
+            // 都能踢掉正在进行的会话，是纯 DoS，令牌配了也白配。现在未通过鉴权的连接
+            // 对现有会话零影响，接管统一收口在 activate()（握手三关全过后才执行）。
             Thread({ handshake(sock) }, "apxctl-handshake").apply { isDaemon = true; start() }
         }
     }
@@ -155,25 +161,40 @@ class ControlServer(
                 val buf = ByteArray(len)
                 if (!readFully(ins, buf)) { runCatching { sock.close() }; return }
                 if (token.isNotEmpty() && String(buf, Charsets.UTF_8) != token) { Log.w("控制面", "令牌不匹配，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return }
+            } else if (token.isNotEmpty()) {
+                // v-fix（link-hardening）：服务端配了令牌，对端却发空令牌（len=0）——
+                // 旧实现整段 if 被跳过、直接放行，等于「配了令牌也拦不住不带令牌的连接」
+                // （攻击者只需发 4 字节 0）。空令牌必须显式拒绝，否则鉴权形同虚设。
+                Log.w("控制面", "对端未携带令牌，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return
             }
             sock.soTimeout = 0; activate(sock)
         } catch (t: Throwable) { Log.w("控制面", "握手失败：${t.message}"); runCatching { sock.close() } }
     }
 
+    /**
+     * 握手与鉴权**全部通过**后才到这里接管会话。
+     *
+     * v-fix（link-hardening）：接管（顶掉旧连接）从 acceptLoop 挪进来 —— 旧实现先踢
+     * 旧连接再握手，失败的探连也能打断正在工作的会话。现在握手 / 令牌 / onAuthorizePeer
+     * 三关全过才动旧连接；[activateLock] 让并发握手串行收口，防止 client 与 out 被
+     * 交叉写成「读写两条连接」。
+     */
     private fun activate(sock: Socket) {
-        if (suspended) Log.i("控制面", "控制面处于挂起态：保持连接，不执行输入 ${peerTextOf(sock)}")
-        val ip = sock.inetAddress?.hostAddress ?: ""
-        if (onAuthorizePeer?.invoke(ip) == false) { Log.w("控制面", "拒绝未授权设备 $ip"); runCatching { sock.close() }; return }
-        val prev = client
-        if (prev != null && prev !== sock) runCatching { prev.close() }
-        client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
-        synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
-        synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
-        Log.i("控制面", "对端已连入：$peerText")
-        mainHandler.post { endpoint.onPeerStateChanged(true, peerText); onPeerChanged?.invoke(true, peerText) }
-        runCatching { sock.soTimeout = READ_TIMEOUT_MS }
-        readerThread = Thread({ readerLoop(sock) }, "apxctl-reader").apply { isDaemon = true; start() }
-        writerThread = Thread({ writerLoop(sock) }, "apxctl-writer").apply { isDaemon = true; start() }
+        synchronized(activateLock) {
+            if (suspended) Log.i("控制面", "控制面处于挂起态：保持连接，不执行输入 ${peerTextOf(sock)}")
+            val ip = sock.inetAddress?.hostAddress ?: ""
+            if (onAuthorizePeer?.invoke(ip) == false) { Log.w("控制面", "拒绝未授权设备 $ip"); runCatching { sock.close() }; return }
+            val prev = client
+            if (prev != null && prev !== sock) { Log.w("控制面", "新连接接管，顶掉旧连接 $peerText"); runCatching { prev.close() } }
+            client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
+            synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+            synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
+            Log.i("控制面", "对端已连入：$peerText")
+            mainHandler.post { endpoint.onPeerStateChanged(true, peerText); onPeerChanged?.invoke(true, peerText) }
+            runCatching { sock.soTimeout = READ_TIMEOUT_MS }
+            readerThread = Thread({ readerLoop(sock) }, "apxctl-reader").apply { isDaemon = true; start() }
+            writerThread = Thread({ writerLoop(sock) }, "apxctl-writer").apply { isDaemon = true; start() }
+        }
     }
 
     private fun readerLoop(sock: Socket) {
@@ -264,7 +285,7 @@ class ControlServer(
                             0x05 -> actions.add { onOpenScreen() }
                             0x10 -> if (body.size >= 3) actions.add { onModuleToggle(body) }
                             0x25 -> if (body.size >= 2) actions.add { onRequestInput(body) }
-                            0x26 -> if (body.size >= 2) actions.add { onInputText(body) }
+                            0x26 -> if (body.size >= 4) actions.add { onInputText(body) }
                             0x27 -> actions.add { onInputDone() }
                             // 0x32 光标浮层开关（v223.10）：控制端关/开被控端的浮层光标。
                             // 直接落 TvInjector（同模块，无循环）—— 被控端不需要知道这个开关，
@@ -291,7 +312,7 @@ class ControlServer(
         val needUp = (buttons and 1) == 0 && (prev and 1) == 1
         // P0-3：右键 bit1 此前完全没被识别（onMouse 只认 bit0），0x02/0x04 整个丢弃 ——
         // 双指点按/右键菜单全部失效。现在 bit1 按下沿→光标处按下，抬起沿按时长/位移
-        // 判「长按（右键）或拖拽」；bit0 左键沿用原 pressDown/pressUp。
+        // 判「长按（右键）或拖拽」；bit0 左键沿用 pressDown/pressUp。
         val needRightDown = (buttons and 2) != 0 && (prev and 2) == 0
         val needRightUp = (buttons and 2) == 0 && (prev and 2) == 1
         // 中键 bit2：被控端 ControlEndpoint 没有中键注入语义，维持忽略但不再静默 —— 记一条日志便于排查
@@ -306,7 +327,7 @@ class ControlServer(
             }
             rightDownAt = SystemClock.uptimeMillis()
             rightMovedPx = 0
-            // 光标处按下：抬起沿再判 长按（右键）/ 拖拽；有 INJECT_EVENTS 时是一条真实触摸流
+            // 光标处按下：抬起沿再判 长按（右键菜单）/ 拖拽；有 INJECT_EVENTS 时是一条真实触摸流
             endpoint.pressDown()
         }
         if (buttons and 2 != 0) rightMovedPx += abs(dx) + abs(dy)
@@ -460,14 +481,12 @@ class ControlServer(
     }
 
     fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
-        val textBytes = text.toByteArray(Charsets.UTF_8)
-        val body = ByteArray(1 + 1 + 2 + textBytes.size)
-        body[0] = ApxFrame.INPUT_TEXT.toByte(); body[1] = flags.toByte()
-        body[2] = (textBytes.size and 0xFF).toByte(); body[3] = ((textBytes.size ushr 8) and 0xFF).toByte()
-        textBytes.copyInto(body, 4); sendControl(body)
+        // v-fix：组帧去重 —— 手写 u16 长度段与 ApxFrame.packInputText 完全同构，
+        // 收发两处各自维护一份就是隐患；统一走 packer（对齐线上布局与全部解析方）。
+        sendControl(ApxFrame.packInputText(flags, text))
     }
 
-    fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
+    fun sendInputDone() { sendControl(ApxFrame.packInputDone()) }
 
     /**
      * 发 REQUEST_INPUT（0x25）：请求对端弹输入法帮本机输入，即「让对端帮我输入」。
@@ -528,7 +547,6 @@ class ControlServer(
             val digits = "1234567890"
             for (i in digits.indices) put(0x1E + i, 0 to digits[i])
         }
-        private val CONSUMER_MAP: Map<Int, Int> = mapOf(0 to 24, 1 to 25, 2 to 164, 3 to 26, 4 to 85, 5 to 88, 6 to 87)
     }
 }
 
