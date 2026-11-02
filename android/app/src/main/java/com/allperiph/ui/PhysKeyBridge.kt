@@ -253,5 +253,13 @@ internal class PhysKeyBridge(private val act: Activity) {
     // 第二条转发路径（无障碍 onKeyEvent，无界面也能转发），两处各写一份码表必然
     // 分叉（问题 3「标点键无反应」就是码表漏行导致的）。
     private fun metaMod(meta: Int): Int = HidKeyMap.metaMod(meta)
-    private fun usageOf(kc: Int): Int = HidKeyMap.usageOf(kc)
+    /**
+     * keyCode → 发给对端的 usage，**先用户覆盖、后静态默认**，与
+     * `GlobalKeyForwarder`（无障碍那条转发路径）同一口径。
+     *
+     * 2026-11-02 审查条 1.4：此前这里直接 `HidKeyMap.usageOf` 绕过覆盖层，于是设置页改键
+     * 只在开了「全局按键转发」时生效；不开（默认关）时窗口回调这条路仍按默认表发，
+     * 用户看到的是「设置写了、行为没变」。
+     */
+    private fun usageOf(kc: Int): Int = HidKeyOverrides.resolve(kc, HidKeyMap.usageOf(kc))
 }
