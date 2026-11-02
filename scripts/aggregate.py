@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """五路并行开发回报汇总器（REQ-REPORT-001）。
 
-扫描 reports/L1..L5.json，按规范做 schema 校验与越权检查，
-生成 reports/STATUS.json（机读）与 reports/SUMMARY.md（人读），
-并在每次汇总前把上一版快照到 reports/history/<时间戳>/。
+扫描 docs/reports/L1..L5.json，按规范做 schema 校验与越权检查，
+生成 docs/reports/STATUS.json（机读）与 docs/reports/SUMMARY.md（人读），
+并在每次汇总前把上一版快照到 docs/reports/history/<时间戳>/。
 
 仅使用 Python 标准库，无第三方依赖。
 
@@ -169,14 +169,16 @@ def validate_report(data: Any, lane_id: str) -> list[str]:
 def check_violations(data: dict[str, Any], lane_id: str) -> list[str]:
     """越权检查：ownedDirs / touchedFiles / deliverables 必须落在 §2 归属目录内。
 
-    按 REQ §9，每路额外被允许写自己的 reports/<laneId>.json 与 reports/<laneId>.md，
-    这两项不计入越权（但会在 SUMMARY 中作为交付提示展示）。
+    按 REQ §9，每路额外被允许写自己的 docs/reports/<laneId>.json 与
+    docs/reports/<laneId>.md，这两项不计入越权（但会在 SUMMARY 中作为交付提示展示）。
+    注：reports/ 已随归档迁至 docs/reports/，故下方 docs/ 只读规则需排除这两份文件。
     """
     if not isinstance(data, dict):
         return []
 
     owned = LANES[lane_id]["owned"]
-    allowed = list(owned) + [f"reports/{lane_id}.json", f"reports/{lane_id}.md"]
+    lane_report_paths = {f"docs/reports/{lane_id}.json", f"docs/reports/{lane_id}.md"}
+    allowed = list(owned) + [f"docs/reports/{lane_id}.json", f"docs/reports/{lane_id}.md"]
     allowed_paths = {p.strip("/") for p in allowed}
     problems: list[str] = []
 
@@ -204,7 +206,7 @@ def check_violations(data: dict[str, Any], lane_id: str) -> list[str]:
         if lane_id == "L2" and norm.startswith("scripts/") and Path(norm).name in reserved_main:
             problems.append(f"越权：{norm} 归属 main")
             continue
-        if norm.startswith("docs/"):
+        if norm.startswith("docs/") and norm not in lane_report_paths:
             problems.append(f"越权：{norm} 归属 main（docs 只读）")
             continue
         if not allowed_entry(norm):
@@ -214,7 +216,7 @@ def check_violations(data: dict[str, Any], lane_id: str) -> list[str]:
         path = str((item or {}).get("path", "")).replace("\\", "/")
         if not path:
             continue
-        if path.startswith("docs/"):
+        if path.startswith("docs/") and path not in lane_report_paths:
             problems.append(f"deliverables 越权写到 main 区域：{path}")
         elif not allowed_entry(path):
             problems.append(f"deliverables 超出归属目录：{path}")
@@ -224,7 +226,7 @@ def check_violations(data: dict[str, Any], lane_id: str) -> list[str]:
 
 # ---------------------------------------------------------------- 收集 ----
 def load_lane(root: Path, lane_id: str) -> dict[str, Any]:
-    path = root / "reports" / f"{lane_id}.json"
+    path = root / "docs" / "reports" / f"{lane_id}.json"
     info = LANES[lane_id]
     entry: dict[str, Any] = {
         "laneId": lane_id,
@@ -454,7 +456,7 @@ def protocol_change_trail(root: Path) -> list[str]:
     """§10.4：SUMMARY 必须留痕 docs/PROTOCOL.md 的版本状态与变更记录位置。
 
     每次协议修订的「原因 + 影响范围 + 受影响 lane」由 main 记录在
-    reports/MAIN-INTERVENTIONS.md 与 PROTOCOL.md §5 变更记录表，本节只做指针，
+    docs/reports/MAIN-INTERVENTIONS.md 与 PROTOCOL.md §5 变更记录表，本节只做指针，
     避免汇总器复述维护两份漂移源。
     """
     lines = ["---", "", "## 协议变更留痕（main 范围，§10.4）", ""]
@@ -468,7 +470,7 @@ def protocol_change_trail(root: Path) -> list[str]:
             lines.append("- ⚠️ 未能从 `docs/PROTOCOL.md` §5 解析出「当前版本」字段，请 main 检查")
     lines.append(
         "- 每次协议修订的变更原因、影响范围与受影响 lane 记录于 "
-        "`docs/PROTOCOL.md` §5 变更记录表与 `reports/MAIN-INTERVENTIONS.md`，本汇总不复述"
+        "`docs/PROTOCOL.md` §5 变更记录表与 `docs/reports/MAIN-INTERVENTIONS.md`，本汇总不复述"
     )
     lines.append("")
     return lines
@@ -507,7 +509,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(args.root).resolve()
-    reports = root / "reports"
+    reports = root / "docs" / "reports"
     reports.mkdir(parents=True, exist_ok=True)
 
     # 汇总前快照上一版
@@ -569,7 +571,7 @@ def main() -> int:
     print("-- 下一步 --")
     for action in status["verdict"]["nextActions"]:
         print(f"  - {action}")
-    print(f"产出：reports/STATUS.json, reports/SUMMARY.md")
+    print(f"产出：docs/reports/STATUS.json, docs/reports/SUMMARY.md")
 
     if args.strict:
         bad = [k for k, v in lanes.items() if v["status"] in {"UNKNOWN", "INVALID"}]

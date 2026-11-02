@@ -156,8 +156,8 @@ cmake --build build_display --config Release
 │  └─ tv/               TV 端 App
 ├─ scripts/             构建与辅助脚本
 ├─ docs/                设计与协议文档
+│  └─ reports/          历史留档（2026-09 五路汇报快照，已过时，见 docs/reports/README.md）
 ├─ release/             发布产物
-├─ reports/             历史留档（2026-09 五路汇报快照，已过时，见 reports/README.md）
 └─ .github/workflows/   CI/CD
 ```
 

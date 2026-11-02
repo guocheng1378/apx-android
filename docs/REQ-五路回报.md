@@ -18,7 +18,7 @@
 | 系统 | 全能外设（allperiph）：Android 手机硬件元器件经 USB 3.0 虚拟化为 PC 本机设备 |
 | 本需求作用的模块 | **回报与汇总子系统**（新增，非业务模块） |
 | 主要角色 | 5 个并行开发线（Lane，由子 agent 承担）、主控 main（汇总与裁决）、最终用户（查看结论） |
-| 代码落点 | 回报产物：`reports/`；汇总逻辑与校验脚本：`scripts/aggregate.py`（或等价实现）；状态机读接口：`reports/STATUS.json` |
+| 代码落点 | 回报产物：`docs/reports/`；汇总逻辑与校验脚本：`scripts/aggregate.py`（或等价实现）；状态机读接口：`docs/reports/STATUS.json` |
 | 关联文档 | `docs/ARCHITECTURE.md`、`docs/PROTOCOL.md`（均为只读真源，本需求不改变其内容） |
 
 **目标**：把"口头/自由文本回报"变成**结构化、可校验、可汇总、可留存**的机器可读回报，使主控无需逐一追问即可判定里程碑是否达成。
@@ -63,8 +63,8 @@
 每路产出**两个文件**（人读 + 机读各一份），路径固定：
 
 ```
-reports/<laneId>.json     ← 机读，必须符合 §5 schema
-reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速浏览
+docs/reports/<laneId>.json     ← 机读，必须符合 §5 schema
+docs/reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速浏览
 ```
 
 字段说明（json）：
@@ -221,14 +221,14 @@ reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速�
 
 主控（main）执行 `scripts/aggregate.py`（无第三方依赖，标准库实现），流程：
 
-1. **收集**：扫描 `reports/L*.json`，缺失的 laneId 记为 `UNKNOWN`（空占位，不报错中断）
+1. **收集**：扫描 `docs/reports/L*.json`，缺失的 laneId 记为 `UNKNOWN`（空占位，不报错中断）
 2. **校验**：逐份按 §5 schema 校验；校验失败的文件保留原文，在汇总中标红，并要求该路重新回报
 3. **越权检查**：比对 `scope.ownedDirs` 与 §2 归属目录，越权项列入「合规问题」
 4. **状态矩阵**：生成五路 × (status / 交付数 / 验证通过数 / 阻塞数) 的矩阵
 5. **缺口清单**：汇总所有 `blockers`、`contractDeviations`、`verification.passed=false` 项，标注 `neededFrom`（L1..L5 / main / 外部）
 6. **裁决与写回**：`impact=breaking` 的协议偏离，由 main 修改 `docs/PROTOCOL.md` 并按 §10 递增版本号后**广播**通知五路；其余偏离记入待办
 7. **里程碑判定**：依据 MS1–MS6（`ARCHITECTURE.md` §8）给出可达成/不可达成结论与理由
-8. **产出**：`reports/STATUS.json`（机读）、`reports/SUMMARY.md`（人读）、控制台摘要
+8. **产出**：`docs/reports/STATUS.json`（机读）、`docs/reports/SUMMARY.md`（人读）、控制台摘要
 
 ---
 
@@ -236,12 +236,12 @@ reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速�
 
 | 输出 | 形式 | 消费者 | 说明 |
 |---|---|---|---|
-| `reports/<laneId>.json` | 文件 | 汇总脚本、CI | 每路原始回报，机读 |
-| `reports/<laneId>.md` | 文件 | 人 | 每路摘要，含验证命令 |
-| `reports/STATUS.json` | 文件 | 控制面板、CI | 汇总状态：`{generatedAt, lanes:[{laneId,status,deliverables,verificationPassed,blockers}], verdict:{MS1..MS6}, openIssues[]}` |
-| `reports/SUMMARY.md` | 文件 | 人 | 状态矩阵 + 缺口清单 + 里程碑判定 + 下一步 |
+| `docs/reports/<laneId>.json` | 文件 | 汇总脚本、CI | 每路原始回报，机读 |
+| `docs/reports/<laneId>.md` | 文件 | 人 | 每路摘要，含验证命令 |
+| `docs/reports/STATUS.json` | 文件 | 控制面板、CI | 汇总状态：`{generatedAt, lanes:[{laneId,status,deliverables,verificationPassed,blockers}], verdict:{MS1..MS6}, openIssues[]}` |
+| `docs/reports/SUMMARY.md` | 文件 | 人 | 状态矩阵 + 缺口清单 + 里程碑判定 + 下一步 |
 | 控制台 / 会话摘要 | 文本 | 用户 | main 向用户输出结论，不超过一屏 |
-| `pc/host` 控制面板（后续） | 界面 | 用户 | 读取 `reports/STATUS.json` 展示五路状态；本需求只要求**预留读取接口**，不要求本轮实现 |
+| `pc/host` 控制面板（后续） | 界面 | 用户 | 读取 `docs/reports/STATUS.json` 展示五路状态；本需求只要求**预留读取接口**，不要求本轮实现 |
 | 通知 | 会话消息 | main → 用户 | 仅在① 全路完成 ② 出现 `BLOCKED`/`FAILED` ③ 出现 breaking 偏离时主动通知 |
 
 ---
@@ -251,7 +251,7 @@ reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速�
 | 情形 | 处理 |
 |---|---|
 | 某路未回报 / 超时 | 记 `UNKNOWN`，在 SUMMARY 中单列，**不阻塞汇总与其它路**；main 点名索要一次，仍无响应则标注「需人工介入」 |
-| JSON 解析失败或不符合 schema | 保留原文件于 `reports/`，汇总中标记 `INVALID`，要求重发；不得以自由文本替代 |
+| JSON 解析失败或不符合 schema | 保留原文件于 `docs/reports/`，汇总中标记 `INVALID`，要求重发；不得以自由文本替代 |
 | `status = BLOCKED` | 提取 `blockers[].neededFrom`，按 L1→L5 顺序优先解除依赖；无法自解的转 main 或上报用户 |
 | `verification.passed = false` | 计入「未验证清单」，该路 `status` 最高只能判 `PARTIAL`；MS 判定不得依赖未验证项 |
 | 接口缺失（`contractDeviations`） | 汇总去重后由 main 裁决：能改 `shared/` 的派给 L1，需改协议的走版本递增；裁决结果广播 |
@@ -266,22 +266,22 @@ reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速�
 
 | 主体 | 权限 |
 |---|---|
-| 各路（L1–L5） | 仅可写：本路归属目录 + `reports/<laneId>.json` + `reports/<laneId>.md`；**只读** `docs/`、`shared/`（除 L1）、他人目录 |
+| 各路（L1–L5） | 仅可写：本路归属目录 + `docs/reports/<laneId>.json` + `docs/reports/<laneId>.md`；**只读** `docs/`（除自己那两份回报）、`shared/`（除 L1）、他人目录 |
 | L1 | 唯一可写 `shared/` 与 `android/app/src/main/cpp/` 的一路 |
-| main | 唯一可写 `docs/`（协议与架构）、`reports/STATUS.json`、`reports/SUMMARY.md`、`scripts/aggregate.py` |
+| main | 唯一可写 `docs/`（协议与架构）、`docs/reports/STATUS.json`、`docs/reports/SUMMARY.md`、`scripts/aggregate.py` |
 | 协议版本号 | 仅 main 可变更；各路不得自行递增或另起字段命名 |
 | `scripts/aggregate.py` | 归 main（汇总器），与 L2 在 `scripts/` 内的 Gadget 脚本共存但互不修改 |
-| 删除 | 任何一路**不得删除**他人产物与历史回报；仅可覆盖自己的 `reports/<laneId>.*` |
+| 删除 | 任何一路**不得删除**他人产物与历史回报；仅可覆盖自己的 `docs/reports/<laneId>.*` |
 | 外部网络 | 本需求不涉及；禁止在回报中引入需要下载才能验证的依赖 |
 
 ---
 
 ## 10. 审计与记录留存
 
-1. **全量留存**：`reports/` 下所有文件保留，不做清理；`.gitignore` 不得忽略 `reports/`
-2. **历史快照**：每次汇总前，将上一版 `STATUS.json`/`SUMMARY.md` 复制到 `reports/history/<yyyyMMdd-HHmmss>/`，追加式，不覆盖
+1. **全量留存**：`docs/reports/` 下所有文件保留，不做清理；`.gitignore` 不得忽略 `docs/reports/`
+2. **历史快照**：每次汇总前，将上一版 `STATUS.json`/`SUMMARY.md` 复制到 `docs/reports/history/<yyyyMMdd-HHmmss>/`，追加式，不覆盖
 3. **可追溯**：每份回报必须含 `generatedAt` 与 `touchedFiles`，使任意文件可追溯到产生它的 lane
-4. **变更留痕**：`docs/PROTOCOL.md` 每次修改需递增版本号并在 `reports/SUMMARY.md` 记录「变更原因 + 影响范围 + 受影响 lane」
+4. **变更留痕**：`docs/PROTOCOL.md` 每次修改需递增版本号并在 `docs/reports/SUMMARY.md` 记录「变更原因 + 影响范围 + 受影响 lane」
 5. **审计视图**：SUMMARY 必须包含「合规问题」章节（越权、schema 无效、未验证项），即使为空也要显式声明「无」
 6. **只读真源**：`ARCHITECTURE.md` / `PROTOCOL.md` 的修改权归 main，任何修改都必须有对应回报条目作为依据，禁止无据改动
 
@@ -289,9 +289,9 @@ reports/<laneId>.md       ← 人读摘要，内容与 json 一致，供快速�
 
 ## 11. 验收标准（DoD）
 
-- [ ] 五份 `reports/L1..L5.json` 齐备（或以 `UNKNOWN` 显式标注），全部通过 §5 schema 校验
+- [ ] 五份 `docs/reports/L1..L5.json` 齐备（或以 `UNKNOWN` 显式标注），全部通过 §5 schema 校验
 - [ ] 每份回报含 ≥1 条可复现验证命令，且 `actual` 为真实执行结果
-- [ ] `reports/STATUS.json` 与 `reports/SUMMARY.md` 已生成，含状态矩阵、缺口清单、合规章节、里程碑判定
+- [ ] `docs/reports/STATUS.json` 与 `docs/reports/SUMMARY.md` 已生成，含状态矩阵、缺口清单、合规章节、里程碑判定
 - [ ] 所有 `BLOCKED`/`FAILED`/`INVALID` 项均有 `owner` 与下一步动作
 - [ ] 无越权修改；`docs/` 变更均有版本递增与留痕
 - [ ] main 已向用户输出不超过一屏的结论摘要（含 MS1 是否可进入真机验证）
