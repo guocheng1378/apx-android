@@ -1,6 +1,7 @@
 package com.allperiph.ui.compose
 
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
@@ -38,6 +40,14 @@ import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
+import top.yukonga.miuix.kmp.basic.FloatingToolbarDefaults
+import top.yukonga.miuix.kmp.blur.BlendColorEntry
+import top.yukonga.miuix.kmp.blur.BlurDefaults
+import top.yukonga.miuix.kmp.blur.highlight.Highlight
+import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.blur.layerBackdrop
+import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
+import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -46,7 +56,6 @@ import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
-import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.ui.graphics.Color
 import top.yukonga.miuix.kmp.icon.extended.GridView
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -117,6 +126,15 @@ class ApShellActivity : ComponentActivity() {
         val sidePad = if (adaptive.padCutout) maxOf(insets.left, insets.right) else 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
+        // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop（组件总览同款做法）。
+        // 底色取壳自己画的背景（md_background），不用 md_surface —— 组件总览整页是
+        // surface 打底，本壳是 background（浅色 #F5F6F6 / 深色 #010102），采样层若铺
+        // surface 会让胶囊底部比真实背景更亮一层，玻璃看起来发白。
+        val shellBg = MiuixTheme.colorScheme.background
+        val navBackdrop = rememberLayerBackdrop {
+            drawRect(shellBg)
+            drawContent()
+        }
         var page by remember { mutableIntStateOf(pageState) }
         // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
         androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
@@ -207,6 +225,7 @@ class ApShellActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
+                        .layerBackdrop(navBackdrop)
                         .apHazeSource(hazeState),
                 ) {
                     when (page) {
@@ -261,36 +280,43 @@ class ApShellActivity : ComponentActivity() {
                 ApDevicePicker(onDismiss = { pickerOpen = false })
             }
 
-            // 底栏：0.9.4 里 FloatingNavigationBar 自带离底高度与导航栏 inset，
-            // 外层只负责贴底（组件内部 Column 会丢弃 BoxScope.align）
-            // 液态玻璃底栏：之前给的是一块不透明的 surfaceContainer，等于纯色条。
-            // 这里在容器上加 hazeEffect（同一份 hazeState，和顶栏共用），底色降到 0.5 透明度，
-            // 内容从底栏后面滚过时能看到模糊透出来的颜色。
+            // 底栏 = 组件总览（MiuixShowcaseActivity）同款悬浮玻璃（用户要求「悬浮低栏要和
+            // 组件预览里一样的」）：FloatingNavigationBar 胶囊 + Miuix textureBlur 采样内容层
+            // （LayerBackdrop）+ Highlight 玻璃描边；无运行时着色器的老机器退化为纯色胶囊。
+            // 0.9.4 契约：FloatingNavigationBar 的 modifier 作用于内层胶囊 Row，根 Column 固定
+            // fillMaxWidth 且不接定位 —— 垂直定位由外层 Box align(BottomCenter) 负责，
+            // 离底高度组件自管（26dp + 导航栏 inset），不要往胶囊 modifier 里塞 padding。
             val navSurface = MiuixTheme.colorScheme.surfaceContainer
-            // 成宇 2026-11-02「低栏要的是液态悬浮玻璃，现在底下还有东西」的成因：
-            // 模糊层贴在**外层 Box** 上，而 Box 是按组件包围盒测量的 —— 里面还含
-            // FloatingNavigationBar 自带的离底间距与导航栏 inset，于是胶囊下面又多出
-            // 一条半透明模糊带。改成先把外层裁成胶囊（percent=50 → 纯药丸），再上模糊，
-            // 玻璃就只跟着胶囊走，栏下不再有任何东西。
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .clip(RoundedCornerShape(percent = 50))
-                    .then(
-                        if (hazeState != null) {
-                            Modifier.hazeEffect(state = hazeState) {
-                                blurRadius = 20.dp
-                                backgroundColor = navSurface.copy(alpha = 0.5f)
-                                noiseFactor = 0.02f
-                                tints = listOf(dev.chrisbanes.haze.HazeTint(navSurface.copy(alpha = 0.16f)))
+            val navGlass = isRuntimeShaderSupported() &&
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            val navDark = remember(shellBg) {
+                0.2126f * shellBg.red + 0.7152f * shellBg.green +
+                    0.0722f * shellBg.blue < 0.5f
+            }
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+                FloatingNavigationBar(
+                    modifier = Modifier
+                        .widthIn(max = 440.dp)
+                        .then(
+                            if (navGlass) {
+                                Modifier.textureBlur(
+                                    backdrop = navBackdrop,
+                                    shape = RoundedCornerShape(FloatingToolbarDefaults.CornerRadius),
+                                    blurRadius = 25f,
+                                    colors = BlurDefaults.blurColors(
+                                        blendColors = listOf(
+                                            BlendColorEntry(color = navSurface.copy(alpha = 0.4f)),
+                                        ),
+                                    ),
+                                    highlight = if (navDark) Highlight.GlassStrokeMiddleDark
+                                    else Highlight.GlassStrokeMiddleLight,
+                                )
+                            } else {
+                                Modifier
                             }
-                        } else {
-                            // 无 RuntimeShader 的机器：同样只画药丸，半透明（0.96 太实，看不出悬浮）
-                            Modifier.background(navSurface.copy(alpha = 0.72f))
-                        }
-                    ),
-            ) {
-                FloatingNavigationBar(color = Color.Transparent) {
+                        ),
+                    color = if (navGlass) Color.Transparent else navSurface,
+                ) {
                     FloatingNavigationBarItem(
                         selected = page == 0,
                         onClick = { page = 0 },
@@ -316,7 +342,6 @@ class ApShellActivity : ComponentActivity() {
                     // 不是靠文档猜）。底栏用到的 Home / ListView / GridView / Settings 都在名单内；
                     // 触控板用 GridView、键盘用 ListView，两者区分开。该库没有 Touchpad/Keyboard/
                     // Wifi/Bluetooth/Usb/Terminal 这些设备语义名，所以没硬凑。
-                    // 所以设置页用 Settings；触控板与键盘暂时都还是 ListView（猜名字会编译红）
                     FloatingNavigationBarItem(
                         selected = page == 3,
                         onClick = { page = 3 },

@@ -276,10 +276,41 @@
     <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
     <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
     <string name="ui_kb_full">全键盘</string>
+    <!-- v223.24 主屏键盘页与操控面同款布局页签 -->
+    <string name="ui_kb_tab_quick">快捷</string>
+    <string name="ui_kb_tab_remote">遥控</string>
+    <string name="ui_kb_tab_game">游戏</string>
+    <string name="ui_kb_tab_num">数字</string>
+    <string name="ui_kb_tab_grid9">九宫格</string>
+    <string name="ui_kb_tab_arrow">方向</string>
+    <string name="ui_kb_tab_fn">F 区</string>
+    <string name="ui_kb_tab_custom">自定义</string>
     <string name="ui_kb_close">关闭</string>
-    <string name="ui_kb_shift_on">⇧(开)</string>
-    <string name="ui_kb_caps_on">⇪(开)</string>
-    <string name="ui_kb_space">空格</string>
+    <!-- v223.24 快捷键面板（组合键网格）与编辑弹窗的文案：不写死在 Kotlin 里 -->
+    <string name="ui_kb_hotkeys_longpress">快捷键（长按可编辑）</string>
+    <!-- 快捷键编辑的候选键（与被控操控面同一批键位；名字即 HotkeyStore 里的标签，改这里会连带 USAGE_REPAIRS） -->
+    <string name="ui_kb_enter">确定</string>
+    <string name="ui_kb_back">返回</string>
+    <string name="ui_kb_home">Home</string>
+    <string name="ui_kb_fullscreen">全屏</string>
+    <string name="ui_kb_add">新增</string>
+    <string name="ui_kb_move_up">上移</string>
+    <string name="ui_kb_move_down">下移</string>
+    <string name="ui_kb_change_key">改键（循环换下一个候选键）</string>
+    <string name="ui_kb_select_keys">选键</string>
+    <string name="ui_kb_delete">删除</string>
+    <!-- v223.24 「遥控」行的键面文字（与被控操控面 remoteKeyboard 同一组键，文案不写死在 Kotlin） -->
+    <string name="ui_kb_prev">上一曲</string>
+    <string name="ui_kb_play">播放/暂停</string>
+    <string name="ui_kb_next">下一曲</string>
+    <string name="ui_kb_vol_down">音量⁻</string>
+    <string name="ui_kb_vol_up">音量⁺</string>
+    <string name="ui_kb_mute">静音</string>
+    <!-- 方向候选键（沿用 HidKeys 的箭头字形） -->
+    <string name="ui_kb_arrow_l">←</string>
+    <string name="ui_kb_arrow_r">→</string>
+    <string name="ui_kb_arrow_u">↑</string>
+    <string name="ui_kb_arrow_d">↓</string>
     <string name="ui_set_sec_skin">皮肤</string>
     <string name="ui_set_sec_general">通用</string>
     <string name="ui_set_sec_ball">悬浮栏</string>
