@@ -194,6 +194,64 @@ object AgentController {
         prefs(context).edit().putBoolean("exit.$id.$g", on).apply()
     }
 
+    /**
+     * 传输开关的**统一写点**：拨一个传输开关 = 切偏好 + 热启停该组模块 + 管前台服务。
+     *
+     * 成宇 2026-11-04「不要总开关，只要无线 / 蓝牙 / 有线开关，对应各自的功能」：
+     * 状态页的大号总闸整块去掉之后，这三个开关就是模块启停的**唯一入口** —— 原来那枚总闸
+     * 负责的 `startEnabled` / `stopAll` / 前台服务三件事必须挪到开关自己身上，
+     * 否则「拨了开关外设还是不动」。
+     *
+     * 语义与悬浮球「连接模式」菜单完全一致（那里此前有一份私有实现，现已改为调这里）：
+     * 多出口模块（触控板在无线 + USB 两组）只切 `exit.<id>.<group>`、不动模块启停；
+     * 单出口模块跟着传输开关启停；任一路打开就先拉起前台服务保活，全关了就停掉。
+     *
+     * ⚠️「关无线时一并断开 9511 控制目标」由 [setTransportEnabled] 内部处理
+     * （ControlTarget.clear），这里再作废已观测出口，否则各端显示会滞后一拍。
+     *
+     * ⚠️ 关掉一个出口时，多出口模块（触控板 wifi + usb）要判「别的出口还开着吗」，
+     * 全关才停模块；单出口模块判「别的传输组还需要它吗」。两条判据缺一条就会留下
+     * 「开关全关、模块照跑」的残留。
+     */
+    fun applyTransportSwitch(context: Context, t: String, on: Boolean) {
+        setTransportEnabled(context, t, on)
+        com.allperiph.core.Uplink.reset()
+        for (id in groupModules(t)) {
+            if (groupsOf(id).size > 1) {
+                setExitEnabled(context, id, t, on)
+                if (on) {
+                    setModuleEnabled(context, id, true)
+                } else {
+                    /* ⚠️ 关掉一个出口时必须问一句「这个模块还有别的出口开着吗」：
+                       触控板挂在 wifi + usb 两组，只切 exit 位的话，「先关无线、再关有线」
+                       之后 enable.touchpad 仍是 true、模块照跑 —— 用户看到的就是
+                       「三个开关全关了，外设还在」。这与下面单出口分支的 stillNeeded
+                       是同一条判据，只是这里问的是「同模块的其它出口」而非「同模块」。 */
+                    val otherExitOpen = groupsOf(id).any { g ->
+                        g != t && isTransportEnabled(context, g)
+                    }
+                    if (!otherExitOpen) setModuleEnabled(context, id, false)
+                }
+                continue
+            }
+            if (!on) {
+                val stillNeeded = TRANSPORTS.any { other ->
+                    other != t &&
+                        isTransportEnabled(context, other) &&
+                        groupModules(other).contains(id)
+                }
+                if (stillNeeded) continue
+            }
+            setModuleEnabled(context, id, on)
+        }
+        if (on) {
+            AgentForegroundService.start(context)
+        } else if (!TRANSPORTS.any { isTransportEnabled(context, it) }) {
+            stopAll()
+            AgentForegroundService.stop(context)
+        }
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

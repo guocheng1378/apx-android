@@ -1002,35 +1002,11 @@ class FloatingBallService : Service() {
      * 打开任一路就先拉起前台服务保活，全关了就停掉。
      */
     private fun onMenuTransport(kind: String) {
+        // 「切开关 + 热启停该组模块 + 管前台服务」全在 AgentController.applyTransportSwitch 里
+        // （v223.29.3：状态页的总闸去掉后，三个传输开关与这里必须共用同一个写点，
+        //  否则两条路径的启停语义会各自长歪）。
         val next = !AgentController.isTransportEnabled(this, kind)
-        AgentController.setTransportEnabled(this, kind, next)
-        // 同状态页：模式变了就作废已观测出口，否则扇形里的选中态与各端显示都会滞后
-        com.allperiph.core.Uplink.reset()
-        for (id in AgentController.groupModules(kind)) {
-            if (AgentController.groupsOf(id).size > 1) {
-                AgentController.setExitEnabled(this, id, kind, next)
-                if (next) AgentController.setModuleEnabled(this, id, true)
-                continue
-            }
-            if (!next) {
-                val stillNeeded = listOf("wifi", "bt", "usb").any { other ->
-                    other != kind &&
-                        AgentController.isTransportEnabled(this, other) &&
-                        AgentController.groupModules(other).contains(id)
-                }
-                if (stillNeeded) continue
-            }
-            AgentController.setModuleEnabled(this, id, next)
-        }
-        if (next) {
-            AgentForegroundService.start(this)
-        } else if (!listOf("wifi", "bt", "usb").any {
-                AgentController.isTransportEnabled(this, it)
-            }
-        ) {
-            AgentController.stopAll()
-            stopService(Intent(this, AgentForegroundService::class.java))
-        }
+        AgentController.applyTransportSwitch(this, kind, next)
         val label = AgentController.transportLabel(kind)
         Toast.makeText(
             this,

@@ -1,6 +1,7 @@
 package com.allperiph.ui.compose
 
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
@@ -184,6 +185,9 @@ class ApShellActivity : ComponentActivity() {
             if (page != pageState) page = pageState
         }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
+        // 低栏长按弹出的「快捷入口」开关（内容见文件末尾 QuickActionsDialog）。
+        // ⚠️ 必须在 Box 之前声明：弹窗判定在 Box 内容 lambda 内（前向引用不成立）。
+        var quickActionsOpen by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
         //
@@ -269,8 +273,6 @@ class ApShellActivity : ComponentActivity() {
             }
         }
 
-        var running by remember { mutableStateOf(AgentController.running) }
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -301,16 +303,9 @@ class ApShellActivity : ComponentActivity() {
                     when (page) {
                         0 -> StatusPage(
                             ctx = this@ApShellActivity,
-                            // 首页快捷入口里的「编辑快捷键」要能跳到键盘页（编辑弹窗在那边）
-                            onNavigate = { target ->
-                                page = target
-                                pageState = target
-                            },
-                            running = running,
-                            onToggleRunning = { want ->
-                                running = want
-                                toggleAgent(want)
-                            },
+                            // v223.29.3：总闸与快捷入口都搬走了 —— 状态页不再需要
+                            // running / onToggleRunning / onNavigate 三个入参，
+                            // 运行态由页面自己现读 AgentController.running。
                             topBar = topGap,
                             bottomGap = bottomGap,
                         )
@@ -343,6 +338,21 @@ class ApShellActivity : ComponentActivity() {
             // 标题上一版已去掉，剩下的只是一条 64dp 玻璃底 —— 它还占着屏且没有承载任何
             // 信息（设备选择已移到设置页「当前控制」下方，不再靠点顶栏进）。保留 apHazeSource
             // 的采样层即可，玻璃效果由底栏继续使用。
+
+            // 低栏长按唤出的快捷入口（成宇 2026-11-04）：从状态页整块搬来这里 ——
+            // 那排按钮在状态页占着一张卡片，实际更需要的是「随手能叫出来」，
+            // 而低栏长按本来就是「常用功能」的口子。
+            if (quickActionsOpen) {
+                QuickActionsDialog(
+                    ctx = this@ApShellActivity,
+                    onDismiss = { quickActionsOpen = false },
+                    onOpenTouchpad = {
+                        quickActionsOpen = false
+                        page = 1
+                        pageState = 1
+                    },
+                )
+            }
 
             // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
             // TvDiscovery 的广播发现，选中即连入 9511；「本机 / PC」走 ControlTarget.clear()
@@ -464,13 +474,15 @@ class ApShellActivity : ComponentActivity() {
                                 // this@ApShellActivity（Activity 本身就是 Context），
                                 // 直接用它，别再引入一个可能为 null 的局部变量。
                                 val act = this@ApShellActivity
-                                if (!com.allperiph.ui.FloatingBallService.openQuickMenu(act)) {
-                                    android.widget.Toast.makeText(
-                                        act,
-                                        act.getString(R.string.ui_shell_ball_off),
-                                        android.widget.Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
+                                // 成宇 2026-11-04「悬浮低栏长按没震动」：长按虽然成立了，手感上
+                                // 却没有任何反馈 —— 补一下震动（与页签的按键反馈同一条 Feedback
+                                // 链路，尊重设置里的震动档位，档位是「关」时不震）。
+                                com.allperiph.ui.Feedback.haptic(act)
+                                // 成宇 2026-11-04「弹出应该是状态页的快捷入口的弹窗，再把状态页的
+                                // 移除」：长按不再借用悬浮球的扇形菜单 —— 那套与球自身的 12 项配置
+                                // 耦合、球没开时还会变成「长按没反应」；改用本壳自己的快捷入口弹窗，
+                                // 内容就是原先状态页那一段六个入口，任何情况下都能弹出。
+                                quickActionsOpen = true
                             }
                         }
                     },
@@ -808,5 +820,94 @@ internal fun ApDevicePanel(onClose: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+/**
+ * 低栏长按唤出的「快捷入口」弹窗（v223.29.3）。
+ *
+ * 内容与状态页原先那张「快捷入口」卡**一模一样**（成宇 2026-11-04「弹出应该是状态页的
+ * 快捷入口的弹窗，再把状态页的移除」）：发送文件 / 发送剪贴板 / 屏幕 / 手柄 / 遥控器 /
+ * 编辑快捷键。搬过来的理由：那排按钮在状态页占着一张卡片，而低栏长按本来就是「常用功能」
+ * 的口子，放在这里才叫随手可达。
+ *
+ * 「编辑快捷键」仍切到触控板页（v223.27 之后组合键的编辑弹窗在主壳里只有那一处，现由那页
+ * 的 chip 长按调用），交给主壳切页，本弹窗不自己造导航状态。
+ */
+@Composable
+private fun QuickActionsDialog(
+    ctx: Context,
+    onDismiss: () -> Unit,
+    onOpenTouchpad: () -> Unit,
+) {
+    ApComponents.DialogCard(onDismiss = onDismiss) {
+        Text(text = ctx.getString(R.string.ui_home_sec_quick), fontSize = 17.sp)
+        Text(
+            text = ctx.getString(R.string.ui_home_quick_hint),
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_home_quick_file),
+            onClick = {
+                onDismiss()
+                runCatching {
+                    ctx.startActivity(Intent(ctx, com.allperiph.localsend.SendActivity::class.java))
+                }
+            },
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_home_quick_clip),
+            onClick = {
+                onDismiss()
+                val r = com.allperiph.ui.ClipboardSync.sendNow(ctx)
+                val msg = when (r) {
+                    com.allperiph.ui.ClipboardSync.SendResult.NO_DEVICE ->
+                        R.string.ui_main_toast_device_not
+                    com.allperiph.ui.ClipboardSync.SendResult.EMPTY ->
+                        R.string.ui_touchpad_toast_clipboard_empty
+                    com.allperiph.ui.ClipboardSync.SendResult.OK ->
+                        R.string.ui_touchpad_text_clipboard_send_done
+                    com.allperiph.ui.ClipboardSync.SendResult.FAIL ->
+                        R.string.ui_touchpad_text_send_failed
+                }
+                android.widget.Toast.makeText(ctx, ctx.getString(msg), android.widget.Toast.LENGTH_SHORT).show()
+            },
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_home_quick_screen),
+            onClick = {
+                onDismiss()
+                runCatching {
+                    ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
+                }
+            },
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_ball_fn_gamepad),
+            onClick = {
+                onDismiss()
+                runCatching {
+                    ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
+                }
+            },
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_remote_text_remote),
+            onClick = {
+                onDismiss()
+                runCatching {
+                    ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
+                }
+            },
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_hotkey_title),
+            onClick = {
+                com.allperiph.ui.Feedback.haptic(ctx)
+                onOpenTouchpad()
+            },
+        )
     }
 }
