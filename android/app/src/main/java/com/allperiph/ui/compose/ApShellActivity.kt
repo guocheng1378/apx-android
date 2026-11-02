@@ -117,20 +117,6 @@ class ApShellActivity : ComponentActivity() {
         // 方向锁定（审查条 1.1）：按偏好钉住/放开本 Activity 的朝向。必须在 setContent 之前，
         // 否则首帧会按系统朝向排版一次再被改回来（真机上表现为「闪一下才转」）。
         OrientLock.apply(this)
-        // v223.28 返回键语义（成宇 2026-11-02 两条真机反馈合在这里）：
-        // ① 悬浮球有展开层（扇形菜单 / 触控板·键盘·手柄·设备浮窗面板）时先收它并吃掉这次返回 ——
-        //    那些是 overlay 窗口，BACK 永远轮不到它们，此前在主壳按返回会把整个界面退掉；
-        // ② 没有展开层才弹退出确认 —— 旧 MainActivity 的退出确认在 Compose 迁移时整块丢了，
-        //    现在按返回直接 finish，用户既没机会知道「外设还在后台跑」，也没机会停掉它。
-        onBackPressedDispatcher.addCallback(
-            this,
-            object : androidx.activity.OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return
-                    showExitAsk.value = true
-                }
-            },
-        )
         pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
         intent?.removeExtra(EXTRA_PICK_DEVICE)
         setContent {
@@ -172,17 +158,26 @@ class ApShellActivity : ComponentActivity() {
         }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
-        // 返回键（审查条 2.6）：单 Activity 多页，此前全壳零 BackHandler —— 在设置二级页、
-        // 键盘页、触控板页按返回键直接退回桌面。旧设置页有 btnBackHome 回分类首页，
-        // 那条随 page_settings.xml 一起消失了。这里按「先关弹窗 → 回状态页 → 才退出」兜住；
-        // 设置页内部的分类归零由 SettingsPage 自己的 BackHandler 处理（它持有 cat 状态）。
-        BackHandler(enabled = pickerOpen || page != 0) {
+        // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
+        //
+        // 前一版把「先收悬浮层、否则弹退出确认」注册在 onCreate 的 onBackPressedDispatcher 上，
+        // 而这里的 Compose BackHandler 是组合期后注册的 —— OnBackPressedDispatcher 后注册先响应，
+        // 于是只要不在状态页，返回键只做了「回状态页」，扇形菜单与触控板/键盘浮窗留在屏幕上；
+        // 只有恰好停在状态页时才会走到收层逻辑。现在按优先级在一处走完：
+        //   悬浮层 → 设备选择器 → 回状态页 → 退出确认。
+        // 设置页内部的分类归零仍由 SettingsPage 自己的 BackHandler 处理（它持有 cat 状态）。
+        BackHandler(enabled = true) {
+            if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return@BackHandler
             if (pickerOpen) {
                 pickerOpen = false
-            } else {
+                return@BackHandler
+            }
+            if (page != 0) {
                 page = 0
                 pageState = 0
+                return@BackHandler
             }
+            showExitAsk.value = true
         }
         // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
         androidx.compose.runtime.LaunchedEffect(landscape, page) {
