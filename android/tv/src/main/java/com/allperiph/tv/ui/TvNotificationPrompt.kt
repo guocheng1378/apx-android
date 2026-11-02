@@ -42,6 +42,9 @@ object TvNotificationPrompt {
     /** 显示通知浮窗（主线程调用）。重复到来会先关掉上一个 */
     fun show(ctx: Context, appName: String, title: String, text: String) {
         val app = ctx.applicationContext
+        // 审查条 1.10：无「显示在其他应用上层」时 addView 必抛，此前只 Log.w，用户只看到
+        // 「通知从来不出现」。先在入口挡住并给一次可见引导，再进后面的建窗流程。
+        if (!TvOverlayPermission.checkAndGuide(app, "通知浮窗")) return
         val manager = app.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         dismiss()
         val overlayHost = TvOverlayHost(app)
@@ -71,6 +74,12 @@ object TvNotificationPrompt {
         } catch (t: Throwable) {
             overlayHost.destroy()
             Log.w("通知浮窗创建失败：${t.message}")
+            // 审查条 1.10：不再静默 —— 有权限也可能因 ROM 限制失败，这时给一条可见提示
+            runCatching {
+                android.widget.Toast.makeText(
+                    app, "通知浮窗未显示（系统拒绝悬浮窗）：${t.message}", android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
 
