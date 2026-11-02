@@ -3,6 +3,9 @@ package com.allperiph.ui.miuix
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -83,6 +86,28 @@ fun ApGlassTopBar(
             ),
         contentAlignment = Alignment.BottomStart,
     ) {
+        // 受控设备按钮（审查条 1.7）：`onDeviceClick` 这个参数从加进签名起就没被任何
+        // 可点区域消费过 —— 函数体只有玻璃底与可选标题，于是主壳内没有「切换受控设备」
+        // 的入口（只剩 `EXTRA_PICK_DEVICE` 启动参数与悬浮球面板）。这里补渲染：
+        // 有受控目标就显示它的名字，否则显示「选择设备」，点击回调用它拉起选择器。
+        if (onDeviceClick != null) {
+            val label = com.allperiph.wireless.ControlTarget.label
+                ?: com.allperiph.wireless.ControlTarget.host
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp)
+                    .clip(RoundedCornerShape(50))
+                    .clickable { onDeviceClick() }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = label ?: "选择设备",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+        }
         // 标题为空（横屏盖状态栏）就不画文字，玻璃底照常模糊状态栏那一条
         if (title != null) {
             Text(
