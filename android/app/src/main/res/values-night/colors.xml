@@ -20,22 +20,11 @@
     <color name="md_on_surface_variant">#FF8A8F98</color>
     <color name="md_outline">#FF23252A</color>
 
-    <color name="state_ok">#FF34C77B</color>
-    <color name="state_warn">#FFF7B45C</color>
     <color name="state_error">#FFF97066</color>
     <color name="state_idle">#FF7C848C</color>
 
     <color name="card_stroke">#FF2C2C2E</color>
-    <color name="badge_bg">#FF1B3A6B</color>
-
-    <!-- MIUIX 液态玻璃底栏（深色：半透明白玻璃，与浅色主题镜像） -->
-    <!-- 选中胶囊：玻璃主体 / 高光 / 边缘亮线 / 外圈柔光 / 底部内阴影 -->
-    <color name="nav_pill">#2EFFFFFF</color>
     <color name="nav_pill_shine">#3DFFFFFF</color>
-    <color name="nav_pill_stroke">#29FFFFFF</color>
-    <color name="nav_pill_halo">#1FFFFFFF</color>
-    <color name="nav_pill_shade">#33000000</color>
-
     <color name="miuix_bg">@color/md_background</color>
     <color name="miuix_card">@color/md_surface</color>
     <color name="miuix_text">@color/md_on_background</color>
@@ -43,19 +32,8 @@
     <color name="miuix_text_tertiary">#FF6B7075</color>
     <color name="miuix_divider">@color/md_outline</color>
     <color name="miuix_stroke">@color/card_stroke</color>
-    <color name="miuix_accent">@color/md_primary</color>
-    <color name="miuix_accent_soft">@color/md_primary_container</color>
     <color name="miuix_danger">@color/state_error</color>
 
-    <!-- 语义红：深色底下要提亮，否则白卡换深卡后 #B3261E 对比不足 -->
-    <color name="md_error">#FFF2B8B5</color>
-
-    <!-- 色点描边：深色底下改用亮描边（原来固定深色，深色主题里看不出选中环） -->
-    <color name="dot_stroke_selected">#FFEDEDED</color>
-    <color name="dot_stroke_normal">#33FFFFFF</color>
-
-    <!-- 悬浮球：深色下换成深底白点，跟其余页面同一套令牌 -->
-    <color name="ball_bg">#F21C1C1E</color>
     <color name="ball_text">#FFEDEDED</color>
     <color name="ball_stroke">#33FFFFFF</color>
     <!-- v223.15 MIUI 快捷球：深色下的外沿柔光（黑底上投影看不见，改用淡白） -->

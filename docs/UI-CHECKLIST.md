@@ -93,6 +93,8 @@
 - [ ] `python3 scripts/check_manifest_classes.py` 通过（动过 AndroidManifest 时）
 - [ ] `python3 scripts/check_appearance.py` 通过（动过配色 / 动效 / 震动音效 / 背景时）
 - [ ] `python3 scripts/check_components.py` 通过（新增/删除 Activity、Service、Receiver、Provider 时）
+- [ ] `python3 scripts/check_resources.py` 通过（动了 `res/values*` 或删了布局/drawable 时 —— 别留下没人用的资源）
+- [ ] 组件迁移后回看一眼：旧页面的 `strings.xml` 条目、`@style/AP*`、`@dimen/space_*` 是否还有人用（迁 Compose 不会自动清这些）
 - [ ] 深色模式实测一遍改动的页面（系统设置切深色，或 App 内「外观 → 深色」）
 - [ ] 横屏看一眼（`layout-land` 是否也需要同步改）
 - [ ] 文案改动同步到 `strings.xml`，不留 `android:text="中文"`
@@ -103,6 +105,7 @@
 
 | 项目 | 数量 |
 |------|------|
+| 静态资源定义数（string/color/dimen/style/drawable/layout） | 409 处｜2026-11-02 清理：691 → 409，删掉 282 处历代重构攒下的死资源，并加 `check_resources.py` 关卡钉住零欠债 |
 | 布局/drawable 字面色值 | 0（除 vector 遮罩，已由关卡守护） |
 | 布局硬编码文案 | 0（已全部入 `strings.xml`） |
 | Kotlin 硬编码色值（UI 层） | 0（被控输入面板 / 删除红 / 色点描边 / 小组件 / 磁贴全部入色板） |
