@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
@@ -35,7 +36,7 @@ import top.yukonga.miuix.kmp.basic.Text
  * 与 applyRuntimeTheme** —— 取色统一由 `ApMiuixTheme`（Miuix colorScheme）负责，
  * 这是旧外观总控（已拆成 ApPalette / ApSkin）/ `ThemePref` 下线的一步。
  */
-class SendActivity : Activity() {
+class SendActivity : ComponentActivity() {
 
     companion object { private const val PICK_CODE = 0x105F }
 

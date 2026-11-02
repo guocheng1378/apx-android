@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,7 +43,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 
-class RemoteInputActivity : Activity() {
+class RemoteInputActivity : ComponentActivity() {
 
     private var editText: EditText? = null
     /** 程序性改写输入框时置 true：TextWatcher 会把“删字”当成退格发往电脑，

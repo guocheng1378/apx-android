@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
@@ -52,7 +53,12 @@ fun StatusPage(
     ctx: Context,
     running: Boolean,
     onToggleRunning: (Boolean) -> Unit,
+    topBar: Dp = 0.dp,
+    bottomGap: Dp = 0.dp,
 ) {
+    // topBar/bottomGap：主壳顶栏（64dp 玻璃叠层）与浮动底栏的让位空档。
+    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动时内容从栏下穿过。
+
     val insets = rememberApInsets()
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
@@ -72,8 +78,8 @@ fun StatusPage(
             .padding(
                 start = 16.dp + insets.left,
                 end = 16.dp + insets.right,
-                top = 8.dp,
-                bottom = 96.dp + insets.bottom,
+                top = 8.dp + topBar,
+                bottom = maxOf(bottomGap, 96.dp) + insets.bottom,
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

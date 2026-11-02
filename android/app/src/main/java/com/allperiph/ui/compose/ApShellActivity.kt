@@ -198,12 +198,16 @@ class ApShellActivity : ComponentActivity() {
             ) {
                 // 顶栏是玻璃叠层、底栏是浮动导航条，两者都盖在内容之上：
                 // 这里给内容留出 64dp（顶栏高）+ 96dp（底栏 + 反馈 #52 第 4 条要求的横屏留白）
+                // 顶栏玻璃与浮动底栏都盖在内容之上：64dp 顶栏与 bottomGap 底栏空档改由
+                // 各页面在内容首尾自留（滚动内容从栏下穿过，可视/可操作面积不再被裁成
+                // 中间一条 —— v223.23 真机反馈「底栏和顶栏把可操作区域压的很小」，
+                // 旧实现容器级 padding 让滚动内容也被压缩，设置页底部更是双倍留白）。
+                // 触控板页手势面连 64dp 都不留，直接全屏。
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
-                        .apHazeSource(hazeState)
-                        .padding(top = 64.dp, bottom = insets.bottom + bottomGap),
+                        .apHazeSource(hazeState),
                 ) {
                     when (page) {
                         0 -> StatusPage(
@@ -213,17 +217,23 @@ class ApShellActivity : ComponentActivity() {
                                 running = want
                                 toggleAgent(want)
                             },
+                            topBar = 64.dp,
+                            bottomGap = bottomGap,
                         )
                         1 -> TouchpadPage(
                             ctx = this@ApShellActivity,
                             onGesture = { ev -> touchpadModule()?.feed(ev) },
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
+                            topBar = 64.dp,
+                            bottomGap = bottomGap,
                         )
-                        2 -> ApKeyboardPage()
+                        2 -> ApKeyboardPage(topBar = 64.dp, bottomGap = bottomGap)
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
+                            topBar = 64.dp,
+                            bottomGap = bottomGap,
                         )
                     }
                 }

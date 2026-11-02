@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,7 +41,7 @@ import top.yukonga.miuix.kmp.basic.Text
  * 真正的解码发生在 [ScreenModule] 收到的帧上。因此**退出页面不影响模块收流**，
  * 只是画面无处可画（此时帧会被丢弃并计数，[Renderer.stats] 会如实显示）。
  */
-class ScreenActivity : Activity(), TextureView.SurfaceTextureListener {
+class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
 
     private lateinit var view: TextureView
     /** 底部状态字：Compose 侧读这个状态，refreshHint 只写状态不再碰 TextView */

@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -53,7 +54,7 @@ import top.yukonga.miuix.kmp.basic.Text
  *  - 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ApPalette.applyRuntimeTheme`，
  *    取色走 `ApMiuixTheme`。
  */
-class GamepadActivity : Activity() {
+class GamepadActivity : ComponentActivity() {
 
     /** 出口状态行（每 500ms 兜底刷新一次；出口变化不一定会发输入）。 */
     private val ui = Handler(Looper.getMainLooper())
