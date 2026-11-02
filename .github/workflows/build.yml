@@ -49,6 +49,12 @@ jobs:
       - name: Setup Android SDK + NDK + CMake
         shell: bash
         run: |
+          # v-fix（link-hardening）：本步契约是「不阻断」—— 任何一条命令失败都不许
+          # 让 step 死在环境层（缺的组件交给 AGP 构建期自动补齐）。GitHub 的 shell
+          # 默认 -eo pipefail，逐条 if 包裹漏一条就全盘皆输（run#995 教训：这步
+          # 16s 即死，Build 全被跳过）。直接关掉 -e/-pipefail，把契约交给 shell。
+          set +e
+          set +o pipefail
           SDK="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDK" --licenses > /dev/null 2>&1 || true
 
@@ -68,8 +74,7 @@ jobs:
             ok=0
             for i in 1 2 3; do
               echo "===== sdkmanager install '$pkg' (attempt $i) ====="
-              "$SDK" "$pkg" < /dev/null > /tmp/sdk-pkg.log 2>&1
-              if [ $? -eq 0 ]; then
+              if "$SDK" "$pkg" < /dev/null > /tmp/sdk-pkg.log 2>&1; then
                 ok=1
                 tail -2 /tmp/sdk-pkg.log
                 break
@@ -81,11 +86,12 @@ jobs:
           done
 
           # 只报告不阻断：缺的组件交给 AGP 构建期 auto-download 补齐
-          for d in "platforms/android-35" "platforms/android-34" "platforms/android-37" "build-tools/35.0.0" "build-tools/37.0.0" "ndk/27.2.12479018" "cmake/3.22.1"; do
+          for d in "platforms/android-35" "platforms/android-34" "platforms/android-37" "build-tools/35.0.0" \
+                   "build-tools/37.0.0" "ndk/27.2.12479018" "cmake/3.22.1"; do
             if [ -d "$ANDROID_HOME/$d" ]; then
-              echo "OK   $d"
+              echo "OK   $ANDROID_HOME/$d"
             else
-              echo "MISS $d（构建期 AGP 自动下载）"
+              echo "MISS $ANDROID_HOME/$d（构建期 AGP 自动下载）"
             fi
           done
 
@@ -437,21 +443,23 @@ jobs:
               exit 0
             }
           }
-          # vswhere 落空 -> 按已知 x64 路径找（都是 x64\bin，不递归，不会命中 ARM64）
-          # VS 18 (2026) / VS 17 (2022) 两个大版本都试
+          # vswhere 落空 -> 按已知 VS 路径找（都是 x64\bin，非递归，不会命中 ARM64）
+          # VS 18 (2026) / VS 17 (2022) 路径都试一下
           $vsLlvm = @(
             "C:\Program Files\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin",
             "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\Llvm\x64\bin",
             "C:\Program Files\Microsoft Visual Studio\18\Professional\VC\Tools\Llvm\x64\bin",
-            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin",
-            "C:\Program Files (x86)\Microsoft Visual Studio\2022\Community\VC\Tools\Llvm\x64\bin"
+            "C:\Program Files (x86)\Microsoft Visual Studio\18\Enterprise\VC\Tools\Llvm\x64\bin",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin"
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($vsLlvm) {
-            Write-Host "found clang-tidy via known path: $vsLlvm"
-            $vsLlvm | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-            exit 0
+            $clangTidy = Get-ChildItem $vsLlvm -Filter clang-tidy.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($clangTidy) {
+              Write-Host "found bundled clang-tidy: $($clangTidy.FullName)"
+              $clangTidy.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+              exit 0
+            }
           }
-          # 全落空 -> 装 LLVM（choco）
           Write-Host "not bundled -> installing LLVM via choco"
           choco install llvm -y --no-progress
 
@@ -612,6 +620,7 @@ jobs:
           Copy-Item dist/pc-exes-webview2/WebView2Loader.dll portable/
           Copy-Item -Recurse dist/pc-exes-webview2/web portable/
           Compress-Archive -Path portable/* -DestinationPath "out/AllPeriph-${VER}-portable.zip" -Force
+          Get-ChildItem out/
         shell: pwsh
 
       - name: Collect Android APKs
