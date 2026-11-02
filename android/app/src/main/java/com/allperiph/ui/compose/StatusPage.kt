@@ -422,13 +422,17 @@ private fun snapshot(ctx: Context): StatusVm {
         val on = ids.count { AgentController.isEnabled(ctx, it) }
         "$on/${ids.size} 个模块启用"
     }
-    val modules = AgentController.ORDER.mapNotNull { id ->
-        val m = AgentController.module(id) ?: return@mapNotNull null
+    // 审查条 1.8：此前按 runtime 是否存在过滤（`module(id) ?: return@mapNotNull null`），
+    // 而 runtime 只在用户点「开始」/前台服务启动时才 build —— 冷启动进状态页整段「模块状态」
+    // 是空卡片，也没法先关掉某个模块再启动。旧 StatusFragment 用静态列表渲染、不依赖 runtime，
+    // 这里回到同一口径：清单以 ORDER 为准，模块实例只是可选的状态来源。
+    val modules = AgentController.ORDER.map { id ->
+        val m = AgentController.module(id)
         ModuleRowVm(
             id = id,
             label = AgentController.label(id),
-            detail = AgentController.detailOf(m),
-            state = m.state,
+            detail = if (m == null) "未启动（点上方开始）" else AgentController.detailOf(m),
+            state = m?.state ?: ModuleState.IDLE,
             enabled = AgentController.isEnabled(ctx, id),
         )
     }
