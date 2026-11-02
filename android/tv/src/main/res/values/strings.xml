@@ -48,4 +48,10 @@
 
     <!-- 无障碍服务说明（系统设置 → 无障碍里给用户看的） -->
     <string name="accessibility_desc">全能外设 TV 控制服务：接收手机发来的光标点击、文字输入与返回 / 主页操作并注入本机，用它遥控电视。</string>
+    <string name="tv_overlay_need_perm">「%1$s」需要「显示在其他应用上层」权限：请到 系统设置 → 应用 → 特殊权限 里打开</string>
+    <string name="tv_overlay_failed">通知浮窗未显示（系统拒绝悬浮窗）：%1$s</string>
+    <string name="tv_file_received">已接收文件：%1$s</string>
+    <string name="tv_overlay_scene">通知与收文件浮窗</string>
+    <string name="tv_overlay_scene_file">收文件浮窗</string>
+    <string name="tv_overlay_scene_notify">通知浮窗</string>
 </resources>

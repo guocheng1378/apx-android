@@ -67,8 +67,11 @@ R_USE = re.compile(
 # TvOverlayPermission 的权限引导、TvFilePrompt「已接收文件：」、TvNotificationPrompt
 # 「通知浮窗未显示（系统拒绝悬浮窗）：」、TvServerService 的场景名各一条。棘轮只能往下，
 # 那 6 处应搬进 tv 模块的 strings.xml（2026-11-02 审查 v5 §9.2-D）。
-# 663 → 659（审查 v5 的修复包）：主壳底栏四个导航 label 进 strings.xml。
-TEXT_BASELINE = 659
+# 663 → 659：主壳底栏四个导航 label 进 strings.xml。
+# 659 → 652：TV 侧 7 处用户可见文案搬进 android/tv/src/main/res/values/strings.xml
+#   （权限引导 1、场景名 2、已接收文件 1、浮窗失败 1，另两处同句重复），
+#   即上面那 6 处（实际 7 处）的真正归属。
+TEXT_BASELINE = 652
 
 
 def strip_comments(text):

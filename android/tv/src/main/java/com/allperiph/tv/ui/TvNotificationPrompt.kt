@@ -44,7 +44,7 @@ object TvNotificationPrompt {
         val app = ctx.applicationContext
         // 审查条 1.10：无「显示在其他应用上层」时 addView 必抛，此前只 Log.w，用户只看到
         // 「通知从来不出现」。先在入口挡住并给一次可见引导，再进后面的建窗流程。
-        if (!TvOverlayPermission.checkAndGuide(app, "通知浮窗")) return
+        if (!TvOverlayPermission.checkAndGuide(app, app.getString(com.allperiph.tv.R.string.tv_overlay_scene_notify))) return
         val manager = app.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         dismiss()
         val overlayHost = TvOverlayHost(app)
@@ -77,7 +77,9 @@ object TvNotificationPrompt {
             // 审查条 1.10：不再静默 —— 有权限也可能因 ROM 限制失败，这时给一条可见提示
             runCatching {
                 android.widget.Toast.makeText(
-                    app, "通知浮窗未显示（系统拒绝悬浮窗）：${t.message}", android.widget.Toast.LENGTH_SHORT,
+                    app,
+                    app.getString(com.allperiph.tv.R.string.tv_overlay_failed, t.message),
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         }

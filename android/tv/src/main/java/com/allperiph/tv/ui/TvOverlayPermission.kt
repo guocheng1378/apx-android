@@ -44,7 +44,7 @@ object TvOverlayPermission {
         if (granted(ctx)) return true
         if (nagged) return false
         nagged = true
-        val msg = "「$scene」需要「显示在其他应用上层」权限：请到 系统设置 → 应用 → 特殊权限 里打开"
+        val msg = ctx.getString(com.allperiph.tv.R.string.tv_overlay_need_perm, scene)
         runCatching { Toast.makeText(ctx.applicationContext, msg, Toast.LENGTH_LONG).show() }
         Log.w(msg)
         // 电视 ROM 上的设置页通常没有这一项，失败不算异常，提示已经把路径说清了
