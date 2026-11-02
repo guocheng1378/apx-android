@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  悬浮球贴边态（v223.26）：竖长条手柄。
+
+  用户反馈「悬浮窗贴边应该变成长条贴边」—— 圆球贴边仍占 48dp 见方，压在应用内容上
+  很显眼。贴边后改成 10dp × 64dp 的竖条：窄到几乎不挡内容，长度又足以一眼认出是
+  侧边手柄，点一下变回圆球。
+
+  配色沿用球体那套 ball_* 令牌（values / values-night 双份），这个文件不用改。
+  形状是矩形 + 圆角（不是 oval），外沿柔光同样用大一圈的低透明度矩形近似。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="7dp" />
+            <solid android:color="@color/ball_halo" />
+        </shape>
+    </item>
+    <item
+        android:bottom="2dp"
+        android:left="1dp"
+        android:right="1dp"
+        android:top="2dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="6dp" />
+            <gradient
+                android:angle="270"
+                android:endColor="@color/ball_glass_bottom"
+                android:startColor="@color/ball_glass_top"
+                android:type="linear" />
+            <stroke
+                android:width="1dp"
+                android:color="@color/ball_stroke" />
+        </shape>
+    </item>
+</layer-list>

@@ -21,9 +21,25 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.savedstate.SavedStateRegistry
+import androidx.savedstate.SavedStateRegistryOwner
+import androidx.savedstate.SavedStateRegistryController
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.allperiph.R
 import com.allperiph.shared.util.Log
 import com.allperiph.touchpad.TouchpadModule
+import com.allperiph.ui.compose.ApDevicePanel
+import com.allperiph.ui.compose.ApFullKeyboard
+import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import kotlin.math.abs
@@ -73,6 +89,16 @@ class FloatingBallService : Service() {
          * （22dp，@3x），比设计小一半，顺带把扇形的圆心也带偏。
          */
         private const val BALL_DP = 48
+
+        /**
+         * 停靠态长条尺寸（dp）：轻拨到屏幕左右边后，球收成一根竖条。
+         *
+         * 为什么不是继续用圆球：贴边时圆球仍占 48dp 见方，压在应用内容上很显眼；
+         * 竖条窄（10dp）却够长（64dp），既能看清是侧边手柄，也不挡内容 —— 用户
+         * 2026-11-02「悬浮窗贴边应该变成长条贴边」就是这个观感。
+         */
+        private const val DOCK_W_DP = 10
+        private const val DOCK_H_DP = 64
 
         /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
         private const val LONG_PRESS_MS = 800L
@@ -159,6 +185,9 @@ class FloatingBallService : Service() {
     private var ballAttached = false
     private var panel: View? = null
 
+    /** [panel] 的 Compose 生命周期宿主（键盘 / 手柄 / 设备面板用；触控板 XML 面板为 null） */
+    private var panelHost: OverlayComposeHost? = null
+
     /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
 
@@ -167,6 +196,9 @@ class FloatingBallService : Service() {
 
     /** 已停靠在侧边（半透明、点击恢复）—— 轻拨手势的落点状态 */
     private var docked = false
+
+    /** 停靠在哪一侧（左 / 右）：恢复圆球与往屏内挪都要按这一侧算 */
+    private var dockLeft = false
 
     /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
     private val dockSnapPx get() = dp(48)
@@ -193,6 +225,8 @@ class FloatingBallService : Service() {
         // 菜单／面板的 ?attr 强调色由 [themed]（ThemePref.wrapService）负责，
         // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
+        // v223.25 起菜单多了 键盘 / 手柄：老用户存过勾选清单时补挂一次（见 BallConfig.ensureNewItems）
+        BallConfig.ensureNewItems(this)
         NotificationChannels.ensure(this)
         startForeground(
             NOTIFICATION_ID,
@@ -249,6 +283,8 @@ class FloatingBallService : Service() {
         detach(ball)
         detach(panel)
         detach(menu)
+        panelHost?.destroy()
+        panelHost = null
         ball = null
         panel = null
         menu = null
@@ -382,29 +418,78 @@ class FloatingBallService : Service() {
         val cx = left + lp.x + v.width / 2f
         lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
-        if (v.width > 0 && cx < dockSnapPx) {
-            lp.x = 0
+        val nearLeft = v.width > 0 && cx < dockSnapPx
+        val nearRight = v.width > 0 && cx > dm.widthPixels - dockSnapPx
+        if (nearLeft || nearRight) {
             docked = true
-        } else if (v.width > 0 && cx > dm.widthPixels - dockSnapPx) {
-            lp.x = (dm.widthPixels - left - v.width).coerceAtLeast(0)
-            docked = true
+            dockLeft = nearLeft
+            // 贴边 → 收成竖条（内部自己 updateViewLayout，含尺寸与背景切换）
+            applyDockShape(v, nearLeft)
+            v.alpha = DOCK_ALPHA
         } else {
             docked = false
+            // 之前可能是条，落回中间要变回圆球，否则一根条孤零零立在屏幕中间
+            applyBallShape(v)
+            v.alpha = 1f
         }
-        v.alpha = if (docked) DOCK_ALPHA else 1f
         publishBallPosition(v)
         // 拖动/停靠后菜单与球的相对位置失效，直接收掉，下次点球再按新位置摆
         closeMenu()
     }
 
-    /** 停靠态点击 → 恢复正常显示：回到不透明，并往屏内挪出一个球身 */
+    /**
+     * 圆球 → 贴边竖条：换尺寸、换背景、藏图标，并让条紧贴选中的那一侧。
+     *
+     * 圆心（cx / cy）从当前窗口换算，所以拖动落点在哪里，条就在那里的高度贴边，
+     * 不会突然弹回屏幕中段。
+     */
+    private fun applyDockShape(v: View, leftSide: Boolean) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        val cy = top + lp.y + v.height / 2f
+        val w = dp(DOCK_W_DP)
+        val h = dp(DOCK_H_DP)
+        lp.width = w
+        lp.height = h
+        lp.x = if (leftSide) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
+        lp.y = (cy - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
+        v.setBackgroundResource(R.drawable.bg_ball_dock)
+        v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.GONE
+        runCatching { wm.updateViewLayout(v, lp) }
+            .onFailure { Log.w(TAG, "停靠长条应用失败：${it.message}") }
+    }
+
+    /** 贴边竖条 → 圆球：尺寸/背景/图标全恢复，并以当前条心为中心放回屏内 */
+    private fun applyBallShape(v: View) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        val cx = left + lp.x + v.width / 2f
+        val cy = top + lp.y + v.height / 2f
+        val s = dp(BALL_DP)
+        lp.width = s
+        lp.height = s
+        lp.x = (cx - s / 2f).toInt().coerceIn(0, (dm.widthPixels - left - s).coerceAtLeast(0))
+        lp.y = (cy - s / 2f).toInt().coerceIn(0, (dm.heightPixels - top - s).coerceAtLeast(0))
+        v.setBackgroundResource(R.drawable.bg_floating_ball)
+        v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.VISIBLE
+        runCatching { wm.updateViewLayout(v, lp) }
+            .onFailure { Log.w(TAG, "球形态恢复失败：${it.message}") }
+    }
+
+    /** 停靠态点击 → 恢复正常显示：竖条变回圆球、不透明，并往屏内挪出一个球身 */
     private fun undock(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         val dm = resources.displayMetrics
+        val wasLeft = dockLeft
         docked = false
         v.alpha = 1f
-        lp.x = if (lp.x <= 0) min(v.width, dm.widthPixels)
-               else (dm.widthPixels - v.width * 2).coerceAtLeast(0)
+        applyBallShape(v)
+        // applyBallShape 已按条心把球夹回屏内；这里再往里推一个球身，
+        // 免得球心仍落在吸附阈值内，下次一拖就又变条。
+        lp.x = if (wasLeft) min(dp(BALL_DP), (dm.widthPixels - dp(BALL_DP)).coerceAtLeast(0))
+               else (dm.widthPixels - dp(BALL_DP) * 2).coerceAtLeast(0)
         publishBallPosition(v)
     }
 
@@ -704,24 +789,26 @@ class FloatingBallService : Service() {
         fanItems.clear()
     }
 
-    /** 快捷项分发：触控板面板 / 设备选择 / 文件互传 / 全屏触控板 / 退出 / 连接模式切换 */
+    /** 快捷项分发：触控板 / 键盘 / 手柄 / 设备 = 浮窗面板（就地完成）；文件与被控台 = 完整页面（startActivity）；退出与连接模式 = 服务内处理 */
     private fun onFanItem(id: String) {
         when (id) {
             BallConfig.TOUCHPAD -> {
                 closeMenu()
                 expand()
             }
+            BallConfig.KEYBOARD -> {
+                closeMenu()
+                expandKeyboard()
+            }
+            BallConfig.GAMEPAD -> {
+                closeMenu()
+                expandGamepad()
+            }
             BallConfig.DEVICES -> {
                 closeMenu()
-                // 「扫描 / 切换设备」直接复用主界面的选择器（MainActivity 已支持带
-                // EXTRA_PICK_DEVICE 冷启动即弹）—— 与主页长按触控板的入口同一条路径
-                runCatching {
-                    startActivity(
-                        Intent(this, com.allperiph.ui.compose.ApShellActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            .putExtra(com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE, true),
-                    )
-                }
+                // 「扫描 / 切换设备」同样浮窗化（成宇 2026-11-02「应该在悬浮窗完成」）：
+                // 同一份选择器内容（ApDevicePanel）装进 overlay 卡片，不再拉起主 Activity。
+                expandDevices()
             }
             BallConfig.FILES -> {
                 closeMenu()
@@ -844,11 +931,125 @@ class FloatingBallService : Service() {
         ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
     }
 
+    // ————————————————————————— Compose 悬浮面板（键盘 / 手柄 / 设备） —————————————————————————
+
+    /**
+     * 在 overlay 窗口里挂一块 Compose 面板。
+     *
+     * Activity 之外 ComposeView 默认没有 LifecycleOwner / SavedStateRegistryOwner，
+     * 起不了 Recomposer —— [OverlayComposeHost] 手动补这三件套并驱动生命周期：
+     * create → 挂窗口 → start/resume，收起时 destroy（重组协程随 lifecycle 释放）。
+     *
+     * 面板互斥复用 [panel] 槽位（触控板 XML 面板同款）：展开时收球，收起时还球。
+     * 输入面板全部 FLAG_NOT_FOCUSABLE：键位/摇杆只吃触摸，不碰 IME。
+     */
+    private fun expandComposePanel(
+        height: Int,
+        keepScreenOn: Boolean = false,
+        content: @Composable () -> Unit,
+    ) {
+        if (panel != null) return
+        val host = OverlayComposeHost().also { it.create() }
+        val cv = ComposeView(themed)
+        cv.setViewTreeLifecycleOwner(host)
+        cv.setViewTreeSavedStateRegistryOwner(host)
+        cv.setContent { ApMiuixTheme { content() } }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            height,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                (if (keepScreenOn) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
+            PixelFormat.TRANSLUCENT,
+        ).apply { gravity = Gravity.BOTTOM }
+        closeMenu()   // 菜单与面板互斥
+        val attached = runCatching { wm.addView(cv, lp) }.onFailure {
+            Log.w(TAG, "Compose 面板挂载失败：${it.message}")
+            host.destroy()
+        }.isSuccess
+        if (!attached) return
+        host.start()
+        host.resume()
+        panel = cv
+        panelHost = host
+        // 展开时收起球（与触控板面板同口径，避免叠在面板上）
+        ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
+    }
+
+    /**
+     * 悬浮键盘：主屏键盘页同款 8 页签全键盘（[ApFullKeyboard] 弹窗形态，onClose 非空
+     * 自带「全键盘」标题 + 关闭键），键位直喂 HID —— 服务上下文就能发，不需要 Activity。
+     * 横屏高度只有竖屏一半：横屏占 66% 高、竖屏 52%，底部对齐，上半屏留给原应用。
+     */
+    private fun expandKeyboard() {
+        val hpx = themed.resources.displayMetrics.heightPixels
+        val wpx = themed.resources.displayMetrics.widthPixels
+        val fraction = if (wpx > hpx) 0.66f else 0.52f
+        expandComposePanel((hpx * fraction).toInt()) {
+            ApFullKeyboard(onClose = { collapse() }, bottomGap = 0.dp)
+        }
+    }
+
+    /** 悬浮手柄：[GamepadPanel]（GamepadActivity 同款双摇杆），全屏 overlay + KEEP_SCREEN_ON。 */
+    private fun expandGamepad() {
+        expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, keepScreenOn = true) {
+            GamepadPanel(onExit = { collapse() })
+        }
+    }
+
+    /** 悬浮设备选择：[ApDevicePanel] 与主屏选择器同一份内容（TvDiscovery 广播列表），选中即连。 */
+    private fun expandDevices() {
+        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
+            ApDevicePanel(onClose = { collapse() })
+        }
+    }
+
     private fun collapse() {
         detach(panel)
         panel = null
+        panelHost?.destroy()
+        panelHost = null
         // 收起就走延迟还原（1.2s 内又展开就不用白跑两次 su）
         com.allperiph.touchpad.GestureShield.releaseSoon(this, HOLDER_BALL)
         addBall()
+    }
+}
+
+/**
+ * overlay 窗口里的 Compose 宿主：ComposeView 起体外 Recomposer 需要
+ * LifecycleOwner + SavedStateRegistryOwner（顺带 ViewModelStoreOwner），
+ * Service 不天然带这三件套 —— 这里手动驱动：create 之后挂窗口，挂上即 start/resume，
+ * 收起时 destroy（Recomposer 协程随 lifecycle 释放，不泄漏）。
+ */
+private class OverlayComposeHost :
+    LifecycleOwner,
+    SavedStateRegistryOwner,
+    ViewModelStoreOwner {
+
+    private val registry = LifecycleRegistry(this)
+    private val savedStateController = SavedStateRegistryController.create(this)
+    private val store = ViewModelStore()
+
+    override val lifecycle: Lifecycle get() = registry
+
+    override val savedStateRegistry: SavedStateRegistry
+        get() = savedStateController.savedStateRegistry
+
+    override val viewModelStore: ViewModelStore get() = store
+
+    /** 挂窗口前调用：SavedStateRegistry 必须在 ON_CREATE 之前完成 restore。 */
+    fun create() {
+        savedStateController.performRestore(null)
+        registry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+    }
+
+    fun start() = registry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+
+    fun resume() = registry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+
+    fun destroy() {
+        registry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        store.clear()
     }
 }
