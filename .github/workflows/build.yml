@@ -535,6 +535,15 @@ jobs:
       - name: 外观门面（旧名 / 偏好落盘 / 强调色常量）
         run: python3 scripts/check_appearance.py
 
+      # 组件声明：源码里实现了系统组件（Activity / Service / IME / 无障碍 / Receiver /
+      # Provider…），却没有任何清单声明 —— 编译器对此完全沉默，系统只会启动声明过的
+      # 组件，于是这类类**永远不会被实例化**，连日志都没有。本仓真踩过：
+      # `com.allperiph.ui.ApxImeService`（批 S 的输入法腿）从引入起就没注册过，
+      # 而清单里注册的是**同名不同包**的 `com.allperiph.shared.ime.ApxImeService`
+      # （被控端文本注入，另一个功能）—— 搜类名总能搜到东西，只有按全限定名比对才暴露。
+      - name: 组件声明（实现了但没注册 → 永不启动）
+        run: python3 scripts/check_components.py
+
   # ------------------------------------------------ Release（仅 tag v*）
   # 跑在 windows-latest 上 —— Inno Setup 编译器只在 Windows 上有
   # macOS 资产由 macos.yml 的 tag 构建独立上传（两边对同一 Release 幂等协作：
