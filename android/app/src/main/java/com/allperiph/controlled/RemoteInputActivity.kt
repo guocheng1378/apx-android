@@ -42,6 +42,7 @@ import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
+import com.allperiph.ui.miuix.hideSystemBars
 
 class RemoteInputActivity : ComponentActivity() {
 
@@ -100,6 +101,7 @@ class RemoteInputActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
         // 本机正在替对端输入：此时本机的输入框获焦**不能**再反向请求对端，
         // 否则两边互相 0x25 来回弹输入法（remoteInputMode 此前是个零赋值的死标记）

@@ -56,7 +56,10 @@ R_USE = re.compile(
 # 686 → 680（v223.24 主屏键盘页对齐操控面）：键盘页整块重写时把「快捷键 / 新增 / 上下移 /
 # 改键 / 删除 / 遥控键面 / 候选键名」全部搬进 strings.xml（KeyboardPage.kt 的中文字面量
 # 20 → 0，本文件是唯一还在乎这件事的地方），实测 680，收紧锁住。
-TEXT_BASELINE = 676
+# 676 → 667（v223.27）：键盘页去掉快捷面板与编辑弹窗后，Kotlin 里的中文文案净减 9 处
+# （KeyboardPage.kt 的相关字面量在 v223.24 已搬进 strings.xml，本轮删的是引用它的代码），
+# 实测 667，按实测值收紧锁住战果。
+TEXT_BASELINE = 667
 
 
 def strip_comments(text):

@@ -4,6 +4,65 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.27（2026-11-02）
+
+第四批真机反馈：顶栏/状态栏收尾 + 键盘页精简 + **链路控制失效的根因修复**。
+改动集中在 `android/app`（界面层 + 一处模块层注释），`shared/`、`pc/`、`android/tv` 未动。
+
+### 修复（功能性，用户报「各个链路控制好像有问题，手机控制手机不能用，触摸板控制不了，界面不动」）
+
+- **设备选择器从不建立 9511 连接**（根因）：Compose 版 `ApDevicePickerBody` 只写了
+  `ControlTarget.host / label / type` 三个字段 —— 建连那一步原先只在已下线的旧界面
+  `TouchpadActivity.connectTv()` 里存在，迁移时漏掉了。于是 `ControlTarget.controlClient`
+  恒为 null，`TouchpadModule.dispatch` 里 `wirelessReady` 恒为 false，手势静默落到
+  USB / 蓝牙 / NONE（界面不给任何提示）。现在新增 `connectControlledDevice()`：
+  后台 `TvControllerClient(ip, port).connect()`，成功后才断开旧实例再换目标 ——
+  旧实例若不断开，它的 readerLoop 会每 2 秒无限重连旧 IP，留下 socket + tx/ping/reconn 线程。
+  触摸板、键盘、多媒体键、手机被控（`PH|` 名字标记 → type=phone）四条路同一个入口。
+- **发现列表只取一次**：`LaunchedEffect` 里 `TvDiscovery.start()` 之后立刻 `list()` 一次就完事，
+  而 UDP 广播要 1~2s 才有第一台设备进来 → 弹窗几乎必然空表。改成每秒刷新。
+- **手势被丢弃时无提示**：触控板页的手势提示只在首次触摸前显示，之后一直隐藏；
+  手势全被丢弃却毫无解释。现在两种「必定丢帧」的情形都常驻提示：
+  · `AgentController.running == false` →「服务未启动：手势发不出去…」；
+  · 服务在跑但没有出口（`HidMouse.available() == false`，即未选受控设备且 USB／蓝牙都没就绪）
+    →「没有出口：手势发不出去…」。判据读的是 `Uplink.resolve` 那条唯一路径，不另造一套。
+
+### 界面（成宇 2026-11-02 三条）
+
+- **所有页屏蔽状态栏**：`applyImmersive()` 由 `c.show(statusBars())` 改为
+  `hide(statusBars())`（保留 `BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`，下滑一次仍可临时唤出）；
+  主壳顶部留白一律 0（不再按横竖屏各算一套）。子页共用新增的
+  `Activity.hideSystemBars()`（`ui/miuix/ApInsets.kt`）：FilePanelActivity / SendActivity /
+  GamepadActivity / RemoteActivity / MiuixShowcaseActivity / ScreenActivity /
+  RemoteInputActivity / TouchpadActivity 全部在 `super.onCreate` 之后调用。
+  只靠 `Theme.AllPeriph.Miuix.Fullscreen` 的 `android:windowFullscreen` 不够 ——
+  targetSdk 35 强制 edge-to-edge 后它在部分系统上已不再真正隐藏状态栏。
+- **键盘页不留按钮**：整页只剩 8 页签 + 键盘本体。删掉页首「虚拟键盘 / 快捷面板」两个切换按钮
+  与整块快捷面板（组合键网格、模板 chip 行、编辑弹窗、`KbWindow`、`candidates()`）。
+  模板与自定义编辑仍在设置页「快捷键与外设」（同一份 `HotkeyStore`，能力没丢）。
+  `ApFullKeyboard` 的 `onClose` 重新接回（可选参数）：主屏键盘页传 null 不画按钮，
+  **悬浮球的 overlay 键盘面板仍能给「关闭」**（overlay 没有底部导航栏可退）。
+- **顶栏整块去除**：只剩一条 64dp 玻璃底、不承载任何信息，连同 `ApGlassTopBar` 调用一起删掉，
+  四个页的 `topBar` 一律 0.dp。
+
+### 其他
+
+- 设置页「遥控与键盘」：删掉三行过时说明（「当前控制 / 断开当前控制 / 重新发现局域网设备」），
+  换成真正会 `connect()` 的「选择受控设备」入口（弹 `ApDevicePickerBody`）；当前目标改为
+  「已连上才显示设备名，否则显示未连接」。
+- 连入成功时同时 `Uplink.reset()`（出口换了，别让徽章停在旧出口）。**不**替用户顺手打开
+  「无线」传输开关 —— 那条会一并拉起被控服务（本机被控 + 对外广播），属反方向的另一个功能。
+- 帮助文案 `ui_help_howto` 同步（原文指引「点顶栏设备名」，顶栏已不存在）。
+- 清理 18 个死资源（`ui_kb_add` / `ui_kb_full` / `ui_kb_panel_*` / `ui_kb_enter` …），
+  `check_resources` 零欠债；新增 10 条文案全部进 `strings.xml`。
+- `TEXT_BASELINE` 676 → 667（本轮净减 9 处 Kotlin 中文文案）。
+
+### 已知未验证（真机项一律未验）
+
+顶栏/状态栏是否真的全部消失（含子页）、键盘页按钮是否清干净、悬浮球键盘面板的「关闭」是否
+仍在、设置页新入口能否连入、**触摸板能否真正控制对端**、手机被控（phone 类型）是否可用、
+悬浮球贴边长条、按键音效与震动档位、8 页签逐页发键。
+
 ## v223.22（2026-11-02）
 
 界面层（Compose + Miuix）这一轮的十项改动。全部只动 `android/app` 的界面层，

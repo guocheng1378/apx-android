@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -37,10 +38,8 @@ import com.allperiph.ui.miuix.MiuixTokens
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import com.allperiph.R
-import com.allperiph.ui.miuix.ApGlassTopBar
 import com.allperiph.ui.miuix.apHazeSource
 import com.allperiph.ui.miuix.rememberApHazeState
-import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
@@ -114,7 +113,6 @@ class ApShellActivity : ComponentActivity() {
 
     @Composable
     private fun Shell() {
-        val insets = rememberApInsets()
         // 反馈 #52（新一轮）第 4 条：横屏底部留白按 96dp 统一，不再让底栏压住页面内容；
         // 竖屏 88dp（底栏自身高度 + 一点呼吸）
         // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
@@ -122,11 +120,12 @@ class ApShellActivity : ComponentActivity() {
         adaptiveState = adaptive
         val landscape = adaptive.landscape
         val bottomGap = if (landscape) 96.dp else 88.dp
-        // 「横屏覆盖状态栏」（成宇 2026-11-01）：横屏下内容画到状态栏区域之下，
-        // 不预留顶部空档；竖屏仍然垫状态栏，否则第一张卡片会被时间/电量压住。
-        // 需要垫的只剩挖孔：横屏时刘海在左右，所以左右 inset 照旧生效。
-        val topPad = if (landscape) 0.dp else insets.top
-        val sidePad = if (adaptive.padCutout) maxOf(insets.left, insets.right) else 0.dp
+        // 状态栏整块屏蔽（成宇 2026-11-02「所有页屏蔽状态栏」）：applyImmersive 里
+        // statusBars 也一并 hide 了，所以这里**不用再按边算顶部留白** —— 内容直接画到
+        // 屏幕最上沿。此前竖屏垫 insets.top（且 v223.23 前那个值恒为 0），横竖屏各说各话，
+        // 顶栏标题才会压在系统时间那一行上。
+        // 顶栏整块去除后侧向留白也由各页自己按 insets.left/right 处理，这里不再介入。
+        val topPad = 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop（组件总览同款做法）。
@@ -239,7 +238,7 @@ class ApShellActivity : ComponentActivity() {
                                 running = want
                                 toggleAgent(want)
                             },
-                            topBar = 64.dp,
+                            topBar = 0.dp,
                             bottomGap = bottomGap,
                         )
                         1 -> TouchpadPage(
@@ -247,33 +246,24 @@ class ApShellActivity : ComponentActivity() {
                             onGesture = { ev -> touchpadModule()?.feed(ev) },
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
-                            topBar = 64.dp,
+                            topBar = 0.dp,
                             bottomGap = bottomGap,
                         )
-                        2 -> ApKeyboardPage(topBar = 64.dp, bottomGap = bottomGap)
+                        2 -> ApKeyboardPage(topBar = 0.dp, bottomGap = bottomGap)
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
-                            topBar = 64.dp,
+                            topBar = 0.dp,
                             bottomGap = bottomGap,
                         )
                     }
                 }
             }
 
-            // 顶栏：玻璃渐进模糊 + 当前页标题（内容从栏下滚过）
-            ApGlassTopBar(
-                // 顶栏只做玻璃底（成宇 2026-11-02「把所有页面标题都去除」）：
-                // 标题在横屏会跟系统时间/电量叠字，竖屏又和页内内容各说各话，
-                // 干脆一律不画 —— 当前页由底部导航高亮表达。
-                title = null,
-                hazeState = hazeState,
-                onDeviceClick = { pickerOpen = true },
-                // 顶栏让出状态栏：竖屏 topPad = 状态栏高，横屏 topPad = 0（设计上盖住状态栏）。
-                // 此前顶栏从 root Box 顶部起画，标题直接压在系统时间那一行（v223.23 真机）。
-                modifier = Modifier.align(Alignment.TopCenter)
-                    .padding(start = sidePad, end = sidePad, top = topPad),
-            )
+            // 顶栏整块去除（成宇 2026-11-02「顶栏不要留东西了，没有状态栏没有连接设备的地方」）：
+            // 标题上一版已去掉，剩下的只是一条 64dp 玻璃底 —— 它还占着屏且没有承载任何
+            // 信息（设备选择已移到设置页「当前控制」下方，不再靠点顶栏进）。保留 apHazeSource
+            // 的采样层即可，玻璃效果由底栏继续使用。
 
             // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
             // TvDiscovery 的广播发现，选中即连入 9511；「本机 / PC」走 ControlTarget.clear()
@@ -423,9 +413,12 @@ class ApShellActivity : ComponentActivity() {
     }
 
     private fun applyImmersive() {
-        // 横屏覆盖状态栏的前提（framework API，minSdk 34 无需兼容分支）：
-        // ① 装饰视图不再替我们让位 —— 让位由 ApInsets 按边算，横屏顶部按 0 处理；
+        // 全屏口径（framework API，minSdk 34 无需兼容分支）：
+        // ① 装饰视图不再替我们让位 —— 让位由各页自己按 ApInsets 算；
         // ② 状态栏颜色透明；③ 允许布局延伸到挖孔短边（横屏时刘海在左右侧）。
+        // 成宇 2026-11-02「所有页屏蔽状态栏」：**隐藏**状态栏与导航栏，四个页
+        // （状态 / 触控板 / 键盘 / 设置）都不再露系统时间与电量。此前这里主动
+        // c.show(statusBars())，竖屏能看见状态栏，叠上玻璃顶栏就是两层顶部占位。
         window.setDecorFitsSystemWindows(false)
         @Suppress("DEPRECATION")
         window.statusBarColor = android.graphics.Color.TRANSPARENT
@@ -438,10 +431,12 @@ class ApShellActivity : ComponentActivity() {
         // 读的是尚未赋值的 mDecor 字段，`?: return` 挡不住，Launcher 一启就 FATAL。
         // 改为 decorView.post：它在 DecorView attach 到 Window 之后才跑，那时 controller 已就位；
         // 未 attach 时先排队，既不会漏执行，也不会再抛。
+        // 状态栏与导航栏都隐藏；下拉一次仍可临时唤出（BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE），
+        // 但不主动显示。
         window.decorView.post {
             val c = window.insetsController ?: return@post
             c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            c.show(WindowInsets.Type.statusBars())
+            c.hide(WindowInsets.Type.statusBars())
             c.hide(WindowInsets.Type.navigationBars())
         }
     }
@@ -478,43 +473,115 @@ private fun ApDevicePicker(onDismiss: () -> Unit) {
 }
 
 /**
+ * 真正连入受控设备（v223.27）。
+ *
+ * ★ 此前 Compose 版选择器只写了 `ControlTarget.host/label/type` 三个字段，
+ *   **从未建立 9511 连接** —— `controlClient` 一直是 null，于是：
+ *     · [com.allperiph.touchpad.TouchpadModule] 的 `wirelessReady` 恒为 false，
+ *       出口落到 USB／蓝牙／NONE，选了设备手势照样发不出去（成宇报的「触摸板控制不了，
+ *       界面不动」）；
+ *     · 连「手机被控」也同样不可用 —— 同一个根因，不是 phone 类型缺分支。
+ *   建连这一步原先只在已下线的旧界面 `TouchpadActivity.connectTv()` 里做，Compose
+ *   迁移时漏掉了。这里按同一口径补回。
+ *
+ * 顺序仍是「先连、后换」：新连接成功后才断开旧实例 —— 旧实例若不断开，它的
+ * readerLoop 会每 2s 无限重连旧 IP，留下 socket 与 tx/ping/reconn 三条线程。
+ */
+internal fun connectControlledDevice(
+    ctx: Context,
+    d: com.allperiph.wireless.TvDiscovery.TvDevice,
+    onResult: (Boolean, String) -> Unit,
+) {
+    val ui = android.os.Handler(android.os.Looper.getMainLooper())
+    Thread({
+        val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port)
+        val ok = c.connect()
+        ui.post {
+            if (ok) {
+                com.allperiph.wireless.ControlTarget.controlClient
+                    ?.takeIf { it !== c }?.disconnect()
+                com.allperiph.wireless.ControlTarget.controlClient = c
+                com.allperiph.wireless.ControlTarget.host = d.ip
+                com.allperiph.wireless.ControlTarget.label = d.name
+                com.allperiph.wireless.ControlTarget.type = d.type
+                // 出口换了：作废「已观测出口」，否则徽章 / 通知栏 / 0x31 上报在用户碰屏幕
+                // 之前仍显示上一个出口（issue#52 第 8 条同款）。
+                // ⚠️ 这里**不**顺手打开「无线」传输类：那条开关会一并拉起 WirelessModule
+                // → ControlledService（本机被控 + 对外广播信标），是反方向的另一个功能，
+                // 静默替用户打开是越权。缺哪一项由状态页的开关与提示如实表达。
+                com.allperiph.core.Uplink.reset()
+                android.widget.Toast.makeText(
+                    ctx,
+                    ctx.getString(R.string.ui_main_toast_done, d.name),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            } else {
+                android.widget.Toast.makeText(
+                    ctx,
+                    ctx.getString(R.string.ui_touchpad_toast_connect_failed, d.ip),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            onResult(ok, d.name)
+        }
+    }, "apx-connect").start()
+}
+
+/**
  * 设备选择器的内容体（v223.25 从 ApDevicePicker 抽出）：主屏弹窗与悬浮球 overlay
- * 面板共用同一份列表与连接逻辑 —— 选中即 [com.allperiph.wireless.ControlTarget] 连入，
+ * 面板共用同一份列表与连接逻辑 —— 选中即 [connectControlledDevice] 连入 9511，
  * 「本机 / PC」= clear()。
  */
 @Composable
 internal fun ApDevicePickerBody(onDone: () -> Unit) {
+    val ctx = LocalContext.current
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
+    var connecting by remember { mutableStateOf("") }
+    // ★ v223.27：这里原来是 start() 之后立刻 list() **只取一次** —— UDP 广播发现要
+    //   1~2s 才有第一台设备进来（TvDiscovery 的 devices 表还要等 loop 收到信标才填），
+    //   所以弹窗几乎必然显示空表。用户报「找不到设备 / 没有连接设备的地方」有一半在这里。
+    //   改成每秒刷新：弹窗开着就能看到设备陆续出现。
     androidx.compose.runtime.LaunchedEffect(Unit) {
         com.allperiph.wireless.TvDiscovery.start()
-        devices = com.allperiph.wireless.TvDiscovery.list()
+        while (true) {
+            devices = com.allperiph.wireless.TvDiscovery.list()
+            kotlinx.coroutines.delay(1000L)
+        }
     }
     Text(
-        text = "选择受控设备",
+        text = ctx.getString(R.string.ui_pick_device_title),
         fontSize = 17.sp,
         modifier = Modifier.padding(bottom = 8.dp),
     )
     ApComponents.ActionButton(
-        text = "本机 / PC（默认）",
+        text = ctx.getString(R.string.ui_pick_device_local),
         onClick = {
             com.allperiph.wireless.ControlTarget.clear()
             onDone()
         },
     )
+    if (connecting.isNotEmpty()) {
+        Text(
+            text = ctx.getString(R.string.ui_pick_device_connecting, connecting),
+            fontSize = 13.sp,
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+    }
     devices.forEach { d ->
         ApComponents.ActionButton(
             text = "${d.name} ${d.typeLabel}  ${d.ip}",
             onClick = {
-                com.allperiph.wireless.ControlTarget.host = d.ip
-                com.allperiph.wireless.ControlTarget.label = d.name
-                com.allperiph.wireless.ControlTarget.type = d.type
-                onDone()
+                connecting = d.ip
+                connectControlledDevice(ctx, d) { ok, name ->
+                    connecting = ""
+                    if (ok) onDone()
+                }
             },
         )
     }
     if (devices.isEmpty()) {
         Text(
-            text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
+            text = ctx.getString(R.string.ui_pick_device_scanning),
             fontSize = 13.sp,
             modifier = Modifier.padding(vertical = 8.dp),
         )

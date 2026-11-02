@@ -2,7 +2,6 @@ package com.allperiph.ui.compose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -18,9 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -34,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
@@ -43,8 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
-import com.allperiph.hid.HotkeyStore
-import com.allperiph.hid.HotkeyTemplates
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
@@ -77,251 +70,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  */
 @Composable
 fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
-    val ctx = LocalContext.current
-    val cands = candidates()
-    var items by remember { mutableStateOf(HotkeyStore.load(ctx)) }
-    var editIndex by remember { mutableIntStateOf(-1) }
-    var addOpen by remember { mutableStateOf(false) }
-    /** 全键盘弹窗（模板行右端 / 编辑器里的「全键盘」入口打开） */
-    var kbOpen by remember { mutableStateOf(false) }
-    /** 面板切换：0 = 整块虚拟键盘（页面主体），1 = 快捷面板（组合键网格） */
-    var panel by remember { mutableIntStateOf(0) }
-
-    fun commit(next: List<HidKeys.Combo>) {
-        items = next.toMutableList()
-        HotkeyStore.save(ctx, next)
-        HotkeyStore.markCustom(ctx)
-    }
-
+    // 页面标题与面板切换按钮一并去除（成宇 2026-11-02「键盘页不需要快捷键和虚拟键盘按钮，
+    // 去除」）：这一页本来就是整块虚拟键盘，正文与按钮重复表达同一件事；
+    // 「快捷键（长按可编辑）」那块组合键面板与模板行也整块拆掉 —— 模板/自定义编辑
+    // 仍在设置页「快捷键与外设」里（同一份 HotkeyStore，能力没丢，只是不在键盘页占位）。
+    // 页首只留 topBar 高度让开玻璃顶栏（顶栏本身也已无文字）。
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        // 顶栏是玻璃叠层：页面顶部自留 topBar，标题与面板切换不被压在栏下
         Spacer(modifier = Modifier.height(topBar))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // 页面标题一律不画（成宇 2026-11-02「把所有页面标题都去除」）。
-            // 这里原来固定写「快捷键（长按可编辑）」，正文却是整块虚拟键盘，
-            // 看着就是「快捷键映射的是触屏页的内容」—— 标题和内容各说各话。
-            // 现在只剩面板切换按钮，正文是什么由按钮高亮说明。
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
-                // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_panel_keys),
-                    onClick = { panel = 0 },
-                )
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_panel_hot),
-                    onClick = { panel = 1 },
-                )
-                if (panel == 1) {
-                    ApComponents.NarrowButton(
-                        text = ctx.getString(R.string.ui_kb_add),
-                        onClick = { addOpen = true },
-                    )
-                }
-            }
-        }
-        if (panel == 0) {
-            // 虚拟键盘占主体；onClose = null 表示不是弹窗，不画关闭按钮
-            ApFullKeyboard(onClose = null, bottomGap = bottomGap)
-        } else {
-            // 模板行：`HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，存储仍是 HotkeyStore
-            //（与设置页「快捷键模板」同一份，两边互不打架）。
-            // 右端「全键盘」= 同一套 8 页签键盘的弹窗形态（旧 KeyboardPanels 就是想换布局
-            // 只能手动改键，这里直接给整块键盘）。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(bottom = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_tpl_default),
-                    onClick = {
-                        items = HidKeys.DEFAULTS.toMutableList()
-                        HotkeyStore.save(ctx, HidKeys.DEFAULTS)
-                    },
-                )
-                HotkeyTemplates.ALL.forEach { t ->
-                    ApComponents.NarrowButton(
-                        text = t.name,
-                        onClick = {
-                            HotkeyStore.applyTemplate(ctx, t)
-                            items = HotkeyStore.load(ctx)
-                        },
-                    )
-                }
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_full),
-                    onClick = { kbOpen = true },
-                )
-            }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(104.dp),
-                modifier = Modifier.fillMaxSize().padding(bottom = bottomGap),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                itemsIndexed(items) { index, combo ->
-                    ApComponents.Card(modifier = Modifier.height(64.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .pointerInput(combo) {
-                                    detectTapGestures(
-                                        onTap = { HidKeys.combo(combo) },
-                                        onLongPress = { editIndex = index },
-                                    )
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = HidKeys.comboText(combo),
-                                fontSize = 13.sp,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (kbOpen) {
-        KbWindow(onDismiss = { kbOpen = false })
-    }
-
-    if (editIndex in items.indices) {
-        val cur = items[editIndex]
-        ApComponents.DialogCard(onDismiss = { editIndex = -1 }) {
-            Text(text = HidKeys.comboText(cur), fontSize = 16.sp)
-            Row(modifier = Modifier.padding(vertical = 8.dp)) {
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_move_up),
-                    onClick = {
-                        if (editIndex > 0) {
-                            val l = items.toMutableList()
-                            val v = l.removeAt(editIndex)
-                            l.add(editIndex - 1, v)
-                            commit(l)
-                        }
-                        editIndex = -1
-                    },
-                )
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_move_down),
-                    onClick = {
-                        if (editIndex < items.size - 1) {
-                            val l = items.toMutableList()
-                            val v = l.removeAt(editIndex)
-                            l.add(editIndex + 1, v)
-                            commit(l)
-                        }
-                        editIndex = -1
-                    },
-                )
-            }
-            // 改键：候选键来自 candidates()（usage 显式写出，不再是「首字母」错值）
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_kb_change_key),
-                onClick = {
-                    val l = items.toMutableList()
-                    val at = cands.indexOfFirst { it.usage == cur.usage }
-                    val next = cands[(if (at < 0) 0 else at + 1) % cands.size]
-                    l[editIndex] = HidKeys.Combo(next.label, cur.mod, next.usage)
-                    commit(l)
-                    editIndex = -1
-                },
-            )
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_kb_select_keys),
-                onClick = { editIndex = -1; kbOpen = true },
-            )
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_kb_delete),
-                onClick = {
-                    val l = items.toMutableList()
-                    l.removeAt(editIndex)
-                    commit(l)
-                    editIndex = -1
-                },
-            )
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_common_cancel),
-                onClick = { editIndex = -1 },
-            )
-        }
-    }
-
-    if (addOpen) {
-        ApComponents.DialogCard(onDismiss = { addOpen = false }) {
-            Text(text = ctx.getString(R.string.ui_kb_add), fontSize = 16.sp)
-            cands.forEach { c ->
-                ApComponents.NarrowButton(
-                    text = c.label,
-                    onClick = {
-                        commit(items + HidKeys.Combo(c.label, 0, c.usage))
-                        addOpen = false
-                    },
-                )
-            }
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_common_cancel),
-                onClick = { addOpen = false },
-            )
-        }
+        ApFullKeyboard(bottomGap = bottomGap)
     }
 }
-
-/**
- * 全键盘弹窗：整块虚拟键盘（含 8 页签）装进 [ApComponents.DialogCard]。
- *
- * 高度给到 0.92 屏高 —— 8 页签 + 5 行键位在 0.62 里会被压扁到按不准。
- * 内容用 `weight(1f)` 占满弹窗剩余高度，键盘内部自己按行均分。
- */
-@Composable
-private fun KbWindow(onDismiss: () -> Unit) {
-    ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.92f) {
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            ApFullKeyboard(onClose = onDismiss)
-        }
-    }
-}
-
-/**
- * 候选键：覆盖遥控 / 媒体 / 方向 / 常用编辑键，够日常自定义，不必在手机上敲键名。
- *
- * usage 全部**显式写出**：`usageOf("F11")` 这类多字符标签只会取到首字母（f = 0x09），
- * 存进 HotkeyStore 就是坏值；媒体键存真实 Consumer usage，由 [HidKeys.combo] 路由到位图链路。
- *
- * 放在函数里而不是文件级 `val`：键面文字要从资源取（`ctx` 只有函数内拿得到），
- * 顺便少一处 Kotlin 中文文案。
- */
-@Composable
-private fun candidates(): List<HidKeys.Combo> {
-    val ctx = LocalContext.current
-    return remember {
-        listOf(
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_enter), 0, 0x28),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_back), 0, 0x2A),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_u), 0, 0x52),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_d), 0, 0x51),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_l), 0, 0x50),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_r), 0, 0x4F),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_home), 0, 0x4A),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_fullscreen), 0, 0x44),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_play), 0, 0xB2),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_vol_up), 0, 0xE9),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_vol_down), 0, 0xEA),
-            HidKeys.Combo(ctx.getString(R.string.ui_kb_mute), 0, 0xE2),
-        )
-    }
-}
-
 /** 8 套页签：名称与顺序对齐操控面 `kbNames`（`TouchpadActivity`） */
 private val KB_TABS = listOf(
     R.string.ui_kb_tab_quick, R.string.ui_kb_tab_remote, R.string.ui_kb_tab_game,
@@ -342,8 +100,11 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
 /**
  * 整块虚拟键盘：页签行 + 当前页签键位。
  *
- * @param onClose 非空时右上角画「关闭」（弹窗形态）；主屏面板形态传 null。
- * @param bottomGap 底部额外让出的高度：浮动底栏盖在键盘下沿，最底行的按键必须仍可点。
+ * @param onClose 非空时右上角画「关闭」—— 这是**悬浮球 overlay 面板形态**要的出口
+ *   （overlay 键盘没有底部导航栏可退，不给关闭按钮就收不起来）；主屏键盘页传 null，
+ *   页面上一个按钮都不画（成宇 2026-11-02「键盘页不需要快捷键和虚拟键盘按钮，去除」）。
+ * @param bottomGap 底部额外让出的高度：浮动底栏（或悬浮键盘面板下沿）盖在键盘上，
+ *   最底行的按键必须仍可点。
  */
 @Composable
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
@@ -358,11 +119,8 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
         modifier = Modifier.fillMaxSize()
             .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + bottomGap),
     ) {
-        // —— 第 1 行：标题 + 关闭 ——
-        // 只在弹窗形态画：主屏面板形态的标题由页首那行面板标题承担（v223.25 起
-        // 页首标题跟随面板），这里再画一遍就是「全键盘」出现两次。
+        // —— 关闭行：只在悬浮球面板形态画（主屏键盘页 onClose = null，一个按钮都不占位）——
         if (onClose != null) {
-            // 弹窗形态也只要关闭按钮，标题文字同样去掉（与页面口径一致）
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_close),
@@ -371,7 +129,7 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             }
         }
 
-        // —— 第 2 行：页签（与操控面 kbTabs 同名同序）——
+        // —— 第 1 行：页签（与操控面 kbTabs 同名同序）——
         Row(
             modifier = Modifier.fillMaxWidth()
                 .horizontalScroll(rememberScrollState())

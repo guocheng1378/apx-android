@@ -267,7 +267,7 @@
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
     <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
-    <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机开「运行状态」开关；③ 点顶栏设备名选「本机 / PC」或发现到的设备。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
+    <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 到「设置 → 遥控与键盘 → 选择受控设备」里选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
     <string name="ui_help_open_full">查看完整说明</string>
     <string name="ui_help_close">关闭</string>
     <string name="ui_home_section_state">运行状态</string>
@@ -277,7 +277,6 @@
     <string name="ui_home_btn_start">启动</string>
     <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
     <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
-    <string name="ui_kb_full">全键盘</string>
     <!-- v223.24 主屏键盘页与操控面同款布局页签 -->
     <string name="ui_kb_tab_quick">快捷</string>
     <string name="ui_kb_tab_remote">遥控</string>
@@ -290,16 +289,6 @@
     <string name="ui_kb_close">关闭</string>
     <!-- v223.24 快捷键面板（组合键网格）与编辑弹窗的文案：不写死在 Kotlin 里 -->
     <!-- 快捷键编辑的候选键（与被控操控面同一批键位；名字即 HotkeyStore 里的标签，改这里会连带 USAGE_REPAIRS） -->
-    <string name="ui_kb_enter">确定</string>
-    <string name="ui_kb_back">返回</string>
-    <string name="ui_kb_home">Home</string>
-    <string name="ui_kb_fullscreen">全屏</string>
-    <string name="ui_kb_add">新增</string>
-    <string name="ui_kb_move_up">上移</string>
-    <string name="ui_kb_move_down">下移</string>
-    <string name="ui_kb_change_key">改键（循环换下一个候选键）</string>
-    <string name="ui_kb_select_keys">选键</string>
-    <string name="ui_kb_delete">删除</string>
     <!-- v223.24 「遥控」行的键面文字（与被控操控面 remoteKeyboard 同一组键，文案不写死在 Kotlin） -->
     <string name="ui_kb_prev">上一曲</string>
     <string name="ui_kb_play">播放/暂停</string>
@@ -308,10 +297,6 @@
     <string name="ui_kb_vol_up">音量⁺</string>
     <string name="ui_kb_mute">静音</string>
     <!-- 方向候选键（沿用 HidKeys 的箭头字形） -->
-    <string name="ui_kb_arrow_l">←</string>
-    <string name="ui_kb_arrow_r">→</string>
-    <string name="ui_kb_arrow_u">↑</string>
-    <string name="ui_kb_arrow_d">↓</string>
     <string name="ui_set_sec_skin">皮肤</string>
     <string name="ui_set_sec_general">通用</string>
     <string name="ui_set_sec_ball">悬浮栏</string>
@@ -347,14 +332,23 @@
     <string name="ui_set_cat_keys">快捷键与外设</string>
     <string name="ui_set_cat_tools">工具与传输</string>
     <string name="ui_set_cat_data">数据与维护</string>
-    <string name="ui_kb_tpl_default">默认</string>
     <string name="ui_ball_order_title">顺序（从上到下即扇形展开顺序）</string>
-    <string name="ui_kb_panel_keys">虚拟键盘</string>
-    <string name="ui_kb_panel_hot">快捷面板</string>
     <!-- v223.25 音频方向折叠分组（成宇 2026-11-02）：按 麦克风 / 音响 两组收起，点组头展开才出现子开关 -->
     <string name="ui_set_audio_group_mic">麦克风（手机 → 电脑）</string>
     <string name="ui_set_audio_group_spk">音响（电脑 → 手机）</string>
     <string name="ui_set_audio_group_count">已开 %1$d / 2 路</string>
     <string name="ui_set_audio_chevron_closed">▸</string>
     <string name="ui_set_audio_chevron_open">▾</string>
+    <!-- v223.27 顶栏整块去除后，设备选择器的常驻入口落在设置页「遥控与键盘」 -->
+    <string name="ui_pick_device_title">选择受控设备</string>
+    <string name="ui_pick_device_local">本机 / PC（默认：不控制别的设备）</string>
+    <string name="ui_pick_device_connecting">正在连 %1$s …</string>
+    <string name="ui_pick_device_scanning">正在搜索局域网设备…（对端的控制服务要开着；1~2 秒内会陆续出现）</string>
+    <string name="ui_pick_device_button">选择受控设备（连上之后触摸板 / 键盘才发得出去）</string>
+    <string name="ui_set_label_current_control">当前控制</string>
+    <string name="ui_set_label_current_control_none">未连接（点下面「选择受控设备」）</string>
+    <string name="ui_set_btn_disconnect_control">断开当前控制</string>
+    <string name="ui_set_toast_disconnected">已断开</string>
+    <string name="ui_touchpad_hint_service_off">服务未启动：手势发不出去。先到「状态」页打开启动开关。</string>
+    <string name="ui_touchpad_hint_no_uplink">没有出口：手势发不出去。先在「设置 → 遥控与键盘」选受控设备，或接上 USB / 蓝牙。</string>
 </resources>

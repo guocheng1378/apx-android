@@ -20,6 +20,7 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
 import com.allperiph.shared.ui.ApKit
 import com.allperiph.wireless.ControlTarget
+import com.allperiph.ui.miuix.hideSystemBars
 
 /**
  * 「遥控器」—— 仿小米遥控器的**拨盘式**布局（真机反馈"找不到遥控器界面"，之后又要求更像遥控器）。
@@ -90,6 +91,7 @@ class RemoteActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
         ApPalette.applyRuntimeTheme(this)
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE

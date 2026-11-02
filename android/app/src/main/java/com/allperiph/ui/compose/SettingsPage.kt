@@ -609,6 +609,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 但进程重启后读不到 → 开关自己弹回关闭，用户看到的就是「开了不生效」。
             val imePrefs = remember { GlobalKeyForwarder.prefs(ctx) }
             var globalKeys by remember { mutableStateOf(GlobalKeyForwarder.isEnabled(imePrefs)) }
+            // 受控设备选择器（v223.27）：顶栏整块去除后，本页「遥控与键盘」就是**唯一常驻的
+            // 连接入口**（另一处是悬浮球的「设备」扇项）。弹的是与悬浮球面板同一份
+            // ApDevicePickerBody，连接逻辑也只有 connectControlledDevice 一处。
+            var pickerOpen by remember { mutableStateOf(false) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -621,26 +625,40 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+                    // 三行过时说明整块换掉（成宇 2026-11-02「说明也落后了，可以去除」）。
+                    // 旧的三行只会清字段 / 起发现线程，**从不建立 9511 连接**：
+                    // 选完设备 controlClient 还是 null，TouchpadModule.dispatch 里
+                    // wirelessReady 恒为 false，手势静默落到 USB/蓝牙/NONE
+                    //（用户报的「触摸板控制不了、界面不动」、「手机控制手机不能用」）。
+                    // 现在这里弹真正会 connect() 的选择器（见 connectControlledDevice）。
                     ApComponents.ValueRow(
-                        title = "当前控制",
-                        value = runCatching {
+                        title = ctx.getString(R.string.ui_set_label_current_control),
+                        value = if (com.allperiph.wireless.ControlTarget.isControlling()) {
                             com.allperiph.wireless.ControlTarget.label
-                                ?: com.allperiph.wireless.ControlTarget.host
-                                ?: ""
-                        }.getOrDefault("").ifBlank { "未连接（点顶栏设备名可选择）" },
-                    )
-                    ApComponents.ActionButton(
-                        text = "断开当前控制",
-                        onClick = {
-                            runCatching { com.allperiph.wireless.ControlTarget.clear() }
-                            Toast.makeText(ctx, "已断开", Toast.LENGTH_SHORT).show()
+                        } else {
+                            ctx.getString(R.string.ui_set_label_current_control_none)
                         },
                     )
                     ApComponents.ActionButton(
-                        text = "重新发现局域网设备",
+                        text = ctx.getString(R.string.ui_pick_device_button),
+                        onClick = { pickerOpen = true },
+                    )
+                    if (pickerOpen) {
+                        Dialog(onDismissRequest = { pickerOpen = false }) {
+                            ApComponents.DialogCard(onDismiss = { pickerOpen = false }) {
+                                ApDevicePickerBody(onDone = { pickerOpen = false })
+                            }
+                        }
+                    }
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_disconnect_control),
                         onClick = {
-                            com.allperiph.wireless.TvDiscovery.start()
-                            Toast.makeText(ctx, "已开始搜索，稍候在顶栏设备名里选", Toast.LENGTH_SHORT).show()
+                            runCatching { com.allperiph.wireless.ControlTarget.clear() }
+                            Toast.makeText(
+                                ctx,
+                                ctx.getString(R.string.ui_set_toast_disconnected),
+                                Toast.LENGTH_SHORT,
+                            ).show()
                         },
                     )
                     // 全局转发与光标悬浮都依赖 Eta 的无障碍服务；以前这里只有一句提示、

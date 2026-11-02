@@ -153,10 +153,23 @@ fun TouchpadPage(
                     true
                 },
         ) {
-            // 手势提示改为叠加层：浮在手势区顶部、玻璃顶栏之下，不再占一行挤压手势面
-            if (hintVisible) {
+            // 手势提示改为叠加层：浮在手势区顶部，不再占一行挤压手势面。
+            // v223.27：服务没启动时这条提示**常驻**并换成真实原因 —— 此时触控板模块根本
+            // 没注册（AgentController.module(TOUCHPAD) 为 null），feed() 收到的手势全被
+            // 丢弃，用户看到的就是「触摸板控制不了、界面不动」，而界面不给任何解释。
+            // 判定用 AgentController.running（启动开关的单一真相，1s 轮询之外这里直接读）。
+            val serviceOff = !com.allperiph.ui.AgentController.running
+            // 服务在跑也未必有出口：没选受控设备、USB 没挂上、蓝牙没连 —— 手势同样发不出去。
+            // [HidMouse.exit] 只是**预计**出口（读内存，不发送），正是这里要的判据；
+            // 旧界面在无出口时同样只打日志、屏幕上什么都不说，用户只能得出「触摸板坏了」。
+            val noExit = !serviceOff && !com.allperiph.hid.HidMouse.available()
+            if (hintVisible || serviceOff || noExit) {
                 Text(
-                    text = ctx.getString(R.string.ui_touchpad_text_cursor_swipe),
+                    text = when {
+                        serviceOff -> ctx.getString(R.string.ui_touchpad_hint_service_off)
+                        noExit -> ctx.getString(R.string.ui_touchpad_hint_no_uplink)
+                        else -> ctx.getString(R.string.ui_touchpad_text_cursor_swipe)
+                    },
                     fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier
