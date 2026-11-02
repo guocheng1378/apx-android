@@ -40,6 +40,12 @@ object TvFilePrompt {
     /** 收到文件时调用（主线程）。重复到来会先关掉上一个，只保留最新一个。 */
     fun show(ctx: Context, f: File) {
         val app = ctx.applicationContext
+        // 审查条 1.10：无悬浮窗权限时 addView 会抛，浮窗必然不出现。先挡住并给引导，
+        // 但**文件本身已经收到了**（走 9512 落盘），所以仍用 Toast 报一句文件名，别让用户以为没收到。
+        if (!TvOverlayPermission.checkAndGuide(app, "收文件浮窗")) {
+            runCatching { Toast.makeText(app, "已接收文件：${f.name}", Toast.LENGTH_SHORT).show() }
+            return
+        }
         val manager = app.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         dismiss()
         val ui = buildCard(app, f)
