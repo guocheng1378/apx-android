@@ -386,21 +386,21 @@ class ApShellActivity : ComponentActivity() {
                         selected = page == 0,
                         onClick = { page = 0 },
                         icon = MiuixIcons.Home,
-                        label = "状态",
+                        label = stringResource(R.string.ui_nav_status),
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
                         selected = page == 1,
                         onClick = { page = 1 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_touchpad),
-                        label = "触控板",
+                        label = stringResource(R.string.ui_nav_touchpad),
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
                         selected = page == 2,
                         onClick = { page = 2 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_keyboard),
-                        label = "键盘",
+                        label = stringResource(R.string.ui_nav_keyboard),
                         enabled = true,
                     )
                     // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表，
@@ -412,7 +412,7 @@ class ApShellActivity : ComponentActivity() {
                         selected = page == 3,
                         onClick = { page = 3 },
                         icon = MiuixIcons.Settings,
-                        label = "设置",
+                        label = stringResource(R.string.ui_nav_settings),
                         enabled = true,
                     )
                 }

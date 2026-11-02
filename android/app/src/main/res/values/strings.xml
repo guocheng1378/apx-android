@@ -333,6 +333,10 @@
          首页补一排「快捷入口」。文案尽量复用既有词条（手柄 / 遥控器 / 编辑快捷键），
          只新增旧版没有、也无人复用的三条。 -->
     <string name="ui_kb_custom_empty_hint">还没有自定义布局：点下方「编辑」配置行表</string>
+    <string name="ui_nav_status">状态</string>
+    <string name="ui_nav_touchpad">触控板</string>
+    <string name="ui_nav_keyboard">键盘</string>
+    <string name="ui_nav_settings">设置</string>
     <string name="ui_home_sec_quick">快捷入口</string>
     <string name="ui_home_quick_file">发送文件</string>
     <string name="ui_home_quick_clip">发送剪贴板</string>

@@ -62,8 +62,13 @@ R_USE = re.compile(
 # 656 → 657（2026-11-02 审查条 1.8 的修复）：状态页在 runtime 未建时给模块行兜底一句
 # 「未启动（点上方开始）」。这是**状态串**而不是可资源化文案（它和 detailOf() 的返回值拼在
 # 同一行，跟 HidKeys/HidMouse 那批 Uplink.reason 同性质），按实测值收紧，不手填。
-# 657 → 663（同批：tv/ui/TvOverlayPermission.kt 的权限引导 KDoc 带了 6 处中文）。
-TEXT_BASELINE = 663
+# 657 → 663（同批）：**这条归因是错的**，6 处不是注释而是用户可见文案 —— 脚本的
+# count_chinese_literals 跳过 `// * /*` 开头的注释行，注释压根不计；真实 +6 来自
+# TvOverlayPermission 的权限引导、TvFilePrompt「已接收文件：」、TvNotificationPrompt
+# 「通知浮窗未显示（系统拒绝悬浮窗）：」、TvServerService 的场景名各一条。棘轮只能往下，
+# 那 6 处应搬进 tv 模块的 strings.xml（2026-11-02 审查 v5 §9.2-D）。
+# 663 → 659（审查 v5 的修复包）：主壳底栏四个导航 label 进 strings.xml。
+TEXT_BASELINE = 659
 
 
 def strip_comments(text):
