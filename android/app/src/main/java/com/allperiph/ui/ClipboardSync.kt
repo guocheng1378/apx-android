@@ -37,6 +37,31 @@ object ClipboardSync {
         }
     }
 
+    /**
+     * 手动把本机剪贴板发到当前受控设备（不依赖「变了才同步」）。
+     *
+     * 2026-11-02 审查条 1.6：旧触控板页的「发送剪贴板」入口在主壳里没有任何落点——
+     * [ClipboardSync] 只做自动同步（监听变化），读剪贴板并直发的那段代码一直关在旧控制台
+     * `TouchpadActivity.sendClipboard()` 里。这里把它提成可复用的出口，主壳首页与设置页
+     * 都调它，文案沿用旧控制台那四条字符串（设备未连接 / 剪贴板为空 / 已发送 / 发送失败）。
+     */
+    enum class SendResult { NO_DEVICE, EMPTY, OK, FAIL }
+
+    fun sendNow(ctx: Context): SendResult {
+        val client = ControlTarget.controlClient
+        if (client == null || !ControlTarget.isControlling()) return SendResult.NO_DEVICE
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val text = try {
+            cm?.primaryClip?.getItemAt(0)?.text?.toString()
+        } catch (t: Throwable) {
+            null
+        }
+        if (text.isNullOrEmpty()) return SendResult.EMPTY
+        val ok = client.sendClipboard(text)
+        Log.i(TAG, if (ok) "手动发送剪贴板（${text.length} 字符）" else "手动发送剪贴板失败")
+        return if (ok) SendResult.OK else SendResult.FAIL
+    }
+
     /** 在 Activity onStart 中调用 */
     fun register(ctx: Context) {
         if (registered) return

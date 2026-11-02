@@ -330,6 +330,15 @@
          在 c6734c8 删除。文案沿用旧页口径（旧 lay_settings_text_orient_lock 已于 0ca1798 清理）。 -->
     <string name="ui_set_orient_lock_title">锁定屏幕方向</string>
     <string name="ui_set_orient_lock_sum">把界面钉在当前朝向；锁定后不再随重力自动切页，关闭后横持手机自动切到键盘页</string>
+    <!-- v223.27（2026-11-02 审查条 1.6）：旧触控板页那排入口在主壳没有原位落点，
+         首页补一排「快捷入口」。文案尽量复用既有词条（手柄 / 遥控器 / 编辑快捷键），
+         只新增旧版没有、也无人复用的三条。 -->
+    <string name="ui_home_sec_quick">快捷入口</string>
+    <string name="ui_home_quick_file">发送文件</string>
+    <string name="ui_home_quick_clip">发送剪贴板</string>
+    <string name="ui_home_quick_screen">副屏</string>
+    <string name="ui_home_quick_hint">这几项原在旧触控板页顶部一排，改版后落在首页；触控板页手势面保持全屏，不再叠按钮</string>
+    <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
     <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>
     <string name="ui_set_cat_theme">主题与外观</string>

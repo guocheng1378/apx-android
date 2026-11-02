@@ -263,6 +263,11 @@ class ApShellActivity : ComponentActivity() {
                     when (page) {
                         0 -> StatusPage(
                             ctx = this@ApShellActivity,
+                            // 首页快捷入口里的「编辑快捷键」要能跳到键盘页（编辑弹窗在那边）
+                            onNavigate = { target ->
+                                page = target
+                                pageState = target
+                            },
                             running = running,
                             onToggleRunning = { want ->
                                 running = want
