@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -22,6 +23,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -221,7 +223,14 @@ fun TouchpadPage(
 /** 快捷键网格：数据来自 [HotkeyStore]，发送走 [HidKeys.combo] / [HidKeys.hold] */
 @Composable
 private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
-    val items = remember {
+    // 管理器改完就 +1，让下面的 remember 重算 —— 否则改完要退出重进才看到新网格
+    // 主题色只能在**组合期**读：MiuixTheme 是 @Composable getter，放进 onClick
+    // 会报 COMPOSABLE_INVOCATION（CI 第一次就是死在这里）。
+    val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
+    val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
+    val subTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
+    var editVersion by remember { mutableIntStateOf(0) }
+    val items = remember(editVersion) {
         val list = HotkeyStore.load(ctx)
         if (HotkeyStore.isAutoSort(ctx)) {
             val usage = HotkeyStore.loadUsage(ctx)
@@ -230,7 +239,6 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
             list
         }
     }
-    if (items.isEmpty()) return
 
     Column(
         // 横屏右列顶部避开玻璃顶栏；底部避开浮动底栏（窄屏/宽屏同样生效）
@@ -251,6 +259,37 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                     Box(modifier = Modifier.weight(1f))
                 }
             }
+        }
+        // 编辑入口（审查 v5 §9.2-B）：v223.27 把键盘页的组合键面板与编辑弹窗（KbWindow）
+        // 整块删掉后，主壳里就没有「改一颗组合键」的地方了 —— 键盘页只能改自定义布局。
+        // 这里复用旧控制台那份 HotkeyBoard.managerDialog()（上移 / 下移 / 改键 / 删除 /
+        // 新建 / 自动排序），数据仍是同一份 HotkeyStore。列表为空时也画这一个按钮，
+        // 免得「全删光之后再也没有入口」。
+        val act = ctx as? android.app.Activity
+        if (act != null) {
+            ApComponents.ActionButton(
+                text = ctx.getString(R.string.ui_hotkey_title_edit),
+                onClick = {
+                    ApMotion.tap(ctx)
+                    com.allperiph.ui.HotkeyBoard(
+                        act,
+                        android.widget.LinearLayout(act),
+                        {
+                            com.allperiph.ui.HotkeyBoard.Style(
+                                chipText = chipTextColor,
+                                chipBg = chipBgColor,
+                                chipRadiusDp = 12,
+                                padVDp = 12,
+                                perRow = 4,
+                                accent = chipTextColor,
+                                textPrimary = chipTextColor,
+                                textSecondary = subTextColor,
+                            )
+                        },
+                        { editVersion++ },
+                    ).managerDialog()
+                },
+            )
         }
     }
 }

@@ -163,7 +163,9 @@ fun StatusPage(
                     R.string.ui_remote_text_remote to {
                         ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
                     },
-                    R.string.ui_hotkey_title_edit to { onNavigate(2) },
+                    // 组合键的编辑弹窗在触控板页的网格下方（v223.27 之后主壳唯一入口），
+                    // 不在键盘页 —— 键盘页只编辑「自定义布局」行表（审查 v5 §9.2-B）。
+                    R.string.ui_hotkey_title_edit to { onNavigate(1) },
                 )
                 quick.chunked(3).forEach { row ->
                     Row(
