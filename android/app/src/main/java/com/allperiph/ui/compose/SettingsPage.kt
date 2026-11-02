@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
@@ -76,7 +77,7 @@ import androidx.compose.foundation.layout.width
  * 运行日志）都已在本页落地 —— 此前这段注释一直写着"未迁移"，与本文件实际内容不符。
  */
 @Composable
-fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
+fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
     val insets = rememberApInsets()
     var tplVersion by remember { mutableIntStateOf(0) }
     // 档位值放在 state 里：下拉组件是受控的，改完要立刻反映到界面
@@ -120,7 +121,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp)
+            .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp + topBar)
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
@@ -137,7 +138,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                 .width(180.dp)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 12.dp + insets.left, top = 8.dp),
+                .padding(start = 12.dp + insets.left, top = 8.dp + topBar),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             catLabels.forEachIndexed { idx, name ->
@@ -155,8 +156,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
                 .padding(
                     start = 16.dp + insets.left,
                     end = 16.dp + insets.right,
-                    top = 8.dp,
-                    bottom = 96.dp + insets.bottom,
+                    // twoPane 时右侧详情区顶部要避开顶栏；竖屏内容在页签行之下，无需再让
+                    top = if (twoPane) 8.dp + topBar else 8.dp,
+                    // 主壳已不再容器级垫底栏空档，这里自留（96dp 是迁移期口径，不回退）
+                    bottom = maxOf(bottomGap, 96.dp) + insets.bottom,
                 ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

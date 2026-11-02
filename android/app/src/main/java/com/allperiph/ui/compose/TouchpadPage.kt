@@ -17,12 +17,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
@@ -65,7 +67,12 @@ fun TouchpadPage(
     onGesture: (MotionEvent) -> Unit,
     onLongPressArmDrag: () -> Unit,
     onLongPressRightDrag: () -> Unit,
+    topBar: Dp = 0.dp,
+    bottomGap: Dp = 0.dp,
 ) {
+    // 手势面要尽量大：主壳不再容器级垫 64dp 顶栏与 bottomGap 底栏（v223.23 真机反馈
+    // 「可操作区域压的很小」），本页连顶部 64dp 都不留 —— 手势面直接全屏，
+    // 顶栏/底栏只是浮在手势面上层的玻璃；手势提示也改为叠加层，不再挤压手势面高度。
     val density = LocalDensity.current
     val handler = remember { Handler(Looper.getMainLooper()) }
     var hintVisible by remember { mutableStateOf(true) }
@@ -95,16 +102,6 @@ fun TouchpadPage(
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     Row(modifier = Modifier.fillMaxSize()) {
       Column(modifier = Modifier.weight(1f)) {
-        // —— 手势提示（手指落下后收起，长按锁定拖拽时重新出现）——
-        if (hintVisible) {
-            Text(
-                text = ctx.getString(R.string.ui_touchpad_text_cursor_swipe),
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-            )
-        }
-
         // —— 手势面 ——
         Box(
             modifier = Modifier
@@ -156,6 +153,17 @@ fun TouchpadPage(
                     true
                 },
         ) {
+            // 手势提示改为叠加层：浮在手势区顶部、玻璃顶栏之下，不再占一行挤压手势面
+            if (hintVisible) {
+                Text(
+                    text = ctx.getString(R.string.ui_touchpad_text_cursor_swipe),
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = topBar + 8.dp, start = 16.dp, end = 16.dp),
+                )
+            }
             Canvas(modifier = Modifier.fillMaxSize()) {
                 // 尾迹：越旧越淡越细，用来体现滑动方向与速度
                 trail.forEachIndexed { i, p ->
@@ -176,13 +184,13 @@ fun TouchpadPage(
         }
 
         // —— 快捷键网格：窄屏在下方，宽屏（横屏/平板）挪到右侧独立列 ——
-        if (!wide) HotkeyGrid(ctx = ctx)
+        if (!wide) HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap)
       }
       // 横屏（issue #52 建议 4）：保持顶栏与底栏不变，只把快捷键挪到右侧窄列，
       // 主区仍是手势面 —— 不做"右上角按钮组"，也不隐藏底栏
       if (wide) {
           Box(modifier = Modifier.width(320.dp).fillMaxHeight()) {
-              HotkeyGrid(ctx = ctx)
+              HotkeyGrid(ctx = ctx, topBar = topBar, bottomGap = bottomGap)
           }
       }
     }
@@ -190,7 +198,7 @@ fun TouchpadPage(
 
 /** 快捷键网格：数据来自 [HotkeyStore]，发送走 [HidKeys.combo] / [HidKeys.hold] */
 @Composable
-private fun HotkeyGrid(ctx: Context) {
+private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
     val items = remember {
         val list = HotkeyStore.load(ctx)
         if (HotkeyStore.isAutoSort(ctx)) {
@@ -203,7 +211,9 @@ private fun HotkeyGrid(ctx: Context) {
     if (items.isEmpty()) return
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        // 横屏右列顶部避开玻璃顶栏；底部避开浮动底栏（窄屏/宽屏同样生效）
+        modifier = Modifier.fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         items.chunked(4).forEach { row ->

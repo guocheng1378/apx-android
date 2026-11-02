@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,7 +60,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ApPalette.applyRuntimeTheme`。
  * 发送/接收逻辑（`FileSender.send`、`TvDiscovery`、`ControlTarget`、`AtomicBoolean busy`）未改。
  */
-class FilePanelActivity : Activity() {
+class FilePanelActivity : ComponentActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val busy = AtomicBoolean(false)

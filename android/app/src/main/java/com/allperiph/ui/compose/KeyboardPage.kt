@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.hid.HidKeys
@@ -53,7 +55,7 @@ import com.allperiph.hid.HotkeyTemplates
  *   两条入口（旧 View / 新 Compose）切换不会丢配置。
  */
 @Composable
-fun ApKeyboardPage() {
+fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
     var items by remember { mutableStateOf(HotkeyStore.load(ctx)) }
     var editIndex by remember { mutableIntStateOf(-1) }
@@ -68,6 +70,8 @@ fun ApKeyboardPage() {
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+        // 顶栏是玻璃叠层：页面顶部自留 topBar，标题与面板切换不被压在栏下
+        Spacer(modifier = Modifier.height(topBar))
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -93,7 +97,7 @@ fun ApKeyboardPage() {
         }
         if (panel == 0) {
             // 虚拟键盘占主体；onClose = null 表示不是弹窗，不画关闭按钮
-            ApFullKeyboard(onClose = null)
+            ApFullKeyboard(onClose = null, bottomGap = bottomGap)
         } else {
         // 模板行：旧 `KeyboardPanels` 有 8 套现成键位布局，迁 Compose 后只剩用户自己那份，
         // 想换布局只能手动一个个改键。这里把 `HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，
@@ -124,7 +128,7 @@ fun ApKeyboardPage() {
         }
         LazyVerticalGrid(
             columns = GridCells.Adaptive(104.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(bottom = bottomGap),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -233,7 +237,7 @@ private val CANDIDATES = listOf(
  * 与手机输入法的高频用法一致），长按 Shift 不做锁定 —— 需要连打大写时用「⇪」。
  */
 @Composable
-private fun ApFullKeyboard(onClose: (() -> Unit)? = null) {
+private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
     var shift by remember { mutableStateOf(false) }
     var caps by remember { mutableStateOf(false) }
@@ -248,7 +252,11 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null) {
 
     fun letterRow(chars: String) = chars.map { it.toString() }
 
-    Column(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+    // 底部多让 bottomGap：浮动底栏盖在键盘下沿，最底行的按键必须仍可点
+    Column(
+        modifier = Modifier.fillMaxSize()
+            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + bottomGap),
+    ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
             if (onClose != null) {
