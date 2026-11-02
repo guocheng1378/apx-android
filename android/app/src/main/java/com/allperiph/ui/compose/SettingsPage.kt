@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -108,10 +109,19 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit) {
     val twoPane = rememberApAdaptiveLayout().twoPane
     Column(modifier = Modifier.fillMaxSize()) {
     if (!twoPane) {
+    // 竖屏页签：四个分类名合计 20 个汉字（主题与外观 / 快捷键与外设 / 工具与传输 / 数据与维护），
+    // 400dp 宽的手机上每个只剩约 89dp，装不下 6 个汉字 —— 真机（v223.22）上「快捷键与外设」
+    // 「工具与传输」被压成两行、整行顶到右边界，观感像被裁切。
+    //
+    // 修法不是缩字号也不是改文案（后者要动 strings.xml，还会丢分类语义），而是给这一行
+    // **横向滚动**：可横滑的 Row 给子项无限宽约束，Miuix `TextButton` 内部就不会再折行，
+    // 窄屏横滑即可看全；宽屏（≥600dp 走 twoPane）仍是左侧竖排，不受影响。
+    // padding 放在 horizontalScroll 之前：左右留白固定，只有按钮参与滚动。
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp),
+            .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp)
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         catLabels.forEachIndexed { idx, name ->
