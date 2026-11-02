@@ -130,7 +130,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         catLabels.forEachIndexed { idx, name ->
-            ApComponents.NarrowButton(text = name, onClick = { cat = idx })
+            // 审查条 2.1：加选中态（此前四个页签一模一样，切完看不出在哪一类）
+            ApComponents.TabChip(text = name, selected = idx == cat, onClick = { cat = idx })
         }
     }
 
@@ -146,7 +147,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             catLabels.forEachIndexed { idx, name ->
-                ApComponents.NarrowButton(text = name, onClick = { cat = idx })
+                ApComponents.TabChip(
+                    text = name,
+                    selected = idx == cat,
+                    onClick = { cat = idx },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
