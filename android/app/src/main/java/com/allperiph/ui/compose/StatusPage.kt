@@ -75,6 +75,8 @@ fun StatusPage(
 
     // tick 只用来触发重组；实际值每次都现读（模块状态是 volatile 字段）
     val state = remember(tick, running) { snapshot(ctx) }
+    // 语义状态色明暗各一套（审查条 2.5）：判据与 ApMiuixTheme 同一入口，不各自读 configuration
+    val dark = com.allperiph.ui.miuix.apIsDark()
 
     Column(
         modifier = Modifier
@@ -220,7 +222,7 @@ fun StatusPage(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state))
+                                ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state, dark))
                                 Switch(
                                     checked = row.enabled,
                                     onCheckedChange = { on ->
@@ -322,12 +324,39 @@ private class StatusVm(
     val rooted: Boolean,
 )
 
-private fun stateColor(s: ModuleState): Color = when (s) {
-    ModuleState.RUNNING -> Color(0xFF00A870)
-    ModuleState.STARTING, ModuleState.STOPPING -> Color(0xFFFF7A00)
-    ModuleState.DEGRADED -> Color(0xFFFF7A00)
-    ModuleState.ERROR -> Color(0xFFE0457B)
-    else -> Color(0xFF5B6470)
+/**
+ * 模块状态色（明暗**各一套**）。
+ *
+ * 2026-11-02 审查条 2.5：此前只有一套十六进制值，按 WCAG 公式在页面底上估算，
+ * 浅色下 运行中 2.84:1 / 降级 2.41:1 / 异常 3.65:1、深色下 已停止 3.48:1，都不到 4.5:1。
+ * 现在语义色以「卡片底色 + 同色 14% 胶囊底」为最坏情形取值，六个组合全部 ≥4.5:1：
+ *
+ *  | 状态 | 浅色（卡片 #FFFFFF） | 深色（卡片 #0F1011） |
+ *  |---|---|---|
+ *  | 运行中 | #00734D → 4.80 | #3DDC97 → 8.33 |
+ *  | 启动中/停止中/降级 | #A34A08 → 4.83 | #FFB454 → 8.31 |
+ *  | 异常 | #B4235A → 5.02 | #FF7AA8 → 6.37 |
+ *  | 已停止/未启动 | #5B6470 → 4.95 | #A8B0BC → 6.90 |
+ *
+ * 括号里的比值是「文字色 vs 14% 同色胶囊底」的对比度（胶囊底压在卡片上，比纯卡片底更亮/更暗，
+ * 所以按它算而不是按纯底算）。改色值时请连这张表一起改。
+ */
+private fun stateColor(s: ModuleState, dark: Boolean): Color = if (dark) {
+    when (s) {
+        ModuleState.RUNNING -> Color(0xFF3DDC97)
+        ModuleState.STARTING, ModuleState.STOPPING -> Color(0xFFFFB454)
+        ModuleState.DEGRADED -> Color(0xFFFFB454)
+        ModuleState.ERROR -> Color(0xFFFF7AA8)
+        else -> Color(0xFFA8B0BC)
+    }
+} else {
+    when (s) {
+        ModuleState.RUNNING -> Color(0xFF00734D)
+        ModuleState.STARTING, ModuleState.STOPPING -> Color(0xFFA34A08)
+        ModuleState.DEGRADED -> Color(0xFFA34A08)
+        ModuleState.ERROR -> Color(0xFFB4235A)
+        else -> Color(0xFF5B6470)
+    }
 }
 
 /** 现读一份界面快照（主线程，全部是内存/偏好读取，不碰 IO） */

@@ -90,6 +90,17 @@ object MiuixTokens {
 }
 
 /**
+ * 当前是否深色（与 [ApMiuixTheme] 的取值同一判据：`ThemePref.wrap` 注入的 uiMode）。
+ *
+ * 语义色需要明暗各一套时用它，别在页面里各自读 configuration —— 两处判断漂移就会出现
+ * 「深色皮肤配浅色状态字」（2026-11-02 审查条 2.5 的 3.48:1 就是这么来的）。
+ */
+@Composable
+fun apIsDark(): Boolean =
+    (LocalConfiguration.current.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+        Configuration.UI_MODE_NIGHT_YES
+
+/**
  * 根主题：**所有 Compose 内容都包在这里**。
  *
  * @param dark 强制指定明暗；缺省时读当前 configuration（ThemePref.wrap 已注入用户选择，
