@@ -36,6 +36,7 @@ import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
+import com.allperiph.ui.miuix.hideSystemBars
 
 /**
  * 全屏游戏手柄（v1.x 起，v223.25 起只剩壳）：双虚拟摇杆 + 常用按键，经 [GamepadController]
@@ -49,6 +50,7 @@ class GamepadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(
             ComposeView(this).apply {

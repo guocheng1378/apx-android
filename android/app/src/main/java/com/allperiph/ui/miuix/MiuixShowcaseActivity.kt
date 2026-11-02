@@ -99,6 +99,7 @@ class MiuixShowcaseActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         // activity-compose 的 setContent 扩展：ComponentActivity 宿主 + ComposeView 一条路
         setContent {
             ApMiuixTheme {

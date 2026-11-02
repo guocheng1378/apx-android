@@ -42,6 +42,7 @@ import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
 import com.allperiph.wireless.WirelessModule
 import kotlin.math.abs
+import com.allperiph.ui.miuix.hideSystemBars
 
 /**
  * 触控板操控面（v1.15 两页签版）。
@@ -201,6 +202,7 @@ class TouchpadActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hideSystemBars()
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
         com.allperiph.ui.ApPalette.applyRuntimeTheme(this)
         // 截屏已放开（与 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，

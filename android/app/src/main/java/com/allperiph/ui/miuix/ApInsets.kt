@@ -51,6 +51,28 @@ data class ApInsets(
 }
 
 /**
+ * 全屏：隐藏状态栏与导航栏（成宇 2026-11-02「所有页屏蔽状态栏」）。
+ *
+ * 为什么做成 Activity 扩展而不是每页各写一遍：这套三件（setDecorFitsSystemWindows(false)
+ * + insetsController + hide）在 Hub 页与各子页必须**同一口径**，抄第二遍迟早漏一处，
+ * 而漏掉那一处只在真机上表现为「这一页还有系统时间」—— 编译器完全沉默。
+ *
+ * ⚠️ `window.insetsController` 在 DecorView 尚未创建时**不是返回 null 而是抛 NPE**
+ * （Android 15/16 PhoneWindow.getInsetsController() 读未赋值的 mDecor，v223.20 首启
+ * 闪退就是这么来的），所以必须放进 decorView.post 里跑。
+ */
+fun android.app.Activity.hideSystemBars() {
+    window.setDecorFitsSystemWindows(false)
+    window.decorView.post {
+        val c = window.insetsController ?: return@post
+        c.systemBarsBehavior =
+            android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        c.hide(android.view.WindowInsets.Type.statusBars())
+        c.hide(android.view.WindowInsets.Type.navigationBars())
+    }
+}
+
+/**
  * 读当前窗口的 framework insets 并转成 Compose 状态。
  *
  * 实现要点：
