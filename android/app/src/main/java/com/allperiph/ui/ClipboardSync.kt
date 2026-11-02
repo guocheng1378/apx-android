@@ -21,7 +21,17 @@ object ClipboardSync {
 
     fun markProgrammaticWrite() { lastProgrammaticWriteMs = SystemClock.uptimeMillis() }
 
-    private var registered = false
+    /**
+     * 引用计数：界面（[register]）与悬浮球服务（[serviceAttach]）可能同时在听。
+     *
+     * 旧实现只有一个布尔位，谁后调 [unregister] 谁就把监听整个摘掉 ——
+     * 主界面 onPause 一摘，悬浮球服务这边的后台同步就跟着断（成宇 2026-11-02
+     * 「悬浮窗要加剪贴板」的真正缺口：主界面退到后台后，手机上复制的文字不再发往对端，
+     * 而这恰恰是用户在用悬浮球干活的时候）。
+     */
+    private var uiHolders = 0
+    private var serviceHeld = false
+    private var listening = false
     private var appContext: Context? = null
 
     private val listener = ClipboardManager.OnPrimaryClipChangedListener {
@@ -64,23 +74,53 @@ object ClipboardSync {
 
     /** 在 Activity onStart 中调用 */
     fun register(ctx: Context) {
-        if (registered) return
-        appContext = ctx.applicationContext
-        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
-        runCatching { cm.removePrimaryClipChangedListener(listener) }  // 保险
-        cm.addPrimaryClipChangedListener(listener)
-        registered = true
-        Log.i(TAG, "剪贴板监听已注册")
+        uiHolders++
+        ensureListening(ctx)
     }
 
     /** 在 Activity onStop 中调用 */
     fun unregister(ctx: Context) {
-        if (!registered) return
+        if (uiHolders > 0) uiHolders--
+        if (uiHolders <= 0 && !serviceHeld) stopListening(ctx)
+    }
+
+    /**
+     * 悬浮球服务级别常驻监听（v223.29）。
+     *
+     * 主界面退到后台后按钮还在，用户照样会复制文字指望同步过去 —— 服务活着就一直听。
+     * 与服务同生命周期：[FloatingBallService.onCreate] 挂、shutdown 摘。
+     */
+    fun serviceAttach(ctx: Context) {
+        serviceHeld = true
+        ensureListening(ctx)
+    }
+
+    /** 服务关闭时调用 */
+    fun serviceDetach(ctx: Context) {
+        serviceHeld = false
+        if (uiHolders <= 0) stopListening(ctx)
+    }
+
+    private fun ensureListening(ctx: Context) {
+        appContext = ctx.applicationContext
+        if (listening) return
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        runCatching { cm.removePrimaryClipChangedListener(listener) }  // 保险
+        cm.addPrimaryClipChangedListener(listener)
+        listening = true
+        Log.i(TAG, "剪贴板监听已注册（界面 $uiHolders · 服务 $serviceHeld）")
+    }
+
+    private fun stopListening(ctx: Context) {
+        if (!listening) return
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(listener) }
-        registered = false
+        listening = false
         Log.i(TAG, "剪贴板监听已取消")
     }
+
+    /** 当前剪贴板文字（悬浮球面板补发用，与内部监听同一取值口径） */
+    fun currentText(): String? = currentClipboardText()
 
     private fun currentClipboardText(): String? {
         return try {

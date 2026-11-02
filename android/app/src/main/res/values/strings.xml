@@ -176,6 +176,16 @@
     -->
     <string name="ui_ball_fn_touchpad">触控板</string>
     <string name="ui_ball_fn_devices">设备</string>
+    <!-- v223.29 悬浮球新增两个「就地完成」扇项：剪贴板同步 \/ 副屏投屏 -->
+    <string name="ui_ball_fn_clipboard">剪贴板</string>
+    <string name="ui_ball_fn_clipboard_title">剪贴板同步</string>
+    <string name="ui_ball_fn_clipboard_hint">本机复制文字会自动发到受控设备。此处可手动补发当前剪贴板内容。</string>
+    <string name="ui_ball_fn_clipboard_send">发送当前剪贴板</string>
+    <string name="ui_ball_fn_clipboard_copied">已发送（%1$d 字符）</string>
+    <string name="ui_ball_fn_clipboard_empty">剪贴板没有文字</string>
+    <string name="ui_ball_fn_clipboard_nolink">没有受控设备：先到「状态 → 受控与出口」选一台</string>
+    <string name="ui_ball_fn_clipboard_now">当前剪贴板：%1$s</string>
+    <string name="ui_ball_fn_screen">副屏</string>
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
     <string name="ui_ball_fn_quit">退出</string>
@@ -265,6 +275,7 @@
     <string name="ui_help_title_switch">开关与日志</string>
     <string name="ui_help_cursor_lock">触摸板光标锁定：连上电脑后本窗隐藏系统光标，触控板点击只转发到电脑（Pad 防误触）。</string>
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
+    <string name="ui_help_ball">悬浮球：设置页「悬浮栏」里开关。① 长按主界面的悬浮低栏会**就地唤出扇形常用功能**（与单击悬浮球同一个菜单，图标 / 开关态 / 顺序都在设置页编辑）；② 悬浮球展开的触控板浮窗与主界面触控板页手势完全一致 —— 长按 550ms 锁拖拽、双指长按 550ms 锁右键拖拽、双指滚动有位移门禁（滚动途中不会误触发右键），震动反馈同一套档位；③ 手机重启或进程被回收后，按用户意愿位自动把球放回来（关过球的用户不会被强行拉起）。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
     <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
     <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 在「状态 → 受控与出口」点「选择受控设备」选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
@@ -395,6 +406,8 @@
     <string name="ui_home_env_notify_ok">已授予</string>
     <string name="ui_home_env_notify_no">未授予</string>
     <!-- v223.28 主壳返回键语义：先收悬浮层，再弹退出确认 -->
+    <!-- v223.29 长按悬浮低栏唤出常用功能；球不在屏幕上时的解释 -->
+    <string name="ui_shell_ball_off">悬浮球当前没在运行：先到「设置 → 悬浮栏」打开「显示悬浮球」</string>
     <string name="ui_exit_title">退出全能外设？</string>
     <string name="ui_exit_msg">外设服务仍在后台运行，悬浮球继续可用。</string>
     <string name="ui_exit_keep">退出（后台继续）</string>

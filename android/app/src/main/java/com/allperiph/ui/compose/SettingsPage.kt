@@ -149,7 +149,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 .width(180.dp)
                 .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(start = 12.dp + insets.left, top = 8.dp + topBar),
+                // 左侧分类列只垫 8dp：横屏那张低栏挪到了**右上角**，左侧这一竖列
+                // 与它不重叠，跟着垫 96dp 只会在左上角留一段没用的空档。
+                .padding(start = 12.dp + insets.left, top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             catLabels.forEachIndexed { idx, name ->
@@ -175,7 +177,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // twoPane 时右侧详情区顶部要避开顶栏；竖屏内容在页签行之下，无需再让
                     top = if (twoPane) 8.dp + topBar else 8.dp,
                     // 主壳已不再容器级垫底栏空档，这里自留（96dp 是迁移期口径，不回退）
-                    bottom = maxOf(bottomGap, 96.dp) + insets.bottom,
+                    // 主壳传来的 bottomGap 就是最终值：竖屏 88dp（底栏自身高度 + 呼吸），
+                    // 横屏 24dp —— 横屏的低栏已挪到右上角，底部不再需要为它预留空档
+                    // （成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」）。
+                    // 此前这里写的是 maxOf(bottomGap, 96.dp)，那个 96 的硬地板会把横屏的
+                    // 24dp 顶掉，空档搬不到顶部去。
+                    bottom = bottomGap + insets.bottom,
                 ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -998,6 +1005,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     ApComponents.DialogCard(
                         onDismiss = { showLogViewer = false },
                         heightRatio = 0.62f,
+                        // 内部是 weight(1f) + 自己的 verticalScroll（日志列），外层不再包滚动
+                        scrollable = false,
                         // 原实现就是 12dp 内边距（比默认 16 更紧凑，一屏能多看几条），保持不变
                         padding = 12.dp,
                     ) {

@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- v223.29：悬浮球自愈需要「开机广播」——手机重启后按用户意愿位把球放回屏幕 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
       震动反馈：触控板长按锁定拖拽时的触觉提示、副屏交互反馈都用到。
@@ -113,7 +115,9 @@
             android:name=".ui.compose.ApShellActivity"
             android:label="全能外设"
             android:exported="true"
+            android:screenOrientation="sensor"
             android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -337,6 +341,40 @@
                 <action android:name="com.allperiph.KEEP_ALIVE" />
             </intent-filter>
         </receiver>
+
+        <!--
+          ⑰ 悬浮球自愈（v223.29）：修成宇 2026-11-02「悬浮窗不会自动拉起」。
+
+          为什么不复用上面那条 KeepAliveReceiver：那条链路的 cancel 语义绑在「用户主动关掉
+          被控服务」上，一旦复用，用户关掉被控就会顺带把悬浮球的自检也停掉 —— 而这两件事
+          彼此无关（球可以开着、被控关着）。所以单独一份，只认「用户意愿位」这一个开关。
+
+          为什么必须落成清单里的显式组件：闹钟的杀手锏就是「进程被杀后系统重新拉起一个全新
+          进程来投递广播」，新进程里没有任何自己的代码跑过 —— 只有清单注册的接收者能被唤起。
+          receiver 都是 exported=false（只由本应用自己的 PendingIntent / 系统开机广播触发）。
+        -->
+        <receiver
+            android:name=".ui.FloatingBallKeepAliveReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.allperiph.BALL_KEEP_ALIVE" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 手机重启 / 应用更新后按意愿位把球放回屏幕（同上：只认用户开过的那一档） -->
+        <receiver
+            android:name=".ui.FloatingBallBootReceiver"
+            android:enabled="true"
+            android:exported="false"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
 
         <!--
           ⑭ 外部应用启动入口（v1.76）：⚠️ 已暂停注册。

@@ -61,6 +61,8 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -126,7 +128,12 @@ class ApShellActivity : ComponentActivity() {
         val adaptive = rememberApAdaptiveLayout()
         adaptiveState = adaptive
         val landscape = adaptive.landscape
-        val bottomGap = if (landscape) 96.dp else 88.dp
+        // 成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」：低栏挪到右上角之后，
+        // 给它预留的空档也得跟着从底部搬到顶部 —— 否则页面顶部内容被低栏压住、
+        // 底部却还空着 96dp（那 96dp 本来就是为底部居中的低栏留的）。
+        // 竖屏维持原样：底栏在底部居中，88dp 是「底栏自身高度 + 一点呼吸」。
+        val bottomGap = if (landscape) 24.dp else 88.dp
+        val topGap = if (landscape) 96.dp else 0.dp
         // 状态栏整块屏蔽（成宇 2026-11-02「所有页屏蔽状态栏」）：applyImmersive 里
         // statusBars 也一并 hide 了，所以这里**不用再按边算顶部留白** —— 内容直接画到
         // 屏幕最上沿。此前竖屏垫 insets.top（且 v223.23 前那个值恒为 0），横竖屏各说各话，
@@ -278,7 +285,7 @@ class ApShellActivity : ComponentActivity() {
                                 running = want
                                 toggleAgent(want)
                             },
-                            topBar = 0.dp,
+                            topBar = topGap,
                             bottomGap = bottomGap,
                         )
                         1 -> TouchpadPage(
@@ -286,14 +293,14 @@ class ApShellActivity : ComponentActivity() {
                             onGesture = { ev -> touchpadModule()?.feed(ev) },
                             onLongPressArmDrag = { touchpadModule()?.armDrag() },
                             onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
-                            topBar = 0.dp,
+                            topBar = topGap,
                             bottomGap = bottomGap,
                         )
-                        2 -> ApKeyboardPage(topBar = 0.dp, bottomGap = bottomGap)
+                        2 -> ApKeyboardPage(topBar = topGap, bottomGap = bottomGap)
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
-                            topBar = 0.dp,
+                            topBar = topGap,
                             bottomGap = bottomGap,
                         )
                     }
@@ -358,8 +365,47 @@ class ApShellActivity : ComponentActivity() {
                 0.2126f * shellBg.red + 0.7152f * shellBg.green +
                     0.0722f * shellBg.blue < 0.5f
             }
-            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
+            // 长按悬浮低栏 → 唤出悬浮球的扇形常用功能（成宇 2026-11-02
+            // 「常用功能可以通过长按悬浮低栏呼唤出来」）。
+            // 复用悬浮球自己的扇形菜单：菜单项清单、图标、开关态、分发逻辑都只有一份，
+            // 低栏不再另造一套「常用功能」面板。球不在屏幕上（用户关过悬浮球 / B 服务没起来）
+            // 则给一句明确解释，而不是长按毫无反应。
+            // 横屏时低栏挪到右上角（成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」）：
+            // 横屏本来横向就宽，底栏居中会压住键盘页/触控板页底部那条最常用的区域；
+            // 挪到右上角后既避开拇指区，也避开横屏时右侧的快捷键列。
+            // 竖屏保持底部居中不动（拇指可及性是竖屏的第一需求）。
+            val barAlign = if (landscape) Alignment.TopEnd else Alignment.BottomCenter
+            // ⚠️ 光给 Box 传 align(TopEnd) 是**不够**的：FloatingNavigationBar 的根
+            // Column 固定 `fillMaxWidth()`，它在父 Box 里已经占满整行宽度，水平方向
+            // 怎么对齐都不会动。真正决定胶囊位置的是组件自己的 `horizontalAlignment`
+            // （见上游 NavigationBar.kt：`.align(horizontalAlignment)` + 只有 End 那一侧
+            // 才加 36dp 内侧留白）。所以横屏必须把 End 一起传下去，否则「挪到右上角」
+            // 只会变成「贴到最上面、仍然水平居中」。
+            val barHorizontal = if (landscape) Alignment.End else Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier
+                    .align(barAlign)
+                    .then(if (landscape) Modifier.padding(top = 8.dp) else Modifier)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onLongPress = {
+                                // Shell() 里没有 LocalContext 的 `ctx`：这个函数有自己的
+                                // this@ApShellActivity（Activity 本身就是 Context），
+                                // 直接用它，别再引入一个可能为 null 的局部变量。
+                                val act = this@ApShellActivity
+                                if (!com.allperiph.ui.FloatingBallService.openQuickMenu(act)) {
+                                    android.widget.Toast.makeText(
+                                        act,
+                                        act.getString(R.string.ui_shell_ball_off),
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                        )
+                    },
+            ) {
                 FloatingNavigationBar(
+                    horizontalAlignment = barHorizontal,
                     modifier = Modifier
                         .widthIn(max = 440.dp)
                         .then(

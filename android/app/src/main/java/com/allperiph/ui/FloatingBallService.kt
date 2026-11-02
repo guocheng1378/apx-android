@@ -19,11 +19,20 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -39,9 +48,13 @@ import com.allperiph.shared.util.Log
 import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
 import com.allperiph.ui.compose.ApFullKeyboard
+import com.allperiph.ui.compose.ApTouchpadSurface
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -149,6 +162,24 @@ class FloatingBallService : Service() {
         private var live: FloatingBallService? = null
 
         /**
+         * 就地在球的位置展开扇形常用功能菜单（v223.29）。
+         *
+         * 主壳的悬浮低栏长按调它 —— 用户要的是「常用功能可以通过长按悬浮低栏呼唤出来」。
+         * 刻意复用球自己的扇形：菜单项清单（[BallConfig]）、图标、连接模式的选中态、
+         * 分发逻辑（[onFanItem]）都只有一份，低栏不再另造一套「常用功能」面板。
+         *
+         * @return false 表示球现在不在屏上（用户关过悬浮球 / 服务没起来），调用方据此提示
+         */
+        fun openQuickMenu(c: Context): Boolean {
+            val svc = live ?: return false
+            val v = svc.ball ?: return false
+            if (!svc.ballAttached) return false
+            svc.collapse()          // 先收面板：菜单与面板互斥（同 toggleMenu 口径）
+            svc.toggleMenu(v)       // 已有菜单则收起 —— 长按是开关语义，连按两次收起
+            return true
+        }
+
+        /**
          * 收起一切展开层：扇形菜单、浮窗面板（触控板 / 键盘 / 手柄 / 设备），
          * 并把停靠长条恢复成正常圆球。主壳退出（返回确认 / 任务划掉）时调用 ——
          * 成宇 2026-11-02「退出应用后悬浮窗自动挂起」：主界面一走，展开过的菜单 /
@@ -174,6 +205,46 @@ class FloatingBallService : Service() {
                 acted = true
             }
             return acted
+        }
+
+        /** 自愈冷却：进程被反复拉起时不要把球切成一条闪烁的动画 */
+        private const val KEY_LAST_AUTO = "last_auto_start"
+
+        /**
+         * 进程起点自愈（v223.29）—— 修成宇 2026-11-02「悬浮窗不会自动拉起」。
+         *
+         * 悬浮球是前台服务，可它此前**只有用户手动开关**这一条拉起路径：进程被系统回收、
+         * 手机重启、用户从最近任务划掉之后，球就再也不回来，得手动进设置页再打开一次。
+         * 用户意愿位 [isOn] 一直存着 true，却没有任何人在进程起点读它。
+         *
+         * 这里补上这个入口，由 [com.allperiph.App.onCreate] 调：
+         *   · 意愿位为 false（用户自己关过悬浮球）→ 什么都不做，绝不强行拉起；
+         *   · 没有悬浮窗权限 → 也不做（进程起点弹系统授权页很唐突，留给用户开界面时再要）；
+         *   · 60 秒内已经试过 → 跳过，避免进程反复被拉起时球一闪一闪。
+         *
+         * @param force 跳过「60 秒冷却」与「已经活着」两道判断，给
+         *   [com.allperiph.ui.FloatingBallKeepAlive]（自检闹钟 / 开机广播）用 ——
+         *   那些时机本身就是「确认服务不在」之后才发生的，冷却反而会把该做的拉起挡掉。
+         * @return true 表示这次真的发起了拉起
+         */
+        fun ensureRunningIfWanted(c: Context, force: Boolean = false): Boolean {
+            if (!isOn(c)) return false
+            if (isRunning && live != null) return false
+            if (!Settings.canDrawOverlays(c)) {
+                Log.i(TAG, "自愈跳过：没有悬浮窗权限")
+                return false
+            }
+            val p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val now = System.currentTimeMillis()
+            if (!force && now - p.getLong(KEY_LAST_AUTO, 0L) < 60_000L) return false
+            p.edit().putLong(KEY_LAST_AUTO, now).apply()
+            runCatching { c.startForegroundService(Intent(c, FloatingBallService::class.java)) }
+                .onFailure {
+                    Log.w(TAG, "自愈拉起失败：${it.message}")
+                    return false
+                }
+            Log.i(TAG, "按用户意愿位自动拉起悬浮球")
+            return true
         }
 
         /**
@@ -258,8 +329,16 @@ class FloatingBallService : Service() {
         // 不能直接叠在 Service 自身主题上 —— 那是 framework 默认主题。
         Log.i(TAG, "onCreate")
         live = this
+        // v223.29：剪贴板同步改为「服务活着就一直听」—— 旧实现只在主界面 onResume 注册，
+        // 主界面一退到后台，手机上复制的文字就不再发往对端（用户「悬浮窗要加剪贴板」的缺口）。
+        runCatching { com.allperiph.ui.ClipboardSync.serviceAttach(this) }
+            .onFailure { Log.w(TAG, "剪贴板后台监听挂载失败：${it.message}") }
         // v223.25 起菜单多了 键盘 / 手柄：老用户存过勾选清单时补挂一次（见 BallConfig.ensureNewItems）
         BallConfig.ensureNewItems(this)
+        // v223.29 自愈闭环：进程被回收 / 手机重启之后按「用户意愿位」把球放回来。
+        // 排下一次自检 —— 这次 onCreate 本身可能就是被上一次闹钟唤起来的。
+        runCatching { FloatingBallKeepAlive.schedule(this) }
+            .onFailure { Log.w(TAG, "自检闹钟排程失败：${it.message}") }
         NotificationChannels.ensure(this)
         startForeground(
             NOTIFICATION_ID,
@@ -311,7 +390,11 @@ class FloatingBallService : Service() {
 
     private fun shutdown() {
         setOn(this, false)
+        // 用户主动关掉（长按球 / 设置页开关 / 菜单「退出」都汇到这里）→ 连自检闹钟一起撤，
+        // 否则闹钟下一秒按意愿位又把球拉回来，表现为「关不掉」。
+        runCatching { FloatingBallKeepAlive.cancel(this) }
         ballAttachedGlobal = false
+        runCatching { com.allperiph.ui.ClipboardSync.serviceDetach(this) }
         // 服务被杀/关闭时面板可能还开着：遮蔽必须一起还，否则系统三指截屏一直被关着
         com.allperiph.touchpad.GestureShield.release(this, HOLDER_BALL)
         detach(ball)
@@ -853,6 +936,23 @@ class FloatingBallService : Service() {
                     )
                 }
             }
+            BallConfig.CLIPBOARD -> {
+                closeMenu()
+                // 就地浮窗完成（成宇 2026-11-02「悬浮窗要加剪贴板」）：不拉起主界面，
+                // 面板里直接看当前剪贴板内容 + 手动补发一次。
+                expandClipboard()
+            }
+            BallConfig.SCREEN -> {
+                closeMenu()
+                // 副屏要 TextureView + 全屏推流，只能拉起完整页（悬浮面板装不下）；
+                // 与「文件」同口径，从球上一跳直达，不必先进主界面再翻设置页。
+                runCatching {
+                    startActivity(
+                        Intent(this, com.allperiph.screen.ScreenActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
             BallConfig.CONSOLE -> {
                 closeMenu()
                 runCatching {
@@ -933,36 +1033,82 @@ class FloatingBallService : Service() {
 
     // ————————————————————————— 展开面板（底部触控板） —————————————————————————
 
+    /**
+     * 悬浮触控板面板。
+     *
+     * ★ v223.29：从「XML 面板 + 裸 setOnTouchListener{ feed(ev) }」换成 Compose
+     *   [ApTouchpadSurface] —— 与主壳触控板页**同一份**手势实现。
+     *
+     * 用户原话「悬浮窗触摸板手势和触摸板页手势不一样」，根因就是这里只写了半条链路：
+     * 主壳页除了 feed() 还会做「长按 550ms 锁拖拽 / 双指长按 550ms 右键拖拽」，
+     * 且带 slop 门禁（位移一超 touchSlop 就把长按作废，免得双指滚动被判成右键）。
+     * 面板少了这两条腿 → 长按没反应、双指滚动偶尔误触发右键；也没有光标 / 尾迹，
+     * 更没有任何震动反馈（[GestureEngine] 的里程碑震动走的是
+     * [com.allperiph.touchpad.TouchpadModule.onGestureFeedback]，面板这条链路
+     * 此前根本没把模块的反馈接出来）。
+     *
+     * 现在三条腿都在共用面里：事件原样 feed、长按 550ms 排程 + slop 门禁、光标与尾迹。
+     * 震动走 TouchpadModule 自己的里程碑节流（模块活着才有），无需界面额外接线。
+     */
     private fun expand() {
         if (panel != null) return
-        val v = runCatching {
-            LayoutInflater.from(themed).inflate(R.layout.view_touchpad_panel, null)
-        }.getOrElse {
-            Log.w(TAG, "触控板面板加载失败：${it.message}")
-            return
-        }
-        v.findViewById<TextView>(R.id.tvPanelClose)?.setOnClickListener { collapse() }
-        v.findViewById<View>(R.id.touchSurface).setOnTouchListener { _, ev ->
-            // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB 鼠标帧/蓝牙/无线）
-            (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)?.feed(ev)
-            true
-        }
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            dp(300),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.BOTTOM }
+        val hpx = themed.resources.displayMetrics.heightPixels
+        val wpx = themed.resources.displayMetrics.widthPixels
+        // 竖屏 300dp 量级的手感；横屏屏更矮，按 34% 高并夹在 220~360dp 之间
+        val frac = if (wpx > hpx) 0.34f else 0.30f
+        val height = (hpx * frac).toInt().coerceIn(dp(220), dp(360))
         closeMenu()   // 菜单与面板互斥
-        wm.addView(v, lp)
-        panel = v
+        val ok = expandComposePanel(height) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MiuixTheme.colorScheme.surfaceContainer)
+                    .padding(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.ui_main_label_floating_ball),
+                        fontSize = 14.sp,
+                    )
+                    Text(
+                        text = stringResource(R.string.ui_main_floating_ball_hint),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp),
+                    )
+                    ApComponents.NarrowButton(
+                        text = stringResource(R.string.ui_main_floating_ball_collapse),
+                        onClick = { collapse() },
+                    )
+                }
+                ApTouchpadSurface(
+                    onGesture = { ev ->
+                        // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB / 蓝牙 / 无线）
+                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                            ?.feed(ev)
+                    },
+                    onLongPressArmDrag = {
+                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                            ?.armDrag()
+                    },
+                    onLongPressRightDrag = {
+                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                            ?.armRightDrag()
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
+        }
         // 悬浮球的触控板同样是三指滑动面：展开期间一并遮蔽系统三指截屏，
-        // 收起就还（这个面板压在别的应用上，不还的话用户在桌面想三指截屏会按不动）
-        com.allperiph.touchpad.GestureShield.acquireWithHint(this, HOLDER_BALL)
-        // 展开时收起球（避免叠在面板上）
-        ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
+        // 收起就还（这个面板压在别的应用上，不还的话用户在桌面想三指截屏会按不动）。
+        // expandComposePanel 负责挂窗口与收球；这里只补遮蔽这一件事 ——
+        // 面板没挂上就不能遮蔽，否则三指手势被永久关着。
+        if (ok) com.allperiph.touchpad.GestureShield.acquireWithHint(this, HOLDER_BALL)
     }
 
     // ————————————————————————— Compose 悬浮面板（键盘 / 手柄 / 设备） —————————————————————————
@@ -981,8 +1127,8 @@ class FloatingBallService : Service() {
         height: Int,
         keepScreenOn: Boolean = false,
         content: @Composable () -> Unit,
-    ) {
-        if (panel != null) return
+    ): Boolean {
+        if (panel != null) return false
         val host = OverlayComposeHost().also { it.create() }
         val cv = ComposeView(themed)
         cv.setViewTreeLifecycleOwner(host)
@@ -1002,13 +1148,14 @@ class FloatingBallService : Service() {
             Log.w(TAG, "Compose 面板挂载失败：${it.message}")
             host.destroy()
         }.isSuccess
-        if (!attached) return
+        if (!attached) return false
         host.start()
         host.resume()
         panel = cv
         panelHost = host
         // 展开时收起球（与触控板面板同口径，避免叠在面板上）
         ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
+        return true
     }
 
     /**
@@ -1036,6 +1183,95 @@ class FloatingBallService : Service() {
     private fun expandDevices() {
         expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
             ApDevicePanel(onClose = { collapse() })
+        }
+    }
+
+    /**
+     * 悬浮剪贴板面板（v223.29）。
+     *
+     * 剪贴板同步此前**只在主界面注册**（[com.allperiph.ui.ClipboardSync] 由
+     * ApShellActivity.onResume 挂、onPause 摘）—— 主界面一退到后台，手机上复制的文字
+     * 就不再发往对端了，可这时候用户往往正用悬浮球在别的应用里干活。用户要的
+     * 「悬浮窗要加剪贴板」正是这个缺口。
+     *
+     * 这里给两件事：
+     *   · 面板里显示当前剪贴板内容 + 一键补发（走 [ControlTarget.controlClient] 的 0x20 帧）；
+     *   · 顺便把后台监听补齐 —— 服务活着就一直听（见 [ensureClipboardTap]）。
+     */
+    private fun expandClipboard() {
+        val text = runCatching {
+            (getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)
+                ?.primaryClip?.getItemAt(0)?.text?.toString()
+        }.getOrNull().orEmpty()
+        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+            ) {
+                ApComponents.Card {
+                    Column {
+                        Text(
+                            text = stringResource(R.string.ui_ball_fn_clipboard_title),
+                            fontSize = 17.sp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+                        Text(
+                            text = stringResource(R.string.ui_ball_fn_clipboard_hint),
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        Text(
+                            text = if (text.isEmpty()) stringResource(R.string.ui_ball_fn_clipboard_empty)
+                            else stringResource(
+                                R.string.ui_ball_fn_clipboard_now,
+                                text.take(120) + if (text.length > 120) "…" else "",
+                            ),
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        ApComponents.ActionButton(
+                            text = stringResource(R.string.ui_ball_fn_clipboard_send),
+                            onClick = {
+                                val client = ControlTarget.controlClient
+                                if (client == null || !client.ready) {
+                                    Toast.makeText(
+                                        this@FloatingBallService,
+                                        getString(R.string.ui_ball_fn_clipboard_nolink),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    return@ActionButton
+                                }
+                                val cur = runCatching {
+                                    (getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)
+                                        ?.primaryClip?.getItemAt(0)?.text?.toString()
+                                }.getOrNull().orEmpty()
+                                if (cur.isEmpty()) {
+                                    Toast.makeText(
+                                        this@FloatingBallService,
+                                        getString(R.string.ui_ball_fn_clipboard_empty),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    return@ActionButton
+                                }
+                                val ok = runCatching { client.sendClipboard(cur) }.getOrDefault(false)
+                                Toast.makeText(
+                                    this@FloatingBallService,
+                                    if (ok) getString(R.string.ui_ball_fn_clipboard_copied, cur.length)
+                                    else getString(R.string.ui_ball_fn_clipboard_nolink),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                                if (ok) collapse()
+                            },
+                        )
+                        ApComponents.NarrowButton(
+                            text = stringResource(R.string.ui_help_close),
+                            onClick = { collapse() },
+                        )
+                    }
+                }
+            }
         }
     }
 

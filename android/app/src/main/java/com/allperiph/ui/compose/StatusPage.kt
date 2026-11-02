@@ -89,7 +89,9 @@ fun StatusPage(
                 start = 16.dp + insets.left,
                 end = 16.dp + insets.right,
                 top = 8.dp + topBar,
-                bottom = maxOf(bottomGap, 96.dp) + insets.bottom,
+                // 同上：bottomGap 由主壳按横竖屏给定（竖屏 88dp / 横屏 24dp），
+                // 不再用 maxOf(..., 96.dp) 那个会把横屏值顶掉的地板。
+                bottom = bottomGap + insets.bottom,
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {

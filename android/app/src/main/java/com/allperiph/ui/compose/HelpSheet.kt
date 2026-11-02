@@ -30,7 +30,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun ApHelpSheet(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     ApMiuixTheme {
-        ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.82f) {
+        // scrollable = false：本弹窗内部用 weight(1f) + 自己的 verticalScroll 分区
+        // （标题/正文滚动/底部按钮三段），外层再包一层滚动会让 weight 在无界高度里失效。
+        ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.82f, scrollable = false) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = 18.sp)
                 Column(
@@ -49,6 +51,7 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                             ctx.getString(R.string.ui_help_cursor_lock),
                             ctx.getString(R.string.ui_help_gesture_shield),
                             ctx.getString(R.string.ui_help_localsend),
+                            ctx.getString(R.string.ui_help_ball),
                         ).joinToString("\n"),
                     )
                     HelpBlock(ctx.getString(R.string.ui_help_title_faq), ctx.getString(R.string.ui_help_faq))

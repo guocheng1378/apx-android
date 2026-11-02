@@ -2,6 +2,8 @@ package com.allperiph.ui.miuix
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -208,6 +210,15 @@ object ApComponents {
      * @param heightRatio 内容区最多占屏高的比例；默认 0.62（照竖屏算：800dp 屏 →
      *   内容约 496dp，标题 + 两个按钮约 160dp 仍在屏内；横屏时自动变矮并滚动）。
      * @param padding 内容区四周留白。
+     * @param scrollable 内容超出限高时**是否可滚动**（默认开）。
+     *   ★ v223.29 修「横屏时有些弹框不能往下滚动」：此前这里给的是
+     *   `fillMaxHeight(ratio)` + 一个**不可滚动**的 `Column` —— 竖屏高度够用看不出问题，
+     *   横屏屏高只剩竖屏的约一半，内容一多就直接被裁在卡片外，而卡片本身跟屏幕一样高、
+     *   外面也没有能接住手势的东西，于是「怎么划都不动」。
+     *   现在默认套一层 `verticalScroll`：任何调用方都直接得到「装得下就正常排版、
+     *   装不下就能滚」的行为，不必各自记得包一层滚动。
+     *   ⚠️ 只有一种例外：内容里**用了 `weight(1f)`** 的弹窗（滚动容器内高度无界，
+     *   weight 会失效甚至崩），那些调用方要显式传 `scrollable = false` 并自己给内部滚动。
      */
     @Composable
     fun DialogCard(
@@ -215,6 +226,7 @@ object ApComponents {
         modifier: Modifier = Modifier,
         heightRatio: Float = 0.62f,
         padding: Dp = 16.dp,
+        scrollable: Boolean = true,
         content: @Composable ColumnScope.() -> Unit,
     ) {
         androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
@@ -224,7 +236,18 @@ object ApComponents {
                     .then(modifier)
                     .fillMaxHeight(heightRatio),
             ) {
-                Column(modifier = Modifier.padding(padding), content = content)
+                Column(
+                    modifier = Modifier
+                        .padding(padding)
+                        .then(
+                            if (scrollable) {
+                                Modifier.verticalScroll(rememberScrollState())
+                            } else {
+                                Modifier
+                            },
+                        ),
+                    content = content,
+                )
             }
         }
     }
