@@ -62,7 +62,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.window.Dialog
 
 /**
  * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
@@ -82,6 +81,9 @@ class ApShellActivity : ComponentActivity() {
     /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写 */
     @Volatile
     private var pageState = 0
+
+    /** 退出确认弹窗开关（v223.28 补回旧 MainActivity 迁移时整块丢掉的那份） */
+    private val showExitAsk = androidx.compose.runtime.mutableStateOf(false)
 
     /** 横竖屏标志（Compose 侧写入，dispatchTouchEvent 读） */
     @Volatile
@@ -104,6 +106,20 @@ class ApShellActivity : ComponentActivity() {
         // 因为 ApMiuixTheme 的明暗取值来自 configuration.uiMode —— 正是 wrap 注入的用户选择。
         ApAccentSync.apply(this)
         applyImmersive()
+        // v223.28 返回键语义（成宇 2026-11-02 两条真机反馈合在这里）：
+        // ① 悬浮球有展开层（扇形菜单 / 触控板·键盘·手柄·设备浮窗面板）时先收它并吃掉这次返回 ——
+        //    那些是 overlay 窗口，BACK 永远轮不到它们，此前在主壳按返回会把整个界面退掉；
+        // ② 没有展开层才弹退出确认 —— 旧 MainActivity 的退出确认在 Compose 迁移时整块丢了，
+        //    现在按返回直接 finish，用户既没机会知道「外设还在后台跑」，也没机会停掉它。
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return
+                    showExitAsk.value = true
+                }
+            },
+        )
         pickOnStart = intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true
         intent?.removeExtra(EXTRA_PICK_DEVICE)
         setContent {
@@ -271,6 +287,40 @@ class ApShellActivity : ComponentActivity() {
                 ApDevicePicker(onDismiss = { pickerOpen = false })
             }
 
+            // 退出确认（v223.28）：三个动作都明确 —— 「后台继续」不打断正在跑的外设，
+            // 「停止并退出」走与状态页关闭开关同一条 toggleAgent(false)。
+            if (showExitAsk.value) {
+                ApComponents.DialogCard(onDismiss = { showExitAsk.value = false }) {
+                    Text(text = stringResource(R.string.ui_exit_title), fontSize = 17.sp)
+                    Text(
+                        text = stringResource(R.string.ui_exit_msg),
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    ApComponents.ActionButton(
+                        text = stringResource(R.string.ui_exit_keep),
+                        onClick = {
+                            showExitAsk.value = false
+                            finish()
+                        },
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                    ApComponents.ActionButton(
+                        text = stringResource(R.string.ui_exit_stop),
+                        onClick = {
+                            showExitAsk.value = false
+                            toggleAgent(false)
+                            finish()
+                        },
+                    )
+                    ApComponents.ActionButton(
+                        text = stringResource(R.string.ui_exit_cancel),
+                        onClick = { showExitAsk.value = false },
+                    )
+                }
+            }
+
             // 底栏 = 组件总览（MiuixShowcaseActivity）同款悬浮玻璃（用户要求「悬浮低栏要和
             // 组件预览里一样的」）：FloatingNavigationBar 胶囊 + Miuix textureBlur 采样内容层
             // （LayerBackdrop）+ Highlight 玻璃描边；无运行时着色器的老机器退化为纯色胶囊。
@@ -412,6 +462,13 @@ class ApShellActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onDestroy() {
+        // 退出主壳（返回确认 / 最近任务划掉）时把悬浮球的展开层一起收掉：
+        // 只认 isFinishing —— 旋转/重建时不该动用户的悬浮面板。
+        if (isFinishing) com.allperiph.ui.FloatingBallService.collapseOverlays()
+        super.onDestroy()
+    }
+
     private fun applyImmersive() {
         // 全屏口径（framework API，minSdk 34 无需兼容分支）：
         // ① 装饰视图不再替我们让位 —— 让位由各页自己按 ApInsets 算；
@@ -460,15 +517,14 @@ internal object ApAccentSync {
  *
  * 数据源是 [com.allperiph.wireless.TvDiscovery] 的广播列表（电视/PC/手机三类都在这张表里），
  * 选中即 `ControlTarget` 连入；`本机 / PC` 一行等于 `ControlTarget.clear()`。
- * 用 Compose 的 `Dialog` 承载 Miuix `Card` —— Miuix 0.9.4 的 `WindowDialog` 是 preference 侧
- * 的窗口级弹窗，这里要的是应用内弹窗，用系统 Dialog + Miuix 卡片更稳。
+ * 视觉由 [ApComponents.DialogCard] 承载（它内部已经是 `androidx.compose.ui.window.Dialog`
+ * + Miuix `Card`，Miuix 0.9.4 的 `WindowDialog` 是 preference 侧窗口级弹窗，这里不要）。
+ * v223.28 去掉此前多套的一层外 `Dialog` —— 两层窗口会叠两层遮罩。
  */
 @Composable
 private fun ApDevicePicker(onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
-        ApComponents.DialogCard(onDismiss = onDismiss) {
-            ApDevicePickerBody(onDone = onDismiss)
-        }
+    ApComponents.DialogCard(onDismiss = onDismiss) {
+        ApDevicePickerBody(onDone = onDismiss)
     }
 }
 

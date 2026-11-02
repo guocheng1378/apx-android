@@ -59,7 +59,7 @@ R_USE = re.compile(
 # 676 → 667（v223.27）：键盘页去掉快捷面板与编辑弹窗后，Kotlin 里的中文文案净减 9 处
 # （KeyboardPage.kt 的相关字面量在 v223.24 已搬进 strings.xml，本轮删的是引用它的代码），
 # 实测 667，按实测值收紧锁住战果。
-TEXT_BASELINE = 667
+TEXT_BASELINE = 656
 
 
 def strip_comments(text):
