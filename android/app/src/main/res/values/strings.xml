@@ -485,7 +485,6 @@
     <string name="ui_remote_target_fallback">未连接受控设备 —— 按键与触摸条会走 %1$s（作用在已配对的主机 / 本机）</string>
     <string name="ui_remote_target_no_exit">没有可用出口 —— 点「选择设备」连 TV / PC，或插 USB 线 / 配蓝牙 HID</string>
     <string name="ui_remote_toast_no_exit">没有可用出口：插 USB 线、配蓝牙 HID，或先选受控设备</string>
-    <string name="ui_ime_panel_hint">已启用：物理键盘打字将发送到电脑；切回其他输入法可恢复手机打字</string>
     <string name="ui_touchpad_send_progress">发送 %1$d%%</string>
 
     <!-- 开关行：分组里只留一行标题 + 一行短说明（真机反馈「还有很多长文没移到帮助页」） -->

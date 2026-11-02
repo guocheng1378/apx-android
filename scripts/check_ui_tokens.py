@@ -52,7 +52,7 @@ R_USE = re.compile(
 # 690 → 689（2026-11-01 面板重排）→ 687（补入口这一版）：设置页新增的
 # 「键盘外观 / 音频方向 / 输入与外设」三段 17 条文案全部进 strings.xml（不写死在 Kotlin），
 # 合并 master 后实测 687（面板重排把几处 Kotlin 文案换成了资源引用），按实测值收紧锁住战果。
-TEXT_BASELINE = 687
+TEXT_BASELINE = 686
 
 
 def strip_comments(text):
