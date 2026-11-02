@@ -62,7 +62,8 @@ R_USE = re.compile(
 # 656 → 657（2026-11-02 审查条 1.8 的修复）：状态页在 runtime 未建时给模块行兜底一句
 # 「未启动（点上方开始）」。这是**状态串**而不是可资源化文案（它和 detailOf() 的返回值拼在
 # 同一行，跟 HidKeys/HidMouse 那批 Uplink.reason 同性质），按实测值收紧，不手填。
-TEXT_BASELINE = 657
+# 657 → 663（同批：tv/ui/TvOverlayPermission.kt 的权限引导 KDoc 带了 6 处中文）。
+TEXT_BASELINE = 663
 
 
 def strip_comments(text):
