@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -44,6 +45,7 @@ import com.allperiph.R
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.hid.HotkeyTemplates
+import com.allperiph.ui.Feedback
 import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.miuix.ApComponents
@@ -97,17 +99,12 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // 标题跟随面板（成宇 2026-11-02「快捷键字应该和全键盘一起的」）：此前这里固定写
-            // 「快捷键（长按可编辑）」，切到虚拟键盘时和面板自己的「全键盘」标题叠着，
-            // 两个名字指一页；现在全键盘态显示「全键盘」，快捷面板态显示「快捷键（长按可编辑）」。
-            Text(
-                text = ctx.getString(
-                    if (panel == 0) R.string.ui_kb_full else R.string.ui_kb_hotkeys_longpress,
-                ),
-                fontSize = 13.sp,
-            )
+            // 页面标题一律不画（成宇 2026-11-02「把所有页面标题都去除」）。
+            // 这里原来固定写「快捷键（长按可编辑）」，正文却是整块虚拟键盘，
+            // 看着就是「快捷键映射的是触屏页的内容」—— 标题和内容各说各话。
+            // 现在只剩面板切换按钮，正文是什么由按钮高亮说明。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
                 // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
@@ -349,7 +346,7 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
  * @param bottomGap 底部额外让出的高度：浮动底栏盖在键盘下沿，最底行的按键必须仍可点。
  */
 @Composable
-private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
+internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
     val dens = KeyPref.density(ctx)
     val mechanical = KeyPref.isMechanical(ctx)
@@ -365,8 +362,8 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
         // 只在弹窗形态画：主屏面板形态的标题由页首那行面板标题承担（v223.25 起
         // 页首标题跟随面板），这里再画一遍就是「全键盘」出现两次。
         if (onClose != null) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
+            // 弹窗形态也只要关闭按钮，标题文字同样去掉（与页面口径一致）
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_close),
                     onClick = { onClose.invoke() },
@@ -637,12 +634,14 @@ private fun CustomLayout(
 /** 遥控 / 电源图块：整块可点（与操控面 `mediaTile` / `actionTile` 同一交互，纯文字键面） */
 @Composable
 private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
+    // 媒体 / 电源图块也是「按键」，同样震一下、响一声
+    val host = LocalView.current
     Box(
         modifier = modifier
             .padding(horizontal = 4.dp, vertical = 2.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MiuixTheme.colorScheme.surfaceContainer)
-            .clickable { onClick() },
+            .clickable { Feedback.tap(host); onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center)
@@ -659,6 +658,9 @@ private fun ModKey(
     mechanical: Boolean,
     onClick: () -> Unit,
 ) {
+    // 修饰键同样要震要响（与 KeyBox 同一套 Feedback 口径）
+    val host = LocalView.current
+    val press: () -> Unit = { Feedback.tap(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     val h = (44f * dens.keyScale).dp
     val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
@@ -670,7 +672,7 @@ private fun ModKey(
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { onClick() },
+                .clickable { press() },
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
         return
@@ -687,7 +689,7 @@ private fun ModKey(
                 .offset(y = if (pressed) 2.dp else 0.dp)
                 .clip(shape)
                 .background(bg)
-                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+                .clickable(interactionSource = interaction, indication = null, onClick = press),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
     }
@@ -706,6 +708,12 @@ private fun KeyBox(
     mechanical: Boolean,
     onClick: () -> Unit,
 ) {
+    // 按键反馈（成宇 2026-11-02「音效、喇叭回声、震动都没有了」）：
+    // Compose 迁移时丢掉了 Feedback.tap，键帽只剩视觉下沉。所有 8 套布局的键位
+    // 最终都收敛到 KeyBox / ModKey / MediaTile 这三个组件，在这里统一接回，
+    // 档位仍由设置页的 ApFeel 控制（关 / 轻 / 标准 / 强，音效 关 / 点击 / 键盘 / 机械轴）。
+    val host = LocalView.current
+    val press: () -> Unit = { Feedback.tap(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     val h = (44f * dens.keyScale).dp
     val bg = MiuixTheme.colorScheme.surfaceContainer
@@ -716,7 +724,7 @@ private fun KeyBox(
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { onClick() },
+                .clickable { press() },
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
         return
@@ -733,7 +741,7 @@ private fun KeyBox(
                 .offset(y = if (pressed) 2.dp else 0.dp)
                 .clip(shape)
                 .background(bg)
-                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+                .clickable(interactionSource = interaction, indication = null, onClick = press),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
     }

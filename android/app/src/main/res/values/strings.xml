@@ -179,6 +179,8 @@
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
     <string name="ui_ball_fn_quit">退出</string>
+    <string name="ui_ball_fn_keyboard">键盘</string>
+    <string name="ui_ball_fn_gamepad">手柄</string>
     <string name="ui_main_cat_help">帮助与说明</string>
     <string name="ui_main_cat_help_hint">链路 · 手势 · 常见问题</string>
     <string name="ui_help_title_project">项目说明</string>
@@ -287,7 +289,6 @@
     <string name="ui_kb_tab_custom">自定义</string>
     <string name="ui_kb_close">关闭</string>
     <!-- v223.24 快捷键面板（组合键网格）与编辑弹窗的文案：不写死在 Kotlin 里 -->
-    <string name="ui_kb_hotkeys_longpress">快捷键（长按可编辑）</string>
     <!-- 快捷键编辑的候选键（与被控操控面同一批键位；名字即 HotkeyStore 里的标签，改这里会连带 USAGE_REPAIRS） -->
     <string name="ui_kb_enter">确定</string>
     <string name="ui_kb_back">返回</string>

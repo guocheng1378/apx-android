@@ -2,11 +2,9 @@ package com.allperiph.ui
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.SoundPool
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.view.SoundEffectConstants
 import android.view.View
 import com.allperiph.R
 
@@ -15,8 +13,8 @@ import com.allperiph.R
  *
  * · 震动档位（[ApFeel.HAPTIC_LABELS]）：关 / 轻 / 标准 / 强 —— 用 [VibrationEffect.createOneShot]
  *   直接给时长与振幅，比预置 EFFECT_CLICK 更可控（也不受各家 ROM 效果表的差异影响）；
- * · 音效档位（[ApFeel.SOUND_LABELS]）：关 / 点击 / 键盘敲击 ——
- *   `View.playSoundEffect` 跟随系统「触摸音效」开关与通知音量。
+ * · 音效档位（[ApFeel.SOUND_LABELS]）：关 / 点击 / 键盘 / 机械轴 ——
+ *   全部走自带 SoundPool（媒体流），不受系统「触摸音效」开关影响。
  *
  * 需要 `android.permission.VIBRATE`（已在 AndroidManifest 声明）。
  */
@@ -70,37 +68,53 @@ object Feedback {
         }
     }
 
-    /** 按键音：随 [ApFeel] 的音效档位（"键盘"用系统键盘敲击音） */
+    /**
+     * 按键音：随 [ApFeel] 的音效档位。
+     *
+     * ⚠️ 三档**全部**走自带 SoundPool，不再用 `View.playSoundEffect` ——
+     * 后者被系统「触摸音效」开关（`Settings.System.SOUND_EFFECTS_ENABLED`）管着，
+     * 本机实测这个开关就是 `0`（关闭），于是"点击 / 键盘"两档一声不响，
+     * 用户看到的现象正是"音效没有"。档位既然由 app 自己给，就别再受系统开关摆布。
+     *
+     * 三档用同一段 res/raw/mech_click，靠音量 + 音高区分：
+     *   · 点击：轻、原调（短促"嗒"）
+     *   · 键盘：中等、略高（更像笔记本键盘）
+     *   · 机械轴：最响、原调（段落感最明显）
+     */
     fun sound(v: View) {
-        when (ApFeel.soundIndex(v.context)) {
-            1 -> v.playSoundEffect(SoundEffectConstants.CLICK)
-            2 -> v.playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD)
-            3 -> mechSound(v.context)
+        val ctx = v.context
+        when (ApFeel.soundIndex(ctx)) {
+            1 -> playKeySound(ctx, 0.30f, 1.00f)
+            2 -> playKeySound(ctx, 0.55f, 1.20f)
+            3 -> playKeySound(ctx, 0.85f, 1.00f)
         }
     }
 
-    // —————————————————————————— 机械轴音 ——————————————————————————
+    // —————————————————————————— 键音（SoundPool） ——————————————————————————
 
     private var pool: SoundPool? = null
     private var clickId = 0
 
     /**
-     * 机械轴音：SoundPool 播 res/raw/mech_click（短噪声脉冲，红/茶轴手感）。
-     * 不用 playSoundEffect——它跟随系统「触摸音效」开关与通知音量，关掉就没声；
-     * 机械档要独立可听，音色也可控（青轴的"咔哒"感靠双段脉冲合成）。
+     * 播放一次键音。
+     *
+     * 音轨走 **USAGE_MEDIA**（媒体流）而不是 SONIFICATION：后者落到系统流上，
+     * 系统音量低或静音时依旧听不见，用户又要说"没声音"。媒体流一般有音量，
+     * 且音量给得小（0.3~0.85），不会盖住正在放的音频。
      */
-    private fun mechSound(ctx: Context) {
+    private fun playKeySound(ctx: Context, volume: Float, pitch: Float) {
         if (pool == null) {
             pool = SoundPool.Builder()
-                .setMaxStreams(2)
+                .setMaxStreams(4)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
                 .build()
             clickId = pool!!.load(ctx, R.raw.mech_click, 1)
         }
-        pool?.play(clickId, 0.8f, 0.8f, 1, 0, 1f)
+        pool?.play(clickId, volume, volume, 1, 0, pitch)
     }
 }

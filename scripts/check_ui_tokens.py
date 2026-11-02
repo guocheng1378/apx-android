@@ -56,7 +56,7 @@ R_USE = re.compile(
 # 686 → 680（v223.24 主屏键盘页对齐操控面）：键盘页整块重写时把「快捷键 / 新增 / 上下移 /
 # 改键 / 删除 / 遥控键面 / 候选键名」全部搬进 strings.xml（KeyboardPage.kt 的中文字面量
 # 20 → 0，本文件是唯一还在乎这件事的地方），实测 680，收紧锁住。
-TEXT_BASELINE = 680
+TEXT_BASELINE = 676
 
 
 def strip_comments(text):

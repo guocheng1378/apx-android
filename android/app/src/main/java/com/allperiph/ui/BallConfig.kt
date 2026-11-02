@@ -24,11 +24,13 @@ object BallConfig {
     const val MODE_BT = "mode_bt"
     const val MODE_USB = "mode_usb"
     const val CONSOLE = "console"
+    const val KEYBOARD = "keyboard"
+    const val GAMEPAD = "gamepad"
     const val QUIT = "quit"
 
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
-        TOUCHPAD, DEVICES, FILES, MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
+        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
     )
 
     /** 首次打开时的默认四项 —— 与旧版写死菜单的主干一致 */
@@ -42,6 +44,8 @@ object BallConfig {
 
     private const val PREF = "apx_ball_config"
     private const val KEY_ITEMS = "items"
+    /** v223.25 升级补挂标记：键盘/手柄两项加入菜单后只补一次，尊重用户之后的手工增删 */
+    private const val KEY_MIGRATED_V2 = "migrated_v2"
 
     fun labelRes(id: String): Int = when (id) {
         TOUCHPAD -> R.string.ui_ball_fn_touchpad
@@ -51,6 +55,8 @@ object BallConfig {
         MODE_BT -> R.string.ui_ball_menu_bt
         MODE_USB -> R.string.ui_ball_menu_usb
         CONSOLE -> R.string.ui_ball_fn_console
+        KEYBOARD -> R.string.ui_ball_fn_keyboard
+        GAMEPAD -> R.string.ui_ball_fn_gamepad
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
@@ -63,6 +69,8 @@ object BallConfig {
         MODE_BT -> R.drawable.ic_apx_bt
         MODE_USB -> R.drawable.ic_apx_usb
         CONSOLE -> R.drawable.ic_apx_expand
+        KEYBOARD -> R.drawable.ic_apx_keyboard
+        GAMEPAD -> R.drawable.ic_apx_gamepad
         QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
@@ -93,5 +101,24 @@ object BallConfig {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
             .putString(KEY_ITEMS, if (kept.isEmpty()) DEFAULT.joinToString(",") else kept.joinToString(","))
             .apply()
+    }
+
+    /**
+     * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
+     * 这里只把**清单里没有**的两项追加到尾部，一次即可（标记位防重复）；用户之后删掉
+     * 就尊重用户，不再补。
+     */
+    fun ensureNewItems(ctx: Context) {
+        val p = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        if (p.getBoolean(KEY_MIGRATED_V2, false)) return
+        val cur = p.getString(KEY_ITEMS, null)
+        if (cur != null) {
+            val kept = cur.split(",").map { it.trim() }
+            val add = listOf(KEYBOARD, GAMEPAD).filter { it !in kept }
+            if (add.isNotEmpty()) {
+                p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+            }
+        }
+        p.edit().putBoolean(KEY_MIGRATED_V2, true).apply()
     }
 }

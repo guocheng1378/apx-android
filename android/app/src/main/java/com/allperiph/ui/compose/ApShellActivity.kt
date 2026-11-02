@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.platform.LocalConfiguration
@@ -33,6 +34,9 @@ import com.allperiph.ui.ApSkin
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
+import com.allperiph.R
 import com.allperiph.ui.miuix.ApGlassTopBar
 import com.allperiph.ui.miuix.apHazeSource
 import com.allperiph.ui.miuix.rememberApHazeState
@@ -52,12 +56,11 @@ import top.yukonga.miuix.kmp.basic.FloatingNavigationBarItem
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
-import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
-import top.yukonga.miuix.kmp.icon.extended.GridView
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.window.Dialog
@@ -260,14 +263,10 @@ class ApShellActivity : ComponentActivity() {
 
             // 顶栏：玻璃渐进模糊 + 当前页标题（内容从栏下滚过）
             ApGlassTopBar(
-                // 横屏顶栏盖在状态栏上（topPad = 0），标题会跟系统时间/电量叠字
-                // （成宇 2026-11-02「横屏时顶栏的标题不要」）：横屏不出标题，只留玻璃底。
-                title = if (landscape) null else when (page) {
-                    0 -> "状态"
-                    1 -> "触控板"
-                    2 -> "键盘"
-                    else -> "设置"
-                },
+                // 顶栏只做玻璃底（成宇 2026-11-02「把所有页面标题都去除」）：
+                // 标题在横屏会跟系统时间/电量叠字，竖屏又和页内内容各说各话，
+                // 干脆一律不画 —— 当前页由底部导航高亮表达。
+                title = null,
                 hazeState = hazeState,
                 onDeviceClick = { pickerOpen = true },
                 // 顶栏让出状态栏：竖屏 topPad = 状态栏高，横屏 topPad = 0（设计上盖住状态栏）。
@@ -329,21 +328,22 @@ class ApShellActivity : ComponentActivity() {
                     FloatingNavigationBarItem(
                         selected = page == 1,
                         onClick = { page = 1 },
-                        icon = MiuixIcons.GridView,
+                        icon = ImageVector.vectorResource(R.drawable.ic_apx_touchpad),
                         label = "触控板",
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
                         selected = page == 2,
                         onClick = { page = 2 },
-                        icon = MiuixIcons.ListView,
+                        icon = ImageVector.vectorResource(R.drawable.ic_apx_keyboard),
                         label = "键盘",
                         enabled = true,
                     )
-                    // 图标：miuix-icons 0.9.4 的 extended 共 **156** 个图标（从 maven sources.jar 全量列名，
-                    // 不是靠文档猜）。底栏用到的 Home / ListView / GridView / Settings 都在名单内；
-                    // 触控板用 GridView、键盘用 ListView，两者区分开。该库没有 Touchpad/Keyboard/
-                    // Wifi/Bluetooth/Usb/Terminal 这些设备语义名，所以没硬凑。
+                    // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表，
+                    // 一眼看不出是什么 —— 这两页改用自家矢量 ic_apx_touchpad / ic_apx_keyboard
+                    // 经 vectorResource 转 ImageVector（单色描边，随选中态着色）；状态 / 设置
+                    // 语义中性，保留 miuix-icons 的 Home / Settings（extended 156 个里没有
+                    // Touchpad/Keyboard 这类设备语义名，自家矢量反而是现成的）。
                     FloatingNavigationBarItem(
                         selected = page == 3,
                         onClick = { page = 3 },
@@ -470,42 +470,74 @@ internal object ApAccentSync {
  */
 @Composable
 private fun ApDevicePicker(onDismiss: () -> Unit) {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        ApComponents.DialogCard(onDismiss = onDismiss) {
+            ApDevicePickerBody(onDone = onDismiss)
+        }
+    }
+}
+
+/**
+ * 设备选择器的内容体（v223.25 从 ApDevicePicker 抽出）：主屏弹窗与悬浮球 overlay
+ * 面板共用同一份列表与连接逻辑 —— 选中即 [com.allperiph.wireless.ControlTarget] 连入，
+ * 「本机 / PC」= clear()。
+ */
+@Composable
+internal fun ApDevicePickerBody(onDone: () -> Unit) {
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
     androidx.compose.runtime.LaunchedEffect(Unit) {
         com.allperiph.wireless.TvDiscovery.start()
         devices = com.allperiph.wireless.TvDiscovery.list()
     }
-    Dialog(onDismissRequest = onDismiss) {
-        ApComponents.DialogCard(onDismiss = onDismiss) {
-            Text(
-                text = "选择受控设备",
-                fontSize = 17.sp,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            ApComponents.ActionButton(
-                text = "本机 / PC（默认）",
-                onClick = {
-                    com.allperiph.wireless.ControlTarget.clear()
-                    onDismiss()
-                },
-            )
-            devices.forEach { d ->
-                ApComponents.ActionButton(
-                    text = "${d.name} ${d.typeLabel}  ${d.ip}",
-                    onClick = {
-                        com.allperiph.wireless.ControlTarget.host = d.ip
-                        com.allperiph.wireless.ControlTarget.label = d.name
-                        com.allperiph.wireless.ControlTarget.type = d.type
-                        onDismiss()
-                    },
-                )
-            }
-            if (devices.isEmpty()) {
-                Text(
-                    text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(vertical = 8.dp),
+    Text(
+        text = "选择受控设备",
+        fontSize = 17.sp,
+        modifier = Modifier.padding(bottom = 8.dp),
+    )
+    ApComponents.ActionButton(
+        text = "本机 / PC（默认）",
+        onClick = {
+            com.allperiph.wireless.ControlTarget.clear()
+            onDone()
+        },
+    )
+    devices.forEach { d ->
+        ApComponents.ActionButton(
+            text = "${d.name} ${d.typeLabel}  ${d.ip}",
+            onClick = {
+                com.allperiph.wireless.ControlTarget.host = d.ip
+                com.allperiph.wireless.ControlTarget.label = d.name
+                com.allperiph.wireless.ControlTarget.type = d.type
+                onDone()
+            },
+        )
+    }
+    if (devices.isEmpty()) {
+        Text(
+            text = "同一 Wi-Fi 下没发现设备（电视/PC 端要开着 9511 服务）",
+            fontSize = 13.sp,
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+    }
+}
+
+/**
+ * 悬浮球的「设备」面板（成宇 2026-11-02「应该在悬浮窗完成」）：同一份选择器内容
+ * 装进 overlay 卡片，不再拉起主 Activity。卡片与按钮照走 ApComponents（UI Kit 口径）。
+ */
+@Composable
+internal fun ApDevicePanel(onClose: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+    ) {
+        ApComponents.Card {
+            Column {
+                ApDevicePickerBody(onDone = onClose)
+                ApComponents.NarrowButton(
+                    text = stringResource(R.string.ui_help_close),
+                    onClick = onClose,
                 )
             }
         }
