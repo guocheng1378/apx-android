@@ -1,23 +1,27 @@
 package com.allperiph.ui.compose
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,45 +31,58 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allperiph.R
 import com.allperiph.hid.HidKeys
-import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.hid.HotkeyStore
+import com.allperiph.hid.HotkeyTemplates
+import com.allperiph.ui.KeyLayouts
+import com.allperiph.ui.KeyPref
+import com.allperiph.ui.miuix.ApComponents
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import com.allperiph.R
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import com.allperiph.hid.HotkeyTemplates
 
 /**
- * 键盘页（Compose + Miuix）：把原来 `KeyboardPanels` 的 8 套程序化 View 换成一套
- * 「快捷键网格 + 长按编辑」的 Miuix 界面。
+ * 键盘页（Compose + Miuix）：一页两个面板，**与被控操控面（`TouchpadActivity`）键盘页同款布局**。
  *
- * 交互口径（与需求一一对应）：
- * - **按钮**：每个快捷键是一个可点卡片（Miuix `Card` + `Text`），单击即 `HidKeys.combo` 发出；
- * - **列表**：整体是 `LazyVerticalGrid` 的自适应网格（等价于列表 + 分组，键多时自动换列）；
- * - **长按**：长按弹编辑弹窗（改名/改键/上移/下移/删除），替代原来那套「点一下不知道去哪改」；
- * - **弹窗**：编辑用 `Dialog` 承载 Miuix `Card`；新增键从候选键列表里选，避免手机上敲文本；
- * - **持久化**：每次改动 `HotkeyStore.save` + `markCustom`，与 `KeyboardPanels` 用的是同一份存储，
- *   两条入口（旧 View / 新 Compose）切换不会丢配置。
+ * 布局口径（用户要求「键盘布局应该和被控页的一样」）：
+ * - 快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义，共 8 套，
+ *   名称与顺序与操控面 `kbNames` 完全一致，两边的数据源也共用
+ *   （`KeyPref.letterRows` + `KeyLayouts`），改一处两边同时变；
+ * - 「快捷」= `HidKeys.MOD_LABELS` sticky 修饰排 + `KeyPref.letterRows` 五行（与 `quickKeyboard` 同款）；
+ * - 「遥控」走 `HotkeyController` Consumer 位图（与 `remoteKeyboard` 同一条链路），
+ *   关机 / 重启只在主屏保留（opcode 0x22 需要被控端 root，且有利于远程救机）；
+ * - 右端的「全键盘」是同一套键盘的**弹窗形态**（旧 `KeyboardPanels` 就是弹窗，习惯保留），
+ *   从任何页面一眼可开，键位与页签跟主体那块一模一样。
+ *
+ * 「快捷面板」是主屏自己的东西：`HotkeyStore` 里的组合键网格（单击发送 / 长按编辑 /
+ * 新增 / 模板行），与被控操控面的 8 套键位互不影响。
+ *
+ * v223.24 修正在两处：
+ * 1. 候选键 usage 全部**显式写出** —— 此前用 `usageOf("F11")` 这类**多字符标签**反查，
+ *    而 `usageOf` 只认单字符，落到首字母的 usage（全屏发成 f、返回发成 b、音量发成 v），
+ *    正是用户报的「快捷键发不对」；存量坏值由 [HidKeys.USAGE_REPAIRS] 在读取时修掉；
+ * 2. 媒体键以**真实 Consumer usage** 落库，[HidKeys.combo] 统一路由到 HotkeyController
+ *    位图（与操控面媒体键同一条链路）—— 否则 0xB2 会进键盘报告，对端认不出。
  */
 @Composable
 fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
+    val cands = candidates()
     var items by remember { mutableStateOf(HotkeyStore.load(ctx)) }
     var editIndex by remember { mutableIntStateOf(-1) }
     var addOpen by remember { mutableStateOf(false) }
-    /** 面板切换：0 = 整块虚拟键盘（页面主体），1 = 快捷面板（旧快捷键网格） */
+    /** 全键盘弹窗（模板行右端 / 编辑器里的「全键盘」入口打开） */
+    var kbOpen by remember { mutableStateOf(false) }
+    /** 面板切换：0 = 整块虚拟键盘（页面主体），1 = 快捷面板（组合键网格） */
     var panel by remember { mutableIntStateOf(0) }
 
     fun commit(next: List<HidKeys.Combo>) {
@@ -82,10 +99,9 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(text = "快捷键（长按可编辑）", fontSize = 13.sp)
+            Text(text = ctx.getString(R.string.ui_kb_hotkeys_longpress), fontSize = 13.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 成宇 2026-11-02：「键盘页要的是一整块虚拟键盘，加能切换的快捷面板」。
-                // 原来全键盘是 Dialog 弹窗、页面主体只剩一张网格 —— 主功能被藏在弹窗里。
                 // 现在两者是本页的两个面板：全键盘直接占满主体，网格退为可切换的快捷面板。
                 ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_panel_keys),
@@ -96,7 +112,10 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
                     onClick = { panel = 1 },
                 )
                 if (panel == 1) {
-                    ApComponents.NarrowButton(text = "新增", onClick = { addOpen = true })
+                    ApComponents.NarrowButton(
+                        text = ctx.getString(R.string.ui_kb_add),
+                        onClick = { addOpen = true },
+                    )
                 }
             }
         }
@@ -104,62 +123,71 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
             // 虚拟键盘占主体；onClose = null 表示不是弹窗，不画关闭按钮
             ApFullKeyboard(onClose = null, bottomGap = bottomGap)
         } else {
-        // 模板行：旧 `KeyboardPanels` 有 8 套现成键位布局，迁 Compose 后只剩用户自己那份，
-        // 想换布局只能手动一个个改键。这里把 `HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，
-        // 存储仍是 HotkeyStore（与设置页「快捷键模板」同一份，两边互不打架）。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            ApComponents.NarrowButton(
-                text = ctx.getString(R.string.ui_kb_tpl_default),
-                onClick = {
-                    items = HidKeys.DEFAULTS.toMutableList()
-                    HotkeyStore.save(ctx, HidKeys.DEFAULTS)
-                },
-            )
-            HotkeyTemplates.ALL.forEach { t ->
+            // 模板行：`HotkeyTemplates.ALL` 摊成一行 chip，点一下套用，存储仍是 HotkeyStore
+            //（与设置页「快捷键模板」同一份，两边互不打架）。
+            // 右端「全键盘」= 同一套 8 页签键盘的弹窗形态（旧 KeyboardPanels 就是想换布局
+            // 只能手动改键，这里直接给整块键盘）。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 ApComponents.NarrowButton(
-                    text = t.name,
+                    text = ctx.getString(R.string.ui_kb_tpl_default),
                     onClick = {
-                        HotkeyStore.applyTemplate(ctx, t)
-                        items = HotkeyStore.load(ctx)
+                        items = HidKeys.DEFAULTS.toMutableList()
+                        HotkeyStore.save(ctx, HidKeys.DEFAULTS)
                     },
                 )
+                HotkeyTemplates.ALL.forEach { t ->
+                    ApComponents.NarrowButton(
+                        text = t.name,
+                        onClick = {
+                            HotkeyStore.applyTemplate(ctx, t)
+                            items = HotkeyStore.load(ctx)
+                        },
+                    )
+                }
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_full),
+                    onClick = { kbOpen = true },
+                )
             }
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(104.dp),
-            modifier = Modifier.fillMaxSize().padding(bottom = bottomGap),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            itemsIndexed(items) { index, combo ->
-                ApComponents.Card(modifier = Modifier.height(64.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(combo) {
-                                detectTapGestures(
-                                    onTap = { HidKeys.combo(combo) },
-                                    onLongPress = { editIndex = index },
-                                )
-                            },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = HidKeys.comboText(combo),
-                            fontSize = 13.sp,
-                            textAlign = TextAlign.Center,
-                        )
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(104.dp),
+                modifier = Modifier.fillMaxSize().padding(bottom = bottomGap),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(items) { index, combo ->
+                    ApComponents.Card(modifier = Modifier.height(64.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(combo) {
+                                    detectTapGestures(
+                                        onTap = { HidKeys.combo(combo) },
+                                        onLongPress = { editIndex = index },
+                                    )
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = HidKeys.comboText(combo),
+                                fontSize = 13.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 }
             }
         }
-        }
+    }
+
+    if (kbOpen) {
+        KbWindow(onDismiss = { kbOpen = false })
     }
 
     if (editIndex in items.indices) {
@@ -167,116 +195,165 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
         ApComponents.DialogCard(onDismiss = { editIndex = -1 }) {
             Text(text = HidKeys.comboText(cur), fontSize = 16.sp)
             Row(modifier = Modifier.padding(vertical = 8.dp)) {
-                ApComponents.NarrowButton(text = "上移", onClick = {
-                    if (editIndex > 0) {
-                        val l = items.toMutableList()
-                        val v = l.removeAt(editIndex)
-                        l.add(editIndex - 1, v)
-                        commit(l)
-                    }
-                    editIndex = -1
-                })
-                ApComponents.NarrowButton(text = "下移", onClick = {
-                    if (editIndex < items.size - 1) {
-                        val l = items.toMutableList()
-                        val v = l.removeAt(editIndex)
-                        l.add(editIndex + 1, v)
-                        commit(l)
-                    }
-                    editIndex = -1
-                })
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_move_up),
+                    onClick = {
+                        if (editIndex > 0) {
+                            val l = items.toMutableList()
+                            val v = l.removeAt(editIndex)
+                            l.add(editIndex - 1, v)
+                            commit(l)
+                        }
+                        editIndex = -1
+                    },
+                )
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_move_down),
+                    onClick = {
+                        if (editIndex < items.size - 1) {
+                            val l = items.toMutableList()
+                            val v = l.removeAt(editIndex)
+                            l.add(editIndex + 1, v)
+                            commit(l)
+                        }
+                        editIndex = -1
+                    },
+                )
             }
-            ApComponents.NarrowButton(text = "改键（循环换下一个候选键）", onClick = {
-                val l = items.toMutableList()
-                val next = CANDIDATES[(CANDIDATES.indexOfFirst { it.usage == cur.usage } + 1)
-                    .coerceAtLeast(0) % CANDIDATES.size]
-                l[editIndex] = HidKeys.Combo(next.label, cur.mod, next.usage)
-                commit(l)
-                editIndex = -1
-            })
-            ApComponents.NarrowButton(text = "删除", onClick = {
-                val l = items.toMutableList()
-                l.removeAt(editIndex)
-                commit(l)
-                editIndex = -1
-            })
-            ApComponents.NarrowButton(text = "取消", onClick = { editIndex = -1 })
+            // 改键：候选键来自 candidates()（usage 显式写出，不再是「首字母」错值）
+            ApComponents.NarrowButton(
+                text = ctx.getString(R.string.ui_kb_change_key),
+                onClick = {
+                    val l = items.toMutableList()
+                    val at = cands.indexOfFirst { it.usage == cur.usage }
+                    val next = cands[(if (at < 0) 0 else at + 1) % cands.size]
+                    l[editIndex] = HidKeys.Combo(next.label, cur.mod, next.usage)
+                    commit(l)
+                    editIndex = -1
+                },
+            )
+            ApComponents.NarrowButton(
+                text = ctx.getString(R.string.ui_kb_select_keys),
+                onClick = { editIndex = -1; kbOpen = true },
+            )
+            ApComponents.NarrowButton(
+                text = ctx.getString(R.string.ui_kb_delete),
+                onClick = {
+                    val l = items.toMutableList()
+                    l.removeAt(editIndex)
+                    commit(l)
+                    editIndex = -1
+                },
+            )
+            ApComponents.NarrowButton(
+                text = ctx.getString(R.string.ui_common_cancel),
+                onClick = { editIndex = -1 },
+            )
         }
     }
 
     if (addOpen) {
         ApComponents.DialogCard(onDismiss = { addOpen = false }) {
-            Text(text = "新增快捷键", fontSize = 16.sp)
-            CANDIDATES.take(12).forEach { c ->
-                ApComponents.NarrowButton(text = c.label, onClick = {
-                    commit(items + HidKeys.Combo(c.label, 0, c.usage))
-                    addOpen = false
-                })
+            Text(text = ctx.getString(R.string.ui_kb_add), fontSize = 16.sp)
+            cands.forEach { c ->
+                ApComponents.NarrowButton(
+                    text = c.label,
+                    onClick = {
+                        commit(items + HidKeys.Combo(c.label, 0, c.usage))
+                        addOpen = false
+                    },
+                )
             }
-            ApComponents.NarrowButton(text = "取消", onClick = { addOpen = false })
+            ApComponents.NarrowButton(
+                text = ctx.getString(R.string.ui_common_cancel),
+                onClick = { addOpen = false },
+            )
         }
     }
 }
 
-/** 候选键：覆盖遥控/媒体/方向/常用编辑键，够日常自定义，不必在手机上敲键名 */
-private val CANDIDATES = listOf(
-    HidKeys.Combo("确定", 0, HidKeys.usageOf("Enter")),
-    HidKeys.Combo("返回", 0, HidKeys.usageOf("Backspace")),
-    HidKeys.Combo("上", 0, HidKeys.usageOf("Up")),
-    HidKeys.Combo("下", 0, HidKeys.usageOf("Down")),
-    HidKeys.Combo("左", 0, HidKeys.usageOf("Left")),
-    HidKeys.Combo("右", 0, HidKeys.usageOf("Right")),
-    HidKeys.Combo("Home", 0, HidKeys.usageOf("Home")),
-    HidKeys.Combo("播放/暂停", 0, HidKeys.usageOf("PlayPause")),
-    HidKeys.Combo("音量+", 0, HidKeys.usageOf("VolumeUp")),
-    HidKeys.Combo("音量-", 0, HidKeys.usageOf("VolumeDown")),
-    HidKeys.Combo("静音", 0, HidKeys.usageOf("Mute")),
-    HidKeys.Combo("全屏", 0, HidKeys.usageOf("F11")),
-)
+/**
+ * 全键盘弹窗：整块虚拟键盘（含 8 页签）装进 [ApComponents.DialogCard]。
+ *
+ * 高度给到 0.92 屏高 —— 8 页签 + 5 行键位在 0.62 里会被压扁到按不准。
+ * 内容用 `weight(1f)` 占满弹窗剩余高度，键盘内部自己按行均分。
+ */
+@Composable
+private fun KbWindow(onDismiss: () -> Unit) {
+    ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.92f) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            ApFullKeyboard(onClose = onDismiss)
+        }
+    }
+}
 
 /**
- * 全键盘（旧 `KeyboardPanels` 里那块完整 QWERTY 面板，迁 Compose 时整块丢了）。
+ * 候选键：覆盖遥控 / 媒体 / 方向 / 常用编辑键，够日常自定义，不必在手机上敲键名。
  *
- * 每个键按 Android keycode 换成 HID usage（`HidKeyMap.usageOf`）后走 `HidKeys.combo`，
- * 与快捷键网格同一条发送链路；Shift 只对**下一次**按键生效（打一个大写就自动松开，
- * 与手机输入法的高频用法一致），长按 Shift 不做锁定 —— 需要连打大写时用「⇪」。
+ * usage 全部**显式写出**：`usageOf("F11")` 这类多字符标签只会取到首字母（f = 0x09），
+ * 存进 HotkeyStore 就是坏值；媒体键存真实 Consumer usage，由 [HidKeys.combo] 路由到位图链路。
+ *
+ * 放在函数里而不是文件级 `val`：键面文字要从资源取（`ctx` 只有函数内拿得到），
+ * 顺便少一处 Kotlin 中文文案。
+ */
+@Composable
+private fun candidates(): List<HidKeys.Combo> {
+    val ctx = LocalContext.current
+    return remember {
+        listOf(
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_enter), 0, 0x28),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_back), 0, 0x2A),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_u), 0, 0x52),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_d), 0, 0x51),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_l), 0, 0x50),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_arrow_r), 0, 0x4F),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_home), 0, 0x4A),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_fullscreen), 0, 0x44),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_play), 0, 0xB2),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_vol_up), 0, 0xE9),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_vol_down), 0, 0xEA),
+            HidKeys.Combo(ctx.getString(R.string.ui_kb_mute), 0, 0xE2),
+        )
+    }
+}
+
+/** 8 套页签：名称与顺序对齐操控面 `kbNames`（`TouchpadActivity`） */
+private val KB_TABS = listOf(
+    R.string.ui_kb_tab_quick, R.string.ui_kb_tab_remote, R.string.ui_kb_tab_game,
+    R.string.ui_kb_tab_num, R.string.ui_kb_tab_grid9, R.string.ui_kb_tab_arrow,
+    R.string.ui_kb_tab_fn, R.string.ui_kb_tab_custom,
+)
+
+/** sticky 修饰位的当前快照（HidKeys 全局状态 Compose 感知不到，本地镜像驱动高亮） */
+private fun stickySnapshot(): Int =
+    HidKeys.MOD_LABELS.fold(0) { acc, (_, bit) ->
+        if (HidKeys.isSticky(bit)) acc or bit else acc
+    }
+
+/** sticky 镜像翻转一次（toggle 之后调用） */
+private fun flipSticky(sticky: Int, bit: Int): Int =
+    if (HidKeys.isSticky(bit)) sticky or bit else sticky and bit.inv()
+
+/**
+ * 整块虚拟键盘：页签行 + 当前页签键位。
+ *
+ * @param onClose 非空时右上角画「关闭」（弹窗形态）；主屏面板形态传 null。
+ * @param bottomGap 底部额外让出的高度：浮动底栏盖在键盘下沿，最底行的按键必须仍可点。
  */
 @Composable
 private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
-    var shift by remember { mutableStateOf(false) }
-    var caps by remember { mutableStateOf(false) }
+    val dens = KeyPref.density(ctx)
+    val mechanical = KeyPref.isMechanical(ctx)
+    var tab by remember { mutableIntStateOf(0) }
+    // 自定义行表要在编辑弹窗保存后刷新
+    var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
 
-    // 键盘外观三项（键位排列 // 键帽密度 // 机械键帽）与设置页同一份 KeyPref ——
-    // 此前只被旧触控板页的键盘面板消费，主屏写死 QWERTY 调了没反应（v223.23 真机反馈）。
-    // 每次进入本页都现读：设置页改完切一次页签回来就是新样子，不要求重启。
-    val rows = com.allperiph.ui.KeyPref.letterRows(ctx)
-    val dens = com.allperiph.ui.KeyPref.density(ctx)
-    val mechanical = com.allperiph.ui.KeyPref.isMechanical(ctx)
-
-    fun send(kc: Int, label: String, mod: Int = 0) {
-        val usage = com.allperiph.ui.HidKeyMap.usageOf(kc)
-        if (usage == 0) return
-        val m = mod or (if (caps) 0x02 else 0) or (if (shift) 0x02 else 0)
-        HidKeys.combo(HidKeys.Combo(label, m, usage))
-        if (shift) shift = false
-    }
-
-    // 字母/数字/符号键按**键面文字**反查 usage（与旧触控板键盘面板同一条链路）：
-    // 键位排列换成 AZERTY/Dvorak 后，同一颗键发的仍是它键面字符的 usage。
-    fun sendLabel(label: String, shown: String) {
-        val usage = HidKeys.usageByLabel(label)
-        if (usage == 0) return
-        val m = (if (caps) 0x02 else 0) or (if (shift) 0x02 else 0)
-        HidKeys.combo(HidKeys.Combo(shown, m, usage))
-        if (shift) shift = false
-    }
-
-    // 底部多让 bottomGap：浮动底栏盖在键盘下沿，最底行的按键必须仍可点
     Column(
         modifier = Modifier.fillMaxSize()
             .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + bottomGap),
     ) {
+        // —— 第 1 行：标题 + 关闭（弹窗形态才画）——
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(text = ctx.getString(R.string.ui_kb_full), fontSize = 15.sp)
             if (onClose != null) {
@@ -286,54 +363,339 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
                 )
             }
         }
-        // 数字行（含 - =，随 KeyPref 行表）
-        KeyRow(rows[0], shift, dens, mechanical) { label -> sendLabel(label, label) }
-        // 字母三行随键位排列走（QWERTY // AZERTY // Dvorak）
-        val upper = caps xor shift
-        KeyRow(rows[1], shift, dens, mechanical) { label -> sendLabel(label, if (upper) label else label.lowercase()) }
-        KeyRow(rows[2], shift, dens, mechanical) { label -> sendLabel(label, if (upper) label else label.lowercase()) }
-        // ⇧ + 第三字母行 + ⌫（宽键保留：Shift//退格不在行表内）
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (shift) ctx.getString(R.string.ui_kb_shift_on) else "⇧", Modifier.weight(1.2f), dens, mechanical) { shift = !shift }
-            rows[3].forEach { label ->
-                KeyBox(label, Modifier.weight(1f), dens, mechanical) {
-                    sendLabel(label, if (upper) label else label.lowercase())
+
+        // —— 第 2 行：页签（与操控面 kbTabs 同名同序）——
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            KB_TABS.forEachIndexed { i, res ->
+                ApComponents.Pill(
+                    text = ctx.getString(res),
+                    color = if (tab == i) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.clickable { tab = i },
+                )
+            }
+        }
+
+        // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            when (tab) {
+                0 -> QuickLayout(dens, mechanical)
+                1 -> RemoteLayout()
+                2 -> GameLayout(dens, mechanical)
+                3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, mechanical)
+                4 -> KeyGridLayout(KeyLayouts.GRID9, dens, mechanical)
+                5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, mechanical)
+                6 -> KeyGridLayout(KeyLayouts.FN, dens, mechanical)
+                else -> CustomLayout(customRows, dens, mechanical) {
+                    customRows = KeyPref.customRows(ctx)
                 }
             }
-            WideKey("⌫", Modifier.weight(1.2f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_DEL, "⌫") }
-        }
-        // ⇪ Tab 空格 Enter
-        Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (caps) ctx.getString(R.string.ui_kb_caps_on) else "⇪", Modifier.weight(1f), dens, mechanical) { caps = !caps }
-            WideKey("Tab", Modifier.weight(1f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_TAB, "Tab") }
-            WideKey(ctx.getString(R.string.ui_kb_space), Modifier.weight(3f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
-            WideKey("Enter", Modifier.weight(1.4f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_ENTER, "Enter") }
         }
     }
 }
 
+/** 快捷键盘：sticky 修饰排 + `KeyPref.letterRows` 五行 —— 与操控面 `quickKeyboard()` 同款 */
 @Composable
-private fun KeyRow(
-    keys: List<String>,
-    shift: Boolean,
-    dens: com.allperiph.ui.KeyPref.Density,
-    mechanical: Boolean,
-    onKey: (String) -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        keys.forEach { k -> KeyBox(k, Modifier.weight(1f), dens, mechanical) { onKey(k) } }
+private fun QuickLayout(dens: KeyPref.Density, mechanical: Boolean) {
+    val ctx = LocalContext.current
+    val rows = KeyPref.letterRows(ctx)
+    var sticky by remember { mutableIntStateOf(stickySnapshot()) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）
+        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            HidKeys.MOD_LABELS.forEach { (text, bit) ->
+                ModKey(
+                    label = text,
+                    active = sticky and bit != 0,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    dens = dens,
+                    mechanical = mechanical,
+                ) {
+                    HidKeys.toggleSticky(bit)
+                    sticky = flipSticky(sticky, bit)
+                }
+            }
+        }
+        // 数字 / 字母三行 / 功能行（Esc Tab Space Enter ⌫ Del）全随 KeyPref 行表走
+        rows.forEach { labels ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                labels.forEach { label ->
+                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                        HidKeys.tap(HidKeys.usageByLabel(label))
+                        sticky = 0 // tap 自动清 sticky，同步熄灭修饰键（与操控面 refreshMods 同口径）
+                    }
+                }
+            }
+        }
     }
 }
 
+/**
+ * 遥控键盘：媒体 / 音量（Consumer 位图，与操控面 `remoteKeyboard` 同一条 HotkeyController 链路）
+ * + 电源行。
+ *
+ * 关机 / 重启走 opcode 0x22，需被控端 root；主屏保留这两键是为了「对端卡死时还能远程救」，
+ * 被控操控面上这两键已被移除（那边误触代价更大）。弹确认框，与操控面 `confirmPower` 同语义。
+ */
+@Composable
+private fun RemoteLayout() {
+    val ctx = LocalContext.current
+    val handler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+    var confirm by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    val hk = com.allperiph.ui.HotkeyController
+    Column(modifier = Modifier.fillMaxSize()) {
+        listOf(
+            listOf(
+                ctx.getString(R.string.ui_kb_prev) to hk.BIT_PREV_TRACK,
+                ctx.getString(R.string.ui_kb_play) to hk.BIT_PLAY_PAUSE,
+                ctx.getString(R.string.ui_kb_next) to hk.BIT_NEXT_TRACK,
+            ),
+            listOf(
+                ctx.getString(R.string.ui_kb_vol_down) to hk.BIT_VOLUME_DOWN,
+                ctx.getString(R.string.ui_kb_mute) to hk.BIT_MUTE,
+                ctx.getString(R.string.ui_kb_vol_up) to hk.BIT_VOLUME_UP,
+            ),
+        ).forEach { defs ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                defs.forEach { (label, bit) ->
+                    MediaTile(label, Modifier.weight(1f).fillMaxHeight()) {
+                        hk.press(bit)
+                        handler.postDelayed({ hk.release(bit) }, 60)
+                    }
+                }
+            }
+        }
+        // 第三行：电源（软，待机 / 唤醒）/ 关机 / 重启 —— 与操控面同一行键位
+        Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+            MediaTile(
+                ctx.getString(R.string.ui_touchpad_label_power),
+                Modifier.weight(1f).fillMaxHeight(),
+            ) {
+                hk.press(hk.BIT_POWER)
+                handler.postDelayed({ hk.release(hk.BIT_POWER) }, 60)
+            }
+            MediaTile(
+                ctx.getString(R.string.ui_touchpad_label_poweroff),
+                Modifier.weight(1f).fillMaxHeight(),
+            ) { confirm = 0 to ctx.getString(R.string.ui_touchpad_label_poweroff) }
+            MediaTile(
+                ctx.getString(R.string.ui_touchpad_label_reboot),
+                Modifier.weight(1f).fillMaxHeight(),
+            ) { confirm = 1 to ctx.getString(R.string.ui_touchpad_label_reboot) }
+        }
+    }
+
+    confirm?.let { (action, label) ->
+        ApComponents.DialogCard(onDismiss = { confirm = null }) {
+            Text(text = ctx.getString(R.string.ui_touchpad_dialog_device, label), fontSize = 16.sp)
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_dialog_no_only_need, label),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_common_cancel),
+                    onClick = { confirm = null },
+                )
+                ApComponents.NarrowButton(
+                    text = label,
+                    onClick = {
+                        val c = com.allperiph.wireless.ControlTarget.controlClient
+                        if (c == null) {
+                            android.widget.Toast.makeText(
+                                ctx, R.string.ui_touchpad_toast_device_connect_not,
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            c.power(action)
+                            android.widget.Toast.makeText(
+                                ctx, ctx.getString(R.string.ui_touchpad_toast_send_done, label),
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        confirm = null
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** 游戏键盘：4×6 高频键位（技能数字 / 左手技能区 / 方向+确认）—— 与操控面 `gameKeyboard` 同款 */
+@Composable
+private fun GameLayout(dens: KeyPref.Density, mechanical: Boolean) {
+    val layout = listOf(
+        listOf("Esc", "1", "2", "3", "4", "Tab"),
+        listOf("Q", "W", "E", "R", "F", "B"),
+        listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
+        listOf("↑", "↓", "←", "→", "Enter", "Del"),
+    )
+    var sticky by remember { mutableIntStateOf(stickySnapshot()) }
+    Column(modifier = Modifier.fillMaxSize()) {
+        layout.forEach { labels ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
+                labels.forEach { text ->
+                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == text }?.second
+                    if (bit != null) {
+                        ModKey(
+                            label = text,
+                            active = sticky and bit != 0,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            dens = dens,
+                            mechanical = mechanical,
+                        ) {
+                            HidKeys.toggleSticky(bit)
+                            sticky = flipSticky(sticky, bit)
+                        }
+                    } else {
+                        KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                            HidKeys.tap(HidKeys.usageByLabel(text))
+                            sticky = 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 扩展布局（数字 / 九宫格 / 方向 / F 区）：按 [KeyLayouts] 行列渲染，列宽按 weight 均分 */
+@Composable
+private fun KeyGridLayout(
+    rows: List<List<KeyLayouts.Key>>,
+    dens: KeyPref.Density,
+    mechanical: Boolean,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        rows.forEach { row ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
+                row.forEach { k ->
+                    KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, mechanical) {
+                        HidKeys.tap(k.usage)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 自定义布局：[KeyPref.customRows] 行表（与操控面「自定义」同一份数据）；未配置给引导文案 + 编辑入口 */
+@Composable
+private fun CustomLayout(
+    rows: List<List<String>>?,
+    dens: KeyPref.Density,
+    mechanical: Boolean,
+    onEdited: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (rows.isNullOrEmpty()) {
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = ctx.getString(R.string.ui_touchpad_text_edit_longpress), fontSize = 14.sp)
+            }
+        } else {
+            rows.forEach { labels ->
+                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    labels.forEach { label ->
+                        KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                            HidKeys.tap(HidKeys.usageByLabel(label))
+                        }
+                    }
+                }
+            }
+        }
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_common_edit),
+            onClick = {
+                (ctx as? android.app.Activity)?.let { act ->
+                    com.allperiph.ui.CustomKeyboardDialog.show(act) { onEdited() }
+                }
+            },
+        )
+    }
+}
+
+/** 遥控 / 电源图块：整块可点（与操控面 `mediaTile` / `actionTile` 同一交互，纯文字键面） */
+@Composable
+private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainer)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/** 修饰键帽：点亮 = 实底主色（与操控面 refreshMods 同一观感），同样支持机械立体 */
+@Composable
+private fun ModKey(
+    label: String,
+    active: Boolean,
+    modifier: Modifier,
+    dens: KeyPref.Density,
+    mechanical: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(dens.cornerDp.dp)
+    val h = (44f * dens.keyScale).dp
+    val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
+    val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
+    if (!mechanical) {
+        Box(
+            modifier = modifier
+                .padding(horizontal = dens.gapDp.dp)
+                .heightIn(min = h)
+                .clip(shape)
+                .background(bg)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center,
+        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
+        return
+    }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val side = lerp(bg, Color.Black, 0.35f)
+    Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
+        Box(Modifier.matchParentSize().clip(shape).background(side))
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(bottom = 3.dp)
+                .offset(y = if (pressed) 2.dp else 0.dp)
+                .clip(shape)
+                .background(bg)
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
+    }
+}
+
+/**
+ * 键帽：平面 = 描边圆角块；机械 = 底座当立体侧面、顶面按下时下沉
+ * （与触控板页机械键帽同一档观感）。高度给下限 44dp * 密度倍率，
+ * 行高够时由外层 `weight(1f)` 拉满。
+ */
 @Composable
 private fun KeyBox(
     label: String,
     modifier: Modifier,
-    dens: com.allperiph.ui.KeyPref.Density,
+    dens: KeyPref.Density,
     mechanical: Boolean,
     onClick: () -> Unit,
 ) {
-    // 键帽密度：圆角/间距/字号/键高一起变（紧凑 0.92//标准 1.0//宽松 1.12 行高倍率）
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     val h = (44f * dens.keyScale).dp
     val bg = MiuixTheme.colorScheme.surfaceContainer
@@ -341,7 +703,7 @@ private fun KeyBox(
         Box(
             modifier = modifier
                 .padding(horizontal = dens.gapDp.dp)
-                .height(h)
+                .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
                 .clickable { onClick() },
@@ -349,11 +711,10 @@ private fun KeyBox(
         ) { Text(text = label, fontSize = dens.textSize.sp) }
         return
     }
-    // 机械：底座当立体侧面，顶面按下时下沉 —— 与触控板页机械键帽同一档观感
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val side = lerp(bg, Color.Black, 0.35f)
-    Box(modifier.padding(horizontal = dens.gapDp.dp).height(h)) {
+    Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
         Box(Modifier.matchParentSize().clip(shape).background(side))
         Box(
             modifier = Modifier
@@ -367,12 +728,3 @@ private fun KeyBox(
         ) { Text(text = label, fontSize = dens.textSize.sp) }
     }
 }
-
-@Composable
-private fun WideKey(
-    label: String,
-    modifier: Modifier,
-    dens: com.allperiph.ui.KeyPref.Density,
-    mechanical: Boolean,
-    onClick: () -> Unit,
-) = KeyBox(label, modifier, dens, mechanical, onClick)

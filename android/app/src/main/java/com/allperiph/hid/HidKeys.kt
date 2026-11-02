@@ -5,6 +5,7 @@ import android.os.Looper
 import com.allperiph.shared.util.Log
 import com.allperiph.core.Uplink
 import com.allperiph.ui.AgentController
+import com.allperiph.ui.HotkeyController
 
 /**
  * USB 键盘发送中枢（v1.13）：rid 21 HID Keyboard TLC。
@@ -132,8 +133,38 @@ object HidKeys {
      */
     fun usageByLabel(label: String): Int = KEY_USAGE[label] ?: usageOf(label)
 
+    /**
+     * Consumer 页（媒体）键的显示名：媒体键以**真实 Consumer usage** 落库（见 [CONSUMER_ROUTES]），
+     * 不补名字的话 comboText 会显示成 0xB2 这类十六进制。
+     */
+    private val CONSUMER_NAMES: Map<Int, String> = mapOf(
+        0xB2 to "播放/暂停", 0xE9 to "音量+", 0xEA to "音量-", 0xE2 to "静音",
+    )
+
     /** usage → 显示名；不在清单内时退化为十六进制，保证不返回空串 */
-    fun keyLabel(usage: Int): String = KEY_NAMES[usage] ?: "0x%02X".format(usage)
+    fun keyLabel(usage: Int): String =
+        KEY_NAMES[usage] ?: CONSUMER_NAMES[usage] ?: "0x%02X".format(usage)
+
+    /**
+     * 存量坏 usage 修复表（v223.24）：快捷键候选此前用 `usageOf("F11")` 这类**多字符标签**
+     * 反查，而 [usageOf] 只认单字符 —— 落到首字母的 usage（全屏→f、返回→b、音量→v、上→u…），
+     * 用户存进 HotkeyStore 的就是这些坏值（真机表现「全屏发成 f、音量发成 v」）。
+     * 按 (键面文字, 坏 usage) 精确对修成正确值；媒体键修成 Consumer usage，由 [combo] 路由。
+     * HotkeyStore.load 每次读取时套用，幂等。
+     */
+    val USAGE_REPAIRS: Map<String, Pair<Int, Int>> = mapOf(
+        "全屏" to (0x09 to 0x44),          // F11
+        "返回" to (0x05 to 0x2A),          // Backspace
+        "上" to (0x18 to 0x52),
+        "下" to (0x07 to 0x51),
+        "左" to (0x0F to 0x50),
+        "右" to (0x15 to 0x4F),
+        "Home" to (0x0B to 0x4A),
+        "播放/暂停" to (0x13 to 0xB2),
+        "音量+" to (0x19 to 0xE9),
+        "音量-" to (0x19 to 0xEA),
+        "静音" to (0x10 to 0xE2),
+    )
 
     /** 修饰位图 → "Ctrl + Shift"；无修饰返回空串 */
     fun modLabel(mod: Int): String =
@@ -156,8 +187,26 @@ object HidKeys {
     private val handler = Handler(Looper.getMainLooper())
     private val releaseTask = Runnable { send(0, IntArray(0)) }
 
-    /** 预组合键：按下 60ms 后自动全释放 */
+    /**
+     * Consumer 页（媒体）键路由：HotkeyStore 只能存键盘 Page(0x07) usage，媒体键借
+     * **真实 Consumer Page usage**（0xB2 播放/暂停、0xE9/0xEA 音量、0xE2 静音）落库；
+     * [combo] 命中即改走 Consumer 位图链路（与操控面/遥控页媒体键同一条 [HotkeyController]）。
+     * 不分流的话 0xB2 会进键盘报告，对端认不出 —— 这是「音量/播放键按了没反应」的另一半根因。
+     */
+    private val CONSUMER_ROUTES: Map<Int, Int> = mapOf(
+        0xB2 to HotkeyController.BIT_PLAY_PAUSE,
+        0xE9 to HotkeyController.BIT_VOLUME_UP,
+        0xEA to HotkeyController.BIT_VOLUME_DOWN,
+        0xE2 to HotkeyController.BIT_MUTE,
+    )
+
+    /** 预组合键：按下 60ms 后自动全释放；媒体键（[CONSUMER_ROUTES]）改走 Consumer 位图 */
     fun combo(c: Combo) {
+        CONSUMER_ROUTES[c.usage]?.let { bit ->
+            HotkeyController.press(bit)
+            handler.postDelayed({ HotkeyController.release(bit) }, 60)
+            return
+        }
         handler.removeCallbacks(releaseTask)
         heldCombo = null // 普通发送取代"按住"状态
         send(c.mod, intArrayOf(c.usage))

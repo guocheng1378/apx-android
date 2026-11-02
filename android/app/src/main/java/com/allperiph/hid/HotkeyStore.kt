@@ -97,16 +97,31 @@ object HotkeyStore {
             .edit().remove(KEY_TEMPLATE).apply()
     }
 
+    /**
+     * 套用 [HidKeys.USAGE_REPAIRS]：把存量坏 usage（多字符标签被 usageOf 落到首字母的那批，
+     * 全屏→f、音量→v…）就地修成正确值。幂等：不匹配 (label, 坏 usage) 的条目原样保留。
+     */
+    private fun repair(list: MutableList<HidKeys.Combo>): MutableList<HidKeys.Combo> {
+        for (i in list.indices) {
+            val c = list[i]
+            val r = HidKeys.USAGE_REPAIRS[c.label]
+            if (r != null && c.usage == r.first) list[i] = c.copy(usage = r.second)
+        }
+        return list
+    }
+
     fun load(ctx: Context): MutableList<HidKeys.Combo> {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val raw = sp.getString(KEY_ITEMS, null) ?: return HidKeys.DEFAULTS.toMutableList()
-        return runCatching {
-            val arr = JSONArray(raw)
-            MutableList(arr.length()) { i ->
-                val o = arr.getJSONObject(i)
-                HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
-            }
-        }.getOrElse { HidKeys.DEFAULTS.toMutableList() }
+        return repair(
+            runCatching {
+                val arr = JSONArray(raw)
+                MutableList(arr.length()) { i ->
+                    val o = arr.getJSONObject(i)
+                    HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
+                }
+            }.getOrElse { HidKeys.DEFAULTS.toMutableList() },
+        )
     }
 
     fun save(ctx: Context, list: List<HidKeys.Combo>) {
@@ -125,13 +140,15 @@ object HotkeyStore {
     fun loadTv(ctx: Context): MutableList<HidKeys.Combo> {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val raw = sp.getString(KEY_ITEMS_TV, null) ?: return tvDefault().toMutableList()
-        return runCatching {
-            val arr = JSONArray(raw)
-            MutableList(arr.length()) { i ->
-                val o = arr.getJSONObject(i)
-                HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
-            }
-        }.getOrElse { tvDefault().toMutableList() }
+        return repair(
+            runCatching {
+                val arr = JSONArray(raw)
+                MutableList(arr.length()) { i ->
+                    val o = arr.getJSONObject(i)
+                    HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
+                }
+            }.getOrElse { tvDefault().toMutableList() },
+        )
     }
 
     fun saveTv(ctx: Context, list: List<HidKeys.Combo>) {
