@@ -3,6 +3,7 @@ package com.allperiph.ui.compose
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
@@ -46,6 +48,7 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import androidx.compose.ui.unit.sp
 import com.allperiph.ui.BallConfig
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -488,46 +491,71 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             var wifiSpk by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isSpeakerOn(ctx)) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_audio_dir)) {
                 Column {
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_label_usb_mic),
-                        summary = ctx.getString(R.string.ui_set_sum_usb_mic),
-                        checked = usbMic,
-                        onCheckedChange = { on ->
-                            usbMic = on
-                            com.allperiph.ui.AudioDirections.setUsbMic(ctx, on)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_label_usb_spk),
-                        summary = ctx.getString(R.string.ui_set_sum_usb_spk),
-                        checked = usbSpk,
-                        onCheckedChange = { on ->
-                            usbSpk = on
-                            com.allperiph.ui.AudioDirections.setUsbSpeaker(ctx, on)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_label_wifi_mic),
-                        summary = ctx.getString(R.string.ui_set_sum_wifi_mic),
-                        checked = wifiMic,
-                        onCheckedChange = { on ->
-                            wifiMic = on
-                            com.allperiph.ui.AudioDirections.setWifiMic(ctx, on)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_label_wifi_spk),
-                        summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
-                        checked = wifiSpk,
-                        onCheckedChange = { on ->
-                            wifiSpk = on
-                            com.allperiph.ui.AudioDirections.setWifiSpeaker(ctx, on)
-                            Feedback.haptic(ctx)
-                        },
-                    )
+                    // 成宇 2026-11-02「音响开关应该有麦克风和音响的单独开关，他们应该分组，
+                    // 不打开不出现」：四路方向开关按 麦克风 / 音响 分两组，默认收起，点组头
+                    // 展开才出现子开关；开关语义与 AudioDirections 完全不变，这里只是折叠 UI。
+                    var micOpen by remember { mutableStateOf(false) }
+                    var spkOpen by remember { mutableStateOf(false) }
+                    AudioGroup(
+                        title = ctx.getString(R.string.ui_set_audio_group_mic),
+                        countText = ctx.getString(
+                            R.string.ui_set_audio_group_count,
+                            listOf(usbMic, wifiMic).count { it },
+                        ),
+                        open = micOpen,
+                        onToggleOpen = { micOpen = !micOpen },
+                    ) {
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(R.string.ui_set_label_usb_mic),
+                            summary = ctx.getString(R.string.ui_set_sum_usb_mic),
+                            checked = usbMic,
+                            onCheckedChange = { on ->
+                                usbMic = on
+                                com.allperiph.ui.AudioDirections.setUsbMic(ctx, on)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(R.string.ui_set_label_wifi_mic),
+                            summary = ctx.getString(R.string.ui_set_sum_wifi_mic),
+                            checked = wifiMic,
+                            onCheckedChange = { on ->
+                                wifiMic = on
+                                com.allperiph.ui.AudioDirections.setWifiMic(ctx, on)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                    }
+                    AudioGroup(
+                        title = ctx.getString(R.string.ui_set_audio_group_spk),
+                        countText = ctx.getString(
+                            R.string.ui_set_audio_group_count,
+                            listOf(usbSpk, wifiSpk).count { it },
+                        ),
+                        open = spkOpen,
+                        onToggleOpen = { spkOpen = !spkOpen },
+                    ) {
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(R.string.ui_set_label_usb_spk),
+                            summary = ctx.getString(R.string.ui_set_sum_usb_spk),
+                            checked = usbSpk,
+                            onCheckedChange = { on ->
+                                usbSpk = on
+                                com.allperiph.ui.AudioDirections.setUsbSpeaker(ctx, on)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(R.string.ui_set_label_wifi_spk),
+                            summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
+                            checked = wifiSpk,
+                            onCheckedChange = { on ->
+                                wifiSpk = on
+                                com.allperiph.ui.AudioDirections.setWifiSpeaker(ctx, on)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -1063,4 +1091,53 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     }
     }
 
+}
+/**
+ * 音频方向的折叠分组头（成宇 2026-11-02「他们应该分组，不打开不出现」）：
+ * 组头一行可点，收起时只有标题 + 「已开 n / 2 路」回显，子开关不出现，点开才出现。
+ *
+ * 为什么不做「总开关」：麦克风 / 音响各自横跨 USB 与 Wi-Fi 两路独立开关，再造一层总开关
+ * 就得给 AudioDirections 添「总开关关了、分路还记着开」的组合语义；折叠分组只动 UI，
+ * 不动任何存储。
+ */
+@Composable
+private fun AudioGroup(
+    title: String,
+    countText: String,
+    open: Boolean,
+    onToggleOpen: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val ctx = LocalContext.current
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggleOpen)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, fontSize = 15.sp)
+                Text(
+                    text = countText,
+                    fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            Text(
+                text = ctx.getString(
+                    if (open) R.string.ui_set_audio_chevron_open
+                    else R.string.ui_set_audio_chevron_closed,
+                ),
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+        if (open) {
+            HorizontalDivider()
+            content()
+        }
+    }
 }

@@ -260,7 +260,9 @@ class ApShellActivity : ComponentActivity() {
 
             // 顶栏：玻璃渐进模糊 + 当前页标题（内容从栏下滚过）
             ApGlassTopBar(
-                title = when (page) {
+                // 横屏顶栏盖在状态栏上（topPad = 0），标题会跟系统时间/电量叠字
+                // （成宇 2026-11-02「横屏时顶栏的标题不要」）：横屏不出标题，只留玻璃底。
+                title = if (landscape) null else when (page) {
                     0 -> "状态"
                     1 -> "触控板"
                     2 -> "键盘"
