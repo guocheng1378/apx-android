@@ -53,6 +53,11 @@ class TvControllerClient(
         s.tcpNoDelay = true
         s.keepAlive = true   // 死链路探测：对端悄悄消失时让内核发探测，帮助 reader 尽早退出走重连
         s.connect(InetSocketAddress(host, port), 5000)
+        // v-fix（link-hardening）：读超时 —— 此前 soTimeout=0，对端半开（静默消失 / NAT
+        // 表过期，没有 FIN/RST）时 reader 永久阻塞、ready 恒为 true，sendControl 表面成功
+        // 实际全喰死连接，只能等内核 keepalive（分钟级）或写失败才发现。服务端 ControlServer
+        // 早就是 3s×8 口径，客户端现在对齐；正常链路每 1s 有 ping/pong，不会误伤。
+        s.soTimeout = READ_TIMEOUT_MS
         sock = s; out = s.getOutputStream()
         val tok = token.toByteArray(Charsets.UTF_8)
         val hdr = ByteArray(4); hdr[0] = (tok.size and 0xFF).toByte(); hdr[1] = ((tok.size ushr 8) and 0xFF).toByte(); hdr[2] = 0; hdr[3] = 0
@@ -73,8 +78,21 @@ class TvControllerClient(
 
     private fun readerLoop(s: Socket) {
         val ins = s.getInputStream(); val buf = ByteArray(4096)
+        var idleTimeouts = 0
         while (running.get() && !s.isClosed) {
-            val n = try { ins.read(buf) } catch (_: Throwable) { -1 }
+            val n = try {
+                ins.read(buf)
+            } catch (_: java.net.SocketTimeoutException) {
+                // v-fix（link-hardening）：半开检测 —— 正常链路 ping/pong 每 1s 有字节，
+                // 3s 收不到任何数据才计一轮；连续 8 轮（≈24s）判死，走下方自动重连。
+                // 镜像服务端 ControlServer.readerLoop 的 3s×8 口径，两端同一把尺。
+                if (++idleTimeouts >= READ_TIMEOUT_MAX_MISSES) {
+                    Log.w("TvCtrl", "读空闲超时 ${READ_TIMEOUT_MAX_MISSES} 次，判定链路已失效：$host:$port")
+                    break
+                }
+                continue
+            } catch (_: Throwable) { -1 }
+            idleTimeouts = 0
             if (n <= 0) break
             feed(buf, n)
             for (b in pumpFrames()) handleServerFrame(b)
@@ -260,25 +278,18 @@ class TvControllerClient(
 
     // 远程输入发送
     fun requestInput(hint: String) {
-        val hintBytes = hint.toByteArray(Charsets.UTF_8)
-        // 格式：[0x25, hintLen, hint...] — 与接收端 ControlServer onRequestInput 一致
-        val body = ByteArray(1 + 1 + hintBytes.size)
-        body[0] = ApxFrame.INPUT_REQUEST.toByte()
-        body[1] = hintBytes.size.toByte()
-        hintBytes.copyInto(body, 2)
-        sendControl(body)
+        // v-fix：改走 ApxFrame.packRequestInput —— 旧手写实现 `body[1] = hintBytes.size.toByte()`
+        // 不截断，hint 超 255 字节时对端按 u8 hintLen 解析会整体错位（弹出乱码提示）；
+        // packer 已按 u8 截断且注明「对齐四处解析」，顺带消掉一处重复组帧实现。
+        sendControl(ApxFrame.packRequestInput(hint, 0))
     }
 
     fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
-        val textBytes = text.toByteArray(Charsets.UTF_8)
-        val body = ByteArray(1 + 1 + 2 + textBytes.size)
-        body[0] = ApxFrame.INPUT_TEXT.toByte(); body[1] = flags.toByte()
-        body[2] = (textBytes.size and 0xFF).toByte(); body[3] = ((textBytes.size ushr 8) and 0xFF).toByte()
-        textBytes.copyInto(body, 4)
-        sendControl(body)
+        // v-fix：同 requestInput —— 统一走 ApxFrame.packInputText，消除手写副本。
+        sendControl(ApxFrame.packInputText(flags, text))
     }
 
-    fun sendInputDone() { sendControl(byteArrayOf(ApxFrame.INPUT_DONE.toByte())) }
+    fun sendInputDone() { sendControl(ApxFrame.packInputDone()) }
 
     /**
      * 光标浮层开关（0x32，v223.10）：关/开**被控端**的光标浮层。
@@ -331,6 +342,15 @@ class TvControllerClient(
 
     companion object {
         const val PORT = 9511
+
+        /**
+         * 读空闲超时（v-fix link-hardening）：3s 无任何入向字节计一轮，
+         * 连续 [READ_TIMEOUT_MAX_MISSES] 轮判链路失效 —— 与服务端 ControlServer
+         * 的 READ_TIMEOUT_MS=3s × 8 轮同一把尺。正常链路 ping/pong 每 1s 一轮，
+         * 不会误伤；半开链路由此从「内核 keepalive 分钟级」提到 ≈24s。
+         */
+        private const val READ_TIMEOUT_MS = 3_000
+        private const val READ_TIMEOUT_MAX_MISSES = 8
 
         /**
          * 控制端最近一次的光标浮层偏好（null = 用户没动过）。
