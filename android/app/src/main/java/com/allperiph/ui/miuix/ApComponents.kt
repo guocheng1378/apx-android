@@ -1,6 +1,7 @@
 package com.allperiph.ui.miuix
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,12 +9,15 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -150,6 +154,47 @@ object ApComponents {
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
             Text(text = text, fontSize = 12.sp, color = color)
+        }
+    }
+
+    /**
+     * 单选芯片 / 分类页签：**必须先能看出当前选的是哪个**。
+     *
+     * 2026-11-02 审查条 2.1：设置页四个分类页签此前是同一个 [NarrowButton]（裸 `TextButton`），
+     * 没有 selected 概念 —— 17 个 Section 分四类，切完页签没有任何状态反馈。
+     * 这里不塞进 [NarrowButton]（那个仍要留给「取消 / 关闭 / 扇出项」这类无状态按钮），
+     * 另开一个专为「有选中态」的芯片：
+     *  · [selected] 选中 → 主色 16% 胶囊底 + 主色文字 + SemiBold；
+     *  · 未选中 → 透明底 + `onSurfaceSecondary` 文字，靠底色差异表达状态；
+     *  · [accent] 非空时不看 [selected]，恒定用该强调色（键映射里按皮肤给快捷键 chip 上色用，
+     *    见审查条 1.2 —— `ApSkin.HOTKEY` 此前全仓零消费者，设置项承诺了不存在的效果）。
+     * 高度下限 44dp：页签是**手指**目标（不是键帽，键帽另按 48dp 基线处理）。
+     */
+    @Composable
+    fun TabChip(
+        text: String,
+        selected: Boolean,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier,
+        accent: Color? = null,
+    ) {
+        val tint = accent ?: MiuixTheme.colorScheme.primary
+        val active = selected || accent != null
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(50))
+                .background(if (active) tint.copy(alpha = if (selected) 0.16f else 0.12f) else Color.Transparent)
+                .clickable(onClick = onClick)
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                fontSize = 14.sp,
+                color = if (active) tint else MiuixTheme.colorScheme.onSurfaceSecondary,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
         }
     }
 
