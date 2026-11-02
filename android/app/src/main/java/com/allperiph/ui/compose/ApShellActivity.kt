@@ -185,6 +185,9 @@ class ApShellActivity : ComponentActivity() {
             if (page != pageState) page = pageState
         }
         var pickerOpen by remember { mutableStateOf(pickOnStart) }
+        // 低栏长按弹出的「快捷入口」开关（内容见文件末尾 QuickActionsDialog）。
+        // ⚠️ 必须在 Box 之前声明：弹窗判定在 Box 内容 lambda 内（前向引用不成立）。
+        var quickActionsOpen by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
         //
@@ -413,8 +416,6 @@ class ApShellActivity : ComponentActivity() {
             // 横屏本来横向就宽，底栏居中会压住键盘页/触控板页底部那条最常用的区域；
             // 挪到右上角后既避开拇指区，也避开横屏时右侧的快捷键列。
             // 竖屏保持底部居中不动（拇指可及性是竖屏的第一需求）。
-            // 低栏长按弹出的「快捷入口」开关（内容见文件末尾 QuickActionsDialog）
-            var quickActionsOpen by remember { mutableStateOf(false) }
             val barAlign = if (landscape) Alignment.TopEnd else Alignment.BottomCenter
             // ⚠️ 光给 Box 传 align(TopEnd) 是**不够**的：FloatingNavigationBar 的根
             // Column 固定 `fillMaxWidth()`，它在父 Box 里已经占满整行宽度，水平方向

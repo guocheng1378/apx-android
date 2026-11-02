@@ -75,6 +75,20 @@ class App : Application() {
         // 冷却判定放在服务里：进程若是被反复拉起，也不会把球切成一条闪烁的动画。
         runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this) }
             .onFailure { com.allperiph.shared.util.Log.w("App", "悬浮球自愈失败：${'$'}{it.message}") }
+        /* 成宇 2026-11-04「不要总开关，只要无线 / 蓝牙 / 有线开关，对应各自的功能」：
+           总闸去掉后，三个传输开关就是模块启停的唯一真源 —— 但偏好写在 `transport.*`
+           里，进程重启时没人读它，于是会出现「开关亮着、外设不动」（此前那枚总闸
+           恰好是进程起点唯一的启动者）。
+           在进程起点按开关状态自愈，与上面悬浮球同一口径（只认用户意愿位，不强行
+           拉起用户没开的组）；三个全关时什么都不做，保持「全关即静」。
+           服务 onStartCommand 会调 startEnabled，而 startEnabled 读的就是各模块的
+           enable 位 —— 与开关同源，不会出现「界面开、实际关」。 */
+        runCatching {
+            val anyTransport = com.allperiph.ui.AgentController.TRANSPORTS.any { t ->
+                com.allperiph.ui.AgentController.isTransportEnabled(this, t)
+            }
+            if (anyTransport) com.allperiph.ui.AgentForegroundService.start(this)
+        }.onFailure { com.allperiph.shared.util.Log.w("App", "外设自愈失败：${'$'}{it.message}") }
     }
 
     /**

@@ -278,6 +278,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
+            // 为什么需要这一段：KeyPref 的三个偏好（键帽材质 / 键帽密度 / 键位排列）此前
+            // **只有实现、没有入口** —— setKeycapStyle / setDensity / setLayout 全仓零调用，
+            // 用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的一组入口，初值直接读
+            // KeyPref 自己的 index（不另立一份状态，避免"界面显示 A、实际渲染 B"）。
+            var kbStyle by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
+            var kbDensity by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
+            var kbLayout by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
                 Column {
                     WindowDropdownPreference(
@@ -506,16 +513,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
-
-
-            // ———————————————— 键盘外观 ————————————————
-            // 为什么需要这一段：KeyPref 的三个偏好（键帽材质 / 键帽密度 / 键位排列）此前
-            // **只有实现、没有入口** —— setKeycapStyle / setDensity / setLayout 全仓零调用，
-            // 用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的一组入口，初值直接读
-            // KeyPref 自己的 index（不另立一份状态，避免"界面显示 A、实际渲染 B"）。
-            var kbStyle by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
-            var kbDensity by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
-            var kbLayout by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
         }
 
         if (cat == 2) {
