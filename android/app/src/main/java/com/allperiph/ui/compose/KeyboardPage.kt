@@ -420,7 +420,10 @@ private fun ModKey(
     val host = LocalView.current
     val press: () -> Unit = { Feedback.tap(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
-    val h = (44f * dens.keyScale).dp
+    // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
+    // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
+    // 宽松档仍按 1.12 放大（49.3dp）。
+    val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
     val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
     val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
     if (!mechanical) {
@@ -473,7 +476,10 @@ private fun KeyBox(
     val host = LocalView.current
     val press: () -> Unit = { Feedback.tap(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
-    val h = (44f * dens.keyScale).dp
+    // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
+    // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
+    // 宽松档仍按 1.12 放大（49.3dp）。
+    val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
     val bg = MiuixTheme.colorScheme.surfaceContainer
     if (!mechanical) {
         Box(
