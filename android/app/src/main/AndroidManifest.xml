@@ -111,11 +111,25 @@
           没有 LAUNCHER，只能从组件总览/调试入口进入；全部屏迁完后才把主入口切到这里，
           切换与回退都只涉及这一处。
         -->
+        <!--
+          ⚠️ 本页刻意不写 android:screenOrientation —— 2026-11-02 真机踩过两次，写清楚谁决定朝向：
+          1) 属性写死成 "sensor" 是错的：清单是静态声明，改不动；
+          2) 但**只删掉属性并不等于跟随用户旋转锁** —— 运行期 [com.allperiph.ui.OrientLock.apply]
+             会在 onCreate/onResume 里按偏好重设 requestedOrientation，
+             关锁时它显式设 SCREEN_ORIENTATION_SENSOR（"App 自己决定"，与"重力判读自动切页"
+             互为配套：版式跟着重力转，页面才跟着重力切）；开锁时设 LOCKED（钉在当前朝向）。
+             也就是说**朝向的真实决定权在 OrientLock，不在本清单**，别看到这里空着就以为
+             user_rotation 能生效 —— 真机验证前先确认设置页的「方向锁定」开关状态。
+          3) 「横屏切换后会先跳状态页再跳回」的修法与本属性无关：靠 configChanges（旋转不重建
+             Activity）+ ApShellActivity.onSaveInstanceState 的页签存档两层兜住。
+          ⚠️ 另外：XML 注释不能写在开始标签的属性之间，只能整段放在元素外面（第一版就是
+          写进 <activity> 属性里，CI 在 processReleaseMainManifest 报
+          "Error parsing AndroidManifest.xml"，整轮判死）。
+        -->
         <activity
             android:name=".ui.compose.ApShellActivity"
             android:label="全能外设"
             android:exported="true"
-            android:screenOrientation="sensor"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph" >

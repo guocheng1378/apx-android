@@ -14,6 +14,13 @@ Android 构建**不会**校验 `android:name=".ui.XxxService"` 指向的类是�
   - `.ui.ExternalSendActivity`    —— 该类从未实现（现已被注释停用）
 这类问题不会让 CI 变红，只会让功能悄悄不工作。
 
+## 顺带把关：清单必须能通过 XML 解析（2026-11-02 新增）
+上面所有判据都走正则扫文本，**结构非法它看不出来**。v223.29.1 的修复版就栽在这里：
+一段 `<!-- ... -->` 注释被写进了 `<activity>` 开始标签的**属性之间**（XML 不允许），
+本地 11 个关卡全绿、正则照样能扫到 android:name，CI 却整轮死在
+`:app:processReleaseMainManifest` → `Error parsing AndroidManifest.xml`。
+所以这里先用 xml.dom.minidom 做一次良构校验，把这类「本地绿、红在 CI」的坑提前到本地。
+
 ## 判据（按完整包名，不按简单类名）
 相对名以该模块 `namespace`（app=com.allperiph / tv=com.allperiph.tv / shared=com.allperiph.shared）
 为前缀，拼成全限定名后**必须在某个模块的源码里真的声明了这个类**。
@@ -26,6 +33,7 @@ Android 构建**不会**校验 `android:name=".ui.XxxService"` 指向的类是�
 import os
 import re
 import sys
+import xml.dom.minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ANDROID = os.path.join(ROOT, "android")
@@ -108,6 +116,15 @@ def main():
             problems.append("%s: 读不到 namespace，无法解析相对类名" % mod)
             continue
         text = open(path, encoding="utf-8").read()
+        # 良构校验：正则扫描看不出「注释写在开始标签中间」这类结构错误
+        rel = os.path.relpath(path, ROOT)
+        try:
+            xml.dom.minidom.parseString(text)
+            print("  OK   xml-wellformed %s" % rel)
+        except Exception as exc:
+            problems.append("%s: XML 结构非法（%s）→ Gradle 的 "
+                            "processReleaseMainManifest 会直接判死整轮构建"
+                            % (rel, exc))
         for tag, name in declared_classes(text):
             if not name.startswith("."):
                 continue  # 全限定名 / 插件类，不归本检查管
@@ -124,7 +141,10 @@ def main():
         print("\n========== manifest 悬空声明 ==========")
         for p in problems:
             print("FAIL " + p)
-        print("\n修法：把 android:name 改成真正存在的类（或删掉该组件声明）。")
+        print("\n修法：")
+        print("  · 悬空声明 → 把 android:name 改成真正存在的类（或删掉该组件声明）；")
+        print("  · XML 结构非法 → 检查注释是不是写进了标签属性之间（XML 注释只能整段放在")
+        print("    元素外面），或属性值里有没有漏引号、漏闭合。")
         return 1
     print("全部命中源文件里的类声明。")
     return 0

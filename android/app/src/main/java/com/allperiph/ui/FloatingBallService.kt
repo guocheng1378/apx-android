@@ -1052,6 +1052,7 @@ class FloatingBallService : Service() {
      */
     private fun expand() {
         if (panel != null) return
+        ensureTouchpadReady()
         val hpx = themed.resources.displayMetrics.heightPixels
         val wpx = themed.resources.displayMetrics.widthPixels
         // 竖屏 300dp 量级的手感；横屏屏更矮，按 34% 高并夹在 220~360dp 之间
@@ -1172,6 +1173,42 @@ class FloatingBallService : Service() {
         }
     }
 
+    /**
+     * 确保触控板模块就绪（v223.29.1）。
+     *
+     * 真机 2026-11-02 第二轮反馈「悬浮窗触摸板手势和触摸板页手势不一样，也没有触摸页的
+     * 特效震动」，根因**不在手势识别本身**（两处都已共用 [ApTouchpadSurface]，
+     * 长按 550ms / 双指长按 / slop 门禁 / 光标尾迹都是同一份），而在**模块没在跑**：
+     *
+     * 触控板模块只在两条路径上进入 RUNNING ——
+     *   · 状态页「开启外设」（[AgentController.startEnabled]），
+     *   · [AgentForegroundService] 起来时（它 onCreate/onStartCommand 会 startEnabled）。
+     * 而主界面被划掉、进程被系统回收之后，悬浮球是由自检闹钟 / 开机广播**单独**拉起的
+     * （v223.29 补的自愈正是这个场景）—— 那时进程里只有球和它的 overlay，
+     * 模块注册表可能压根没建、模块更是 IDLE。`TouchpadModule.feed()` 在
+     * `engineRef == null` 时直接把事件丢掉（只打一行限频日志），于是
+     * 「怎么划都不动」；震动同理 —— 里程碑反馈走
+     * `GestureEngine.onFeedback → TouchpadModule.onGestureFeedback`，
+     * 模块不跑这条链路就不存在，观感上就是「没有触摸页的特效震动」。
+     *
+     * 这里在展开触控板面板前补齐三件事：
+     *   1. 进程里没有注册表就 [AgentController.build]（幂等）；
+     *   2. 用户**关掉过**该模块就什么都不做（与悬浮球「只认意愿位」同一口径，
+     *      绝不替用户打开他明确关掉的外设）；
+     *   3. 模块存在但不在跑 → 拉起它（走 io 线程，面板先出来、模块随后就位）。
+     */
+    private fun ensureTouchpadReady() {
+        runCatching {
+            AgentController.build(this)
+            val id = com.allperiph.core.ModuleId.TOUCHPAD
+            if (!AgentController.isEnabled(this, id)) return@runCatching
+            val m = AgentController.module(id) ?: return@runCatching
+            if (m.state.isActive) return@runCatching
+            Log.i(TAG, "悬浮触控板面板：模块不在跑（state=${m.state}）→ 按用户开关位拉起")
+            AgentController.setModuleEnabled(this, id, true)
+        }.onFailure { Log.w(TAG, "触控板模块就绪检查失败：${it.message}") }
+    }
+
     /** 悬浮手柄：[GamepadPanel]（GamepadActivity 同款双摇杆），全屏 overlay + KEEP_SCREEN_ON。 */
     private fun expandGamepad() {
         expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, keepScreenOn = true) {
@@ -1199,10 +1236,9 @@ class FloatingBallService : Service() {
      *   · 顺便把后台监听补齐 —— 服务活着就一直听（见 [ensureClipboardTap]）。
      */
     private fun expandClipboard() {
-        val text = runCatching {
-            (getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)
-                ?.primaryClip?.getItemAt(0)?.text?.toString()
-        }.getOrNull().orEmpty()
+        // 取值口径与后台监听同一处（ClipboardSync）：此前这里内联读一遍、ClipboardSync
+        // 里又读一遍，两处的「程序性写入抑制 / 空串判定」迟早会跑偏。
+        val text = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
         expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
             Column(
                 modifier = Modifier
@@ -1243,10 +1279,8 @@ class FloatingBallService : Service() {
                                     ).show()
                                     return@ActionButton
                                 }
-                                val cur = runCatching {
-                                    (getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager)
-                                        ?.primaryClip?.getItemAt(0)?.text?.toString()
-                                }.getOrNull().orEmpty()
+                                // 手指落下到按下按钮之间用户可能又复制了别的：再取一次当前的
+                                val cur = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
                                 if (cur.isEmpty()) {
                                     Toast.makeText(
                                         this@FloatingBallService,
