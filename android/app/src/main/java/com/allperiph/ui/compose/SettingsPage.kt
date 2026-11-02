@@ -36,6 +36,7 @@ import com.allperiph.ui.ApBackdrop
 import com.allperiph.ui.ApFeel
 import com.allperiph.ui.ApPalette
 import com.allperiph.ui.ApSkin
+import com.allperiph.ui.OrientLock
 import com.allperiph.ui.ApTiming
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
@@ -269,6 +270,20 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         onCheckedChange = { on ->
                             cursorLock = on
                             apxPrefs.edit().putBoolean("cursor_lock", on).apply()
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    // 方向锁定（审查条 1.1）：整条能力在迁移里丢了，这里把它放回壳级开关。
+                    // 与「重力判读自动切页」的关系写在 OrientLock 的 KDoc 里：锁定时一并暂停切页。
+                    var orientLock by remember { mutableStateOf(OrientLock.isOn(ctx)) }
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_orient_lock_title),
+                        summary = ctx.getString(R.string.ui_set_orient_lock_sum),
+                        checked = orientLock,
+                        onCheckedChange = { on ->
+                            orientLock = on
+                            OrientLock.set(ctx, on)
+                            (ctx as? android.app.Activity)?.let { OrientLock.apply(it) }
                             Feedback.haptic(ctx)
                         },
                     )
