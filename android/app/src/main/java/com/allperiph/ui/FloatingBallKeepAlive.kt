@@ -42,6 +42,17 @@ object FloatingBallKeepAlive {
     /** 与共享 KeepAlive 的 RC 错开，避免两个 PendingIntent 互相覆盖 */
     private const val RC = 0x7A51
 
+    /**
+     * 「权限判读为否」时的慢速重试间隔（10 分钟）。
+     *
+     * 原实现在这种情况下**直接 return 且不再重排闹钟**，等于把自愈闭环永久停掉 ——
+     * 而真机上 `Settings.canDrawOverlays` 会瞬时假阴性（见
+     * [FloatingBallService.overlayAllowed]），一次误判就再也等不到自愈。
+     * 改成慢速重排：持续存在的代价是每 10 分钟醒一次 CPU（可忽略），
+     * 换来的是权限恢复后**无需用户手动开界面**就能自己接上。
+     */
+    private const val INTERVAL_IDLE_MS = 600_000L
+
     /** 排下一次自检。[delayMs] 用于「刚被系统拒绝启动 → 尽快重试」。 */
     fun schedule(ctx: Context, delayMs: Long = INTERVAL_MS) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
@@ -79,11 +90,13 @@ object FloatingBallKeepAlive {
             Log.i(TAG, "用户意愿位为关 → 自检停止")
             return
         }
-        // 悬浮窗权限被撤掉时也不再重排：拉起必然失败（addView 拿不到 overlay），
-        // 排下去只会变成「每 2 分钟白醒一次 CPU」。用户重新授权时会打开界面，那次
-        // 走 [FloatingBallService.requestToggle] / onCreate，会自动把闹钟排回来。
-        if (!android.provider.Settings.canDrawOverlays(ctx)) {
-            Log.i(TAG, "没有悬浮窗权限 → 自检暂停（重新授权后自动恢复）")
+        // 悬浮窗权限判读为否时**不能再直接 return**（原实现的 bug）：
+        // 那会把自愈闭环永久停掉，而真机证据显示这个判读会瞬时假阴性
+        // （app-ops 明确 allow 的同一时刻 Settings 返回 false）。
+        // 改为慢速重排，权限恢复后自动接回 2 分钟节奏。
+        if (!FloatingBallService.overlayAllowed(ctx)) {
+            Log.i(TAG, "悬浮窗权限判读为否（Settings 与 AppOps 都不允许）→ 10 分钟后复核")
+            schedule(ctx, INTERVAL_IDLE_MS)
             return
         }
         if (!FloatingBallService.isRunning) {

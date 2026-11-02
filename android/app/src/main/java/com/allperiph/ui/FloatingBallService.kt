@@ -230,8 +230,8 @@ class FloatingBallService : Service() {
         fun ensureRunningIfWanted(c: Context, force: Boolean = false): Boolean {
             if (!isOn(c)) return false
             if (isRunning && live != null) return false
-            if (!Settings.canDrawOverlays(c)) {
-                Log.i(TAG, "自愈跳过：没有悬浮窗权限")
+            if (!overlayAllowed(c)) {
+                Log.i(TAG, "自愈跳过：没有悬浮窗权限（Settings 与 AppOps 都判不允许）")
                 return false
             }
             val p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -248,11 +248,37 @@ class FloatingBallService : Service() {
         }
 
         /**
+         * 悬浮窗权限判读（v223.29.1 第 5 条修复的核心）。
+         *
+         * **不要单独用 [Settings.canDrawOverlays] 当判据。** 真机实测（2026-11-02，
+         * Android 15 / HyperOS，targetSdk 35）：app-ops 后台「skip」窗口期间它会假阴性 ——
+         * 同一时刻 `cmd appops get` 明确是 `SYSTEM_ALERT_WINDOW: allow`，且紧接着
+         * 又有 `time=...` 的正常放行记录。单独采信它，自愈就在那个瞬间放弃拉起，
+         * 表现就是成宇反馈的「悬浮窗不会自动拉起」。
+         *
+         * 所以两路取或：Settings 为真直接放行；否则用 AppOpsManager 复核
+         * `android:system_alert_window`，只有**两路都否**才认定真撤权。
+         * 真撤权时调用方会如实记录，下次真机验证能一眼区分「假阴性」与「真撤权」。
+         */
+        fun overlayAllowed(c: Context): Boolean {
+            if (Settings.canDrawOverlays(c)) return true
+            val mode = runCatching {
+                val ops = c.getSystemService(Context.APP_OPS_SERVICE) as? android.app.AppOpsManager
+                ops?.unsafeCheckOpNoThrow(
+                    "android:system_alert_window",
+                    android.os.Process.myUid(),
+                    c.packageName,
+                )
+            }.getOrNull()
+            return mode == android.app.AppOpsManager.MODE_ALLOWED
+        }
+
+        /**
          * 设置页入口：无悬浮窗权限 → 跳系统授权页（HyperOS：设置→隐私保护→显示悬浮窗）；
          * 有权限 → 开/关切换（服务未活 = 开，已活 = 停）。
          */
         fun requestToggle(c: Context) {
-            if (!Settings.canDrawOverlays(c)) {
+            if (!overlayAllowed(c)) {
                 runCatching {
                     c.startActivity(
                         Intent(
