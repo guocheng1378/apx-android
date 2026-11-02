@@ -46,8 +46,10 @@ import com.allperiph.wireless.ControlTarget
  * 状态页（**第一个完成 Compose + Miuix 迁移的屏**）。
  *
  * 对照旧实现 [com.allperiph.ui.StatusFragment] + `page_status.xml`，行为对齐如下：
- *  · 大号启动/停止开关：与旧 `swAgent`/`btnStart` 同一动作（AgentController.startEnabled / stopAll）；
- *  · 三个传输开关：读写 AgentController 的 `transport_*` 偏好，改动即时热启停模块；
+ *  · 三个传输开关：读写 AgentController 的 `transport_*` 偏好，**并负责对应模块的启停与
+ *    前台服务**（总闸已在 v223.29.3 去掉，开关就是唯一入口，见 AgentController.applyTransportSwitch）；
+ *  · 音频方向：USB / Wi-Fi 两路的麦克风 / 音响开关（v223.29.3 从设置页整块上移，「把设置里的
+ *    管麦克风和音响的也挪过来」）；
  *  · 模块行：`AgentController.label(id)` + `detailOf(module)` + 状态色，不再自己 findViewById 刷新；
  *  · 链路诊断：`AgentController.linkSpeed` 与 `EnvChecks.Env.summary`。
  *
@@ -57,10 +59,6 @@ import com.allperiph.wireless.ControlTarget
 @Composable
 fun StatusPage(
     ctx: Context,
-    /** 切到底栏某一页（0 状态 / 1 触控板 / 2 键盘 / 3 设置）。首页的「编辑快捷键」走它。 */
-    onNavigate: (Int) -> Unit = {},
-    running: Boolean,
-    onToggleRunning: (Boolean) -> Unit,
     topBar: Dp = 0.dp,
     bottomGap: Dp = 0.dp,
 ) {
@@ -76,8 +74,10 @@ fun StatusPage(
         }
     }
 
-    // tick 只用来触发重组；实际值每次都现读（模块状态是 volatile 字段）
-    val state = remember(tick, running) { snapshot(ctx) }
+    // tick 只用来触发重组；实际值每次都现读（模块状态与 running 都是 volatile 字段）。
+    // 总闸去掉后 running 不再是入参，必须现读 —— 传输开关把服务拉起来后，
+    // 模块行的子开关要自己在这一秒内跟上，而不是等用户重进页面。
+    val state = remember(tick) { snapshot(ctx) }
     // 语义状态色明暗各一套（审查条 2.5）：判据与 ApMiuixTheme 同一入口，不各自读 configuration
     val dark = com.allperiph.ui.miuix.apIsDark()
 
@@ -95,11 +95,17 @@ fun StatusPage(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // —— 总开关 ——
+        // —— 运行状态（只读摘要）——
+        // 成宇 2026-11-04「不要总开关，只要无线 / 蓝牙 / 有线开关，对应各自的功能」：
+        // 原来这里是一枚大号「启动 / 停止」总闸，与下方「传输通道」三个开关是两层语义 ——
+        // 总闸关着时三个传输开关拨了不生效（模块只在 Agent 运行时才注册），用户看到的
+        // 就是「开关拨了没反应」的假开关。现在总闸整块去掉：三个传输开关各自负责对应模块的
+        // 启停与前台服务（见 [AgentController.applyTransportSwitch]），这一段只留运行摘要。
+        // running 现读 AgentController.running，随 1s tick 刷新。
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_state)) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = if (running) state.overallLabel else ctx.getString(R.string.hint_idle),
+                    text = if (state.running) state.overallLabel else ctx.getString(R.string.hint_idle),
                     fontSize = 22.sp,
                 )
                 Text(
@@ -107,89 +113,6 @@ fun StatusPage(
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 4.dp),
-                )
-                Button(
-                    onClick = {
-                        Feedback.haptic(ctx)
-                        onToggleRunning(!running)
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                ) {
-                    Text(
-                        text = if (running) ctx.getString(R.string.notify_action_stop)
-                        else ctx.getString(R.string.ui_home_btn_start),
-                        fontSize = 16.sp,
-                    )
-                }
-            }
-        }
-
-        // —— 快捷入口（审查条 1.6）——
-        // 旧触控板页（`pageTouchpad`）有一排「发送文件 / 发送剪贴板 / 副屏 / 手柄 / 遥控器 /
-        // 编辑快捷键」六个入口，迁 Compose 主壳时一个都没留在原位：发送文件退到设置两层、
-        // 手柄只剩设置一处、遥控器只活在旧控制台的悬浮球路径、剪贴板手动发送连路径都没有。
-        // 这里按新壳的信息架构放回「首页一排、一眼可达」的位置，六个各一枚：
-        // 前三枚是动作（文件 / 剪贴板 / 副屏），后三枚是入口（手柄 / 遥控器 / 编辑快捷键）。
-        // 不放进触控板页是刻意的：那一页的手势面要全屏（v223.23 真机反馈「可操作区域太小」），
-        // 再叠一排按钮就等于把刚修好的问题还回去。
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_sec_quick)) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                val quick: List<Pair<Int, () -> Unit>> = listOf(
-                    R.string.ui_home_quick_file to {
-                        ctx.startActivity(
-                            Intent(ctx, com.allperiph.localsend.SendActivity::class.java),
-                        )
-                    },
-                    R.string.ui_home_quick_clip to {
-                        val r = com.allperiph.ui.ClipboardSync.sendNow(ctx)
-                        val msg = when (r) {
-                            com.allperiph.ui.ClipboardSync.SendResult.NO_DEVICE ->
-                                R.string.ui_main_toast_device_not
-                            com.allperiph.ui.ClipboardSync.SendResult.EMPTY ->
-                                R.string.ui_touchpad_toast_clipboard_empty
-                            com.allperiph.ui.ClipboardSync.SendResult.OK ->
-                                R.string.ui_touchpad_text_clipboard_send_done
-                            com.allperiph.ui.ClipboardSync.SendResult.FAIL ->
-                                R.string.ui_touchpad_text_send_failed
-                        }
-                        Toast.makeText(ctx, ctx.getString(msg), Toast.LENGTH_SHORT).show()
-                    },
-                    R.string.ui_home_quick_screen to {
-                        ctx.startActivity(
-                            Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
-                        )
-                    },
-                    R.string.ui_ball_fn_gamepad to {
-                        ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
-                    },
-                    R.string.ui_remote_text_remote to {
-                        ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
-                    },
-                    // 组合键的编辑弹窗在触控板页的网格下方（v223.27 之后主壳唯一入口），
-                    // 不在键盘页 —— 键盘页只编辑「自定义布局」行表（审查 v5 §9.2-B）。
-                    R.string.ui_hotkey_title_edit to { onNavigate(1) },
-                )
-                quick.chunked(3).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        row.forEach { (label, action) ->
-                            ApComponents.NarrowButton(
-                                text = ctx.getString(label),
-                                onClick = action,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        // 补空格：三列网格形状稳定
-                        repeat(3 - row.size) { Box(modifier = Modifier.weight(1f)) }
-                    }
-                }
-                Text(
-                    text = ctx.getString(R.string.ui_home_quick_hint),
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 6.dp, start = 8.dp),
                 )
             }
         }
@@ -204,12 +127,92 @@ fun StatusPage(
                         checked = state.transportOn[t] == true,
                         onCheckedChange = { on ->
                             Feedback.haptic(ctx)
-                            AgentController.setTransportEnabled(ctx, t, on)
+                            // 总闸去掉后，传输开关自己负责对应模块的启停与前台服务
+                            // （与悬浮球「连接模式」菜单同一个入口，逻辑收在 AgentController 一处）
+                            AgentController.applyTransportSwitch(ctx, t, on)
+                            tick++
                         },
                     )
                 }
             }
         }
+        // —— 音频方向（v223.29.3 从设置页「工具与传输」整块上移）——
+        // 成宇 2026-11-04「把设置里的管麦克风和音响的也挪过来」：四个音频方向开关与三个
+        // 传输开关是同一层语义（都是「这一路要不要用」），分居设置页与状态页两处就是双源 ——
+        // 与上一轮「环境诊断」上移同一判据（链路信息属于运行时，就该在状态页）。
+        // 数据与热切换口径完全不变：仍走 com.allperiph.ui.AudioDirections
+        // （模块在跑就热切换、没跑就只落盘，下次连接生效）。
+        var usbMic by remember { mutableStateOf(com.allperiph.audio.AudioModule.isMicOn(ctx)) }
+        var usbSpk by remember { mutableStateOf(com.allperiph.audio.AudioModule.isSpeakerOn(ctx)) }
+        var wifiMic by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isMicOn(ctx)) }
+        var wifiSpk by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isSpeakerOn(ctx)) }
+        ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_audio_dir)) {
+            Column {
+                var micOpen by remember { mutableStateOf(false) }
+                var spkOpen by remember { mutableStateOf(false) }
+                ApComponents.FoldGroup(
+                    title = ctx.getString(R.string.ui_set_audio_group_mic),
+                    countText = ctx.getString(
+                        R.string.ui_set_audio_group_count,
+                        listOf(usbMic, wifiMic).count { it },
+                    ),
+                    open = micOpen,
+                    onToggleOpen = { micOpen = !micOpen },
+                ) {
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_usb_mic),
+                        summary = ctx.getString(R.string.ui_set_sum_usb_mic),
+                        checked = usbMic,
+                        onCheckedChange = { on ->
+                            usbMic = on
+                            com.allperiph.ui.AudioDirections.setUsbMic(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_wifi_mic),
+                        summary = ctx.getString(R.string.ui_set_sum_wifi_mic),
+                        checked = wifiMic,
+                        onCheckedChange = { on ->
+                            wifiMic = on
+                            com.allperiph.ui.AudioDirections.setWifiMic(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+                ApComponents.FoldGroup(
+                    title = ctx.getString(R.string.ui_set_audio_group_spk),
+                    countText = ctx.getString(
+                        R.string.ui_set_audio_group_count,
+                        listOf(usbSpk, wifiSpk).count { it },
+                    ),
+                    open = spkOpen,
+                    onToggleOpen = { spkOpen = !spkOpen },
+                ) {
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_usb_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_usb_spk),
+                        checked = usbSpk,
+                        onCheckedChange = { on ->
+                            usbSpk = on
+                            com.allperiph.ui.AudioDirections.setUsbSpeaker(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_label_wifi_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
+                        checked = wifiSpk,
+                        onCheckedChange = { on ->
+                            wifiSpk = on
+                            com.allperiph.ui.AudioDirections.setWifiSpeaker(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+            }
+        }
+
 
         // —— 受控与出口（v223.28 从设置页「遥控与键盘」整体上移：成宇 2026-11-02
         //    「本应该在状态页的内容却在设置页」——链路状态属于运行时信息，就该在状态页。
@@ -278,11 +281,12 @@ fun StatusPage(
                             ) {
                                 ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state, dark))
                                 // 成宇 2026-11-03「状态页给个开关不能控制子开关，
-                                // 总开关关了应该隐藏下面的子开关」：总开关没开时这一行只留状态点。
-                                // 以前总开关关着、子开关还亮着可拨，拔了也不会有任何效果
-                                // （模块只在 Agent 运行时才注册），等于给用户一个假开关。
-                                // 子开关的启用态仍记在 AgentController 里，总开关一开就按原样回显。
-                                if (running) {
+                                // 总开关关了应该隐藏下面的子开关」：没在跑时这一行只留状态点。
+                                // 这个「跑没跑」的判据在 v223.29.3 从主壳入参 [running] 换成
+                                // 现读的 [StatusVm.running] —— 总闸去掉后没有任何地方再持有它，
+                                // 页面必须自己现读（同一 1s tick 刷新）。
+                                // 子开关的启用态仍记在 AgentController 里，运行态一起来就按原样回显。
+                                if (state.running) {
                                     Switch(
                                         checked = row.enabled,
                                         onCheckedChange = { on ->
@@ -439,6 +443,8 @@ private class ModuleRowVm(
 private class StatusVm(
     val overallLabel: String,
     val overallDetail: String,
+    /** 现读的 Agent 运行态（总闸去掉后由传输开关驱动，见 [AgentController.applyTransportSwitch]） */
+    val running: Boolean,
     val transportOn: Map<String, Boolean>,
     val transportSummary: Map<String, String>,
     val modules: List<ModuleRowVm>,
@@ -534,11 +540,12 @@ private fun snapshot(ctx: Context): StatusVm {
         }
     }
     return StatusVm(
+        running = running,
         overallLabel = if (running) "外设已启动" else "未启动",
         overallDetail = if (running) {
             "${modules.count { it.state.isActive }}/${modules.size} 个模块在用"
         } else {
-            "点下方按钮开始把手机当外设"
+            "打开下方任一传输开关即可启动"
         },
         transportOn = transportOn,
         transportSummary = transportSummary,

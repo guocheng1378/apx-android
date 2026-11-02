@@ -42,7 +42,7 @@
     <string name="label_usb_speed">USB 连接速度</string>
     <string name="hint_usb2">当前是 USB 2.0 的速度（慢档）。换一根 USB 3.0 数据线和 3.0 接口会明显更跟手。</string>
     <string name="hint_usb_ok">USB 3.0 高速已就绪。</string>
-    <string name="hint_idle">未启动 · 打开上方开关后显示连接与运行状态</string>
+    <string name="hint_idle">未启动 · 打开任一传输开关即可启动</string>
     <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
 
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
@@ -285,7 +285,6 @@
     <string name="ui_home_section_transport">传输通道</string>
     <string name="ui_home_section_modules">模块</string>
     <string name="ui_home_label_env">环境自检</string>
-    <string name="ui_home_btn_start">启动</string>
     <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
     <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
     <!-- v223.24 主屏键盘页与操控面同款布局页签 -->
@@ -352,7 +351,7 @@
     <string name="ui_home_quick_file">发送文件</string>
     <string name="ui_home_quick_clip">发送剪贴板</string>
     <string name="ui_home_quick_screen">副屏</string>
-    <string name="ui_home_quick_hint">这几项原在旧触控板页顶部一排，改版后落在首页；触控板页手势面保持全屏，不再叠按钮</string>
+    <string name="ui_home_quick_hint">长按底部悬浮栏即可随时唤出这一排（竖屏底部居中、横屏在右上角）</string>
     <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
     <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>
@@ -360,13 +359,12 @@
     <string name="ui_set_cat_keys">快捷键与外设</string>
     <string name="ui_set_cat_tools">工具与传输</string>
     <string name="ui_set_cat_data">数据与维护</string>
+    <string name="ui_ball_order_pos">第 %1$d 位</string>
     <string name="ui_ball_order_title">顺序（从上到下即扇形展开顺序）</string>
     <!-- v223.25 音频方向折叠分组（成宇 2026-11-02）：按 麦克风 / 音响 两组收起，点组头展开才出现子开关 -->
     <string name="ui_set_audio_group_mic">麦克风（手机 → 电脑）</string>
     <string name="ui_set_audio_group_spk">音响（电脑 → 手机）</string>
     <string name="ui_set_audio_group_count">已开 %1$d / 2 路</string>
-    <string name="ui_set_audio_chevron_closed">▸</string>
-    <string name="ui_set_audio_chevron_open">▾</string>
     <!-- v223.27 顶栏整块去除后的选择器常驻入口；v223.28 已上移到状态页「受控与出口」 -->
     <string name="ui_pick_device_title">选择受控设备</string>
     <string name="ui_pick_device_local">本机 / PC（默认：不控制别的设备）</string>
@@ -407,7 +405,6 @@
     <string name="ui_home_env_notify_no">未授予</string>
     <!-- v223.28 主壳返回键语义：先收悬浮层，再弹退出确认 -->
     <!-- v223.29 长按悬浮低栏唤出常用功能；球不在屏幕上时的解释 -->
-    <string name="ui_shell_ball_off">悬浮球当前没在运行：先到「设置 → 悬浮栏」打开「显示悬浮球」</string>
     <string name="ui_exit_title">退出全能外设？</string>
     <string name="ui_exit_msg">外设服务仍在后台运行，悬浮球继续可用。</string>
     <string name="ui_exit_keep">退出（后台继续）</string>

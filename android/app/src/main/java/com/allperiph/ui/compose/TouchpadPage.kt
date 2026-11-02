@@ -29,6 +29,22 @@ import com.allperiph.ui.miuix.ApMotion
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalViewConfiguration
+import androidx.compose.runtime.mutableStateMapOf
+import kotlinx.coroutines.withTimeoutOrNull
+import com.allperiph.ui.Feedback
+import androidx.compose.ui.input.pointer.PointerEventPass
 
 /**
  * 触控板页（阶段 3）：手势面 + 液态光标 + 快捷键网格。
@@ -99,10 +115,34 @@ fun TouchpadPage(
     }
 }
 
-/** 快捷键网格：数据来自 [HotkeyStore]，发送走 [HidKeys.combo] / [HidKeys.hold] */
+/**
+ * 快捷键网格（v223.29.3 重做手势）。
+ *
+ * 成宇 2026-11-04「竖屏时触摸板的编辑快捷键改成长按按键编辑，可以自己左右拖动」：
+ * 此前每块只能**轻点发送**，改一颗键得去最下面按「编辑快捷键」开管理列表、再逐行翻到「改」，
+ * 排序更是只能靠列表里的 ↑↓。现在三件事都落在 chip 自己身上（与旧操控面 TouchpadActivity
+ * 的 HotkeyBoard 同一套语义，只是手势在 Compose 侧重实现）：
+ *
+ *   · **轻点** → 发送一次组合键，并累计使用次数（自动排序照旧）；
+ *   · **长按** → 原地松手即编辑这一颗（打开同一份 HotkeyBoard.editDialog）；
+ *   · **长按后拖动** → 重排：落位判据与 HotkeyBoard.reorder 一致（先按中心 Y 找最近一行，
+ *     行内再按中心 X 找最近一块），松手即落位并落盘，同时关掉自动排序
+ *     （否则刚排好的顺序会被使用频次顶回去 —— 与 HotkeyBoard.preferManualOrder 同口径）。
+ *
+ * 长按既当编辑入口又当拖动入口，靠位移阈值区分：长按成立后手指一动就转成拖动意图，
+ * 原地松手才是编辑（与 ComboChip 的「按住 / 拖动」分派同一做法）。
+ *
+ * ★ 手势是这一格的**单一真源**：down 在 Initial pass 就被本手势消费，内层 chip 的
+ * `clickable` 在触摸路径上收不到这次按下（否则长按松手时它会先看到「全部抬起」，
+ * 把组合键顺带发一次 —— 长按编辑变成「编辑 + 发送」）。语义节点仍由 clickable 提供，
+ * 读屏点击走 HotkeyChip 的 onClick。
+ *
+ * 数据仍只有一份：[HotkeyStore]（自动排序开启时按频次展示）→ 编辑走 HotkeyBoard.editDialog，
+ * 发送走 [HidKeys.combo]。底部另留一枚管理入口 —— 「新建 / 恢复默认 / 自动排序」这三件事
+ * 只能从管理列表进（长按只管已有的那一颗），列表被删光时也靠它兜底。
+ */
 @Composable
 private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
-    // 管理器改完就 +1，让下面的 remember 重算 —— 否则改完要退出重进才看到新网格
     // 主题色只能在**组合期**读：MiuixTheme 是 @Composable getter，放进 onClick
     // 会报 COMPOSABLE_INVOCATION（CI 第一次就是死在这里）。
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
@@ -119,19 +159,174 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
         }
     }
 
+    // 拖动状态：只记「当前拖的是哪一块」与累计位移，落位在松手时一次算清。
+    // xy 坐标表随 editVersion 重建：每次落位/编辑后布局都会重排，旧矩形立刻过期。
+    var dragIndex by remember { mutableIntStateOf(-1) }
+    var dragDx by remember { mutableStateOf(0f) }
+    var dragDy by remember { mutableStateOf(0f) }
+    val cells = remember(editVersion) { androidx.compose.runtime.mutableStateMapOf<Int, Rect>() }
+
+    /** 松手落位：把 [from] 挪到「原位置 + 累计位移」最近的那一格（判据同 HotkeyBoard.reorder） */
+    fun drop(from: Int, dx: Float, dy: Float) {
+        val origin = cells[from] ?: return
+        if (cells.size < 2 || items.size < 2) return
+        val cx = origin.center.x + dx
+        val cy = origin.center.y + dy
+        // 第一级：按中心 Y 找最近的一行
+        val rows = cells.entries.groupBy { it.value.top }
+        val nearestRow = rows.entries.minByOrNull { (_, g) ->
+            kotlin.math.abs(g.map { it.value.center.y }.average().toFloat() - cy)
+        }?.value ?: return
+        // 第二级：行内按中心 X 找最近的一块
+        val target = nearestRow.minByOrNull { kotlin.math.abs(it.value.center.x - cx) }?.key ?: return
+        if (target == from || target !in items.indices) return
+        val next = items.toMutableList()
+        val moved = next.removeAt(from)
+        next.add(target.coerceIn(0, next.size), moved)
+        HotkeyStore.save(ctx, next)
+        if (HotkeyStore.isAutoSort(ctx)) HotkeyStore.setAutoSort(ctx, false)
+        editVersion++
+    }
+
     Column(
-        // 横屏右列顶部避开玻璃顶栏；底部避开浮动底栏（窄屏/宽屏同样生效）
+        // 横屏右列顶部避开玻璃顶栏；底部避开浮动底栏（窄屏 / 宽屏同样生效）
         modifier = Modifier.fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        items.chunked(4).forEach { row ->
+        items.chunked(4).forEachIndexed { rowIdx, row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                row.forEach { combo ->
-                    HotkeyChip(ctx = ctx, combo = combo, modifier = Modifier.weight(1f))
+                row.forEachIndexed { colIdx, combo ->
+                    val index = rowIdx * 4 + colIdx
+                    val dragging = dragIndex == index
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .zIndex(if (dragging) 1f else 0f)
+                            .offset {
+                                if (dragging) IntOffset(dragDx.toInt(), dragDy.toInt())
+                                else IntOffset(0, 0)
+                            }
+                            // 位置表：落位判据要用每块在窗口里的矩形。
+                            // ⚠️ 正在被拖的那一格**不更新** —— 它已经随 offset 平移了，
+                            // 写进去的话 drop() 里「原位置 + 累计位移」会把位移算两遍，
+                            // 落位落到隔壁去（真机手感就是"拖一格跳两格"）。
+                            .onGloballyPositioned { coords ->
+                                if (dragIndex != index) cells[index] = coords.boundsInWindow()
+                            }
+                            .alpha(if (dragging) 0.85f else 1f)
+                            // ★ 手势是这一格的**单一真源**：在 **Initial pass** 先把 down 消费掉，
+                            //   让内层 chip 自己的 clickable 在**触摸**路径上永远收不到这次按下
+                            //   （Compose 的事件派发是 Initial pass 父先子后，而 clickable 用
+                            //   `awaitFirstDown()` 默认只认未消费的 down，于是它直接跳过本次手势）。
+                            //   为什么必须这样：若两条路都活着，长按松手时 clickable 会在自己的
+                            //   Main pass 先看到「全部抬起」并触发 onClick —— 结果是「长按编辑」
+                            //   顺带把组合键也发了一次（重复发送）。
+                            //   clickable 的**语义节点**不受影响，无障碍「点击」仍会走 HotkeyChip
+                            //   的 onClick（发送），因此这里不再需要为读屏另补语义。
+                            .pointerInput(index, items.size) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(
+                                        requireUnconsumed = false,
+                                        pass = PointerEventPass.Initial,
+                                    )
+                                    val slop = viewConfiguration.touchSlop
+                                    var liftedEarly = false
+                                    var movedEarly = false
+                                    // 长按超时窗口：抬手 → 轻点；先动 → 当滑动处理（放弃）
+                                    withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                                        while (true) {
+                                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!ch.pressed) {
+                                                liftedEarly = true
+                                                break
+                                            }
+                                            if ((ch.position - down.position).getDistance() > slop) {
+                                                movedEarly = true
+                                                break
+                                            }
+                                        }
+                                        true
+                                    }
+                                    if (liftedEarly) {
+                                        // 轻点：发一次组合键（并累计使用次数，自动排序照旧）
+                                        ApMotion.tap(ctx)
+                                        HidKeys.combo(combo)
+                                        HotkeyStore.bump(ctx, combo)
+                                        return@awaitEachGesture
+                                    }
+                                    if (movedEarly) {
+                                        // 长按窗口内就滑走了：不是这块的意图，放弃本次手势
+                                        // （down 已在 Initial pass 消费，chip 也不会误触发送）
+                                        while (true) {
+                                            val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                            ev.changes.forEach { it.consume() }
+                                            if (ev.changes.none { it.pressed }) break
+                                        }
+                                        return@awaitEachGesture
+                                    }
+                                    // —— 长按成立：先给一下震动，手感上「咔」一声 ——
+                                    Feedback.haptic(ctx)
+                                    var moved = false
+                                    while (true) {
+                                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!ch.pressed) {
+                                            ch.consume()
+                                            break
+                                        }
+                                        val d = ch.positionChange()
+                                        if (!moved && d.getDistance() > slop) {
+                                            moved = true
+                                            dragIndex = index
+                                        }
+                                        if (moved) {
+                                            dragDx += d.x
+                                            dragDy += d.y
+                                            ch.consume()
+                                        } else {
+                                            // 原地按着不动也要吃掉事件，避免内层任何组件被激活
+                                            ch.consume()
+                                        }
+                                    }
+                                    val dx = dragDx
+                                    val dy = dragDy
+                                    val wasDrag = moved
+                                    dragIndex = -1
+                                    dragDx = 0f
+                                    dragDy = 0f
+                                    if (wasDrag) {
+                                        drop(index, dx, dy)
+                                    } else {
+                                        // 原地松手 = 编辑这一颗（同一份 HotkeyBoard 编辑器）
+                                        val act = ctx as? android.app.Activity ?: return@awaitEachGesture
+                                        com.allperiph.ui.HotkeyBoard(
+                                            act,
+                                            android.widget.LinearLayout(act),
+                                            {
+                                                com.allperiph.ui.HotkeyBoard.Style(
+                                                    chipText = chipTextColor,
+                                                    chipBg = chipBgColor,
+                                                    chipRadiusDp = 12,
+                                                    padVDp = 12,
+                                                    perRow = 4,
+                                                    accent = chipTextColor,
+                                                    textPrimary = chipTextColor,
+                                                    textSecondary = subTextColor,
+                                                )
+                                            },
+                                            { editVersion++ },
+                                        ).editDialog(index) { editVersion++ }
+                                    }
+                                }
+                            },
+                    ) {
+                        HotkeyChip(ctx = ctx, combo = combo, modifier = Modifier.fillMaxWidth())
+                    }
                 }
                 // 补空格：网格形状稳定（与旧 HotkeyBoard 的同一约定）
                 repeat(4 - row.size) {
@@ -139,15 +334,13 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                 }
             }
         }
-        // 编辑入口（审查 v5 §9.2-B）：v223.27 把键盘页的组合键面板与编辑弹窗（KbWindow）
-        // 整块删掉后，主壳里就没有「改一颗组合键」的地方了 —— 键盘页只能改自定义布局。
-        // 这里复用旧控制台那份 HotkeyBoard.managerDialog()（上移 / 下移 / 改键 / 删除 /
-        // 新建 / 自动排序），数据仍是同一份 HotkeyStore。列表为空时也画这一个按钮，
-        // 免得「全删光之后再也没有入口」。
+        // 管理入口（审查 v5 §9.2-B）：v223.27 把键盘页的组合键面板与编辑弹窗整块删掉后，
+        // 主壳里「新建 / 恢复默认 / 自动排序」只剩这一处。长按只管已有的那一颗，删光的兜底
+        // 也要靠它，所以列表为空时同样画。
         val act = ctx as? android.app.Activity
         if (act != null) {
             ApComponents.ActionButton(
-                text = ctx.getString(R.string.ui_hotkey_title_edit),
+                text = ctx.getString(R.string.ui_hotkey_title),
                 onClick = {
                     ApMotion.tap(ctx)
                     com.allperiph.ui.HotkeyBoard(

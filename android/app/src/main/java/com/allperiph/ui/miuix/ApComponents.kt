@@ -274,4 +274,53 @@ object ApComponents {
     fun NarrowButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
         TextButton(text = text, onClick = onClick, modifier = modifier)
     }
+
+    /**
+     * 折叠分组：**默认收起**的组头（标题 + 计数）与展开后的子项。
+     *
+     * 成宇 2026-11-02「音响开关应该有麦克风和音响的单独开关，他们应该分组，不打开不出现」：
+     * 四路音频方向开关按 麦克风 / 音响 分两组，默认收起，点组头展开才出现子开关；
+     * 2026-11-04 同一段整块上移到状态页（「把设置里的管麦克风和音响的也挪过来」），
+     * 两处都要用，就把实现从设置页的 private 挪进 Kit，只留一份。
+     *
+     * 折叠只动 UI、不动任何存储：子项的开关语义（[com.allperiph.ui.AudioDirections]）与
+     * 折叠无关；收起时组头用 [countText] 回显「已开 N / 2 路」，不展开也知道勾了几项。
+     */
+    @Composable
+    fun FoldGroup(
+        title: String,
+        countText: String,
+        open: Boolean,
+        onToggleOpen: () -> Unit,
+        content: @Composable () -> Unit,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleOpen)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(text = title, fontSize = 15.sp)
+                    Text(
+                        text = countText,
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+                Text(
+                    text = if (open) "\u25be" else "\u25b8",
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            if (open) {
+                HorizontalDivider()
+                content()
+            }
+        }
+    }
 }

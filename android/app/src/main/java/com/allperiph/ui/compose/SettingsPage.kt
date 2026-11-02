@@ -278,8 +278,177 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
+                Column {
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_keycap_style),
+                        summary = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS.getOrElse(kbStyle) { "" },
+                        items = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS,
+                        selectedIndex = kbStyle,
+                        onSelectedIndexChange = { i ->
+                            kbStyle = i
+                            com.allperiph.ui.KeyPref.setKeycapStyle(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_label_keycap_density),
+                        summary = com.allperiph.ui.KeyPref.DENSITY_LABELS.getOrElse(kbDensity) { "" },
+                        items = com.allperiph.ui.KeyPref.DENSITY_LABELS,
+                        selectedIndex = kbDensity,
+                        onSelectedIndexChange = { i ->
+                            kbDensity = i
+                            com.allperiph.ui.KeyPref.setDensity(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_keyrow_arrange),
+                        summary = com.allperiph.ui.KeyPref.LAYOUT_LABELS.getOrElse(kbLayout) { "" },
+                        items = com.allperiph.ui.KeyPref.LAYOUT_LABELS,
+                        selectedIndex = kbLayout,
+                        onSelectedIndexChange = { i ->
+                            kbLayout = i
+                            com.allperiph.ui.KeyPref.setLayout(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    // 如实说明生效时机：这三项在触控板构建键盘面板时读取，改了当场不会重排
+                    ApComponents.ValueRow(
+                        title = ctx.getString(R.string.ui_set_label_apply_when),
+                        value = ctx.getString(R.string.ui_set_value_kb_apply_when),
+                    )
+                }
+            }
+
 
             // ———————————————— 通用 ————————————————
+        }
+
+            var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
+
+            // ———————————————— 悬浮栏 ————————————————
+            // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
+            // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
+            // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
+        if (cat == 1) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
+                Column {
+                    ApComponents.SwitchRow(
+                        title = "显示悬浮球",
+                        summary = "关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响",
+                        checked = ballVisible,
+                        onCheckedChange = { on ->
+                            ballVisible = on
+                            val it = Intent(ctx, FloatingBallService::class.java)
+                            if (on) {
+                                ctx.startForegroundService(it)
+                            } else {
+                                ctx.stopService(it)
+                            }
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
+                    //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
+                    //    菜单项永远停在 DEFAULT 四项）——
+                    var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
+                    // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
+                    // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
+                    var ballItemsOpen by remember { mutableStateOf(false) }
+                    ApComponents.FoldGroup(
+                        title = ctx.getString(R.string.ui_ball_items_title),
+                        countText = "已勾选 " + ballItems.size + " / " + BallConfig.ALL.size,
+                        open = ballItemsOpen,
+                        onToggleOpen = { ballItemsOpen = !ballItemsOpen },
+                    ) {
+                    BallConfig.ALL.forEach { id ->
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(BallConfig.labelRes(id)),
+                            summary = if (id == BallConfig.QUIT) ctx.getString(R.string.ui_ball_item_quit_summary) else null,
+                            checked = ballItems.contains(id),
+                            onCheckedChange = { on ->
+                                val next = if (on) ballItems + id else ballItems - id
+                                // 兜底：全都不勾会让扇形菜单没有可点项，强制保留至少一项
+                                if (next.isNotEmpty()) {
+                                    ballItems = next
+                                    BallConfig.setEnabled(ctx, next)
+                                    // 悬浮球服务把菜单缓存在内存里，重启服务让扇形按新配置重建
+                                    ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                                    ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+                                }
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                    }
+                    }
+                    // 顺序调整：BallConfig 存的是**逗号串**（见其注释：Set 无序，顺序就是用户
+                    // 看到的扇形展开顺序）。成宇 2026-11-04「悬浮球的顺序直接加到下拉里」：
+                    // 原来每一项两枚 ↑↓ 按钮（12 项 = 24 枚按钮），把这一段拉得很长；
+                    // 改成每项一行下拉（第 1 位 … 第 N 位），选完即换位。
+                    if (ballItems.size > 1) {
+                        Text(
+                            text = ctx.getString(R.string.ui_ball_order_title),
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+                        )
+                        val posItems = ballItems.indices.map {
+                            ctx.getString(R.string.ui_ball_order_pos, it + 1)
+                        }
+                        ballItems.forEachIndexed { idx, id ->
+                            WindowDropdownPreference(
+                                title = ctx.getString(BallConfig.labelRes(id)),
+                                summary = ctx.getString(R.string.ui_ball_order_pos, idx + 1),
+                                items = posItems,
+                                selectedIndex = idx,
+                                onSelectedIndexChange = { target ->
+                                    if (target != idx) {
+                                        val next = ballItems.toMutableList()
+                                        val v = next.removeAt(idx)
+                                        next.add(target.coerceIn(0, next.size), v)
+                                        ballItems = next
+                                        BallConfig.setEnabled(ctx, next)
+                                        // 服务把菜单缓存在内存里，重启让扇形按新顺序重建
+                                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+                                    }
+                                    Feedback.haptic(ctx)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ———————————————— 快捷键模板 ————————————————
+            // 从旧 MainActivity 的设置页迁来：模板列表 + 应用 + 当前模板回显。
+            // 数据与旧页共用 HotkeyTemplates.ALL / HotkeyStore.loadTemplate|applyTemplate，不另立存储。
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl)) {
+                Column {
+                    // 成宇 2026-11-02「设置页太多了，能用下拉列表的不用」：
+                    // 原来「当前模板」一行 + 六个模板各一枚 ActionButton，七行占满一屏；
+                    // 模板是互斥枚举，改用下拉一个组件就装下全部（含未设置态回显）。
+                    val tplAll = com.allperiph.hid.HotkeyTemplates.ALL
+                    val tplKey = HotkeyStore.loadTemplate(ctx)
+                    val tplIdx = tplAll.indexOfFirst { it.key == tplKey }
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_sec_tpl),
+                        summary = if (tplIdx >= 0) {
+                            "${tplAll[tplIdx].name} · ${tplAll[tplIdx].desc}"
+                        } else {
+                            "未设置（默认）"
+                        },
+                        items = tplAll.map { "${it.name} · ${it.desc}" },
+                        selectedIndex = if (tplIdx >= 0) tplIdx else 0,
+                        onSelectedIndexChange = { i ->
+                            HotkeyStore.applyTemplate(ctx, tplAll[i])
+                            tplVersion++
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+            }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_general)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -337,138 +506,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
-        }
 
-            var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
-
-            // ———————————————— 悬浮栏 ————————————————
-            // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
-            // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
-            // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
-        if (cat == 1) {
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
-                Column {
-                    ApComponents.SwitchRow(
-                        title = "显示悬浮球",
-                        summary = "关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响",
-                        checked = ballVisible,
-                        onCheckedChange = { on ->
-                            ballVisible = on
-                            val it = Intent(ctx, FloatingBallService::class.java)
-                            if (on) {
-                                ctx.startForegroundService(it)
-                            } else {
-                                ctx.stopService(it)
-                            }
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
-                    //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
-                    //    菜单项永远停在 DEFAULT 四项）——
-                    var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
-                    // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
-                    // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
-                    var ballItemsOpen by remember { mutableStateOf(false) }
-                    FoldGroup(
-                        title = ctx.getString(R.string.ui_ball_items_title),
-                        countText = "已勾选 " + ballItems.size + " / " + BallConfig.ALL.size,
-                        open = ballItemsOpen,
-                        onToggleOpen = { ballItemsOpen = !ballItemsOpen },
-                    ) {
-                    BallConfig.ALL.forEach { id ->
-                        ApComponents.SwitchRow(
-                            title = ctx.getString(BallConfig.labelRes(id)),
-                            summary = if (id == BallConfig.QUIT) ctx.getString(R.string.ui_ball_item_quit_summary) else null,
-                            checked = ballItems.contains(id),
-                            onCheckedChange = { on ->
-                                val next = if (on) ballItems + id else ballItems - id
-                                // 兜底：全都不勾会让扇形菜单没有可点项，强制保留至少一项
-                                if (next.isNotEmpty()) {
-                                    ballItems = next
-                                    BallConfig.setEnabled(ctx, next)
-                                    // 悬浮球服务把菜单缓存在内存里，重启服务让扇形按新配置重建
-                                    ctx.stopService(Intent(ctx, FloatingBallService::class.java))
-                                    ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
-                                }
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                    }
-                    }
-                    // 顺序调整：BallConfig 存的是**逗号串**（见其注释：Set 无序，顺序就是用户
-                    // 看到的扇形展开顺序）。之前只有勾选、没有排序入口，等于这个设计意图用户碰不到。
-                    if (ballItems.size > 1) {
-                        Text(
-                            text = ctx.getString(R.string.ui_ball_order_title),
-                            fontSize = 12.sp,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-                        )
-                        ballItems.forEachIndexed { idx, id ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = "${idx + 1}. " + ctx.getString(BallConfig.labelRes(id)),
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (idx > 0) {
-                                    ApComponents.NarrowButton(text = "\u2191", onClick = {
-                                        val next = ballItems.toMutableList()
-                                        val t = next[idx]; next[idx] = next[idx - 1]; next[idx - 1] = t
-                                        ballItems = next
-                                        BallConfig.setEnabled(ctx, next)
-                                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
-                                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
-                                    })
-                                }
-                                if (idx < ballItems.lastIndex) {
-                                    ApComponents.NarrowButton(text = "\u2193", onClick = {
-                                        val next = ballItems.toMutableList()
-                                        val t = next[idx]; next[idx] = next[idx + 1]; next[idx + 1] = t
-                                        ballItems = next
-                                        BallConfig.setEnabled(ctx, next)
-                                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
-                                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
-                                    })
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ———————————————— 快捷键模板 ————————————————
-            // 从旧 MainActivity 的设置页迁来：模板列表 + 应用 + 当前模板回显。
-            // 数据与旧页共用 HotkeyTemplates.ALL / HotkeyStore.loadTemplate|applyTemplate，不另立存储。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl)) {
-                Column {
-                    // 成宇 2026-11-02「设置页太多了，能用下拉列表的不用」：
-                    // 原来「当前模板」一行 + 六个模板各一枚 ActionButton，七行占满一屏；
-                    // 模板是互斥枚举，改用下拉一个组件就装下全部（含未设置态回显）。
-                    val tplAll = com.allperiph.hid.HotkeyTemplates.ALL
-                    val tplKey = HotkeyStore.loadTemplate(ctx)
-                    val tplIdx = tplAll.indexOfFirst { it.key == tplKey }
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_set_sec_tpl),
-                        summary = if (tplIdx >= 0) {
-                            "${tplAll[tplIdx].name} · ${tplAll[tplIdx].desc}"
-                        } else {
-                            "未设置（默认）"
-                        },
-                        items = tplAll.map { "${it.name} · ${it.desc}" },
-                        selectedIndex = if (tplIdx >= 0) tplIdx else 0,
-                        onSelectedIndexChange = { i ->
-                            HotkeyStore.applyTemplate(ctx, tplAll[i])
-                            tplVersion++
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                }
-            }
 
             // ———————————————— 键盘外观 ————————————————
             // 为什么需要这一段：KeyPref 的三个偏好（键帽材质 / 键帽密度 / 键位排列）此前
@@ -478,132 +516,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             var kbStyle by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
             var kbDensity by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
             var kbLayout by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
-                Column {
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_main_label_keycap_style),
-                        summary = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS.getOrElse(kbStyle) { "" },
-                        items = com.allperiph.ui.KeyPref.KEYCAP_STYLE_LABELS,
-                        selectedIndex = kbStyle,
-                        onSelectedIndexChange = { i ->
-                            kbStyle = i
-                            com.allperiph.ui.KeyPref.setKeycapStyle(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_set_label_keycap_density),
-                        summary = com.allperiph.ui.KeyPref.DENSITY_LABELS.getOrElse(kbDensity) { "" },
-                        items = com.allperiph.ui.KeyPref.DENSITY_LABELS,
-                        selectedIndex = kbDensity,
-                        onSelectedIndexChange = { i ->
-                            kbDensity = i
-                            com.allperiph.ui.KeyPref.setDensity(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_main_label_keyrow_arrange),
-                        summary = com.allperiph.ui.KeyPref.LAYOUT_LABELS.getOrElse(kbLayout) { "" },
-                        items = com.allperiph.ui.KeyPref.LAYOUT_LABELS,
-                        selectedIndex = kbLayout,
-                        onSelectedIndexChange = { i ->
-                            kbLayout = i
-                            com.allperiph.ui.KeyPref.setLayout(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    // 如实说明生效时机：这三项在触控板构建键盘面板时读取，改了当场不会重排
-                    ApComponents.ValueRow(
-                        title = ctx.getString(R.string.ui_set_label_apply_when),
-                        value = ctx.getString(R.string.ui_set_value_kb_apply_when),
-                    )
-                }
-            }
-
         }
 
         if (cat == 2) {
 
-            // ———————————————— 音频方向 ————————————————
-            // applyMic / applySpeaker（USB UAC2 与 Wi‑Fi 两套）此前同样是零调用：模块启动时
-            // 读到的永远是默认的「双向全开」，用户没法只留一个方向。这里的口径：
-            // 模块**在跑**就热切换，**没跑**就只落盘（下次连接生效）—— 两种情况都必须记住选择。
-            // 模块实例由 AgentController 的注册表提供；服务没起时它是 null，这很正常，不是错误。
-            // 热切换与落盘的取舍收在 AudioDirections（四个方向各一条规则容易写漏）
-            var usbMic by remember { mutableStateOf(com.allperiph.audio.AudioModule.isMicOn(ctx)) }
-            var usbSpk by remember { mutableStateOf(com.allperiph.audio.AudioModule.isSpeakerOn(ctx)) }
-            var wifiMic by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isMicOn(ctx)) }
-            var wifiSpk by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isSpeakerOn(ctx)) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_audio_dir)) {
-                Column {
-                    // 成宇 2026-11-02「音响开关应该有麦克风和音响的单独开关，他们应该分组，
-                    // 不打开不出现」：四路方向开关按 麦克风 / 音响 分两组，默认收起，点组头
-                    // 展开才出现子开关；开关语义与 AudioDirections 完全不变，这里只是折叠 UI。
-                    var micOpen by remember { mutableStateOf(false) }
-                    var spkOpen by remember { mutableStateOf(false) }
-                    FoldGroup(
-                        title = ctx.getString(R.string.ui_set_audio_group_mic),
-                        countText = ctx.getString(
-                            R.string.ui_set_audio_group_count,
-                            listOf(usbMic, wifiMic).count { it },
-                        ),
-                        open = micOpen,
-                        onToggleOpen = { micOpen = !micOpen },
-                    ) {
-                        ApComponents.SwitchRow(
-                            title = ctx.getString(R.string.ui_set_label_usb_mic),
-                            summary = ctx.getString(R.string.ui_set_sum_usb_mic),
-                            checked = usbMic,
-                            onCheckedChange = { on ->
-                                usbMic = on
-                                com.allperiph.ui.AudioDirections.setUsbMic(ctx, on)
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                        ApComponents.SwitchRow(
-                            title = ctx.getString(R.string.ui_set_label_wifi_mic),
-                            summary = ctx.getString(R.string.ui_set_sum_wifi_mic),
-                            checked = wifiMic,
-                            onCheckedChange = { on ->
-                                wifiMic = on
-                                com.allperiph.ui.AudioDirections.setWifiMic(ctx, on)
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                    }
-                    FoldGroup(
-                        title = ctx.getString(R.string.ui_set_audio_group_spk),
-                        countText = ctx.getString(
-                            R.string.ui_set_audio_group_count,
-                            listOf(usbSpk, wifiSpk).count { it },
-                        ),
-                        open = spkOpen,
-                        onToggleOpen = { spkOpen = !spkOpen },
-                    ) {
-                        ApComponents.SwitchRow(
-                            title = ctx.getString(R.string.ui_set_label_usb_spk),
-                            summary = ctx.getString(R.string.ui_set_sum_usb_spk),
-                            checked = usbSpk,
-                            onCheckedChange = { on ->
-                                usbSpk = on
-                                com.allperiph.ui.AudioDirections.setUsbSpeaker(ctx, on)
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                        ApComponents.SwitchRow(
-                            title = ctx.getString(R.string.ui_set_label_wifi_spk),
-                            summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
-                            checked = wifiSpk,
-                            onCheckedChange = { on ->
-                                wifiSpk = on
-                                com.allperiph.ui.AudioDirections.setWifiSpeaker(ctx, on)
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                    }
-                }
-            }
             // ———————————————— 文件与传输 ————————————————
             // v223.28：「环境诊断」整块上移到状态页「连接状态」（同一份 EnvChecks 数据
             // 此前两页各显示一半，双源；成宇 2026-11-02「本应该在状态页的内容却在设置页」）。
@@ -1092,53 +1008,4 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     }
     }
 
-}
-/**
- * 音频方向的折叠分组头（成宇 2026-11-02「他们应该分组，不打开不出现」）：
- * 组头一行可点，收起时只有标题 + 「已开 n / 2 路」回显，子开关不出现，点开才出现。
- *
- * 为什么不做「总开关」：麦克风 / 音响各自横跨 USB 与 Wi-Fi 两路独立开关，再造一层总开关
- * 就得给 AudioDirections 添「总开关关了、分路还记着开」的组合语义；折叠分组只动 UI，
- * 不动任何存储。
- */
-@Composable
-private fun FoldGroup(
-    title: String,
-    countText: String,
-    open: Boolean,
-    onToggleOpen: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    val ctx = LocalContext.current
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onToggleOpen)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, fontSize = 15.sp)
-                Text(
-                    text = countText,
-                    fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Text(
-                text = ctx.getString(
-                    if (open) R.string.ui_set_audio_chevron_open
-                    else R.string.ui_set_audio_chevron_closed,
-                ),
-                fontSize = 13.sp,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        }
-        if (open) {
-            HorizontalDivider()
-            content()
-        }
-    }
 }
