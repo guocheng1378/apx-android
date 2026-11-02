@@ -1,6 +1,8 @@
 package com.allperiph.ui.compose
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -37,6 +40,8 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import com.allperiph.R
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -242,6 +247,13 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
     var shift by remember { mutableStateOf(false) }
     var caps by remember { mutableStateOf(false) }
 
+    // 键盘外观三项（键位排列 // 键帽密度 // 机械键帽）与设置页同一份 KeyPref ——
+    // 此前只被旧触控板页的键盘面板消费，主屏写死 QWERTY 调了没反应（v223.23 真机反馈）。
+    // 每次进入本页都现读：设置页改完切一次页签回来就是新样子，不要求重启。
+    val rows = com.allperiph.ui.KeyPref.letterRows(ctx)
+    val dens = com.allperiph.ui.KeyPref.density(ctx)
+    val mechanical = com.allperiph.ui.KeyPref.isMechanical(ctx)
+
     fun send(kc: Int, label: String, mod: Int = 0) {
         val usage = com.allperiph.ui.HidKeyMap.usageOf(kc)
         if (usage == 0) return
@@ -250,7 +262,15 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
         if (shift) shift = false
     }
 
-    fun letterRow(chars: String) = chars.map { it.toString() }
+    // 字母/数字/符号键按**键面文字**反查 usage（与旧触控板键盘面板同一条链路）：
+    // 键位排列换成 AZERTY/Dvorak 后，同一颗键发的仍是它键面字符的 usage。
+    fun sendLabel(label: String, shown: String) {
+        val usage = HidKeys.usageByLabel(label)
+        if (usage == 0) return
+        val m = (if (caps) 0x02 else 0) or (if (shift) 0x02 else 0)
+        HidKeys.combo(HidKeys.Combo(shown, m, usage))
+        if (shift) shift = false
+    }
 
     // 底部多让 bottomGap：浮动底栏盖在键盘下沿，最底行的按键必须仍可点
     Column(
@@ -266,67 +286,93 @@ private fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) 
                 )
             }
         }
-        // 数字行
-        KeyRow(letterRow("1234567890"), shift = shift, onKey = { label ->
-            val kc = if (label == "0") android.view.KeyEvent.KEYCODE_0
-            else android.view.KeyEvent.KEYCODE_1 + (label.toInt() - 1)
-            send(kc, label)
-        })
-        // qwertyuiop
-        KeyRow(letterRow("qwertyuiop"), shift = shift, onKey = { label ->
-            val upper = caps xor shift
-            send(android.view.KeyEvent.KEYCODE_A + (label[0] - 'a'), if (upper) label.uppercase() else label)
-        })
-        // asdfghjkl
-        KeyRow(letterRow("asdfghjkl"), shift = shift, onKey = { label ->
-            val upper = caps xor shift
-            send(android.view.KeyEvent.KEYCODE_A + (label[0] - 'a'), if (upper) label.uppercase() else label)
-        })
-        // ⇧ zxcvbnm ⌫
+        // 数字行（含 - =，随 KeyPref 行表）
+        KeyRow(rows[0], shift, dens, mechanical) { label -> sendLabel(label, label) }
+        // 字母三行随键位排列走（QWERTY // AZERTY // Dvorak）
+        val upper = caps xor shift
+        KeyRow(rows[1], shift, dens, mechanical) { label -> sendLabel(label, if (upper) label else label.lowercase()) }
+        KeyRow(rows[2], shift, dens, mechanical) { label -> sendLabel(label, if (upper) label else label.lowercase()) }
+        // ⇧ + 第三字母行 + ⌫（宽键保留：Shift//退格不在行表内）
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (shift) ctx.getString(R.string.ui_kb_shift_on) else "⇧", Modifier.weight(1.2f)) { shift = !shift }
-            "zxcvbnm".forEach { ch ->
-                KeyBox(ch.toString(), Modifier.weight(1f)) {
-                    val upper = caps xor shift
-                    send(android.view.KeyEvent.KEYCODE_A + (ch - 'a'), if (upper) ch.uppercase() else ch.toString())
+            WideKey(if (shift) ctx.getString(R.string.ui_kb_shift_on) else "⇧", Modifier.weight(1.2f), dens, mechanical) { shift = !shift }
+            rows[3].forEach { label ->
+                KeyBox(label, Modifier.weight(1f), dens, mechanical) {
+                    sendLabel(label, if (upper) label else label.lowercase())
                 }
             }
-            WideKey("⌫", Modifier.weight(1.2f)) { send(android.view.KeyEvent.KEYCODE_DEL, "⌫") }
+            WideKey("⌫", Modifier.weight(1.2f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_DEL, "⌫") }
         }
         // ⇪ Tab 空格 Enter
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            WideKey(if (caps) ctx.getString(R.string.ui_kb_caps_on) else "⇪", Modifier.weight(1f)) { caps = !caps }
-            WideKey("Tab", Modifier.weight(1f)) { send(android.view.KeyEvent.KEYCODE_TAB, "Tab") }
-            WideKey(ctx.getString(R.string.ui_kb_space), Modifier.weight(3f)) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
-            WideKey("Enter", Modifier.weight(1.4f)) { send(android.view.KeyEvent.KEYCODE_ENTER, "Enter") }
+            WideKey(if (caps) ctx.getString(R.string.ui_kb_caps_on) else "⇪", Modifier.weight(1f), dens, mechanical) { caps = !caps }
+            WideKey("Tab", Modifier.weight(1f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_TAB, "Tab") }
+            WideKey(ctx.getString(R.string.ui_kb_space), Modifier.weight(3f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_SPACE, "Space") }
+            WideKey("Enter", Modifier.weight(1.4f), dens, mechanical) { send(android.view.KeyEvent.KEYCODE_ENTER, "Enter") }
         }
     }
 }
 
 @Composable
-private fun KeyRow(keys: List<String>, shift: Boolean, onKey: (String) -> Unit) {
+private fun KeyRow(
+    keys: List<String>,
+    shift: Boolean,
+    dens: com.allperiph.ui.KeyPref.Density,
+    mechanical: Boolean,
+    onKey: (String) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        keys.forEach { k ->
-            if (k == "a" ) {
-                // 第二行起左侧留白，模拟键盘错位（视觉上更像实体键盘）
-            }
-            KeyBox(k, Modifier.weight(1f)) { onKey(k) }
-        }
+        keys.forEach { k -> KeyBox(k, Modifier.weight(1f), dens, mechanical) { onKey(k) } }
     }
 }
 
 @Composable
-private fun KeyBox(label: String, modifier: Modifier, onClick: () -> Unit) {
-    Box(
-        modifier = modifier
-            .padding(horizontal = 2.dp)
-            .height(44.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(MiuixTheme.colorScheme.surfaceContainer)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
-    ) { Text(text = label, fontSize = 15.sp) }
+private fun KeyBox(
+    label: String,
+    modifier: Modifier,
+    dens: com.allperiph.ui.KeyPref.Density,
+    mechanical: Boolean,
+    onClick: () -> Unit,
+) {
+    // 键帽密度：圆角/间距/字号/键高一起变（紧凑 0.92//标准 1.0//宽松 1.12 行高倍率）
+    val shape = RoundedCornerShape(dens.cornerDp.dp)
+    val h = (44f * dens.keyScale).dp
+    val bg = MiuixTheme.colorScheme.surfaceContainer
+    if (!mechanical) {
+        Box(
+            modifier = modifier
+                .padding(horizontal = dens.gapDp.dp)
+                .height(h)
+                .clip(shape)
+                .background(bg)
+                .clickable { onClick() },
+            contentAlignment = Alignment.Center,
+        ) { Text(text = label, fontSize = dens.textSize.sp) }
+        return
+    }
+    // 机械：底座当立体侧面，顶面按下时下沉 —— 与触控板页机械键帽同一档观感
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val side = lerp(bg, Color.Black, 0.35f)
+    Box(modifier.padding(horizontal = dens.gapDp.dp).height(h)) {
+        Box(Modifier.matchParentSize().clip(shape).background(side))
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(bottom = 3.dp)
+                .offset(y = if (pressed) 2.dp else 0.dp)
+                .clip(shape)
+                .background(bg)
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { Text(text = label, fontSize = dens.textSize.sp) }
+    }
 }
 
 @Composable
-private fun WideKey(label: String, modifier: Modifier, onClick: () -> Unit) = KeyBox(label, modifier, onClick)
+private fun WideKey(
+    label: String,
+    modifier: Modifier,
+    dens: com.allperiph.ui.KeyPref.Density,
+    mechanical: Boolean,
+    onClick: () -> Unit,
+) = KeyBox(label, modifier, dens, mechanical, onClick)

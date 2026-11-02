@@ -297,7 +297,7 @@
     <string name="ui_set_sec_keyboard_look">键盘外观</string>
     <string name="ui_set_label_keycap_density">键帽密度</string>
     <string name="ui_set_label_apply_when">生效时机</string>
-    <string name="ui_set_value_kb_apply_when">重开触控板后生效（自定义布局在键盘面板内编辑）</string>
+    <string name="ui_set_value_kb_apply_when">重进键盘页或重开触控板后生效（自定义布局在触控板键盘面板内编辑）</string>
     <string name="ui_set_sec_audio_dir">音频方向</string>
     <string name="ui_set_label_usb_mic">USB 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_usb_mic">走 UAC2 声卡；运行中立即生效，否则下次连接生效</string>
