@@ -117,7 +117,7 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
 
     Column(
         modifier = Modifier.fillMaxSize()
-            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp + bottomGap),
+            .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp + bottomGap),
     ) {
         // —— 关闭行：只在悬浮球面板形态画（主屏键盘页 onClose = null，一个按钮都不占位）——
         if (onClose != null) {
@@ -133,7 +133,7 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
         Row(
             modifier = Modifier.fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(vertical = 4.dp),
+                .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             KB_TABS.forEachIndexed { i, res ->

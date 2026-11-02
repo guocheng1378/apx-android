@@ -367,12 +367,15 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
                     //    菜单项永远停在 DEFAULT 四项）——
                     var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
-                    Text(
-                        text = ctx.getString(R.string.ui_ball_items_title),
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
-                    )
+                    // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
+                    // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
+                    var ballItemsOpen by remember { mutableStateOf(false) }
+                    FoldGroup(
+                        title = ctx.getString(R.string.ui_ball_items_title),
+                        countText = "已勾选 " + ballItems.size + " / " + BallConfig.ALL.size,
+                        open = ballItemsOpen,
+                        onToggleOpen = { ballItemsOpen = !ballItemsOpen },
+                    ) {
                     BallConfig.ALL.forEach { id ->
                         ApComponents.SwitchRow(
                             title = ctx.getString(BallConfig.labelRes(id)),
@@ -391,6 +394,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 Feedback.haptic(ctx)
                             },
                         )
+                    }
                     }
                     // 顺序调整：BallConfig 存的是**逗号串**（见其注释：Set 无序，顺序就是用户
                     // 看到的扇形展开顺序）。之前只有勾选、没有排序入口，等于这个设计意图用户碰不到。
@@ -517,6 +521,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 }
             }
 
+        }
+
+        if (cat == 2) {
+
             // ———————————————— 音频方向 ————————————————
             // applyMic / applySpeaker（USB UAC2 与 Wi‑Fi 两套）此前同样是零调用：模块启动时
             // 读到的永远是默认的「双向全开」，用户没法只留一个方向。这里的口径：
@@ -534,7 +542,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // 展开才出现子开关；开关语义与 AudioDirections 完全不变，这里只是折叠 UI。
                     var micOpen by remember { mutableStateOf(false) }
                     var spkOpen by remember { mutableStateOf(false) }
-                    AudioGroup(
+                    FoldGroup(
                         title = ctx.getString(R.string.ui_set_audio_group_mic),
                         countText = ctx.getString(
                             R.string.ui_set_audio_group_count,
@@ -564,7 +572,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             },
                         )
                     }
-                    AudioGroup(
+                    FoldGroup(
                         title = ctx.getString(R.string.ui_set_audio_group_spk),
                         countText = ctx.getString(
                             R.string.ui_set_audio_group_count,
@@ -596,12 +604,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     }
                 }
             }
-        }
-
             // ———————————————— 文件与传输 ————————————————
             // v223.28：「环境诊断」整块上移到状态页「连接状态」（同一份 EnvChecks 数据
             // 此前两页各显示一半，双源；成宇 2026-11-02「本应该在状态页的内容却在设置页」）。
-        if (cat == 2) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files)) {
                 Column {
                     ApComponents.ActionButton(
@@ -1097,7 +1102,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
  * 不动任何存储。
  */
 @Composable
-private fun AudioGroup(
+private fun FoldGroup(
     title: String,
     countText: String,
     open: Boolean,
