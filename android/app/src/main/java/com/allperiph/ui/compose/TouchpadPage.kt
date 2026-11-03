@@ -415,7 +415,14 @@ private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = 
             HidKeys.combo(combo)
             HotkeyStore.bump(ctx, combo)
         },
-        modifier = modifier,
+        modifier = modifier
+            // 按下即震 + 长按确认（成宇 2026-11-04「长按按键没震动」）：芯片的 onClick 里
+            // 已经有 ApMotion.tap 负责抬手那一下，这里接上按下态手势 —— 但会变成
+            // 「按下震一次 + 抬手再震一次」。所以按下态只在**长按成立**时才给震动
+            // （apKeyFeel 的 downFeel 关掉按下那一下），这样：
+            //   轻点 → 抬手一次震动（原有行为，不变）；
+            //   长按 → 400ms 时确认一下，松手按原有路径再一下，用户能明确感到「按住有反应」。
+            .apKeyFeel(downFeel = false),
         fx = chipFx,
     )
 }

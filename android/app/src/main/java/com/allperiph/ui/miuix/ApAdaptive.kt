@@ -1,6 +1,5 @@
 package com.allperiph.ui.miuix
 
-import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.platform.LocalConfiguration
@@ -57,12 +56,20 @@ fun rememberApAdaptiveLayout(): ApAdaptiveLayout {
         cfg.screenWidthDp >= 600 -> ApWidthClass.Medium
         else -> ApWidthClass.Compact
     }
+    // 横屏判定（成宇 2026-11-04「横屏时有时低栏不会到右上角」）：
+    // 此前读 `cfg.orientation`。这个字段由系统在**配置更新**时写入，而本壳的 Activity
+    // 声明了 `configChanges=orientation|screenSize`，旋转时**不重建**、只走 onConfigurationChanged。
+    // 真机上出现过「已经横着拿了，配置还报 portrait」的时序（旋转动画未完成 / 多显示环境
+    // 下配置回写滞后），此时低栏就停在底部居中 —— 用户看到的就是「有时不会到右上角」。
+    // 窗口宽高是同一份配置里**自洽的**两个数：宽 > 高就一定是横屏版式，
+    // 不依赖那个可能滞后的 orientation 字段（与 landscape 定义「宽 > 高」一致）。
+    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
     return ApAdaptiveLayout(
         widthClass = cls,
         width = w,
         height = h,
-        landscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE,
+        landscape = isLandscape,
         twoPane = cfg.screenWidthDp >= 600,
-        padCutout = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE,
+        padCutout = isLandscape,
     )
 }

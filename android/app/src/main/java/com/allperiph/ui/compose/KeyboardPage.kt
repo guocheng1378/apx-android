@@ -148,7 +148,11 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                     color = if (tab == i) MiuixTheme.colorScheme.primary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     // 页签也是「一处可点面」：与键帽同一套特效 + 震动（成宇 2026-11-04）
-                    modifier = Modifier.apPress(fx, MiuixTheme.colorScheme.primary) { tab = i },
+                    // downFeel = true：按下即震已由 apKeyFeel 给出，onClick 只出声，
+                    // 否则页签会跟键帽一样「一次点击震两下」。
+                    modifier = Modifier
+                        .apKeyFeel()
+                        .apPress(fx, MiuixTheme.colorScheme.primary, { tab = i }, downFeel = true),
                 )
             }
         }
@@ -413,7 +417,8 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
             .padding(horizontal = 4.dp, vertical = 2.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MiuixTheme.colorScheme.surfaceContainer)
-            .apPress(fx, MiuixTheme.colorScheme.primary, onClick),
+            .apKeyFeel()
+            .apPress(fx, MiuixTheme.colorScheme.primary, onClick, downFeel = true),
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center)
@@ -433,7 +438,8 @@ private fun ModKey(
 ) {
     // 修饰键同样要震要响（与 KeyBox 同一套 Feedback 口径）
     val host = LocalView.current
-    val press: () -> Unit = { Feedback.tap(host); onClick() }
+    // 震动在按下那一刻由 [apKeyFeel] 给过了，这里只出声（见 Feedback.release 的说明）
+    val press: () -> Unit = { Feedback.release(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
     // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
@@ -450,7 +456,8 @@ private fun ModKey(
     if (keycap == KeyPref.KEYCAP_GLASS) {
         // 液态玻璃：半透明键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(
-            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
+            // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
+            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
             shape = shape,
             label = label,
             textSize = dens.textSize.sp,
@@ -477,6 +484,7 @@ private fun ModKey(
                 // 档当时传对了，所以只有这两档看得到效果）。
                 // indication = null：机械档同样不带水波纹，三档观感统一由 [keyFx] 表达。
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
@@ -493,6 +501,7 @@ private fun ModKey(
                 .clip(shape)
                 .background(bg)
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
@@ -518,7 +527,8 @@ private fun KeyBox(
     // 最终都收敛到 KeyBox / ModKey / MediaTile 这三个组件，在这里统一接回，
     // 档位仍由设置页的 ApFeel 控制（关 / 轻 / 标准 / 强，音效 关 / 点击 / 键盘 / 机械轴）。
     val host = LocalView.current
-    val press: () -> Unit = { Feedback.tap(host); onClick() }
+    // 震动在按下那一刻由 [apKeyFeel] 给过了，这里只出声（见 Feedback.release 的说明）
+    val press: () -> Unit = { Feedback.release(host); onClick() }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
     // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
@@ -533,7 +543,8 @@ private fun KeyBox(
     if (keycap == KeyPref.KEYCAP_GLASS) {
         // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(
-            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
+            // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
+            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
             shape = shape,
             label = label,
             textSize = dens.textSize.sp,
@@ -555,6 +566,7 @@ private fun KeyBox(
                 // ★ 同上：不把 interactionSource 传进来，[rememberKeyFx] 就收不到按压事件，
                 // 特效永远不画。这是「键盘动效没有」的真正原因。
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
@@ -571,6 +583,7 @@ private fun KeyBox(
                 .clip(shape)
                 .background(bg)
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
