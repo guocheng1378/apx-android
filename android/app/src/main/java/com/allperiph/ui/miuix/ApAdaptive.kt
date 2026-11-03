@@ -3,6 +3,8 @@ package com.allperiph.ui.miuix
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -49,27 +51,43 @@ data class ApAdaptiveLayout(
 @Composable
 fun rememberApAdaptiveLayout(): ApAdaptiveLayout {
     val cfg = LocalConfiguration.current
-    val w = cfg.screenWidthDp.dp
-    val h = cfg.screenHeightDp.dp
+    // 横屏判定（成宇 2026-11-04「横屏时有时低栏不会到右上角」）：
+    // v223.29.7 已把 `cfg.orientation` 换成 `cfg.screenWidthDp > cfg.screenHeightDp`，
+    // 但两个字段都还是 Configuration 的内容。本壳 Activity 声明了
+    // configChanges=orientation|screenSize，旋转**不重建**；真机复现（竖屏启动 →
+    // 转横屏 → uiautomator dump）显示旋转瞬间低栏"底部居中"居中的已经是**新宽**，
+    // 而判定仍按竖屏走 —— 即 Compose 的测量拿到了新窗口、LocalConfiguration 的
+    // 回写滞后一拍，宽高比较自然就错。这就是「有时不会到右上角」的完整根因。
+    //
+    // 所以判定改用 Compose 自己观察到的窗口实测尺寸：LocalWindowInfo.containerSize
+    // 是 snapshot state，onSizeChanged 随 relayout 即时写入，与布局测量**同源**，
+    // 不等 Configuration 回写。首组合前它还是 0×0（尚未首帧布局），此时退回
+    // cfg —— 冷启动本来就用首配置建窗，两者一致。
+    val win = LocalWindowInfo.current.containerSize
+    val density = LocalDensity.current
+    val w: Dp
+    val h: Dp
+    if (win.width > 0 && win.height > 0) {
+        w = with(density) { win.width.toDp() }
+        h = with(density) { win.height.toDp() }
+    } else {
+        w = cfg.screenWidthDp.dp
+        h = cfg.screenHeightDp.dp
+    }
     val cls = when {
-        cfg.screenWidthDp >= 840 -> ApWidthClass.Expanded
-        cfg.screenWidthDp >= 600 -> ApWidthClass.Medium
+        w.value >= 840 -> ApWidthClass.Expanded
+        w.value >= 600 -> ApWidthClass.Medium
         else -> ApWidthClass.Compact
     }
-    // 横屏判定（成宇 2026-11-04「横屏时有时低栏不会到右上角」）：
-    // 此前读 `cfg.orientation`。这个字段由系统在**配置更新**时写入，而本壳的 Activity
-    // 声明了 `configChanges=orientation|screenSize`，旋转时**不重建**、只走 onConfigurationChanged。
-    // 真机上出现过「已经横着拿了，配置还报 portrait」的时序（旋转动画未完成 / 多显示环境
-    // 下配置回写滞后），此时低栏就停在底部居中 —— 用户看到的就是「有时不会到右上角」。
-    // 窗口宽高是同一份配置里**自洽的**两个数：宽 > 高就一定是横屏版式，
-    // 不依赖那个可能滞后的 orientation 字段（与 landscape 定义「宽 > 高」一致）。
-    val isLandscape = cfg.screenWidthDp > cfg.screenHeightDp
+    // 横屏 = 窗口实测宽 > 高：与布局测量同源、永不滞后；「宽 > 高」与
+    // [ApAdaptiveLayout.landscape] 的语义自洽。
+    val isLandscape = w > h
     return ApAdaptiveLayout(
         widthClass = cls,
         width = w,
         height = h,
         landscape = isLandscape,
-        twoPane = cfg.screenWidthDp >= 600,
+        twoPane = w.value >= 600,
         padCutout = isLandscape,
     )
 }
