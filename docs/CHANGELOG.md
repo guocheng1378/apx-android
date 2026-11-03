@@ -49,12 +49,47 @@
   （材质决定形状，特效决定按下画什么）。
 - 实现收在 `KeyFx.kt` 一处：`rememberKeyFx` 驱动一次按压进度，`keyFx` 画出来。
   「动效」档位为关闭时特效只做一帧（0ms tween），直接落终态。
+- **修掉「键盘动效没有」（成宇 2026-11-03 真机反馈）**：`KeyBox` / `ModKey` 的
+  **平面档**用的是无参 `Modifier.clickable { press() }`，而 `rememberKeyFx` 的进度来自
+  `interaction.collectIsPressedAsState()`。无参 `clickable` 会各自 new 一个内部
+  `MutableInteractionSource`，组件里那个 `interaction` 永远收不到 `PressInteraction`
+  → 进度恒为 0 → 涟漪 / 高光 / 弹跳**三档全都画不出来**。机械档与液态玻璃档当时传的是
+  同一个 source（`interactionSource = interaction, indication = null`），所以只有这两档
+  能看到效果；默认档恰是平面档，用户看到的就是「特效完全没生效」。
+  两处平面分支已改为传入同一个 `interactionSource`（并按机械档口径把默认水波纹一并
+  关掉，三档观感统一由 `keyFx` 表达）。
 
 ### 震动归位（第 5 条：「震动没有映射过来，映射到外设模式里了」）
 
 - 「震动」下拉从「主题与外观 → 动效」搬到「快捷键与外设 → 通用」：音效是**出声**
   （外观体验），震动是**按键手感**（手机怎么响应输入），与光标锁定 / 手势遮蔽同类。
 - 上一轮只写了「已挪到」的注释、代码没动（注释与实现不符），本轮真搬。
+
+### 震动全丢（成宇 2026-11-03：「震动也没有，还有其他震动也没了」）
+
+**这不是「位置放错」，是振动被系统整条丢掉了。** 真机取证（2509FPN0BC / HyperOS 4）：
+
+- `settings get system haptic_feedback_enabled` = **0**，由此 `dumpsys vibrator_manager`
+  的 `VibrationIntensities` 里 **UNKNOWN = OFF、TOUCH = OFF、IME = OFF**（其余 MEDIUM）；
+- 我们 App 的全部振动条目：`usage: TOUCH` 共 **62 条，全部 `ignored_for_settings`**
+  ——一条都没真正执行；机械档的 waveform 落 `usage: UNKNOWN`，同样被丢；
+- 只有 `com.miui.home` 的 `HARDWARE_FEEDBACK` 条目是 `finished`（该档 = MEDIUM）。
+
+根因：`vib.vibrate(effect)` 不带属性时，属性默认 `USAGE_UNKNOWN`（部分机型推导成
+`USAGE_TOUCH`），而这两档恰好被系统开关判成 OFF → 静默丢弃。**仓库里没有任何代码写过
+这个系统开关**（全仓 `rg` 为空），所以不是本版改坏的；它是历史行为，只是这轮把
+「设置页里选了『强』照样不震」暴露出来了。
+
+修法（两处，收口到 `Feedback.haptic`）：
+
+- `Feedback.haptic`：`createOneShot` 与 `createWaveform` 都显式带
+  `VibrationAttributes.createForUsage(USAGE_HARDWARE_FEEDBACK)`（API 33 公开 API，
+  `computeSdk` 35 可直接调）。语义就是「硬件/按键反馈」，比 UNKNOWN 准确，也不再依赖
+  ROM 怎么推导；该档在本机是 MEDIUM。
+- `ScreenActivity.buzz`（副屏遥控页点按）：仓库里**第二处**自己拿 `Vibrator` 的地方
+  （`Feedback` 的 KDoc 写「全项目只有这一处」，此处是漏网之鱼），既不带属性、又绕开
+  设置页档位（选「关」照样震）。已改为直接调 `Feedback.haptic`，全项目 Vibrator
+  调用点收敛到一处。
 
 ### 日志复制（第 6 条：「日志要加复制」）
 
@@ -80,16 +115,22 @@
 - **新增的选项文案一律进 `strings.xml`**：`KeyPref` 里那两处 Kotlin 列表换成
   `keycapStyleLabels(ctx)` / `effectLabels(ctx)` 按档位取 `R.string`，设置页两处下拉
   跟着改用（下拉的 `summary` 与 `items` 取自同一函数，不会「显示 A 实际是 B」）。
-  顺手把背景段的老文案一并资源化 —— 净减 6 处，`TEXT_BASELINE` 652 → **646**
-  （按实测值收紧锁住战果，不是往上放）。
+  顺手把背景段的老文案一并资源化 —— 净减 5 处，`TEXT_BASELINE` 652 → **647**
+  （按实测值收紧锁住战果，不是往上放；第三轮按真远端 `origin/master` 为 652 复核后定 647，
+  避免出现「本地基线比远端松」这种会让 CI 变红的偏差）。
 - 11 个静态关卡全绿。
 
 ### 已知未验证（真机项一律未验）
 
 背景图与动态背景在主壳四页的实际观感、模块皮肤切页是否真的换色、液态玻璃键帽与三档特效
 的观感与开销、震动档位在新分组的落点、日志复制的内容与条数、触摸板空白长按与「＋」格子的
-手势是否与键位格抢事件。另：本版 `TEXT_BASELINE` 由 652 收紧到 646（选项文案进了
-`strings.xml`），但存量仍有 646 处，债在继续涨，宜专项还。
+手势是否与键位格抢事件。另：本版 `TEXT_BASELINE` 由 652 收紧到 647（选项文案进了
+`strings.xml`），存量仍有 647 处，债在继续涨，宜专项还。
+
+> 震动与按键特效两条在上一版（`49a4b049` 那轮）**已定位根因并修**（见上文「震动全丢」
+> 与「按键特效」两段），但**修完的构建尚未装机复验** —— 需要看到 `dumpsys vibrator_manager`
+> 里本 App 出现 `usage: HARDWARE_FEEDBACK | finished`（而非 `TOUCH | ignored_for_settings`），
+> 以及平面档键帽按下能画出涟漪 / 高光 / 弹跳，才算真验过。
 
 ## v223.29.3（2026-11-03）
 

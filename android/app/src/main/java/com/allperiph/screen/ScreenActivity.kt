@@ -170,14 +170,23 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
     private var lastTapPxX = 0f; private var lastTapPxY = 0f
     private var downNormX = 0; private var downNormY = 0
 
-    private fun buzz(ms: Long) {
-        val vib = getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
-        runCatching {
-            if (android.os.Build.VERSION.SDK_INT >= 26)
-                vib.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-            else @Suppress("DEPRECATION") vib.vibrate(ms)
-        }
-    }
+    /**
+     * 点按触觉（副屏遥控页）。成宇 2026-11-03「还有其他震动也没了」：这条路是仓库里
+     * **第二处**自己拿 Vibrator 的地方（`ui/Feedback.kt` 的 KDoc 里写着「全项目只有
+     * 一处真正的 Vibrator」—— 此处是那个说明的漏网之鱼），它有两个毛病：
+     *
+     *  1. 不带 `VibrationAttributes`：`vibrate(effect)` 会落到 `USAGE_UNKNOWN`（部分机型
+     *     推导成 `USAGE_TOUCH`）。真机（2509FPN0BC / HyperOS 4）实测这两档都被系统
+     *     强度档判成 **OFF**，于是提交直接被丢 —— 我们 App 的 62 条 `usage: TOUCH`
+     *     记录**全是 `ignored_for_settings`**，一条都没真正执行过。
+     *     修法与 `Feedback.haptic` 一致：显式声明 `USAGE_HARDWARE_FEEDBACK`。
+     *  2. 它**绕开了设置页的「震动」档位**（`ApFeel.hapticIndex`），选了「关」照样震。
+     *
+     * 统一改走 [com.allperiph.ui.Feedback.haptic]：振幅与时长由档位表给（副屏这几处是
+     * 「按下拖动 / 双指右键」的轻反馈，比原先各自硬写 10~20ms 更克制，也让设置页的
+     * 「震动」档位第一次真正管到副屏 —— 此前选「关」这里照样震）。
+     */
+    private fun buzz() = com.allperiph.ui.Feedback.haptic(this)
 
     /** 以 (nx, ny) 发一次左键点击（按下+抬起同坐标，PC 光标不漂移） */
     private fun sendClick(cli: com.allperiph.wireless.TvControllerClient?, nx: Int, ny: Int) {
@@ -251,7 +260,7 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
                             moved && !scrolled
                         ) {
                             dragMode = true
-                            buzz(15)
+                            buzz()
                             ControlTarget.controlClient?.touch(
                                 MediaOut.TOUCH_DOWN, MediaOut.BTN_LEFT, lastXNorm, lastYNorm
                             )
@@ -316,7 +325,7 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
                             // 双指点按（几乎没位移）= 右键点击
                             cli?.touch(MediaOut.TOUCH_DOWN, MediaOut.BTN_RIGHT, x, y)
                             cli?.touch(MediaOut.TOUCH_UP, MediaOut.BTN_RIGHT, x, y)
-                            buzz(12)
+                            buzz()
                         }
                         twoFinger = false
                         true
@@ -343,12 +352,12 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
                                 lastTapUpAt = 0L
                                 sendClick(cli, downNormX, downNormY)
                                 sendClick(cli, downNormX, downNormY)
-                                buzz(20)
+                                buzz()
                             } else {
                                 pendingTap?.let { view.removeCallbacks(it) }
                                 pendingTap = Runnable {
                                     sendClick(ControlTarget.controlClient, downNormX, downNormY)
-                                    buzz(10)
+                                    buzz()
                                     pendingTap = null
                                 }
                                 view.postDelayed(pendingTap, 250)

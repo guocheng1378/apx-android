@@ -468,7 +468,14 @@ private fun ModKey(
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { press() }
+                // ★ 必须把**同一个** interactionSource 交给 clickable（成宇 2026-11-03
+                // 「键盘动效没有」）：[rememberKeyFx] 的按压进度来自
+                // `interaction.collectIsPressedAsState()`。此前这里用无参 `clickable{}`，
+                // Compose 会各自 new 一个内部 source —— 上面这个 `interaction` 永远收不到
+                // Press，进度恒为 0，涟漪 \/ 高光 \/ 弹跳三档全部画不出来（机械档与液态玻璃
+                // 档当时传对了，所以只有这两档看得到效果）。
+                // indication = null：机械档同样不带水波纹，三档观感统一由 [keyFx] 表达。
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
@@ -544,7 +551,9 @@ private fun KeyBox(
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { press() }
+                // ★ 同上：不把 interactionSource 传进来，[rememberKeyFx] 就收不到按压事件，
+                // 特效永远不画。这是「键盘动效没有」的真正原因。
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }

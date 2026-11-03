@@ -3,6 +3,7 @@ package com.allperiph.ui
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
+import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.View
@@ -30,6 +31,28 @@ object Feedback {
     fun haptic(v: View) = haptic(v.context)
 
     /**
+     * 按键类触觉的属性：**必须显式给**，否则振动会被系统静默丢掉（成宇 2026-11-03
+     * 「震动也没有，还有其他震动也没了」）。
+     *
+     * 真机取证（2509FPN0BC / HyperOS 4）：
+     *   · `settings get system haptic_feedback_enabled` = `0`；
+     *   · 由此 `dumpsys vibrator_manager` 的 `VibrationIntensities` 里
+     *     **UNKNOWN = OFF、TOUCH = OFF、IME = OFF**（其余 MEDIUM）；
+     *   · 本 App 的历史条目：`usage: TOUCH` 共 62 条**全部 `ignored_for_settings`**
+     *     （一条都没真正执行），机械档的 waveform 则落 `usage: UNKNOWN`，同样被丢。
+     *
+     * 根因是 `vibrate(effect)` 不带属性时，系统按 `USAGE_UNKNOWN`（部分机型推导成
+     * `USAGE_TOUCH`）判档，而这两档恰好被用户的系统开关关了 —— 于是「设置页里选了
+     * 『强』照样不震」。仓库里没有任何代码写过那个系统开关，所以这不是我们改坏的。
+     *
+     * 修法：本 App 的档位由**设置页的「震动」下拉**表达，系统开关不该再叠一层否决 ——
+     * 显式声明 `USAGE_HARDWARE_FEEDBACK`（「硬件/按键反馈」语义，与按键振动完全对口，
+     * 且该档在本机是 MEDIUM = 开）。语义比 UNKNOWN 准确，也不再依赖哪个 ROM 怎么推导。
+     */
+    private fun attrs(): VibrationAttributes =
+        VibrationAttributes.createForUsage(VibrationAttributes.USAGE_HARDWARE_FEEDBACK)
+
+    /**
      * 只震动 —— **没有 View 的场景**（模块层，如触控板手势）走这个重载。
      *
      * ★ 全项目只有这一处真正调 Vibrator，别处不要再自己拿 Vibrator：
@@ -52,6 +75,7 @@ object Feedback {
         if (!vib.hasVibrator()) return
         // 防御：按键反馈属非关键路径，个别 ROM 即便声明了 VIBRATE 仍可能抛
         // SecurityException，绝不能让它把整个页面带崩（曾实测点页签闪退）。
+        val attributes = attrs()
         runCatching {
             if (KeyPref.isMechanical(context)) {
                 // 机械键帽：三段波形（按下冲击 → 触点停顿 → 回弹），模拟实体轴的段落感
@@ -60,10 +84,11 @@ object Feedback {
                         longArrayOf(0, 10, 20, 6),
                         intArrayOf(0, amp, 0, amp / 2),
                         -1,
-                    )
+                    ),
+                    attributes,
                 )
             } else {
-                vib.vibrate(VibrationEffect.createOneShot(ms, amp))
+                vib.vibrate(VibrationEffect.createOneShot(ms, amp), attributes)
             }
         }
     }
