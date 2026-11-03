@@ -357,9 +357,19 @@ class ApShellActivity : ComponentActivity() {
                         )
                         // 成宇 2026-11-03「键盘页可以再往上点」：横屏 96dp 的顶部让位是给
                         // **右上角**那枚低栏留的，但低栏只占右半屏，键盘页整块跟着下移 96dp
-                        // 白白丢掉一截高度。这里横屏只留 24dp（页签行仍在低栏左侧，不会被压住）。
+                        // 白白丢掉一截高度。这里横屏只留 40dp（页签行仍在低栏左侧，不会被压住）。
+                        //
+                        // ⚠️ 2026-11-04 成宇「横屏时低栏挡了两个按键不能用」的修正：
+                        // 之前这里是 24dp，低栏胶囊的**下沿落在 58dp**（8dp 顶部间隙 + 48dp 胶囊
+                        // + 描边），而修饰键排（Ctrl/Alt/Shift/Win）的顶部只到 54dp ——
+                        // 真机 uiautomator 实测低栏胶囊 [1780,30]-[2464,174] 与 Shift
+                        // [1319,162]-[1911,319] 重叠 12px、与 Win [1941,162]-[2533,319] 重叠更多，
+                        // 用户看到的就是「Shift / Win 被低栏压着，点不动」。
+                        // 40dp 让修饰键排的顶部落到 40 + 30（页签行）= 70dp > 低栏下沿 56dp，
+                        // 留出 14dp 呼吸；40 - 24 = 16dp 的代价摊到 6 行键位，每行只少 2.7dp，
+                        // 仍在 48dp 命中下限之上（横屏 400dp 高时每行约 48dp）。
                         2 -> ApKeyboardPage(
-                            topBar = if (landscape) 24.dp else topGap,
+                            topBar = if (landscape) 40.dp else topGap,
                             bottomGap = bottomGap,
                         )
                         else -> SettingsPage(
@@ -490,6 +500,14 @@ class ApShellActivity : ComponentActivity() {
                                 var lifted = false
                                 while (true) {
                                     val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                    // ⚠️ 长按只在**单指**下成立（成宇 2026-11-04「挡了两个按键
+                                    // 不能用」）：这根 pointerInput 挂在低栏外层 Box 上，且
+                                    // `requireUnconsumed = false` —— 横屏低栏的命中区正好贴着修饰键
+                                    // 排，键盘按键的按下它**也会收到**（不消费，键帽照常能按）。
+                                    // 于是两根手指同时按 Shift + Win 时，这里会误判成长按并在
+                                    // 650ms 后弹快捷入口，把按键序列打断。长按低栏的语义本来就是
+                                    // 「一个手指按住」，第二根手指落下即放弃。
+                                    if (ev.changes.count { it.pressed } > 1) { lifted = true; break }
                                     val c = ev.changes.firstOrNull { it.id == down.id }
                                         ?: ev.changes.firstOrNull()
                                     if (c == null) continue
@@ -529,6 +547,13 @@ class ApShellActivity : ComponentActivity() {
                     horizontalAlignment = barHorizontal,
                     modifier = Modifier
                         .widthIn(max = 440.dp)
+                        // 低栏页签的「按下即震 + 长按确认」（成宇 2026-11-04「长按按键没震动」）：
+                        // 挂在 FloatingNavigationBar 根上，四个页签一起生效 —— 与键帽同一套手势，
+                        // 一次只震一下（页签自身没有 Feedback.tap，不会重复）。
+                        // ⚠️ 与上面那根 pointerInput 的分工：那根管「长按低栏弹快捷入口」并会
+                        // 在成立后 consume，也负责长按那一下震动；这根只给「按下即震」，
+                        // 长按确认关掉（longPressFeel = false），免得按住低栏震两下。
+                        .apKeyFeel(longPressFeel = false)
                         .then(
                             if (navGlass) {
                                 Modifier.textureBlur(
