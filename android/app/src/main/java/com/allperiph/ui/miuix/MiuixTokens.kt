@@ -2,7 +2,10 @@ package com.allperiph.ui.miuix
 
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -40,10 +43,17 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
  */
 object MiuixTokens {
 
-    /** 皮肤强调色（ApSkin.Skin.accent）覆盖；null = 用 [ApPalette] 解析出的当前强调色。
-     *  逐页迁移（触控板 / 键盘 / 快捷键）时由调用方按该模块的皮肤写入。 */
-    @Volatile
-    var skinAccent: Color? = null
+/**
+     * 皮肤强调色（[com.allperiph.ui.ApSkin]）覆盖；null = 用 [ApPalette] 解析出的当前强调色。
+     *
+     * ## 为什么是 Compose 状态而不是 @Volatile 普通字段
+     * 皮肤是**按模块**选的（触控板/键盘/快捷键三套），而主壳四个页共用一份
+     * Miuix 配色 —— 「切到哪一页就用哪一套皮肤」要求色值变化能让 Compose **重组**。
+     * 早先这里是 `@Volatile var`，且只在 `ApShellActivity.onCreate` 里赋值一次
+     * （当时只要全局一套，够了），于是用户看到的就是「键盘/触控板的皮肤映射不过来」：
+     * 设置里换了模块皮肤，那两页毫无反应。
+     */
+    var skinAccent: Color? by mutableStateOf(null)
 
     /**
      * 组装 Miuix 配色：以官方明/暗 scheme 为底，逐个替换成本工程令牌解析出的值。

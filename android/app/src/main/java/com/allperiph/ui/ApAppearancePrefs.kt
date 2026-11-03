@@ -23,6 +23,9 @@ internal object ApAppearancePrefs {
     const val KEY_CUSTOM = "custom_skins"
     const val KEY_BG = "bg_id"
     const val KEY_BG_IMAGE = "bg_image"
+
+    /** 动态背景（2026-11-04）：把背景图/预设底色做极缓慢的缩放平移 */
+    const val KEY_BG_ANIM = "bg_anim"
     const val KEY_MOTION = "motion"
     const val KEY_HAPTIC = "haptic"
     const val KEY_SOUND = "sound"

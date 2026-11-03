@@ -180,7 +180,20 @@ class ApShellActivity : ComponentActivity() {
         }
         var page by remember { mutableIntStateOf(pageState) }
         // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
-        androidx.compose.runtime.LaunchedEffect(page) { pageState = page }
+        androidx.compose.runtime.LaunchedEffect(page) {
+            pageState = page
+            // 页面切了就换该模块的皮肤（成宇 2026-11-04「看看为什么不能映射触摸页和键盘页」）：
+            // 皮肤是按模块选的，强调色却只有一份 Miuix 配色 —— 在切页这一处收敛，
+            // 比让每个页面各自 sync 更不容易漏。skinAccent 是 Compose 状态，写它会重组。
+            com.allperiph.ui.compose.ApAccentSync.apply(
+                this@ApShellActivity,
+                when (page) {
+                    1 -> com.allperiph.ui.ApSkin.TOUCHPAD
+                    2 -> com.allperiph.ui.ApSkin.KEYBOARD
+                    else -> com.allperiph.ui.ApSkin.TOUCHPAD
+                },
+            )
+        }
         androidx.compose.runtime.LaunchedEffect(pageState) {
             if (page != pageState) page = pageState
         }
@@ -276,7 +289,13 @@ class ApShellActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MiuixTheme.colorScheme.background),
+                // 背景层（成宇 2026-11-04「设置里的背景图也要挪到主题外观分组」+
+                // 「背景图可以动态的吗」）：**主壳此前没有背景层** —— 根 Box 画的是纯
+                // Miuix 主题底色，设置页选的相册图 / 预设底色 / 动态开关全部只落到
+                // ApBackdrop 的偏好里，四个页一律看不见，用户看到的就是「设了没反应」。
+                // rememberApBackdrop 返回 drawBehind，画在子内容之下、**不新增层级**；
+                // 口径与 Views 侧 Backdrop 一致：自定义图 > 预设底色 > fallback（主题底色）。
+                .then(rememberApBackdrop(this@ApShellActivity, shellBg)),
         ) {
             Column(
                 modifier = Modifier
@@ -657,10 +676,19 @@ class ApShellActivity : ComponentActivity() {
 
 /** ApSkin → MiuixTokens 的一次性同步（皮肤切换后要重新调用） */
 internal object ApAccentSync {
-    fun apply(ctx: Context) {
-        val picked = ApSkin.picked(ctx, ApSkin.TOUCHPAD).isNotBlank()
+    /**
+     * 把某一模块的皮肤同步给 Miuix 配色。
+     *
+     * ★ 必须**按页调用**（见下面 setContent 里的 LaunchedEffect(page)）：
+     * 此前这里写死 `ApSkin.TOUCHPAD`，且全项目只在 `onCreate` 里调一次 ——
+     * 于是「键盘」与「触控板」两套皮肤选了也没有任何界面变化，用户的原话是
+     * 「看看为什么不能映射触摸页和键盘页」。根因不是没存下来（偏好一直都在写），
+     * 而是**只有触控板那一套在启动时被读出来一次**，其余两套谁都没读。
+     */
+    fun apply(ctx: Context, scope: String = ApSkin.TOUCHPAD) {
+        val picked = ApSkin.picked(ctx, scope).isNotBlank()
         MiuixTokens.skinAccent = if (picked) {
-            androidx.compose.ui.graphics.Color(ApSkin.current(ctx, ApSkin.TOUCHPAD).accent)
+            androidx.compose.ui.graphics.Color(ApSkin.current(ctx, scope).accent)
         } else {
             null
         }

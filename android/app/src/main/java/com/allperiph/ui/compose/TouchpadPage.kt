@@ -46,6 +46,14 @@ import androidx.compose.runtime.mutableStateMapOf
 import kotlinx.coroutines.withTimeoutOrNull
 import com.allperiph.ui.Feedback
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
  * 触控板页（阶段 3）：手势面 + 液态光标 + 快捷键网格。
@@ -139,8 +147,10 @@ fun TouchpadPage(
  * 读屏点击走 HotkeyChip 的 onClick。
  *
  * 数据仍只有一份：[HotkeyStore]（自动排序开启时按频次展示）→ 编辑走 HotkeyBoard.editDialog，
- * 发送走 [HidKeys.combo]。底部另留一枚管理入口 —— 「新建 / 恢复默认 / 自动排序」这三件事
- * 只能从管理列表进（长按只管已有的那一颗），列表被删光时也靠它兜底。
+ * 发送走 [HidKeys.combo]。**管理入口（成宇 2026-11-04「触摸板还是有个快捷键管理」）**：底部那枚「快捷键管理」
+ * 按钮已删除。「新建 / 恢复默认 / 自动排序」只能从管理列表进（长按只管已有的那一颗），
+ * 所以改走长按兜底 —— **长按网格空白处**打开管理列表；列表被删空时另画一枚「＋」格子
+ * （否则整页空白，连按的地方都没有）。
  */
 @Composable
 private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
@@ -189,12 +199,69 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
         editVersion++
     }
 
+    // 管理列表的唯一出口（新建 / 恢复默认 / 自动排序）与编辑单颗共用的 Style。
+    // ⚠️ 三处调用（空白长按、空列表「＋」、长按单颗改）必须共用这一个 Style 与一个
+    // HotkeyBoard 构造 —— 早先这段在文件里重复了三份，改一处忘一处就分叉。
+    val host = ctx as? android.app.Activity
+    val kbStyle: () -> com.allperiph.ui.HotkeyBoard.Style = {
+        com.allperiph.ui.HotkeyBoard.Style(
+            chipText = chipTextColor,
+            chipBg = chipBgColor,
+            chipRadiusDp = 12,
+            padVDp = 12,
+            perRow = 4,
+            accent = chipTextColor,
+            textPrimary = chipTextColor,
+            textSecondary = subTextColor,
+        )
+    }
+    fun newBoard(act: android.app.Activity) = com.allperiph.ui.HotkeyBoard(
+        act,
+        android.widget.LinearLayout(act),
+        kbStyle,
+        { editVersion++ },
+    )
+    val openManager: () -> Unit = {
+        host?.let {
+            ApMotion.tap(ctx)
+            newBoard(it).managerDialog()
+        }
+    }
+
     Column(
         // 横屏右列顶部避开玻璃顶栏；底部避开浮动底栏（窄屏 / 宽屏同样生效）
         modifier = Modifier.fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap),
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap)
+            // 长按空白处 = 管理列表（删除底部入口后的兜底）。
+            // 键位格自己在 Initial pass 消费按下，所以这里只在没有格子的地方生效，
+            // 不会与「长按单颗改这一颗」抢手势。
+            .pointerInput(items.size) {
+                detectTapGestures(onLongPress = { openManager() })
+            },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // 空列表兜底（成宇 2026-11-04「删空时」）：留一枚「＋」格子当入口。
+        // 底部那枚「快捷键管理」按钮本轮删除（成宇 2026-11-04「触摸板还是有个快捷键管理」），
+        // 「新建 / 恢复默认 / 自动排序」改走长按兜底 —— 长按空白处（见下面 Column 的
+        // detectTapGestures）打开管理列表；列表被删空时还要有个能按到的东西，
+        // 否则整页空白，连长按都无处落指。
+        if (items.isEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(chipBgColor)
+                        .clickable { openManager() }
+                        .pointerInput(Unit) { detectTapGestures(onLongPress = { openManager() }) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = "＋", fontSize = 20.sp, color = chipTextColor)
+                }
+                // 补空格：与 4 列网格同一形状，避免这一格被拉得奇宽
+                repeat(3) { Box(modifier = Modifier.weight(1f)) }
+            }
+        }
         items.chunked(4).forEachIndexed { rowIdx, row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -303,25 +370,9 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                                     if (wasDrag) {
                                         drop(index, dx, dy)
                                     } else {
-                                        // 原地松手 = 编辑这一颗（同一份 HotkeyBoard 编辑器）
-                                        val act = ctx as? android.app.Activity ?: return@awaitEachGesture
-                                        com.allperiph.ui.HotkeyBoard(
-                                            act,
-                                            android.widget.LinearLayout(act),
-                                            {
-                                                com.allperiph.ui.HotkeyBoard.Style(
-                                                    chipText = chipTextColor,
-                                                    chipBg = chipBgColor,
-                                                    chipRadiusDp = 12,
-                                                    padVDp = 12,
-                                                    perRow = 4,
-                                                    accent = chipTextColor,
-                                                    textPrimary = chipTextColor,
-                                                    textSecondary = subTextColor,
-                                                )
-                                            },
-                                            { editVersion++ },
-                                        ).editDialog(index) { editVersion++ }
+                                        // 原地松手 = 编辑这一颗（与「＋」/ 空白长按同一个 Style）
+                                        val act = host ?: return@awaitEachGesture
+                                        newBoard(act).editDialog(index) { editVersion++ }
                                     }
                                 }
                             },
@@ -334,35 +385,6 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                     Box(modifier = Modifier.weight(1f))
                 }
             }
-        }
-        // 管理入口（审查 v5 §9.2-B）：v223.27 把键盘页的组合键面板与编辑弹窗整块删掉后，
-        // 主壳里「新建 / 恢复默认 / 自动排序」只剩这一处。长按只管已有的那一颗，删光的兜底
-        // 也要靠它，所以列表为空时同样画。
-        val act = ctx as? android.app.Activity
-        if (act != null) {
-            ApComponents.ActionButton(
-                text = ctx.getString(R.string.ui_hotkey_title),
-                onClick = {
-                    ApMotion.tap(ctx)
-                    com.allperiph.ui.HotkeyBoard(
-                        act,
-                        android.widget.LinearLayout(act),
-                        {
-                            com.allperiph.ui.HotkeyBoard.Style(
-                                chipText = chipTextColor,
-                                chipBg = chipBgColor,
-                                chipRadiusDp = 12,
-                                padVDp = 12,
-                                perRow = 4,
-                                accent = chipTextColor,
-                                textPrimary = chipTextColor,
-                                textSecondary = subTextColor,
-                            )
-                        },
-                        { editVersion++ },
-                    ).managerDialog()
-                },
-            )
         }
     }
 }

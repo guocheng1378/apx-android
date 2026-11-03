@@ -23,12 +23,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allperiph.R
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.style.TextAlign
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -129,6 +139,75 @@ object ApComponents {
             summary = summary,
             trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) },
         )
+    }
+
+    /**
+     * 可点整行（尾部可选）：与 [ItemRow] 同一排版，但**整行**可点并给出按压反馈。
+     *
+     * 用途是「长按换位 / 长按弹菜单」这类交互（成宇 2026-11-04「悬浮球的功能自定义里面长按
+     * 可以上下排」）：此前这种行只能用 `ActionButton`（占满一行、形态是按钮），
+     * 或者自己拼 `ItemRow` + `pointerInput` —— 后者会在每个调用点各写一份手势与反馈。
+     * 这里把「反馈 + 点击 + 长按」收成一个组件，调用方只给语义。
+     *
+     * @param onLongClick 非空时提供长按（默认 500ms，属系统 `longPressTimeout` 量级）
+     */
+    @Composable
+    fun ClickRow(
+        title: String,
+        summary: String? = null,
+        trailing: (@Composable () -> Unit)? = null,
+        onLongClick: (() -> Unit)? = null,
+        onClick: () -> Unit,
+    ) {
+        val host = androidx.compose.ui.platform.LocalView.current
+        // 长按可达性那一条描述要带标题，所以这个组件需要 Context（文案走 strings.xml）
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        val gesture = Modifier.pointerInput(onLongClick) {
+            if (onLongClick == null) {
+                detectTapGestures { com.allperiph.ui.Feedback.tap(host); onClick() }
+            } else {
+                detectTapGestures(
+                    onLongPress = { com.allperiph.ui.Feedback.haptic(host); onLongClick() },
+                    onTap = { com.allperiph.ui.Feedback.tap(host); onClick() },
+                )
+            }
+        }
+        // 长按可达性：读屏用户拿不到「长按」，整行给一句可识别的提示
+        val a11y = if (onLongClick == null) {
+            Modifier
+        } else {
+            Modifier.semantics {
+                contentDescription = ctx.getString(R.string.ui_common_long_press_reorder, title)
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(a11y)
+                .then(gesture)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = title, fontSize = 15.sp)
+                if (!summary.isNullOrBlank()) {
+                    Text(
+                        text = summary,
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            }
+            trailing?.invoke()
+            if (onLongClick != null) {
+                Text(
+                    text = "\u2261",
+                    fontSize = 14.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+        }
     }
 
     /** 只读取值行（如「当前版本」「本机地址」）。[modifier] 供调用方挂手势（如长按版本行） */
@@ -323,4 +402,79 @@ object ApComponents {
             }
         }
     }
+
+    /**
+     * 液态玻璃键帽（成宇 2026-11-04「键盘再加一组液态玻璃按键的皮肤」）。
+     *
+     * 观感取自 Miuix 的玻璃口径（`nav_pill_*` 那批色）：**半透明底 + 顶部高光 + 细描边**，
+     * 按下时整块泛白并跟着手指（不位移、不下沉 —— 下沉是机械档的语义，两档必须能一眼分开）。
+     *
+     * ## 为什么放在 Kit 里而不是键帽私有实现
+     * 键盘面板有两个宿主：主壳键盘页（`KeyboardPage`）与操控面（`TouchpadActivity`）。
+     * 两处各写一份「玻璃键帽」必然分叉（本仓在 `KeyBox` / `ModKey` / 键帽材质上已经踩过
+     * 三次），所以玻璃这一档只在这里实现一次，两边按同一个形状参数调用。
+     *
+     * @param tint 非空时用该色作为玻璃的染色（修饰键点亮态）；null = 中性玻璃
+     * @param fxMod 调用方算好的按键特效 Modifier（[com.allperiph.ui.compose.keyFx]），
+     *   画在键帽内容之上、玻璃高光之下 —— 特效是「按下去的额外反馈」，不该盖掉高光
+     */
+    @Composable
+    fun GlassKeycap(
+        modifier: Modifier = Modifier,
+        shape: androidx.compose.ui.graphics.Shape,
+        label: String,
+        textSize: androidx.compose.ui.unit.TextUnit,
+        fg: Color,
+        tint: Color?,
+        interaction: MutableInteractionSource,
+        onClick: () -> Unit,
+        fxMod: Modifier = Modifier,
+    ) {
+        val pressed by interaction.collectIsPressedAsState()
+        // 玻璃的明暗取主题「表面」色的亮度来判：深色主题下白玻璃要更淡，
+        // 否则整块键帽糊成一片灰。不用 isSystemInDarkTheme —— 本工程的明暗由
+        // ThemePref 写进 configuration，与 MiuixTheme 当前配色同源才算对。
+        val dark = MiuixTheme.colorScheme.onSurface.luminance() > 0.5f
+        val topAlpha = if (dark) 0.10f else 0.55f
+        val bottomAlpha = if (dark) 0.04f else 0.28f
+        val strokeAlpha = if (dark) 0.22f else 0.70f
+        val base = tint ?: MiuixTheme.colorScheme.surfaceContainer
+        // 玻璃底：竖向渐变的半透明白（上亮下淡），叠在键帽自己的底色上
+        val glass = Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = topAlpha), Color.White.copy(alpha = bottomAlpha)),
+        )
+        // 按下：整块再泛白一层（不位移 —— 下沉是机械档的语义，两档要能一眼分开）
+        val pressedWash = Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.14f)),
+        )
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .background(base)
+                .background(glass)
+                .border(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = strokeAlpha), Color.Transparent),
+                    ),
+                    shape = shape,
+                )
+                .then(if (pressed) Modifier.background(pressedWash) else Modifier)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onClick = onClick,
+                )
+                .then(fxMod),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = label,
+                fontSize = textSize,
+                color = if (tint != null) Color.White else fg,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+
 }
