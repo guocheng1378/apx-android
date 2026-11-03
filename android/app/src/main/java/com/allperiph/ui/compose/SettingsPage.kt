@@ -504,6 +504,26 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 }
             }
 
+            // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
+            //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
+            //    菜单项永远停在 DEFAULT 四项）——
+            var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
+            // 成宇 2026-11-04「悬浮球的功能自定义里面长按可以上下排」：
+            // 长按某一行 → 弹「上移 / 下移 / 置顶 / 置底」，顺序就地改。
+            // 为什么不再用每行一个「第 N 位」下拉（v223.29.3 刚改成那样）：
+            // 12 项 = 12 行带下拉的行，编辑一段顺序要滚两屏，而下拉本身也会整屏撑开。
+            // 长按调序把「顺序」这件事收回行自己身上，列表只剩 12 行开关。
+            var ballItemMenu by remember { mutableStateOf<String?>(null) }
+            var ballItemsOpen2 by remember { mutableStateOf(false) }
+            fun applyBallOrder(next: List<String>) {
+                ballItems = next
+                BallConfig.setEnabled(ctx, next)
+                // 服务把菜单缓存在内存里，重启让扇形按新顺序重建
+                ctx.stopService(Intent(ctx, FloatingBallService::class.java))
+                ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
+            }
+
+
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
                 Column {
                     ApComponents.SwitchRow(
@@ -521,24 +541,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    // —— 悬浮球扇形菜单自定义（迁 Compose 时整块丢了：BallConfig 的
-                    //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
-                    //    菜单项永远停在 DEFAULT 四项）——
-                    var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
-                    // 成宇 2026-11-04「悬浮球的功能自定义里面长按可以上下排」：
-                    // 长按某一行 → 弹「上移 / 下移 / 置顶 / 置底」，顺序就地改。
-                    // 为什么不再用每行一个「第 N 位」下拉（v223.29.3 刚改成那样）：
-                    // 12 项 = 12 行带下拉的行，编辑一段顺序要滚两屏，而下拉本身也会整屏撑开。
-                    // 长按调序把「顺序」这件事收回行自己身上，列表只剩 12 行开关。
-                    var ballItemMenu by remember { mutableStateOf<String?>(null) }
-                    var ballItemsOpen2 by remember { mutableStateOf(false) }
-                    fun applyBallOrder(next: List<String>) {
-                        ballItems = next
-                        BallConfig.setEnabled(ctx, next)
-                        // 服务把菜单缓存在内存里，重启让扇形按新顺序重建
-                        ctx.stopService(Intent(ctx, FloatingBallService::class.java))
-                        ctx.startForegroundService(Intent(ctx, FloatingBallService::class.java))
-                    }
                     // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
                     // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
                     var ballItemsOpen by remember { mutableStateOf(false) }
