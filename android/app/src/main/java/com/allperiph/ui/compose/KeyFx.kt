@@ -26,9 +26,14 @@ import com.allperiph.ui.KeyPref
  *
  * ## 四档
  *   · 0 关闭      —— 不画任何额外效果（调用方保留原来的水波纹，观感不变）；
- *   · 1 涟漪      —— 按下从键面中心扩散一圈强调色涟漪；
- *   · 2 高光      —— 按下整键提亮 + 一圈强调色描边，抬手即散；
- *   · 3 弹跳      —— 按下键帽轻微缩小再回弹（正弦半周期，不会来回抖）。
+ *   · 1 涟漪      —— 按下从键面中心扩散一圈强调色涟漪，抬手不打断、播完自然消散；
+ *   · 2 高光      —— 按下整键渐亮 + 一圈强调色描边，抬手快速淡出；
+ *   · 3 弹跳      —— 按下键帽轻微缩小再回弹（正弦半周期，不会来回抖），抬手不打断。
+ *
+ * ## 为什么抬手不打断涟漪／弹跳（2026-11-03 复验结论）
+ * 人手一次点按只有 80~150ms；若抬手就把进度归零，快速点按只能看到动画的前 1/3，
+ * 观感上就是「没有动效」。所以涟漪／弹跳在抬手后**继续把这一次播完**再消散；
+ * 高光本来就是「按住才亮」的语义，抬手改为快速淡出而不是瞬间消失。
  *
  * ## 与「动效」档位的关系
  * 设置页的「动效」为**关闭**（[com.allperiph.ui.ApTiming.motionIndex] == 0）时，
@@ -52,13 +57,21 @@ internal fun rememberKeyFx(pressed: Boolean, fx: Int): KeyFxValues {
     val ctx = LocalContext.current
     val anim = remember { Animatable(0f) }
     LaunchedEffect(pressed, fx) {
-        if (pressed && fx != KeyPref.FX_NONE) {
+        if (fx == KeyPref.FX_NONE) {
             anim.snapTo(0f)
-            val ms = if (fx == KeyPref.FX_BOUNCE) 220 else 420
-            val ms2 = if (com.allperiph.ui.ApTiming.motionIndex(ctx) == 0) 0 else ms
-            anim.animateTo(1f, tween(durationMillis = ms2))
-        } else {
+            return@LaunchedEffect
+        }
+        val motionOff = com.allperiph.ui.ApTiming.motionIndex(ctx) == 0
+        val total = if (fx == KeyPref.FX_BOUNCE) 220 else 420
+        if (pressed) {
             anim.snapTo(0f)
+            val ms = if (fx == KeyPref.FX_HIGHLIGHT) 80 else total
+            anim.animateTo(1f, tween(durationMillis = if (motionOff) 0 else ms))
+        } else if (fx == KeyPref.FX_HIGHLIGHT) {
+            anim.animateTo(0f, tween(durationMillis = if (motionOff) 0 else 160))
+        } else if (anim.value < 1f) {
+            val remain = (total * (1f - anim.value)).toInt().coerceIn(0, total)
+            anim.animateTo(1f, tween(durationMillis = if (motionOff) 0 else remain))
         }
     }
     return KeyFxValues(fx, if (fx == KeyPref.FX_NONE) 0f else anim.value)
@@ -89,9 +102,9 @@ internal fun Modifier.keyFx(values: KeyFxValues, accent: Color): Modifier {
                     )
                 }
                 KeyPref.FX_HIGHLIGHT -> {
-                    drawRect(color = Color.White.copy(alpha = 0.30f * (1f - values.p)))
+                    drawRect(color = Color.White.copy(alpha = 0.30f * values.p))
                     drawRect(
-                        color = accent.copy(alpha = 0.85f * (1f - values.p)),
+                        color = accent.copy(alpha = 0.85f * values.p),
                         style = Stroke(width = 2f),
                     )
                 }
