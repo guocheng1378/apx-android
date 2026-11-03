@@ -251,12 +251,12 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(chipBgColor)
+                        .background(Color(chipBgColor))
                         .clickable { openManager() }
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { openManager() }) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = "＋", fontSize = 20.sp, color = chipTextColor)
+                    Text(text = "＋", fontSize = 20.sp, color = Color(chipTextColor))
                 }
                 // 补空格：与 4 列网格同一形状，避免这一格被拉得奇宽
                 repeat(3) { Box(modifier = Modifier.weight(1f)) }
