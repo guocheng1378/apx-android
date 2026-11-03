@@ -90,7 +90,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     var motion by remember { mutableIntStateOf(ApTiming.motionIndex(ctx)) }
     var haptic by remember { mutableIntStateOf(ApFeel.hapticIndex(ctx)) }
     var sound by remember { mutableIntStateOf(ApFeel.soundIndex(ctx)) }
-    // —— 背景（成宇 2026-11-04「设置里的背景图也要挪到主题外观分组」「背景图可以动态的吗」）——
+    // —— 背景（成宇 2026-11-03「设置里的背景图也要挪到主题外观分组」「背景图可以动态的吗」）——
     // 沿 ApBackdrop 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ApBackdrop.bgImage(ctx)、
     // 写 ApBackdrop.setBgImage(ctx, uri)；解码由 Backdrop / ApBackdropSurface 做（采样到两倍屏宽）。
     // 选图必须 takePersistableUriPermission，否则重启后 URI 失效、背景变回纯色。
@@ -291,13 +291,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             ApFeel.setSound(ctx, i)
                         },
                     )
-                    // 「震动」按成宇 2026-11-04「震动没有映射过来，映射到外设模式里了」搬到
+                    // 「震动」按成宇 2026-11-03「震动没有映射过来，映射到外设模式里了」搬到
                     // 「快捷键与外设 → 通用」：音效是**出声**（外观体验），震动是**按键手感**
                     // （手机怎么响应输入），与光标锁定 \/ 手势遮蔽同类。这里只留动效与音效。
                 }
             }
 
-            // ———————————————— 背景图（成宇 2026-11-04 从「数据与维护」搬来） ————————————————
+            // ———————————————— 背景图（成宇 2026-11-03 从「数据与维护」搬来） ————————————————
             // 背景是外观项：预设底色 + 相册图 + 动态背景三件事都在这一段。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_bg)) {
                 Column {
@@ -428,7 +428,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
             // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
         if (cat == 1) {
-            // 成宇 2026-11-04「快捷键与外设里的通用移到分组悬浮栏上面」：
+            // 成宇 2026-11-03「快捷键与外设里的通用移到分组悬浮栏上面」：
             // 整段从「工具与传输」（cat2）搬到「快捷键与外设」（cat1），且**排在悬浮栏之前**
             // —— 光标锁定 / 方向锁定 / 三指手势遮蔽 / 互传 / 震动都是「手机怎么响应输入」，
             // 与「外设」这个分类名相符，放在工具与传输里名不副实。
@@ -487,7 +487,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    // 震动档位（成宇 2026-11-04「震动没有映射过来，映射到外设模式里了」）：
+                    // 震动档位（成宇 2026-11-03「震动没有映射过来，映射到外设模式里了」）：
                     // 从「主题与外观 → 动效」搬来。它决定每次按键震多强 —— [Feedback]
                     // 内部按 [ApFeel.hapticIndex] 判档，选「关」就完全不震。
                     WindowDropdownPreference(
@@ -508,7 +508,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             //    ALL/enabled/setEnabled/labelRes 都在，界面上没有任何入口，
             //    菜单项永远停在 DEFAULT 四项）——
             var ballItems by remember { mutableStateOf<List<String>>(BallConfig.enabled(ctx)) }
-            // 成宇 2026-11-04「悬浮球的功能自定义里面长按可以上下排」：
+            // 成宇 2026-11-03「悬浮球的功能自定义里面长按可以上下排」：
             // 长按某一行 → 弹「上移 / 下移 / 置顶 / 置底」，顺序就地改。
             // 为什么不再用每行一个「第 N 位」下拉（v223.29.3 刚改成那样）：
             // 12 项 = 12 行带下拉的行，编辑一段顺序要滚两屏，而下拉本身也会整屏撑开。
@@ -888,7 +888,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 后者此前直接查静态表——不开全局转发时改键等于没改（2026-11-02 审查条 1.4）。
             var overrides by remember { mutableStateOf(HidKeyOverrides.current()) }
             val overridePrefs = remember { HidKeyOverrides.prefs(ctx) }
-            // 成宇 2026-11-04「键映射这一块太长了，用折叠」：11 个键位各一行下拉 = 11 行，
+            // 成宇 2026-11-03「键映射这一块太长了，用折叠」：11 个键位各一行下拉 = 11 行，
             // 整段是设置页最长的一段。收进默认收起的折叠分组，组头直接回显「已改 N 处」，
             // 不展开也知道改没改过（与悬浮球菜单项那段同一做法，同一份 FoldGroup）。
             var keymapOpen by remember { mutableStateOf(false) }
@@ -939,7 +939,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         }
 
             // ———————————————— 背景图 ————————————————
-            // 成宇 2026-11-04「设置里的背景图也要挪到主题外观分组」：整段从「数据与维护」
+            // 成宇 2026-11-03「设置里的背景图也要挪到主题外观分组」：整段从「数据与维护」
             // （cat3）搬到「主题与外观」（cat0）的动效段之后 —— 背景是外观项，不该跟
             // 日志、关于这类维护项混在一起。数据路径不变（ApBackdrop）。
         if (cat == 3) {
@@ -1079,7 +1079,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            // 成宇 2026-11-04「日志要加复制」：把当前筛选下的整段日志
+                            // 成宇 2026-11-03「日志要加复制」：把当前筛选下的整段日志
                             // 一次性放进系统剪贴板（不是只复制看得见的那 200 行 ——
                             // 弹窗为了不卡只渲染 200 条，复制走 filteredLogs() 的全量）。
                             ApComponents.NarrowButton(

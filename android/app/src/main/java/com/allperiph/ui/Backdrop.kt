@@ -16,7 +16,7 @@ import android.view.animation.Transformation
  * 优先级：**自定义图片 > 预设底色 > 布局自带的资源底色**（[ApBackdrop.Bg] 里的 `follow`）。
  * 图片按屏幕宽度采样解码（最多折到 1/8），避免相册里的大图整张进内存。
  *
- * 动态背景（2026-11-04）：开了 [ApBackdrop.bgAnim] 之后，`follow` 与预设底色这两条
+ * 动态背景（2026-11-03）：开了 [ApBackdrop.bgAnim] 之后，`follow` 与预设底色这两条
  * **纯色**路径走一个极缓慢的缩放（1.0 → 1.06 往返，40s 一程），观感上像呼吸而非「动图」。
  * 相册图那条路不做 —— `BitmapDrawable` 的缩放会重新采样，一张 2 倍屏宽的大图每帧重采样
  * 开销明显；纯色与预置色只是一个 solid 色块，缩放由 GPU 合成，代价可忽略。

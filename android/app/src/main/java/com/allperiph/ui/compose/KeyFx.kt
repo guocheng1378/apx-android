@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.allperiph.ui.KeyPref
 
 /**
- * 按键特效（成宇 2026-11-04「键盘的特效做几个」）。
+ * 按键特效（成宇 2026-11-03「键盘的特效做几个」）。
  *
  * ## 为什么单独一个文件
  * 「按下时该有什么视觉反馈」此前散落在三处（主屏键盘页的 `KeyBox` \/ `ModKey`，

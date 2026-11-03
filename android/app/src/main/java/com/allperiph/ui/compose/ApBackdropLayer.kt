@@ -38,7 +38,7 @@ import kotlinx.coroutines.withContext
  * 设置页「背景图 / 预设底色」这套沿用的是 Views 时代的 [Backdrop]，它只被
  * `TouchpadActivity` / `RemoteActivity` 这两个自绘页面调用；而迁 Compose 之后的主壳
  * （`ApShellActivity`）根 Box 画的是 `MiuixTheme.colorScheme.background` ——
- * 用户在设置页选了背景图，**主壳四个页一律看不到**（成宇 2026-11-04 反馈
+ * 用户在设置页选了背景图，**主壳四个页一律看不到**（成宇 2026-11-03 反馈
  * 「设置里的背景图也要挪到主题外观分组」时暴露：入口挪了位置，但底下那层根本没接）。
  * 这里把同一条偏好接到 Compose 上，口径与 [Backdrop] 完全一致：
  * **自定义图片 > 预设底色 > 主题底色**。
@@ -49,7 +49,7 @@ import kotlinx.coroutines.withContext
  * 这里给的是 `Modifier.drawBehind`：调用方把它 `.then(...)` 进**已有的**根 Box 即可，
  * `drawBehind` 天然画在子内容之下，层级语义不变。
  *
- * ## 动态背景（成宇 2026-11-04「背景图可以动态的吗」）
+ * ## 动态背景（成宇 2026-11-03「背景图可以动态的吗」）
  * 开了 [ApBackdrop.bgAnim] 时：
  *   · 有图 → 极缓慢的放大 + 平移（26s 一个来回，放大 4%~9%，永不留边）；
  *   · 纯色 → 底色之上叠一层强调色柔光，位置随时间漂移（纯色本身缩放是看不出动的）。

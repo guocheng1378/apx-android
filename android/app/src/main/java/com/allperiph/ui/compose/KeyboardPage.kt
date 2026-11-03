@@ -110,11 +110,11 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
     val dens = KeyPref.density(ctx)
-    // 键帽材质档（成宇 2026-11-04「键盘再加一组液态玻璃按键的皮肤」）：此前只有一个
+    // 键帽材质档（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）：此前只有一个
     // `mechanical: Boolean`，只有「平面 / 机械」两种可能，液态玻璃这一档没有表达力 ——
     // 改成传档位值，三种材质各自成一支，键帽渲染处不再靠布尔猜。
     val keycap = KeyPref.keycapStyleIndex(ctx)
-    // 按键特效档（成宇 2026-11-04「键盘的特效做几个」）：涟漪 / 高光 / 弹跳三档 + 关闭。
+    // 按键特效档（成宇 2026-11-03「键盘的特效做几个」）：涟漪 / 高光 / 弹跳三档 + 关闭。
     // 与材质正交（材质决定键帽长什么样，特效决定按下去画什么），实现收在 KeyFx.kt 一处。
     val fx = KeyPref.effectIndex(ctx)
     var tab by remember { mutableIntStateOf(0) }
@@ -447,7 +447,7 @@ private fun ModKey(
     val fxValues = rememberKeyFx(pressed, fx)
     val fxMod = Modifier.keyFx(fxValues, accent)
     if (keycap == KeyPref.KEYCAP_GLASS) {
-        // 液态玻璃：半透明键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-04「液态玻璃按键的皮肤」）
+        // 液态玻璃：半透明键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(
             modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
             shape = shape,
@@ -523,7 +523,7 @@ private fun KeyBox(
     val fxValues = rememberKeyFx(pressed, fx)
     val fxMod = Modifier.keyFx(fxValues, accent)
     if (keycap == KeyPref.KEYCAP_GLASS) {
-        // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-04「键盘再加一组液态玻璃按键的皮肤」）
+        // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(
             modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
             shape = shape,

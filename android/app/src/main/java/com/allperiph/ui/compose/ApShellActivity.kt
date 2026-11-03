@@ -182,7 +182,7 @@ class ApShellActivity : ComponentActivity() {
         // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
         androidx.compose.runtime.LaunchedEffect(page) {
             pageState = page
-            // 页面切了就换该模块的皮肤（成宇 2026-11-04「看看为什么不能映射触摸页和键盘页」）：
+            // 页面切了就换该模块的皮肤（成宇 2026-11-03「看看为什么不能映射触摸页和键盘页」）：
             // 皮肤是按模块选的，强调色却只有一份 Miuix 配色 —— 在切页这一处收敛，
             // 比让每个页面各自 sync 更不容易漏。skinAccent 是 Compose 状态，写它会重组。
             com.allperiph.ui.compose.ApAccentSync.apply(
@@ -289,7 +289,7 @@ class ApShellActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                // 背景层（成宇 2026-11-04「设置里的背景图也要挪到主题外观分组」+
+                // 背景层（成宇 2026-11-03「设置里的背景图也要挪到主题外观分组」+
                 // 「背景图可以动态的吗」）：**主壳此前没有背景层** —— 根 Box 画的是纯
                 // Miuix 主题底色，设置页选的相册图 / 预设底色 / 动态开关全部只落到
                 // ApBackdrop 的偏好里，四个页一律看不见，用户看到的就是「设了没反应」。
