@@ -71,7 +71,15 @@ R_USE = re.compile(
 # 659 → 652：TV 侧 7 处用户可见文案搬进 android/tv/src/main/res/values/strings.xml
 #   （权限引导 1、场景名 2、已接收文件 1、浮窗失败 1，另两处同句重复），
 #   即上面那 6 处（实际 7 处）的真正归属。
-TEXT_BASELINE = 652
+# 652 → 646（v223.29.4）：键帽材质三档 / 按键特效四档的**选项文案**（7 处）进
+#   strings.xml，KeyPref 只按档位取 id（keycapStyleLabels / effectLabels）；
+#   同时设置页背景段顺手资源化，净减 6 处，按实测值收紧锁住。
+# 652 -> 647（v223.29.4）：键帽材质三档 / 按键特效四档的**选项文案**进
+#   strings.xml，KeyPref 只按档位取 id；同时设置页背景段顺手资源化。
+#   口径：本值量的是**真远端 base**（origin/master 9a2c84b3，自身实测 653、
+#   基线 652，也带着 +1 告警）：base 653 -> 本支 647 = 净减 6。此前按旧本地线
+#   （落后真远端 23 个提交）记的 646 是**错的口径**，不是这一支的真实值。
+TEXT_BASELINE = 647
 
 
 def strip_comments(text):

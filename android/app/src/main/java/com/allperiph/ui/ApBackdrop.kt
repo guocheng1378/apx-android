@@ -29,7 +29,21 @@ object ApBackdrop {
         ApAppearancePrefs.of(ctx).edit().putString(ApAppearancePrefs.KEY_BG, id).apply()
     }
 
-    /** 自定义背景图（相册选来的 URI）；设了图就优先于纯色底 */
+    /**
+ * 「动态背景」（2026-11-03）：把已选背景做**极缓慢**的放大 + 平移，让静态图/纯色底
+ * 看起来在动。默认关闭 —— 它每帧都要重绘整块背景，纯色底在老机器上是实打实的开销，
+ * 所以由用户显式打开（设置页「主题与外观 → 背景」里的开关）。
+ *
+ * 关掉后立刻恢复静止（[Backdrop.apply] 会把缩放与位移复位），不会留在半路上。
+ */
+fun bgAnim(ctx: Context): Boolean =
+    ApAppearancePrefs.of(ctx).getBoolean(ApAppearancePrefs.KEY_BG_ANIM, false)
+
+fun setBgAnim(ctx: Context, on: Boolean) {
+    ApAppearancePrefs.of(ctx).edit().putBoolean(ApAppearancePrefs.KEY_BG_ANIM, on).apply()
+}
+
+/** 自定义背景图（相册选来的 URI）；设了图就优先于纯色底 */
     fun bgImage(ctx: Context): String? =
         ApAppearancePrefs.of(ctx).getString(ApAppearancePrefs.KEY_BG_IMAGE, null)
 

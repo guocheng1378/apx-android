@@ -110,7 +110,13 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
     val dens = KeyPref.density(ctx)
-    val mechanical = KeyPref.isMechanical(ctx)
+    // 键帽材质档（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）：此前只有一个
+    // `mechanical: Boolean`，只有「平面 / 机械」两种可能，液态玻璃这一档没有表达力 ——
+    // 改成传档位值，三种材质各自成一支，键帽渲染处不再靠布尔猜。
+    val keycap = KeyPref.keycapStyleIndex(ctx)
+    // 按键特效档（成宇 2026-11-03「键盘的特效做几个」）：涟漪 / 高光 / 弹跳三档 + 关闭。
+    // 与材质正交（材质决定键帽长什么样，特效决定按下去画什么），实现收在 KeyFx.kt 一处。
+    val fx = KeyPref.effectIndex(ctx)
     var tab by remember { mutableIntStateOf(0) }
     // 自定义行表要在编辑弹窗保存后刷新
     var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
@@ -149,14 +155,14 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
         // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
-                0 -> QuickLayout(dens, mechanical)
+                0 -> QuickLayout(dens, keycap, fx)
                 1 -> RemoteLayout()
-                2 -> GameLayout(dens, mechanical)
-                3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, mechanical)
-                4 -> KeyGridLayout(KeyLayouts.GRID9, dens, mechanical)
-                5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, mechanical)
-                6 -> KeyGridLayout(KeyLayouts.FN, dens, mechanical)
-                else -> CustomLayout(customRows, dens, mechanical) {
+                2 -> GameLayout(dens, keycap, fx)
+                3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
+                4 -> KeyGridLayout(KeyLayouts.GRID9, dens, keycap, fx)
+                5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, keycap, fx)
+                6 -> KeyGridLayout(KeyLayouts.FN, dens, keycap, fx)
+                else -> CustomLayout(customRows, dens, keycap, fx) {
                     customRows = KeyPref.customRows(ctx)
                 }
             }
@@ -166,7 +172,7 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
 
 /** 快捷键盘：sticky 修饰排 + `KeyPref.letterRows` 五行 —— 与操控面 `quickKeyboard()` 同款 */
 @Composable
-private fun QuickLayout(dens: KeyPref.Density, mechanical: Boolean) {
+private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val ctx = LocalContext.current
     val rows = KeyPref.letterRows(ctx)
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
@@ -179,7 +185,8 @@ private fun QuickLayout(dens: KeyPref.Density, mechanical: Boolean) {
                     active = sticky and bit != 0,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     dens = dens,
-                    mechanical = mechanical,
+                    keycap = keycap,
+                    fx = fx,
                 ) {
                     HidKeys.toggleSticky(bit)
                     sticky = flipSticky(sticky, bit)
@@ -190,7 +197,7 @@ private fun QuickLayout(dens: KeyPref.Density, mechanical: Boolean) {
         rows.forEach { labels ->
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 labels.forEach { label ->
-                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                         HidKeys.tap(HidKeys.usageByLabel(label))
                         sticky = 0 // tap 自动清 sticky，同步熄灭修饰键（与操控面 refreshMods 同口径）
                     }
@@ -294,7 +301,7 @@ private fun RemoteLayout() {
 
 /** 游戏键盘：4×6 高频键位（技能数字 / 左手技能区 / 方向+确认）—— 与操控面 `gameKeyboard` 同款 */
 @Composable
-private fun GameLayout(dens: KeyPref.Density, mechanical: Boolean) {
+private fun GameLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val layout = listOf(
         listOf("Esc", "1", "2", "3", "4", "Tab"),
         listOf("Q", "W", "E", "R", "F", "B"),
@@ -313,13 +320,14 @@ private fun GameLayout(dens: KeyPref.Density, mechanical: Boolean) {
                             active = sticky and bit != 0,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             dens = dens,
-                            mechanical = mechanical,
+                            keycap = keycap,
+                            fx = fx,
                         ) {
                             HidKeys.toggleSticky(bit)
                             sticky = flipSticky(sticky, bit)
                         }
                     } else {
-                        KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                        KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                             HidKeys.tap(HidKeys.usageByLabel(text))
                             sticky = 0
                         }
@@ -335,13 +343,14 @@ private fun GameLayout(dens: KeyPref.Density, mechanical: Boolean) {
 private fun KeyGridLayout(
     rows: List<List<KeyLayouts.Key>>,
     dens: KeyPref.Density,
-    mechanical: Boolean,
+    keycap: Int,
+    fx: Int,
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         rows.forEach { row ->
             Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
                 row.forEach { k ->
-                    KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, mechanical) {
+                    KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, keycap, fx) {
                         HidKeys.tap(k.usage)
                     }
                 }
@@ -355,7 +364,8 @@ private fun KeyGridLayout(
 private fun CustomLayout(
     rows: List<List<String>>?,
     dens: KeyPref.Density,
-    mechanical: Boolean,
+    keycap: Int,
+    fx: Int,
     onEdited: () -> Unit,
 ) {
     val ctx = LocalContext.current
@@ -374,7 +384,7 @@ private fun CustomLayout(
             rows.forEach { labels ->
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     labels.forEach { label ->
-                        KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, mechanical) {
+                        KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                             HidKeys.tap(HidKeys.usageByLabel(label))
                         }
                     }
@@ -416,7 +426,8 @@ private fun ModKey(
     active: Boolean,
     modifier: Modifier,
     dens: KeyPref.Density,
-    mechanical: Boolean,
+    keycap: Int,
+    fx: Int,
     onClick: () -> Unit,
 ) {
     // 修饰键同样要震要响（与 KeyBox 同一套 Feedback 口径）
@@ -429,20 +440,47 @@ private fun ModKey(
     val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
     val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
     val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
-    if (!mechanical) {
+    val accent = MiuixTheme.colorScheme.primary
+    // 特效进度：与键帽材质共用（材质决定形状、特效决定按下画什么）
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fxValues = rememberKeyFx(pressed, fx)
+    val fxMod = Modifier.keyFx(fxValues, accent)
+    if (keycap == KeyPref.KEYCAP_GLASS) {
+        // 液态玻璃：半透明键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）
+        ApComponents.GlassKeycap(
+            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
+            shape = shape,
+            label = label,
+            textSize = dens.textSize.sp,
+            fg = fg,
+            tint = if (active) accent else null,
+            interaction = interaction,
+            onClick = press,
+            fxMod = fxMod,
+        )
+        return
+    }
+    if (keycap != KeyPref.KEYCAP_MECHANICAL) {
         Box(
             modifier = modifier
                 .padding(horizontal = dens.gapDp.dp)
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { press() },
+                // ★ 必须把**同一个** interactionSource 交给 clickable（成宇 2026-11-03
+                // 「键盘动效没有」）：[rememberKeyFx] 的按压进度来自
+                // `interaction.collectIsPressedAsState()`。此前这里用无参 `clickable{}`，
+                // Compose 会各自 new 一个内部 source —— 上面这个 `interaction` 永远收不到
+                // Press，进度恒为 0，涟漪 \/ 高光 \/ 弹跳三档全部画不出来（机械档与液态玻璃
+                // 档当时传对了，所以只有这两档看得到效果）。
+                // indication = null：机械档同样不带水波纹，三档观感统一由 [keyFx] 表达。
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
         return
     }
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
     val side = lerp(bg, Color.Black, 0.35f)
     Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
         Box(Modifier.matchParentSize().clip(shape).background(side))
@@ -453,7 +491,8 @@ private fun ModKey(
                 .offset(y = if (pressed) 2.dp else 0.dp)
                 .clip(shape)
                 .background(bg)
-                .clickable(interactionSource = interaction, indication = null, onClick = press),
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
     }
@@ -469,7 +508,8 @@ private fun KeyBox(
     label: String,
     modifier: Modifier,
     dens: KeyPref.Density,
-    mechanical: Boolean,
+    keycap: Int,
+    fx: Int,
     onClick: () -> Unit,
 ) {
     // 按键反馈（成宇 2026-11-02「音效、喇叭回声、震动都没有了」）：
@@ -484,20 +524,41 @@ private fun KeyBox(
     // 宽松档仍按 1.12 放大（49.3dp）。
     val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
     val bg = MiuixTheme.colorScheme.surfaceContainer
-    if (!mechanical) {
+    val accent = MiuixTheme.colorScheme.primary
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fxValues = rememberKeyFx(pressed, fx)
+    val fxMod = Modifier.keyFx(fxValues, accent)
+    if (keycap == KeyPref.KEYCAP_GLASS) {
+        // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
+        ApComponents.GlassKeycap(
+            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h),
+            shape = shape,
+            label = label,
+            textSize = dens.textSize.sp,
+            fg = MiuixTheme.colorScheme.onSurface,
+            tint = null,
+            interaction = interaction,
+            onClick = press,
+            fxMod = fxMod,
+        )
+        return
+    }
+    if (keycap != KeyPref.KEYCAP_MECHANICAL) {
         Box(
             modifier = modifier
                 .padding(horizontal = dens.gapDp.dp)
                 .heightIn(min = h)
                 .clip(shape)
                 .background(bg)
-                .clickable { press() },
+                // ★ 同上：不把 interactionSource 传进来，[rememberKeyFx] 就收不到按压事件，
+                // 特效永远不画。这是「键盘动效没有」的真正原因。
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
         return
     }
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
     val side = lerp(bg, Color.Black, 0.35f)
     Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
         Box(Modifier.matchParentSize().clip(shape).background(side))
@@ -508,7 +569,8 @@ private fun KeyBox(
                 .offset(y = if (pressed) 2.dp else 0.dp)
                 .clip(shape)
                 .background(bg)
-                .clickable(interactionSource = interaction, indication = null, onClick = press),
+                .clickable(interactionSource = interaction, indication = null, onClick = press)
+                .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, fontSize = dens.textSize.sp) }
     }

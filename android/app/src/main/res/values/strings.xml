@@ -60,6 +60,8 @@
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
     <string name="ui_main_label_root_pointer">外接触控板直读（需 root）</string>
     <string name="ui_common_close">关闭</string>
+    <!-- 读屏用：长按可调序的行，给一句带标题的说明（v223.29.4 悬浮球顺序改长按） -->
+    <string name="ui_common_long_press_reorder">%1$s，长按可调整顺序</string>
     <string name="ui_main_toast_device_not">还没选设备</string>
     <string name="ui_main_toast_file_send">正在发送文件…</string>
     <string name="ui_common_save">保存</string>
@@ -69,6 +71,19 @@
     <string name="ui_main_label_sound">音效</string>
     <string name="ui_main_label_keyrow_arrange">键位排列</string>
     <string name="ui_main_label_keycap_style">键帽材质</string>
+    <!-- v223.29.4 按键特效（成宇 2026-11-04「键盘的特效做几个」）：
+         与「键帽材质」正交 —— 材质决定键帽长什么样，特效决定按下去画什么。 -->
+    <string name="ui_set_label_keycap_effect">按键特效</string>
+    <!-- 键帽材质三档 + 按键特效四档的**选项文案**（成宇 2026-11-04「液态玻璃按键的皮肤」
+         「键盘的特效做几个」）。放在 strings.xml 而不是 KeyPref 的 Kotlin 列表里：
+         棘轮只许降不许升，新增选项文案走资源才是对的方向（KeyPref 只按档位取 id）。 -->
+    <string name="ui_keycap_flat">平面</string>
+    <string name="ui_keycap_mechanical">机械</string>
+    <string name="ui_keycap_glass">液态玻璃</string>
+    <string name="ui_keyfx_none">关闭</string>
+    <string name="ui_keyfx_ripple">涟漪</string>
+    <string name="ui_keyfx_highlight">高光</string>
+    <string name="ui_keyfx_bounce">弹跳</string>
     <string name="ui_touchpad_text_controlled">被控</string>
     <string name="ui_touchpad_text_remote">遥控</string>
     <string name="ui_touchpad_text_file">文件</string>
@@ -287,6 +302,18 @@
     <string name="ui_home_label_env">环境自检</string>
     <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
     <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
+    <!-- v223.29.4 悬浮球顺序改长按调序（成宇 2026-11-04「长按可以上下排」）：
+         短按关掉一项、长按调序，所以「第 N 位」与四个移动动作都要有文案。
+         上一版每行一个「第 N 位」下拉的 ui_ball_order_pos/title 随之退休。 -->
+    <string name="ui_ball_item_pos">第 %1$d / %2$d 位</string>
+    <string name="ui_ball_item_keep_one">至少保留一项，否则扇形菜单没有可点项</string>
+    <string name="ui_ball_items_more">未加入菜单的功能</string>
+    <string name="ui_ball_items_more_count">还有 %1$d 项可加</string>
+    <string name="ui_ball_item_add_hint">点一下加进扇形菜单（排在末尾，长按可往上挪）</string>
+    <string name="ui_ball_move_up">上移一位</string>
+    <string name="ui_ball_move_top">置顶</string>
+    <string name="ui_ball_move_down">下移一位</string>
+    <string name="ui_ball_move_bottom">置底</string>
     <!-- v223.24 主屏键盘页与操控面同款布局页签 -->
     <string name="ui_kb_tab_quick">快捷</string>
     <string name="ui_kb_tab_remote">遥控</string>
@@ -316,7 +343,27 @@
     <string name="ui_set_sec_theme">主题数据</string>
     <string name="ui_set_sec_tpl_custom">模板管理（自定义）</string>
     <string name="ui_set_sec_keymap">键映射</string>
+    <!-- v223.29.4 键映射收进折叠组（成宇 2026-11-04「键映射这一块太长了，用折叠」）：
+         组头回显「已改 N 处」，不展开也知道改没改过。 -->
+    <string name="ui_set_keymap_group">键位映射（点击展开）</string>
+    <string name="ui_set_keymap_changed">已改 %1$d 处</string>
     <string name="ui_set_sec_bg">背景图</string>
+    <!-- v223.29.4 背景段从「数据与维护」搬进「主题与外观」（成宇 2026-11-04
+         「设置里的背景图也要挪到主题外观分组」），顺手补上动态背景。
+         这一版之前该段的文案全在 Kotlin 里，搬动时一并资源化（棘轮不涨）。 -->
+    <string name="ui_set_bg_current">当前背景图</string>
+    <string name="ui_set_bg_current_none">未设置（用下面的预设底色）</string>
+    <string name="ui_set_bg_current_set">已选图</string>
+    <string name="ui_set_bg_preset">预设底色</string>
+    <string name="ui_set_bg_follow_theme">跟随主题</string>
+    <string name="ui_set_bg_anim">动态背景</string>
+    <string name="ui_set_bg_anim_sum">背景极缓慢地缩放/漂移；纯色底叠一层柔和光晕。关闭后完全静止</string>
+    <string name="ui_set_bg_scope">生效范围</string>
+    <string name="ui_set_bg_scope_value">主壳四页 + 触控板 / 遥控器自绘页（相册图不做动态）</string>
+    <!-- 日志弹窗「复制全部」（成宇 2026-11-04「日志要加复制」） -->
+    <string name="ui_log_copy_all">复制全部</string>
+    <string name="ui_log_copied">已复制 %1$d 条日志</string>
+    <string name="ui_log_nothing">该条件下没有日志</string>
     <string name="ui_set_sec_log">运行日志</string>
     <!-- 2026-11-01 补回「有实现没入口」的那批功能，文案统一进资源（不写死在 Kotlin 里） -->
     <string name="ui_set_sec_keyboard_look">键盘外观</string>
@@ -359,8 +406,6 @@
     <string name="ui_set_cat_keys">快捷键与外设</string>
     <string name="ui_set_cat_tools">工具与传输</string>
     <string name="ui_set_cat_data">数据与维护</string>
-    <string name="ui_ball_order_pos">第 %1$d 位</string>
-    <string name="ui_ball_order_title">顺序（从上到下即扇形展开顺序）</string>
     <!-- v223.25 音频方向折叠分组（成宇 2026-11-02）：按 麦克风 / 音响 两组收起，点组头展开才出现子开关 -->
     <string name="ui_set_audio_group_mic">麦克风（手机 → 电脑）</string>
     <string name="ui_set_audio_group_spk">音响（电脑 → 手机）</string>

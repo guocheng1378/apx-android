@@ -1,6 +1,7 @@
 package com.allperiph.ui
 
 import android.content.Context
+import com.allperiph.R
 import org.json.JSONArray
 
 /**
@@ -21,6 +22,7 @@ object KeyPref {
     private const val KEY_DENSITY = "density"
     private const val KEY_CUSTOM = "custom_rows"
     private const val KEY_KEYCAP_STYLE = "keycap_style"
+    private const val KEY_EFFECT = "fx"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
@@ -91,18 +93,71 @@ object KeyPref {
 
     // —————————————————————————— 键帽材质 ——————————————————————————
 
-    /** 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动 */
-    val KEYCAP_STYLE_LABELS = listOf("平面", "机械")
+    /**
+     * 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动；
+     * 液态玻璃 = 半透明玻璃键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）。
+     */
+    const val KEYCAP_STYLE_COUNT = 3
+
+    /**
+     * 三档的**显示文案**（顺序 = 档位下标）。取资源而不是 Kotlin 字面量：
+     * 选项文案同属界面文案，写死在数据类里既过不了多语言、也会顶高中文棘轮
+     * （`check_ui_tokens.py` 只许降不许升）。取串都要 Context，所以是函数不是常量。
+     */
+    fun keycapStyleLabels(ctx: Context): List<String> = listOf(
+        ctx.getString(R.string.ui_keycap_flat),
+        ctx.getString(R.string.ui_keycap_mechanical),
+        ctx.getString(R.string.ui_keycap_glass),
+    )
+
+    /** 档位常量：调用方按名字分支，别在渲染处散写 0/1/2（改标签顺序时不会静默错档） */
+    const val KEYCAP_FLAT = 0
+    const val KEYCAP_MECHANICAL = 1
+    const val KEYCAP_GLASS = 2
 
     fun keycapStyleIndex(ctx: Context): Int =
-        prefs(ctx).getInt(KEY_KEYCAP_STYLE, 0).coerceIn(0, KEYCAP_STYLE_LABELS.size - 1)
+        prefs(ctx).getInt(KEY_KEYCAP_STYLE, 0).coerceIn(0, KEYCAP_STYLE_COUNT - 1)
 
     fun setKeycapStyle(ctx: Context, i: Int) {
-        prefs(ctx).edit().putInt(KEY_KEYCAP_STYLE, i.coerceIn(0, KEYCAP_STYLE_LABELS.size - 1)).apply()
+        prefs(ctx).edit().putInt(KEY_KEYCAP_STYLE, i.coerceIn(0, KEYCAP_STYLE_COUNT - 1)).apply()
     }
 
-    /** 机械键帽档启用（材质 + 下沉 + 波形震动一体） */
-    fun isMechanical(ctx: Context): Boolean = keycapStyleIndex(ctx) != 0
+    /** 机械键帽档启用（材质 + 下沉 + 波形震动一体）；液态玻璃档**不算**机械（键帽不再下沉） */
+    fun isMechanical(ctx: Context): Boolean = keycapStyleIndex(ctx) == KEYCAP_MECHANICAL
+
+    /** 液态玻璃键帽档（半透明 + 高光描边；与机械档互斥，同属「键帽材质」这一个下拉） */
+    fun isLiquidGlass(ctx: Context): Boolean = keycapStyleIndex(ctx) == KEYCAP_GLASS
+
+    // —————————————————————————— 按键特效 ——————————————————————————
+
+    /**
+     * 按键特效档位（成宇 2026-11-03「键盘的特效做几个」）。
+     *
+     * 与「键帽材质」正交：材质决定键帽**长什么样**，特效决定**按下去画什么**。
+     * 关闭档不代表「没有反馈」—— 沿用 Compose 自带的水波纹与机械档的按压下沉，
+     * 只是不再叠加额外图层（老机器上开销最低）。
+     */
+    const val FX_NONE = 0
+    const val FX_RIPPLE = 1
+    const val FX_HIGHLIGHT = 2
+    const val FX_BOUNCE = 3
+
+    const val EFFECT_COUNT = 4
+
+    /** 四档的**显示文案**（顺序 = 档位下标）；理由同 [keycapStyleLabels]。 */
+    fun effectLabels(ctx: Context): List<String> = listOf(
+        ctx.getString(R.string.ui_keyfx_none),
+        ctx.getString(R.string.ui_keyfx_ripple),
+        ctx.getString(R.string.ui_keyfx_highlight),
+        ctx.getString(R.string.ui_keyfx_bounce),
+    )
+
+    fun effectIndex(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_EFFECT, 0).coerceIn(0, EFFECT_COUNT - 1)
+
+    fun setEffect(ctx: Context, i: Int) {
+        prefs(ctx).edit().putInt(KEY_EFFECT, i.coerceIn(0, EFFECT_COUNT - 1)).apply()
+    }
 
     // —————————————————————————— 自定义布局 ——————————————————————————
 
