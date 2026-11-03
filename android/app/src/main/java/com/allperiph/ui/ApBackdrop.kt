@@ -1,6 +1,7 @@
 package com.allperiph.ui
 
 import android.content.Context
+import androidx.compose.runtime.mutableIntStateOf
 
 /**
  * 全局背景（v1.31）：预设底色 / 自定义背景图的选择与读写。
@@ -9,6 +10,24 @@ import android.content.Context
  * 优先级：**自定义图片 > 预设底色 > 布局自带的资源底色**（[Bg.color] = 0 的 `follow` 档）。
  */
 object ApBackdrop {
+
+    /**
+     * 背景偏好的**变更计数**（成宇 2026-11-04「背景图选择后没反映，要重启」）。
+     *
+     * 之前 `rememberApBackdrop` 里读偏好用的是不带 key 的 `remember{}` —— 只在首次组合
+     * 读一次；设置页改完偏好，主壳那一层**根本不会重新取图**，只好靠 `onRecreate()`
+     * 把整个 Activity 重启一遍才看得见（体感就是「要重启」）。
+     *
+     * 这里给一个 Compose 可观察的版本号：任何一次写入都 ++，`rememberApBackdrop`
+     * 以它为 key 重新读偏好与重新解码 —— 选图 / 换底色 / 开关动态**当场生效**，
+     * 不需要重启，也不再需要 `onRecreate()`。
+     */
+    private val revState = mutableIntStateOf(0)
+
+    /** 只读给 Compose 用；写入只能走下面的 set*（那里会 [bump]） */
+    internal val rev: Int get() = revState.intValue
+
+    private fun bump() { revState.intValue += 1 }
 
     /** 背景预设；[Bg.color] = 0 表示「跟随主题」（用布局自带的资源底色） */
     data class Bg(val id: String, val name: String, val color: Int)
@@ -27,6 +46,7 @@ object ApBackdrop {
 
     fun setBg(ctx: Context, id: String) {
         ApAppearancePrefs.of(ctx).edit().putString(ApAppearancePrefs.KEY_BG, id).apply()
+        bump()
     }
 
     /**
@@ -41,6 +61,7 @@ fun bgAnim(ctx: Context): Boolean =
 
 fun setBgAnim(ctx: Context, on: Boolean) {
     ApAppearancePrefs.of(ctx).edit().putBoolean(ApAppearancePrefs.KEY_BG_ANIM, on).apply()
+    bump()
 }
 
 /** 自定义背景图（相册选来的 URI）；设了图就优先于纯色底 */
@@ -52,5 +73,8 @@ fun setBgAnim(ctx: Context, on: Boolean) {
             if (uri.isNullOrBlank()) remove(ApAppearancePrefs.KEY_BG_IMAGE)
             else putString(ApAppearancePrefs.KEY_BG_IMAGE, uri)
         }.apply()
+        // 换了图：解码缓存里那张立刻作废，否则同 URI 重选会拿到旧位图
+        BackdropDecode.invalidate()
+        bump()
     }
 }

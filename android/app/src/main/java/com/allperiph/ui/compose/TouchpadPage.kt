@@ -159,6 +159,9 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
     val subTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
+    // 成宇 2026-11-04「触摸板也好几处」：本页所有可点面共用一次读到的特效档位，
+    // 与键盘页同一个偏好（KeyPref.effectIndex = 设置页「主题与外观 → 动效」）。
+    val gridFx = com.allperiph.ui.KeyPref.effectIndex(ctx)
     var editVersion by remember { mutableIntStateOf(0) }
     val items = remember(editVersion) {
         val list = HotkeyStore.load(ctx)
@@ -252,7 +255,8 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                         .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(Color(chipBgColor))
-                        .clickable { openManager() }
+                        // 空列表那枚「＋」也是可点面：与芯片同一套特效 + 震动。
+                        .apPress(gridFx, MiuixTheme.colorScheme.primary, openManager)
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { openManager() }) },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -399,6 +403,9 @@ private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = 
     val tint = remember(ctx) {
         Color(com.allperiph.ui.ApPalette.accentOf(ctx, com.allperiph.ui.ApSkin.HOTKEY))
     }
+    // 芯片也要有按键特效（成宇 2026-11-04 反馈「触摸板好几处」）：
+    // 震动已在 onClick 的 ApMotion.tap 里，这里只补视觉那一半，避免双震。
+    val chipFx = remember(ctx) { com.allperiph.ui.KeyPref.effectIndex(ctx) }
     ApComponents.TabChip(
         text = combo.label,
         selected = false,
@@ -409,5 +416,6 @@ private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = 
             HotkeyStore.bump(ctx, combo)
         },
         modifier = modifier,
+        fx = chipFx,
     )
 }

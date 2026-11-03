@@ -36,6 +36,22 @@ object OrientLock {
 
     fun isOn(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY, false)
 
+    /**
+     * 横持自动切到键盘页（成宇 2026-11-04「横竖屏切换好像被你强制了」）。
+     *
+     * 默认**关**：旧行为是「一转手机就换页」，与系统「竖屏锁定」直接冲突（重力判读不看
+     * 系统方向锁），用户体感就是被强制。需要边走边用手势面的人可以显式打开。
+     * 与 [isOn] 正交：开锁时不管这个开关都不切页。
+     */
+    private const val KEY_AUTO_SWAP = "orient_auto_swap"
+
+    fun autoSwapEnabled(ctx: Context): Boolean =
+        prefs(ctx).getBoolean(KEY_AUTO_SWAP, false)
+
+    fun setAutoSwap(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_AUTO_SWAP, on).apply()
+    }
+
     fun set(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean(KEY, on).apply()
     }
@@ -44,9 +60,13 @@ object OrientLock {
      * 按偏好把当前 Activity 的朝向钉住 / 放开。
      *
      *  · 开 → [ActivityInfo.SCREEN_ORIENTATION_LOCKED]（钉在**当前**朝向，旋转手机不变版式）；
-     *  · 关 → [ActivityInfo.SCREEN_ORIENTATION_SENSOR]（与 Manifest 里 `screenOrientation="sensor"`
-     *    同口径，不是 `UNSPECIFIED`——UNSPECIFIED 会退回「用户旋转锁定」的语义，反而与
-     *    「App 自己决定」不一致）。
+     *  · 关 → [ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED]（**跟随系统**）。
+     *
+     * ⚠️ 2026-11-04 改口径（成宇「横竖屏切换好像被你强制了」）：这里原来是
+     * `SCREEN_ORIENTATION_SENSOR`，语义是「App 自己决定朝向」—— 系统里明明开了
+     * 「旋转锁定 / 竖屏锁定」，App 还是会被转过去，用户体感就是「被它强制了」。
+     * 改成 `UNSPECIFIED` 后朝向交回系统：用户锁了竖屏，App 就竖着；没锁则照常跟随重力。
+     * 想钉住某一边仍可用本开关（开 = LOCKED）。
      *
      * 幂等：值没变时不重设，避免 onCreate/onResume 每次都被当成一次配置变更。
      */
@@ -54,7 +74,9 @@ object OrientLock {
         val want = if (isOn(activity)) {
             ActivityInfo.SCREEN_ORIENTATION_LOCKED
         } else {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            // 关 = 交回系统（尊重系统「旋转锁定」）。别再写 SENSOR —— 那会无视
+            // 用户的系统级锁定，正是「被 App 强制横屏」的来源。
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
         if (activity.requestedOrientation != want) activity.requestedOrientation = want
     }

@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.ui.compose.keyFx
+import com.allperiph.ui.compose.rememberKeyFx
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.SmallTitle
@@ -262,14 +264,27 @@ object ApComponents {
         onClick: () -> Unit,
         modifier: Modifier = Modifier,
         accent: Color? = null,
+        fx: Int = com.allperiph.ui.KeyPref.FX_NONE,
     ) {
         val tint = accent ?: MiuixTheme.colorScheme.primary
         val active = selected || accent != null
+        // 成宇 2026-11-04「触摸板好几处都要有特效和震动」：芯片此前只有 clickable，
+        // 按下去一点视觉反馈都没有。这里补上按键特效（档位由调用方读偏好后传下来，
+        // 默认 FX_NONE 不给设置页页签凭空加手感）；震动仍归调用方的 onClick
+        // ——触控板页的 chip 已经在 onClick 里 ApMotion.tap，这里再接一次就是双震。
+        val chipInteraction = remember { MutableInteractionSource() }
+        val chipPressed by chipInteraction.collectIsPressedAsState()
+        val chipFx = rememberKeyFx(chipPressed, fx)
         Box(
             modifier = modifier
                 .clip(RoundedCornerShape(50))
                 .background(if (active) tint.copy(alpha = if (selected) 0.16f else 0.12f) else Color.Transparent)
-                .clickable(onClick = onClick)
+                .clickable(
+                    interactionSource = chipInteraction,
+                    indication = null,
+                    onClick = onClick,
+                )
+                .then(Modifier.keyFx(chipFx, tint))
                 .heightIn(min = 44.dp)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
@@ -338,9 +353,12 @@ object ApComponents {
     /** 动作按钮：整行宽（窄屏并排会把文字顶到边，与旧卡同一约定） */
     @Composable
     fun ActionButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+        // 成宇 2026-11-04「都有特效和震动了」：页级动作按钮此前是 TextButton 直通，
+        // 点下去既不震也不响（键盘页的「关闭」「编辑」就在这类按钮上）。
+        val abHost = androidx.compose.ui.platform.LocalView.current
         TextButton(
             text = text,
-            onClick = onClick,
+            onClick = { com.allperiph.ui.Feedback.tap(abHost); onClick() },
             modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         )
     }
@@ -355,7 +373,12 @@ object ApComponents {
      */
     @Composable
     fun NarrowButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-        TextButton(text = text, onClick = onClick, modifier = modifier)
+        val nbHost = androidx.compose.ui.platform.LocalView.current
+        TextButton(
+            text = text,
+            onClick = { com.allperiph.ui.Feedback.tap(nbHost); onClick() },
+            modifier = modifier,
+        )
     }
 
     /**

@@ -20,7 +20,10 @@ object ConnectHistory {
         val host: String,
         val port: Int,
         val timestamp: Long,
-        val lastConnected: Long = 0L
+        val lastConnected: Long = 0L,
+        /** 设备类型："tv" / "pc" / "phone"（与 TvDiscovery.TvDevice.type 同值）。
+         *  老记录里没有这个字段，按 "pc" 兜底 —— 历史里绝大多数是 PC 端。 */
+        val type: String = "pc",
     )
     
     /**
@@ -30,7 +33,7 @@ object ConnectHistory {
      * @param host 主机地址
      * @param port 端口号
      */
-    fun add(context: Context, name: String, host: String, port: Int) {
+    fun add(context: Context, name: String, host: String, port: Int, type: String = "pc") {
         val prefs = getPrefs(context)
         val history = getHistoryList(context)
         
@@ -43,7 +46,8 @@ object ConnectHistory {
             // 更新已有记录
             val existing = history[existingIndex]
             history[existingIndex] = existing.copy(
-                lastConnected = System.currentTimeMillis()
+                lastConnected = System.currentTimeMillis(),
+                type = type,
             )
         } else {
             // 添加新记录
@@ -52,7 +56,8 @@ object ConnectHistory {
                 host = host,
                 port = port,
                 timestamp = System.currentTimeMillis(),
-                lastConnected = System.currentTimeMillis()
+                lastConnected = System.currentTimeMillis(),
+                type = type,
             )
             history.add(0, newItem)
             
@@ -135,7 +140,8 @@ object ConnectHistory {
                         host = obj.getString("host"),
                         port = obj.getInt("port"),
                         timestamp = obj.getLong("timestamp"),
-                        lastConnected = obj.getLong("lastConnected")
+                        lastConnected = obj.getLong("lastConnected"),
+                        type = obj.optString("type", "pc"),
                     )
                 )
             }
@@ -157,6 +163,7 @@ object ConnectHistory {
                 put("port", item.port)
                 put("timestamp", item.timestamp)
                 put("lastConnected", item.lastConnected)
+                put("type", item.type)
             }
             jsonArray.put(obj)
         }
