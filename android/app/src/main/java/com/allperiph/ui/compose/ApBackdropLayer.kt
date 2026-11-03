@@ -1,9 +1,6 @@
 package com.allperiph.ui.compose
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.net.Uri
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -60,9 +57,15 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 internal fun rememberApBackdrop(ctx: Context, fallback: Color): Modifier {
-    val uri = remember { ApBackdrop.bgImage(ctx).orEmpty() }
-    val animated = remember { ApBackdrop.bgAnim(ctx) }
-    val base = remember(uri) {
+    // ⚠️ 以 ApBackdrop.rev 为 key：**设置页改完偏好要当场生效**。
+    // 此前这几处都是不带 key 的 `remember {}`（只读一次偏好），于是选图 / 换底色 /
+    // 开关动态背景全部要重启 App 才看得见 —— 2026-11-04 成宇的原话就是
+    // 「背景图选择后没反映，要重启」。rev 在每次 setBg / setBgImage / setBgAnim 时 ++，
+    // 这里随之重新读偏好并重新解码。
+    val rev = ApBackdrop.rev
+    val uri = remember(rev) { ApBackdrop.bgImage(ctx).orEmpty() }
+    val animated = remember(rev) { ApBackdrop.bgAnim(ctx) }
+    val base = remember(rev, uri) {
         val preset = ApBackdrop.BG_PRESETS.firstOrNull { it.id == ApBackdrop.bgId(ctx) }
         if (preset != null && preset.color != 0) Color(preset.color) else fallback
     }
@@ -71,7 +74,12 @@ internal fun rememberApBackdrop(ctx: Context, fallback: Color): Modifier {
         bitmap = if (uri.isBlank()) {
             null
         } else {
-            withContext(Dispatchers.IO) { decode(ctx, uri) }?.asImageBitmap()
+            // 解码口径收在 BackdropDecode 一处（原先这里与 Views 侧 Backdrop 各一份，
+            // 两份的采样条件都是「折半后仍不小于目标才继续折」，等效于对大多数照片
+            // 完全不采样 —— 就是成宇 2026-11-04 报的「加载图片卡顿」）。
+            withContext(Dispatchers.IO) {
+                com.allperiph.ui.BackdropDecode.decode(ctx, uri)
+            }?.asImageBitmap()
         }
     }
     // ⚠️ 两个 remember 都**无条件**调用：`rememberInfiniteTransition` 一旦放进
@@ -131,19 +139,3 @@ private fun DrawScope.paintBackdrop(
         dstSize = IntSize(w, h),
     )
 }
-
-/** 采样解码到「两倍屏宽」以内（口径与 [Backdrop] 的私有实现一致，避免两条解码参数分叉） */
-private fun decode(ctx: Context, uri: String): Bitmap? = runCatching {
-    val u = Uri.parse(uri)
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-    val target = ctx.resources.displayMetrics.widthPixels * 2
-    var sample = 1
-    var w = bounds.outWidth
-    while (w > 0 && w / 2 >= target && sample < 8) {
-        sample *= 2
-        w /= 2
-    }
-    val opt = BitmapFactory.Options().apply { inSampleSize = sample }
-    ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, opt) }
-}.getOrNull()

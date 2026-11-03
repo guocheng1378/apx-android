@@ -413,6 +413,22 @@
     <!-- v223.27 顶栏整块去除后的选择器常驻入口；v223.28 已上移到状态页「受控与出口」 -->
     <string name="ui_pick_device_title">选择受控设备</string>
     <string name="ui_pick_device_local">本机 / PC（默认：不控制别的设备）</string>
+    <!-- 一键主题（v223.29.6，成宇「做成主题最好」）：命名搭配一键写进皮肤/键帽/特效/震动/音效 -->
+    <string name="ui_theme_preset_sec">一键主题</string>
+    <string name="ui_theme_preset_current">当前</string>
+    <string name="ui_theme_preset_custom">自定义（下面各项可单独调）</string>
+    <string name="ui_theme_preset_quiet">静默办公</string>
+    <string name="ui_theme_preset_quiet_desc">跟随主题配色 · 平面键帽 · 无特效 · 不震不响</string>
+    <string name="ui_theme_preset_mech">机械键盘</string>
+    <string name="ui_theme_preset_mech_desc">海蓝 · 机械键帽 · 涟漪 · 标准震动 · 机械轴音</string>
+    <string name="ui_theme_preset_glass">液态玻璃</string>
+    <string name="ui_theme_preset_glass_desc">青碧 · 玻璃键帽 · 高光 · 轻震动 · 键盘音</string>
+    <string name="ui_theme_preset_bouncy">弹跳趣味</string>
+    <string name="ui_theme_preset_bouncy_desc">暮紫 · 机械键帽 · 弹跳 · 强震动 · 点击音</string>
+    <string name="ui_set_auto_swap_title">横持自动切到键盘页</string>
+    <string name="ui_set_auto_swap_sum">关闭时页面不再随重力自动切换（默认关）；版式朝向由系统旋转锁定决定</string>
+    <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
+    <string name="ui_pick_device_controlled">外设模式（本机被控）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>
     <string name="ui_pick_device_scanning">正在搜索局域网设备…（对端的控制服务要开着；1~2 秒内会陆续出现）</string>
     <string name="ui_pick_device_button">选择受控设备（连上之后触摸板 / 键盘才发得出去）</string>

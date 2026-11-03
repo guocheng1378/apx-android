@@ -133,6 +133,12 @@ object ApSkin {
             .put("haptic", ApFeel.hapticIndex(ctx))
             .put("sound", ApFeel.soundIndex(ctx))
             .put("colorSource", ApPalette.colorSource(ctx))
+        // 成宇 2026-11-04「做成主题最好」：按键手感也是外观的一部分 ——
+        // 键帽材质 / 按键特效 / 键位密度此前不进主题文件，换机或分享时
+        // 只带走了颜色，用户装上新机还得再手调一遍这三处。
+        obj.put("keycap", KeyPref.keycapStyleIndex(ctx))
+            .put("fx", KeyPref.effectIndex(ctx))
+            .put("density", KeyPref.densityIndex(ctx))
         return obj.toString(2)
     }
 
@@ -166,6 +172,9 @@ object ApSkin {
         if (obj.has("haptic")) ApFeel.setHaptic(ctx, obj.optInt("haptic", 2))
         if (obj.has("sound")) ApFeel.setSound(ctx, obj.optInt("sound", 1))
         if (obj.has("colorSource")) ApPalette.setColorSource(ctx, obj.optInt("colorSource", ApPalette.COLOR_BRAND))
+        if (obj.has("keycap")) KeyPref.setKeycapStyle(ctx, obj.optInt("keycap", KeyPref.KEYCAP_FLAT))
+        if (obj.has("fx")) KeyPref.setEffect(ctx, obj.optInt("fx", KeyPref.FX_NONE))
+        if (obj.has("density")) KeyPref.setDensity(ctx, obj.optInt("density", 1))
         return incoming.size
     }
 

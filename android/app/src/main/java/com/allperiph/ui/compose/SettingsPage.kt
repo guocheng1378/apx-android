@@ -85,11 +85,15 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     val insets = rememberApInsets()
     var tplVersion by remember { mutableIntStateOf(0) }
     // 档位值放在 state 里：下拉组件是受控的，改完要立刻反映到界面
+    // 一键主题会让皮肤 / 键帽 / 特效 / 震动 / 音效一起变，这些下拉的初值都得以它为准重读。
+    // 版本号本身只增不减，用于 remember 的 key（不参与显示）。
+    val presetLookRev = com.allperiph.ui.ApThemePresets.applyRev
     var themeMode by remember { mutableIntStateOf(ThemePref.get(ctx)) }
     var colorSource by remember { mutableIntStateOf(ApPalette.colorSource(ctx)) }
     var motion by remember { mutableIntStateOf(ApTiming.motionIndex(ctx)) }
-    var haptic by remember { mutableIntStateOf(ApFeel.hapticIndex(ctx)) }
-    var sound by remember { mutableIntStateOf(ApFeel.soundIndex(ctx)) }
+    // 震动 / 音效也跟「一键主题」走：套完要显示新档（ApThemePresets.apply 写的就是这两个门面）
+    var haptic by remember(presetLookRev) { mutableIntStateOf(ApFeel.hapticIndex(ctx)) }
+    var sound by remember(presetLookRev) { mutableIntStateOf(ApFeel.soundIndex(ctx)) }
     // —— 背景（成宇 2026-11-03「设置里的背景图也要挪到主题外观分组」「背景图可以动态的吗」）——
     // 沿 ApBackdrop 既有路径：键 KEY_BG_IMAGE="bg_image"、读 ApBackdrop.bgImage(ctx)、
     // 写 ApBackdrop.setBgImage(ctx, uri)；解码由 Backdrop / ApBackdropSurface 做（采样到两倍屏宽）。
@@ -114,12 +118,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApBackdrop.setBgImage(ctx, uri.toString())
             bgUri = uri.toString()
             Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
-            // ★ 必须重建一次，否则「选完图当场什么都没变」：`rememberApBackdrop` 里的
-            // 背景图 URI 是**不带 key 的 `remember`**（只在首次组合读一次偏好），
-            // 光改偏好 + 改这里的 state 不会让主壳那一层重新取图 —— 用户看到的现象是
-            // 「选了相册图，壳照旧」，只有杀掉重开才出图。预设底色与「动态背景」两个
-            // 入口一直是调 `onRecreate()` 的，唯独选图这条漏了，与它们口径对齐。
-            onRecreate()
+            // v223.29.6：**不再 onRecreate()**。背景层现在以 `ApBackdrop.rev` 为 key
+            // 重读偏好与重新解码（见 rememberApBackdrop），选完图当场就换 —— 不必再把
+            // 整个界面重建一遍（成宇 2026-11-04「背景图选择后没反映，要重启」的根治）。
         }
     }
 
@@ -251,6 +252,39 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 }
             }
 
+            // ———————————————— 一键主题（成宇 2026-11-04「做成主题最好」） ————————————————
+            // 皮肤 / 键帽 / 特效 / 震动 / 音效 分散在下面三个分组，换「整体感觉」要改五项。
+            // 这里给四套命名搭配，一键写进同一批偏好（ApThemePresets.apply 是唯一写入口，
+            // 不新造状态）。套完仍可逐项微调，微调后这里显示「自定义」。
+            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec)) {
+                Column {
+                    // 以 applyRev 为 key：套完主题当场重算「当前是这套」，下面的
+                    // 键帽/特效/震动/音效四个下拉也一并重读到新档（各自 remember 的 key 同源）。
+                    val presetRev = com.allperiph.ui.ApThemePresets.applyRev
+                    val matched = androidx.compose.runtime.remember(presetRev) {
+                        com.allperiph.ui.ApThemePresets.ALL.firstOrNull {
+                            com.allperiph.ui.ApThemePresets.matches(ctx, it)
+                        }
+                    }
+                    ApComponents.ValueRow(
+                        title = ctx.getString(R.string.ui_theme_preset_current),
+                        value = matched?.let { com.allperiph.ui.ApThemePresets.name(ctx, it) }
+                            ?: ctx.getString(R.string.ui_theme_preset_custom),
+                    )
+                    com.allperiph.ui.ApThemePresets.ALL.forEach { p ->
+                        ApComponents.ActionButton(
+                            text = com.allperiph.ui.ApThemePresets.name(ctx, p) + " · " +
+                                com.allperiph.ui.ApThemePresets.desc(ctx, p),
+                            onClick = {
+                                com.allperiph.ui.ApThemePresets.apply(ctx, p)
+                                ApAccentSync.apply(ctx)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                    }
+                }
+            }
+
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_skin)) {
                 Column {
                     ApSkin.SCOPES.forEach { (scope, title) ->
@@ -325,7 +359,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 ApBackdrop.setBgImage(ctx, null)
                                 bgUri = ""
                                 Toast.makeText(ctx, "已清除", Toast.LENGTH_SHORT).show()
-                                onRecreate()  // 同「选择图片」：清掉之后要立刻回到底色
+                                // 不再 onRecreate()：背景层以 ApBackdrop.rev 为 key 自动重读偏好
+                                // （v223.29.6「选图/换底色/开关动态当场生效」）。
                             },
                         )
                     }
@@ -341,7 +376,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         onSelectedIndexChange = { i ->
                             bgId = ApBackdrop.BG_PRESETS[i].id
                             ApBackdrop.setBg(ctx, bgId)
-                            onRecreate()
+                            Feedback.haptic(ctx)
+                            // setBg 里 rev++ → 背景层当场换底，不必重建 Activity
                         },
                     )
                     ApComponents.SwitchRow(
@@ -352,8 +388,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             bgAnim = on
                             ApBackdrop.setBgAnim(ctx, on)
                             Feedback.haptic(ctx)
-                            // 主壳与两个自绘页都读同一份偏好，重建一次让当场生效
-                            onRecreate()
+                            // setBgAnim 里 rev++ → 主壳背景层当场启停；两个自绘页
+                            // （触控板 / 遥控）下次进入时照样读到新值
                         },
                     )
                     ApComponents.ValueRow(
@@ -366,10 +402,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // **只有实现、没有入口** —— setKeycapStyle / setDensity / setLayout 全仓零调用，
             // 用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的一组入口，初值直接读
             // KeyPref 自己的 index（不另立一份状态，避免"界面显示 A、实际渲染 B"）。
-            var kbStyle by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
-            var kbDensity by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
-            var kbLayout by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
-            var kbFx by remember { mutableIntStateOf(com.allperiph.ui.KeyPref.effectIndex(ctx)) }
+            // key = 一键主题的 applyRev：套完整套主题后这四个下拉要立刻显示新档，
+            // 否则界面写「机械键盘」而实际存的是「液态玻璃」（成宇 2026-11-04 这套需求
+            // 的核心就是「整套一起变」，显示与存储必须同源）。
+            val lookRev = com.allperiph.ui.ApThemePresets.applyRev
+            var kbStyle by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
+            var kbDensity by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
+            var kbLayout by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
+            var kbFx by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.effectIndex(ctx)) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
                 Column {
                     WindowDropdownPreference(
@@ -462,6 +502,20 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             orientLock = on
                             OrientLock.set(ctx, on)
                             (ctx as? android.app.Activity)?.let { OrientLock.apply(it) }
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    // 横持自动切页（成宇 2026-11-04「横竖屏切换好像被你强制了」）：
+                    // 默认关。旧行为是「一转手机就换页」，读加速度计、不看系统方向锁，
+                    // 用户开着竖屏锁定也会被翻走。这里给它一个显式开关注释，别再默认抢方向。
+                    var autoSwap by remember { mutableStateOf(OrientLock.autoSwapEnabled(ctx)) }
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_auto_swap_title),
+                        summary = ctx.getString(R.string.ui_set_auto_swap_sum),
+                        checked = autoSwap,
+                        onCheckedChange = { on ->
+                            autoSwap = on
+                            OrientLock.setAutoSwap(ctx, on)
                             Feedback.haptic(ctx)
                         },
                     )

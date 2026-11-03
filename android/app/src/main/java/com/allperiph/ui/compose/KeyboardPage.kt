@@ -147,7 +147,8 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                     text = ctx.getString(res),
                     color = if (tab == i) MiuixTheme.colorScheme.primary
                     else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.clickable { tab = i },
+                    // 页签也是「一处可点面」：与键帽同一套特效 + 震动（成宇 2026-11-04）
+                    modifier = Modifier.apPress(fx, MiuixTheme.colorScheme.primary) { tab = i },
                 )
             }
         }
@@ -406,13 +407,13 @@ private fun CustomLayout(
 @Composable
 private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
     // 媒体 / 电源图块也是「按键」，同样震一下、响一声
-    val host = LocalView.current
+    val fx = KeyPref.effectIndex(LocalContext.current)
     Box(
         modifier = modifier
             .padding(horizontal = 4.dp, vertical = 2.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(MiuixTheme.colorScheme.surfaceContainer)
-            .clickable { Feedback.tap(host); onClick() },
+            .apPress(fx, MiuixTheme.colorScheme.primary, onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center)

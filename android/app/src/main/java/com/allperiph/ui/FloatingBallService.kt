@@ -1211,10 +1211,16 @@ class FloatingBallService : Service() {
         }.onFailure { Log.w(TAG, "触控板模块就绪检查失败：${it.message}") }
     }
 
-    /** 悬浮手柄：[GamepadPanel]（GamepadActivity 同款双摇杆），全屏 overlay + KEEP_SCREEN_ON。 */
+    /**
+     * 悬浮手柄：[GamepadPanel]（GamepadActivity 同款双摇杆），全屏 overlay + KEEP_SCREEN_ON。
+     *
+     * v223.29.6：外面套 [LandscapePanel] —— overlay 没有 `requestedOrientation`，
+     * 竖屏打开时此前就是「手柄挤在半屏」（成宇 2026-11-04「悬浮板的手柄，没有强制横屏」）。
+     * 容器在竖屏时把内容按横屏尺寸布局并旋转 90°，与主屏 [GamepadActivity] 的横屏观感一致。
+     */
     private fun expandGamepad() {
         expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, keepScreenOn = true) {
-            GamepadPanel(onExit = { collapse() })
+            LandscapePanel { GamepadPanel(onExit = { collapse() }) }
         }
     }
 

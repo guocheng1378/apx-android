@@ -24,6 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.BoxWithConstraints
+import android.content.res.Configuration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
@@ -61,6 +65,38 @@ class GamepadActivity : ComponentActivity() {
                 }
             },
         )
+    }
+}
+
+/**
+ * 悬浮手柄的「强制横屏」容器（成宇 2026-11-04「悬浮板的手柄，没有强制横屏」）。
+ *
+ * 悬浮手柄是 Service 挂的 WindowManager overlay，**不是 Activity** —— 没有
+ * `requestedOrientation` 可设，系统也不会因为一个 overlay 去转屏。主屏入口
+ * （[GamepadActivity]）靠清单里 `screenOrientation="landscape"` 强制横屏，
+ * 悬浮入口此前没有任何对策，竖屏打开时一堆控件就挤在半屏里。
+ *
+ * 这里的做法：竖屏时把内容按「横屏尺寸」（宽 = 屏高、高 = 屏宽）布局再旋转 90°，
+ * 视觉与手感都变成横屏，用户把手机横过来拿正好是正的。旋转走
+ * `graphicsLayer.rotationZ`，Compose 会把指针坐标一并变换 —— 摇杆与按键的命中区
+ * 不会错位（这是不能用「只画一张旋转图」的理由）。已经是横屏时不加包裹，原样渲染。
+ */
+@Composable
+internal fun LandscapePanel(content: @Composable () -> Unit) {
+    val cfg = LocalConfiguration.current
+    if (cfg.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        content()
+        return
+    }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF14161B))) {
+        val landWidth = maxHeight
+        val landHeight = maxWidth
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(width = landWidth, height = landHeight)
+                .graphicsLayer { rotationZ = 90f },
+        ) { content() }
     }
 }
 

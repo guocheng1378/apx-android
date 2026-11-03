@@ -62,6 +62,7 @@ import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -262,6 +263,20 @@ class ApShellActivity : ComponentActivity() {
         }
         val orientationLandscape = gravityLandscape ?: landscape
 
+        // ★ 2026-11-04（成宇「横竖屏切换好像被你强制了」）：自动切页**默认关闭**。
+        //
+        // 这一段是旧 Views 版的行为，迁 Compose 时被特意补回来（b6dbdca）。问题是它读的是
+        // 加速度计、**不看系统方向锁** —— 用户明明在系统里开着「竖屏锁定」，躺着坐着把手机
+        // 转一下，页面照样从触控板跳到键盘页。用户的原话就是「横竖屏切换好像被你强制了」。
+        //
+        // 现在的口径：
+        //   · 版式朝向交回系统（OrientLock 关锁时是 UNSPECIFIED，见那个对象的 KDoc）；
+        //   · 自动切页改成一个**显式开关**（设置页「快捷键与外设 → 通用 → 横持自动切到键盘页」），
+        //     默认关 —— 「我不动，你就别动」；
+        //   · 打开后仍按原来的滞回逻辑工作（给需要边走边用手势面的用户）。
+        //
+        // 旧实现的注释保留在下面这段里，行为差异只在这里，别处不要各写一套。
+        //
         // 横持 / 竖持自动切页（旧 Views 版的既有行为，迁 Compose 时整段丢了）：
         // 横持 → 键盘页，竖持 → 触控板页；**停在状态页（0）与设置页（3）时不抢方向**，
         // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
@@ -272,8 +287,12 @@ class ApShellActivity : ComponentActivity() {
         // 回到触控板页一转手机，页面照样被换成键盘页，得退到后台再回来才生效
         // （审查 v5 §9.2-A）。切页会重组 Shell，所以现读的值能跟上开关。
         val locked = OrientLock.isOn(this@ApShellActivity)
-        androidx.compose.runtime.LaunchedEffect(orientationLandscape, locked) {
-            if (locked) return@LaunchedEffect
+        // 横持自动切页的显式开关（默认关；见上面这段的说明）。
+        // 与 locked 同口径：**每次组合现读偏好**，不要 remember 缓存 ——
+        // 设置页是在同一个 Activity 里拨这个开关的，缓存了就要退后台再回来才生效。
+        val autoSwap = com.allperiph.ui.OrientLock.autoSwapEnabled(this@ApShellActivity)
+        androidx.compose.runtime.LaunchedEffect(orientationLandscape, locked, autoSwap) {
+            if (locked || !autoSwap) return@LaunchedEffect
             val target = when {
                 orientationLandscape && (page == 0 || page == 1) -> 2
                 !orientationLandscape && page == 2 -> 1
@@ -738,6 +757,11 @@ internal fun connectControlledDevice(
         val ok = c.connect()
         ui.post {
             if (ok) {
+                // 成宇 2026-11-04「历史链接设备一点就可链接」：连接成功才写历史，
+                // 失败的不进列表（否则「一点就连」里会混进连不上的死记录）。
+                runCatching {
+                    com.allperiph.ui.ConnectHistory.add(ctx, d.name, d.ip, d.port, d.type)
+                }
                 com.allperiph.wireless.ControlTarget.controlClient
                     ?.takeIf { it !== c }?.disconnect()
                 com.allperiph.wireless.ControlTarget.controlClient = c
@@ -777,6 +801,11 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
     val ctx = LocalContext.current
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
     var connecting by remember { mutableStateOf("") }
+    // 历史连接 + 外设模式状态（成宇 2026-11-04「历史链接设备一点就可链接，加入外设模式」）
+    var recent by remember {
+        mutableStateOf(emptyList<com.allperiph.ui.ConnectHistory.HistoryItem>())
+    }
+    var controlledOn by remember { mutableStateOf(com.allperiph.controlled.ControlledService.running) }
     // ★ v223.27：这里原来是 start() 之后立刻 list() **只取一次** —— UDP 广播发现要
     //   1~2s 才有第一台设备进来（TvDiscovery 的 devices 表还要等 loop 收到信标才填），
     //   所以弹窗几乎必然显示空表。用户报「找不到设备 / 没有连接设备的地方」有一半在这里。
@@ -785,6 +814,8 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
         com.allperiph.wireless.TvDiscovery.start()
         while (true) {
             devices = com.allperiph.wireless.TvDiscovery.list()
+            recent = com.allperiph.ui.ConnectHistory.getRecent(ctx, 5)
+            controlledOn = com.allperiph.controlled.ControlledService.running
             kotlinx.coroutines.delay(1000L)
         }
     }
@@ -800,6 +831,61 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
             onDone()
         },
     )
+    // —— 外设模式（本机被控）——
+    // 此前这个开关只在设置页「快捷键与外设」与触控板页出现，选设备这条动线上没有，
+    // 用户要「这台被对方控」时得先离开选择器。这里给一行就地切换（服务启停走
+    // ControlledService 自己的开关位，与那些入口是同一条链路）。
+    ApComponents.ActionButton(
+        text = ctx.getString(R.string.ui_pick_device_controlled) + "：" +
+            ctx.getString(
+                if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
+            ),
+        onClick = {
+            // 震动已由 ApComponents.ActionButton 统一给（2026-11-04 一整套手感），这里不再叠
+            if (controlledOn) {
+                com.allperiph.controlled.ControlledService.stop(ctx)
+            } else {
+                com.allperiph.controlled.ControlledService.start(ctx)
+            }
+            controlledOn = com.allperiph.controlled.ControlledService.running
+            android.widget.Toast.makeText(
+                ctx,
+                ctx.getString(
+                    if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
+                ),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        },
+    )
+    // —— 最近连接：点一下就连（不必等广播重新发现）——
+    if (recent.isNotEmpty()) {
+        Text(
+            text = ctx.getString(R.string.ui_pick_device_recent),
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+        )
+        recent.forEach { h ->
+            ApComponents.ActionButton(
+                text = "${h.name}  ${h.host}",
+                onClick = {
+                    connecting = h.host
+                    connectControlledDevice(
+                        ctx,
+                        com.allperiph.wireless.TvDiscovery.TvDevice(
+                            name = h.name,
+                            ip = h.host,
+                            port = h.port,
+                            lastSeen = h.lastConnected,
+                            type = h.type,
+                        ),
+                    ) { ok, _ ->
+                        connecting = ""
+                        if (ok) onDone()
+                    }
+                },
+            )
+        }
+    }
     if (connecting.isNotEmpty()) {
         Text(
             text = ctx.getString(R.string.ui_pick_device_connecting, connecting),
@@ -859,8 +945,11 @@ internal fun ApDevicePanel(onClose: () -> Unit) {
  * 编辑快捷键。搬过来的理由：那排按钮在状态页占着一张卡片，而低栏长按本来就是「常用功能」
  * 的口子，放在这里才叫随手可达。
  *
- * 「编辑快捷键」仍切到触控板页（v223.27 之后组合键的编辑弹窗在主壳里只有那一处，现由那页
- * 的 chip 长按调用），交给主壳切页，本弹窗不自己造导航状态。
+ * v223.29.6（成宇 2026-11-04「低栏长按后快捷键管理删除」）：最后一项「编辑快捷键」改为
+ * **直接打开管理列表**（`HotkeyBoard.managerDialog`：上移 / 下移 / 改 / 删 / 新建 /
+ * 恢复默认全在里面），不再只是把页面切到触控板页让用户自己去找长按入口。
+ * 皮肤取色与触控板页同一口径（`MiuixTheme` 的 onSurface / surface），否则同一个列表
+ * 从两个入口进来长得不一样。非 Activity 上下文（理论上不会发生）才退回切页。
  */
 @Composable
 private fun QuickActionsDialog(
@@ -868,6 +957,13 @@ private fun QuickActionsDialog(
     onDismiss: () -> Unit,
     onOpenTouchpad: () -> Unit,
 ) {
+    // 管理弹窗的皮肤：与触控板页同一个取色口径（主题色），否则从低栏进来的列表
+    // 会和从触控板页进来的长得不一样。
+    val chipTextArgb = MiuixTheme.colorScheme.onSurface.toArgb()
+    val chipBgArgb = MiuixTheme.colorScheme.surface.toArgb()
+    val subTextArgb = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
+    // managerDialog() 用的是独立 AlertDialog：改完就地把它自己的 render() 跑一遍，
+    // 触控板页那边的 chip 网格以 editVersion 轮询重建会跟上（见 HotkeyGrid 的 items）。
     ApComponents.DialogCard(onDismiss = onDismiss) {
         Text(text = ctx.getString(R.string.ui_home_sec_quick), fontSize = 17.sp)
         Text(
@@ -934,7 +1030,33 @@ private fun QuickActionsDialog(
             text = ctx.getString(R.string.ui_hotkey_title),
             onClick = {
                 com.allperiph.ui.Feedback.haptic(ctx)
-                onOpenTouchpad()
+                onDismiss()
+                // 成宇 2026-11-04「低栏长按后快捷键管理删除」：这一项此前只把页面切到触控板页，
+                // 管理列表还得再长按空白处才出得来。改成**直接**打开管理列表 ——
+                // 上移 / 下移 / 改 / 删 / 新建 / 恢复默认 都在那一个弹窗里。
+                val act = ctx as? android.app.Activity
+                if (act == null) {
+                    onOpenTouchpad()
+                } else {
+                    val style: () -> com.allperiph.ui.HotkeyBoard.Style = {
+                        com.allperiph.ui.HotkeyBoard.Style(
+                            chipText = chipTextArgb,
+                            chipBg = chipBgArgb,
+                            chipRadiusDp = 12,
+                            padVDp = 12,
+                            perRow = 4,
+                            accent = chipTextArgb,
+                            textPrimary = chipTextArgb,
+                            textSecondary = subTextArgb,
+                        )
+                    }
+                    com.allperiph.ui.HotkeyBoard(
+                        act,
+                        android.widget.LinearLayout(act),
+                        style,
+                        {},
+                    ).managerDialog()
+                }
             },
         )
     }
