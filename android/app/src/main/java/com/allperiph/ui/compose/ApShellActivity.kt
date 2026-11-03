@@ -1029,7 +1029,7 @@ private fun QuickActionsDialog(
         ApComponents.ActionButton(
             text = ctx.getString(R.string.ui_hotkey_title),
             onClick = {
-                com.allperiph.ui.Feedback.haptic(ctx)
+                // 震动由 ApComponents.ActionButton 统一给（2026-11-04 一整套手感），不再叠
                 onDismiss()
                 // 成宇 2026-11-04「低栏长按后快捷键管理删除」：这一项此前只把页面切到触控板页，
                 // 管理列表还得再长按空白处才出得来。改成**直接**打开管理列表 ——

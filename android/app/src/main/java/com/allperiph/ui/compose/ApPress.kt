@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import com.allperiph.ui.Feedback
-import com.allperiph.ui.KeyPref
 
 /**
  * 通用按压手感（成宇 2026-11-04「键盘一共有三处，触摸板也好几处，你确定都有特效和震动了，做成主题最好」）。
@@ -25,7 +24,7 @@ import com.allperiph.ui.KeyPref
  * 用户的诉求是「同一套手感铺满整页」，不是「键帽有、旁边没有」。
  *
  * ## 为什么收口成一个 Modifier
- * 特效档位是**全局偏好**（[KeyPref.effectIndex]，设置页「主题与外观 → 动效」），
+ * 特效档位是**全局偏好**（`KeyPref.effectIndex`，设置页「主题与外观 → 动效」），
  * 震动档位同理（[com.allperiph.ui.ApFeel.hapticIndex]）。散着写必然出现
  * 「这处读缓存、那处读偏好」的分叉，也会出现「选了涟漪却只看到水波纹」的历史问题。
  * 这里只做一件事：把 `clickable` 的按压进度交给 [rememberKeyFx]，再把
