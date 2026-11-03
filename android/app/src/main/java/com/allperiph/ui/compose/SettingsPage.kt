@@ -114,6 +114,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApBackdrop.setBgImage(ctx, uri.toString())
             bgUri = uri.toString()
             Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
+            // ★ 必须重建一次，否则「选完图当场什么都没变」：`rememberApBackdrop` 里的
+            // 背景图 URI 是**不带 key 的 `remember`**（只在首次组合读一次偏好），
+            // 光改偏好 + 改这里的 state 不会让主壳那一层重新取图 —— 用户看到的现象是
+            // 「选了相册图，壳照旧」，只有杀掉重开才出图。预设底色与「动态背景」两个
+            // 入口一直是调 `onRecreate()` 的，唯独选图这条漏了，与它们口径对齐。
+            onRecreate()
         }
     }
 
@@ -319,6 +325,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 ApBackdrop.setBgImage(ctx, null)
                                 bgUri = ""
                                 Toast.makeText(ctx, "已清除", Toast.LENGTH_SHORT).show()
+                                onRecreate()  // 同「选择图片」：清掉之后要立刻回到底色
                             },
                         )
                     }
