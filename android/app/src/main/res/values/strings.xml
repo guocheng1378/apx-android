@@ -487,4 +487,22 @@
     <string name="ui_ball_panel_kb">悬浮键盘高度</string>
     <string name="ui_ball_panel_kb_sum">占屏高百分比；横屏键位多，建议不低于 60%</string>
     <string name="ui_ball_panel_pct">%1$d%%</string>
+
+    <!-- ↓↓↓ 状态页数据层（snapshot / ModuleRowVm）硬编码文案资源化（2026-11-04）↓↓↓
+         UI 层早已全走 ctx.getString，这四处是「文案双源」的另一半：
+         快照在非 @Composable 里直接产出面向用户的中文，改这里 = 数据层写死文案。 -->
+    <!-- 七个模块状态词：存资源 id（stateRes），UI 层再解析 -->
+    <string name="ui_module_state_running">运行中</string>
+    <string name="ui_module_state_starting">启动中</string>
+    <string name="ui_module_state_degraded">降级</string>
+    <string name="ui_module_state_error">异常</string>
+    <string name="ui_module_state_stopping">停止中</string>
+    <string name="ui_module_state_stopped">已停止</string>
+    <string name="ui_module_state_idle">未启动</string>
+    <!-- 传输通道摘要（每个组头下的「已启用 N / M 个模块」） -->
+    <string name="ui_home_transport_count">已启用 %1$d / %2$d 个模块</string>
+    <!-- 模块还没起时的行内说明（与状态词「未启动」区分：这里是给下一步） -->
+    <string name="ui_home_module_idle_detail">未启动（点上方开关）</string>
+    <!-- 环境自检未跑时的占位 -->
+    <string name="ui_home_env_not_checked">未检测</string>
 </resources>
