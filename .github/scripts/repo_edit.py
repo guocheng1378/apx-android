@@ -1,44 +1,36 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-本批（批 N-1 · 通知点击修复，2026-11-05）：
-  FloatingBallService.kt（~75KB，无法整文件回传）：
-    - import 补 ApShellActivity
-    - onCreate() 前台通知 setContentIntent：PendingIntent.getService(ACTION_STOP)
-      → PendingIntent.getActivity(ApShellActivity)，点通知 = 打开主界面，
-      不再直接关球；关闭路径保留（长按球 / 扇形菜单退出 / 设置页开关）。
-
-上一批（批 S-1 · IME 输入法核心对）未执行 —— 其锚点#5 的注释文案与当前
-master 已漂移（锚点校验必失败），补丁原文保留在 git 历史（本文件上一版，
-blob a1d8087f5bf7910b467bd5fc2fe68991dec71187），对齐后可恢复启用。
+本批（批 N-2 · 发版 CHANGELOG）：
+  docs/CHANGELOG.md：在 v223.29.9 段之前插入 v223.29.10 段
+  （悬浮球点通知不再直接关球）。
 
 铁律：锚以双引号收尾先换行。两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
 
 EDITS = [
-    ("android/app/src/main/java/com/allperiph/ui/FloatingBallService.kt", [
-        # 1. import 补 ApShellActivity（锚带上下相邻 import，全文件唯一）
-        ("import com.allperiph.ui.compose.ApTouchpadSurface\nimport com.allperiph.ui.miuix.ApComponents\n",
-         "import com.allperiph.ui.compose.ApTouchpadSurface\nimport com.allperiph.ui.compose.ApShellActivity\nimport com.allperiph.ui.miuix.ApComponents\n", 1),
-        # 2. 通知点击：关球 → 打开主界面（锚 = setContentIntent 整块，唯一）
-        ("""                .setContentIntent(
-                    PendingIntent.getService(
-                        this, 0,
-                        Intent(this, FloatingBallService::class.java).apply { action = ACTION_STOP },
-                        PendingIntent.FLAG_IMMUTABLE,
-                    ),
-                )
-""",
-         """                .setContentIntent(
-                    // 点通知 = 打开主界面（旧版发 ACTION_STOP，点一下球直接关了；
-                    // 关闭路径：长按球 / 扇形菜单退出 / 设置页开关，不该藏在通知点击里）
-                    PendingIntent.getActivity(
-                        this, 0,
-                        Intent(this, ApShellActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        PendingIntent.FLAG_IMMUTABLE,
-                    ),
-                )
+    ("docs/CHANGELOG.md", [
+        ("## v223.29.9（2026-11-05）\n",
+         """## v223.29.10（2026-11-05）
+
+悬浮球（反馈#7 追修）：点通知栏里的悬浮球通知会把球直接关掉 —— 关闭动作不该
+藏在通知点击里。本版点通知改为打开主界面，关闭只保留长按球 / 扇形菜单退出 /
+设置页开关三处。
+
+### 悬浮球点通知不再直接关球
+
+- 旧版 `FloatingBallService.onCreate()` 的前台通知 `setContentIntent` 发的是
+ `Intent(this, FloatingBallService::class.java).apply { action = ACTION_STOP }`
+ 配 `PendingIntent.getService` —— 通知栏上看着是「打开」，一点却执行了关闭，
+ 用户随手一点球就没了。
+- 改为 `PendingIntent.getActivity` 拉起 `ApShellActivity`（`FLAG_ACTIVITY_NEW_TASK`），
+ 点通知 = 进主界面，与通知栏的常规预期一致。
+- 关闭路径不变：长按球（`LONG_PRESS_MS = 800L`）/ 扇形菜单退出 / 设置页开关。
+ `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。
+- 实现走 repo-edit 云端锚点补丁（批 N-1），锚点唯一命中才写盘，未动文件其余部分。
+
+## v223.29.9（2026-11-05）
 """, 1),
     ]),
 ]
