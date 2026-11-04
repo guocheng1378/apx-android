@@ -63,8 +63,9 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *   · `ApComponents.ActionButton` —— 页面级动作按钮
  *   · `ApComponents.DialogCard`  —— 弹窗统一外壳（Dialog + 限高卡片 + 内边距）
  *   · `ApComponents.NarrowButton` —— 随文字宽度的按钮（弹窗取消 / 扇出项 / chip）
- * 关卡扫描的是 `ui/compose/` 目录；唯一豁免是 `MiuixShowcaseActivity.kt`（在 `ui/miuix/`，
- * 组件画廊，演示对象就是**原生**组件，包一层就展示不出真实观感），理由已写进关卡常量。
+ * 关卡扫描的是 `ui/compose/` 目录；豁免清单当前**为空**（原先唯一的
+ * `MiuixShowcaseActivity.kt` 组件总览页随 2026-11-04 删除该页一并移除），
+ * 新增豁免仍须在关卡常量里写明「为什么不走 Kit」。
  *
  * **为什么要有这条规则**：迁移是分屏做的，先迁的屏（键盘页、帮助页）各自写 `Card(` 和
  * `TextButton(`，后迁的屏走本对象 —— 结果同一套界面里两种写法并存，"改一次圆角要动几个文件"
@@ -131,7 +132,7 @@ object ApComponents {
         }
     }
 
-    /** 开关行：状态由调用方持有（单向数据流，和旧 Views 的双向监听不同） */
+    /** 开关行：状态由调用方持有（单向数据流，与旧 Views 的双向监听不同） */
     @Composable
     fun SwitchRow(
         title: String,
@@ -216,7 +217,7 @@ object ApComponents {
         }
     }
 
-    /** 只读取值行（如「当前版本」「本机地址」）。[modifier] 供调用方挂手势（如长按版本行） */
+    /** 只读取值行（如「当前版本」「本机地址」）。[modifier] 供调用方挂手势 */
     @Composable
     fun ValueRow(title: String, value: String, modifier: Modifier = Modifier) {
         ItemRow(
