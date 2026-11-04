@@ -60,6 +60,10 @@ import com.allperiph.ui.miuix.hideSystemBars
  * Compose 侧常量色，`AlertDialog` 不再走 `ApPalette.dialogStyle()`（用 Activity 自身主题）。
  * 不再需要 `attachBaseContext(ThemePref.wrap)` 与 `ApPalette.applyRuntimeTheme`。
  * 发送/接收逻辑（`FileSender.send`、`TvDiscovery`、`ControlTarget`、`AtomicBoolean busy`）未改。
+ *
+ * 2026-11-04 资源化（C3 同款病灶）：`refreshTargets()` 此前直接拼「目标：…」三分支中文行、
+ * 发送按钮也是裸中文字面量 —— 数据层写死文案，改措辞要同时记得 Kotlin 与 strings 两处。
+ * 现在 5 处全走 `getString`（见 `ui_filepanel_target_*` / `ui_filepanel_send_pick`）。
  */
 class FilePanelActivity : ComponentActivity() {
 
@@ -71,7 +75,12 @@ class FilePanelActivity : ComponentActivity() {
     private var targetIndex = 0
 
     // ———— Compose 状态 ————
-    private var targetLine by mutableStateOf("目标：暂无")
+    /**
+     * 初始值留空串：属性初始化器跑在 `attachBaseContext` **之前**，那时 `getString`
+     * 还没有 Context（会抛）。`onCreate` 末尾的 `refreshTargets()` 是同步的，
+     * 首帧渲染前就会填上真实文案，空串不可见。
+     */
+    private var targetLine by mutableStateOf("")
     private var recvPath by mutableStateOf("")
     private var files by mutableStateOf<List<File>>(emptyList())
     private var statusText by mutableStateOf("")
@@ -132,7 +141,12 @@ class FilePanelActivity : ComponentActivity() {
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(text = "发送本机其它文件…", fontSize = 14.sp, color = Color.White)
+                                // 资源化（2026-11-04）：裸中文字面量 → ui_filepanel_send_pick
+                                Text(
+                                    text = getString(R.string.ui_filepanel_send_pick),
+                                    fontSize = 14.sp,
+                                    color = Color.White,
+                                )
                             }
                             if (statusText.isNotEmpty()) {
                                 Text(
@@ -231,10 +245,18 @@ class FilePanelActivity : ComponentActivity() {
         targets = out.map { it.key to it.value }
         if (targetIndex >= targets.size) targetIndex = 0
         val cur = targets.getOrNull(targetIndex)
+        // 资源化（2026-11-04，C3 同款病灶）：此前这三个分支直接拼「目标：…」中文行
+        // —— 数据层写死面向用户的文案，与状态页 snapshot() 那次一模一样。
         targetLine = when {
-            cur == null -> "目标：暂无（先连一台设备，或等发现到设备）"
-            targets.size == 1 -> "目标：${cur.second}  ${cur.first}"
-            else -> "目标：${cur.second}  ${cur.first}（${targetIndex + 1}/${targets.size}，点击切换）"
+            cur == null -> getString(R.string.ui_filepanel_target_none)
+            targets.size == 1 -> getString(R.string.ui_filepanel_target_one, cur.second, cur.first)
+            else -> getString(
+                R.string.ui_filepanel_target_more,
+                cur.second,
+                cur.first,
+                targetIndex + 1,
+                targets.size,
+            )
         }
     }
 
