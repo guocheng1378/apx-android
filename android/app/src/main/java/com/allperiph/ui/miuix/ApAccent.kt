@@ -3,6 +3,7 @@ package com.allperiph.ui.miuix
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import com.allperiph.ui.ApPalette
 /**
  * 强调色与模板色的**唯一换算处**（Compose 侧）。
@@ -22,6 +23,10 @@ import com.allperiph.ui.ApPalette
  * 「皮肤切换后同步主题，避免两套颜色并存」都各写了一份），且全仓 search 零调用（死码）。
  * 皮肤 → 主题同步**只有 `ApAccentSync.apply` 一处**（SettingsPage 与 ApShellActivity 切页时调），
  * 别再往这个对象里抄一份回来。
+ *
+ * （删同步函数时要留意 import 归属：`toArgb` 还被 [resolved] 的
+ * `MiuixTokens.skinAccent?.toArgb()` 依赖，不是 syncSkin 独占 —— 2026-11-04 误删过一次，
+ * 编译器会报 unresolved reference。）
  */
 object ApAccent {
 
