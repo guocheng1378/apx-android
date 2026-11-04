@@ -31,7 +31,6 @@ import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
 import com.allperiph.ui.miuix.rememberApInsets
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Switch
@@ -50,7 +49,8 @@ import com.allperiph.wireless.ControlTarget
  *    前台服务**（总闸已在 v223.29.3 去掉，开关就是唯一入口，见 AgentController.applyTransportSwitch）；
  *  · 音频方向：USB / Wi-Fi 两路的麦克风 / 音响开关（v223.29.3 从设置页整块上移，「把设置里的
  *    管麦克风和音响的也挪过来」）；
- *  · 模块行：`AgentController.label(id)` + `detailOf(module)` + 状态色，不再自己 findViewById 刷新；
+ *  · 模块行：`AgentController.labelRes(id)`（资源 id，本层 `ctx.getString` 解析）+
+ *    `detailOf(module)` + 状态色，不再自己 findViewById 刷新；
  *  · 链路诊断：`AgentController.linkSpeed` 与 `EnvChecks.Env.summary`。
  *
  * 数据刷新走 1s 轮询（与旧 [com.allperiph.ui.MainActivity] 的 ticker 同频）：模块状态来自后台线程，
@@ -63,7 +63,7 @@ fun StatusPage(
     bottomGap: Dp = 0.dp,
 ) {
     // topBar/bottomGap：主壳顶栏（64dp 玻璃叠层）与浮动底栏的让位空档。
-    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动时内容从栏下穿过。
+    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动内容从栏下穿过。
 
     val insets = rememberApInsets()
     var tick by remember { mutableStateOf(0) }
@@ -108,7 +108,9 @@ fun StatusPage(
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
                     ApComponents.SwitchRow(
-                        title = AgentController.transportLabel(t),
+                        // 2026-11-04 资源化：原 `transportLabel(t)` 直接返回中文（数据层写死文案），
+                        // 现在存资源 id、本层解析 —— 与 stateRes / labelRes 同一批口径。
+                        title = ctx.getString(AgentController.transportRes(t)),
                         summary = state.transportSummary[t],
                         checked = state.transportOn[t] == true,
                         onCheckedChange = { on ->
@@ -265,7 +267,12 @@ fun StatusPage(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state, dark))
+                                // 状态词已在 [ModuleRowVm.stateRes] 存为资源 id（2026-11-04
+                                // 数据层资源化）：数据类不再写死中文，由 UI 层解析成字串。
+                                ApComponents.Pill(
+                                    text = ctx.getString(row.stateRes),
+                                    color = stateColor(row.state, dark),
+                                )
                                 // 成宇 2026-11-03「状态页给个开关不能控制子开关，
                                 // 总开关关了应该隐藏下面的子开关」：没在跑时这一行只留状态点。
                                 // 这个「跑没跑」的判据在 v223.29.3 从主壳入参 [running] 换成
@@ -390,15 +397,17 @@ fun StatusPage(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                Button(
-                    onClick = {
-                        Feedback.haptic(ctx)
-                        helpOpen = true
-                    },
+                // 2026-11-04 改走 ApComponents.ActionButton：此前裸用 miuix.basic.Button，
+                // **不带** ActionButton 内部那层 `Feedback.tap`（震动 + 音效），于是同一页上
+                // 这个按钮只震不响、其余按钮又震又响（手感不一致，编译器不报、样式也不算错）。
+                // 原 onClick 里的 Feedback.haptic(ctx) 一并删除 —— 留着会与 ActionButton
+                // 内置的 Feedback.tap 叠成一次点击震两下。Button 的 import 同时移除，
+                // scripts/check_ui_kit.py 的 BANNED 已把 Button 纳入拦裁范围。
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_help_open_full),
+                    onClick = { helpOpen = true },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                ) {
-                    Text(text = ctx.getString(R.string.ui_help_open_full), fontSize = 15.sp)
-                }
+                )
             }
         }
         if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
@@ -415,14 +424,21 @@ private class ModuleRowVm(
     /** 该模块当前是否启用（可信源是 AgentController.isEnabled，这里只是快照） */
     val enabled: Boolean = true,
 ) {
-    val stateLabel: String get() = when (state) {
-        ModuleState.RUNNING -> "运行中"
-        ModuleState.STARTING -> "启动中"
-        ModuleState.DEGRADED -> "降级"
-        ModuleState.ERROR -> "异常"
-        ModuleState.STOPPING -> "停止中"
-        ModuleState.STOPPED -> "已停止"
-        ModuleState.IDLE -> "未启动"
+    /**
+     * 状态词的**资源 id**（2026-11-04 数据层资源化）：此前这里是 7 个中文写死的 when ——
+     * UI 层早已全走 `ctx.getString`，只有这个数据类还在直接产出面向用户的文案，
+     * 属于「文案双源」的另一半（strings 一份、Kotlin 一份，改一边漏一边）。
+     * 存资源 id 而不是解析后的字串：`snapshot()` 是普通函数、拿不到文案上下文，
+     * 解析留给 UI 层（`ctx.getString(row.stateRes)`）。
+     */
+    val stateRes: Int get() = when (state) {
+        ModuleState.RUNNING -> R.string.ui_module_state_running
+        ModuleState.STARTING -> R.string.ui_module_state_starting
+        ModuleState.DEGRADED -> R.string.ui_module_state_degraded
+        ModuleState.ERROR -> R.string.ui_module_state_error
+        ModuleState.STOPPING -> R.string.ui_module_state_stopping
+        ModuleState.STOPPED -> R.string.ui_module_state_stopped
+        ModuleState.IDLE -> R.string.ui_module_state_idle
     }
 }
 
@@ -494,7 +510,9 @@ private fun snapshot(ctx: Context): StatusVm {
     val transportSummary = AgentController.TRANSPORTS.associateWith { t ->
         val ids = AgentController.groupModules(t)
         val on = ids.count { AgentController.isEnabled(ctx, it) }
-        "$on/${ids.size} 个模块启用"
+        // 2026-11-04 资源化：此前这里拼 "N/M 个模块启用" —— 数据层写死文案，
+        // 改措辞要同时记得 Kotlin 与 strings 两处（双源）。percent 由 getString 格式化。
+        ctx.getString(R.string.ui_home_transport_count, on, ids.size)
     }
     // 审查条 1.8：此前按 runtime 是否存在过滤（`module(id) ?: return@mapNotNull null`），
     // 而 runtime 只在用户点「开始」/前台服务启动时才 build —— 冷启动进状态页整段「模块状态」
@@ -504,8 +522,15 @@ private fun snapshot(ctx: Context): StatusVm {
         val m = AgentController.module(id)
         ModuleRowVm(
             id = id,
-            label = AgentController.label(id),
-            detail = if (m == null) "未启动（点上方开始）" else AgentController.detailOf(m),
+            // 2026-11-04 资源化（与 transportRes 同批）：原 `AgentController.label(id)`
+            // 返回写死的中文模块名且含词汇表禁词（Gadget/UAC2/HID/镜像），
+            // 现在存资源 id、快照持有 id、本层解析 —— 与 stateRes 完全同一模式。
+            label = ctx.getString(AgentController.labelRes(id)),
+            // 2026-11-04 资源化 + 文案修正：原文是「未启动（点上方开始）」，但「开始」
+            // 总闸在 v223.29.3 已经删了 —— 提示指向一个不存在的按钮。改为指传输通道的开关
+            // （applyTransportSwitch 会把对应模块组拉起来），与当前页面结构一致。
+            detail = if (m == null) ctx.getString(R.string.ui_home_module_idle_detail)
+            else AgentController.detailOf(m),
             state = m?.state ?: ModuleState.IDLE,
             enabled = AgentController.isEnabled(ctx, id),
         )
@@ -529,7 +554,8 @@ private fun snapshot(ctx: Context): StatusVm {
         transportSummary = transportSummary,
         modules = modules,
         linkLabel = if (link == LinkSpeed.UNKNOWN) "--" else link.name,
-        envSummary = env?.summary ?: "未检测",
+        // 2026-11-04 资源化：「未检测」占位不再写在快照里
+        envSummary = env?.summary ?: ctx.getString(R.string.ui_home_env_not_checked),
         rooted = env?.rooted ?: false,
         controlLabel = if (controlling) ControlTarget.label
         else ctx.getString(R.string.ui_set_label_current_control_none),

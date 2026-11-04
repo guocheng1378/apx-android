@@ -156,6 +156,10 @@
     <string name="ui_remote_dialog_device">%1$s 被控设备？</string>
     <string name="ui_remote_dialog_no_only_need">会直接对那台设备执行「%1$s」（需要它有 root；没有 root 只会退回待机）。</string>
     <string name="ui_remote_toast_send_done">已发送%1$s 指令</string>
+    <!-- 2026-11-04 遥控器顶栏两枚 chip 的文案资源化（C3 延伸）：
+         此前是 View 层裸写的 "选择设备" / "关闭"（后者与 ui_help_close 同文，
+         前者全仓无同义资源，补一条）。 -->
+    <string name="ui_remote_pick_device">选择设备</string>
     <string name="ui_filepanel_text_file">文件传输</string>
     <string name="ui_filepanel_text_file_forward">收到的文件（点一行转发给目标）</string>
     <string name="ui_filepanel_text_file_no_local">还没有收到文件。对方（电脑 / 电视 / 另一台手机）在「文件传输」里选这台手机，就能把文件发过来。</string>
@@ -170,6 +174,13 @@
     <string name="ui_filepanel_status_send_2">发送中…</string>
     <string name="ui_filepanel_text_send_done_2">已发送 → %1$s</string>
     <string name="ui_filepanel_text_send_failed_2">发送失败</string>
+    <!-- 2026-11-04 文件面板数据层 5 处硬编码资源化（C3 同款病灶）：
+         refreshTargets() 直接拼 "目标：…" 中文行（三分支）+ 初始值 + 发送按钮 ——
+         与状态页 snapshot() 一样，数据层写死文案，改措辞要同时记得 Kotlin 与 strings。 -->
+    <string name="ui_filepanel_target_none">目标：暂无（先连一台设备，或等发现到设备）</string>
+    <string name="ui_filepanel_target_one">目标：%1$s  %2$s</string>
+    <string name="ui_filepanel_target_more">目标：%1$s  %2$s（%3$d/%4$d，点击切换）</string>
+    <string name="ui_filepanel_send_pick">发送本机其它文件…</string>
     <string name="ui_screen_text_open_not_please_state">服务未启动：请在状态页打开无线开关</string>
     <string name="lay_settings_tab_about">关于</string>
     <string name="ui_main_label_floating_ball">悬浮球</string>
@@ -371,6 +382,9 @@
     <string name="ui_set_sec_audio_dir">音频方向</string>
     <string name="ui_set_label_usb_mic">USB 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_usb_mic">走 UAC2 声卡；运行中立即生效，否则下次连接生效</string>
+    <!-- ⚠️ 这一行是 2026-11-04 补回的：上一次全量重写本文件时在 sum_usb_mic 与
+         sum_usb_spk 之间把它弄丢了，StatusPage:181 引用报 Unresolved，android job 红。
+         全量重写 XML 时逐段核对资源 id，别再掉行。 -->
     <string name="ui_set_label_usb_spk">USB 音频 · 音响（电脑 → 手机）</string>
     <string name="ui_set_sum_usb_spk">两个方向都关掉时模块挂起待命，不会报错</string>
     <string name="ui_set_label_wifi_mic">Wi‑Fi 音频 · 麦克风（手机 → 电脑）</string>
@@ -487,4 +501,39 @@
     <string name="ui_ball_panel_kb">悬浮键盘高度</string>
     <string name="ui_ball_panel_kb_sum">占屏高百分比；横屏键位多，建议不低于 60%</string>
     <string name="ui_ball_panel_pct">%1$d%%</string>
+
+    <!-- ↓↓↓ 状态页数据层（snapshot / ModuleRowVm）硬编码文案资源化（2026-11-04）↓↓↓
+         UI 层早已全走 ctx.getString，这四处是「文案双源」的另一半：
+         快照在非 @Composable 里直接产出面向用户的中文，改这里 = 数据层写死文案。 -->
+    <!-- 七个模块状态词：存资源 id（stateRes），UI 层再解析 -->
+    <string name="ui_module_state_running">运行中</string>
+    <string name="ui_module_state_starting">启动中</string>
+    <string name="ui_module_state_degraded">降级</string>
+    <string name="ui_module_state_error">异常</string>
+    <string name="ui_module_state_stopping">停止中</string>
+    <string name="ui_module_state_stopped">已停止</string>
+    <string name="ui_module_state_idle">未启动</string>
+    <!-- 传输通道摘要（每个组头下的「已启用 N / M 个模块」） -->
+    <string name="ui_home_transport_count">已启用 %1$d / %2$d 个模块</string>
+    <!-- 模块还没起时的行内说明（与状态词「未启动」区分：这里是给下一步） -->
+    <string name="ui_home_module_idle_detail">未启动（点上方开关）</string>
+    <!-- 环境自检未跑时的占位 -->
+    <string name="ui_home_env_not_checked">未检测</string>
+
+    <!-- ↓↓↓ AgentController 数据层 11 处硬编码资源化（2026-11-04）↓↓↓
+         transportLabel() / label() / refreshEnv() 都是无 Context 的纯函数，
+         返回的中文直通状态页标题 —— 与 snapshot() 同款「数据层写死文案」。
+         顺手按**词汇表**清掉模块名里的实现词：Gadget / UAC2 / HID / Wi‑Fi 镜像
+         （词汇表：这些词只许出现在连接诊断与日志里；副屏不写镜像/投屏/推流）。 -->
+    <string name="ui_transport_wifi">无线</string>
+    <string name="ui_transport_bt">蓝牙</string>
+    <string name="ui_transport_usb">有线（USB）</string>
+    <string name="ui_module_gadget">USB（复合设备）</string>
+    <string name="ui_module_audio">音频（麦克风 + 扬声器）</string>
+    <string name="ui_module_touchpad">触控板（相对鼠标）</string>
+    <string name="ui_module_bthid">蓝牙（鼠标 / 多媒体）</string>
+    <string name="ui_module_wireless">Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）</string>
+    <string name="ui_module_wifi_audio">Wi‑Fi 音频（音箱 / 麦克风）</string>
+    <string name="ui_module_screen">副屏（把电脑画面显示到手机）</string>
+    <string name="ui_env_probe_failed">自检失败：%1$s</string>
 </resources>

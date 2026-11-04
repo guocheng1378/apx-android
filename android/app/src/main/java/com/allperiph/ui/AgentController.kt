@@ -1,6 +1,7 @@
 package com.allperiph.ui
 
 import android.content.Context
+import com.allperiph.R
 import com.allperiph.audio.AudioModule
 import com.allperiph.audio.WirelessAudioModule
 import com.allperiph.bt.BtHidDevice
@@ -123,11 +124,16 @@ object AgentController {
     /** 传输类顺序：无线 → 蓝牙 → 有线(USB) */
     val TRANSPORTS: List<String> = listOf("wifi", "bt", "usb")
 
-    fun transportLabel(t: String): String = when (t) {
-        "wifi" -> "无线"
-        "bt" -> "蓝牙"
-        "usb" -> "有线（USB）"
-        else -> t
+    /**
+     * 传输类 → 文案**资源 id**（2026-11-04 资源化）：原 `transportLabel()` 直接返回中文，
+     * 状态页标题与悬浮球 Toast 都直通它 —— 数据层写死文案，与 snapshot() 同款病灶。
+     * 现在存资源 id，调用方 `ctx.getString(transportRes(t))` 解析（两处调用方已同步）。
+     */
+    fun transportRes(t: String): Int = when (t) {
+        "wifi" -> R.string.ui_transport_wifi
+        "bt" -> R.string.ui_transport_bt
+        "usb" -> R.string.ui_transport_usb
+        else -> R.string.ui_transport_wifi
     }
 
     /** 模块 → 所属传输类（决定它出现在设置页哪个分组、由哪个开关统一启停） */
@@ -267,7 +273,13 @@ object AgentController {
                         rawSpeed = "",
                         batteryOptimized = true,
                         notificationGranted = false,
-                        summary = "自检失败：${t.message}",
+                        // 2026-11-04 资源化：这句「自检失败：…」此前是字面量拼接 ——
+                        // 数据层硬编码的第 11 处（与 transportRes / labelRes 同批）。
+                        // io 线程里 applicationContext.getString 是安全的（Resources 无主线程约束）。
+                        summary = context.applicationContext.getString(
+                            R.string.ui_env_probe_failed,
+                            t.message,
+                        ),
                     )
                 }
             env = e
@@ -276,15 +288,25 @@ object AgentController {
         }
     }
 
-    fun label(id: String): String = when (id) {
-        ModuleId.GADGET -> "USB Gadget（复合设备）"
-        ModuleId.AUDIO -> "音频（UAC2 麦克风 + 扬声器）"
-        ModuleId.TOUCHPAD -> "触控板（相对鼠标）"
-        ModuleId.BTHID -> "蓝牙 HID（鼠标 / 多媒体）"
-        ModuleId.WIRELESS -> "Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）"
-        ModuleId.WIFI_AUDIO -> "Wi‑Fi 音频（音箱 / 麦克风）"
-        ModuleId.SCREEN -> "副屏（Wi‑Fi 镜像 PC 桌面）"
-        else -> id
+    /**
+     * 模块名 → **资源 id**（2026-11-04 资源化 + 词汇表清理）。
+     *
+     * 原 `label(id)` 直接返回 7 句中文（状态页模块行标题直通它），且其中 4 句**撞词汇表禁词**：
+     * `USB Gadget`（禁 Gadget）、`UAC2 麦克风`（禁 UAC2）、`蓝牙 HID`（禁 HID）、
+     * `Wi‑Fi 镜像 PC 桌面`（副屏不写镜像/投屏/推流）—— 词汇表写明这些词只许出现在
+     * 「连接诊断」「运行日志」里。资源化时一并按表改写，实现词从用户可见的模块名里清掉。
+     *
+     * 调用方仅 StatusPage.snapshot（存 stateRes 同款模式：数据层持有 id，UI 层解析）。
+     */
+    fun labelRes(id: String): Int = when (id) {
+        ModuleId.GADGET -> R.string.ui_module_gadget
+        ModuleId.AUDIO -> R.string.ui_module_audio
+        ModuleId.TOUCHPAD -> R.string.ui_module_touchpad
+        ModuleId.BTHID -> R.string.ui_module_bthid
+        ModuleId.WIRELESS -> R.string.ui_module_wireless
+        ModuleId.WIFI_AUDIO -> R.string.ui_module_wifi_audio
+        ModuleId.SCREEN -> R.string.ui_module_screen
+        else -> R.string.ui_module_gadget
     }
 
     fun detailOf(m: Module): String = runCatching { m.statusText() }.getOrDefault("--")
