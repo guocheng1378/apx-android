@@ -27,9 +27,9 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMotion
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
@@ -96,8 +96,17 @@ fun TouchpadPage(
     // 审查条 2.3：侧列此前固定 320dp，600dp 屏上手势面只剩 280dp（手机横屏正好落在
     // 640–720dp 这一段）。改成按宽度取比例并夹在 180–320dp：600dp → 228dp（手势面 372dp），
     // 842dp 以上才回到 320dp 的旧观感。
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val wide = screenWidthDp >= 600
+    // ★ v223.29.9：`wide` 与侧列宽度不再直接读 `LocalConfiguration`。
+    // 旧写法 `screenWidthDp >= 600` 踩的正是 v223.29.8 刚从 [ApAdaptive] 里修掉的那个坑：
+    // 本壳 Activity 声明了 `configChanges=orientation|screenSize`，旋转不重建，配置回写
+    // 滞后一拍 —— 横屏瞬间此处读到的仍是竖屏宽度（手机横屏实测落在 640~720dp，滞后时
+    // 读到的是 ~400dp），`wide` 判 false，快捷键网格照旧堆在手势面下方，用户看到的就是
+    // 「触摸板页横屏没按横屏分」。改成与状态页 / 键盘页同一个入口
+    // [rememberApAdaptiveLayout]（按窗口实测尺寸，与布局测量同源），判定不再滞后。
+    // 侧列比例也一并改按实测宽度，避免「判定已横屏、侧列还按竖屏宽度算」的第二处错位。
+    val adaptive = rememberApAdaptiveLayout()
+    val screenWidthDp = adaptive.width.value
+    val wide = adaptive.twoPane
     val sideWidth = (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
     Row(modifier = Modifier.fillMaxSize()) {
       Column(modifier = Modifier.weight(1f)) {

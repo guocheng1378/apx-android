@@ -22,10 +22,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
+import com.allperiph.ui.DeviceFormPref
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.IssueLauncher
 import com.allperiph.ui.FloatingBallService
@@ -45,9 +48,11 @@ import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import androidx.compose.ui.unit.sp
 import com.allperiph.ui.BallConfig
+import com.allperiph.ui.PanelSize
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -481,6 +486,35 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 与「外设」这个分类名相符，放在工具与传输里名不副实。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_general)) {
                 Column {
+                    // ★ v223.29.9 设备形态（成宇 2026-11-05「是否有识别手机，平板，电视的设置」）。
+                    // 默认「自动」不改任何现有排版；选手机 / 平板 / 电视才覆盖
+                    // [rememberApAdaptiveLayout] 推出来的形态（见 [DeviceFormPref.resolve]）。
+                    // summary 在「自动」时写成「自动（当前：手机）」—— 让用户看见自动判断的结论，
+                    // 否则只写「自动」他不知道自己现在到底按哪个形态在排。
+                    var formIdx by remember { mutableStateOf(DeviceFormPref.formIndex(ctx)) }
+                    // 宽度取窗口实测像素（容器宽），0 时退回 Configuration —— 便携屏 / 分屏下
+                    // Configuration.screenWidthDp 说的是「屏幕」不是「窗口」，会偏大。
+                    val formWinPx = LocalWindowInfo.current.containerSize.width
+                    val formWidthDp = if (formWinPx > 0) {
+                        with(LocalDensity.current) { formWinPx.toDp().value }
+                    } else {
+                        ctx.resources.configuration.screenWidthDp.toFloat()
+                    }
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_form_title),
+                        summary = DeviceFormPref.describe(ctx, formWidthDp),
+                        items = DeviceFormPref.labels(ctx),
+                        selectedIndex = formIdx,
+                        onSelectedIndexChange = { i ->
+                            formIdx = i
+                            DeviceFormPref.setFormIndex(ctx, i)
+                            Feedback.haptic(ctx)
+                            // 形态是壳级排版输入（顶栏高度、双栏断点、低栏位置全由它推），
+                            // 改完必须整壳重建才会按新形态重排；与「主题明暗 / 色彩源」
+                            // 同一口径（那些也走 onRecreate）。
+                            onRecreate()
+                        },
+                    )
                     ApComponents.SwitchRow(
                         title = "光标锁定",
                         summary = "触控板光标锁定在屏幕内，不贴边滑出",
@@ -656,6 +690,50 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             }
                         }
                     }
+                    // ★ v223.29.9 悬浮面板高度（成宇 2026-11-05「悬浮窗出来的窗口应该可以调节大小」）。
+                    // 触控板与键盘面板的高度此前是写死的屏幕比例，这里给两枚滑块直接给数值；
+                    // 展开面板时顶部还有一个拖拽把手可以上下拉（两条路写的是同一份偏好）。
+                    // 「未自定义」显示 0 会看着像坏了，所以按当前实际比例回显（竖屏触控板 30%、
+                    // 键盘 52%；横屏 34% / 66% —— 与 FloatingBallService 的旧版写死值同口径）。
+                    val isL = rememberApAdaptiveLayout().landscape
+                    var padPct by remember(isL) {
+                        mutableIntStateOf(
+                            PanelSize.percent(ctx, PanelSize.TOUCHPAD)
+                                .takeIf { it > 0 } ?: if (isL) 34 else 30,
+                        )
+                    }
+                    var kbPct by remember(isL) {
+                        mutableIntStateOf(
+                            PanelSize.percent(ctx, PanelSize.KEYBOARD)
+                                .takeIf { it > 0 } ?: if (isL) 66 else 52,
+                        )
+                    }
+                    SliderPreference(
+                        title = ctx.getString(R.string.ui_ball_panel_pad),
+                        summary = ctx.getString(R.string.ui_ball_panel_pad_sum),
+                        value = padPct.toFloat(),
+                        onValueChange = { padPct = it.toInt() },
+                        valueRange = PanelSize.MIN_PCT.toFloat()..PanelSize.MAX_PCT.toFloat(),
+                        steps = 69,
+                        valueText = ctx.getString(R.string.ui_ball_panel_pct, padPct),
+                        onValueChangeFinished = {
+                            PanelSize.setPercent(ctx, PanelSize.TOUCHPAD, padPct)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    SliderPreference(
+                        title = ctx.getString(R.string.ui_ball_panel_kb),
+                        summary = ctx.getString(R.string.ui_ball_panel_kb_sum),
+                        value = kbPct.toFloat(),
+                        onValueChange = { kbPct = it.toInt() },
+                        valueRange = PanelSize.MIN_PCT.toFloat()..PanelSize.MAX_PCT.toFloat(),
+                        steps = 69,
+                        valueText = ctx.getString(R.string.ui_ball_panel_pct, kbPct),
+                        onValueChangeFinished = {
+                            PanelSize.setPercent(ctx, PanelSize.KEYBOARD, kbPct)
+                            Feedback.haptic(ctx)
+                        },
+                    )
                 }
             }
 

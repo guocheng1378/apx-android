@@ -95,29 +95,15 @@ fun StatusPage(
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // —— 运行状态（只读摘要）——
-        // 成宇 2026-11-04「不要总开关，只要无线 / 蓝牙 / 有线开关，对应各自的功能」：
-        // 原来这里是一枚大号「启动 / 停止」总闸，与下方「传输通道」三个开关是两层语义 ——
-        // 总闸关着时三个传输开关拨了不生效（模块只在 Agent 运行时才注册），用户看到的
-        // 就是「开关拨了没反应」的假开关。现在总闸整块去掉：三个传输开关各自负责对应模块的
-        // 启停与前台服务（见 [AgentController.applyTransportSwitch]），这一段只留运行摘要。
-        // running 现读 AgentController.running，随 1s tick 刷新。
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_state)) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = if (state.running) state.overallLabel else ctx.getString(R.string.hint_idle),
-                    fontSize = 22.sp,
-                )
-                Text(
-                    text = state.overallDetail,
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-        }
-
         // —— 传输通道 ——
+        // ★ v223.29.9：此前的「运行状态」只读摘要块已整块移除（成宇 2026-11-05
+        // 「状态页顶部运行状态去除」）。那一块只是把 `overallLabel / overallDetail`
+        // 两行字摆出来，与下方三个传输开关表达的是同一件事 —— 开关的 `summary`
+        // 已经写明每一路的实时状态，顶部再复述一遍纯属占地。
+        // 沿革：更早版本这里是「启动 / 停止」总闸（成宇 2026-11-04 要求去掉，因为总闸
+        // 关着时三个传输开关拨了不生效，是假开关）；去掉总闸后剩下的只读摘要在
+        // v223.29.9 一并去掉。传输开关各自负责对应模块的启停与前台服务
+        // （见 [AgentController.applyTransportSwitch]）。
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_transport)) {
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
@@ -441,8 +427,6 @@ private class ModuleRowVm(
 }
 
 private class StatusVm(
-    val overallLabel: String,
-    val overallDetail: String,
     /** 现读的 Agent 运行态（总闸去掉后由传输开关驱动，见 [AgentController.applyTransportSwitch]） */
     val running: Boolean,
     val transportOn: Map<String, Boolean>,
@@ -541,12 +525,6 @@ private fun snapshot(ctx: Context): StatusVm {
     }
     return StatusVm(
         running = running,
-        overallLabel = if (running) "外设已启动" else "未启动",
-        overallDetail = if (running) {
-            "${modules.count { it.state.isActive }}/${modules.size} 个模块在用"
-        } else {
-            "打开下方任一传输开关即可启动"
-        },
         transportOn = transportOn,
         transportSummary = transportSummary,
         modules = modules,
