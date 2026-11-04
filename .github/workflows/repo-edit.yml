@@ -17,11 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write      # 推完提交要能再 workflow_dispatch 点一次 Build
+      actions: write # 推完提交要能再 workflow_dispatch 点一次 Build
     steps:
       - uses: actions/checkout@v4
+      # 失败时把脚本输出打进 annotations（行动日志 API 拿不到正文，
+      # 但 annotations 能用 check-runs API 读回来 —— 云端锚点校验失败必须能定位到第几条）。
       - name: apply edits
-        run: python3 .github/scripts/repo_edit.py
+        run: |
+          set +e
+          OUT=$(python3 .github/scripts/repo_edit.py 2>&1)
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "$OUT"
+            MSG=$(echo "$OUT" | tr '\n' '|' | cut -c1-800)
+            echo "::error::apply edits failed rc=$RC :: $MSG"
+            exit 1
+          fi
+          echo "$OUT"
       - name: commit and push
         id: commit
         env:
@@ -38,10 +50,10 @@ jobs:
           git push
           echo "pushed=1" >> "$GITHUB_OUTPUT"
 
-      # GITHUB_TOKEN 推出来的提交**不会**触发 push 事件的其它工作流（GitHub 防递归），
-      # 但 workflow_dispatch 是明文例外 —— 所以这里显式再点一次 Build。
-      # 不加这一步的后果实测过：repo-edit / 云端 AI 写进去的代码永远没人编译，
-      # 批 S-1 的编译错误就是这么在 master 上躺着的。
+          # GITHUB_TOKEN 推出来的提交**不会**触发 push 事件的其它工作流（GitHub 防递归），
+          # 但 workflow_dispatch 是明文例外 —— 所以这里显式再点一次 Build。
+          # 不加这步的后果实测过：repo-edit / 云端 AI 写进去的代码永远没人编译，
+          # 批 S-1 的编译错误就是这么在 master 上躺着的。
       - name: trigger Build workflow
         if: steps.commit.outputs.pushed == '1'
         continue-on-error: true
