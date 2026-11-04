@@ -34,6 +34,7 @@
 #include <shobjidl_core.h>   // IFileOpenDialog / SIGDN_FILESYSPATH
 #endif
 
+#include "apxpc/ui/ball_win32.hpp"
 #include "apxpc/ui/web_panel.hpp"
 #include "apxpc/ui/webview2_runtime.hpp"
 #include "apxpc/log.hpp"
@@ -1428,6 +1429,20 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
             ::SetForegroundWindow(hwnd);
             if (Panel* pp = g_panel) postEvent(pp, std::string("open-file-panel"));
         });
+    }
+
+    // v223.29.11 桌面悬浮球：主窗 X 只是隐藏到托盘，点球即唤回面板（与托盘「打开面板」同语义）。
+    // 与面板窗同线程同消息循环同生命周期；创建失败只记日志，不影响面板。
+    apxpc::ui::FloatingBall ball;
+    if (!bundle.cfg || bundle.cfg->enableBall) {
+        ball.create([&panel] {
+            const HWND h = panel.hwnd;
+            if (!h || !::IsWindow(h)) return;
+            ::ShowWindow(h, SW_SHOW);
+            ::SetForegroundWindow(h);
+        });
+    } else {
+        APX_LOGI("桌面悬浮球已在 config.json 关闭（enableBall=false）");
     }
 
     // 消息循环
