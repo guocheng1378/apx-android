@@ -3,8 +3,8 @@
 
 批 O-1（悬浮球旋转重算 + 动效）：FloatingBallService.kt 8 处。
 两阶段：①按期望次数全量校验；②全过才写盘。
-v3：条目结构改为 (T(old...), T(new...), 1) 显式模板 —— v1 把 expected=1
-误写进 T() 参数表导致 SyntaxError（run #40/#41 根因）。
+v4：补回 (P, [...]) 外层包装（v3 直接把三元组挂在 EDITS 下 →
+ValueError: too many values to unpack, run #42 根因）。
 """
 import sys
 
@@ -16,6 +16,7 @@ def T(*lines):
 P = "android/app/src/main/java/com/allperiph/ui/FloatingBallService.kt"
 
 EDITS = [
+    (P, [
     (T(
         "    private val dockSnapPx get() = dp(48)",
     ), T(
@@ -166,6 +167,7 @@ EDITS = [
         "        }",
         "        return added",
     ), 1),
+    ]),
 ]
 
 
