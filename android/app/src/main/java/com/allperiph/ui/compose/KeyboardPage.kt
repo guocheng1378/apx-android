@@ -476,9 +476,19 @@ private fun ModKey(
  * 现已合并为这一份 —— 修饰键只是按 `active` 调用它。**以后新增档位只改这里**，
  * 不要再在 ModKey 里写一遍。
  *
+ * ⚠️ **参数顺序是硬约定，CI 踩过**（2026-11-04 android job 失败）：四个布局
+ * （Quick/Game/KeyGrid/Custom）全部写的是 `KeyBox(a, b, c, d, e) { … }` 这种
+ * **位置参数 + 尾随 lambda**，Kotlin 的尾随 lambda 只能绑到**最后一个形参**。
+ * 第一版把签名写成 `…, fx, onClick, active, tint` —— `tint: Color?` 压了轴，
+ * 于是那 4 处报成两联：`No value passed for parameter 'onClick'`（第 6 位空着）
+ * 与 `actual type '() -> Unit' but 'Color?' was expected`（lambda 被判给了 tint）。
+ * 所以：`onClick` **必须压轴**，`active` / `tint` 只能带默认值夹在中间；
+ * [ModKey] 走命名参数转发，不受影响（它也是唯一另一个合法的调用姿势）。
+ *
  * @param active 修饰键点亮态：`bg` 取 primary、`fg` 取白（三档统一）
  * @param tint 玻璃档染色（非空时给键帽染色）；平面 / 机械档不用它 —— 那两档靠 `fg`
  *   决定字色，写进 tint 会把 active 态的文字压成主色
+ * @param onClick 必须是最后一个参数（尾随 lambda 绑位，见上方 ⚠️）
  */
 @Composable
 private fun KeyBox(
@@ -487,9 +497,9 @@ private fun KeyBox(
     dens: KeyPref.Density,
     keycap: Int,
     fx: Int,
-    onClick: () -> Unit,
     active: Boolean = false,
     tint: Color? = null,
+    onClick: () -> Unit,
 ) {
     // 按键反馈（成宇 2026-11-02「音效、喇叭回声、震动都没有了」）：
     // Compose 迁移时丢掉了 Feedback.tap，键帽只剩视觉下沉。所有 8 套布局的键位
