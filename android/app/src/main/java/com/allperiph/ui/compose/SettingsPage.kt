@@ -1291,5 +1291,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         }
     }
     }
+    }
 
 }
