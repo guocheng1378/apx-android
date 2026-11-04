@@ -382,7 +382,6 @@
     <string name="ui_set_sec_audio_dir">音频方向</string>
     <string name="ui_set_label_usb_mic">USB 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_usb_mic">走 UAC2 声卡；运行中立即生效，否则下次连接生效</string>
-    <string name="ui_set_label_usb_spk">USB 音频 · 音响（电脑 → 手机）</string>
     <string name="ui_set_sum_usb_spk">两个方向都关掉时模块挂起待命，不会报错</string>
     <string name="ui_set_label_wifi_mic">Wi‑Fi 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_wifi_mic">走局域网媒体连接，需要电脑端已连入</string>
@@ -516,4 +515,21 @@
     <string name="ui_home_module_idle_detail">未启动（点上方开关）</string>
     <!-- 环境自检未跑时的占位 -->
     <string name="ui_home_env_not_checked">未检测</string>
+
+    <!-- ↓↓↓ AgentController 数据层 11 处硬编码资源化（2026-11-04）↓↓↓
+         transportLabel() / label() / refreshEnv() 都是无 Context 的纯函数，
+         返回的中文直通状态页标题 —— 与 snapshot() 同款「数据层写死文案」。
+         顺手按**词汇表**清掉模块名里的实现词：Gadget / UAC2 / HID / Wi‑Fi 镜像
+         （词汇表：这些词只许出现在连接诊断与日志里；副屏不写镜像/投屏/推流）。 -->
+    <string name="ui_transport_wifi">无线</string>
+    <string name="ui_transport_bt">蓝牙</string>
+    <string name="ui_transport_usb">有线（USB）</string>
+    <string name="ui_module_gadget">USB（复合设备）</string>
+    <string name="ui_module_audio">音频（麦克风 + 扬声器）</string>
+    <string name="ui_module_touchpad">触控板（相对鼠标）</string>
+    <string name="ui_module_bthid">蓝牙（鼠标 / 多媒体）</string>
+    <string name="ui_module_wireless">Wi‑Fi 控制（局域网 TCP · 无蓝牙 PC 用）</string>
+    <string name="ui_module_wifi_audio">Wi‑Fi 音频（音箱 / 麦克风）</string>
+    <string name="ui_module_screen">副屏（把电脑画面显示到手机）</string>
+    <string name="ui_env_probe_failed">自检失败：%1$s</string>
 </resources>
