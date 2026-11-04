@@ -3,6 +3,7 @@ package com.allperiph.ui.miuix
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
@@ -36,6 +37,14 @@ data class ApAdaptiveLayout(
     val landscape: Boolean,
     /** 内容是否分两栏（Medium 起；设置页把它当"列表 + 详情"） */
     val twoPane: Boolean,
+    /**
+     * 设备形态（手机 / 平板 / 电视）—— v223.29.9 新增。
+     *
+     * 与 [widthClass] 的分工：宽度分级是**排版断点**（纯几何），形态是**设备语义**
+     * （电视没有电池、遥控器只有方向键）。两者大多数时候一致，但当用户在设置里
+     * 强制指定形态时，形态以用户选择为准（见 [com.allperiph.ui.DeviceFormPref.resolve]）。
+     */
+    val form: com.allperiph.ui.DeviceFormPref.Form,
     /** 侧边留白是否要避开挖孔（横屏时刘海在左右两侧，必须垫） */
     val padCutout: Boolean,
 )
@@ -82,12 +91,16 @@ fun rememberApAdaptiveLayout(): ApAdaptiveLayout {
     // 横屏 = 窗口实测宽 > 高：与布局测量同源、永不滞后；「宽 > 高」与
     // [ApAdaptiveLayout.landscape] 的语义自洽。
     val isLandscape = w > h
+    // 形态：优先用户手动选择，否则按实测宽度 + 系统 uiMode 电视判据（v223.29.9）。
+    // 传的是**实测宽度**而不是 cfg —— 理由同上面横屏判定。
+    val form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, w.value)
     return ApAdaptiveLayout(
         widthClass = cls,
         width = w,
         height = h,
         landscape = isLandscape,
         twoPane = w.value >= 600,
+        form = form,
         padCutout = isLandscape,
     )
 }

@@ -79,7 +79,10 @@ R_USE = re.compile(
 #   口径：本值量的是**真远端 base**（origin/master 9a2c84b3，自身实测 653、
 #   基线 652，也带着 +1 告警）：base 653 -> 本支 647 = 净减 6。此前按旧本地线
 #   （落后真远端 23 个提交）记的 646 是**错的口径**，不是这一支的真实值。
-TEXT_BASELINE = 647
+# 647 -> 643（v223.29.9）：状态页顶部「运行状态」整块移除（连 overallLabel /
+#   overallDetail 两条 Kotlin 字面量一起删），新增的设备形态 / 悬浮面板高度文案
+#   全部走 strings.xml（DeviceFormPref 只按档位取 getString），净减 4，按实测收紧。
+TEXT_BASELINE = 643
 
 
 def strip_comments(text):

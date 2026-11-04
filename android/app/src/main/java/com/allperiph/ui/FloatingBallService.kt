@@ -21,14 +21,25 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -316,6 +327,12 @@ class FloatingBallService : Service() {
 
     /** [panel] 的 Compose 生命周期宿主（键盘 / 手柄 / 设备面板用；触控板 XML 面板为 null） */
     private var panelHost: OverlayComposeHost? = null
+
+    /** [panel] 的窗口参数（拖拽调高时要拿它改 height 再 updateViewLayout，见 [resizePanel]） */
+    private var panelLp: WindowManager.LayoutParams? = null
+
+    /** [panel] 对应的 [PanelSize] 键（null = 这块面板不可调高）；松手落盘时用它 */
+    private var panelSizeKey: String? = null
 
     /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
@@ -1033,6 +1050,103 @@ class FloatingBallService : Service() {
         shutdown()
     }
 
+    // ————————————————————————— 面板调高（拖拽把手 / 偏好） —————————————————————————
+
+    /**
+     * 拖动中：按「手指位移」改窗口高度。
+     *
+     * 语义取「往上拖 = 变高」：把手在面板**顶边**，手指向上就是顶边向上，窗口跟着长。
+     * 所以 `height = 原高 - dy`（dy 向下为正）。夹在 20%~90% 屏高之间 ——
+     * 下限保证面板还装得下内容，上限保证还能点到原应用和系统手势区。
+     */
+    private fun resizePanel(lp: WindowManager.LayoutParams, dyPx: Int) {
+        val v = panel ?: return
+        val hpx = themed.resources.displayMetrics.heightPixels
+        val min = hpx * PanelSize.MIN_PCT / 100
+        val max = hpx * PanelSize.MAX_PCT / 100
+        val next = (lp.height - dyPx).coerceIn(min, max)
+        if (next == lp.height) return
+        lp.height = next
+        runCatching { wm.updateViewLayout(v, lp) }
+            .onFailure { Log.w(TAG, "面板改高失败：${it.message}") }
+    }
+
+    /**
+     * 松手：把当前高度换成屏幕百分比写进偏好，下次展开就按这个比例来。
+     *
+     * 存百分比而不是 px —— 横竖屏、分屏、换机后 px 全是错的（见 [PanelSize] 的说明）。
+     * 只写**比例**，不重建面板：用户拖完手上这块就是他要的大小，重建反而会闪一下。
+     */
+    private fun resizePanelCommit(lp: WindowManager.LayoutParams) {
+        val key = panelSizeKey ?: return
+        val hpx = themed.resources.displayMetrics.heightPixels
+        if (hpx <= 0) return
+        // Math.round(Float) 返回 Long，setPercent 要 Int —— 显式取整，别依赖平台推断
+        val pct = Math.round(lp.height * 100f / hpx).toInt()
+        PanelSize.setPercent(this, key, pct)
+        Log.i(TAG, "面板高度已保存：$key = ${pct}%（${lp.height}px / ${hpx}px）")
+    }
+
+    /**
+     * 面板顶部的拖拽把手（v223.29.9）。
+     *
+     * 为什么要有它：设置页的滑块能改「下次展开」的高度，但用户真正在用时是在
+     * 面板上凭手感调的 —— 让他为了试一个数值来回跳两次界面，等于没有这个功能。
+     * 把手给的是「就在这儿，往上拉一点」的直接操作。
+     *
+     * 视觉：48×10dp 的半透明胶囊垫底 + 里面 30×4dp 的细条，整条 18dp 高都可拖
+     * （手指目标不能只有 4dp）。垫底那层是为了压在任意应用画面上都有对比。
+     */
+    @Composable
+    private fun PanelResizeHandle(
+        onResize: (Int) -> Unit,
+        onCommit: () -> Unit,
+    ) {
+        var dragDy by remember { mutableFloatStateOf(0f) }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(18.dp)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { dragDy = 0f },
+                        onDragEnd = { dragDy = 0f; onCommit() },
+                        onDragCancel = { dragDy = 0f },
+                    ) { change, drag ->
+                        change.consume()
+                        // 累计位移按整像素交给窗口：逐帧取 round 会丢小数，慢慢拖就不动
+                        dragDy += drag.y
+                        val whole = dragDy.toInt()
+                        if (whole != 0) {
+                            onResize(whole)
+                            dragDy -= whole
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // 两层：外面一枚半透明胶囊当「底」，里面一根细条当「梗」。
+            // 只画细条不行 —— 面板是 TRANSLUCENT overlay，底下可能是任意应用画面，
+            // 细条压在浅色照片上就看不见了；垫一层 surfaceContainer 保证任何背景都有对比。
+            Box(
+                modifier = Modifier
+                    .width(48.dp)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(30.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.55f)),
+                )
+            }
+        }
+    }
+
     // ————————————————————————— 展开面板（底部触控板） —————————————————————————
 
     /**
@@ -1057,15 +1171,24 @@ class FloatingBallService : Service() {
         ensureTouchpadReady()
         val hpx = themed.resources.displayMetrics.heightPixels
         val wpx = themed.resources.displayMetrics.widthPixels
-        // 竖屏 300dp 量级的手感；横屏屏更矮，按 34% 高并夹在 220~360dp 之间
-        val frac = if (wpx > hpx) 0.34f else 0.30f
-        val height = (hpx * frac).toInt().coerceIn(dp(220), dp(360))
+        // 竖屏 300dp 量级的手感；横屏屏更矮，按 34% 高并夹在 220~360dp 之间。
+        // ★ v223.29.9：用户调过（设置页滑块 / 面板把手）就用他的比例，且**不再夹 dp** ——
+        // 220~360dp 这个窗口本身就是「写死」的一部分，用户拖到 90% 却被夹回 360dp 会看着像坏了。
+        // 未调过（0f）仍走旧口径，老用户升级上来观感不变。
+        val custom = PanelSize.fraction(this, PanelSize.TOUCHPAD)
+        val height = if (custom > 0f) {
+            (hpx * custom).toInt()
+        } else {
+            val frac = if (wpx > hpx) 0.34f else 0.30f
+            (hpx * frac).toInt().coerceIn(dp(220), dp(360))
+        }
         closeMenu()   // 菜单与面板互斥
-        val ok = expandComposePanel(height) {
+        val ok = expandComposePanel(height, resizable = PanelSize.TOUCHPAD, paintBg = true) {
+            // 底色由 expandComposePanel 的外框统一铺（paintBg = true）——
+            // 这里再画一层 surfaceContainer 会和把手那条带子在接缝处叠出两种色差。
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MiuixTheme.colorScheme.surfaceContainer)
                     .padding(8.dp),
             ) {
                 Row(
@@ -1126,9 +1249,22 @@ class FloatingBallService : Service() {
      * 面板互斥复用 [panel] 槽位（触控板 XML 面板同款）：展开时收球，收起时还球。
      * 输入面板全部 FLAG_NOT_FOCUSABLE：键位/摇杆只吃触摸，不碰 IME。
      */
+    /**
+     * @param resizable 非空时面板**可以调高**：顶部画一条把手，上下拖即改窗口高度，
+     *   松手把当时比例写进 [PanelSize]（键见 [PanelSize.TOUCHPAD] / [PanelSize.KEYBOARD]）。
+     *   传 null 的面板（手柄全屏、设备选择、剪贴板）保持原样 —— 那几块是
+     *   MATCH_PARENT / WRAP_CONTENT，前者的高度不是「大小」问题，后者的高度由内容决定，
+     *   硬塞一根把手只会让「拖了没反应」。
+     * @param paintBg 把手所在的整块外框是否铺 `surfaceContainer` 底。触控板面板本来
+     *   整块就是这张卡，铺上才不会在顶部多出一条 18dp 的透明缝；键盘面板本来就是
+     *   「键帽浮在透明上」，铺底会把整块键盘变成一堵实心墙 —— 所以它传 false，
+     *   把手靠自己的胶囊垫底维持可见。
+     */
     private fun expandComposePanel(
         height: Int,
         keepScreenOn: Boolean = false,
+        resizable: String? = null,
+        paintBg: Boolean = false,
         content: @Composable () -> Unit,
     ): Boolean {
         if (panel != null) return false
@@ -1136,7 +1272,6 @@ class FloatingBallService : Service() {
         val cv = ComposeView(themed)
         cv.setViewTreeLifecycleOwner(host)
         cv.setViewTreeSavedStateRegistryOwner(host)
-        cv.setContent { ApMiuixTheme { content() } }
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             height,
@@ -1146,6 +1281,38 @@ class FloatingBallService : Service() {
                 (if (keepScreenOn) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.BOTTOM }
+        cv.setContent {
+            ApMiuixTheme {
+                // ⚠️ 只有可调高的面板才包 Column + fillMaxSize。其余面板（设备选择 / 剪贴板
+                // 走 WRAP_CONTENT、手柄走 MATCH_PARENT）必须保持「内容即根」——
+                // 给 WRAP_CONTENT 的窗口塞一个 fillMaxSize 的根会把窗口撑到满屏，
+                // 那几块面板当场变成整块黑底盖住原应用。
+                if (resizable != null) {
+                    // ⚠️ `weight(1f)` 只属于 ColumnScope：PanelResizeHandle 是 receiver 为
+                    // Unit 的 @Composable，写不进它的链式调用；把内容盒留在 Column lambda
+                    // 里、把手先单独占一行，scope 问题自然不存在（把手本身不需要 weight）。
+                    Column(
+                        modifier = if (paintBg) {
+                            Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surfaceContainer)
+                        } else {
+                            Modifier.fillMaxSize()
+                        },
+                    ) {
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            PanelResizeHandle(
+                                onResize = { dyPx -> resizePanel(lp, dyPx) },
+                                onCommit = { resizePanelCommit(lp) },
+                            )
+                        }
+                        Box(modifier = Modifier.fillMaxWidth().weight(1f)) { content() }
+                    }
+                } else {
+                    // 非可调面板保持原样：连 Box 都不加。WRAP_CONTENT 的窗口塞一层
+                    // wrap-content 盒子会多一个测量层，尺寸看着一样但没必要动它。
+                    content()
+                }
+            }
+        }
         closeMenu()   // 菜单与面板互斥
         val attached = runCatching { wm.addView(cv, lp) }.onFailure {
             Log.w(TAG, "Compose 面板挂载失败：${it.message}")
@@ -1156,6 +1323,8 @@ class FloatingBallService : Service() {
         host.resume()
         panel = cv
         panelHost = host
+        panelLp = lp
+        panelSizeKey = resizable
         // 展开时收起球（与触控板面板同口径，避免叠在面板上）
         ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
         return true
@@ -1169,8 +1338,15 @@ class FloatingBallService : Service() {
     private fun expandKeyboard() {
         val hpx = themed.resources.displayMetrics.heightPixels
         val wpx = themed.resources.displayMetrics.widthPixels
-        val fraction = if (wpx > hpx) 0.66f else 0.52f
-        expandComposePanel((hpx * fraction).toInt()) {
+        // ★ v223.29.9：同 expand()，用户调过就听用户的（见 [PanelSize]）
+        val custom = PanelSize.fraction(this, PanelSize.KEYBOARD)
+        val height = if (custom > 0f) {
+            (hpx * custom).toInt()
+        } else {
+            val fraction = if (wpx > hpx) 0.66f else 0.52f
+            (hpx * fraction).toInt()
+        }
+        expandComposePanel(height, resizable = PanelSize.KEYBOARD) {
             ApFullKeyboard(onClose = { collapse() }, bottomGap = 0.dp)
         }
     }
@@ -1322,6 +1498,8 @@ class FloatingBallService : Service() {
         panel = null
         panelHost?.destroy()
         panelHost = null
+        panelLp = null
+        panelSizeKey = null
         // 收起就走延迟还原（1.2s 内又展开就不用白跑两次 su）
         com.allperiph.touchpad.GestureShield.releaseSoon(this, HOLDER_BALL)
         addBall()

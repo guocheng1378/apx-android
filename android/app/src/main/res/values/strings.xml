@@ -42,7 +42,6 @@
     <string name="label_usb_speed">USB 连接速度</string>
     <string name="hint_usb2">当前是 USB 2.0 的速度（慢档）。换一根 USB 3.0 数据线和 3.0 接口会明显更跟手。</string>
     <string name="hint_usb_ok">USB 3.0 高速已就绪。</string>
-    <string name="hint_idle">未启动 · 打开任一传输开关即可启动</string>
     <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
 
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
@@ -296,7 +295,6 @@
     <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 在「状态 → 受控与出口」点「选择受控设备」选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
     <string name="ui_help_open_full">查看完整说明</string>
     <string name="ui_help_close">关闭</string>
-    <string name="ui_home_section_state">运行状态</string>
     <string name="ui_home_section_transport">传输通道</string>
     <string name="ui_home_section_modules">模块</string>
     <string name="ui_home_label_env">环境自检</string>
@@ -471,4 +469,22 @@
     <string name="ui_exit_keep">退出（后台继续）</string>
     <string name="ui_exit_stop">停止外设并退出</string>
     <string name="ui_exit_cancel">取消</string>
+
+    <!-- v223.29.9 设备形态（成宇「是否有识别手机，平板，电视的设置」） -->
+    <string name="ui_form_title">设备形态</string>
+    <string name="ui_form_auto">自动</string>
+    <string name="ui_form_phone">手机</string>
+    <string name="ui_form_tablet">平板</string>
+    <string name="ui_form_tv">电视</string>
+    <string name="ui_form_sum_auto">按窗口尺寸与系统形态自动判断（推荐）</string>
+    <string name="ui_form_sum_phone">始终按手机排版：单栏，快捷键不出侧列</string>
+    <string name="ui_form_sum_tablet">始终按平板排版：双栏，侧列更宽</string>
+    <string name="ui_form_sum_tv">始终按电视排版：大屏双栏，方向键优先</string>
+    <string name="ui_form_auto_now">自动（当前：%1$s）</string>
+    <!-- v223.29.9 悬浮面板高度（成宇「悬浮窗出来的窗口应该可以调节大小」） -->
+    <string name="ui_ball_panel_pad">悬浮触控板高度</string>
+    <string name="ui_ball_panel_pad_sum">占屏高百分比；展开后拖面板顶部的把手也能改</string>
+    <string name="ui_ball_panel_kb">悬浮键盘高度</string>
+    <string name="ui_ball_panel_kb_sum">占屏高百分比；横屏键位多，建议不低于 60%</string>
+    <string name="ui_ball_panel_pct">%1$d%%</string>
 </resources>
