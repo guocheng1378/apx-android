@@ -132,7 +132,7 @@ object ApComponents {
         }
     }
 
-    /** 开关行：状态由调用方持有（单向数据流，与旧 Views 的双向监听不同） */
+    /** 开关行：状态由调用方持有（单向数据流，和旧 Views 的双向监听不同） */
     @Composable
     fun SwitchRow(
         title: String,
