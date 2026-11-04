@@ -156,6 +156,10 @@
     <string name="ui_remote_dialog_device">%1$s 被控设备？</string>
     <string name="ui_remote_dialog_no_only_need">会直接对那台设备执行「%1$s」（需要它有 root；没有 root 只会退回待机）。</string>
     <string name="ui_remote_toast_send_done">已发送%1$s 指令</string>
+    <!-- 2026-11-04 遥控器顶栏两枚 chip 的文案资源化（C3 延伸）：
+         此前是 View 层裸写的 "选择设备" / "关闭"（后者与 ui_help_close 同文，
+         前者全仓无同义资源，补一条）。 -->
+    <string name="ui_remote_pick_device">选择设备</string>
     <string name="ui_filepanel_text_file">文件传输</string>
     <string name="ui_filepanel_text_file_forward">收到的文件（点一行转发给目标）</string>
     <string name="ui_filepanel_text_file_no_local">还没有收到文件。对方（电脑 / 电视 / 另一台手机）在「文件传输」里选这台手机，就能把文件发过来。</string>
