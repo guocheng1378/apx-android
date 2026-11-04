@@ -431,6 +431,7 @@ if(WIN32 AND APXPC_BUILD_UI)
       "${APXPC_ROOT}/src/ui/file_panel_win32.cpp"
       "${APXPC_ROOT}/src/ui/remote_input_win32.cpp"
       "${APXPC_ROOT}/src/ui/settings_win32.cpp"
+      "${APXPC_ROOT}/src/ui/ball_win32.cpp"
     )
     add_library(apxpc_ui STATIC ${APXPC_UI_SRC})
     target_include_directories(apxpc_ui PUBLIC "${APXPC_ROOT}/include")

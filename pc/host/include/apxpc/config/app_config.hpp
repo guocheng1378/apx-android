@@ -21,6 +21,7 @@ struct AppConfig {
     // 服务（v117：httpPort / autoOpenBrowser 随 Web 控制台下线删除；
     //       旧 config.json 里的这两个键会被忽略，不影响加载）
     bool     enableTray = true;
+    bool     enableBall = true;    // 桌面悬浮球（仅 Win；config.json 手改 false 即不创建）
     bool     autostart = false;    // 开机自启
     std::string logLevel = "info"; // trace debug info warn error
 
