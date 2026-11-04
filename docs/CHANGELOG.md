@@ -4,6 +4,35 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.29.8（2026-11-04）
+
+成宇 2026-11-04 真机验证 v223.29.7 后的追修：横屏低栏「有时」仍不到右上角、
+长按确认震动时灵时不灵。
+
+### 横屏低栏「有时」不到右上角 —— 根因补全
+
+- v223.29.7 把横屏判定从 `Configuration.orientation` 换成了
+  `Configuration.screenWidthDp > screenHeightDp`，方向对了，但**数据源还是 Configuration**。
+  本壳 Activity 声明 `configChanges=orientation|screenSize`（旋转不重建），真机
+  复现（竖屏启动 → 转横屏 → `uiautomator dump`）：旋转瞬间低栏"底部居中"居中的
+  **已经是新宽**（说明布局测量拿到了新窗口），判定却仍按竖屏走 —— 即
+  `LocalConfiguration` 的回写滞后一拍，与测量脱节。这就是「有时」的完整根因。
+- 修法：`rememberApAdaptiveLayout()` 改用 **`LocalWindowInfo.containerSize`**
+  （Compose 自己观察的窗口实测像素，`onSizeChanged` 随 relayout 即时写入，
+  与布局测量**同源**，永不滞后）；首组合前 containerSize 还是 0×0，此时退回
+  Configuration（冷启动本来就按首配置建窗）。低栏位置、双栏断点、键盘页 topBar、
+  挖孔避让全部随实测窗口走，竖转横、横转竖、分屏拖拽都即时跟随。
+
+### 长按确认震动改为墙钟计时
+
+- v223.29.7 给键帽加的「按住 400ms 补一次确认震」在事件循环里用
+  `withTimeoutOrNull` 计时。真机 `dumpsys vibrator_manager` 记录复核发现这条路径
+  不可靠：`AwaitPointerEventScope` 内外部挂起原语的取消不保证生效，出现过
+  「短按抬手后 400ms 补一震、按住 500ms 反而不震」的错乱。
+- 修法：改为 **`View.postDelayed` / `removeCallbacks` 墙钟** —— 按下即挂一枚
+  400ms 回调，抬手或第二指落下在 `finally` 里撤销。短按必撤、静止长按必震
+  （不依赖 move 事件驱动计时），低栏页签（longPressFeel=false）行为不变。
+
 ## v223.29.7（2026-11-04）
 
 成宇 2026-11-04 反馈三条：横屏时低栏有时不到右上角、低栏到右上角后挡住两个按键、
