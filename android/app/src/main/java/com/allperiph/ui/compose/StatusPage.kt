@@ -49,7 +49,8 @@ import com.allperiph.wireless.ControlTarget
  *    前台服务**（总闸已在 v223.29.3 去掉，开关就是唯一入口，见 AgentController.applyTransportSwitch）；
  *  · 音频方向：USB / Wi-Fi 两路的麦克风 / 音响开关（v223.29.3 从设置页整块上移，「把设置里的
  *    管麦克风和音响的也挪过来」）；
- *  · 模块行：`AgentController.label(id)` + `detailOf(module)` + 状态色，不再自己 findViewById 刷新；
+ *  · 模块行：`AgentController.labelRes(id)`（资源 id，本层 `ctx.getString` 解析）+
+ *    `detailOf(module)` + 状态色，不再自己 findViewById 刷新；
  *  · 链路诊断：`AgentController.linkSpeed` 与 `EnvChecks.Env.summary`。
  *
  * 数据刷新走 1s 轮询（与旧 [com.allperiph.ui.MainActivity] 的 ticker 同频）：模块状态来自后台线程，
@@ -62,7 +63,7 @@ fun StatusPage(
     bottomGap: Dp = 0.dp,
 ) {
     // topBar/bottomGap：主壳顶栏（64dp 玻璃叠层）与浮动底栏的让位空档。
-    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动时内容从栏下穿过。
+    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动内容从栏下穿过。
 
     val insets = rememberApInsets()
     var tick by remember { mutableStateOf(0) }
@@ -107,7 +108,9 @@ fun StatusPage(
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
                     ApComponents.SwitchRow(
-                        title = AgentController.transportLabel(t),
+                        // 2026-11-04 资源化：原 `transportLabel(t)` 直接返回中文（数据层写死文案），
+                        // 现在存资源 id、本层解析 —— 与 stateRes / labelRes 同一批口径。
+                        title = ctx.getString(AgentController.transportRes(t)),
                         summary = state.transportSummary[t],
                         checked = state.transportOn[t] == true,
                         onCheckedChange = { on ->
@@ -519,7 +522,10 @@ private fun snapshot(ctx: Context): StatusVm {
         val m = AgentController.module(id)
         ModuleRowVm(
             id = id,
-            label = AgentController.label(id),
+            // 2026-11-04 资源化（与 transportRes 同批）：原 `AgentController.label(id)`
+            // 返回写死的中文模块名且含词汇表禁词（Gadget/UAC2/HID/镜像），
+            // 现在存资源 id、快照持有 id、本层解析 —— 与 stateRes 完全同一模式。
+            label = ctx.getString(AgentController.labelRes(id)),
             // 2026-11-04 资源化 + 文案修正：原文是「未启动（点上方开始）」，但「开始」
             // 总闸在 v223.29.3 已经删了 —— 提示指向一个不存在的按钮。改为指传输通道的开关
             // （applyTransportSwitch 会把对应模块组拉起来），与当前页面结构一致。
