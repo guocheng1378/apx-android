@@ -1024,7 +1024,10 @@ class FloatingBallService : Service() {
         //  否则两条路径的启停语义会各自长歪）。
         val next = !AgentController.isTransportEnabled(this, kind)
         AgentController.applyTransportSwitch(this, kind, next)
-        val label = AgentController.transportLabel(kind)
+        // 2026-11-04 资源化：原 `AgentController.transportLabel(kind)` 直接返回写死的中文
+        // （数据层硬编码，与状态页标题同一个双源）—— AgentController 现改存资源 id
+        // （transportRes），本层用 Service 上下文解析。
+        val label = getString(AgentController.transportRes(kind))
         Toast.makeText(
             this,
             getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
