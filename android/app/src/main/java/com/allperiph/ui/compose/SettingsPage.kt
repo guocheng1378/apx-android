@@ -76,7 +76,7 @@ import androidx.compose.foundation.layout.width
  *  · 音频方向：USB（UAC2）与 Wi‑Fi 两套音频的麦克风 / 音箱方向开关 —— 同理补回，
  *    模块在跑就热切换，没跑就只落盘；
  *  · 输入与外设：虚拟手柄（`GamepadActivity`）、外接触控板 root 直读（`RootPointerBridge`）；
- *  · 关于：版本行 + 检查更新 + 意见反馈；**长按版本行**进入 Miuix 组件总览（开发页）。
+ *  · 关于：版本行 + 检查更新 + 意见反馈。
  *
  * 「补回入口」的判据与把关由 `scripts/check_entrypoints.py` 守（CI 的 protocol job）：
  * 清单里 exported=false 又全仓零启动的 Activity、零调用的能力 API、页面手写偏好键，都会变红。
@@ -1257,23 +1257,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 关于 ————————————————
             ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
                 Column {
-                    // 长按版本行 = 组件总览（开发页）。不放入口按钮：这页是给迁移期对照 Miuix
-                    // 组件真实观感用的，普通用户看到「组件总览」只会困惑；长按是刻意低调的入口。
                     ApComponents.ValueRow(
                         title = "当前版本",
                         value = UpdateChecker.currentTag(),
-                        modifier = Modifier.pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    ctx.startActivity(
-                                        android.content.Intent(
-                                            ctx,
-                                            com.allperiph.ui.miuix.MiuixShowcaseActivity::class.java,
-                                        )
-                                    )
-                                }
-                            )
-                        },
                     )
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.about_check_update),

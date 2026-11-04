@@ -37,11 +37,9 @@ SCOPE = ROOT / "android/app/src/main/java/com/allperiph/ui/compose"
 # 被接管的 Miuix 组件（布局级、携带本仓排版约定）
 BANNED = ("Card", "SmallTitle", "TextButton")
 
-# 豁免：文件名 -> 理由
-EXEMPT = {
-    # 组件画廊：演示的对象**就是**原生 Miuix 组件，包一层就展示不出真实观感了
-    "MiuixShowcaseActivity.kt": "组件总览演示页，展示对象是原生 Miuix 组件",
-}
+# 豁免：文件名 -> 理由。当前为空 —— 唯一的一条（MiuixShowcaseActivity.kt 组件总览页）
+# 随 2026-11-04 删除该页一并移除；这里保留空字典与打印逻辑，新增豁免仍须写明理由。
+EXEMPT = {}
 
 # Kit 里必须存在的出口（防止"只删页面用法、不改 Kit"的半截改动）
 REQUIRED_KIT_API = (
