@@ -14,7 +14,6 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import com.allperiph.ui.Feedback
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 通用按压手感（成宇 2026-11-04「键盘一共有三处，触摸板也好几处，你确定都有特效和震动了，做成主题最好」）。
@@ -120,27 +119,24 @@ internal fun Modifier.apKeyFeel(
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             if (downFeel) Feedback.down(host)
-            // 等「抬手 / 长按超时」两个结果；超时成立即补一次长按确认震动。
-            val liftedInTime = withTimeoutOrNull(apKeyLongPressMs) {
-                var lifted = false
+            // 长按确认改走「View.postDelayed 墙钟」（真机 2026-11-04 复核）：
+            // 旧版在事件循环里包 withTimeoutOrNull 计 400ms，真机 vib 记录显示这条
+            // 路径不可靠 —— 抬手 break 与超时取消谁先到不定，出现过「短按抬手后
+            // 400ms 补一震、按住 500ms 反而不震」的错乱。改为一枚 400ms 回调：
+            // 按下即挂，抬手 / 第二指落下在 finally 里撤销 —— 短按必撤、
+            // 静止长按必震（不依赖 move 事件驱动计时）。
+            val confirm = Runnable { if (longPressFeel) Feedback.haptic(host) }
+            host.postDelayed(confirm, apKeyLongPressMs)
+            try {
                 while (true) {
                     val ev = awaitPointerEvent(PointerEventPass.Initial)
-                    if (ev.changes.none { it.pressed } || ev.changes.count { it.pressed } > 1) {
-                        lifted = true
-                        break
-                    }
+                    // 只判「抬手 / 第二指落下」：一旦成立立即撤销确认回调。
+                    if (ev.changes.none { it.pressed } || ev.changes.count { it.pressed } > 1) break
                 }
-                lifted
-            }
-            if (liftedInTime == null && longPressFeel) {
-                // 长按成立：第二次震动（确认感）。不消费事件，onClick 照常。
-                //
-                // ⚠️ 这里**不要**再循环等抬手：低栏外层还有一层 650ms 的长按手势，
-                // 它成立后会把剩余序列在 Initial pass 全部 consume 掉 —— 本协程若在等
-                // 「抬手」事件，就会永远等不到（事件已被 consume），下一轮手势要等
-                // awaitEachGesture 的「所有指针抬起」才算开始，于是**按住低栏一次之后，
-                // 后面所有按键的按下反馈都会失灵**。震动给完直接结束这一轮即可。
-                Feedback.haptic(host)
+            } finally {
+                // 手势结束、或 pointerInput 因离开组合被取消，都要撤掉回调，
+                // 免得短按在抬手后又多震一下。
+                host.removeCallbacks(confirm)
             }
         }
     }
