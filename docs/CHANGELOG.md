@@ -4,6 +4,24 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.29.10（2026-11-05）
+
+悬浮球（反馈#7 追修）：点通知栏里的悬浮球通知会把球直接关掉 —— 关闭动作不该
+藏在通知点击里。本版点通知改为打开主界面，关闭只保留长按球 / 扇形菜单退出 /
+设置页开关三处。
+
+### 悬浮球点通知不再直接关球
+
+- 旧版 `FloatingBallService.onCreate()` 的前台通知 `setContentIntent` 发的是
+ `Intent(this, FloatingBallService::class.java).apply { action = ACTION_STOP }`
+ 配 `PendingIntent.getService` —— 通知栏上看着是「打开」，一点却执行了关闭，
+ 用户随手一点球就没了。
+- 改为 `PendingIntent.getActivity` 拉起 `ApShellActivity`（`FLAG_ACTIVITY_NEW_TASK`），
+ 点通知 = 进主界面，与通知栏的常规预期一致。
+- 关闭路径不变：长按球（`LONG_PRESS_MS = 800L`）/ 扇形菜单退出 / 设置页开关。
+ `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。
+- 实现走 repo-edit 云端锚点补丁（批 N-1），锚点唯一命中才写盘，未动文件其余部分。
+
 ## v223.29.9（2026-11-05）
 
 成宇 2026-11-05 四条要求：状态页顶部「运行状态」去掉、触摸板页横屏没按横屏分、

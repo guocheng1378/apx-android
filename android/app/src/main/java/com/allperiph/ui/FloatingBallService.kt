@@ -60,6 +60,7 @@ import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
 import com.allperiph.ui.compose.ApFullKeyboard
 import com.allperiph.ui.compose.ApTouchpadSurface
+import com.allperiph.ui.compose.ApShellActivity
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.wireless.ControlTarget
@@ -391,9 +392,11 @@ class FloatingBallService : Service() {
                 .setContentText(getString(R.string.ui_main_floating_ball_note))
                 .setOngoing(true)
                 .setContentIntent(
-                    PendingIntent.getService(
+                    // 点通知 = 打开主界面（旧版发 ACTION_STOP，点一下球直接关了；
+                    // 关闭路径：长按球 / 扇形菜单退出 / 设置页开关，不该藏在通知点击里）
+                    PendingIntent.getActivity(
                         this, 0,
-                        Intent(this, FloatingBallService::class.java).apply { action = ACTION_STOP },
+                        Intent(this, ApShellActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         PendingIntent.FLAG_IMMUTABLE,
                     ),
                 )
