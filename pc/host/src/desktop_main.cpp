@@ -770,6 +770,24 @@ int main(int /*argc*/, char** /*argv*/) {
     installCrashForensics();   // 必须在任何业务代码之前：后面每一步挂了都要留下现场
     startFileLogging();        // 双击启动没有终端，日志不落盘等于没有
 #endif
+
+#if defined(_WIN32)
+    // 单实例锁（对齐老面板 Local\AllPeriph.Panel.SingleInstance 语义，见 panel_win32.cpp）。
+    // web 面板路径此前没有任何单实例保护 —— 双击两次 / 自启+手动各拉一次，就是
+    // 两个一模一样的窗口 + 两个托盘（2026-11-05 用户报「装完有两个一样的界面」）。
+    // 抢不到锁就唤起已有实例的主窗然后退出，9511/托盘/WebView2/悬浮球一个都不建。
+    // 类名/标题必须与 web_panel.cpp 的 kClassName/kWindowTitle 保持一致。
+    if (::CreateMutexW(nullptr, FALSE, L"Local\\AllPeriph.WebPanel.SingleInstance") &&
+        ::GetLastError() == ERROR_ALREADY_EXISTS) {
+        const HWND exist = ::FindWindowW(L"AllPeriphWebPanel", L"全能外设");
+        if (exist) {
+            ::ShowWindow(exist, SW_SHOW);
+            ::SetForegroundWindow(exist);
+        }
+        return 0;
+    }
+#endif
+
     try {
         return runDesktopMain();
     } catch (const std::exception& e) {
