@@ -109,6 +109,7 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
 @Composable
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
+    val host = LocalView.current
     val dens = KeyPref.density(ctx)
     // 键帽材质档（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）：此前只有一个
     // `mechanical: Boolean`，只有「平面 / 机械」两种可能，液态玻璃这一档没有表达力 ——
@@ -136,6 +137,15 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
         }
 
         // —— 第 1 行：页签（与操控面 kbTabs 同名同序）——
+        // 2026-11-04 改走 [ApComponents.TabChip]：此前用 `Pill + apKeyFeel + apPress` 自己拼
+        // 选中态，而 Kit 里的 TabChip 正是为「有选中态的芯片」造的（selected → 主色胶囊底 +
+        // SemiBold 字重）。一并修掉两个问题：
+        //  ① `Pill` 只有 `padding(10,4)`，**没有 44dp 命中下限** —— 页签是手指目标，
+        //    在 400dp 宽的手机上偏小（TabChip 有 heightIn(min = 44.dp)）；
+        //  ② 手拼那套与 TabChip 并存 = 又一份重复实现，改选中态样式会只改一边。
+        // 震动 / 音效仍由本处负责：TabChip 内部只有 clickable（无 Feedback），
+        // 所以 onClick 里补一次 [Feedback.release] —— 与原 apPress(downFeel = true)
+        // 等价（按下震、点击出声，两件事分开），不叠成一次点击震两下。
         Row(
             modifier = Modifier.fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
@@ -143,16 +153,14 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             KB_TABS.forEachIndexed { i, res ->
-                ApComponents.Pill(
+                ApComponents.TabChip(
                     text = ctx.getString(res),
-                    color = if (tab == i) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    // 页签也是「一处可点面」：与键帽同一套特效 + 震动（成宇 2026-11-04）
-                    // downFeel = true：按下即震已由 apKeyFeel 给出，onClick 只出声，
-                    // 否则页签会跟键帽一样「一次点击震两下」。
-                    modifier = Modifier
-                        .apKeyFeel()
-                        .apPress(fx, MiuixTheme.colorScheme.primary, { tab = i }, downFeel = true),
+                    selected = tab == i,
+                    onClick = {
+                        Feedback.release(host)
+                        tab = i
+                    },
+                    fx = fx,
                 )
             }
         }
