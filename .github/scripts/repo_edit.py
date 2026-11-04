@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 P-1（PC 桌面悬浮球）：4 文件 6 处。
-web_panel.cpp×2（include + 球创建接入）+ CMakeLists×1（登记新源文件）
-+ app_config.hpp×1 + app_config.cpp×2（enableBall 载入/保存）。
-两阶段：①按期望次数全量校验；②全过才写盘。结构与批 O-1 v4 一致。
+批 P-2（PC 单实例锁）：desktop_main.cpp 1 处。
+根因：web 面板路径全库无单实例保护，双击两次/自启+手动各一次 =
+两个一模一样的窗口 + 两个托盘（2026-11-05 用户报）。
+修法：main() 顶部（业务代码之前、仅 _WIN32）CreateMutex 抢锁，
+抢不到 → FindWindow 唤起已有主窗 → return 0，9511/托盘/WebView2/悬浮球
+一个都不建。锁名对齐老面板 Local\AllPeriph.Panel.SingleInstance 语义。
+两阶段：①按期望次数全量校验；②全过才写盘。结构与批 O-1 v4 / P-1 一致。
 """
 import sys
 
@@ -14,67 +17,33 @@ def T(*lines):
 
 
 EDITS = [
-    ("pc/host/src/config/app_config.cpp", [
+    ("pc/host/src/desktop_main.cpp", [
         (T(
-            "    cfg.enableTray      = bol(\"enableTray\", true);",
+            "#endif",
+            "    try {",
+            "        return runDesktopMain();",
         ), T(
-            "    cfg.enableTray      = bol(\"enableTray\", true);",
-            "    cfg.enableBall      = bol(\"enableBall\", true);",
-        ), 1),
-        (T(
-            "    j[\"enableTray\"]      = cfg.enableTray;",
-        ), T(
-            "    j[\"enableTray\"]      = cfg.enableTray;",
-            "    j[\"enableBall\"]      = cfg.enableBall;",
-        ), 1),
-    ]),
-    ("pc/host/include/apxpc/config/app_config.hpp", [
-        (T(
-            "    bool     enableTray = true;",
-        ), T(
-            "    bool     enableTray = true;",
-            "    bool     enableBall = true;    // 桌面悬浮球（仅 Win；config.json 手改 false 即不创建）",
-        ), 1),
-    ]),
-    ("pc/host/CMakeLists.txt", [
-        (T(
-            "      \"${APXPC_ROOT}/src/ui/settings_win32.cpp\"",
-            "    )",
-        ), T(
-            "      \"${APXPC_ROOT}/src/ui/settings_win32.cpp\"",
-            "      \"${APXPC_ROOT}/src/ui/ball_win32.cpp\"",
-            "    )",
-        ), 1),
-    ]),
-    ("pc/host/src/ui/web_panel.cpp", [
-        (T(
-            "#include \"apxpc/ui/web_panel.hpp\"",
-            "#include \"apxpc/ui/webview2_runtime.hpp\"",
-        ), T(
-            "#include \"apxpc/ui/ball_win32.hpp\"",
-            "#include \"apxpc/ui/web_panel.hpp\"",
-            "#include \"apxpc/ui/webview2_runtime.hpp\"",
-        ), 1),
-        (T(
-            "    // 消息循环",
-            "    MSG msg;",
-        ), T(
-            "    // v223.29.11 桌面悬浮球：主窗 X 只是隐藏到托盘，点球即唤回面板（与托盘「打开面板」同语义）。",
-            "    // 与面板窗同线程同消息循环同生命周期；创建失败只记日志，不影响面板。",
-            "    apxpc::ui::FloatingBall ball;",
-            "    if (!bundle.cfg || bundle.cfg->enableBall) {",
-            "        ball.create([&panel] {",
-            "            const HWND h = panel.hwnd;",
-            "            if (!h || !::IsWindow(h)) return;",
-            "            ::ShowWindow(h, SW_SHOW);",
-            "            ::SetForegroundWindow(h);",
-            "        });",
-            "    } else {",
-            "        APX_LOGI(\"桌面悬浮球已在 config.json 关闭（enableBall=false）\");",
-            "    }",
+            "#endif",
             "",
-            "    // 消息循环",
-            "    MSG msg;",
+            "#if defined(_WIN32)",
+            "    // 单实例锁（对齐老面板 Local\\AllPeriph.Panel.SingleInstance 语义，见 panel_win32.cpp）。",
+            "    // web 面板路径此前没有任何单实例保护 —— 双击两次 / 自启+手动各拉一次，就是",
+            "    // 两个一模一样的窗口 + 两个托盘（2026-11-05 用户报「装完有两个一样的界面」）。",
+            "    // 抢不到锁就唤起已有实例的主窗然后退出，9511/托盘/WebView2/悬浮球一个都不建。",
+            "    // 类名/标题必须与 web_panel.cpp 的 kClassName/kWindowTitle 保持一致。",
+            "    if (::CreateMutexW(nullptr, FALSE, L\"Local\\\\AllPeriph.WebPanel.SingleInstance\") &&",
+            "        ::GetLastError() == ERROR_ALREADY_EXISTS) {",
+            "        const HWND exist = ::FindWindowW(L\"AllPeriphWebPanel\", L\"全能外设\");",
+            "        if (exist) {",
+            "            ::ShowWindow(exist, SW_SHOW);",
+            "            ::SetForegroundWindow(exist);",
+            "        }",
+            "        return 0;",
+            "    }",
+            "#endif",
+            "",
+            "    try {",
+            "        return runDesktopMain();",
         ), 1),
     ]),
 ]
