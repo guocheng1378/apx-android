@@ -350,6 +350,48 @@ class FloatingBallService : Service() {
     /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
     private val dockSnapPx get() = dp(48)
 
+    /** 旋转重算用：上次落位时的屏幕尺寸（等比换算 x/y 到新屏） */
+    private var lastScreenW = 0
+    private var lastScreenH = 0
+
+    /** 贴边滑入动画；触摸按下即取消，位置以手指为准 */
+    private var dockAnim: android.animation.ValueAnimator? = null
+
+    /**
+     * 屏幕配置变化（旋转 / 折叠 / 分屏）→ 重新落位。
+     *
+     * 旧版没有任何旋转监听：lp.x/y 是绝对像素，竖屏贴右边存的 x 在横屏更宽的屏上
+     * 直接落在屏幕中间，贴边态也丢（成宇 2026-11-05 报的「贴边后横屏跑中间」）。
+     */
+    private val reflowCb = object : android.content.ComponentCallbacks {
+        override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = reflowForScreenChange()
+        override fun onLowMemory() {}
+    }
+
+    private fun reflowForScreenChange() {
+        val v = ball ?: return
+        if (!ballAttached) return
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        dockAnim?.cancel()
+        dockAnim = null
+        closeMenu()
+        if (lastScreenW > 0 && lastScreenH > 0 &&
+            (lastScreenW != dm.widthPixels || lastScreenH != dm.heightPixels)
+        ) {
+            // 比例换算保住相对位置：贴边的球换算后仍在边缘附近，再由 applyDockShape 精确吸边
+            lp.x = (lp.x.toFloat() / lastScreenW * dm.widthPixels).toInt()
+                .coerceIn(0, (dm.widthPixels - left - lp.width).coerceAtLeast(0))
+            lp.y = (lp.y.toFloat() / lastScreenH * dm.heightPixels).toInt()
+                .coerceIn(0, (dm.heightPixels - top - lp.height).coerceAtLeast(0))
+            publishBallPosition(v)
+        }
+        lastScreenW = dm.widthPixels
+        lastScreenH = dm.heightPixels
+        if (docked) applyDockShape(v, dockLeft)
+    }
+
     /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
     private val touchSlop get() = dp(6)
 
@@ -411,6 +453,11 @@ class FloatingBallService : Service() {
         } else {
             Log.w(TAG, "悬浮球挂载失败：开关位保持 true，设置页会显示「已开启但未显示」")
         }
+        lastScreenW = resources.displayMetrics.widthPixels
+        lastScreenH = resources.displayMetrics.heightPixels
+        // v223.29.11：旋转后重新落位（旧版无旋转监听，贴边的球转横屏会漂到屏幕中间）
+        runCatching { registerComponentCallbacks(reflowCb) }
+            .onFailure { Log.w(TAG, "rotation callback register failed: ${it.message}") }
         isRunning = true
     }
 
@@ -426,6 +473,8 @@ class FloatingBallService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
+        runCatching { unregisterComponentCallbacks(reflowCb) }
+        dockAnim?.cancel()
         live = null
         shutdown()
         isRunning = false
@@ -509,6 +558,9 @@ class FloatingBallService : Service() {
                     downWindowY = lp.y
                     downAt = System.currentTimeMillis()
                     moved = false
+                    // v223.29.11：抓球即停掉贴边滑入 + 按压脉冲（落下轻微缩小）
+                    dockAnim?.cancel()
+                    view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90).start()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     // 先判位移、后动球：阈值内不更新位置，球的视觉与「是拖是点」的判定
@@ -525,6 +577,8 @@ class FloatingBallService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val held = System.currentTimeMillis() - downAt
+                    // 抬手把按压脉冲的缩放还原
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
                     when {
                         // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
                         moved -> settleAfterDrag(view)
@@ -586,9 +640,28 @@ class FloatingBallService : Service() {
         if (nearLeft || nearRight) {
             docked = true
             dockLeft = nearLeft
-            // 贴边 → 收成竖条（内部自己 updateViewLayout，含尺寸与背景切换）
-            applyDockShape(v, nearLeft)
-            v.alpha = DOCK_ALPHA
+            // 贴边 → 先滑向边缘再收条（v223.29.11 动效；旧版瞬间跳变）
+            val edgeX = if (nearLeft) -left else dm.widthPixels - left - v.width
+            val fromX = lp.x
+            dockAnim?.cancel()
+            dockAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 160
+                addUpdateListener { a ->
+                    lp.x = (fromX + (edgeX - fromX) * a.animatedFraction).toInt()
+                    runCatching { wm.updateViewLayout(v, lp) }
+                }
+                addListener(object : android.animation.AnimatorListenerAdapter() {
+                    private var canceled = false
+                    override fun onAnimationCancel(a: android.animation.Animator) { canceled = true }
+                    override fun onAnimationEnd(a: android.animation.Animator) {
+                        // 按下取消 / 中途改停靠侧都不再收条
+                        if (canceled || !docked || dockLeft != nearLeft) return
+                        applyDockShape(v, nearLeft)
+                        v.alpha = DOCK_ALPHA
+                    }
+                })
+                start()
+            }
         } else {
             docked = false
             // 之前可能是条，落回中间要变回圆球，否则一根条孤零零立在屏幕中间
@@ -654,6 +727,11 @@ class FloatingBallService : Service() {
         lp.x = if (wasLeft) min(dp(BALL_DP), (dm.widthPixels - dp(BALL_DP)).coerceAtLeast(0))
                else (dm.widthPixels - dp(BALL_DP) * 2).coerceAtLeast(0)
         publishBallPosition(v)
+        // v223.29.11 动效：变回圆球时从压缩态回弹
+        v.scaleX = 0.6f
+        v.scaleY = 0.6f
+        v.animate().scaleX(1f).scaleY(1f).setDuration(220)
+            .setInterpolator(android.view.animation.OvershootInterpolator(1.6f)).start()
     }
 
     /**
@@ -920,6 +998,16 @@ class FloatingBallService : Service() {
         // ⚠️ 置顶必须与 addView 分开兜底：若它失败让整个 attachFan 返回 false，
         //    菜单窗口已经 add 进去了却没人记着 —— 之后既收不掉也再开不了（变成孤儿窗口）。
         if (added) raiseBall()
+        // v223.29.11 动效：扇形逐项浮现（30ms 一档），替代整圈瞬间出现
+        fanItems.forEachIndexed { i, (_, cell) ->
+            cell.alpha = 0f
+            cell.scaleX = 0.7f
+            cell.scaleY = 0.7f
+            cell.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .setStartDelay(i * 30L).setDuration(160)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.5f))
+                .start()
+        }
         return added
     }
 
