@@ -1,23 +1,17 @@
 package com.allperiph.ui.miuix
 
-import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -37,6 +31,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * 这里只做**视觉**：模糊、按压回弹、过渡节奏。动效开关一律走 [ApMotion]，
  * 「关闭」档位下所有效果退化为瞬时，不做"更快"处理。
+ *
+ * ⚠️ 2026-11-04：`apPressEffect` 已删除（它是死功能，见 git 历史里的 KDoc 原文）：
+ * 它自己 `remember { MutableInteractionSource() }` 却**没把这个 source 交给任何
+ * `clickable`** —— 调用方的 `clickable {}` 会另建自己的 source，于是它的
+ * `collectIsPressedAsState()` 恒为 false、`scale` 恒 1f，**按下永不缩放**，
+ * 而 KDoc 声称「按下缩到 pressScale，松手弹回」。
+ * 这与 `KeyboardPage` 里那段审查注释（「不把 source 交给 clickable → 进度恒 0」）
+ * 是**同一个根因** —— 它犯的正是它自己写出的教训。全仓零调用（已 search 确认）。
+ * 按压回弹的正确实现走 [ApPress.apPress]（把同一个 source 交给 clickable）。
  */
 
 /** 顶栏玻璃效果是否可用：Haze 依赖 RuntimeShader，Android 13（API 33）起才有 */
@@ -129,16 +132,4 @@ fun Modifier.apHazeSource(state: HazeState?): Modifier =
 fun rememberApHazeState(): HazeState? {
     if (!hazeSupported()) return null
     return rememberHazeState()
-}
-
-/**
- * 按压回弹：按下缩到 [ApMotion.pressScale]，松手弹回。
- * 动效关闭档位下 pressScale = 1f，等于没有缩放 —— 与全仓"关就是不动"一致。
- */
-@Composable
-fun Modifier.apPressEffect(ctx: Context): Modifier {
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
-    val scale = if (pressed) ApMotion.pressScale(ctx) else 1f
-    return this.scale(scale)
 }

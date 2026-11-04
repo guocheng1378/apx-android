@@ -5,7 +5,6 @@ import android.content.res.Configuration
 import android.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.allperiph.ui.ApPalette
-import com.allperiph.ui.ApSkin
 /**
  * 强调色与模板色的**唯一换算处**（Compose 侧）。
  *
@@ -18,6 +17,16 @@ import com.allperiph.ui.ApSkin
  *
  * 这样同一模板在任何人机器上仍是同一个"性格"（浓淡不变、明暗不变），但整机色相一致。
  * 关掉「跟随系统取色」时不做任何换算 —— 用户选的就是品牌蓝。
+ *
+ * ⚠️ 2026-11-04：`syncSkin` 已删除 —— 它与 [com.allperiph.ui.compose.ApAccentSync.apply]
+ * **逐字重复**（同一个 `picked` 判定 + 同一个 `MiuixTokens.skinAccent` 赋值，连 KDoc
+ * 「皮肤切换后同步主题，避免两套颜色并存」都各写了一份），且全仓 search 零调用（死码）。
+ * 皮肤 → 主题同步**只有 `ApAccentSync.apply` 一处**（SettingsPage 与 ApShellActivity 切页时调），
+ * 别再往这个对象里抄一份回来。
+ *
+ * （删同步函数时要留意 import 归属：`toArgb` 还被 [resolved] 的
+ * `MiuixTokens.skinAccent?.toArgb()` 依赖，不是 syncSkin 独占 —— 2026-11-04 误删过一次，
+ * 编译器会报 unresolved reference。）
  */
 object ApAccent {
 
@@ -58,14 +67,4 @@ object ApAccent {
 
     /** 同色调浅底（12% 不透明度），与 [ApPalette.softOf] 同一条口径 */
     fun soft(color: Int): Int = ApPalette.softOf(color)
-
-    /** 皮肤切换后调用：把 ApSkin 当前选择同步给 Miuix 主题，避免两套颜色并存 */
-    fun syncSkin(ctx: Context, scope: String = ApSkin.TOUCHPAD) {
-        val picked = ApSkin.picked(ctx, scope).isNotBlank()
-        MiuixTokens.skinAccent = if (picked) {
-            androidx.compose.ui.graphics.Color(ApSkin.current(ctx, scope).accent)
-        } else {
-            null
-        }
-    }
 }

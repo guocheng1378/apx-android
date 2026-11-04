@@ -31,6 +31,14 @@ import kotlin.math.abs
  * · **行数兜底**：条目超过固定行数能装下的量时，自动放弃"行高均分"，改固定行高交给外层滚动，
  *   避免把每行压瘪（横屏）或把触摸区挤没（竖屏）
  * · 「编辑」一屏管理：上移 / 下移 / 改 / 删 / 新建 / 恢复默认
+ *
+ * ⚠️ 2026-11-04：**形状参数再收敛一次** —— v1.31 收的是行为（render / reorder / 弹窗），
+ * 但**主页皮肤的形状参数仍被两处宿主各自硬编码**（[com.allperiph.ui.compose.TouchpadPage]
+ * 的 `HotkeyGrid.kbStyle` 与 `ApShellActivity` 的 QuickActionsDialog.style，各写一份
+ * `chipRadiusDp = 12 / padVDp = 12 / perRow = 4`）—— 想改圆角或每行个数得记着改两处，
+ * 漏一处就两屏长得不一样（与本类开头文档说的「只改一边的返工」同一类问题，只是换了层）。
+ * 现在这三个值归到 [HOME_*] 常量，两处宿主引用它；颜色仍由宿主传 —— 主壳与操控面
+ * 本来就该不同色（前者主题主色、后者中性色），那不是重复。
  */
 class HotkeyBoard(
     private val act: Activity,
@@ -52,7 +60,18 @@ class HotkeyBoard(
         val accent: Int = 0,
         val textPrimary: Int = 0,
         val textSecondary: Int = 0,
-    )
+    ) {
+        companion object {
+            /** 主页（主壳）统一形状：圆角 12dp —— TouchpadPage 与 ApShellActivity 共用 */
+            const val HOME_CHIP_RADIUS_DP = 12
+
+            /** 主页统一上下内边距 12dp（chip 的纵向呼吸，也用于空格占位块） */
+            const val HOME_PAD_V_DP = 12
+
+            /** 主页每行 4 个（两处宿主与 TouchpadActivity 的操控面版一致） */
+            const val HOME_PER_ROW = 4
+        }
+    }
 
     /** true 时快捷键条显示/编辑 TV 目标专属的一套（落盘到 items_tv） */
     private var tvMode = false

@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -38,6 +36,7 @@ import com.allperiph.ui.OrientLock
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
+import com.allperiph.ui.miuix.hideSystemBars
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import com.allperiph.R
@@ -170,10 +169,10 @@ class ApShellActivity : ComponentActivity() {
         val topPad = 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
-        // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop（组件总览同款做法）。
-        // 底色取壳自己画的背景（md_background），不用 md_surface —— 组件总览整页是
-        // surface 打底，本壳是 background（浅色 #F5F6F6 / 深色 #010102），采样层若铺
-        // surface 会让胶囊底部比真实背景更亮一层，玻璃看起来发白。
+        // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop。
+        // 底色取壳自己画的背景（md_background），不用 md_surface —— 本壳是 background
+        // （浅色 #F5F6F6 / 深色 #010102），采样层若铺 surface 会让胶囊底部比真实背景
+        // 更亮一层，玻璃看起来发白。
         val shellBg = MiuixTheme.colorScheme.background
         val navBackdrop = rememberLayerBackdrop {
             drawRect(shellBg)
@@ -442,9 +441,11 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
 
-            // 底栏 = 组件总览（MiuixShowcaseActivity）同款悬浮玻璃（用户要求「悬浮低栏要和
-            // 组件预览里一样的」）：FloatingNavigationBar 胶囊 + Miuix textureBlur 采样内容层
-            // （LayerBackdrop）+ Highlight 玻璃描边；无运行时着色器的老机器退化为纯色胶囊。
+            // 底栏 = 悬浮玻璃胶囊（用户 2026-11-02 的原话是「悬浮低栏要和当初组件预览里
+            // 一样的」；那个预览页已随 2026-11-04 归档删除，**做法全部保留**在这段与
+            // LayerBackdrop / Highlight 三件套里）：FloatingNavigationBar 胶囊 +
+            // Miuix textureBlur 采样内容层（LayerBackdrop）+ Highlight 玻璃描边；
+            // 无运行时着色器的老机器退化为纯色胶囊。
             // 0.9.4 契约：FloatingNavigationBar 的 modifier 作用于内层胶囊 Row，根 Column 固定
             // fillMaxWidth 且不接定位 —— 垂直定位由外层 Box align(BottomCenter) 负责，
             // 离底高度组件自管（26dp + 导航栏 inset），不要往胶囊 modifier 里塞 padding。
@@ -688,33 +689,31 @@ class ApShellActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /**
+     * 全屏沉浸：状态栏 / 导航栏隐藏 + 两件主壳独有的窗口设置。
+     *
+     * ⚠️ 2026-11-04 收敛：核心三件（`setDecorFitsSystemWindows(false)` →
+     * `decorView.post { behavior + hide }`）此前在这里**又抄了一份** ——
+     * 连「insetsController 在 DecorView 未创建时抛 NPE，必须 post」那段闪退修复
+     * （v223.20 首启崩溃）的注释都各写了一遍，而 [com.allperiph.ui.miuix.hideSystemBars]
+     * 已被 8 个子页（FilePanel / Send / Gamepad / Remote / Screen / RemoteInput /
+     * Touchpad / 等）共用，它自己的 KDoc 就警告过「抄第二遍迟早漏一处」。
+     * 现在主壳只留自己那两件，三件套走公共扩展 —— 改全屏口径只动 ApInsets 一处。
+     * 顺序变化（先 statusBarColor/cutout 再 setDecorFits）不影响行为：三者都是
+     * onCreate 同步段里的窗口属性设置，hide 仍在 post 里执行（NPE 防护原样保留）。
+     */
     private fun applyImmersive() {
-        // 全屏口径（framework API，minSdk 34 无需兼容分支）：
-        // ① 装饰视图不再替我们让位 —— 让位由各页自己按 ApInsets 算；
-        // ② 状态栏颜色透明；③ 允许布局延伸到挖孔短边（横屏时刘海在左右侧）。
+        // 状态栏颜色透明；允许布局延伸到挖孔短边（横屏时刘海在左右侧）。
         // 成宇 2026-11-02「所有页屏蔽状态栏」：**隐藏**状态栏与导航栏，四个页
         // （状态 / 触控板 / 键盘 / 设置）都不再露系统时间与电量。此前这里主动
         // c.show(statusBars())，竖屏能看见状态栏，叠上玻璃顶栏就是两层顶部占位。
-        window.setDecorFitsSystemWindows(false)
         @Suppress("DEPRECATION")
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        // 闪退修复（v223.20 首启崩溃）：DecorView 还没创建时 `window.insetsController`
-        // **不是返回 null，而是直接抛 NPE** —— Android 15/16 的 PhoneWindow.getInsetsController()
-        // 读的是尚未赋值的 mDecor 字段，`?: return` 挡不住，Launcher 一启就 FATAL。
-        // 改为 decorView.post：它在 DecorView attach 到 Window 之后才跑，那时 controller 已就位；
-        // 未 attach 时先排队，既不会漏执行，也不会再抛。
-        // 状态栏与导航栏都隐藏；下拉一次仍可临时唤出（BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE），
-        // 但不主动显示。
-        window.decorView.post {
-            val c = window.insetsController ?: return@post
-            c.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            c.hide(WindowInsets.Type.statusBars())
-            c.hide(WindowInsets.Type.navigationBars())
-        }
+        hideSystemBars()
     }
 }
 
@@ -728,6 +727,9 @@ internal object ApAccentSync {
      * 于是「键盘」与「触控板」两套皮肤选了也没有任何界面变化，用户的原话是
      * 「看看为什么不能映射触摸页和键盘页」。根因不是没存下来（偏好一直都在写），
      * 而是**只有触控板那一套在启动时被读出来一次**，其余两套谁都没读。
+     *
+     * （`ApAccent.syncSkin` 曾是这里的逐字副本、全仓零调用，已于 2026-11-04 删除；
+     * 皮肤同步只有本函数一个入口，别再抄。）
      */
     fun apply(ctx: Context, scope: String = ApSkin.TOUCHPAD) {
         val picked = ApSkin.picked(ctx, scope).isNotBlank()
@@ -744,7 +746,7 @@ internal object ApAccentSync {
  * 受控设备选择器（`showDevicePicker` 的 Compose 版）。
  *
  * 数据源是 [com.allperiph.wireless.TvDiscovery] 的广播列表（电视/PC/手机三类都在这张表里），
- * 选中即 `ControlTarget` 连入；`本机 / PC` 一行等于 `ControlTarget.clear()`。
+ * 选中即 `ControlTarget` 连入；「本机 / PC」一行等于 `ControlTarget.clear()`。
  * 视觉由 [ApComponents.DialogCard] 承载（它内部已经是 `androidx.compose.ui.window.Dialog`
  * + Miuix `Card`，Miuix 0.9.4 的 `WindowDialog` 是 preference 侧窗口级弹窗，这里不要）。
  * v223.28 去掉此前多套的一层外 `Dialog` —— 两层窗口会叠两层遮罩。
@@ -967,8 +969,8 @@ internal fun ApDevicePanel(onClose: () -> Unit) {
  *
  * 内容与状态页原先那张「快捷入口」卡**一模一样**（成宇 2026-11-04「弹出应该是状态页的
  * 快捷入口的弹窗，再把状态页的移除」）：发送文件 / 发送剪贴板 / 屏幕 / 手柄 / 遥控器 /
- * 编辑快捷键。搬过来的理由：那排按钮在状态页占着一张卡片，而低栏长按本来就是「常用功能」
- * 的口子，放在这里才叫随手可达。
+ * 编辑快捷键。搬过来的理由：那排按钮在状态页占着一张卡片，实际更需要的是「随手能叫出来」，
+ * 而低栏长按本来就是「常用功能」的口子，放在这里才叫随手可达。
  *
  * v223.29.6（成宇 2026-11-04「低栏长按后快捷键管理删除」）：最后一项「编辑快捷键」改为
  * **直接打开管理列表**（`HotkeyBoard.managerDialog`：上移 / 下移 / 改 / 删 / 新建 /
@@ -1063,13 +1065,17 @@ private fun QuickActionsDialog(
                 if (act == null) {
                     onOpenTouchpad()
                 } else {
+                    // 形状参数走 Style.HOME_*（2026-11-04 收敛）：此前这里硬编码 12/12/4，
+                    // 与触控板页 HotkeyGrid.kbStyle **各写一份同样的值** —— 改圆角或每行
+                    // 个数得记着改两处，漏一处两个入口打开的列表就长得不一样。
+                    // 颜色仍由本处传（低栏进来的取色口径与触控板页一致，都是 MiuixTheme 主题色）。
                     val style: () -> com.allperiph.ui.HotkeyBoard.Style = {
                         com.allperiph.ui.HotkeyBoard.Style(
                             chipText = chipTextArgb,
                             chipBg = chipBgArgb,
-                            chipRadiusDp = 12,
-                            padVDp = 12,
-                            perRow = 4,
+                            chipRadiusDp = com.allperiph.ui.HotkeyBoard.Style.HOME_CHIP_RADIUS_DP,
+                            padVDp = com.allperiph.ui.HotkeyBoard.Style.HOME_PAD_V_DP,
+                            perRow = com.allperiph.ui.HotkeyBoard.Style.HOME_PER_ROW,
                             accent = chipTextArgb,
                             textPrimary = chipTextArgb,
                             textSecondary = subTextArgb,

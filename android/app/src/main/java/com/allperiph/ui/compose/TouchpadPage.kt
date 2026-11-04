@@ -214,14 +214,21 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
     // 管理列表的唯一出口（新建 / 恢复默认 / 自动排序）与编辑单颗共用的 Style。
     // ⚠️ 三处调用（空白长按、空列表「＋」、长按单颗改）必须共用这一个 Style 与一个
     // HotkeyBoard 构造 —— 早先这段在文件里重复了三份，改一处忘一处就分叉。
+    //
+    // 2026-11-04 再收敛一层：形状参数（圆角 / 上下内边距 / 每行个数）改引用
+    // [com.allperiph.ui.HotkeyBoard.Style.HOME_*] —— 此前这里是硬编码 12/12/4，
+    // 与 ApShellActivity 的 QuickActionsDialog.style **各写一份**（那处也有一份同样的
+    // chipRadiusDp = 12 / perRow = 4）。改形状要记着改两处、漏一处两屏就长得不一样，
+    // 正是本类开头文档说的「只改一边的返工」。颜色仍由本处传（主壳主题色 vs 操控面
+    // 中性色是**应该不同**的，那不是重复）。
     val host = ctx as? android.app.Activity
     val kbStyle: () -> com.allperiph.ui.HotkeyBoard.Style = {
         com.allperiph.ui.HotkeyBoard.Style(
             chipText = chipTextColor,
             chipBg = chipBgColor,
-            chipRadiusDp = 12,
-            padVDp = 12,
-            perRow = 4,
+            chipRadiusDp = com.allperiph.ui.HotkeyBoard.Style.HOME_CHIP_RADIUS_DP,
+            padVDp = com.allperiph.ui.HotkeyBoard.Style.HOME_PAD_V_DP,
+            perRow = com.allperiph.ui.HotkeyBoard.Style.HOME_PER_ROW,
             accent = chipTextColor,
             textPrimary = chipTextColor,
             textSecondary = subTextColor,

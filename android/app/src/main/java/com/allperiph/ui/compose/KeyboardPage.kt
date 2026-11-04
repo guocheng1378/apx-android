@@ -109,6 +109,7 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
 @Composable
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
+    val host = LocalView.current
     val dens = KeyPref.density(ctx)
     // 键帽材质档（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）：此前只有一个
     // `mechanical: Boolean`，只有「平面 / 机械」两种可能，液态玻璃这一档没有表达力 ——
@@ -136,6 +137,15 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
         }
 
         // —— 第 1 行：页签（与操控面 kbTabs 同名同序）——
+        // 2026-11-04 改走 [ApComponents.TabChip]：此前用 `Pill + apKeyFeel + apPress` 自己拼
+        // 选中态，而 Kit 里的 TabChip 正是为「有选中态的芯片」造的（selected → 主色胶囊底 +
+        // SemiBold 字重）。一并修掉两个问题：
+        //  ① `Pill` 只有 `padding(10,4)`，**没有 44dp 命中下限** —— 页签是手指目标，
+        //    在 400dp 宽的手机上偏小（TabChip 有 heightIn(min = 44.dp)）；
+        //  ② 手拼那套与 TabChip 并存 = 又一份重复实现，改选中态样式会只改一边。
+        // 震动 / 音效仍由本处负责：TabChip 内部只有 clickable（无 Feedback），
+        // 所以 onClick 里补一次 [Feedback.release] —— 与原 apPress(downFeel = true)
+        // 等价（按下震、点击出声，两件事分开），不叠成一次点击震两下。
         Row(
             modifier = Modifier.fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
@@ -143,16 +153,14 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             KB_TABS.forEachIndexed { i, res ->
-                ApComponents.Pill(
+                ApComponents.TabChip(
                     text = ctx.getString(res),
-                    color = if (tab == i) MiuixTheme.colorScheme.primary
-                    else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    // 页签也是「一处可点面」：与键帽同一套特效 + 震动（成宇 2026-11-04）
-                    // downFeel = true：按下即震已由 apKeyFeel 给出，onClick 只出声，
-                    // 否则页签会跟键帽一样「一次点击震两下」。
-                    modifier = Modifier
-                        .apKeyFeel()
-                        .apPress(fx, MiuixTheme.colorScheme.primary, { tab = i }, downFeel = true),
+                    selected = tab == i,
+                    onClick = {
+                        Feedback.release(host)
+                        tab = i
+                    },
+                    fx = fx,
                 )
             }
         }
@@ -204,7 +212,7 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
                 labels.forEach { label ->
                     KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                         HidKeys.tap(HidKeys.usageByLabel(label))
-                        sticky = 0 // tap 自动清 sticky，同步熄灭修饰键（与操控面 refreshMods 同口径）
+                        sticky = 0 // tap 自动清 sticky，同步燄灭修饰键（与操控面 refreshMods 同口径）
                     }
                 }
             }
@@ -425,7 +433,18 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
-/** 修饰键帽：点亮 = 实底主色（与操控面 refreshMods 同一观感），同样支持机械立体 */
+/**
+ * 修饰键帽（Ctrl / Alt / Shift / Win）。
+ *
+ * 2026-11-04：**改为 [KeyBox] 的一行委托**。此前本函数与 [KeyBox] 互为复制品 ——
+ * 两份完全相同的三档渲染（玻璃 / 平面 / 机械）+ 相同的 `press` / `shape` / `h` / `interaction` /
+ * `fxMod`，连两段审查注释都原样抄了两遍；真实差异只有 `bg` / `fg` / 玻璃档 `tint` 三个表达式。
+ *
+ * 合并后**调用点零改动**（签名与 `Modifier` 传递方式全部保持不变），渲染差异全部由
+ * [KeyBox] 的 `active` / `tint` 表达：`active` 决定 bg（primary/surfaceContainer）与
+ * fg（White/onSurface）—— 三档统一；`tint` **只喂玻璃档**（染色），平面/机械档仍用 `fg`，
+ * 否则 active=true 时会出现 primary 文字压在 primary 背景上、字直接看不见。
+ */
 @Composable
 private fun ModKey(
     label: String,
@@ -436,82 +455,40 @@ private fun ModKey(
     fx: Int,
     onClick: () -> Unit,
 ) {
-    // 修饰键同样要震要响（与 KeyBox 同一套 Feedback 口径）
-    val host = LocalView.current
-    // 震动在按下那一刻由 [apKeyFeel] 给过了，这里只出声（见 Feedback.release 的说明）
-    val press: () -> Unit = { Feedback.release(host); onClick() }
-    val shape = RoundedCornerShape(dens.cornerDp.dp)
-    // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
-    // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
-    // 宽松档仍按 1.12 放大（49.3dp）。
-    val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
-    val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
-    val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
-    val accent = MiuixTheme.colorScheme.primary
-    // 特效进度：与键帽材质共用（材质决定形状、特效决定按下画什么）
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val fxValues = rememberKeyFx(pressed, fx)
-    val fxMod = Modifier.keyFx(fxValues, accent)
-    if (keycap == KeyPref.KEYCAP_GLASS) {
-        // 液态玻璃：半透明键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）
-        ApComponents.GlassKeycap(
-            // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
-            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
-            shape = shape,
-            label = label,
-            textSize = dens.textSize.sp,
-            fg = fg,
-            tint = if (active) accent else null,
-            interaction = interaction,
-            onClick = press,
-            fxMod = fxMod,
-        )
-        return
-    }
-    if (keycap != KeyPref.KEYCAP_MECHANICAL) {
-        Box(
-            modifier = modifier
-                .padding(horizontal = dens.gapDp.dp)
-                .heightIn(min = h)
-                .clip(shape)
-                .background(bg)
-                // ★ 必须把**同一个** interactionSource 交给 clickable（成宇 2026-11-03
-                // 「键盘动效没有」）：[rememberKeyFx] 的按压进度来自
-                // `interaction.collectIsPressedAsState()`。此前这里用无参 `clickable{}`，
-                // Compose 会各自 new 一个内部 source —— 上面这个 `interaction` 永远收不到
-                // Press，进度恒为 0，涟漪 \/ 高光 \/ 弹跳三档全部画不出来（机械档与液态玻璃
-                // 档当时传对了，所以只有这两档看得到效果）。
-                // indication = null：机械档同样不带水波纹，三档观感统一由 [keyFx] 表达。
-                .clickable(interactionSource = interaction, indication = null, onClick = press)
-                .apKeyFeel()
-                .then(fxMod),
-            contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
-        return
-    }
-    val side = lerp(bg, Color.Black, 0.35f)
-    Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
-        Box(Modifier.matchParentSize().clip(shape).background(side))
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(bottom = 3.dp)
-                .offset(y = if (pressed) 2.dp else 0.dp)
-                .clip(shape)
-                .background(bg)
-                .clickable(interactionSource = interaction, indication = null, onClick = press)
-                .apKeyFeel()
-                .then(fxMod),
-            contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
-    }
+    KeyBox(
+        label = label,
+        modifier = modifier,
+        dens = dens,
+        keycap = keycap,
+        fx = fx,
+        active = active,
+        tint = if (active) MiuixTheme.colorScheme.primary else null,
+        onClick = onClick,
+    )
 }
 
 /**
  * 键帽：平面 = 描边圆角块；机械 = 底座当立体侧面、顶面按下时下沉
  * （与触控板页机械键帽同一档观感）。高度给下限 44dp * 密度倍率，
  * 行高够时由外层 `weight(1f)` 拉满。
+ *
+ * ⚠️ **2026-11-04 重构**：本函数此前与 [ModKey] 是逐字重复的两份（连注释都抄了两遍），
+ * 现已合并为这一份 —— 修饰键只是按 `active` 调用它。**以后新增档位只改这里**，
+ * 不要再在 ModKey 里写一遍。
+ *
+ * ⚠️ **参数顺序是硬约定，CI 踩过**（2026-11-04 android job 失败）：四个布局
+ * （Quick/Game/KeyGrid/Custom）全部写的是 `KeyBox(a, b, c, d, e) { … }` 这种
+ * **位置参数 + 尾随 lambda**，Kotlin 的尾随 lambda 只能绑到**最后一个形参**。
+ * 第一版把签名写成 `…, fx, onClick, active, tint` —— `tint: Color?` 压了轴，
+ * 于是那 4 处报成两联：`No value passed for parameter 'onClick'`（第 6 位空着）
+ * 与 `actual type '() -> Unit' but 'Color?' was expected`（lambda 被判给了 tint）。
+ * 所以：`onClick` **必须压轴**，`active` / `tint` 只能带默认值夹在中间；
+ * [ModKey] 走命名参数转发，不受影响（它也是唯一另一个合法的调用姿势）。
+ *
+ * @param active 修饰键点亮态：`bg` 取 primary、`fg` 取白（三档统一）
+ * @param tint 玻璃档染色（非空时给键帽染色）；平面 / 机械档不用它 —— 那两档靠 `fg`
+ *   决定字色，写进 tint 会把 active 态的文字压成主色
+ * @param onClick 必须是最后一个参数（尾随 lambda 绑位，见上方 ⚠️）
  */
 @Composable
 private fun KeyBox(
@@ -520,6 +497,8 @@ private fun KeyBox(
     dens: KeyPref.Density,
     keycap: Int,
     fx: Int,
+    active: Boolean = false,
+    tint: Color? = null,
     onClick: () -> Unit,
 ) {
     // 按键反馈（成宇 2026-11-02「音效、喇叭回声、震动都没有了」）：
@@ -534,7 +513,8 @@ private fun KeyBox(
     // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
     // 宽松档仍按 1.12 放大（49.3dp）。
     val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
-    val bg = MiuixTheme.colorScheme.surfaceContainer
+    val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
+    val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
     val accent = MiuixTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -548,8 +528,8 @@ private fun KeyBox(
             shape = shape,
             label = label,
             textSize = dens.textSize.sp,
-            fg = MiuixTheme.colorScheme.onSurface,
-            tint = null,
+            fg = fg,
+            tint = tint,
             interaction = interaction,
             onClick = press,
             fxMod = fxMod,
@@ -569,7 +549,7 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp) }
+        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
         return
     }
     val side = lerp(bg, Color.Black, 0.35f)
@@ -586,6 +566,6 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp) }
+        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
     }
 }
