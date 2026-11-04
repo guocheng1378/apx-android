@@ -106,6 +106,9 @@ class RemoteActivity : Activity() {
         root.addView(col, FrameLayout.LayoutParams(-1, -1))
 
         // —— 顶栏：标题 + 选择设备 / 关闭（对齐小米遥控的"设备名 + 右上角操作"）——
+        // 2026-11-04 资源化（C3 延伸）：这两枚 chip 此前是裸写的中文字面量（"选择设备"、
+        // "关闭"）——全仓就剩这一处 View 层的中文硬编码。前者新补 ui_remote_pick_device，
+        // 后者直接复用既有的 ui_help_close（同文）。
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -116,10 +119,10 @@ class RemoteActivity : Activity() {
             textSize = if (landscape) 17f else 21f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        head.addView(chip("选择设备") { pickTarget() })
+        head.addView(chip(getString(R.string.ui_remote_pick_device)) { pickTarget() })
         cursorChip = chip(cursorLabel()) { toggleCursorOverlay() }
         head.addView(cursorChip)
-        head.addView(chip("关闭") { finish() })
+        head.addView(chip(getString(R.string.ui_help_close)) { finish() })
         col.addView(head)
         // 读回上次偏好并即时生效：重进本页（含重连）后，上次关掉的浮层不会又冒出来
         cursorOverlayOn = prefs().getBoolean(KEY_CURSOR_OVERLAY, true)
@@ -383,7 +386,16 @@ class RemoteActivity : Activity() {
     /// 环上箭头的点击区：拨盘收小后跟着收一档（仍 ≥ 48dp，满足最小触控目标）
     private fun arrowSize(): Int = if (landscape) dp(50) else dp(56)
 
-    /** 一个圆钮：正圆底 + 文字（不用字符图标，见类注释） */
+    /**
+     * 一个圆钮：正圆底 + 文字（不用字符图标，见类注释）。
+     *
+     * ⚠️ 现存隐患（2026-11-04 审查记录，**本次不修**）：下面 `when(label)` 是按**中文
+     * 文案**分支选色（"关机"红 / "重启"橙 / "电源"主题色），而 label 全部来自
+     * getString —— 改一个字（哪怕加空格）颜色分支就静默落空，换语言更是一次全丢。
+     * 正确做法是让 [rows] 一并带上语义色（三元组），调用链 rows/addKeyRows/addRow
+     * 都要跟着改类型。当前文案与资源逐字一致、行为无 bug，且这是 30KB 大文件的核心
+     * 交互链，收益（防未来）抵不过整链重写的回归面 —— 留给专门一轮做。
+     */
     private fun circle(label: String, size: Int, onClick: () -> Unit): TextView =
         TextView(this).apply {
             text = label
