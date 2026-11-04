@@ -31,7 +31,6 @@ import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
 import com.allperiph.ui.miuix.rememberApInsets
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.basic.Switch
@@ -390,15 +389,17 @@ fun StatusPage(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                Button(
-                    onClick = {
-                        Feedback.haptic(ctx)
-                        helpOpen = true
-                    },
+                // 2026-11-04 改走 ApComponents.ActionButton：此前裸用 miuix.basic.Button，
+                // **不带** ActionButton 内部那层 `Feedback.tap`（震动 + 音效），于是同一页上
+                // 这个按钮只震不响、其余按钮又震又响（手感不一致，编译器不报、样式也不算错）。
+                // 原 onClick 里的 Feedback.haptic(ctx) 一并删除 —— 留着会与 ActionButton
+                // 内置的 Feedback.tap 叠成一次点击震两下。Button 的 import 同时移除，
+                // scripts/check_ui_kit.py 的 BANNED 已把 Button 纳入拦裁范围。
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_help_open_full),
+                    onClick = { helpOpen = true },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                ) {
-                    Text(text = ctx.getString(R.string.ui_help_open_full), fontSize = 15.sp)
-                }
+                )
             }
         }
         if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
