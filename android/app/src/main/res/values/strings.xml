@@ -174,6 +174,13 @@
     <string name="ui_filepanel_status_send_2">发送中…</string>
     <string name="ui_filepanel_text_send_done_2">已发送 → %1$s</string>
     <string name="ui_filepanel_text_send_failed_2">发送失败</string>
+    <!-- 2026-11-04 文件面板数据层 5 处硬编码资源化（C3 同款病灶）：
+         refreshTargets() 直接拼 "目标：…" 中文行（三分支）+ 初始值 + 发送按钮 ——
+         与状态页 snapshot() 一样，数据层写死文案，改措辞要同时记得 Kotlin 与 strings。 -->
+    <string name="ui_filepanel_target_none">目标：暂无（先连一台设备，或等发现到设备）</string>
+    <string name="ui_filepanel_target_one">目标：%1$s  %2$s</string>
+    <string name="ui_filepanel_target_more">目标：%1$s  %2$s（%3$d/%4$d，点击切换）</string>
+    <string name="ui_filepanel_send_pick">发送本机其它文件…</string>
     <string name="ui_screen_text_open_not_please_state">服务未启动：请在状态页打开无线开关</string>
     <string name="lay_settings_tab_about">关于</string>
     <string name="ui_main_label_floating_ball">悬浮球</string>
