@@ -264,7 +264,12 @@ fun StatusPage(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                ApComponents.Pill(text = row.stateLabel, color = stateColor(row.state, dark))
+                                // 状态词已在 [ModuleRowVm.stateRes] 存为资源 id（2026-11-04
+                                // 数据层资源化）：数据类不再写死中文，由 UI 层解析成字串。
+                                ApComponents.Pill(
+                                    text = ctx.getString(row.stateRes),
+                                    color = stateColor(row.state, dark),
+                                )
                                 // 成宇 2026-11-03「状态页给个开关不能控制子开关，
                                 // 总开关关了应该隐藏下面的子开关」：没在跑时这一行只留状态点。
                                 // 这个「跑没跑」的判据在 v223.29.3 从主壳入参 [running] 换成
@@ -416,14 +421,21 @@ private class ModuleRowVm(
     /** 该模块当前是否启用（可信源是 AgentController.isEnabled，这里只是快照） */
     val enabled: Boolean = true,
 ) {
-    val stateLabel: String get() = when (state) {
-        ModuleState.RUNNING -> "运行中"
-        ModuleState.STARTING -> "启动中"
-        ModuleState.DEGRADED -> "降级"
-        ModuleState.ERROR -> "异常"
-        ModuleState.STOPPING -> "停止中"
-        ModuleState.STOPPED -> "已停止"
-        ModuleState.IDLE -> "未启动"
+    /**
+     * 状态词的**资源 id**（2026-11-04 数据层资源化）：此前这里是 7 个中文写死的 when ——
+     * UI 层早已全走 `ctx.getString`，只有这个数据类还在直接产出面向用户的文案，
+     * 属于「文案双源」的另一半（strings 一份、Kotlin 一份，改一边漏一边）。
+     * 存资源 id 而不是解析后的字串：`snapshot()` 是普通函数、拿不到文案上下文，
+     * 解析留给 UI 层（`ctx.getString(row.stateRes)`）。
+     */
+    val stateRes: Int get() = when (state) {
+        ModuleState.RUNNING -> R.string.ui_module_state_running
+        ModuleState.STARTING -> R.string.ui_module_state_starting
+        ModuleState.DEGRADED -> R.string.ui_module_state_degraded
+        ModuleState.ERROR -> R.string.ui_module_state_error
+        ModuleState.STOPPING -> R.string.ui_module_state_stopping
+        ModuleState.STOPPED -> R.string.ui_module_state_stopped
+        ModuleState.IDLE -> R.string.ui_module_state_idle
     }
 }
 
@@ -495,7 +507,9 @@ private fun snapshot(ctx: Context): StatusVm {
     val transportSummary = AgentController.TRANSPORTS.associateWith { t ->
         val ids = AgentController.groupModules(t)
         val on = ids.count { AgentController.isEnabled(ctx, it) }
-        "$on/${ids.size} 个模块启用"
+        // 2026-11-04 资源化：此前这里拼 "N/M 个模块启用" —— 数据层写死文案，
+        // 改措辞要同时记得 Kotlin 与 strings 两处（双源）。percent 由 getString 格式化。
+        ctx.getString(R.string.ui_home_transport_count, on, ids.size)
     }
     // 审查条 1.8：此前按 runtime 是否存在过滤（`module(id) ?: return@mapNotNull null`），
     // 而 runtime 只在用户点「开始」/前台服务启动时才 build —— 冷启动进状态页整段「模块状态」
@@ -506,7 +520,11 @@ private fun snapshot(ctx: Context): StatusVm {
         ModuleRowVm(
             id = id,
             label = AgentController.label(id),
-            detail = if (m == null) "未启动（点上方开始）" else AgentController.detailOf(m),
+            // 2026-11-04 资源化 + 文案修正：原文是「未启动（点上方开始）」，但「开始」
+            // 总闸在 v223.29.3 已经删了 —— 提示指向一个不存在的按钮。改为指传输通道的开关
+            // （applyTransportSwitch 会把对应模块组拉起来），与当前页面结构一致。
+            detail = if (m == null) ctx.getString(R.string.ui_home_module_idle_detail)
+            else AgentController.detailOf(m),
             state = m?.state ?: ModuleState.IDLE,
             enabled = AgentController.isEnabled(ctx, id),
         )
@@ -530,7 +548,8 @@ private fun snapshot(ctx: Context): StatusVm {
         transportSummary = transportSummary,
         modules = modules,
         linkLabel = if (link == LinkSpeed.UNKNOWN) "--" else link.name,
-        envSummary = env?.summary ?: "未检测",
+        // 2026-11-04 资源化：「未检测」占位不再写在快照里
+        envSummary = env?.summary ?: ctx.getString(R.string.ui_home_env_not_checked),
         rooted = env?.rooted ?: false,
         controlLabel = if (controlling) ControlTarget.label
         else ctx.getString(R.string.ui_set_label_current_control_none),
