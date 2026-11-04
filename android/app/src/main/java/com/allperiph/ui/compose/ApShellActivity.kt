@@ -170,10 +170,10 @@ class ApShellActivity : ComponentActivity() {
         val topPad = 0.dp
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
-        // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop（组件总览同款做法）。
-        // 底色取壳自己画的背景（md_background），不用 md_surface —— 组件总览整页是
-        // surface 打底，本壳是 background（浅色 #F5F6F6 / 深色 #010102），采样层若铺
-        // surface 会让胶囊底部比真实背景更亮一层，玻璃看起来发白。
+        // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop。
+        // 底色取壳自己画的背景（md_background），不用 md_surface —— 本壳是 background
+        // （浅色 #F5F6F6 / 深色 #010102），采样层若铺 surface 会让胶囊底部比真实背景
+        // 更亮一层，玻璃看起来发白。
         val shellBg = MiuixTheme.colorScheme.background
         val navBackdrop = rememberLayerBackdrop {
             drawRect(shellBg)
@@ -442,9 +442,11 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
 
-            // 底栏 = 组件总览（MiuixShowcaseActivity）同款悬浮玻璃（用户要求「悬浮低栏要和
-            // 组件预览里一样的」）：FloatingNavigationBar 胶囊 + Miuix textureBlur 采样内容层
-            // （LayerBackdrop）+ Highlight 玻璃描边；无运行时着色器的老机器退化为纯色胶囊。
+            // 底栏 = 悬浮玻璃胶囊（用户 2026-11-02 的原话是「悬浮低栏要和当初组件预览里
+            // 一样的」；那个预览页已随 2026-11-04 归档删除，**做法全部保留**在这段与
+            // LayerBackdrop / Highlight 三件套里）：FloatingNavigationBar 胶囊 +
+            // Miuix textureBlur 采样内容层（LayerBackdrop）+ Highlight 玻璃描边；
+            // 无运行时着色器的老机器退化为纯色胶囊。
             // 0.9.4 契约：FloatingNavigationBar 的 modifier 作用于内层胶囊 Row，根 Column 固定
             // fillMaxWidth 且不接定位 —— 垂直定位由外层 Box align(BottomCenter) 负责，
             // 离底高度组件自管（26dp + 导航栏 inset），不要往胶囊 modifier 里塞 padding。
@@ -1063,13 +1065,17 @@ private fun QuickActionsDialog(
                 if (act == null) {
                     onOpenTouchpad()
                 } else {
+                    // 形状参数走 Style.HOME_*（2026-11-04 收敛）：此前这里硬编码 12/12/4，
+                    // 与触控板页 HotkeyGrid.kbStyle **各写一份同样的值** —— 改圆角或每行
+                    // 个数得记着改两处，漏一处两个入口打开的列表就长得不一样。
+                    // 颜色仍由本处传（低栏进来的取色口径与触控板页一致，都是 MiuixTheme 主题色）。
                     val style: () -> com.allperiph.ui.HotkeyBoard.Style = {
                         com.allperiph.ui.HotkeyBoard.Style(
                             chipText = chipTextArgb,
                             chipBg = chipBgArgb,
-                            chipRadiusDp = 12,
-                            padVDp = 12,
-                            perRow = 4,
+                            chipRadiusDp = com.allperiph.ui.HotkeyBoard.Style.HOME_CHIP_RADIUS_DP,
+                            padVDp = com.allperiph.ui.HotkeyBoard.Style.HOME_PAD_V_DP,
+                            perRow = com.allperiph.ui.HotkeyBoard.Style.HOME_PER_ROW,
                             accent = chipTextArgb,
                             textPrimary = chipTextArgb,
                             textSecondary = subTextArgb,
