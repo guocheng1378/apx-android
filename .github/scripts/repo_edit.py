@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 D1（重交互走浏览器页）：bridge.ts 1 处 + web_panel.cpp 1 处。
-根因：扇形轻项（开面板）的钩子 ha.open_panel 已注册（PR #159），
-但 bridge 只裸传 {kind:'act', name}，后端 handleAct 白名单里没有 open_panel ——
-扇形轻项点了没反应（重交互入口仍卡在浏览器页）。
-修法：① bridge.ts act() 里补「若 name 在白名单则查 handler 表再传」，
-   白名单 = bridge 里现成实现的全部 name（含 open_panel 指向 panelUrl），
-   未知名直接透传原样（不吞任何现成能力）；② web_panel.cpp 里
-   open_panel 的 handler 注册（与 speaker.toggle 同文件同风格，
-   连 panelUrl 现成函数一起用，send_clipboard 用已现成的 bundledSend）。
+批 M4-a（mac 菜单栏连接角标）：tray_win32.hpp / tray_mac.mm / web_panel.cpp 共 7 处。
+根因：连接状态只进面板 JSON，菜单栏图标零反馈——mac 用户不看面板时
+完全不知道连没连上（规划 M4「tray_mac 角标」）。
+修法：TrayIcon::setBadge(bool disconnected) 跨平台 API——
+_WIN32 内联空实现（Windows 托盘角标二期，防链接缺符号），
+mac 在 tray_mac.mm 实现（原子量入队 + 泵内主线程上色，同通知队列模式，
+绝不跨线程碰 AppKit——issue#47 红线）；web_panel buildState 每 400ms
+按 LinkPhase 喂角标（已连接熄灭，其余亮红点）。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -20,41 +19,86 @@ def T(*lines):
 
 
 EDITS = [
-    ("pc/web/src/api/bridge.ts", [
+    ("pc/host/include/apxpc/tray/tray_win32.hpp", [
         (T(
-            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
-            "  // 白名单路由（handleAct 白名单 + 本文件的现成实现）：未知名原样透传，不吞任何现成能力",
-            "  const HANDLERS: ReadonlySet<string> = new Set([",
-            "    'session.startAuto','session.connectManual','session.disconnect',",
-            "    'session.sendInputText','session.sendInputDone',",
-            "    'screen.toggle','speaker.toggle','mic.toggle',",
-            "    'config.setAdaptive','config.setBitrate','config.setLogLevel',",
-            "    'window.hide','window.quit','tray.setAutostart','localsend.toggle',",
-            "    'localsend.status','localsend.send','open_panel'",
-            "  ]);",
-            "  const payload_ = payload ?? {};",
-            "  if (HANDLERS.has(name)) {",
-            "    const resp = await this.request('act', name, payload_);",
-            "    return resp;  // 现成实现直接返回，不经过后端",
-            "  }",
-            "  return this.request('act', name, payload_);",
+            "    void setPort(unsigned port) { port_ = port; }",
         ), T(
-            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
+            "    void setPort(unsigned port) { port_ = port; }",
+            "",
+            "    /// 连接状态角标：true=未连接（菜单栏图标亮红点），false=已连接（熄）。",
+            "    /// mac 实现在 tray_mac.mm（泵内主线程上色）；Windows 托盘角标二期实现，",
+            "    /// 此处内联空实现保证共享代码在 _WIN32 上不缺符号。",
+            "#if defined(_WIN32)",
+            "    void setBadge(bool) {}",
+            "#else",
+            "    void setBadge(bool disconnected);",
+            "#endif",
+        ), 1),
+    ]),
+    ("pc/host/src/tray/tray_mac.mm", [
+        (T(
+            "MacTrayShared g_shared;",
+        ), T(
+            "MacTrayShared g_shared;",
+            "/// 连接角标请求（面板线程写、泵线程读——同通知队列的跨线程约定）。",
+            "std::atomic<bool> g_badgeOn{false};",
+        ), 1),
+        (T(
+            "    for (auto& p : pending) deliverNotification(p.first, p.second);",
+            "}",
+        ), T(
+            "    for (auto& p : pending) deliverNotification(p.first, p.second);",
+            "}",
+            "",
+            "/// 连接角标：未连接给状态栏按钮加红点（attributedTitle 与图片并存），连接则清。",
+            "/// 主线程专用（AppKit 规矩）——只由 run() 泵每拍调用，绝不从面板线程直调。",
+            "void applyBadge() {",
+            "    static bool last = false;",
+            "    const bool on = g_badgeOn.load();",
+            "    if (on == last || !g_statusItem) return;",
+            "    last = on;",
+            "    NSStatusBarButton* btn = [g_statusItem button];",
+            "    if (btn == nil) return;",
+            "    if (on) {",
+            "        NSDictionary* attrs = @{NSForegroundColorAttributeName : [NSColor systemRedColor]};",
+            "        btn.attributedTitle =",
+            "            [[NSAttributedString alloc] initWithString:@\"●\" attributes:attrs];",
+            "    } else {",
+            "        btn.attributedTitle = [[NSAttributedString alloc] initWithString:@\"\"];",
+            "    }",
+            "}",
+        ), 1),
+        (T(
+            "                drainPendingNotifications();",
+        ), T(
+            "                drainPendingNotifications();",
+            "                applyBadge();",
+        ), 1),
+        (T(
+            "TrayIcon::TrayStatus TrayIcon::status() const {",
+        ), T(
+            "void TrayIcon::setBadge(bool disconnected) {",
+            "    // 只置原子量；视觉由 run() 泵每拍在主线程统一上色（同 notify 的队列模式）。",
+            "    g_badgeOn.store(disconnected);",
+            "}",
+            "",
+            "TrayIcon::TrayStatus TrayIcon::status() const {",
         ), 1),
     ]),
     ("pc/host/src/ui/web_panel.cpp", [
         (T(
-            "    // 扇形轻项：开面板（与托盘「打开面板」同源——同走浏览器页、同 URL）。",
-            "    // 重交互（文件浏览/日志/设置）不进球：按需 apxhost panel 浏览器页（规划 M1 规则）。",
-            "    if (id == \"open_panel\") {",
-            "        panel.openPanelInBrowser(apxpc::ui::panelUrl());",
-            "        return postResponse(p, id, okResp());",
-            "    }",
-            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
-            "    handleAct(p, id, name, payload);",
+            "        const auto s = b.session->snapshot();",
         ), T(
-            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
-            "    handleAct(p, id, name, payload);",
+            "        const auto s = b.session->snapshot();",
+            "        if (b.tray) b.tray->setBadge(s.phase != LinkPhase::Connected);  // M4 菜单栏连接角标",
+        ), 1),
+        (T(
+            "    } else {",
+            "        link[\"phase\"] = static_cast<int>(LinkPhase::Idle);",
+        ), T(
+            "    } else {",
+            "        if (b.tray) b.tray->setBadge(true);",
+            "        link[\"phase\"] = static_cast<int>(LinkPhase::Idle);",
         ), 1),
     ]),
 ]
