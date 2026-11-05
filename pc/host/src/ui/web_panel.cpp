@@ -35,6 +35,8 @@
 #endif
 
 #include "apxpc/ui/ball_win32.hpp"
+#include "../ball/registry.hpp"
+#include "../ball/ball_win32.hpp"
 #include "apxpc/ui/web_panel.hpp"
 #include "apxpc/ui/webview2_runtime.hpp"
 #include "apxpc/log.hpp"
@@ -1431,18 +1433,42 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         });
     }
 
-    // v223.29.11 桌面悬浮球：主窗 X 只是隐藏到托盘，点球即唤回面板（与托盘「打开面板」同语义）。
-    // 与面板窗同线程同消息循环同生命周期；创建失败只记日志，不影响面板。
-    apxpc::ui::FloatingBall ball;
-    if (!bundle.cfg || bundle.cfg->enableBall) {
-        ball.create([&panel] {
+    // M3 接线（2026-11-05 批 B）：v2 球接管——四项钩子装注册表，扇形同窗绘制（src/ball）。
+    // legacy 壳（apxpc/ui/ball_win32.hpp）自此退役待收编，不再创建，避免双球。
+    // 钩子留空=registry 规则灰显不装死按钮：toggle_speaker 待接媒体栈后点亮。
+    if (bundle.cfg && !bundle.cfg->enableBall) {
+        APX_LOGI("桌面悬浮球已在 config.json 关闭（enableBall=false）");
+    } else {
+        apxpc::ball::HostActions ha;
+        ha.open_panel = [&panel] {
             const HWND h = panel.hwnd;
             if (!h || !::IsWindow(h)) return;
-            ::ShowWindow(h, SW_SHOW);
+            ::ShowWindow(h, SW_RESTORE);
             ::SetForegroundWindow(h);
-        });
-    } else {
-        APX_LOGI("桌面悬浮球已在 config.json 关闭（enableBall=false）");
+        };
+        ha.send_clipboard = [&bundle]() -> bool {
+            if (!bundle.session || !bundle.session->connected()) return false;
+            std::string text;
+            if (::OpenClipboard(nullptr)) {
+                if (HANDLE h = ::GetClipboardData(CF_UNICODETEXT)) {
+                    if (const wchar_t* w = static_cast<const wchar_t*>(::GlobalLock(h))) {
+                        const int n = ::WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+                        if (n > 1) { text.assign(n - 1, 0); ::WideCharToMultiByte(CP_UTF8, 0, w, -1, &text[0], n, nullptr, nullptr); }
+                        ::GlobalUnlock(h);
+                    }
+                }
+                ::CloseClipboard();
+            }
+            return !text.empty() && bundle.session->sendClipboard(text);
+        };
+        ha.exit_app = [hwnd = panel.hwnd] {
+            if (Panel* pp = g_panel) pp->running.store(false);
+            if (::IsWindow(hwnd)) ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        };
+        ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };
+        ha.clipboard_pending = [] { return false; };
+        apxpc::ball::installDefaultActions(ha);
+        if (!apxpc::ball::createBall()) APX_LOGI("ball v2 创建失败（面板/托盘不受影响）");
     }
 
     // 消息循环
@@ -1459,6 +1485,7 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     }
     // 媒体建链线程：面板退出前 join（Panel 是栈对象，析构时若线程仍 joinable 会 terminate）
     // 互传接收端：先停再清 g_panel —— 接收线程的回调以 g_panel 为准，顺序反了会漏推事件
+    apxpc::ball::destroyBall();  // 面板退场前先收球（与 legacy 同生命周期语义）
     if (panel.bundle.localSend) panel.bundle.localSend->stop();
     // 发送线程持 Panel*（栈对象）：先 join 再出栈
     if (panel.sendThread.joinable()) panel.sendThread.join();
