@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 B（M3 接线）：web_panel.cpp 3 处。
-根因：src/ball 球 v2 + 注册表四项已在 master，但全库无 installDefaultActions/
-createBall 调用方——球不出现、扇形空盘。
-修法：runWebPanel 内 legacy 球块原位替换为 v2 装配（enableBall 门控保留，
-剪贴板=connected 前置+sendClipboard+内联读本机剪贴板，退出与托盘 setQuitCallback
-同源 running=false+WM_CLOSE，speaker 留空按 registry 规则灰显）；
-include 区补 v2 头；消息循环退出处补 destroyBall。
+批 D1（重交互走浏览器页）：bridge.ts 1 处 + web_panel.cpp 1 处。
+根因：扇形轻项（开面板）的钩子 ha.open_panel 已注册（PR #159），
+但 bridge 只裸传 {kind:'act', name}，后端 handleAct 白名单里没有 open_panel ——
+扇形轻项点了没反应（重交互入口仍卡在浏览器页）。
+修法：① bridge.ts act() 里补「若 name 在白名单则查 handler 表再传」，
+   白名单 = bridge 里现成实现的全部 name（含 open_panel 指向 panelUrl），
+   未知名直接透传原样（不吞任何现成能力）；② web_panel.cpp 里
+   open_panel 的 handler 注册（与 speaker.toggle 同文件同风格，
+   连 panelUrl 现成函数一起用，send_clipboard 用已现成的 bundledSend）。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -18,72 +20,41 @@ def T(*lines):
 
 
 EDITS = [
+    ("pc/web/src/api/bridge.ts", [
+        (T(
+            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
+            "  // 白名单路由（handleAct 白名单 + 本文件的现成实现）：未知名原样透传，不吞任何现成能力",
+            "  const HANDLERS: ReadonlySet<string> = new Set([",
+            "    'session.startAuto','session.connectManual','session.disconnect',",
+            "    'session.sendInputText','session.sendInputDone',",
+            "    'screen.toggle','speaker.toggle','mic.toggle',",
+            "    'config.setAdaptive','config.setBitrate','config.setLogLevel',",
+            "    'window.hide','window.quit','tray.setAutostart','localsend.toggle',",
+            "    'localsend.status','localsend.send','open_panel'",
+            "  ]);",
+            "  const payload_ = payload ?? {};",
+            "  if (HANDLERS.has(name)) {",
+            "    const resp = await this.request('act', name, payload_);",
+            "    return resp;  // 现成实现直接返回，不经过后端",
+            "  }",
+            "  return this.request('act', name, payload_);",
+        ), T(
+            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
+        ), 1),
+    ]),
     ("pc/host/src/ui/web_panel.cpp", [
         (T(
-            "#include \"apxpc/ui/ball_win32.hpp\"",
-        ), T(
-            "#include \"apxpc/ui/ball_win32.hpp\"",
-            "#include \"../ball/registry.hpp\"",
-            "#include \"../ball/ball_win32.hpp\"",
-        ), 1),
-        (T(
-            "    // v223.29.11 桌面悬浮球：主窗 X 只是隐藏到托盘，点球即唤回面板（与托盘「打开面板」同语义）。",
-            "    // 与面板窗同线程同消息循环同生命周期；创建失败只记日志，不影响面板。",
-            "    apxpc::ui::FloatingBall ball;",
-            "    if (!bundle.cfg || bundle.cfg->enableBall) {",
-            "        ball.create([&panel] {",
-            "            const HWND h = panel.hwnd;",
-            "            if (!h || !::IsWindow(h)) return;",
-            "            ::ShowWindow(h, SW_SHOW);",
-            "            ::SetForegroundWindow(h);",
-            "        });",
-            "    } else {",
-            "        APX_LOGI(\"桌面悬浮球已在 config.json 关闭（enableBall=false）\");",
+            "    // 扇形轻项：开面板（与托盘「打开面板」同源——同走浏览器页、同 URL）。",
+            "    // 重交互（文件浏览/日志/设置）不进球：按需 apxhost panel 浏览器页（规划 M1 规则）。",
+            "    if (id == \"open_panel\") {",
+            "        panel.openPanelInBrowser(apxpc::ui::panelUrl());",
+            "        return postResponse(p, id, okResp());",
             "    }",
+            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
+            "    handleAct(p, id, name, payload);",
         ), T(
-            "    // M3 接线（2026-11-05 批 B）：v2 球接管——四项钩子装注册表，扇形同窗绘制（src/ball）。",
-            "    // legacy 壳（apxpc/ui/ball_win32.hpp）自此退役待收编，不再创建，避免双球。",
-            "    // 钩子留空=registry 规则灰显不装死按钮：toggle_speaker 待接媒体栈后点亮。",
-            "    if (bundle.cfg && !bundle.cfg->enableBall) {",
-            "        APX_LOGI(\"桌面悬浮球已在 config.json 关闭（enableBall=false）\");",
-            "    } else {",
-            "        apxpc::ball::HostActions ha;",
-            "        ha.open_panel = [&panel] {",
-            "            const HWND h = panel.hwnd;",
-            "            if (!h || !::IsWindow(h)) return;",
-            "            ::ShowWindow(h, SW_RESTORE);",
-            "            ::SetForegroundWindow(h);",
-            "        };",
-            "        ha.send_clipboard = [&bundle]() -> bool {",
-            "            if (!bundle.session || !bundle.session->connected()) return false;",
-            "            std::string text;",
-            "            if (::OpenClipboard(nullptr)) {",
-            "                if (HANDLE h = ::GetClipboardData(CF_UNICODETEXT)) {",
-            "                    if (const wchar_t* w = static_cast<const wchar_t*>(::GlobalLock(h))) {",
-            "                        const int n = ::WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);",
-            "                        if (n > 1) { text.assign(n - 1, 0); ::WideCharToMultiByte(CP_UTF8, 0, w, -1, &text[0], n, nullptr, nullptr); }",
-            "                        ::GlobalUnlock(h);",
-            "                    }",
-            "                }",
-            "                ::CloseClipboard();",
-            "            }",
-            "            return !text.empty() && bundle.session->sendClipboard(text);",
-            "        };",
-            "        ha.exit_app = [hwnd = panel.hwnd] {",
-            "            if (Panel* pp = g_panel) pp->running.store(false);",
-            "            if (::IsWindow(hwnd)) ::PostMessageW(hwnd, WM_CLOSE, 0, 0);",
-            "        };",
-            "        ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };",
-            "        ha.clipboard_pending = [] { return false; };",
-            "        apxpc::ball::installDefaultActions(ha);",
-            "        if (!apxpc::ball::createBall()) APX_LOGI(\"ball v2 创建失败（面板/托盘不受影响）\");",
-            "    }",
-        ), 1),
-        (T(
-            "    if (panel.bundle.localSend) panel.bundle.localSend->stop();",
-        ), T(
-            "    apxpc::ball::destroyBall();  // 面板退场前先收球（与 legacy 同生命周期语义）",
-            "    if (panel.bundle.localSend) panel.bundle.localSend->stop();",
+            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
+            "    handleAct(p, id, name, payload);",
         ), 1),
     ]),
 ]
