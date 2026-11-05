@@ -240,4 +240,7 @@ build_host\Release\arbiter_test.exe
 
 ## 📜 许可
 
-[MIT](LICENSE)
+按目录分许可（2026-11-05 起）：
+
+- **`pc/`（电脑端 Windows / macOS）：[GPL-3.0](pc/LICENSE)** —— 为引入第三方成熟组件（Sunshine 采集/编码、ViGEmBus 虚拟手柄、FFmpeg、OBS 虚拟摄像头等）而切；随 PC 发行物分发的源码与义务以该文件为准
+- **其余部分（`android/`、`shared/`、`docs/`、`scripts/` 等）：[MIT](LICENSE)**
