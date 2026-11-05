@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 M4-b（mac 球四件套）：ball_win32.hpp / CMake / desktop_main 共 4 处。
-根因：球 v2 全在 #if _WIN32 内，mac 空 TU——球在 mac 从不出现（M4-b）。
-修法：① hpp #else 补 createBall/destroyBall 最小声明；② CMake if(APHERE APPLE)
-块照 tray_mac.mm 加 ball_mac.mm（ARC/AppKit 继承）；③ desktop_main include 区
-mac 专属引入 registry/ball 头；④ runWebPanelHttp 调用前装配（四钩子同源托盘）
-+ 退出处 destroyBall（与 Win 批 B 同生命周期语义）。新文件 ball_mac.mm 随本批同 commit。
+批 REL-1（发版门禁）：docs/CHANGELOG.md 1 处。
+根因：v223.29.10 段只写了 N-1 通知修复，但昨夜 P-1~P-4/单实例锁 + 今日
+批 B/D1/M4-a/M4-b/O-1 均已入 master 未发版——tag 打上去会漏写大段改动（门禁）。
+修法：在 N-1 小节末尾、v223.29.9 标题之前，补三个小节（P 系夜批 / 批 B+D1 / M4+O-1），
+逐条写清改了什么、为什么、真机回验状态（三雷如实标待真机）。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -17,69 +16,44 @@ def T(*lines):
 
 
 EDITS = [
-    ("pc/host/src/ball/ball_win32.hpp", [
+    ("docs/CHANGELOG.md", [
         (T(
-            "} // namespace ball",
-            "} // namespace apxpc",
+            " `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。",
             "",
-            "#endif // _WIN32",
+            "## v223.29.9（2026-11-05）",
         ), T(
-            "} // namespace ball",
-            "} // namespace apxpc",
+            " `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。",
             "",
-            "#else // !_WIN32 —— mac 球（ball_mac.mm）只需生命周期 API；渲染全在实现内",
+            "### PC 桌面悬浮球初装与稳定化（P-1~P-4 + 单实例锁，昨夜入库）",
             "",
-            "namespace apxpc {",
-            "namespace ball {",
+            "- 球接入 web 面板（点击唤回面板）、单实例互斥锁（双击/自启不再出双窗双托盘）、",
+            "  CMake 目标修正（球源入 apxpc_webpanel）、LoadCursorW/GetMonitorInfoW 字符集编译修正",
+            "  —— 四批 repo-edit 两阶段锚点补丁；Build #1138/#1170 绿。",
             "",
-            "bool createBall();",
-            "void destroyBall();",
+            "### PC 悬浮球真正跑起来（批 B 接线 + D1 重交互分流）",
             "",
-            "} // namespace ball",
-            "} // namespace apxpc",
+            "- 此前球代码在仓但全库无 installDefaultActions/createBall 调用方：能编译、跑起来没球、",
+            "  扇形空盘。批 B 在 runWebPanel 装配注册表四项钩子（开面板/发剪贴板/音箱/退出），",
+            "  发剪贴板=连接前置+空回 false 灰显，退出与托盘同源 running=false+WM_CLOSE 真退出，",
+            "  退出路径补 destroyBall（与 legacy 同生命周期）。PR #159，Build #1176 绿。",
+            "- D1：bridge.ts 动作白名单 + open_panel 直开 apxhost panel 浏览器页——重交互",
+            "  （文件浏览/日志/设置）不进球，扇形只放轻项。PR #160，Build #1180 绿。",
             "",
-            "#endif // _WIN32",
-        ), 1),
-    ]),
-    ("pc/host/CMakeLists.txt", [
-        (T(
-            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
-        ), T(
-            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
-            "  # mac 球 v2（M4-b）：AppKit 同窗渲染（球+扇形），registry/fx 复用共享层。",
-            "  # ball_win32.cpp 在 mac 为整文件 #if _WIN32 空 TU，无符号冲突；ARC/AppKit 选项继承本块。",
-            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/ball/ball_mac.mm\")",
-        ), 1),
-    ]),
-    ("pc/host/src/desktop_main.cpp", [
-        (T(
-            "#include \"apxpc/tray/tray_win32.hpp\"",
-        ), T(
-            "#include \"apxpc/tray/tray_win32.hpp\"",
-            "#if defined(__APPLE__)",
-            "#include \"ball/registry.hpp\"",
-            "#include \"ball/ball_win32.hpp\"",
-            "#endif",
-        ), 1),
-        (T(
-            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
-        ), T(
-            "#if defined(__APPLE__)",
-            "        {",
-            "            // M4-b mac 球装配（web_panel.cpp 批 B 的 mac 同款）：钩子与托盘同源，",
-            "            // 空钩子/回 false = registry 规则灰显（send_clipboard mac 二期先灰；speaker 待媒体栈）。",
-            "            apxpc::ball::HostActions ha;",
-            "            ha.open_panel = [] { openPanelInBrowser(apxpc::ui::panelUrl()); };",
-            "            ha.exit_app = [] { apxpc::ui::requestPanelQuit(); };",
-            "            ha.send_clipboard = [] { return false; };",
-            "            ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };",
-            "            ha.clipboard_pending = [] { return false; };",
-            "            apxpc::ball::installDefaultActions(ha);",
-            "            if (!apxpc::ball::createBall()) APX_LOGI(\"mac ball 创建失败（面板/托盘不受影响）\");",
-            "        }",
-            "#endif",
-            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
-            "        apxpc::ball::destroyBall();  // M4-b：面板收尾后收球（与 Win 批 B 同生命周期语义）",
+            "### macOS 悬浮球与菜单栏连接角标（M4 全套）",
+            "",
+            "- 新增 ball_mac.mm：AppKit 透明窗同窗渲染球+扇形（registry/fx 共享层驱动，16ms 主钟，",
+            "  拖拽/按压脉冲），hpp #else 最小声明、CMake if(APPLE) 源列表、desktop 装配与收尾四件套。",
+            "- 菜单栏连接角标：TrayIcon::setBadge 跨平台 API——mac 未连接亮红点（原子量入队+泵内",
+            "  主线程上色，AppKit 线程红线不破）；Windows 托盘角标为内联空桩，二期实现。",
+            "- 验证：分支 Build #1183 + macOS #559 双绿；**桌面球三雷（WebView2 焦点/托盘共存/",
+            "  全屏置顶）待真机回验**。PR #161。",
+            "",
+            "### 手机球旋转重算 + 动效（批 O-1，真机已验）",
+            "",
+            "- 悬浮球拖动后的旋转重算与动效（8 处锚点，随 repo-edit 入库）；Build #1187 绿，",
+            "  2026-11-05 真机验证通过。",
+            "",
+            "## v223.29.9（2026-11-05）",
         ), 1),
     ]),
 ]
