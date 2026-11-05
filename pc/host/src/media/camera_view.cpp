@@ -15,7 +15,9 @@
 //
 // ⚠️ 未真机实测：预览窗路径有 CI 编译验证但无真机；虚拟摄像头链路云端完全无法验。
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <windowsx.h>   // GET_X_LPARAM / GET_Y_LPARAM
 #include <objbase.h>
@@ -80,7 +82,7 @@ bool decodeJpeg(const uint8_t* data, size_t len, std::vector<uint8_t>& bgra,
     LARGE_INTEGER zero{};
     stm->Seek(zero, STREAM_SEEK_SET, nullptr);
 
-    Gdiplus::Bitmap src(stm, nullptr);
+    Gdiplus::Bitmap src(stm, FALSE);  // BOOL 形参：nullptr 不能隐转（MSVC C2665）
     const bool ok = src.GetLastStatus() == Gdiplus::Ok;
     stm->Release();
     if (!ok) return false;
@@ -359,7 +361,7 @@ struct CameraView::Impl {
             err = hrText("MFCreateVirtualCamera 失败", hr);
             return false;
         }
-        hr = cam->Start(); // 真正创建并注册到系统
+        hr = cam->Start(nullptr); // 真正创建并注册到系统（签名 Start(IMFAsyncCallback* 可空)）
         if (FAILED(hr)) {
             err = hrText("IMFVirtualCamera::Start 失败", hr);
             cam->Release();
