@@ -38,6 +38,7 @@ object ApxFrame {
     const val STREAM_CONTROL = 3    // 双向：控制面（鼠标/键盘/多媒体/心跳）
     const val STREAM_TELEMETRY = 4  // 预留
     const val STREAM_MIC = 5        // 上行：麦克风（手机录音，PCM s16le/48k/立体声）
+    const val STREAM_CAMERA = 6     // 上行：摄像头（手机 → PC，JPEG 单帧不分片，M7-b）
 
     /** flags 位（与 frame.h 的 kFlag* 对应） */
     const val FLAG_KEY_FRAME = 1 shl 0
@@ -66,7 +67,7 @@ object ApxFrame {
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {
             var c = i
-            repeat(8) { c = if (c and 1 != 0) (c ushr 1) xor 0xEDB88320.toInt() else c ushr 1 }
+            repeat(8) { c = if (c and 1 != 0) (c ushr 8) xor 0xEDB88320.toInt() else c ushr 8 }
             t[i] = c
         }
     }
@@ -135,7 +136,7 @@ object ApxFrame {
     /**
      * 组 INPUT_TEXT 帧（B→A）：实时输入文本。
      * @param flags INPUT_FLAG_* 位组合
-     * @param text 输入的文本（增量/完整）
+     * @param text  输入的文本（增量/完整）
      */
     fun packInputText(flags: Int, text: String): ByteArray {
         val textBytes = text.toByteArray(Charsets.UTF_8)
@@ -159,8 +160,10 @@ object ApxFrame {
     /** 校验帧头 magic；不是 'APX1' 则返回 false（用于收流对齐） */
     fun isMagic(buf: ByteArray, off: Int, len: Int): Boolean =
         len - off >= 4 &&
-            buf[off] == 'A'.code.toByte() && buf[off + 1] == 'P'.code.toByte() &&
-            buf[off + 2] == 'X'.code.toByte() && buf[off + 3] == '1'.code.toByte()
+            buf[off] == 'A'.code.toByte() &&
+            buf[off + 1] == 'P'.code.toByte() &&
+            buf[off + 2] == 'X'.code.toByte() &&
+            buf[off + 3] == '1'.code.toByte()
 
     /** 读帧头里的 payloadLen（小端 u32） */
     fun payloadLenAt(buf: ByteArray, off: Int): Int = getU32(buf, off + 8)

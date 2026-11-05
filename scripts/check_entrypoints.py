@@ -49,6 +49,11 @@ MANIFESTS = [
 # ① Activity 可达性豁免：类名 -> 理由
 ACTIVITY_EXEMPT = {
     "ControlShortcutActivity": "有 intent-filter（快捷方式 / 磁贴），系统可直接拉起",
+    "CameraPushActivity":
+        "M7-b 摄像头推流的中间批（2026-11-05，PR #162）：应用内入口按计划"
+        "在 M7-c 由 PC 面板下发拉起（docs/spikes/m7-media-inbound-spike.md §3），"
+        "本批先经 adb 验证链路（am start -n com.allperiph/.camera.CameraPushActivity）；"
+        "M7-c 接入口后删除本豁免",
 }
 
 # ② 必须有人调用的能力 API：说明 -> 限定调用名（`类型.方法`）
@@ -202,7 +207,7 @@ def main():
     if problems:
         print("能力入口关卡 FAIL：")
         for p in problems:
-            print("  - " + p)
+            print(f"  - {p}")
         print()
         print("已登记「公开认可暂无入口」：")
         for k, v in ACCEPTED_NO_UI.items():
