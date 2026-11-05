@@ -10,6 +10,7 @@
 #import <AppKit/AppKit.h>
 
 #include <cmath>
+#include <algorithm>  // std::min/max（tick 内；防传递包含变化踩空）
 
 namespace apxpc {
 namespace ball {
@@ -83,6 +84,13 @@ void stopTimer() {
 }
 
 }  // namespace
+
+}  // namespace ball
+}  // namespace apxpc
+
+// clang：@interface/@implementation 只允许出现在全局作用域（M4-b 从未编译，补挂后首编暴露）。
+// 实现正文的 C++ 引用（g/hitItem/k*/fx::/registry…）全在 apxpc::ball，经此 using 全局可见——正文零改动。
+using namespace apxpc::ball;
 
 @interface BallView : NSView
 // 热键入口要用（M4-c(b)）：回调可能在非主线程，回主线程再翻转。
@@ -229,6 +237,9 @@ void stopTimer() {
 - (void)mouseExited:(NSEvent*)e { (void)e; }
 
 @end
+
+namespace apxpc {
+namespace ball {
 
 bool createBall() {
     if (g.win) return true;  // 单实例（与 Win g_ballWnd 同约定）
