@@ -1,18 +1,30 @@
 name: PC Diagnose
 
-# 旁路诊断：build.yml 的 pc 作业失败时只 Write-Host 打日志（logs API 对非 admin 403），
-# 错误永远拿不到。本工作流同配方重跑一次，失败时：
-#   · ::error annotation —— 公开仓库匿名可读（绕开 403）
-#   · job summary        —— 公开可读，带 toolchain 快照
-#   · artifact           —— CMakeError.log / cpp_build.log 全文
-# 三通道全部 if: always()（v2 教训：挂 if: failure() 时前面 exit 1，脚本根本没跑）。
+# 目的（2026-11-05）：pc 作业在 master/PR 上持续红，但两条信息通道都断了 ——
+#   ① Actions 日志 API 对非 admin 会话 403（build.yml 注释里自己也写了这条）；
+#   ② pc 作业没有 Android 作业那种「失败把错误打进 ::error annotation」的步骤。
+# 本工作流是**旁路诊断**：不动 build.yml，用与 pc 作业完全相同的配方（同生成器、
+# 同参数、同目标）单独跑一次，失败时把错误行打进 annotation（公开仓库匿名可读）
+# + job summary（公开可读），完整日志另传 artifact。
+# 双触发：push 到本分支即跑（未合入默认分支时 dispatch API 不认，push 事件直接
+# 执行分支上的工作流文件）；合入 master 后 workflow_dispatch 可用，ref 选诊断目标。
+# 踩坑记录（2026-11-05）：
+#   · v1 脚本 pwsh 解析崩溃（双引号里反引号是转义符，"```" 在解析期崩）——已修：围栏改单引号
+#   · v2 只读 cpp_build.log（MSBuild 输出）——**漏了 CMake 报错的真正出处**：
+#     build.yml Build 步注释写明「CMake 报错原文在 CMakeFiles/CMakeError.log」，
+#     所以 v2 必须同时读 CMakeError.log + cpp_build.log，否则 link error 永远只能看到
+#     「Process completed with exit code 1」（line 171 的裸退出码）。
+#   · v3 **artifact 发布条件 bug**（run 1159 失败时 artifact 没上传）：
+#     `if: failure()` 只覆盖**该 step**，前面的 Build 步 exit 1 时脚本根本没跑，
+#     annotation 和 artifact 都出不来。所以 `if: always()` —— 无论死活都发，
+#     失败时 annotation 兜底发错误行（error 标记公开可读），成功时也传一份无害。
 on:
   push:
-    branches: ['feat/**']
+    branches: [feat/ci-pc-annotations]
   workflow_dispatch:
     inputs:
       ref:
-        description: "诊断目标 ref（默认 = 触发提交本身）"
+        description: "诊断目标 ref/sha（push 触发时默认 = 本分支，即 master 内容 + 本文件）"
         required: false
         default: "master"
 
@@ -28,7 +40,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ inputs.ref }}
           submodules: recursive
 
       - name: Setup Node.js 20
@@ -43,17 +55,20 @@ jobs:
         with:
           arch: x64
 
+      # 镜像变量先落档：win25-vs2026/20261103 昨天发布、今晨全红 ——
+      # 把 ImageOS/ImageVersion/VS/MSVC 工具集版本钉进 summary，定位环境变化。
       - name: Toolchain snapshot
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationVersion
-          @(
+          $lines = @(
             "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion",
             "cmake=$(cmake --version | Select-Object -First 1)",
             "vswhere=$vs",
             "VCToolsVersion=$env:VCToolsVersion",
             "node=$(node --version)"
-          ) | Tee-Object -FilePath toolchain.txt
+          )
+          $lines | Tee-Object -FilePath toolchain.txt
 
       - name: Install web dependencies
         shell: pwsh
@@ -64,15 +79,17 @@ jobs:
         shell: pwsh
         run: |
           cmake -S pc/host -B build_host -G "Visual Studio 18 2026" -A x64 `
-            -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF `
-            -DAPXPC_BUILD_UI=ON -DAPXPC_BUILD_UI_WEBVIEW2=ON
+            -DAPXPC_BUILD_SDK=OFF `
+            -DAPXPC_BUILD_EXAMPLES=OFF `
+            -DAPXPC_BUILD_UI=ON `
+            -DAPXPC_BUILD_UI_WEBVIEW2=ON
           if ($LASTEXITCODE -ne 0) {
             "CONFIGURE_FAILED" | Out-File -FilePath diag_phase.txt
             exit $LASTEXITCODE
           }
           "configure ok" | Out-File -FilePath diag_phase.txt
 
-      - name: Build
+      - name: Build (apxhost + apxdesktop + apxsetup)
         shell: pwsh
         run: |
           cmake --build build_host --config Release --target apxhost apxdesktop apxsetup 2>&1 | `
@@ -88,48 +105,66 @@ jobs:
         shell: pwsh
         run: |
           $phase = "unknown"
-          if (Test-Path diag_phase.txt) { $phase = ((Get-Content diag_phase.txt | Where-Object { $_ }) -join " | ") }
+          if (Test-Path diag_phase.txt) {
+            $phase = ((Get-Content diag_phase.txt | Where-Object { $_ }) -join " | ")
+          }
+          # ★ CMakeError.log：CMake 报错的真正出处（build.yml Build 步注释白纸黑字写明）
+          # ★ cpp_build.log：MSBuild 输出（link 失败时可能只有 tail，CMake 层更靠得住）
           $cmakeErr = @()
           if (Test-Path "build_host/CMakeFiles/CMakeError.log") {
             $cmakeErr = @(Get-Content "build_host/CMakeFiles/CMakeError.log" -Tail 60)
           }
           $buildErr = @()
-          if (Test-Path cpp_build.log) { $buildErr = @(Get-Content cpp_build.log -Tail 40) }
-          $hits = @()
+          if (Test-Path cpp_build.log) {
+            $buildErr = @(Get-Content cpp_build.log -Tail 30)
+          }
+          # 两个源去重合并（CMakeError.log 的 link 错误通常比 MSBuild tail 更完整）
+          $allErr = @() | Where-Object { $null -ne $_ }
           foreach ($s in @($cmakeErr, $buildErr)) {
             foreach ($l in $s) {
-              if ($l -match "error [A-Z]+\d+" -or $l -match "fatal error" -or $l -match "error C\d+" -or $l -match "LNK\d+" -or $l -match "MSB\d+" -or $l -match "Exception" -or $l -match "Assertion") {
-                $hits += $l.Trim()
+              if ($l -match "error [A-Z]+\d+" -or $l -match "fatal error" -or $l -match "LNK\d+" -or $l -match "MSB\d+" -or $l -match "ninja error" -or $l -match "assertion" -or $l -match "Exception") {
+                $allErr += $l
               }
             }
           }
-          $hits = $hits | Select-Object -Unique
-          if ($hits.Count -eq 0) { $hits = @("[no pattern] cpp_build.log 尾部：") + ($buildErr | Select-Object -First 15) }
+          if ($allErr.Count -eq 0) {
+            $allErr = @("无匹配错误行 —— 请检查 CMakeError.log / cpp_build.log 全文（artifact 里）")
+          }
           $n = 0
-          foreach ($l in $hits) {
-            $esc = ("$l") -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+          foreach ($l in $allErr) {
+            $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
             if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
-            if ($esc.Trim()) {
+            Write-Output "::error title=PC diag ${phase}::${esc}"
+            $n++
+            if ($n -ge 10) { break }
+          }
+          # 错误行没匹配到时（裸 exit 1 场景）：把两个 log 的尾部原样当错误发
+          if ($n -eq 0) {
+            Write-Output "::error title=PC diag ${phase} (no pattern match)::CMakeError.log tail 60 (exit 1 裸报)"
+            $n = 1
+            foreach ($l in $cmakeErr) {
+              $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+              if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
               Write-Output "::error title=PC diag ${phase}::${esc}"
               $n++
               if ($n -ge 10) { break }
             }
           }
           $sum = @()
-          $sum += "### PC 构建诊断 · phase = $phase · commit $($env:GITHUB_SHA)"
+          $sum += "### PC 构建诊断 · phase = $phase"
           $sum += ""
           $sum += '```'
           $sum += (Get-Content toolchain.txt -ErrorAction SilentlyContinue)
           $sum += '```'
-          $sum += "#### CMakeError.log 尾 60 行"
+          $sum += "#### CMakeError.log 尾 60 行（CMake 报错原文）"
           $sum += ""
           $sum += '```'
-          foreach ($l in $cmakeErr) { $sum += $l.Trim() }
+          foreach ($l in $cmakeErr | Select-Object -First 60) { $sum += $l.Trim() }
           $sum += '```'
-          $sum += "#### cpp_build.log 尾 40 行"
+          $sum += "#### cpp_build.log 尾 30 行（MSBuild 输出）"
           $sum += ""
           $sum += '```'
-          foreach ($l in $buildErr) { $sum += $l.Trim() }
+          foreach ($l in $buildErr | Select-Object -First 30) { $sum += $l.Trim() }
           $sum += '```'
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
 
