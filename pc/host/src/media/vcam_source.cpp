@@ -106,9 +106,11 @@ protected:
         if (!queue_) return MFCreateEventQueue(&queue_);
         return S_OK;
     }
-    ~EventGen() {
+    void shutdownQueue() {
+        std::lock_guard<std::mutex> lk(qm_);
         if (queue_) { queue_->Shutdown(); queue_->Release(); queue_ = nullptr; }
     }
+    ~EventGen() { shutdownQueue(); }
     HRESULT queueEvent(REFGUID ext, REFGUID sub, HRESULT st, const PROPVARIANT* pv) {
         std::lock_guard<std::mutex> lk(qm_);
         if (!queue_) return MF_E_NOT_INITIALIZED;
@@ -248,7 +250,7 @@ public:
         }
 
         static thread_local uint8_t buf[apxpc::media::vcam::kNv12Size];
-        if (!shm.readLatest(buf)) {
+        if (!shm.open() || !shm.readLatest(buf)) {
             // 黑帧：Y=16（limited range 黑）、UV=128（中性色差）——比纯 0 更标准
             const size_t y = static_cast<size_t>(apxpc::media::vcam::kWidth) *
                              apxpc::media::vcam::kHeight;
@@ -331,4 +333,241 @@ private:
     uint64_t frameIdx_ = 0;
 };
 
+// ------------------------------------------------------------------- 媒体源
+class MediaSource : public IMFMediaSource, public EventGen {
+public:
+    MediaSource() {
+        InterlockedIncrement(&g_dllRef);
+        ensureMfStartup();
+        // 单流描述：NV12 1280x720@30（固定格式，producer 负责把手机画面缩进来）
+        IMFMediaType* type = nullptr;
+        if (SUCCEEDED(MFCreateMediaType(&type)) && type) {
+            type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
+            type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
+            type->SetUINT32(MF_MT_FRAME_SIZE,
+                            (apxpc::media::vcam::kWidth << 16) | apxpc::media::vcam::kHeight);
+            type->SetUINT32(MF_MT_DEFAULT_STRIDE, apxpc::media::vcam::kStride);
+            type->SetRATIO(MF_MT_FRAME_RATE, 30, 1);
+            type->SetRATIO(MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+            type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+            MFCreateStreamDescriptor(0 /*stream id*/, 1 /*count*/, &type, &sd_);
+            type->Release();
+        }
+        if (sd_) {
+            MFCreatePresentationDescriptor(1, &sd_, &pd_);
+            if (pd_) pd_->SelectStream(0);
+        }
+        if (pd_ && sd_) {
+            pd_->AddRef();
+            sd_->AddRef(); // MediaStream 持有自己的一份
+            stream_ = new MediaStream(this, pd_, sd_);
+        }
+        if (SUCCEEDED(ensureQueue())) {
+            stopFlag_ = false;
+            pushThread_ = std::thread([this] { pushLoop(); });
+        }
+    }
+
+    // IMFUnknown
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IMFMediaSource ||
+            riid == IID_IMFMediaEventGenerator) {
+            *ppv = static_cast<IMFMediaSource*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref_); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        if (InterlockedDecrement(&ref_) == 0) { delete this; return 0; }
+        return static_cast<ULONG>(ref_);
+    }
+
+    // IMFMediaSource
+    HRESULT STDMETHODCALLTYPE GetCharacteristics(DWORD* pdwCharacteristics) override {
+        if (!pdwCharacteristics) return E_POINTER;
+        *pdwCharacteristics = MEDIASOURCE_IS_LIVE; // 不可 seek（未声明 CAN_SEEK）
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE CreatePresentationDescriptor(
+        IMFPresentationDescriptor** ppPresentationDescriptor) override {
+        if (!ppPresentationDescriptor) return E_POINTER;
+        if (!pd_) return MF_E_NOT_INITIALIZED;
+        *ppPresentationDescriptor = pd_;
+        pd_->AddRef();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Start(IMFPresentationDescriptor* pPresentationDescriptor,
+                                    const GUID* pguidTimeFormat,
+                                    const PROPVARIANT* pvarStartPosition) override {
+        (void)pPresentationDescriptor; // 单流恒选中；宿主可往 PD 里塞私有属性（不检查）
+        if (state_ == kShutdown) return MF_E_SHUTDOWN;
+        const GUID fmt = pguidTimeFormat ? *pguidTimeFormat : GUID_NULL;
+        if (fmt != GUID_NULL) return MF_E_UNSUPPORTED_TIME_FORMAT;
+        // live 源不 seek：非 VT_EMPTY 的起始位直接拒（未声明 CAN_SEEK，合法返回）
+        if (pvarStartPosition && pvarStartPosition->vt != VT_EMPTY)
+            return MF_E_INVALIDREQUEST;
+        if (!stream_) return MF_E_NOT_INITIALIZED;
+        HRESULT hr = ensureQueue();
+        if (FAILED(hr)) return hr;
+        hr = stream_->startSignals();
+        if (FAILED(hr)) return hr;
+        const bool firstStart = firstStart_;
+        if (firstStart) {
+            firstStart_ = false;
+            PROPVARIANT unk = emptyVar();
+            unk.vt = VT_UNKNOWN;
+            unk.punkVal = stream_;
+            stream_->AddRef();
+            queueEvent(MENewStream, GUID_NULL, S_OK, &unk); // 首次：事件值 = IMFMediaStream*
+            PropVariantClear(&unk);
+        }
+        state_ = kStarted;
+        PROPVARIANT e = emptyVar();
+        queueEvent(MESourceStarted, GUID_NULL, S_OK, &e);
+        stream_->QueueEvent(MEStreamStarted, GUID_NULL, S_OK, &e);
+        stream_->wake();
+        Dbg(firstStart ? "source started (first)" : "source resumed");
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Stop(IMFPresentationDescriptor* pPresentationDescriptor) override {
+        (void)pPresentationDescriptor;
+        if (state_ == kShutdown) return MF_E_SHUTDOWN;
+        state_ = kStopped;
+        if (stream_) {
+            stream_->stopSignals();
+            PROPVARIANT e = emptyVar();
+            stream_->QueueEvent(MEStreamStopped, GUID_NULL, S_OK, &e);
+            queueEvent(MESourceStopped, GUID_NULL, S_OK, &e);
+        }
+        Dbg("source stopped");
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Pause() override {
+        if (state_ == kShutdown) return MF_E_SHUTDOWN;
+        if (state_ == kStopped) return MF_E_INVALIDREQUEST;
+        state_ = kPaused;
+        if (stream_) {
+            stream_->pausedSignals();
+            PROPVARIANT e = emptyVar();
+            stream_->QueueEvent(MEStreamPaused, GUID_NULL, S_OK, &e);
+            queueEvent(MESourcePaused, GUID_NULL, S_OK, &e);
+        }
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Shutdown() override {
+        if (state_ == kShutdown) return S_OK;
+        state_ = kShutdown;
+        stopFlag_ = true;
+        if (stream_) stream_->wake();
+        if (pushThread_.joinable()) pushThread_.join(); // 先停线程，再拆对象
+        if (stream_) {
+            stream_->shutdownSignals();
+            stream_->shutdownQueue(); // Shutdown 后不再发事件
+            stream_->Release();
+            stream_ = nullptr;
+        }
+        shutdownQueue();
+        if (pd_) { pd_->Release(); pd_ = nullptr; }
+        if (sd_) { sd_->Release(); sd_ = nullptr; }
+        Dbg("source shutdown");
+        return S_OK;
+    }
+
+private:
+    ~MediaSource() {
+        Shutdown();
+        InterlockedDecrement(&g_dllRef);
+    }
+    // 常驻推线程：只有 started 状态且有 RequestSample 在等才交付
+    void pushLoop() {
+        CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        ShmReader shm;
+        while (!stopFlag_) {
+            if (state_ != kStarted || !stream_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
+            }
+            stream_->waitForRequest(60);
+            if (state_ == kStarted) stream_->deliverOne(shm);
+        }
+        CoUninitialize();
+    }
+
+    enum State { kStopped, kStarted, kPaused, kShutdown };
+    std::atomic<long> ref_{1};
+    State state_ = kStopped;
+    bool firstStart_ = true; // 首次 Start 才发 MENewStream
+    IMFPresentationDescriptor* pd_ = nullptr;
+    IMFStreamDescriptor* sd_ = nullptr;
+    MediaStream* stream_ = nullptr;
+    std::atomic<bool> stopFlag_{true};
+    std::thread pushThread_;
+};
+
+// ------------------------------------------------------------------ COM 类工厂
+class ClassFactory : public IClassFactory {
+public:
+    ClassFactory() { InterlockedIncrement(&g_dllRef); }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IClassFactory) {
+            *ppv = static_cast<IClassFactory*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref_); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        if (InterlockedDecrement(&ref_) == 0) { delete this; return 0; }
+        return static_cast<ULONG>(ref_);
+    }
+    HRESULT STDMETHODCALLTYPE CreateInstance(IUnknown* pUnkOuter, REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        *ppv = nullptr;
+        if (pUnkOuter) return CLASS_E_NOAGGREGATION; // 聚合不支持（本源无自由线程承诺）
+        MediaSource* src = new MediaSource();
+        const HRESULT hr = src->QueryInterface(riid, ppv);
+        src->Release();
+        return hr;
+    }
+    HRESULT STDMETHODCALLTYPE LockServer(BOOL fLock) override {
+        if (fLock) InterlockedIncrement(&g_dllRef);
+        else InterlockedDecrement(&g_dllRef);
+        return S_OK;
+    }
+private:
+    ~ClassFactory() { InterlockedDecrement(&g_dllRef); }
+    std::atomic<long> ref_{1};
+};
+
 } // namespace
+
+// ------------------------------------------------------------------ DLL 导出
+extern "C" __declspec(dllexport) HRESULT STDMETHODCALLTYPE DllGetClassObject(
+    REFCLSID rclsid, REFIID riid, LPVOID* ppv) {
+    if (!ppv) return E_POINTER;
+    *ppv = nullptr;
+    if (!IsEqualCLSID(rclsid, kClsidApxVcamSource)) return CLASS_E_CLASSNOTAVAILABLE;
+    ClassFactory* f = new ClassFactory();
+    const HRESULT hr = f->QueryInterface(riid, ppv);
+    f->Release();
+    return hr;
+}
+
+extern "C" __declspec(dllexport) HRESULT STDMETHODCALLTYPE DllCanUnloadNow() {
+    return g_dllRef == 0 ? S_OK : S_FALSE;
+}
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(hModule);
+        Dbg("loaded");
+    }
+    return TRUE;
+}
