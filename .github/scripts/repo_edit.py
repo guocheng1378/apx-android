@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 REL-1（发版门禁）：docs/CHANGELOG.md 1 处。
-根因：v223.29.10 段只写了 N-1 通知修复，但昨夜 P-1~P-4/单实例锁 + 今日
-批 B/D1/M4-a/M4-b/O-1 均已入 master 未发版——tag 打上去会漏写大段改动（门禁）。
-修法：在 N-1 小节末尾、v223.29.9 标题之前，补三个小节（P 系夜批 / 批 B+D1 / M4+O-1），
-逐条写清改了什么、为什么、真机回验状态（三雷如实标待真机）。
+批 M4-c(a)（Windows 托盘连接角标真现）：tray_win32.hpp 1 处 + tray_win32.cpp 4 处。
+根因：M4-a 的 setBadge 在 _WIN32 是内联空桩——Windows 托盘图标永远无连接反馈。
+修法：hpp 空桩改统一声明（mac 定义在 tray_mac.mm 不变）；cpp 内新增
+setBadge 真现：底图 g_baseIcon + 右下角红点（DIB 画制，32bpp 全不透明像素
+避开预乘 alpha 坑，遮罩白填充保证不透）→ CreateIconIndirect → NIM_MODIFY；
+create 存底图、quit 销毁合成件。Shell_NotifyIcon 线程安全（文件注释原话），
+web_panel 400ms tick 直调无需泵。状态短路：未变化不合成不 NIM。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -16,44 +18,122 @@ def T(*lines):
 
 
 EDITS = [
-    ("docs/CHANGELOG.md", [
+    ("pc/host/include/apxpc/tray/tray_win32.hpp", [
         (T(
-            " `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。",
-            "",
-            "## v223.29.9（2026-11-05）",
+            "    /// 连接状态角标：true=未连接（菜单栏图标亮红点），false=已连接（熄）。",
+            "    /// mac 实现在 tray_mac.mm（泵内主线程上色）；Windows 托盘角标二期实现，",
+            "    /// 此处内联空实现保证共享代码在 _WIN32 上不缺符号。",
+            "#if defined(_WIN32)",
+            "    void setBadge(bool) {}",
+            "#else",
+            "    void setBadge(bool disconnected);",
+            "#endif",
         ), T(
-            " `ACTION_STOP` 仍由这三处的派发链路使用，只是不再挂在通知点击上。",
+            "    /// 连接状态角标：true=未连接（图标亮红点），false=已连接（熄）。",
+            "    /// mac 实现在 tray_mac.mm（泵内主线程上色）；Windows 实现在 tray_win32.cpp",
+            "    ///（合成红点 HICON + NIM_MODIFY，Shell_NotifyIcon 线程安全可任意线程直调）。",
+            "    void setBadge(bool disconnected);",
+        ), 1),
+    ]),
+    ("pc/host/src/tray/tray_win32.cpp", [
+        (T(
+            "const UINT WM_TRAY = WM_APP + 1;",
+        ), T(
+            "const UINT WM_TRAY = WM_APP + 1;",
+            "// 连接角标状态（M4-c）：底图 + 合成缓存 + 当前亮灭。setBadge 任意线程可调。",
+            "static HICON g_baseIcon  = nullptr;  // create() 里存（系统共享图标不销毁）",
+            "static HICON g_badgeIcon = nullptr;  // 合成件，自己造自己毁",
+            "static bool  g_badged    = false;",
+        ), 1),
+        (T(
+            "    nid.hIcon = icon ? icon : LoadIcon(nullptr, IDI_APPLICATION);",
+        ), T(
+            "    nid.hIcon = icon ? icon : LoadIcon(nullptr, IDI_APPLICATION);",
+            "    g_baseIcon = nid.hIcon;  // 角标合成底图",
+        ), 1),
+        (T(
+            "// Windows：托盘线程在 create() 内自跑消息循环，这里无事可做。",
+            "// 接口为跨平台统一而设（mac 上 run() 是主线程 AppKit 事件泵，见 tray_mac.mm）。",
+            "bool TrayIcon::run(const std::function<bool()>&) { return false; }",
+        ), T(
+            "// 连接角标（M4-c）：底图右下角合成红点 → NIM_MODIFY 换图标。Shell_NotifyIcon",
+            "// 线程安全（见 notify 注释），web_panel 400ms tick 直调；未变化短路不合成不 NIM。",
+            "// 合成取全不透明像素（DIB 画制 + 白填充遮罩）——避开 32bpp 预乘 alpha 的坑。",
+            "void TrayIcon::setBadge(bool disconnected) {",
+            "    if (!window_ || !running_ || !g_baseIcon) return;",
+            "    if (disconnected == g_badged) return;",
+            "    g_badged = disconnected;",
+            "    HICON shown = g_baseIcon;",
+            "    if (disconnected) {",
+            "        if (!g_badgeIcon) {",
+            "            ICONINFO ii{};",
+            "            if (GetIconInfo(g_baseIcon, &ii)) {",
+            "                BITMAP bm{};",
+            "                GetObject(ii.hbmColor ? ii.hbmColor : ii.hbmMask, sizeof bm, &bm);",
+            "                const int w = bm.bmWidth > 0 ? bm.bmWidth : GetSystemMetrics(SM_CXSMICON);",
+            "                const int h = bm.bmHeight > 0 ? bm.bmHeight : GetSystemMetrics(SM_CYSMICON);",
+            "                HDC scr = GetDC(nullptr);",
+            "                HDC mem = CreateCompatibleDC(scr);",
+            "                BITMAPINFO bi{};",
+            "                bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);",
+            "                bi.bmiHeader.biWidth = w;",
+            "                bi.bmiHeader.biHeight = -h;  // 自上而下",
+            "                bi.bmiHeader.biPlanes = 1;",
+            "                bi.bmiHeader.biBitCount = 32;",
+            "                void* bits = nullptr;",
+            "                HBITMAP col = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);",
+            "                HBITMAP mask = nullptr;",
+            "                if (col && bits) {",
+            "                    HGDIOBJ old = SelectObject(mem, col);",
+            "                    PatBlt(mem, 0, 0, w, h, BLACKNESS);        // alpha=0 打底",
+            "                    DrawIconEx(mem, 0, 0, g_baseIcon, w, h, 0, nullptr, DI_NORMAL);",
+            "                    const int d = w / 3 > 4 ? w / 3 : 4;",
+            "                    HBRUSH red = CreateSolidBrush(RGB(230, 50, 45));",
+            "                    HGDIOBJ ob = SelectObject(mem, red);",
+            "                    HGDIOBJ op = SelectObject(mem, GetStockObject(NULL_PEN));",
+            "                    Ellipse(mem, w - d - 1, h - d - 1, w - 1, h - 1);",
+            "                    SelectObject(mem, ob);",
+            "                    SelectObject(mem, op);",
+            "                    DeleteObject(red);",
+            "                    mask = CreateBitmap(w, h, 1, 1, nullptr);",
+            "                    SelectObject(mem, mask);",
+            "                    PatBlt(mem, 0, 0, w, h, WHITENESS);",
+            "                    SelectObject(mem, old);",
+            "                    ICONINFO out{};",
+            "                    out.fIcon = TRUE;",
+            "                    out.hbmMask = mask;",
+            "                    out.hbmColor = col;",
+            "                    g_badgeIcon = CreateIconIndirect(&out);",
+            "                    DeleteObject(col);",
+            "                    if (mask) DeleteObject(mask);",
+            "                }",
+            "                DeleteDC(mem);",
+            "                ReleaseDC(nullptr, scr);",
+            "                DeleteObject(ii.hbmColor);",
+            "                DeleteObject(ii.hbmMask);",
+            "            }",
+            "        }",
+            "        if (g_badgeIcon) shown = g_badgeIcon;",
+            "    }",
+            "    NOTIFYICONDATA nid{};",
+            "    nid.cbSize = sizeof nid;",
+            "    nid.hWnd = static_cast<HWND>(window_);",
+            "    nid.uID = 1;",
+            "    nid.uFlags = NIF_ICON;",
+            "    nid.hIcon = shown;",
+            "    Shell_NotifyIcon(NIM_MODIFY, &nid);",
+            "}",
             "",
-            "### PC 桌面悬浮球初装与稳定化（P-1~P-4 + 单实例锁，昨夜入库）",
-            "",
-            "- 球接入 web 面板（点击唤回面板）、单实例互斥锁（双击/自启不再出双窗双托盘）、",
-            "  CMake 目标修正（球源入 apxpc_webpanel）、LoadCursorW/GetMonitorInfoW 字符集编译修正",
-            "  —— 四批 repo-edit 两阶段锚点补丁；Build #1138/#1170 绿。",
-            "",
-            "### PC 悬浮球真正跑起来（批 B 接线 + D1 重交互分流）",
-            "",
-            "- 此前球代码在仓但全库无 installDefaultActions/createBall 调用方：能编译、跑起来没球、",
-            "  扇形空盘。批 B 在 runWebPanel 装配注册表四项钩子（开面板/发剪贴板/音箱/退出），",
-            "  发剪贴板=连接前置+空回 false 灰显，退出与托盘同源 running=false+WM_CLOSE 真退出，",
-            "  退出路径补 destroyBall（与 legacy 同生命周期）。PR #159，Build #1176 绿。",
-            "- D1：bridge.ts 动作白名单 + open_panel 直开 apxhost panel 浏览器页——重交互",
-            "  （文件浏览/日志/设置）不进球，扇形只放轻项。PR #160，Build #1180 绿。",
-            "",
-            "### macOS 悬浮球与菜单栏连接角标（M4 全套）",
-            "",
-            "- 新增 ball_mac.mm：AppKit 透明窗同窗渲染球+扇形（registry/fx 共享层驱动，16ms 主钟，",
-            "  拖拽/按压脉冲），hpp #else 最小声明、CMake if(APPLE) 源列表、desktop 装配与收尾四件套。",
-            "- 菜单栏连接角标：TrayIcon::setBadge 跨平台 API——mac 未连接亮红点（原子量入队+泵内",
-            "  主线程上色，AppKit 线程红线不破）；Windows 托盘角标为内联空桩，二期实现。",
-            "- 验证：分支 Build #1183 + macOS #559 双绿；**桌面球三雷（WebView2 焦点/托盘共存/",
-            "  全屏置顶）待真机回验**。PR #161。",
-            "",
-            "### 手机球旋转重算 + 动效（批 O-1，真机已验）",
-            "",
-            "- 悬浮球拖动后的旋转重算与动效（8 处锚点，随 repo-edit 入库）；Build #1187 绿，",
-            "  2026-11-05 真机验证通过。",
-            "",
-            "## v223.29.9（2026-11-05）",
+            "// Windows：托盘线程在 create() 内自跑消息循环，这里无事可做。",
+            "// 接口为跨平台统一而设（mac 上 run() 是主线程 AppKit 事件泵，见 tray_mac.mm）。",
+            "bool TrayIcon::run(const std::function<bool()>&) { return false; }",
+        ), 1),
+        (T(
+            "        Shell_NotifyIcon(NIM_DELETE, &nid);",
+        ), T(
+            "        Shell_NotifyIcon(NIM_DELETE, &nid);",
+            "        if (g_badgeIcon) { DeleteObject(g_badgeIcon); g_badgeIcon = nullptr; }",
+            "        g_badged = false;",
         ), 1),
     ]),
 ]
