@@ -4,6 +4,7 @@ import { ConnectionCard } from './components/ConnectionCard';
 import { ScreenCard } from './components/ScreenCard';
 import { SpeakerCard } from './components/SpeakerCard';
 import { MicCard } from './components/MicCard';
+import { CameraCard } from './components/CameraCard';
 import { LocalSendCard } from './components/LocalSendCard';
 import { RemoteInputModal } from './components/RemoteInputModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -89,6 +90,8 @@ export default function App() {
           <ScreenCard   state={state} />
           <SpeakerCard  state={state} />
           <MicCard      state={state} />
+          {/* 摄像头（M7-c）：手机 → 预览窗 + 虚拟摄像头出口 */}
+          <CameraCard   state={state} />
           {/* 第四格：旧面板右下是 USB 卡（WebView2 版省掉，BT/USB 状态走设置页），
               换成互传 —— 手机 / 官方 LocalSend 直发文件到本机，不依赖控制链路先连上 */}
           <LocalSendCard state={state} />
