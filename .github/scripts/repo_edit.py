@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 M6-c（sunshine_launch 接线：面板/球 + 文档状态，2026-11-05）：
+批 M6-c（sunshine_launch 接线：面板/球 + 文档状态，2026-11-05，rev2 修文档锚点）：
   · pc/host/src/ui/panel_http.cpp —— include；screen.sunshine 补 childAlive/exe；
     新增 screen.sunshineStart / screen.sunshineStop 动作。
   · pc/host/src/ui/web_panel.cpp —— include；装配点填 sunshine_running / toggle_display。
   · docs/spikes/m6-sunshine-spike.md —— 两处 M6-c 状态改「已完成」。
+rev2：§3 M6-c 行无 .cpp；§5 行在文件尾无换行（锚点不带尾 \n）。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -81,19 +82,20 @@ EDITS = [
            '        };',
            '        apxpc::ball::installDefaultActions(ha);'), 1),
     ]),
-    # ---- 文档：两处 M6-c 状态 ----
+    # ---- 文档：两处 M6-c 状态（§3 行无 .cpp；§5 行 EOF 无尾换行，锚点不带尾 \n）----
     ("docs/spikes/m6-sunshine-spike.md", [
         (T('  `docs/spikes/m6-sunshine-spike.md` §4 实测步骤照旧；**真机实测未执行**。',
-           '- **M6-c（进行中）**：`sunshine_launch.cpp` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。'),
+           '- **M6-c（进行中）**：`sunshine_launch` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。'),
          T('  `docs/spikes/m6-sunshine-spike.md` §4 实测步骤照旧；**真机实测未执行**。',
            '- **M6-c（已完成，2026-11-05）**：面板/球接线已入库 —— `panel_http.cpp` 新增 `screen.sunshineStart` /',
            '  `screen.sunshineStop` 动作并给 `screen.sunshine` 回包补 `childAlive`/`exe`；`web_panel.cpp` 装配点填',
            '  `sunshine_running`（spikeChildAlive）与 `toggle_display`（start/stop）两钩子（registry 使能条件不动）。',
            '  `sunshine_launch` 为面板/球/apxhost 三处复用的可复用模块。**真机实测仍未执行**。'), 1),
-        (T('  sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。',
-           '- **M6-c（进行中）**：`sunshine_launch.cpp` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。'),
-         T('  sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。',
-           '- **M6-c（已完成，2026-11-05）**：接线入库；§4 真机实测清单仍待用户在 PC + 手机执行回传。'), 1),
+        ('  sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。\n'
+         '- **M6-c（进行中）**：`sunshine_launch.cpp` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。',
+         '  sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。\n'
+         '- **M6-c（已完成，2026-11-05）**：接线入库；§4 真机实测清单仍待用户在 PC + 手机执行回传。',
+         1),
     ]),
 ]
 
