@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 M4-a（mac 菜单栏连接角标）：tray_win32.hpp / tray_mac.mm / web_panel.cpp 共 7 处。
-根因：连接状态只进面板 JSON，菜单栏图标零反馈——mac 用户不看面板时
-完全不知道连没连上（规划 M4「tray_mac 角标」）。
-修法：TrayIcon::setBadge(bool disconnected) 跨平台 API——
-_WIN32 内联空实现（Windows 托盘角标二期，防链接缺符号），
-mac 在 tray_mac.mm 实现（原子量入队 + 泵内主线程上色，同通知队列模式，
-绝不跨线程碰 AppKit——issue#47 红线）；web_panel buildState 每 400ms
-按 LinkPhase 喂角标（已连接熄灭，其余亮红点）。
+批 M4-b（mac 球四件套）：ball_win32.hpp / CMake / desktop_main 共 4 处。
+根因：球 v2 全在 #if _WIN32 内，mac 空 TU——球在 mac 从不出现（M4-b）。
+修法：① hpp #else 补 createBall/destroyBall 最小声明；② CMake if(APHERE APPLE)
+块照 tray_mac.mm 加 ball_mac.mm（ARC/AppKit 继承）；③ desktop_main include 区
+mac 专属引入 registry/ball 头；④ runWebPanelHttp 调用前装配（四钩子同源托盘）
++ 退出处 destroyBall（与 Win 批 B 同生命周期语义）。新文件 ball_mac.mm 随本批同 commit。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -19,86 +17,69 @@ def T(*lines):
 
 
 EDITS = [
-    ("pc/host/include/apxpc/tray/tray_win32.hpp", [
+    ("pc/host/src/ball/ball_win32.hpp", [
         (T(
-            "    void setPort(unsigned port) { port_ = port; }",
-        ), T(
-            "    void setPort(unsigned port) { port_ = port; }",
+            "} // namespace ball",
+            "} // namespace apxpc",
             "",
-            "    /// 连接状态角标：true=未连接（菜单栏图标亮红点），false=已连接（熄）。",
-            "    /// mac 实现在 tray_mac.mm（泵内主线程上色）；Windows 托盘角标二期实现，",
-            "    /// 此处内联空实现保证共享代码在 _WIN32 上不缺符号。",
-            "#if defined(_WIN32)",
-            "    void setBadge(bool) {}",
-            "#else",
-            "    void setBadge(bool disconnected);",
+            "#endif // _WIN32",
+        ), T(
+            "} // namespace ball",
+            "} // namespace apxpc",
+            "",
+            "#else // !_WIN32 —— mac 球（ball_mac.mm）只需生命周期 API；渲染全在实现内",
+            "",
+            "namespace apxpc {",
+            "namespace ball {",
+            "",
+            "bool createBall();",
+            "void destroyBall();",
+            "",
+            "} // namespace ball",
+            "} // namespace apxpc",
+            "",
+            "#endif // _WIN32",
+        ), 1),
+    ]),
+    ("pc/host/CMakeLists.txt", [
+        (T(
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
+        ), T(
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
+            "  # mac 球 v2（M4-b）：AppKit 同窗渲染（球+扇形），registry/fx 复用共享层。",
+            "  # ball_win32.cpp 在 mac 为整文件 #if _WIN32 空 TU，无符号冲突；ARC/AppKit 选项继承本块。",
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/ball/ball_mac.mm\")",
+        ), 1),
+    ]),
+    ("pc/host/src/desktop_main.cpp", [
+        (T(
+            "#include \"apxpc/tray/tray_win32.hpp\"",
+        ), T(
+            "#include \"apxpc/tray/tray_win32.hpp\"",
+            "#if defined(__APPLE__)",
+            "#include \"ball/registry.hpp\"",
+            "#include \"ball/ball_win32.hpp\"",
             "#endif",
         ), 1),
-    ]),
-    ("pc/host/src/tray/tray_mac.mm", [
         (T(
-            "MacTrayShared g_shared;",
+            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
         ), T(
-            "MacTrayShared g_shared;",
-            "/// 连接角标请求（面板线程写、泵线程读——同通知队列的跨线程约定）。",
-            "std::atomic<bool> g_badgeOn{false};",
-        ), 1),
-        (T(
-            "    for (auto& p : pending) deliverNotification(p.first, p.second);",
-            "}",
-        ), T(
-            "    for (auto& p : pending) deliverNotification(p.first, p.second);",
-            "}",
-            "",
-            "/// 连接角标：未连接给状态栏按钮加红点（attributedTitle 与图片并存），连接则清。",
-            "/// 主线程专用（AppKit 规矩）——只由 run() 泵每拍调用，绝不从面板线程直调。",
-            "void applyBadge() {",
-            "    static bool last = false;",
-            "    const bool on = g_badgeOn.load();",
-            "    if (on == last || !g_statusItem) return;",
-            "    last = on;",
-            "    NSStatusBarButton* btn = [g_statusItem button];",
-            "    if (btn == nil) return;",
-            "    if (on) {",
-            "        NSDictionary* attrs = @{NSForegroundColorAttributeName : [NSColor systemRedColor]};",
-            "        btn.attributedTitle =",
-            "            [[NSAttributedString alloc] initWithString:@\"●\" attributes:attrs];",
-            "    } else {",
-            "        btn.attributedTitle = [[NSAttributedString alloc] initWithString:@\"\"];",
-            "    }",
-            "}",
-        ), 1),
-        (T(
-            "                drainPendingNotifications();",
-        ), T(
-            "                drainPendingNotifications();",
-            "                applyBadge();",
-        ), 1),
-        (T(
-            "TrayIcon::TrayStatus TrayIcon::status() const {",
-        ), T(
-            "void TrayIcon::setBadge(bool disconnected) {",
-            "    // 只置原子量；视觉由 run() 泵每拍在主线程统一上色（同 notify 的队列模式）。",
-            "    g_badgeOn.store(disconnected);",
-            "}",
-            "",
-            "TrayIcon::TrayStatus TrayIcon::status() const {",
-        ), 1),
-    ]),
-    ("pc/host/src/ui/web_panel.cpp", [
-        (T(
-            "        const auto s = b.session->snapshot();",
-        ), T(
-            "        const auto s = b.session->snapshot();",
-            "        if (b.tray) b.tray->setBadge(s.phase != LinkPhase::Connected);  // M4 菜单栏连接角标",
-        ), 1),
-        (T(
-            "    } else {",
-            "        link[\"phase\"] = static_cast<int>(LinkPhase::Idle);",
-        ), T(
-            "    } else {",
-            "        if (b.tray) b.tray->setBadge(true);",
-            "        link[\"phase\"] = static_cast<int>(LinkPhase::Idle);",
+            "#if defined(__APPLE__)",
+            "        {",
+            "            // M4-b mac 球装配（web_panel.cpp 批 B 的 mac 同款）：钩子与托盘同源，",
+            "            // 空钩子/回 false = registry 规则灰显（send_clipboard mac 二期先灰；speaker 待媒体栈）。",
+            "            apxpc::ball::HostActions ha;",
+            "            ha.open_panel = [] { openPanelInBrowser(apxpc::ui::panelUrl()); };",
+            "            ha.exit_app = [] { apxpc::ui::requestPanelQuit(); };",
+            "            ha.send_clipboard = [] { return false; };",
+            "            ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };",
+            "            ha.clipboard_pending = [] { return false; };",
+            "            apxpc::ball::installDefaultActions(ha);",
+            "            if (!apxpc::ball::createBall()) APX_LOGI(\"mac ball 创建失败（面板/托盘不受影响）\");",
+            "        }",
+            "#endif",
+            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
+            "        apxpc::ball::destroyBall();  // M4-b：面板收尾后收球（与 Win 批 B 同生命周期语义）",
         ), 1),
     ]),
 ]
