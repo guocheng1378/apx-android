@@ -14,13 +14,14 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.camera.core.AspectRatioStrategy
+import androidx.activity.result.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
-import androidx.camera.core.ResolutionSelector
-import androidx.camera.core.ResolutionStrategy
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import com.allperiph.core.MediaOut
@@ -41,6 +42,12 @@ import java.util.concurrent.Executors
  *     「调用方必须如实降级，不得假装已送达」（MediaOut.kt 纪律）。
  *   · 生命周期绑定：锁屏/离开页面相机由 CameraX 自动释放，无后台占用。
  *     PC 侧远程拉起 / 常驻采集是 M7-c 的事。
+ *   · 权限申请走 Activity Result API（registerForActivityResult）而非
+ *     override onRequestPermissionsResult —— 后者在 ComponentActivity 下签名
+ *     编译不过（PR #162 CI 轮 1 实测），前者是官方推荐路径且无 override 问题。
+ *   · 分辨率三个策略类在 `androidx.camera.core.resolutionselector` 子包
+ *     （不在 `androidx.camera.core` 根包），常量名也不是 RATIO_16_9_ANGLES ——
+ *     同轮 CI 实测踩过，后来者照官方 reference 抄。
  *
  * 启动（当前无应用内入口，M7-c 面板接）：
  *   adb shell am start -n com.allperiph/.camera.CameraPushActivity
@@ -52,6 +59,18 @@ class CameraPushActivity : ComponentActivity() {
 
     private var provider: ProcessCameraProvider? = null
     private val analyzerExecutor = Executors.newSingleThreadExecutor()
+
+    // 权限结果回调（必须在 onCreate 前注册 —— 属性初始化器在构造期执行，满足约束）
+    private val cameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants[Manifest.permission.CAMERA] == true) {
+            bindCamera()
+        } else {
+            note = "缺少摄像头权限 — 推流未启动（系统设置授权后重进本页）"
+            render()
+        }
+    }
 
     // 全部只在分析线程上增改；render() 抛回主线程刷新 UI
     private var sent = 0
@@ -83,20 +102,7 @@ class CameraPushActivity : ComponentActivity() {
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             bindCamera()
         } else {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_CAMERA) return
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            bindCamera()
-        } else {
-            note = "缺少摄像头权限 — 推流未启动（系统设置授权后重进本页）"
-            render()
+            cameraPermission.launch(arrayOf(Manifest.permission.CAMERA))
         }
     }
 
@@ -111,7 +117,7 @@ class CameraPushActivity : ComponentActivity() {
                 val analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
                         ResolutionSelector.Builder()
-                            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_ANGLES)
+                            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                             .setResolutionStrategy(ResolutionStrategy(
                                 Size(TARGET_W, TARGET_H),
                                 ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
@@ -224,7 +230,6 @@ class CameraPushActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val REQ_CAMERA = 0x6CA
         // 档位（720p / q80 / ≈10fps）：spike §2.3 首版默认；
         // config/面板档位是 M7-c 的活，先不引入手机侧 config 读取（仓内无先例）。
         const val TARGET_W = 1280
