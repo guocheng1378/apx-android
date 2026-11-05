@@ -8,8 +8,12 @@ name: PC Diagnose
 # + job summary（公开可读），完整日志另传 artifact。
 # 双触发：push 到本分支即跑（未合入默认分支时 dispatch API 不认，push 事件直接
 # 执行分支上的工作流文件）；合入 master 后 workflow_dispatch 可用，ref 选诊断目标。
-# 踩坑记录：pwsh 双引号里反引号是转义符 —— 代码围栏必须用单引号 '```'，
-# 否则 "```" 会在解析期崩掉整个脚本（v1 就是这么白跑一次的）。
+# 踩坑记录：
+#   · v1 脚本 pwsh 解析崩溃（双引号里反引号是转义符，"```" 在解析期崩）——已修：围栏改单引号
+#   · v2 只读 cpp_build.log（MSBuild 输出）——**漏了 CMake 报错的真正出处**：
+#     build.yml Build 步注释写明「CMake 报错原文在 CMakeFiles/CMakeError.log」，
+#     所以 v2 必须同时读 CMakeError.log + cpp_build.log，否则 link error 永远只能看到
+#     「Process completed with exit code 1」（line 171 的裸退出码）。
 on:
   push:
     branches: [feat/ci-pc-annotations]
@@ -100,20 +104,47 @@ jobs:
           if (Test-Path diag_phase.txt) {
             $phase = ((Get-Content diag_phase.txt | Where-Object { $_ }) -join " | ")
           }
-          $errLines = @()
+          # ★ CMakeError.log：CMake 报错的真正出处（build.yml Build 步注释白纸黑字写明）
+          # ★ cpp_build.log：MSBuild 输出（link 失败时可能只有 tail，CMake 层更靠得住）
+          $cmakeErr = @()
+          if (Test-Path "build_host/CMakeFiles/CMakeError.log") {
+            $cmakeErr = @(Get-Content "build_host/CMakeFiles/CMakeError.log" -Tail 60)
+          }
+          $buildErr = @()
           if (Test-Path cpp_build.log) {
-            $errLines = @(Select-String -Path cpp_build.log -Pattern "error [A-Z]+\d+|error C\d+|fatal error|LNK\d+|MSB\d+|ninja error|assertion|Exception" | ForEach-Object { $_.Line })
-            if ($errLines.Count -eq 0) { $errLines = @(Get-Content cpp_build.log -Tail 30) }
-          } else {
-            $errLines = @("cpp_build.log missing: build step never started")
+            $buildErr = @(Get-Content cpp_build.log -Tail 30)
+          }
+          # 两个源去重合并（CMakeError.log 的 link 错误通常比 MSBuild tail 更完整）
+          $allErr = @() | Where-Object { $null -ne $_ }
+          foreach ($s in @($cmakeErr, $buildErr)) {
+            foreach ($l in $s) {
+              if ($l -match "error [A-Z]+\d+" -or $l -match "fatal error" -or $l -match "LNK\d+" -or $l -match "MSB\d+" -or $l -match "ninja error" -or $l -match "assertion" -or $l -match "Exception") {
+                $allErr += $l
+              }
+            }
+          }
+          if ($allErr.Count -eq 0) {
+            $allErr = @("无匹配错误行 —— 请检查 CMakeError.log / cpp_build.log 全文（artifact 里）")
           }
           $n = 0
-          foreach ($l in $errLines) {
+          foreach ($l in $allErr) {
             $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
             if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
             Write-Output "::error title=PC diag ${phase}::${esc}"
             $n++
             if ($n -ge 10) { break }
+          }
+          # 错误行没匹配到时（裸 exit 1 场景）：把两个 log 的尾部原样当错误发
+          if ($n -eq 0) {
+            Write-Output "::error title=PC diag ${phase} (no pattern match)::CMakeError.log tail 60 (exit 1 裸报)"
+            $n = 1
+            foreach ($l in $cmakeErr) {
+              $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+              if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
+              Write-Output "::error title=PC diag ${phase}::${esc}"
+              $n++
+              if ($n -ge 10) { break }
+            }
           }
           $sum = @()
           $sum += "### PC 构建诊断 · phase = $phase"
@@ -121,15 +152,15 @@ jobs:
           $sum += '```'
           $sum += (Get-Content toolchain.txt -ErrorAction SilentlyContinue)
           $sum += '```'
-          $sum += "#### 错误行（前 40）"
+          $sum += "#### CMakeError.log 尾 60 行（CMake 报错原文）"
           $sum += ""
           $sum += '```'
-          $sum += ($errLines | Select-Object -First 40)
+          foreach ($l in $cmakeErr | Select-Object -First 60) { $sum += $l.Trim() }
           $sum += '```'
-          $sum += "#### cpp_build.log 尾 60 行"
+          $sum += "#### cpp_build.log 尾 30 行（MSBuild 输出）"
           $sum += ""
           $sum += '```'
-          if (Test-Path cpp_build.log) { $sum += (Get-Content cpp_build.log -Tail 60) }
+          foreach ($l in $buildErr | Select-Object -First 30) { $sum += $l.Trim() }
           $sum += '```'
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
 
@@ -140,6 +171,8 @@ jobs:
           name: pc-diag-log
           path: |
             cpp_build.log
+            build_host/CMakeFiles/CMakeError.log
+            build_host/CMakeFiles/CMakeOutput.log
             toolchain.txt
             diag_phase.txt
           retention-days: 7
