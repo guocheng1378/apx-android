@@ -33,7 +33,9 @@ HWND g_ballWnd = nullptr;
 
 namespace {
 
-constexpr wchar_t kClass       = L"APXBallV2";
+// 必须是数组/指针型：值型 `wchar_t` 装不下字符串字面量（diag run #6: C2440 + C2664 + C2131
+// 三条全出自这里 —— lpszClassName 赋值、CreateWindowExW 第 2 参、初始化三处同时炸）。
+constexpr wchar_t kClass[] = L"APXBallV2";
 constexpr int     kBallDip       = 44;    // 与 legacy 壳同直径
 constexpr int     kItemDip       = 52;    // 扇形项直径
 constexpr int     kFanRadiusDip  = 128;   // 扇形半径（项心轨迹）
