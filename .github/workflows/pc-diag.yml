@@ -6,12 +6,15 @@ name: PC Diagnose
 # 本工作流是**旁路诊断**：不动 build.yml，用与 pc 作业完全相同的配方（同生成器、
 # 同参数、同目标）单独跑一次，失败时把错误行打进 annotation（公开仓库匿名可读）
 # + job summary（公开可读），完整日志另传 artifact。
-# 诊断目标通过 input ref 指定（默认 master）。
+# 双触发：push 到本分支即跑（未合入默认分支时 dispatch API 不认，push 事件直接
+# 执行分支上的工作流文件）；合入 master 后 workflow_dispatch 可用，ref 选诊断目标。
 on:
+  push:
+    branches: [feat/ci-pc-annotations]
   workflow_dispatch:
     inputs:
       ref:
-        description: "诊断目标 ref/sha"
+        description: "诊断目标 ref/sha（push 触发时默认 = 本分支，即 master 内容 + 本文件）"
         required: false
         default: "master"
 
