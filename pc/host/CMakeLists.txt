@@ -402,7 +402,12 @@ if(WIN32 AND APXPC_BUILD_UI)
   if(APXPC_BUILD_UI_WEBVIEW2)
     set(APXPC_WEBPANEL_SRC
       "${APXPC_ROOT}/src/ui/web_panel.cpp"
-      "${APXPC_ROOT}/src/ui/webview2_runtime.cpp")
+      "${APXPC_ROOT}/src/ui/webview2_runtime.cpp"
+      # ★ 悬浮球（2026-11-05）：web_panel.cpp 调 apxpc::ui::FloatingBall::create，
+      #   实现在 src/ui/ball_win32.cpp —— 此前只挂在下面 legacy apxpc_ui 分支，
+      #   WebView2 路径（CI 默认）一直没编它 → LNK2019 unresolved FloatingBall::create，
+      #   pc 作业连续红的真正原因（diag run3 annotation 钉死）。
+      "${APXPC_ROOT}/src/ui/ball_win32.cpp")
     add_library(apxpc_webpanel STATIC ${APXPC_WEBPANEL_SRC})
     target_include_directories(apxpc_webpanel PUBLIC "${APXPC_ROOT}/include")
     # apxpc_localsend：面板里的「互传」卡（buildState 的 localsend 段 + toggle / openDir 动作）
@@ -519,8 +524,8 @@ if(WIN32)
   configure_file("${APXPC_ROOT}/res/setup_payload.rc.in"
                  "${CMAKE_BINARY_DIR}/setup_payload.rc" @ONLY)
   add_custom_command(TARGET apxdesktop POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${APX_PAYLOAD_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:apxdesktop>" "${APX_PAYLOAD_EXE}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${APX_PAYLOAD_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:apxdesktop>" "${APX_PAYLOAD_EXE}"
     COMMENT "暂存安装包载荷 apxdesktop.exe")
 
   add_executable(apxsetup
@@ -536,11 +541,11 @@ if(WIN32)
     "/MANIFESTINPUT:${APXPC_ROOT}/res/apx.manifest")
   add_dependencies(apxsetup apxdesktop)
   add_custom_command(TARGET apxsetup POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "$<TARGET_FILE_DIR:apxdesktop>/WebView2Loader.dll"
       "$<TARGET_FILE_DIR:apxsetup>/WebView2Loader.dll"
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:apxsetup>"
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:apxsetup>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
       "$<TARGET_FILE_DIR:apxdesktop>/web"
       "$<TARGET_FILE_DIR:apxsetup>/web"
     COMMENT "为 apxsetup 附带 WebView2Loader.dll + web/ 伴随文件"
@@ -590,7 +595,7 @@ if(APXPC_BUILD_TESTS)
   target_include_directories(gamepad_fallback_test PRIVATE "${APXPC_ROOT}/include")
   add_test(NAME gamepad_fallback_test COMMAND gamepad_fallback_test)
 
-  # 本机端口占用探测：真起监听 → 探到 → 关掉 → 探不到。
+  # 本机端口占用探测：真起监听 → 探到 → 探不到。
   # 盯的是 v223.7 已交付的「9511 已在运行检测」（apxpc::net::tcp_probe）——这条判错的后果是面板不再起受控端，
   # 却又没人提供，手机就永远发现不了本机（静默失效），所以必须有用例钉住。
   add_executable(tcp_probe_test "${APXPC_ROOT}/tests/tcp_probe_test.cpp")
