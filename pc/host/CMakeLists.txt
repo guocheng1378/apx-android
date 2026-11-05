@@ -282,6 +282,12 @@ if(APPLE)
   # 托盘主机进 service 静态库 —— apxhost 与 apxdesktop 都链它，一处实现两处可用；
   # 同时 tray_win32.cpp 的「非 Windows 空桩」已按 __APPLE__ 排除，不会重复定义。
   list(APPEND APXPC_SERVICE_SRC "${APXPC_ROOT}/src/tray/tray_mac.mm")
+  # mac 球壳（M4-c(b) 的 src/ball/ball_mac.mm）此前从未挂进任何 target：desktop_main 的
+  # ballhotkey::onBallHot 引用 apxpc::ball::toggleBallFan()，mac arm64 链接即缺符号
+  # （#582：Undefined symbols for architecture arm64）。补挂进 service 静态库，与 tray 同口径：
+  # ball_win32.cpp 整文件 _WIN32 守卫（mac 空 TU，不会重复定义）；ball_mac.mm 无手动内存管理，
+  # ARC 已按 $<COMPILE_LANGUAGE:OBJCXX> 全开；AppKit/Foundation 已在下面链接。
+  list(APPEND APXPC_SERVICE_SRC "${APXPC_ROOT}/src/ball/ball_mac.mm")
 endif()
 add_library(apxpc_service STATIC ${APXPC_SERVICE_SRC})
 target_link_libraries(apxpc_service PUBLIC apx_shared)
