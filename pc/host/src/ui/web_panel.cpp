@@ -36,6 +36,7 @@
 
 #include "apxpc/ui/ball_win32.hpp"
 #include "../ball/registry.hpp"
+#include "apxpc/screen/sunshine_launch.hpp"   // M6-c：球侧 Sunshine 子进程钩子
 #include "../ball/ball_win32.hpp"
 #include "apxpc/ui/web_panel.hpp"
 #include "apxpc/ui/webview2_runtime.hpp"
@@ -1469,6 +1470,20 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         };
         ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };
         ha.clipboard_pending = [] { return false; };
+        // M6-c：副屏项装配——enabled=在跑才可点（registry 使能条件不动），run=起/停子进程
+        ha.sunshine_running = [] { return apxpc::screen::spikeChildAlive(apxpc::screen::defaultSpikePidPath()); };
+        ha.toggle_display = []() -> bool {
+            const std::string pidFile = apxpc::screen::defaultSpikePidPath();
+            if (apxpc::screen::spikeChildAlive(pidFile)) {
+                (void)apxpc::screen::stopSunshineProcess(pidFile);
+                return false;
+            }
+            const std::string exe = apxpc::screen::findSunshineExecutable("");
+            if (exe.empty()) return false;
+            const auto r = apxpc::screen::startSunshineProcess(
+                exe, {}, apxpc::screen::defaultSpikeLogPath(), pidFile);
+            return r.ok;
+        };
         apxpc::ball::installDefaultActions(ha);
         if (!apxpc::ball::createBall()) APX_LOGI("ball v2 创建失败（面板/托盘不受影响）");
     }

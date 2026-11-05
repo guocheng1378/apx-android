@@ -46,6 +46,7 @@
 #include "apxpc/net/json.hpp"
 #include "apxpc/net/tcp_probe.hpp"
 #include "apxpc/screen/sunshine_detect.hpp"
+#include "apxpc/screen/sunshine_launch.hpp"   // M6-c：面板起/停 Sunshine 子进程（可复用模块）
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
 // 手机上报的三种接入模式状态（0x31）：位布局与解码抽在头文件里，和 Android 侧对拍。
@@ -660,9 +661,31 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         Json v = Json::makeObject();
         v["installed"] = d.installed;
         v["running"]   = d.running;
+        v["childAlive"] = apxpc::screen::spikeChildAlive(apxpc::screen::defaultSpikePidPath());
+        v["exe"] = apxpc::screen::findSunshineExecutable("");
         v["httpsPort"] = static_cast<double>(d.httpsPort);
         v["url"] = apxpc::screen::sunshineUrl(d);
         return postResponse(p, id, okResp(v));
+    }
+    // —— M6-c：Sunshine 子进程起/停（复用 sunshine_launch；日志/pid 落临时目录）——
+    if (name == "screen.sunshineStart") {
+        const std::string pidFile = apxpc::screen::defaultSpikePidPath();
+        if (apxpc::screen::spikeChildAlive(pidFile))
+            return postResponse(p, id, failResp("已有 spike 子进程在跑"));
+        const std::string exe = apxpc::screen::findSunshineExecutable("");
+        if (exe.empty())
+            return postResponse(p, id, failResp("未找到 Sunshine 可执行文件（见 docs/spikes/m6-sunshine-spike.md）"));
+        const auto r = apxpc::screen::startSunshineProcess(
+            exe, {}, apxpc::screen::defaultSpikeLogPath(), pidFile);
+        if (!r.ok) return postResponse(p, id, failResp(r.error));
+        Json vp = Json::makeObject();
+        vp["pid"] = static_cast<double>(r.pid);
+        vp["log"] = apxpc::screen::defaultSpikeLogPath();
+        return postResponse(p, id, okResp(vp));
+    }
+    if (name == "screen.sunshineStop") {
+        const bool ok = apxpc::screen::stopSunshineProcess(apxpc::screen::defaultSpikePidPath());
+        return postResponse(p, id, ok ? okResp() : failResp("没有可停止的子进程"));
     }
 
     // —— 音箱 ——
