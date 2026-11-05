@@ -34,6 +34,7 @@
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/hotkey/hotkey.hpp"
+#include "ball/ball_win32.hpp"   // 球 v2 共享 API：toggleBallFan（M4-c(b) 热键唤起）
 #include "apxpc/config/app_config.hpp"
 #include "apxpc/api/action_router.hpp"
 #include "apxpc/version.hpp"   // APXPC_VERSION_STRING：崩溃报告里要带版本号
@@ -66,6 +67,7 @@
 #include <string>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>   // _dyld_get_image_header：崩溃报告的 imageOffset 基准
+#include <dlfcn.h>          // 球扇形热键（mac）：dlopen Carbon 取 RegisterEventHotKey
 #endif
 #endif
 
@@ -552,6 +554,180 @@ void startFileLogging() {
 }
 #endif  // GUI 基础设施（Win：防火墙/VEH/文件日志；POSIX：terminate+信号取证/文件日志）
 
+// —————— 全局热键：切换球扇形（M4-c(b)，Win + mac 双端）——————
+// 刻意不走 HotkeyManager：那套按 ActionId 分发（actionFromName 对未知名兜底成
+// screen.toggle，见 hotkey_manager.cpp），且 mac 侧 start() 直接返回「未实现」。
+// 这里各自注册一条独立热键，只做一件事：按下 → apxpc::ball::toggleBallFan()。
+// 组合键取 config.json hotkeys["ball.fan"]（与仓库热键同款 mods/key 结构），
+// 缺省 Ctrl+Shift+Space（默认值注释见 app_config.cpp makeDefaults）。
+namespace ballhotkey {
+
+std::vector<std::string> g_mods = {"ctrl", "shift"};
+std::string g_key = "space";
+
+void loadBinding(const apxpc::config::AppConfig& cfg) {
+    auto it = cfg.hotkeys.find("ball.fan");
+    if (it == cfg.hotkeys.end() || it->second.key.empty()) return;  // 缺省即默认
+    if (!it->second.mods.empty()) g_mods = it->second.mods;
+    g_key = it->second.key;
+}
+
+std::string comboText() {
+    std::string s;
+    for (const auto& m : g_mods) { s += m; s += '+'; }
+    s += g_key;
+    return s;
+}
+
+#if defined(_WIN32)
+
+constexpr int kId = 0x4150;   // 自有热键 id，避开 HotkeyManager 的 ActionId 取值域
+std::atomic<bool> g_running{false};
+HANDLE g_thread = nullptr;
+DWORD  g_tid = 0;
+
+UINT vkOf(const std::string& key) {
+    if (key.empty()) return 0;
+    if (key.size() > 1) {
+        if (key == "space") return VK_SPACE;
+        if (key[0] == 'f' || key[0] == 'F') {
+            const int n = std::atoi(key.c_str() + 1);
+            if (n >= 1 && n <= 24) return VK_F1 + (n - 1);
+        }
+        return 0;
+    }
+    char c = key[0];
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) return static_cast<UINT>(c);
+    return 0;
+}
+
+// RegisterHotKey 绑的是**调用线程**的消息队列 —— 注册必须发生在本线程内。
+DWORD WINAPI ballHotkeyThread(LPVOID) {
+    int fs = 0;
+    for (const auto& m : g_mods) {
+        if (m == "ctrl") fs |= MOD_CONTROL;
+        else if (m == "alt") fs |= MOD_ALT;
+        else if (m == "shift") fs |= MOD_SHIFT;
+        else if (m == "win") fs |= MOD_WIN;
+    }
+    const UINT vk = vkOf(g_key);
+    if (vk == 0) { APX_LOGW("球扇形热键跳过（非法键 {}）", g_key.c_str()); return 0; }
+    if (!::RegisterHotKey(nullptr, kId, fs, vk))
+        APX_LOGW("球扇形热键注册失败（可能已被占用）: {}", comboText().c_str());
+    else
+        APX_LOGI("球扇形热键已注册：{}", comboText().c_str());
+
+    MSG msg;
+    ::PeekMessage(&msg, nullptr, 0, 0, PM_NOREMOVE);   // 建队列，stop 才投得进 WM_QUIT
+    while (g_running) {
+        if (::GetMessage(&msg, nullptr, 0, 0) <= 0) break;
+        if (msg.message == WM_HOTKEY && static_cast<int>(msg.wParam) == kId) {
+            APX_LOGI("球扇形热键触发：{}", comboText().c_str());
+            apxpc::ball::toggleBallFan();
+        } else {
+            ::TranslateMessage(&msg);
+            ::DispatchMessage(&msg);
+        }
+    }
+    ::UnregisterHotKey(nullptr, kId);
+    return 0;
+}
+
+void start(const apxpc::config::AppConfig& cfg) {
+    if (g_thread) return;
+    loadBinding(cfg);
+    g_running = true;
+    g_thread = ::CreateThread(nullptr, 0, ballHotkeyThread, nullptr, 0, &g_tid);
+    if (!g_thread) { g_running = false; APX_LOGW("球扇形热键线程创建失败"); }
+}
+
+void stop() {
+    if (!g_thread) return;
+    g_running = false;
+    for (int i = 0; i < 20 && !::PostThreadMessage(g_tid, WM_QUIT, 0, 0); ++i) ::Sleep(50);
+    if (::WaitForSingleObject(g_thread, 2000) != WAIT_OBJECT_0)
+        APX_LOGW("球扇形热键线程未按时退出（不阻塞收尾）");
+    ::CloseHandle(g_thread);
+    g_thread = nullptr;
+}
+
+#elif defined(__APPLE__)
+
+// mac 走 Carbon RegisterEventHotKey：不需要「辅助功能」授权（CGEventTap / NSEvent
+// 全局键盘监听才要），事件由主线程 AppKit 泵分发；符号 dlopen/dlsym 取，不改链接面。
+struct EventHotKeyID { unsigned int signature; unsigned int id; };
+using InstallHandler_t = int (*)(int (*)(void*, void*, void*), unsigned int,
+                                 const void*, void*, void**);
+using AppTarget_t = void* (*)();
+using RegisterHotKey_t = int (*)(unsigned int, unsigned int, EventHotKeyID,
+                                 void*, unsigned int, void**);
+using UnregisterHotKey_t = int (*)(void*, void*);
+
+void* g_lib = nullptr;
+void* g_hk = nullptr;
+void* g_handler = nullptr;
+
+int onBallHot(void*, void*, void*) {
+    apxpc::ball::toggleBallFan();
+    return 0;   // noErr
+}
+
+void start(const apxpc::config::AppConfig& cfg) {
+    if (g_lib) return;
+    loadBinding(cfg);
+    if (g_key != "space") {
+        APX_LOGW("球扇形热键：mac 侧暂只支持 key=space（当前 {}），未注册", g_key.c_str());
+        return;
+    }
+    g_lib = ::dlopen("/System/Library/Frameworks/Carbon.framework/Carbon", RTLD_LAZY);
+    if (!g_lib)
+        g_lib = ::dlopen("/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/HIToolbox", RTLD_LAZY);
+    if (!g_lib) { APX_LOGW("球扇形热键：Carbon 加载失败（{}）", ::dlerror()); return; }
+    auto install = reinterpret_cast<InstallHandler_t>(::dlsym(g_lib, "InstallApplicationEventHandler"));
+    auto target  = reinterpret_cast<AppTarget_t>(::dlsym(g_lib, "GetApplicationEventTarget"));
+    auto reg     = reinterpret_cast<RegisterHotKey_t>(::dlsym(g_lib, "RegisterEventHotKey"));
+    if (!install || !target || !reg) { APX_LOGW("球扇形热键：Carbon 符号缺失"); return; }
+
+    unsigned int mods = 0;
+    for (const auto& m : g_mods) {
+        if (m == "ctrl") mods |= 4096u;       // controlKey
+        else if (m == "shift") mods |= 512u;  // shiftKey
+        else if (m == "alt") mods |= 2048u;   // optionKey（mac 的 Alt）
+        else if (m == "win") mods |= 256u;    // cmdKey
+    }
+    const unsigned int spec[2] = {0x6B657962u /*'keyb' kEventClassKeyboard*/,
+                                  5u /*kEventHotKeyPressed*/};
+    if (install(&onBallHot, 1, spec, nullptr, &g_handler) != 0) {
+        APX_LOGW("球扇形热键：事件处理器安装失败");
+        return;
+    }
+    EventHotKeyID hid{0x41504631u /*'APF1'*/, 1u};
+    if (reg(49u /*kVK_Space*/, mods, hid, target(), 0u, &g_hk) != 0) {
+        APX_LOGW("球扇形热键注册失败（可能已被占用）: {}", comboText().c_str());
+        return;
+    }
+    APX_LOGI("球扇形热键已注册：{}（mac Carbon）", comboText().c_str());
+}
+
+void stop() {
+    if (!g_lib) return;
+    auto unreg  = reinterpret_cast<UnregisterHotKey_t>(::dlsym(g_lib, "UnregisterEventHotKey"));
+    auto target = reinterpret_cast<AppTarget_t>(::dlsym(g_lib, "GetApplicationEventTarget"));
+    if (g_hk && unreg && target) unreg(target(), g_hk);
+    g_hk = nullptr;
+    // lib 不 dlclose：退出期卸载无收益，留给进程结束回收
+}
+
+#else
+
+void start(const apxpc::config::AppConfig& cfg) { loadBinding(cfg); (void)comboText(); }
+void stop() {}
+
+#endif
+
+}  // namespace ballhotkey
+
 }  // namespace
 
 int runDesktopMain() {
@@ -680,6 +856,10 @@ int runDesktopMain() {
 
     if (cfg.autostart) apxpc::tray::setAutostart(true);
 
+    // 球扇形全局热键（M4-c(b)）：装配处注册。mac 的 Carbon 事件靠主线程 AppKit
+    // 泵分发，必须在下方 tray->run() 之前注册。
+    ballhotkey::start(cfg);
+
 #if defined(_WIN32)
     // FileReceiver 后台监听（9512 端口）—— 收到文件：托盘气泡提示 + 推给前端文件面板。
     // 回调跑在接收线程；notifyFileReceived 内部 PostWebMessageAsJson（线程安全）。
@@ -755,6 +935,7 @@ int runDesktopMain() {
     session->stop();
     ctrlSrv.stop();
     hk->stop();
+    ballhotkey::stop();   // 球扇形热键收尾（Win：停线程+注销；mac：UnregisterEventHotKey）
     tray->quit();
     apxpc::config::saveConfig(cfgPath, cfg);
     return rc;

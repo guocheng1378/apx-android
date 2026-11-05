@@ -53,6 +53,21 @@ LRESULT CALLBACK ballWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 // 置前台（托盘「球」菜单 / 热键调用）
 void bringToFront(HWND hwnd);
 
+// 全局热键切换扇形（M4-c(b)）。任意线程可调：Win 侧只投消息，
+// 开合动作回到球窗口线程的 wndproc 里做（见 kFanHotkeyMsg 分支）。
+void toggleBallFan();
+
+} // namespace ball
+} // namespace apxpc
+
+#else  // 非 Windows（macOS）：球 v2 实现在 ball_mac.mm（M4-b），
+       // 只暴露共享 API —— desktop_main 热键注册点两端同一份调用。
+namespace apxpc {
+namespace ball {
+
+// 切换扇形展开/收起；球未创建时静默返回。
+void toggleBallFan();
+
 } // namespace ball
 } // namespace apxpc
 

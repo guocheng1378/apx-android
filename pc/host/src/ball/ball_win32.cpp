@@ -46,6 +46,7 @@ constexpr int     kSnapMs        = 160;   // 贴边时长（对齐 Android dock 
 constexpr int     kDragSlop      = 3;     // 位移 > 3px 才算拖动
 constexpr UINT_PTR kTimerAnim    = 1;
 constexpr UINT_PTR kTimerBadge   = 2;
+constexpr UINT     kFanHotkeyMsg = WM_APP + 41;  // 热键线程投递：切换扇形
 
 int dip(int v, UINT dpi) { return ::MulDiv(v, (int)dpi, 96); }
 
@@ -339,6 +340,13 @@ void bringToFront(HWND w) {
                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
+// 热键入口（M4-c(b)）：球窗口有自己的线程、热键回调在热键线程 —— 直接调
+// expand/collapse 会跨线程改 BallState 并提交 GDI+ 位图，所以只投消息。
+void toggleBallFan() {
+    if (!g_ballWnd) return;   // 球未创建：静默无操作
+    ::PostMessageW(g_ballWnd, kFanHotkeyMsg, 0, 0);
+}
+
 LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
     case WM_ERASEBKGND:
@@ -478,6 +486,14 @@ LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         ::SetWindowPos(w, HWND_TOPMOST, c.x - s->side / 2, c.y - s->side / 2,
                        s->side, s->side, SWP_NOACTIVATE);
         present(w);
+        return 0;
+    }
+
+    case kFanHotkeyMsg: {              // 热键：开→收扇；收→按注册表开扇
+        auto* s = g;
+        if (!s) return 0;
+        if (s->fanOpen) collapseLocked(w);
+        else openFanFromRegistry(w);
         return 0;
     }
 

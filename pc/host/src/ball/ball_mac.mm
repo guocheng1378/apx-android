@@ -85,6 +85,8 @@ void stopTimer() {
 }  // namespace
 
 @interface BallView : NSView
+// 热键入口要用（M4-c(b)）：回调可能在非主线程，回主线程再翻转。
+- (void)toggleOpen;
 @end
 
 @implementation BallView
@@ -248,6 +250,14 @@ bool createBall() {
     [g.win setFrameOrigin:NSMakePoint(NSMaxX(vis) - kBallD - 60, NSMinY(vis) + 120)];
     [g.win orderFrontRegardless];
     return true;
+}
+
+// 全局热键切换扇形（M4-c(b)）：desktop_main 注册点调用，任意线程可调。
+void toggleBallFan() {
+    if (!g.win) return;
+    BallView* v = (BallView*)[[[g.win contentView] subviews] firstObject];
+    if (!v) return;
+    [v performSelectorOnMainThread:@selector(toggleOpen) withObject:nil waitUntilDone:NO];
 }
 
 void destroyBall() {

@@ -17,6 +17,12 @@ std::map<std::string, HotkeyBinding> makeDefaults() {
 
     m["audio.route"]     = {{"ctrl", "alt"}, "F6", true};
     m["device.toggle"]   = {{"ctrl", "alt"}, "F7", true};
+
+    // 球扇形热键 ball.fan **刻意不进本表**：HotkeyManager 按 ActionId 名分发，
+    // actionFromName 对未知名兜底成 screen.toggle（见 hotkey_manager.cpp），
+    // 进表会顶掉「副屏开关」的绑定。缺省 Ctrl+Shift+Space（ctrl+shift / space）
+    // 由 desktop_main 的 ballhotkey::start 读取；要改就往 config.json 的 hotkeys
+    // 手工加 "ball.fan": {"mods":["ctrl","shift"],"key":"space","enabled":true}。
     return m;
 }
 
