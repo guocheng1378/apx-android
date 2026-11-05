@@ -38,6 +38,9 @@
   - `spikeChildAlive` / `forgetSpikeChild`（子进程已自退时只清记录，防 pid 复用误杀）
 - `apxhost sunshine-spike` 子命令：`start [exe路径] [秒数]` / `stop` / `status`
 - CMake：`sunshine_launch.cpp` 进 `APXPC_COMMON_SRC`（core），apxhost 直接可用，不进面板 TU
+- **M6-b（已完成）**：`sunshine_launch.cpp` 完整实现已入库（含 `waitpid` 收尸、200ms 复核、`CREATE_NO_WINDOW` 防弹窗、PATH 逐目录扫描）；
+  `docs/spikes/m6-sunshine-spike.md` §4 实测步骤照旧；**真机实测未执行**。
+- **M6-c（进行中）**：`sunshine_launch` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。
 
 ## 4. 真机实测步骤（需用户在 PC + 手机上执行）
 
@@ -62,4 +65,4 @@
 - 配对自动化、延迟/码率指标：属 M6 后续阶段；本 spike 只到「子进程起得来、停得掉、有日志、有指引」。
 - 已知坑：若 Sunshine 自身守护化（父进程秒退），`spike 子进程` 会显示无 —— 以 `status` 里
   sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。
-- **M6-b（进行中）：子进程执行面补档** —— `apxhost sunshine-spike` 子命令完整实现 + 日志回传能力，见 repo_edit.py 现有引擎写 M6-b 批次。
+- **M6-c（进行中）**：`sunshine_launch.cpp` 扩成可复用模块（hpp 声明 + cpp 实现双文件，`start/stop/status` 全模块化，供后续面板/球接线复用）。
