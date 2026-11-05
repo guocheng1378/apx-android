@@ -23,6 +23,10 @@ namespace apxpc::tray {
 #if defined(_WIN32)
 namespace {
 const UINT WM_TRAY = WM_APP + 1;
+// 连接角标状态（M4-c）：底图 + 合成缓存 + 当前亮灭。setBadge 任意线程可调。
+static HICON g_baseIcon  = nullptr;  // create() 里存（系统共享图标不销毁）
+static HICON g_badgeIcon = nullptr;  // 合成件，自己造自己毁
+static bool  g_badged    = false;
 const UINT IDM_OPEN = 1001;
 const UINT IDM_QUIT = 1002;
 const UINT IDM_SEND_FILE = 1003;
@@ -127,6 +131,7 @@ bool TrayIcon::create(const std::string& tip, HICON icon) {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
     nid.hIcon = icon ? icon : LoadIcon(nullptr, IDI_APPLICATION);
+    g_baseIcon = nid.hIcon;  // 角标合成底图
     // tip 是 UTF-8；逐字节"加宽"会把中文变成乱码，必须走 MultiByteToWideChar
     lstrcpyn(nid.szTip, utf8ToWide(tip).c_str(), ARRAYSIZE(nid.szTip));
     Shell_NotifyIcon(NIM_ADD, &nid);
@@ -144,6 +149,8 @@ void TrayIcon::quit() {
         NOTIFYICONDATA nid{};
         nid.cbSize = sizeof nid; nid.hWnd = static_cast<HWND>(window_); nid.uID = 1;
         Shell_NotifyIcon(NIM_DELETE, &nid);
+        if (g_badgeIcon) { DeleteObject(g_badgeIcon); g_badgeIcon = nullptr; }
+        g_badged = false;
         PostMessage(static_cast<HWND>(window_), WM_QUIT, 0, 0);
         DestroyWindow(static_cast<HWND>(window_));
         window_ = nullptr;
@@ -169,6 +176,74 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
     // 同 tip：UTF-8 → 宽字符必须显式转换，否则中文变乱码
     lstrcpyn(nid.szInfoTitle, utf8ToWide(title).c_str(), ARRAYSIZE(nid.szInfoTitle));
     lstrcpyn(nid.szInfo, utf8ToWide(text).c_str(), ARRAYSIZE(nid.szInfo));
+    Shell_NotifyIcon(NIM_MODIFY, &nid);
+}
+
+// 连接角标（M4-c）：底图右下角合成红点 → NIM_MODIFY 换图标。Shell_NotifyIcon
+// 线程安全（见 notify 注释），web_panel 400ms tick 直调；未变化短路不合成不 NIM。
+// 合成取全不透明像素（DIB 画制 + 白填充遮罩）——避开 32bpp 预乘 alpha 的坑。
+void TrayIcon::setBadge(bool disconnected) {
+    if (!window_ || !running_ || !g_baseIcon) return;
+    if (disconnected == g_badged) return;
+    g_badged = disconnected;
+    HICON shown = g_baseIcon;
+    if (disconnected) {
+        if (!g_badgeIcon) {
+            ICONINFO ii{};
+            if (GetIconInfo(g_baseIcon, &ii)) {
+                BITMAP bm{};
+                GetObject(ii.hbmColor ? ii.hbmColor : ii.hbmMask, sizeof bm, &bm);
+                const int w = bm.bmWidth > 0 ? bm.bmWidth : GetSystemMetrics(SM_CXSMICON);
+                const int h = bm.bmHeight > 0 ? bm.bmHeight : GetSystemMetrics(SM_CYSMICON);
+                HDC scr = GetDC(nullptr);
+                HDC mem = CreateCompatibleDC(scr);
+                BITMAPINFO bi{};
+                bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                bi.bmiHeader.biWidth = w;
+                bi.bmiHeader.biHeight = -h;  // 自上而下
+                bi.bmiHeader.biPlanes = 1;
+                bi.bmiHeader.biBitCount = 32;
+                void* bits = nullptr;
+                HBITMAP col = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+                HBITMAP mask = nullptr;
+                if (col && bits) {
+                    HGDIOBJ old = SelectObject(mem, col);
+                    PatBlt(mem, 0, 0, w, h, BLACKNESS);        // alpha=0 打底
+                    DrawIconEx(mem, 0, 0, g_baseIcon, w, h, 0, nullptr, DI_NORMAL);
+                    const int d = w / 3 > 4 ? w / 3 : 4;
+                    HBRUSH red = CreateSolidBrush(RGB(230, 50, 45));
+                    HGDIOBJ ob = SelectObject(mem, red);
+                    HGDIOBJ op = SelectObject(mem, GetStockObject(NULL_PEN));
+                    Ellipse(mem, w - d - 1, h - d - 1, w - 1, h - 1);
+                    SelectObject(mem, ob);
+                    SelectObject(mem, op);
+                    DeleteObject(red);
+                    mask = CreateBitmap(w, h, 1, 1, nullptr);
+                    SelectObject(mem, mask);
+                    PatBlt(mem, 0, 0, w, h, WHITENESS);
+                    SelectObject(mem, old);
+                    ICONINFO out{};
+                    out.fIcon = TRUE;
+                    out.hbmMask = mask;
+                    out.hbmColor = col;
+                    g_badgeIcon = CreateIconIndirect(&out);
+                    DeleteObject(col);
+                    if (mask) DeleteObject(mask);
+                }
+                DeleteDC(mem);
+                ReleaseDC(nullptr, scr);
+                DeleteObject(ii.hbmColor);
+                DeleteObject(ii.hbmMask);
+            }
+        }
+        if (g_badgeIcon) shown = g_badgeIcon;
+    }
+    NOTIFYICONDATA nid{};
+    nid.cbSize = sizeof nid;
+    nid.hWnd = static_cast<HWND>(window_);
+    nid.uID = 1;
+    nid.uFlags = NIF_ICON;
+    nid.hIcon = shown;
     Shell_NotifyIcon(NIM_MODIFY, &nid);
 }
 
