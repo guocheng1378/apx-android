@@ -1,0 +1,40 @@
+[ 11%] Built target apx_shared
+[ 13%] Building CXX object CMakeFiles/apxpc_core.dir/src/screen/sunshine_launch.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/screen/sunshine_launch.hpp:26:6: error: no template named 'expected' in namespace 'std'
+   26 | std::expected<std::pair<std::string, long>, std::string> startSunshineProcess(
+      | ~~~~~^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:211:1: error: unknown type name 'LaunchResult'
+  211 | LaunchResult startSunshineProcess(const std::string& exePath,
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:215:5: error: unknown type name 'LaunchResult'
+  215 |     LaunchResult r;
+      |     ^
+3 errors generated.
+make[3]: *** [CMakeFiles/apxpc_core.dir/src/screen/sunshine_launch.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_core.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_core.dir/all] Error 2
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 13%] Building CXX object CMakeFiles/apxpc_core.dir/src/screen/sunshine_launch.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/screen/sunshine_launch.hpp:26:6: error: no template named 'expected' in namespace 'std'
+   26 | std::expected<std::pair<std::string, long>, std::string> startSunshineProcess(
+      | ~~~~~^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:211:1: error: unknown type name 'LaunchResult'
+  211 | LaunchResult startSunshineProcess(const std::string& exePath,
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/sunshine_launch.cpp:215:5: error: unknown type name 'LaunchResult'
+  215 |     LaunchResult r;
+      |     ^
+3 errors generated.
+make[3]: *** [CMakeFiles/apxpc_core.dir/src/screen/sunshine_launch.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_core.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_core.dir/all] Error 2
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
