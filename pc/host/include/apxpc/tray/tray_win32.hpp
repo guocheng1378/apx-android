@@ -57,6 +57,15 @@ public:
     void setExportDiagCallback(std::function<void()> cb) { onExportDiag_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
+    /// 连接状态角标：true=未连接（菜单栏图标亮红点），false=已连接（熄）。
+    /// mac 实现在 tray_mac.mm（泵内主线程上色）；Windows 托盘角标二期实现，
+    /// 此处内联空实现保证共享代码在 _WIN32 上不缺符号。
+#if defined(_WIN32)
+    void setBadge(bool) {}
+#else
+    void setBadge(bool disconnected);
+#endif
+
     /// 气泡通知（托盘消息）：标题 + 正文（UTF-8）。
     /// 用于「收到手机传来的文件」这类不该打断用户、但必须让用户知道的提示。
     /// 非 Windows 平台为空实现；窗口/托盘未创建时静默忽略。

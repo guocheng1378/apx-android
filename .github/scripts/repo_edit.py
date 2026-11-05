@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 D1（重交互走浏览器页）：bridge.ts 1 处 + web_panel.cpp 1 处。
-根因：扇形轻项（开面板）的钩子 ha.open_panel 已注册（PR #159），
-但 bridge 只裸传 {kind:'act', name}，后端 handleAct 白名单里没有 open_panel ——
-扇形轻项点了没反应（重交互入口仍卡在浏览器页）。
-修法：① bridge.ts act() 里补「若 name 在白名单则查 handler 表再传」，
-   白名单 = bridge 里现成实现的全部 name（含 open_panel 指向 panelUrl），
-   未知名直接透传原样（不吞任何现成能力）；② web_panel.cpp 里
-   open_panel 的 handler 注册（与 speaker.toggle 同文件同风格，
-   连 panelUrl 现成函数一起用，send_clipboard 用已现成的 bundledSend）。
+批 M4-b（mac 球四件套）：ball_win32.hpp / CMake / desktop_main 共 4 处。
+根因：球 v2 全在 #if _WIN32 内，mac 空 TU——球在 mac 从不出现（M4-b）。
+修法：① hpp #else 补 createBall/destroyBall 最小声明；② CMake if(APHERE APPLE)
+块照 tray_mac.mm 加 ball_mac.mm（ARC/AppKit 继承）；③ desktop_main include 区
+mac 专属引入 registry/ball 头；④ runWebPanelHttp 调用前装配（四钩子同源托盘）
++ 退出处 destroyBall（与 Win 批 B 同生命周期语义）。新文件 ball_mac.mm 随本批同 commit。
 两阶段：①按期望次数全量校验；②全过才写盘。
 """
 import sys
@@ -20,41 +17,69 @@ def T(*lines):
 
 
 EDITS = [
-    ("pc/web/src/api/bridge.ts", [
+    ("pc/host/src/ball/ball_win32.hpp", [
         (T(
-            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
-            "  // 白名单路由（handleAct 白名单 + 本文件的现成实现）：未知名原样透传，不吞任何现成能力",
-            "  const HANDLERS: ReadonlySet<string> = new Set([",
-            "    'session.startAuto','session.connectManual','session.disconnect',",
-            "    'session.sendInputText','session.sendInputDone',",
-            "    'screen.toggle','speaker.toggle','mic.toggle',",
-            "    'config.setAdaptive','config.setBitrate','config.setLogLevel',",
-            "    'window.hide','window.quit','tray.setAutostart','localsend.toggle',",
-            "    'localsend.status','localsend.send','open_panel'",
-            "  ]);",
-            "  const payload_ = payload ?? {};",
-            "  if (HANDLERS.has(name)) {",
-            "    const resp = await this.request('act', name, payload_);",
-            "    return resp;  // 现成实现直接返回，不经过后端",
-            "  }",
-            "  return this.request('act', name, payload_);",
+            "} // namespace ball",
+            "} // namespace apxpc",
+            "",
+            "#endif // _WIN32",
         ), T(
-            "  act(name: string, payload: Record<string, unknown> = {}): Promise<any> {",
+            "} // namespace ball",
+            "} // namespace apxpc",
+            "",
+            "#else // !_WIN32 —— mac 球（ball_mac.mm）只需生命周期 API；渲染全在实现内",
+            "",
+            "namespace apxpc {",
+            "namespace ball {",
+            "",
+            "bool createBall();",
+            "void destroyBall();",
+            "",
+            "} // namespace ball",
+            "} // namespace apxpc",
+            "",
+            "#endif // _WIN32",
         ), 1),
     ]),
-    ("pc/host/src/ui/web_panel.cpp", [
+    ("pc/host/CMakeLists.txt", [
         (T(
-            "    // 扇形轻项：开面板（与托盘「打开面板」同源——同走浏览器页、同 URL）。",
-            "    // 重交互（文件浏览/日志/设置）不进球：按需 apxhost panel 浏览器页（规划 M1 规则）。",
-            "    if (id == \"open_panel\") {",
-            "        panel.openPanelInBrowser(apxpc::ui::panelUrl());",
-            "        return postResponse(p, id, okResp());",
-            "    }",
-            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
-            "    handleAct(p, id, name, payload);",
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
         ), T(
-            "    // 其余动作交给 handleAct（speaker.toggle / window.quit 等均已现成实现）。",
-            "    handleAct(p, id, name, payload);",
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/tray/tray_mac.mm\")",
+            "  # mac 球 v2（M4-b）：AppKit 同窗渲染（球+扇形），registry/fx 复用共享层。",
+            "  # ball_win32.cpp 在 mac 为整文件 #if _WIN32 空 TU，无符号冲突；ARC/AppKit 选项继承本块。",
+            "  list(APPEND APXPC_SERVICE_SRC \"${APXPC_ROOT}/src/ball/ball_mac.mm\")",
+        ), 1),
+    ]),
+    ("pc/host/src/desktop_main.cpp", [
+        (T(
+            "#include \"apxpc/tray/tray_win32.hpp\"",
+        ), T(
+            "#include \"apxpc/tray/tray_win32.hpp\"",
+            "#if defined(__APPLE__)",
+            "#include \"ball/registry.hpp\"",
+            "#include \"ball/ball_win32.hpp\"",
+            "#endif",
+        ), 1),
+        (T(
+            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
+        ), T(
+            "#if defined(__APPLE__)",
+            "        {",
+            "            // M4-b mac 球装配（web_panel.cpp 批 B 的 mac 同款）：钩子与托盘同源，",
+            "            // 空钩子/回 false = registry 规则灰显（send_clipboard mac 二期先灰；speaker 待媒体栈）。",
+            "            apxpc::ball::HostActions ha;",
+            "            ha.open_panel = [] { openPanelInBrowser(apxpc::ui::panelUrl()); };",
+            "            ha.exit_app = [] { apxpc::ui::requestPanelQuit(); };",
+            "            ha.send_clipboard = [] { return false; };",
+            "            ha.connected = [&bundle] { return bundle.session && bundle.session->connected(); };",
+            "            ha.clipboard_pending = [] { return false; };",
+            "            apxpc::ball::installDefaultActions(ha);",
+            "            if (!apxpc::ball::createBall()) APX_LOGI(\"mac ball 创建失败（面板/托盘不受影响）\");",
+            "        }",
+            "#endif",
+            "        panelRc.store(apxpc::ui::runWebPanelHttp(bundle, {}));",
+            "        apxpc::ball::destroyBall();  // M4-b：面板收尾后收球（与 Win 批 B 同生命周期语义）",
         ), 1),
     ]),
 ]
