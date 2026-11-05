@@ -1,0 +1,140 @@
+name: PC Diagnose
+
+# 目的（2026-11-05）：pc 作业在 master/PR 上持续红，但两条信息通道都断了 ——
+#   ① Actions 日志 API 对非 admin 会话 403（build.yml 注释里自己也写了这条）；
+#   ② pc 作业没有 Android 作业那种「失败把错误打进 ::error annotation」的步骤。
+# 本工作流是**旁路诊断**：不动 build.yml，用与 pc 作业完全相同的配方（同生成器、
+# 同参数、同目标）单独跑一次，失败时把错误行打进 annotation（公开仓库匿名可读）
+# + job summary（公开可读），完整日志另传 artifact。
+# 诊断目标通过 input ref 指定（默认 master）。
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "诊断目标 ref/sha"
+        required: false
+        default: "master"
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  pc-diag:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          submodules: recursive
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pc/web/package-lock.json
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # 镜像变量先落档：win25-vs2026/20261103 昨天发布、今晨全红 ——
+      # 把 ImageOS/ImageVersion/VS/MSVC 工具集版本钉进 summary，定位环境变化。
+      - name: Toolchain snapshot
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationVersion
+          $lines = @(
+            "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion",
+            "cmake=$(cmake --version | Select-Object -First 1)",
+            "vswhere=$vs",
+            "VCToolsVersion=$env:VCToolsVersion",
+            "node=$(node --version)"
+          )
+          $lines | Tee-Object -FilePath toolchain.txt
+
+      - name: Install web dependencies
+        shell: pwsh
+        working-directory: pc/web
+        run: npm ci --no-audit --no-fund 2>&1 | Select-Object -Last 10
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S pc/host -B build_host -G "Visual Studio 18 2026" -A x64 `
+            -DAPXPC_BUILD_SDK=OFF `
+            -DAPXPC_BUILD_EXAMPLES=OFF `
+            -DAPXPC_BUILD_UI=ON `
+            -DAPXPC_BUILD_UI_WEBVIEW2=ON
+          if ($LASTEXITCODE -ne 0) {
+            "CONFIGURE_FAILED" | Out-File -FilePath diag_phase.txt
+            exit $LASTEXITCODE
+          }
+          "configure ok" | Out-File -FilePath diag_phase.txt
+
+      - name: Build (apxhost + apxdesktop + apxsetup)
+        shell: pwsh
+        run: |
+          cmake --build build_host --config Release --target apxhost apxdesktop apxsetup 2>&1 | `
+            Tee-Object -FilePath cpp_build.log | Select-Object -Last 30
+          if ($LASTEXITCODE -ne 0) {
+            "BUILD_FAILED" | Out-File -FilePath diag_phase.txt -Append
+            exit $LASTEXITCODE
+          }
+
+      - name: Publish diagnosis (annotation + summary)
+        if: failure()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $phase = if (Test-Path diag_phase.txt) { (Get-Content diag_phase.txt) -join " | " } else { "step failed before phase marker" }
+          $errLines = @()
+          if (Test-Path cpp_build.log) {
+            $errLines = @(Select-String -Path cpp_build.log -Pattern "error [A-Z]+\d+|error C\d+|fatal error|LNK\d+|MSB\d+|ninja error|assertion|Exception" | ForEach-Object { $_.Line })
+            if ($errLines.Count -eq 0) { $errLines = @(Get-Content cpp_build.log -Tail 30) }
+          } else {
+            $errLines = @("cpp_build.log 不存在（构建步未启动）")
+          }
+          # GitHub 每个 step 最多 10 条 annotation，逐行转义后取前 10
+          $n = 0
+          foreach ($l in $errLines) {
+            $esc = $l.Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+            if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
+            Write-Output "::error title=PC diag [${phase}]::${esc}"
+            $n++
+            if ($n -ge 10) { break }
+          }
+          # summary：完整上下文（公开仓库的 run 页面可直接看）
+          {
+            "### PC 构建诊断 · phase = $phase"
+            ""
+            "```"
+            Get-Content toolchain.txt -ErrorAction SilentlyContinue
+            "```"
+            "#### 错误行"
+            ""
+            "```"
+            $errLines | Select-Object -First 40
+            "```"
+            "#### cpp_build.log 尾 60 行"
+            ""
+            "```"
+            if (Test-Path cpp_build.log) { Get-Content cpp_build.log -Tail 60 }
+            "```"
+          } | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload diagnosis artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-diag-log
+          path: |
+            cpp_build.log
+            toolchain.txt
+            diag_phase.txt
+          retention-days: 7
+          if-no-files-found: ignore
