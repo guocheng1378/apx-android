@@ -139,6 +139,9 @@ set(APXPC_COMMON_SRC
   # + Moonlight（ROADMAP §2.5，不内嵌 —— Moonlight 客户端 GPLv3 与 MIT 冲突）。
   # panel_http（两端 exe 的源列表）无条件 include 它，所以进 core 而非按平台分支。
   "${APXPC_ROOT}/src/screen/sunshine_detect.cpp"
+  # Sunshine 子进程托管（M6-a spike 脚手架）：起/停/查，日志与 pid 落临时目录。
+  # 与 detect 同进 core（apxhost 的 sunshine-spike 子命令用）；不进面板 TU。
+  "${APXPC_ROOT}/src/screen/sunshine_launch.cpp"
 )
 set(APXPC_DISCOVERY_SRC
   "${APXPC_ROOT}/src/discovery/descriptor_parse.cpp"

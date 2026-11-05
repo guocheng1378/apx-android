@@ -32,6 +32,8 @@
 #include <apxpc/autostart.hpp>
 #include <apxpc/tray/tray_win32.hpp>
 #include <apxpc/ui/panel_http.hpp>
+#include <apxpc/screen/sunshine_detect.hpp>    // spike status：只读检测（mac/Linux）
+#include <apxpc/screen/sunshine_launch.hpp>    // spike 脚手架：Sunshine 子进程托管（M6-a）
 
 #include <atomic>
 #include <chrono>
@@ -80,6 +82,9 @@ void printUsage() {
         "                     LocalSend 互传的接收端：加入多播组、周期自广播，手机端在\n"
         "                     「互传（LocalSend）」里即可发现本机并直接发送（默认端口 53317，\n"
         "                     被占自动回退 53318/53319；默认落盘「下载/AllPeriph」）\n"
+        "  apxhost sunshine-spike start [exe路径] [秒数]\n"
+        "                     M6 spike：把 Sunshine 当子进程拉起（日志/pid 落临时目录），\n"
+        "                     到时停止并收尸；stop 停记录在案的子进程，status 只读检测\n"
         "  apxhost --help\n"
         "\n"
         "交互命令：\n"
@@ -470,6 +475,83 @@ int runSpeakerCli(const std::string& host, uint16_t port, int seconds, int devic
     return 0;
 }
 
+// --------------------------------------- Sunshine 推屏 spike（M6-a 子进程脚手架）----
+// 把 Sunshine 当子进程拉起 / 停掉 / 查状态：M6 第一阶段只验证「托管这条路跑得通」，
+// 不碰任何 Moonlight 协议（GPLv3 不内嵌，ROADMAP §2.5 与 docs/INTEGRATIONS.md §1）。
+// 真机实测步骤与选型评估见 docs/spikes/m6-sunshine-spike.md。
+static int runSunshineSpikeStart(const std::string& exeArg, int seconds) {
+    const std::string exe = apxpc::screen::findSunshineExecutable(exeArg);
+    if (exe.empty()) {
+        std::fprintf(stderr,
+                     "未找到 Sunshine 可执行文件%s。先安装，或显式给路径："
+                     "apxhost sunshine-spike start <exe路径>（指引见 docs/spikes/m6-sunshine-spike.md）\n",
+                     exeArg.empty() ? "" : ("：" + exeArg).c_str());
+        return 1;
+    }
+    const std::string pidFile = apxpc::screen::defaultSpikePidPath();
+    const std::string logFile = apxpc::screen::defaultSpikeLogPath();
+    if (apxpc::screen::spikeChildAlive(pidFile)) {
+        std::fputs("已有 spike 子进程在跑（先 apxhost sunshine-spike stop）。\n", stderr);
+        return 2;
+    }
+    std::printf("启动 Sunshine 子进程：\n  exe   %s\n  日志  %s\n", exe.c_str(), logFile.c_str());
+    const auto r = apxpc::screen::startSunshineProcess(exe, {}, logFile, pidFile);
+    if (!r.ok) {
+        std::printf("启动失败：%s\n", r.error.c_str());
+        return 1;
+    }
+    std::printf("已拉起（pid %ld）。\n", r.pid);
+
+    bool sawDead = false;
+    if (seconds > 0) {
+        std::printf("轮询 %d 秒……\n", seconds);
+        const auto t0 = std::chrono::steady_clock::now();
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0).count();
+            if (!apxpc::screen::spikeChildAlive(pidFile)) { sawDead = true; break; }
+            std::printf("\r[%4llds] 子进程存活   ", static_cast<long long>(ms / 1000));
+            std::fflush(stdout);
+            if (ms >= static_cast<long long>(seconds) * 1000) break;
+        }
+        std::puts("");
+    } else {
+        std::puts("按 Enter 停止……");
+        std::cin.get();
+    }
+    if (sawDead) {
+        std::puts("子进程已自行退出（原因见日志）。");
+        apxpc::screen::forgetSpikeChild(pidFile);   // 只清记录，不拿可能已复用的 pid 去杀
+        return 0;
+    }
+    const bool stopped = apxpc::screen::stopSunshineProcess(pidFile);
+    std::puts(stopped ? "已停止 spike 子进程。" : "没有需要停止的子进程（可能刚退出）。");
+    return 0;
+}
+
+static int runSunshineSpikeStop() {
+    const bool ok = apxpc::screen::stopSunshineProcess(apxpc::screen::defaultSpikePidPath());
+    std::puts(ok ? "已停止 spike 子进程。" : "没有可停止的子进程（无记录或已退出）。");
+    return ok ? 0 : 1;
+}
+
+static int runSunshineSpikeStatus() {
+    const std::string pidFile = apxpc::screen::defaultSpikePidPath();
+    std::printf("spike 子进程：%s（记录 %s）\n",
+                apxpc::screen::spikeChildAlive(pidFile) ? "在跑" : "无", pidFile.c_str());
+    const std::string exe = apxpc::screen::findSunshineExecutable("");
+    std::printf("Sunshine 可执行文件：%s\n", exe.empty() ? "未找到" : exe.c_str());
+#if !defined(_WIN32)
+    const auto s = apxpc::screen::sunshineStatus();
+    std::printf("只读检测：installed=%s running=%s https端口=%u\n",
+                s.installed ? "yes" : "no", s.running ? "yes" : "no",
+                static_cast<unsigned>(s.httpsPort));
+#else
+    std::puts("只读检测仅 mac/Linux（Windows 自研副屏已交付，ROADMAP §2.5）。");
+#endif
+    return 0;
+}
 int interactive() {
     std::puts("apxhost 交互模式。输入 help 查看命令，quit 退出。");
     std::string line;
@@ -542,6 +624,26 @@ int main(int argc, char** argv) {
             std::vector<std::string> files;
             for (int i = 3; i < argc; ++i) files.emplace_back(argv[i]);
             return runLocalSendSend(argv[2], files);
+        }
+
+        // ---- Sunshine 推屏 spike（M6-a）：子进程托管脚手架（实测见 docs/spikes/m6-sunshine-spike.md）----
+        if (cmd == "sunshine-spike") {
+            const std::string sub = argc > 2 ? argv[2] : "status";
+            std::string exeArg = argc > 3 ? argv[3] : "";
+            int secs = 0;
+            // 「start 60」（只给秒数）与「start <exe路径> 60」两种写法都吃
+            if (!exeArg.empty() &&
+                exeArg.find_first_not_of("0123456789") == std::string::npos) {
+                secs = std::atoi(exeArg.c_str());
+                exeArg.clear();
+            } else if (argc > 4) {
+                secs = std::atoi(argv[4]);
+            }
+            if (sub == "start") return runSunshineSpikeStart(exeArg, secs);
+            if (sub == "stop") return runSunshineSpikeStop();
+            if (sub == "status") return runSunshineSpikeStatus();
+            std::fputs("用法：apxhost sunshine-spike start [exe路径] [秒数] | stop | status\n", stderr);
+            return 1;
         }
 
         // ---- 浏览器控制面板（方案 B：本地 HTTP + React dist；macOS 首选入口）----
