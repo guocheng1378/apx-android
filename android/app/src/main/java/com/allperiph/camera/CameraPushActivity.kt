@@ -14,7 +14,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.result.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -45,9 +45,10 @@ import java.util.concurrent.Executors
  *   · 权限申请走 Activity Result API（registerForActivityResult）而非
  *     override onRequestPermissionsResult —— 后者在 ComponentActivity 下签名
  *     编译不过（PR #162 CI 轮 1 实测），前者是官方推荐路径且无 override 问题。
- *   · 分辨率三个策略类在 `androidx.camera.core.resolutionselector` 子包
- *     （不在 `androidx.camera.core` 根包），常量名也不是 RATIO_16_9_ANGLES ——
- *     同轮 CI 实测踩过，后来者照官方 reference 抄。
+ *   · 两处包名坑（PR #162 CI 轮 1/2 实测踩过，后来者照官方 reference 抄）：
+ *     分辨率策略类在 `androidx.camera.core.resolutionselector` 子包（不在根包）；
+ *     ActivityResultContracts 在 `androidx.activity.result.contract` 子包
+ *     （不在 `androidx.activity.result` —— 那里放的是 ActivityResultCallback）。
  *
  * 启动（当前无应用内入口，M7-c 面板接）：
  *   adb shell am start -n com.allperiph/.camera.CameraPushActivity
