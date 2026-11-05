@@ -16,6 +16,10 @@
 #include "apxpc/log.hpp"
 #include "fx.hpp"
 
+// GDI+ 官方顺序：windows.h（已在 ball_win32.hpp 内，带 WIN32_LEAN_AND_MEAN）→ objidl.h → gdiplus.h。
+// LEAN_AND_MEAN 裁掉了 ole2 链，objidl 不随 windows.h 进来 —— 少了它，GdiplusBitmap/GdiplusMetafile
+// 里的 IStream / BOOL 参数直接崩（C2065 IStream → 级联 100+ 错停编，diag run #5 实测）。
+#include <objidl.h>
 #include <gdiplus.h>
 #include <windowsx.h>
 
@@ -29,7 +33,7 @@ HWND g_ballWnd = nullptr;
 
 namespace {
 
-constexpr wchar_t kClass[]       = L"APXBallV2";
+constexpr wchar_t kClass       = L"APXBallV2";
 constexpr int     kBallDip       = 44;    // 与 legacy 壳同直径
 constexpr int     kItemDip       = 52;    // 扇形项直径
 constexpr int     kFanRadiusDip  = 128;   // 扇形半径（项心轨迹）
@@ -277,7 +281,7 @@ RECT snapTarget(HWND w) {
     const int bh = rc.bottom - rc.top;
     const int cx = (rc.left + rc.right) / 2;
     RECT t = rc;
-    t.left = (cx * 2 < wa.left + wa.right) ? wa.left : wa.right - bw;
+    t.left  = (cx * 2 < wa.left + wa.right) ? wa.left : wa.right - bw;
     t.right = t.left + bw;
     if (t.top < wa.top) t.top = wa.top;
     if (t.top + bh > wa.bottom) t.top = wa.bottom - bh;
