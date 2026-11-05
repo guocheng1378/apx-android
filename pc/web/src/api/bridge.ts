@@ -87,6 +87,24 @@ export interface HostState {
     };
     mic?: { running: boolean; device: string };
   };
+  /**
+   * 摄像头（M7-c）：预览窗 + 虚拟摄像头出口。
+   * 字段口径 = camera_view.cpp 的 CameraView::Status 逐字段下发；老宿主没有 → 可选。
+   */
+  camera?: {
+    running: boolean;
+    previewOpen: boolean;
+    virtualCam: boolean;
+    /** 注册流程是否已实际执行过（没开过 = 未实测，前端不冒充可用） */
+    virtualCamTested: boolean;
+    frames: number;
+    bytes: number;
+    lastFrameMs: number;
+    width: number;
+    height: number;
+    stale: boolean;
+    error: string;
+  };
   /** 互传（LocalSend 协议 v2.2）：字段口径由 C++ 的 apxpc::localsend::statusJson 统一给出
    *  （host 侧 testStatusJson 钉住这份契约），两个面板入口（WebView2 / HTTP）同源。 */
   localsend: {
