@@ -8,12 +8,16 @@ name: PC Diagnose
 # + job summary（公开可读），完整日志另传 artifact。
 # 双触发：push 到本分支即跑（未合入默认分支时 dispatch API 不认，push 事件直接
 # 执行分支上的工作流文件）；合入 master 后 workflow_dispatch 可用，ref 选诊断目标。
-# 踩坑记录：
+# 踩坑记录（2026-11-05）：
 #   · v1 脚本 pwsh 解析崩溃（双引号里反引号是转义符，"```" 在解析期崩）——已修：围栏改单引号
 #   · v2 只读 cpp_build.log（MSBuild 输出）——**漏了 CMake 报错的真正出处**：
 #     build.yml Build 步注释写明「CMake 报错原文在 CMakeFiles/CMakeError.log」，
 #     所以 v2 必须同时读 CMakeError.log + cpp_build.log，否则 link error 永远只能看到
 #     「Process completed with exit code 1」（line 171 的裸退出码）。
+#   · v3 **artifact 发布条件 bug**（run 1159 失败时 artifact 没上传）：
+#     `if: failure()` 只覆盖**该 step**，前面的 Build 步 exit 1 时脚本根本没跑，
+#     annotation 和 artifact 都出不来。所以 `if: always()` —— 无论死活都发，
+#     失败时 annotation 兜底发错误行（error 标记公开可读），成功时也传一份无害。
 on:
   push:
     branches: [feat/ci-pc-annotations]
@@ -96,7 +100,7 @@ jobs:
           }
 
       - name: Publish diagnosis (annotation + summary)
-        if: failure()
+        if: always()
         continue-on-error: true
         shell: pwsh
         run: |
@@ -165,7 +169,7 @@ jobs:
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
 
       - name: Upload diagnosis artifact
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pc-diag-log
