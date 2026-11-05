@@ -13,8 +13,7 @@ plugins {
 // 也允许 -PversionName=vXXX 手工覆盖（本地模拟发版）。
 val releaseTag: String = run {
     val fromProp = (project.findProperty("versionName") as? String)?.trim().orEmpty()
-    val fromEnv = if (System.getenv("GITHUB_REF")?.startsWith("refs/tags/") == true)
-        System.getenv("GITHUB_REF_NAME")?.trim().orEmpty() else ""
+    val fromEnv = if (System.getenv("GITHUB_REF")?.startsWith("refs/tags/") == true) System.getenv("GITHUB_REF_NAME")?.trim().orEmpty() else ""
     val picked = fromProp.ifEmpty { fromEnv }
     // 只接受形如 v205 的 tag；分支名（含 / 或非 v 开头）一律不采用
     picked.takeIf { it.matches(Regex("v[0-9][0-9A-Za-z.\\-]*")) } ?: ""
@@ -124,6 +123,16 @@ dependencies {
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.4")
     implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.4")
     implementation("dev.chrisbanes.haze:haze:1.7.3")
+
+    // —— M7-b 摄像头采集（2026-11-05，docs/spikes/m7-media-inbound-spike.md §2.3）——
+    // 「生产代码不引入第三方依赖」原则的**第二个显式例外**（第一个是上面的
+    // miuix/Compose PoC）：选 CameraX 而非裸 framework Camera2 —— 生命周期绑定/
+    // 预览表面/权限引导开箱即用，Apache-2.0 源码公开；JPEG 编码仍走 framework
+    // YuvImage（CameraPushActivity），第三方依赖面控制在采集层。锁 1.4.1 stable。
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+
     testImplementation("junit:junit:4.13.2")
 }
 

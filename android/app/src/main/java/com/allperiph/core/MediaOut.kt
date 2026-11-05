@@ -45,6 +45,17 @@ object MediaOut {
         return s.send(ApxFrame.STREAM_MIC, body, 0)
     }
 
+    /**
+     * 摄像头上行（s6，整帧 JPEG，不分片；M7-b，docs/PROTOCOL.md §3）。
+     * 单帧上限 4MB（[ApxFrame.MAX_PAYLOAD]），720p q80 典型 80~150KB。
+     * @return 是否成功入队（true ≠ 已送达）
+     */
+    fun camera(jpeg: ByteArray): Boolean {
+        val s = sink ?: return false
+        if (!s.ready || jpeg.isEmpty()) return false
+        return s.send(ApxFrame.STREAM_CAMERA, jpeg, 0)
+    }
+
     // —— 副屏触摸（streamId=2，8 字节小帧，格式与 PC touch_inject.hpp 逐字节一致）——
     const val TOUCH_DOWN = 0
     const val TOUCH_UP = 1

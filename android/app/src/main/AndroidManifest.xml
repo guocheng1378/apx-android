@@ -59,6 +59,13 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
+      摄像头上行（M7-b，手机摄像头 → PC，streamId=6 JPEG）。
+      与 RECORD_AUDIO 同一条教训：声明是运行时授权的前提 —— 未声明时
+      CameraPushActivity 的 requestPermissions 立即回调 denied，推流永远起不来。
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
       悬浮窗：被控模式（手机当被控端）显示对方光标落点，用的是 TYPE_APPLICATION_OVERLAY。
       ⚠️ v196 之前只有注释「SYSTEM_ALERT_WINDOW：Toast overlay（fallback 用）」，没有声明 ——
       TvOverlay 创建浮层抛 SecurityException 又被 try/catch 吞掉，结果是
@@ -118,8 +125,8 @@
           3) 「横屏切换后会先跳状态页再跳回」的修法与本属性无关：靠 configChanges（旋转不重建
              Activity）+ ApShellActivity.onSaveInstanceState 的页签存档两层兜住。
           ⚠️ 另外：XML 注释不能写在开始标签的属性之间，只能整段放在元素外面（第一版就是
-          写进 <activity> 属性里，CI 在 processReleaseMainManifest 报
-          "Error parsing AndroidManifest.xml"，整轮判死）。
+             写进 <activity> 属性里，CI 在 processReleaseMainManifest 报
+             "Error parsing AndroidManifest.xml"，整轮判死）。
         -->
         <activity
             android:name=".ui.compose.ApShellActivity"
@@ -181,7 +188,7 @@
         <!--
           ④ 游戏手柄（双摇杆，v1.19）
           结构：双摇杆 + A/B/X/Y + 肩键；UI 全部由代码构建，没有对应的 layout 文件。
-          坐标按 **800×360dp 横屏**核算（见 GamepadActivity 里 A/B/X/Y 的 setMargins 注释），
+          坐标按 **800×360dp 横屏**核算（见 GamepadActivity 里 setMargins 的注释），
           所以强制横屏 —— 此前写的 sensor，竖屏进来时那套坐标会挤成一团。
         -->
         <activity
@@ -410,6 +417,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!--
+          ⑮之二 摄像头推流页（M7-b，docs/spikes/m7-media-inbound-spike.md §2.3）。
+          手机摄像头 → MediaOut.camera()（streamId=6，JPEG 720p q80 ≈10fps）。
+          当前无应用内入口（M7-c 面板接），先 adb 拉起：
+            adb shell am start -n com.allperiph/.camera.CameraPushActivity
+          刻意不写 screenOrientation：预览竖横屏自适应，朝向交给系统。
+        -->
+        <activity
+            android:name=".camera.CameraPushActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
+            android:excludeFromRecents="true" />
 
         <!--
           ⑯ 启动引导页（v1.88）：⚠️ 已暂停注册 ——

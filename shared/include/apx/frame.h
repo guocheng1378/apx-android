@@ -35,6 +35,7 @@ enum : uint8_t {
     kStreamControl   = 3,   // 双向：控制面（鼠标 / 键盘 / 多媒体 / 心跳）
     kStreamTelemetry = 4,   // 预留
     kStreamMic       = 5,   // 上行：麦克风 —— 手机录音（PCM s16le / 48k / 立体声）
+    kStreamCamera    = 6,   // 上行：摄像头 —— 手机 → PC，JPEG 单帧（不分片，M7-b）
 
 };
 
