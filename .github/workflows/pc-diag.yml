@@ -1,0 +1,148 @@
+name: PC Diagnose
+
+# 旁路诊断：build.yml 的 pc 作业失败时只 Write-Host 打日志（logs API 对非 admin 403），
+# 错误永远拿不到。本工作流同配方重跑一次，失败时：
+#   · ::error annotation —— 公开仓库匿名可读（绕开 403）
+#   · job summary        —— 公开可读，带 toolchain 快照
+#   · artifact           —— CMakeError.log / cpp_build.log 全文
+# 三通道全部 if: always()（v2 教训：挂 if: failure() 时前面 exit 1，脚本根本没跑）。
+on:
+  push:
+    branches: ['feat/**']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "诊断目标 ref（默认 = 触发提交本身）"
+        required: false
+        default: "master"
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  pc-diag:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: pc/web/package-lock.json
+
+      - name: Setup MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Toolchain snapshot
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationVersion
+          @(
+            "ImageOS=$env:ImageOS ImageVersion=$env:ImageVersion",
+            "cmake=$(cmake --version | Select-Object -First 1)",
+            "vswhere=$vs",
+            "VCToolsVersion=$env:VCToolsVersion",
+            "node=$(node --version)"
+          ) | Tee-Object -FilePath toolchain.txt
+
+      - name: Install web dependencies
+        shell: pwsh
+        working-directory: pc/web
+        run: npm ci --no-audit --no-fund 2>&1 | Select-Object -Last 10
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S pc/host -B build_host -G "Visual Studio 18 2026" -A x64 `
+            -DAPXPC_BUILD_SDK=OFF -DAPXPC_BUILD_EXAMPLES=OFF `
+            -DAPXPC_BUILD_UI=ON -DAPXPC_BUILD_UI_WEBVIEW2=ON
+          if ($LASTEXITCODE -ne 0) {
+            "CONFIGURE_FAILED" | Out-File -FilePath diag_phase.txt
+            exit $LASTEXITCODE
+          }
+          "configure ok" | Out-File -FilePath diag_phase.txt
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build_host --config Release --target apxhost apxdesktop apxsetup 2>&1 | `
+            Tee-Object -FilePath cpp_build.log | Select-Object -Last 30
+          if ($LASTEXITCODE -ne 0) {
+            "BUILD_FAILED" | Out-File -FilePath diag_phase.txt -Append
+            exit $LASTEXITCODE
+          }
+
+      - name: Publish diagnosis (annotation + summary)
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $phase = "unknown"
+          if (Test-Path diag_phase.txt) { $phase = ((Get-Content diag_phase.txt | Where-Object { $_ }) -join " | ") }
+          $cmakeErr = @()
+          if (Test-Path "build_host/CMakeFiles/CMakeError.log") {
+            $cmakeErr = @(Get-Content "build_host/CMakeFiles/CMakeError.log" -Tail 60)
+          }
+          $buildErr = @()
+          if (Test-Path cpp_build.log) { $buildErr = @(Get-Content cpp_build.log -Tail 40) }
+          $hits = @()
+          foreach ($s in @($cmakeErr, $buildErr)) {
+            foreach ($l in $s) {
+              if ($l -match "error [A-Z]+\d+" -or $l -match "fatal error" -or $l -match "error C\d+" -or $l -match "LNK\d+" -or $l -match "MSB\d+" -or $l -match "Exception" -or $l -match "Assertion") {
+                $hits += $l.Trim()
+              }
+            }
+          }
+          $hits = $hits | Select-Object -Unique
+          if ($hits.Count -eq 0) { $hits = @("[no pattern] cpp_build.log 尾部：") + ($buildErr | Select-Object -First 15) }
+          $n = 0
+          foreach ($l in $hits) {
+            $esc = ("$l") -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+            if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
+            if ($esc.Trim()) {
+              Write-Output "::error title=PC diag ${phase}::${esc}"
+              $n++
+              if ($n -ge 10) { break }
+            }
+          }
+          $sum = @()
+          $sum += "### PC 构建诊断 · phase = $phase · commit $($env:GITHUB_SHA)"
+          $sum += ""
+          $sum += '```'
+          $sum += (Get-Content toolchain.txt -ErrorAction SilentlyContinue)
+          $sum += '```'
+          $sum += "#### CMakeError.log 尾 60 行"
+          $sum += ""
+          $sum += '```'
+          foreach ($l in $cmakeErr) { $sum += $l.Trim() }
+          $sum += '```'
+          $sum += "#### cpp_build.log 尾 40 行"
+          $sum += ""
+          $sum += '```'
+          foreach ($l in $buildErr) { $sum += $l.Trim() }
+          $sum += '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
+
+      - name: Upload diagnosis artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pc-diag-log
+          path: |
+            cpp_build.log
+            build_host/CMakeFiles/CMakeError.log
+            build_host/CMakeFiles/CMakeOutput.log
+            toolchain.txt
+            diag_phase.txt
+          retention-days: 7
+          if-no-files-found: ignore

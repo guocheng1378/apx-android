@@ -1,0 +1,81 @@
+// 动作注册表：球的扇形菜单/卡片由它渲染，注册表决定球上出现什么。
+// 规则（与规划 M1 一致）：
+//   · 高频 4 项（单击扇形第一档 HIGH）：开面板 / 发剪贴板 / 音箱开关 / 退出
+//   · 带状态项（卡片第二档 CARD，M2 接面板）：麦克风、副屏、连接状态（+剪贴板待发角标）
+//   · 重交互（文件浏览/日志/设置）不进球：按需 apxhost panel 浏览器页
+//   · 新增功能 = 加一行注册 + bridge 一个 act，球本体零改动
+//
+// 动作 ID 与 bridge.ts 的 act 命名同源；与手机端球动作 ID 对齐（低栏长按常用功能同名）。
+#pragma once
+
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace apxpc {
+namespace ball {
+
+// 三档排布：HIGH = 扇形第一档；CARD = 卡片第二档；MORE = 预留（重交互不进球）
+enum class Slot { HIGH, CARD, MORE };
+
+struct Action {
+    std::string id;
+    std::string icon;      // emoji / 小图标（Win32 球壳只画 label，emoji 留给 web 皮）
+    std::string label;
+    Slot slot = Slot::HIGH;
+    std::function<bool()> badge_fn;   // 状态角标：true → 球缘亮环 / 扇形项右上绿点
+    std::function<bool()> enabled_fn; // 灰显判定：false → 项灰掉且点击无效
+    std::function<void()> run_fn;
+};
+
+class Registry {
+public:
+    // 注册动作；重复 id 原位覆盖（更新动作 = 改注册），首次注册顺序即渲染顺序
+    void add(const Action& a);
+    void remove(const std::string& id);
+    void clear();
+    bool has(const std::string& id) const;
+    const Action* find(const std::string& id) const;
+
+    // 按档位拉取（保注册序 —— 扇形/卡片渲染直接遍历它）
+    std::vector<const Action*> highPriority() const;
+    std::vector<const Action*> cardPriority() const;
+    std::vector<const Action*> morePriority() const;
+
+    // badge/enabled 的按 id 查询（find 的别名，语义上绑定状态钩子）
+    const Action* get(const std::string& id) const;
+
+private:
+    // vector 而非 map：顺序即排布；条目 ≤ 30，线性扫足够
+    std::vector<Action> s_actions_;
+};
+
+// 宿主钩子：动作「做什么」由装配方（M3：desktop_main / web_panel）提供；
+// 注册表与球只做「摆盘 + 触发」，不直接依赖宿主栈 —— 保证 registry/fx 可离线单测。
+// 允许留空：钩子为空的项 enabled_fn 返回 false（灰显），不装死按钮。
+struct HostActions {
+    // —— HIGH（扇形第一档）
+    std::function<void()> open_panel;        // 唤面板（与 tray onOpen_ 同源）
+    std::function<bool()> send_clipboard;     // 本机剪贴板发给手机；false = 当前无对端
+    std::function<bool()> toggle_speaker;     // 手机当音箱；返回新开关态
+    std::function<void()> exit_app;           // 退出（与 tray onQuit_ 同源）
+    // —— CARD（卡片第二档，M2）
+    std::function<bool()> toggle_mic;         // 手机麦克风；返回新开关态
+    std::function<bool()> toggle_display;     // 副屏；返回新开关态
+    // —— 状态查询（badge_fn / enabled_fn 的数据源，M3 接 bridge state）
+    std::function<bool()> connected;          // link.phase == connected
+    std::function<bool()> clipboard_pending;  // 剪贴板有待发内容
+    std::function<bool()> speaker_on;
+    std::function<bool()> mic_on;
+    std::function<bool()> display_on;
+    std::function<bool()> sunshine_running;   // Sunshine 在跑（副屏可点亮）
+};
+
+// 首批动作按三档灌入（整体重装：先 clear 再按序 add）
+void installDefaultActions(const HostActions& host);
+void clearActions();
+
+extern const Registry& registry();
+
+} // namespace ball
+} // namespace apxpc

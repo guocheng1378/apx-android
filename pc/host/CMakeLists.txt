@@ -28,12 +28,13 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
       break()
     endif()
   endforeach()
-  if(NOT DEFINED WEBVIEW2_SDK_DIR OR "${WEBVIEW2_SDK_DIR}" STREQUAL "")
+  if(NOT DEFINED WEBVIEW2_SDK_DIR OR WEBVIEW2_SDK_DIR STREQUAL "")
     file(GLOB_RECURSE WV2_H_PATH "${CMAKE_BINARY_DIR}/_deps/*/WebView2.h"
          "${CMAKE_SOURCE_DIR}/_deps/*/WebView2.h")
     if(WV2_H_PATH)
       get_filename_component(WV2_H_DIR "${WV2_H_PATH}" DIRECTORY)
       get_filename_component(WEBVIEW2_SDK_DIR "${WV2_H_DIR}" DIRECTORY)
+      get_filename_component(WEBVIEW2_SDK_DIR "${WEBVIEW2_SDK_DIR}" DIRECTORY)
       get_filename_component(WEBVIEW2_SDK_DIR "${WEBVIEW2_SDK_DIR}" DIRECTORY)
       get_filename_component(WEBVIEW2_SDK_DIR "${WEBVIEW2_SDK_DIR}" DIRECTORY)
     endif()
@@ -111,7 +112,7 @@ endif()
 set(LIBUSB_TARGET "")
 if(APXPC_USE_LIBUSB)
   find_path(APXPC_USB_INCLUDE_DIR NAMES libusb-1.0/libusb.h libusb.h)
-  find_library(APXPC_USB_LIBRARY NAMES usb-1.0 libusb-1.0)
+  find_library(APXPC_USB_LIBRARY NAMES usb-1.0 usb)
   if(APXPC_USB_INCLUDE_DIR AND APXPC_USB_LIBRARY)
     add_library(apx_libusb INTERFACE)
     target_include_directories(apx_libusb INTERFACE "${APXPC_USB_INCLUDE_DIR}")
@@ -163,30 +164,23 @@ if(WIN32)
     "${APXPC_ROOT}/src/ctrl/hid_transport_win.cpp"
     "${APXPC_ROOT}/src/ctrl/bulk_transport_win.cpp")
   if(APXPC_BUILD_WIN_BACKENDS)
-    list(APPEND APXPC_SENSORS_SRC
-      "${APXPC_ROOT}/src/sensors/sensor_reader_win_sensorapi.cpp")
+    list(APPEND APXPC_SENSORS_SRC "${APXPC_ROOT}/src/sensors/sensor_reader_win_sensorapi.cpp")
     if(APXPC_HAVE_CPPWINRT AND EXISTS "${APXPC_ROOT}/src/sensors/sensor_reader_winrt.cpp")
-      list(APPEND APXPC_SENSORS_SRC
-        "${APXPC_ROOT}/src/sensors/sensor_reader_winrt.cpp")
+      list(APPEND APXPC_SENSORS_SRC "${APXPC_ROOT}/src/sensors/sensor_reader_winrt.cpp")
     endif()
   else()
-    list(APPEND APXPC_SENSORS_SRC
-      "${APXPC_ROOT}/src/sensors/sensor_reader_win_stub.cpp")
+    list(APPEND APXPC_SENSORS_SRC "${APXPC_ROOT}/src/sensors/sensor_reader_win_stub.cpp")
   endif()
 else()
   if(LIBUSB_TARGET)
-    list(APPEND APXPC_DISCOVERY_SRC
-      "${APXPC_ROOT}/src/discovery/usb_enum_libusb.cpp")
-    list(APPEND APXPC_CTRL_SRC
-      "${APXPC_ROOT}/src/ctrl/bulk_transport_libusb.cpp")
+    list(APPEND APXPC_DISCOVERY_SRC "${APXPC_ROOT}/src/discovery/usb_enum_libusb.cpp")
+    list(APPEND APXPC_CTRL_SRC "${APXPC_ROOT}/src/ctrl/bulk_transport_libusb.cpp")
   elseif(APPLE)
     # mac：既没有 /sys（sysfs 后端恒返回空枚举 → 面板 USB 状态永远 false），
     # 默认也不装 libusb。IOKit 是系统自带框架，零外部依赖，走它。
-    list(APPEND APXPC_DISCOVERY_SRC
-      "${APXPC_ROOT}/src/discovery/usb_enum_iokit.cpp")
+    list(APPEND APXPC_DISCOVERY_SRC "${APXPC_ROOT}/src/discovery/usb_enum_iokit.cpp")
   else()
-    list(APPEND APXPC_DISCOVERY_SRC
-      "${APXPC_ROOT}/src/discovery/usb_enum_sysfs.cpp")
+    list(APPEND APXPC_DISCOVERY_SRC "${APXPC_ROOT}/src/discovery/usb_enum_sysfs.cpp")
   endif()
   # ★ discovery.cpp（usb::Device → discovery::DeviceInfo 包装层，纯跨平台、零 Win32 API）
   #   此前只进 WIN32 分支 —— 非 Windows 链接 apxhost 时缺 apxpc::discovery::enumerate()
@@ -266,6 +260,13 @@ set(APXPC_SERVICE_SRC
   "${APXPC_ROOT}/src/tray/tray_win32.cpp"
   # ★ 开机自启：web_panel.cpp 的 tray.setAutostart 需要链接此实现
   "${APXPC_ROOT}/src/autostart.cpp"
+  # 桌面球 v2（M1）：动作注册表（registry.cpp，跨平台纯标准库）+ 动效几何（fx.cpp）
+  # + Win32 球壳（ball_win32.cpp，非 Windows 空桩同 tray_win32 做法）。
+  # 进 service = apxhost / apxdesktop（WebView2 默认路径）/ legacy GDI 壳三路都链得到；
+  # 装配点在 desktop_main（M3），未装配时无外部引用不进最终映像。
+  "${APXPC_ROOT}/src/ball/registry.cpp"
+  "${APXPC_ROOT}/src/ball/fx.cpp"
+  "${APXPC_ROOT}/src/ball/ball_win32.cpp"
 )
 if(APPLE)
   # update_check 的 macOS HTTP 实现（NSURLSession / ObjC++）。必须在 add_library 前
@@ -286,7 +287,8 @@ target_link_libraries(apxpc_service PUBLIC apxpc_core apxpc_discovery apxpc_sens
 if(WIN32)
   # advapi32：RegOpenKeyEx/RegSetValueEx/RegDeleteValue（autostart.cpp 注册表操作）
   # winhttp：更新检测（update_check.cpp，与 webpanel/apxsetup 同依赖）
-  target_link_libraries(apxpc_service PUBLIC ws2_32 shell32 user32 ole32 advapi32 winhttp)
+  # gdi32/gdiplus：球 v2 的 UpdateLayeredWindow 表面绘制（src/ball/ball_win32.cpp）
+  target_link_libraries(apxpc_service PUBLIC ws2_32 shell32 user32 ole32 advapi32 winhttp gdi32 gdiplus)
 endif()
 if(APPLE)
   # update_check_mac.mm：NSURLSession 的 completionHandler block 跨异步生命周期持有
@@ -400,7 +402,12 @@ if(WIN32 AND APXPC_BUILD_UI)
   if(APXPC_BUILD_UI_WEBVIEW2)
     set(APXPC_WEBPANEL_SRC
       "${APXPC_ROOT}/src/ui/web_panel.cpp"
-      "${APXPC_ROOT}/src/ui/webview2_runtime.cpp")
+      "${APXPC_ROOT}/src/ui/webview2_runtime.cpp"
+      # ★ 悬浮球（2026-11-05）：web_panel.cpp 调 apxpc::ui::FloatingBall::create，
+      #   实现在 src/ui/ball_win32.cpp —— 此前只挂在下面 legacy apxpc_ui 分支，
+      #   WebView2 路径（CI 默认）一直没编它 → LNK2019 unresolved FloatingBall::create，
+      #   pc 作业连续红的真正原因（diag run3 annotation 钉死）。
+      "${APXPC_ROOT}/src/ui/ball_win32.cpp")
     add_library(apxpc_webpanel STATIC ${APXPC_WEBPANEL_SRC})
     target_include_directories(apxpc_webpanel PUBLIC "${APXPC_ROOT}/include")
     # apxpc_localsend：面板里的「互传」卡（buildState 的 localsend 段 + toggle / openDir 动作）
@@ -517,8 +524,8 @@ if(WIN32)
   configure_file("${APXPC_ROOT}/res/setup_payload.rc.in"
                  "${CMAKE_BINARY_DIR}/setup_payload.rc" @ONLY)
   add_custom_command(TARGET apxdesktop POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${APX_PAYLOAD_DIR}"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:apxdesktop>" "${APX_PAYLOAD_EXE}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${APX_PAYLOAD_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:apxdesktop>" "${APX_PAYLOAD_EXE}"
     COMMENT "暂存安装包载荷 apxdesktop.exe")
 
   add_executable(apxsetup
@@ -588,7 +595,7 @@ if(APXPC_BUILD_TESTS)
   target_include_directories(gamepad_fallback_test PRIVATE "${APXPC_ROOT}/include")
   add_test(NAME gamepad_fallback_test COMMAND gamepad_fallback_test)
 
-  # 本机端口占用探测：真起监听 → 探到 → 关掉 → 探不到。
+  # 本机端口占用探测：真起监听 → 探到 → 探不到。
   # 盯的是 v223.7 已交付的「9511 已在运行检测」（apxpc::net::tcp_probe）——这条判错的后果是面板不再起受控端，
   # 却又没人提供，手机就永远发现不了本机（静默失效），所以必须有用例钉住。
   add_executable(tcp_probe_test "${APXPC_ROOT}/tests/tcp_probe_test.cpp")
@@ -638,8 +645,7 @@ if(APXPC_BUILD_TESTS)
   # LocalSend 发送端：纯函数（fileType 表 / prepare 报文契约 / 应答解析）走假对端验证
   # register → prepare → upload 三步，并验取消能真中断且通知对端 cancel。
   # 同样只在 127.0.0.1 上跑，自带超时，失败是「这条用例红」而不是整步卡死。
-  add_executable(localsend_sender_test
-                 "${APXPC_ROOT}/tests/localsend_sender_test.cpp")
+  add_executable(localsend_sender_test "${APXPC_ROOT}/tests/localsend_sender_test.cpp")
   target_link_libraries(localsend_sender_test PRIVATE apxpc_localsend)
   add_test(NAME localsend_sender_test COMMAND localsend_sender_test)
   set_tests_properties(localsend_sender_test PROPERTIES TIMEOUT 120)
