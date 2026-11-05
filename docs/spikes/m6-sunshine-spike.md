@@ -1,4 +1,4 @@
-# M6 Sunshine 推屏 spike（第一阶段）
+# M6 Sunshine 推屏 spike
 
 > 2026-11-05。范围：调研 + 选型方案 + 可编译的子进程实测脚手架。
 > 真机实测**未执行**（云端无显示环境、无 Sunshine 运行时）——步骤在 §4，需在装有
@@ -62,3 +62,4 @@
 - 配对自动化、延迟/码率指标：属 M6 后续阶段；本 spike 只到「子进程起得来、停得掉、有日志、有指引」。
 - 已知坑：若 Sunshine 自身守护化（父进程秒退），`spike 子进程` 会显示无 —— 以 `status` 里
   sunshine_detect 的 running 证据为准（端口有人听 = 在跑）。
+- **M6-b（进行中）：子进程执行面补档** —— `apxhost sunshine-spike` 子命令完整实现 + 日志回传能力，见 repo_edit.py 现有引擎写 M6-b 批次。
