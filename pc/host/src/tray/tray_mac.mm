@@ -129,6 +129,8 @@ struct MacTrayShared {
 };
 
 MacTrayShared g_shared;
+/// 连接角标请求（面板线程写、泵线程读——同通知队列的跨线程约定）。
+std::atomic<bool> g_badgeOn{false};
 APXTrayTarget* g_target = nil;     // 菜单接收者（持有到进程结束）
 NSStatusItem* g_statusItem = nil;  // 状态栏项
 std::string g_createFailReason;    // create 失败/降级原因（status() 回传面板用；成功时清空）
@@ -230,6 +232,24 @@ void drainPendingNotifications() {
         pending.swap(g_pendingNotifications);
     }
     for (auto& p : pending) deliverNotification(p.first, p.second);
+}
+
+/// 连接角标：未连接给状态栏按钮加红点（attributedTitle 与图片并存），连接则清。
+/// 主线程专用（AppKit 规矩）——只由 run() 泵每拍调用，绝不从面板线程直调。
+void applyBadge() {
+    static bool last = false;
+    const bool on = g_badgeOn.load();
+    if (on == last || !g_statusItem) return;
+    last = on;
+    NSStatusBarButton* btn = [g_statusItem button];
+    if (btn == nil) return;
+    if (on) {
+        NSDictionary* attrs = @{NSForegroundColorAttributeName : [NSColor systemRedColor]};
+        btn.attributedTitle =
+            [[NSAttributedString alloc] initWithString:@"●" attributes:attrs];
+    } else {
+        btn.attributedTitle = [[NSAttributedString alloc] initWithString:@""];
+    }
 }
 
 }  // namespace
@@ -334,6 +354,7 @@ bool TrayIcon::run(const std::function<bool()>& keepGoing) {
                                                     dequeue:YES];
                 if (ev) [NSApp sendEvent:ev];
                 drainPendingNotifications();
+                applyBadge();
             }
         }
         // —— 停下来了：把状态栏项摘掉，别留一个点了没反应的图标 ——
@@ -376,6 +397,11 @@ void TrayIcon::notify(const std::string& title, const std::string& text) {
         }
         APX_LOGI("托盘通知：{} — {}", title.c_str(), text.c_str());
     }
+}
+
+void TrayIcon::setBadge(bool disconnected) {
+    // 只置原子量；视觉由 run() 泵每拍在主线程统一上色（同 notify 的队列模式）。
+    g_badgeOn.store(disconnected);
 }
 
 TrayIcon::TrayStatus TrayIcon::status() const {

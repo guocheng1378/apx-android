@@ -214,6 +214,7 @@ void buildState(const HostBundle& b, Json& out) {
 
     if (b.session) {
         const auto s = b.session->snapshot();
+        if (b.tray) b.tray->setBadge(s.phase != LinkPhase::Connected);  // M4 菜单栏连接角标
         // ★ 数字而非字符串：前端 phaseSentence 用 `case 3:` 数字严格比较，
         //   曾写成 std::to_string → "3" !== 3 永远落 default「尚未连接」，
         //   控制链路明明已连上（RTT/时长都显示），句子却一直说尚未连接。
@@ -230,6 +231,7 @@ void buildState(const HostBundle& b, Json& out) {
         counts["consumer"] = static_cast<double>(c.consumer);
         counts["dropped"]  = static_cast<double>(c.dropped);
     } else {
+        if (b.tray) b.tray->setBadge(true);
         link["phase"] = static_cast<int>(LinkPhase::Idle);
         link["phaseName"] = L"idle";
     }
