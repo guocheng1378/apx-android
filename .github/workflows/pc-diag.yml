@@ -8,6 +8,8 @@ name: PC Diagnose
 # + job summary（公开可读），完整日志另传 artifact。
 # 双触发：push 到本分支即跑（未合入默认分支时 dispatch API 不认，push 事件直接
 # 执行分支上的工作流文件）；合入 master 后 workflow_dispatch 可用，ref 选诊断目标。
+# 踩坑记录：pwsh 双引号里反引号是转义符 —— 代码围栏必须用单引号 '```'，
+# 否则 "```" 会在解析期崩掉整个脚本（v1 就是这么白跑一次的）。
 on:
   push:
     branches: [feat/ci-pc-annotations]
@@ -94,41 +96,42 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
-          $phase = if (Test-Path diag_phase.txt) { (Get-Content diag_phase.txt) -join " | " } else { "step failed before phase marker" }
+          $phase = "unknown"
+          if (Test-Path diag_phase.txt) {
+            $phase = ((Get-Content diag_phase.txt | Where-Object { $_ }) -join " | ")
+          }
           $errLines = @()
           if (Test-Path cpp_build.log) {
             $errLines = @(Select-String -Path cpp_build.log -Pattern "error [A-Z]+\d+|error C\d+|fatal error|LNK\d+|MSB\d+|ninja error|assertion|Exception" | ForEach-Object { $_.Line })
             if ($errLines.Count -eq 0) { $errLines = @(Get-Content cpp_build.log -Tail 30) }
           } else {
-            $errLines = @("cpp_build.log 不存在（构建步未启动）")
+            $errLines = @("cpp_build.log missing: build step never started")
           }
-          # GitHub 每个 step 最多 10 条 annotation，逐行转义后取前 10
           $n = 0
           foreach ($l in $errLines) {
-            $esc = $l.Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+            $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
             if ($esc.Length -gt 600) { $esc = $esc.Substring(0, 600) }
-            Write-Output "::error title=PC diag [${phase}]::${esc}"
+            Write-Output "::error title=PC diag ${phase}::${esc}"
             $n++
             if ($n -ge 10) { break }
           }
-          # summary：完整上下文（公开仓库的 run 页面可直接看）
-          {
-            "### PC 构建诊断 · phase = $phase"
-            ""
-            "```"
-            Get-Content toolchain.txt -ErrorAction SilentlyContinue
-            "```"
-            "#### 错误行"
-            ""
-            "```"
-            $errLines | Select-Object -First 40
-            "```"
-            "#### cpp_build.log 尾 60 行"
-            ""
-            "```"
-            if (Test-Path cpp_build.log) { Get-Content cpp_build.log -Tail 60 }
-            "```"
-          } | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          $sum = @()
+          $sum += "### PC 构建诊断 · phase = $phase"
+          $sum += ""
+          $sum += '```'
+          $sum += (Get-Content toolchain.txt -ErrorAction SilentlyContinue)
+          $sum += '```'
+          $sum += "#### 错误行（前 40）"
+          $sum += ""
+          $sum += '```'
+          $sum += ($errLines | Select-Object -First 40)
+          $sum += '```'
+          $sum += "#### cpp_build.log 尾 60 行"
+          $sum += ""
+          $sum += '```'
+          if (Test-Path cpp_build.log) { $sum += (Get-Content cpp_build.log -Tail 60) }
+          $sum += '```'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
 
       - name: Upload diagnosis artifact
         if: failure()
