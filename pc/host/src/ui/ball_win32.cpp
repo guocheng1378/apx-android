@@ -7,6 +7,18 @@
 //   · 贴边动画 SetTimer 16ms 推进 + easeInOutQuad，时长 160ms，与 Android
 //     侧 dock 滑入动效同参数（v223.29.11 对齐观感）。
 //   · 拖动用 SetCapture + 屏幕坐标，跨显示器（含负坐标）天然正确。
+//
+// ⚠ 必须在第一个头文件（即第一个 windows.h）之前定义 UNICODE：
+//   工程 CMake 从未全局定义 UNICODE —— IDC_HAND 等 MAKEINTRESOURCE* 宏在 ANSI 下
+//   展开成 LPSTR，而本文件全程显式 W 版 API（LoadCursorW…），直接 C2664（diag run #7：
+//   85/210 两处同根）。本文件在 webview2=OFF 分支才编，CI 默认路径一直没跑过它，
+//   这是它第一次过编译器。宏只定义在本 TU，不动 hpp（web_panel.cpp 也 include 它）。
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
 #include "apxpc/ui/ball_win32.hpp"
 
 #if defined(_WIN32)
