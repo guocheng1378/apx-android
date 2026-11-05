@@ -1,0 +1,72 @@
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/ball/ball_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:87:12: error: Objective-C declarations may only appear in global scope
+   87 | @interface BallView : NSView
+      |            ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:92:17: error: Objective-C declarations may only appear in global scope
+   92 | @implementation BallView
+      |                 ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:104:29: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  104 |     const NSPoint c = [self centerPt];
+      |                        ~~~~ ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:193:11: error: no visible @interface for 'BallView' declares the selector 'ensureTimer'
+  193 |     [self ensureTimer];
+      |      ~~~~ ^~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:198:34: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  198 |     g.pressed = hitItem(p, [self centerPt]);
+      |                             ~~~~ ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:200:11: error: no visible @interface for 'BallView' declares the selector 'ensureTimer'
+  200 |     [self ensureTimer];
+      |      ~~~~ ^~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:205:45: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  205 |     const NSUInteger hit = hitItem(p, [self centerPt]);
+      |                                        ~~~~ ^~~~~~~~
+7 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/ball/ball_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 64%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 52%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/ball/ball_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:87:12: error: Objective-C declarations may only appear in global scope
+   87 | @interface BallView : NSView
+      |            ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:92:17: error: Objective-C declarations may only appear in global scope
+   92 | @implementation BallView
+      |                 ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:104:29: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  104 |     const NSPoint c = [self centerPt];
+      |                        ~~~~ ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:193:11: error: no visible @interface for 'BallView' declares the selector 'ensureTimer'
+  193 |     [self ensureTimer];
+      |      ~~~~ ^~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:198:34: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  198 |     g.pressed = hitItem(p, [self centerPt]);
+      |                             ~~~~ ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:200:11: error: no visible @interface for 'BallView' declares the selector 'ensureTimer'
+  200 |     [self ensureTimer];
+      |      ~~~~ ^~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/ball/ball_mac.mm:205:45: error: no visible @interface for 'BallView' declares the selector 'centerPt'
+  205 |     const NSUInteger hit = hitItem(p, [self centerPt]);
+      |                                        ~~~~ ^~~~~~~~
+7 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/ball/ball_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 64%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
