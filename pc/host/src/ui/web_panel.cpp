@@ -616,6 +616,22 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         b.session->startAuto();
         return postResponse(p, id, okResp());
     }
+    // ———————— 更新通道（v223.29.16）：前端横幅点「查看」→ 打开 release 页 ————————
+    // 白名单只放本仓库 release 相关域名：act 通道不能变成任意 URL 启动器。
+    // URL 恒为 ASCII（github.com / gh-proxy.com），narrow 版 ShellExecute 足够。
+    if (name == "app.openUrl") {
+        const std::string url = payload.find("url") ? payload.find("url")->asString() : "";
+        const bool allowed =
+            url.rfind("https://github.com/guocheng1378/apx-android/", 0) == 0 ||
+            url.rfind("https://gh-proxy.com/", 0) == 0;
+        if (allowed) {
+            ::ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        } else {
+            APX_LOGW("app.openUrl 拒绝非白名单 URL：{}", url.c_str());
+        }
+        // 防御分支（本 UI 不会触发）：回 ok 避免前端挂 10s 超时，拒绝已落日志。
+        return postResponse(p, id, okResp());
+    }
     if (name == "session.connectManual" && b.session) {
         std::string host = payload.find("host") ? payload.find("host")->asString() : "";
         uint16_t port = static_cast<uint16_t>(payload.find("port") ? payload.find("port")->asInt(9511) : 9511);
