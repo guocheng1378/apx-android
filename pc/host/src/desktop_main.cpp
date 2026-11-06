@@ -38,6 +38,7 @@
 #include "apxpc/config/app_config.hpp"
 #include "apxpc/api/action_router.hpp"
 #include "apxpc/version.hpp"   // APXPC_VERSION_STRING：崩溃报告里要带版本号
+#include "apxpc/app/update_check.hpp"   // 更新通道（v223.29.16）：checkForUpdate
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -862,6 +863,31 @@ int runDesktopMain() {
     // 球扇形全局热键（M4-c(b)）：装配处注册。mac 的 Carbon 事件靠主线程 AppKit
     // 泵分发，必须在下方 tray->run() 之前注册。
     ballhotkey::start(cfg);
+
+    // ———— 更新通道（v223.29.16，仅 Win 桌面壳）————
+    // 启动 10s 后后台查一次 GitHub releases（查不到/已是最新只留日志，绝不挡启动）；
+    // 有新版 → notifyUpdateAvailable 推 on-update-available → 前端顶部横幅；
+    // 点「查看」回 app.openUrl（web_panel 白名单放行本仓库 release 页）。
+    // 10s 延迟是给 WebView2 前端桥留就绪窗口，事件不落空（WebView2 事件不排队）。
+    // mac 走 panel_http（事件推送另一套），本轮未接，避免声明无定义的链接错误。
+#if defined(_WIN32)
+    std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        const auto r = apxpc::app::checkForUpdate();
+        if (!r.ok) {
+            APX_LOGI("检查更新：{}（不影响使用）", r.error.c_str());
+            return;
+        }
+        if (!r.hasNewer) {
+            APX_LOGI("检查更新：已是最新（{}）", r.latestTag.c_str());
+            return;
+        }
+        APX_LOGI("检查更新：发现新版本 {}（当前 {}）", r.latestTag.c_str(), APXPC_VERSION_STRING);
+        const std::string url =
+            "https://github.com/guocheng1378/apx-android/releases/tag/" + r.latestTag;
+        apxpc::ui::notifyUpdateAvailable(r.latestTag, APXPC_VERSION_STRING, url);
+    }).detach();
+#endif
 
 #if defined(_WIN32)
     // FileReceiver 后台监听（9512 端口）—— 收到文件：托盘气泡提示 + 推给前端文件面板。
