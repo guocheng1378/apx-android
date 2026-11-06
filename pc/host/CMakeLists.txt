@@ -46,7 +46,12 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
     GIT_TAG        v1.0.240803.1
     GIT_SHALLOW    TRUE
   )
-  FetchContent_Populate(wil)
+  # 重入安全（Build #1269 教训）：CMake 中途可整文件重入，第二次直接 Populate =
+  # CMP0169 FATAL "Content already populated"。GetProperties 幂等，重入无害。
+  FetchContent_GetProperties(wil)
+  if(NOT wil_POPULATED)
+    FetchContent_Populate(wil)
+  endif()
   if(NOT TARGET wil::headers)
     add_library(wil::headers INTERFACE IMPORTED)
     set_target_properties(wil::headers PROPERTIES
@@ -66,18 +71,27 @@ if(WIN32)
     GIT_TAG        v1.21.222.0
     GIT_SHALLOW    TRUE
   )
-  FetchContent_Populate(ViGEmClientSrc)
-  set(BUILD_SHARED_LIBS ON)   # 仅本作用域：上游 add_library 未写 SHARED → 按此变量出 DLL
-  add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
-  unset(BUILD_SHARED_LIBS)
-  if(NOT TARGET ViGEmClient)
-    message(FATAL_ERROR "ViGEmClient target 未生成——上游 CMakeLists 结构可能已变，核对 GIT_TAG")
+  # 重入安全同上（Build #1269）：幂等守卫，重入时跳过重复 Populate/add_subdirectory。
+  FetchContent_GetProperties(ViGEmClientSrc)
+  if(NOT ViGEmClientSrc_POPULATED)
+    FetchContent_Populate(ViGEmClientSrc)
   endif()
-  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向；
-  # 上游 CMake 两者都没定义（给静态用），出 DLL 必须补。setupapi 是上游漏链（SetupDi*）。
-  target_compile_definitions(ViGEmClient PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
-  target_link_libraries(ViGEmClient PRIVATE setupapi)
-  set_target_properties(ViGEmClient PROPERTIES
+  if(NOT TARGET ViGEmClientShared)
+    # 上游硬编码 add_library(... STATIC)，BUILD_SHARED_LIBS 对它无效（Build #1269
+    # 实测推断）；出 DLL 的专有开关 = option ViGEmClient_DLL（默认 OFF）。
+    # 上游 cmake_minimum_required 3.20.2 → CMP0077 NEW：普通变量可压过 option() 默认值。
+    set(ViGEmClient_DLL ON)
+    add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
+  endif()
+  if(NOT TARGET ViGEmClientShared)
+    message(FATAL_ERROR "ViGEmClientShared 未生成——上游 option 名/结构可能已变，核对 GIT_TAG")
+  endif()
+  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向。
+  # 实测上游 shared 分支也不定义这两个宏（默认路径给静态），不补则 DLL 零导出，
+  # 运行期 LoadLibrary 成功但 GetProcAddress 全 NULL。setupapi：上游已链，此处幂等保底。
+  target_compile_definitions(ViGEmClientShared PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
+  target_link_libraries(ViGEmClientShared PRIVATE setupapi)
+  set_target_properties(ViGEmClientShared PROPERTIES
     OUTPUT_NAME "ViGEmClient"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
