@@ -1,41 +1,17 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器。
 
-批 M6-c（sunshine_launch 接线：面板/球 + 文档状态，2026-11-05，rev2 修文档锚点）：
- · pc/host/src/ui/panel_http.cpp —— include；screen.sunshine 补 childAlive/exe；
-   新增 screen.sunshineStart / screen.sunshineStop 动作。
- · pc/host/src/ui/web_panel.cpp —— include；screen.web 补 childAlive/exe；
-   新增 screen.webStart / screen.webStop 动作。
-  · pc/host/src/sunshine/sunshine_launch.cpp —— 真启动（SUNSHINE_BASE 环境变量）
-  · doc/zh-CN/README.md —— screen.sunshineStart / screen.sunshineStop 动作文档
-  · doc/zh-CN/panel.md —— 面板动作表格（sunshineStart / sunshineStop / webStart / webStop）
- · 批 M7-a（2026-11-05，rev1 修文档锚点）：doc/zh-CN/README.md —— screen 动作表格；
-   pc/host/src/ui/web_panel.cpp —— screen.web 补 childAlive/exe；
-   pc/host/src/sunshine/sunshine_launch.cpp —— 真启动（SUNSHINE_BASE 环境变量）；
-   doc/zh-CN/panel.md —— 面板动作表格（sunshineStart / sunshineStop / webStart / webStop）
- · 批 M7-b（2026-11-05，rev1，PR #156 合并点 1799136e）：
-   ball_mac.mm —— 新增 @main { ball_start / ball_stop } 动作（mac 端球机起停）；
-   doc/zh-CN/README.md —— ball_start / ball_stop 动作文档；
-   doc/zh-CN/panel.md —— 面板动作表格新增 ball_start / ball_stop
- · 批 M7-c 前段（2026-11-05，PR #159 合并点 bed6bb73）：
-   apx_agent_panel.py —— apx_ 前缀通道隔离 + screen 动作表；
-   pc/host/src/media/vcam_source.cpp —— MF 虚拟摄像头注册/拉流/断连保持（云端 AI 不得碰）；
-   pc/host/src/media/camera_view.cpp —— GDI+ 预览窗（云端 AI 不得碰）；
-   pc/host/src/sunshine/sunshine_view.cpp —— 虚拟摄像头出口（vcam_source + camera_view 接线）；
-   pc/host/src/ui/panel_http.cpp —— screen.sunshine 补 childAlive/exe；
-   pc/host/CMakeLists.txt —— WIN32 块挂 camera_view.cpp；
-   前端：CameraCard.tsx（虚拟摄像头真流配置面板，802 行）
- · 批 M7-c 后段（2026-11-05，PR #162 合并点 60569ad0）：
-   ball_mac.mm —— @main { ball_start / ball_stop } 动作；
-   doc/zh-CN/README.md —— ball_start / ball_stop 动作文档；
-   doc/zh-CN/panel.md —— 面板动作表格新增 ball_start / ball_stop
- · 批 M7-c cam-fix1（Build #1235 编译错修复 + 摄像头出口接线，2026-11-06，rev4）：
-   camera_view.cpp L83 C2665：Gdiplus::Bitmap(IStream*, nullptr) 第二参是 BOOL → 改 FALSE；
-   L362 C2660：IMFVirtualCamera::Start 不收 0 参（官方签名 Start(IMFAsyncCallback* pCallback) 可空）→ 改 Start(nullptr)；
-   L18 C4005：WIN32_LEAN_AND_MEAN 重定义 → #ifndef 守卫
-
-两阶段：①按期望次数全量校验；②全过才写盘；已修则幂等退出。
+批 ball-mac-2（修 macOS Build #584：ball_mac.mm 首次编译的 ObjC 作用域错误，2026-11-06）：
+ · pc/host/src/ball/ball_mac.mm —— 3 组编辑：
+ ① 匿名层闭合后关 ball/apxpc + 全局 using（@interface/@implementation 只允许在全局作用域）；
+ ② 实现段 @end 后重开 apxpc/ball（createBall/destroyBall/toggleBallFan 必须回 apxpc::ball，
+    否则符号与 ball_win32.hpp 声明错位、desktop_main 链接再次缺符号）；
+ ③ 显式 #include <algorithm>（tick 内 std::min/max，原靠传递包含兜底）。
+根因：M4-b 的 ball_mac.mm 从未进过构建（CMake 未挂），补挂后首编暴露
+`Objective-C declarations may only appear in global scope` 7 连错。
+两阶段：①按期望次数全量校验；②全过才写盘。
 """
+import os
 import sys
 
 
@@ -43,18 +19,33 @@ def T(*lines):
     return "\n".join(lines) + "\n"
 
 
-PATH = "pc/host/src/media/camera_view.cpp"
+PATH = "pc/host/src/ball/ball_mac.mm"
 
 EDITS = [
-    (T('    Gdiplus::Bitmap src(stm, nullptr);'),
-     T('    Gdiplus::Bitmap src(stm, FALSE);  // BOOL 形参：nullptr 不能隐转（MSVC C2665）'), 1),
-    (T('        hr = cam->Start(); // 真正创建并注册到系统'),
-     T('        hr = cam->Start(nullptr); // 真正创建并注册到系统（签名 Start(IMFAsyncCallback* 可空)）'), 1),
-    (T('#define WIN32_LEAN_AND_MEAN', '#include <windows.h>'),
-     T('#ifndef WIN32_LEAN_AND_MEAN',
-       '#define WIN32_LEAN_AND_MEAN',
-       '#endif',
-       '#include <windows.h>'), 1),
+    # ① 命名空间出口 + 全局 using（锚点：匿名层闭合 + 空行 + @interface，全文件唯一）
+    (T('}  // namespace', '', '@interface BallView : NSView'),
+     T('}  // namespace',
+       '',
+       '}  // namespace ball',
+       '}  // namespace apxpc',
+       '',
+       '// clang：@interface/@implementation 只允许出现在全局作用域（M4-b 从未编译，补挂后首编暴露）。',
+       '// 实现正文的 C++ 引用（g/hitItem/k*/fx::/registry…）全在 apxpc::ball，经此 using 全局可见——正文零改动。',
+       'using namespace apxpc::ball;',
+       '',
+       '@interface BallView : NSView'), 1),
+    # ② 实现段后重开命名空间（createBall/destroyBall/toggleBallFan 必须回 apxpc::ball）
+    (T('@end', '', 'bool createBall() {'),
+     T('@end',
+       '',
+       'namespace apxpc {',
+       'namespace ball {',
+       '',
+       'bool createBall() {'), 1),
+    # ③ std::min/max 显式头
+    (T('#include <cmath>'),
+     T('#include <cmath>',
+       '#include <algorithm>  // std::min/max（tick 内；防传递包含变化踩空）'), 1),
 ]
 
 
@@ -65,7 +56,7 @@ def main() -> int:
     except OSError as e:
         print(f"open failed: {e}")
         return 1
-    if "cam->Start(nullptr)" in text:
+    if "using namespace apxpc::ball;" in text and "namespace ball {\n\nbool createBall" in text:
         print("already fixed, nothing to do")
         return 0
     errors = []
