@@ -1,6 +1,7 @@
 package com.allperiph.shared.net
 
 import android.content.Context
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -19,7 +20,7 @@ import kotlin.math.min
 /**
  * 文件接收通道（TCP 端口 [PORT]=9512）：对端（手机 / PC / TV）连入，
  * 先发 head(u32 名称长度 + 名称 + u64 文件大小)，随后流式写入文件。
- * 落盘到应用私有外部文件目录 <外部文件>/APX/<name>（无需任何存储权限）。
+ * 落盘到公共下载目录 Download/AllPeriph/<name>（用户可直接在文件管理器中找到）。
  *
  * 统一自手机被控端 `com.allperiph.controlled.TvFileReceiver` 与 TV 端
  * `com.allperiph.tv.net.TvFileReceiver`（两端逐字节同实现，对端设备通用）。
@@ -87,8 +88,8 @@ object FileReceiver {
                 val name = String(nameBuf, Charsets.UTF_8)
                     .replace('/', '_').replace('\\', '_').replace("..", "")
                 val size = readU64(ins)
-                val base = ctx?.getExternalFilesDir(null) ?: return
-                val dir = File(base, "APX").apply { mkdirs() }
+                val base = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val dir = File(base, "AllPeriph").apply { mkdirs() }
                 val out = File(dir, name)
                 Log.i("文件接收", "接收文件 $name (${size}B) → $out")
                 var left = size
