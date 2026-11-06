@@ -233,7 +233,17 @@ bool present(HWND w) {
         POINT src{ 0, 0 };
         POINT dst{ rc.left, rc.top };
         BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-        ::UpdateLayeredWindow(w, screenDc, &dst, &sz, memDc, &src, 0, &bf, ULW_ALPHA);
+        const BOOL ulw = ::UpdateLayeredWindow(w, screenDc, &dst, &sz, memDc, &src, 0, &bf, ULW_ALPHA);
+        if (!ulw) {
+            // v223.29.15：失败必须留痕 —— 此前静默失败，表现为「日志已创建、屏幕上没有」，
+            // 最常见根因就是窗口缺 WS_EX_LAYERED（UpdateLayeredWindow 前置硬条件）。
+            // 只记首次错误，避免 16ms 动效刷屏。
+            static bool ulwErrLogged = false;
+            if (!ulwErrLogged) {
+                ulwErrLogged = true;
+                APX_LOGW("球 v2 UpdateLayeredWindow 失败（err={}，球将不可见）", ::GetLastError());
+            }
+        }
         ::SelectObject(memDc, old);
         ::DeleteObject(hbm);
     }
@@ -543,8 +553,15 @@ bool createBall() {
         return false;
     }
 
+    /* v223.29.15 修复（issue：「日志已创建、屏幕上始终没有球」）：
+       per-pixel 分层窗口的渲染**全部**走 UpdateLayeredWindow，而它的硬前置条件是
+       窗口带 WS_EX_LAYERED —— 旧代码漏了该样式，UpdateLayeredWindow 每次都失败且
+       无人检查返回值：ShowWindow 照跑、"球 v2 已创建"照打，但窗口无任何像素
+       （WM_PAINT 空走、背景 brush 为空）→ 2026-11-06 用户实测「一直看不到悬浮球」
+       与日志「已创建」并存的根因。legacy 壳只用 Region 裁圆不走 layered，所以历史
+       legacy 球可见、v2 球自诞生起没人见过。 */
     HWND w = ::CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
         kClass, L"", WS_POPUP,
         0, 0, s->side, s->side, nullptr, nullptr, inst, nullptr);
     if (!w) {
