@@ -227,6 +227,20 @@ struct Ctrl9511Server::Impl {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
+            // v223.29.12 热修：writerLoop 的 sendAll 没有发送超时 —— 对端半死（WiFi 漫游 /
+            // 手机息屏收流暂停）时 send 缓冲一满就永久阻塞，handshake() 里
+            // join(writerThread) 卡死、accept 线程随后在 join(hsThread) 上停摆；此时**监听
+            // 套接字仍然开着**，对端 connect 照样成功却永远没人握手/读帧/回 pong ——
+            // 手机侧「连上后 24s 零入向判死 → 重连」死循环、面板恒显「手机未上报」的服务端
+            // 路径就是它。接受即挂 SO_SNDTIMEO(3s)，让每一代会话的收尾 join 全部有上界
+            // （reader 侧 SO_RCVTIMEO=500ms、握手头 5s 超时本就有界）。
+#if defined(_WIN32)
+            DWORD sndTo = 3000;
+            setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sndTo), sizeof(sndTo));
+#else
+            struct timeval sndTv { 3, 0 };
+            setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char*>(&sndTv), sizeof(sndTv));
+#endif
             {
                 std::lock_guard<std::mutex> lk(clientMu);
                 if (clientFd != kBadSock) {
