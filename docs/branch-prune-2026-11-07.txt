@@ -1,0 +1,112 @@
+# 2026-11-07 分支清理清单（删除前存档：branch SHA，可用于恢复）
+# 恢复单条：git push origin <sha>:refs/heads/<branch>
+
+## A 组：已被 master 完全包含（git branch --merged）
+df17a31165edb62d83839ae17c960330d5d9763b  chore/pc-gpl3  2026-11-05 docs(license): README 许可段改为双许可（pc/ GPL-3.0，其余 MIT）
+82610acb5107026384372a9dac2f651ca0bbeec6  ci/macos-smoke-adhoc  2026-11-01 ci(macos): smoke 判据改为「直接 exec 存活」，LaunchServices/spctl 只作诊断
+7345806c4c2875521974ba82a7756add4a85bc44  feat/ball-fx-rotate  2026-11-04 feat(ball): 悬浮球旋转重算 + 动效（批 O-1，8 处锚点）
+b31ed102fae6fb8ac9d899757acedaf76a7ea176  feat/ball-glass  2026-11-01 feat(ui): 悬浮球与扇形菜单改仿玻璃（渐变 + 顶部高光）
+3f1e05e7fd3c1ac07587f73b6fd572e811abd892  feat/ball-m3-wiring  2026-11-05 chore: 批 M4-b mac 球四件套（ball_mac.mm 新文件 + hpp #else + CMake + desktop 装配）
+868fe8a51fc4b2e63b007b90a67d8a196c3c4beb  feat/ball-order  2026-11-01 feat(ui): 悬浮球扇形菜单补顺序调整（勾选项可上移/下移）
+1281a420438b857c5fc8a38582dae3baaeb62915  feat/ball-settings-orient  2026-11-01 fix(ui): KeyboardPage 补 import com.allperiph.R（CI 的 UI 一致性检查拦下的编译级错误）
+349da43e9c9a5fad15e609993454025573e33a24  feat/bg-image  2026-11-01 feat(ui): 设置页新增「背景图」分组（选图/清除，沿 ThemeSkin.bgImage 现有路径）
+dfb9e4be72f9641f7523d78a3e128fe7e5430e63  feat/changelog-22322  2026-11-01 docs(changelog): 补 v223.22 条目（界面层十项改动）
+401e080ff81df85e4e28299b929063a821516456  feat/cleanup-legacy-layouts  2026-11-01 refactor(ui): 删除已无调用方的 TouchpadSplit 与 activity_main/header_bar/nav_tabs/page_settings/item_module_row 五个旧布局
+e8218674a67f055e669fb26031689240f050f9b1  feat/design-md  2026-11-01 feat(design): 引入 Linear 风格设计系统（令牌 + docs/DESIGN.md）
+2d1c9e6b900377eba32ca8de2e2b309dc69726ba  feat/docs-sync  2026-11-01 docs: 同步迁移进度表 + 删掉已无引用的 activity_screen.xml
+4e8479b6f9b2445fd3b8ed4a5be0d145f1cae6a7  feat/filepanel-compose  2026-11-01 fix(ui): 去掉 FilePanelActivity 残留的 FontWeight 引用（Miuix Text 不保证该参数）
+3ca173f260202460495c25fa4a71b775e0589ec6  feat/float-navbar  2026-11-01 fix(ui): 底栏玻璃裁成药丸，去掉栏下那条模糊带
+8b6f62279904a2b482862448345b09ad618b218c  feat/gamepad-compose  2026-11-01 feat(ui): GamepadActivity 迁 Compose（按键 + 出口状态行），摇杆保留 AndroidView 互操作
+f7f22b5f052652240e6a5c4ec72cc6c60cd52e22  feat/home-help  2026-11-01 feat(ui): 主页补回「帮助与说明」——三步上手摘要 + 完整说明面板
+0a833f094c0b5932c326d6388bfd5666123c455d  feat/kb-panel  2026-11-01 feat(ui): 键盘页改「整块虚拟键盘 + 可切换快捷面板」
+c59143d63241f2cc26d5d7f3040ca11fd593bbda  feat/kb-templates  2026-11-01 feat(ui): 键盘页补模板行（HotkeyTemplates.ALL 一键套用 + 恢复默认）
+cbaadc8fe4b19bf732d16daca5a0c454e4674d45  feat/keymap  2026-11-01 feat(ui): 键映射覆盖层 HidKeyOverrides + 设置页「键映射」分组
+91d611dbf588982ec41dd021d601dcc126a35047  feat/liquid-glass  2026-11-01 feat(ui): 顶栏/底栏改液态玻璃（半透明底 + 模糊 + 微量噪点）
+236c6b8f797da22d0d824e4edfb9ceb60c2bb083  feat/log-viewer  2026-11-01 feat(ui): 日志查看器（弹窗限高 62%）+ 自定义文件名与子目录
+c945aa861e805ad49b53698224fc87e9687d46a6  feat/logs  2026-11-01 feat(ui): 设置页新增「运行日志」分组（级别/时间筛选 + 导出到 下载/AllPeriph）
+0b1c51cf381d4b7de82508a40d076f6899b1571b  feat/m7b-camera-capture  2026-11-06 fix(M7-b): ActivityResultContracts 在 .contract 子包（CI 轮 2 连锁错的唯一根因）
+c5743526b8dbeee6429af8e2b81729a20fd41cb4  feat/m7c-cam-stream  2026-11-06 Merge pull request #164 from guocheng1378/feat/m7c-pc-camera-fix
+13d4fc450bf058216f40e36fd60c01e3a17cb993  feat/m7c-pc-camera  2026-11-06 fix: M7-c 解冲突 —— repo_edit.py 逐字取 master 原文（blob 036e075f），消 PR #163 冲突
+44bec8980bfcaa535c297405419689f3a38758c3  feat/m7c-pc-camera-fix  2026-11-06 fix: M7-c 解冲突终版 —— repo_edit.py 以 blob 036e075f 原样引用 master 内容（字节级一致，消 PR #163 冲突）
+9096b9b8b19c75123b36cdd147f0c882e2b3969d  feat/miuix-ee6edcd-r2  2026-11-01 chore(ui): rebase 到 master 1dbbcc3 后按实际值重设 TEXT_BASELINE=619
+47a322caf63fb3cf43fe5de19748ec445e2634be  feat/miuix-r4  2026-11-01 fix(tv): 文件页状态字段改名 sendProgress，避开 Activity.setProgress 的同 JVM 签名冲突
+77504d54ce5597ce80699683bad10c42ea32612d  feat/module-switch  2026-11-01 fix(ui): ModuleRowVm 补 enabled 字段（CI 报 StatusPage.kt:146 Unresolved reference）
+6fc0a5e8e19eec907b1112bc93d553d4e739ad16  feat/nav-icons-scrolltop  2026-11-01 fix(ui): 设置页切分类回到顶部 + 设置页签换 MiuixIcons.Settings
+868fe8a51fc4b2e63b007b90a67d8a196c3c4beb  feat/nav-icons2  2026-11-01 feat(ui): 悬浮球扇形菜单补顺序调整（勾选项可上移/下移）
+738b23c4026be3e1cccb6f1e8c310864db5e653c  feat/nav-icons3  2026-11-01 feat(ui): 触控板页签换 MiuixIcons.GridView（图标清单已全量核实）
+8ffd37fc4767cc7d3b99419c49aeff7e15963dd3  feat/remoteinput-compose  2026-11-01 feat(ui): RemoteInputActivity 迁 Compose（输入框与触控板保留 AndroidView 互操作）
+6d754e3d660c85dff74e59eee2e54d9eb8d3e046  feat/screen-compose  2026-11-01 feat(ui): ScreenActivity 迁 Compose（画面仍 TextureView 走 AndroidView）
+b122aaf94e9c547536d4db49e74ccb9892b76af1  feat/send-compose  2026-11-01 feat(ui): SendActivity 迁 Compose（本地文件发送页）
+b6dbdca664f51b19ad2bd65b88e2e29bbba1150e  feat/sensor-orient  2026-11-01 feat(ui): 横竖持判方向改用重力传感器（还原「不受系统方向锁限制」）
+474b928d94dc887521b567dc0e6afc50cc8125a0  feat/settings-categories  2026-11-01 fix(ui): SettingsPage 补 Row/TextButton/Arrangement import（CI 编译拦下）
+b2d71c81966a6095e7f162a47b62592c759db18f  feat/settings-dropdown  2026-11-01 refactor(ui): 快捷键模板改用下拉，少占六行
+e80ce216dce1cb50eb5ae2d17cb91792df044691  feat/settings-polish  2026-11-01 fix(ui): 设置页大屏限宽居中 + 13 个段标题收进 strings（基线 703→690）
+5c840d3865673a0d907ce6394a0b2886879f4dd5  feat/settings-rest2  2026-11-01 feat(ui): 设置页补「遥控与键盘」「主题数据」两组（复用既有存储与 API，TEXT_BASELINE=641）
+10ecbb2aa4d5d488f86cd4b3ceb721b04f9f9f1b  feat/settings-templates  2026-11-01 feat(ui): 设置页补「模板管理（自定义）」与「传输分类」两组
+bfcbe59307d64c698caf94600b1143612bf3d2db  feat/settings-twopane  2026-11-01 feat(ui): 设置页宽屏接 twoPane 主从双栏 + 修正「传输分类」段名
+07ddf1d644a84f903c07298e0a2ef40221429e8b  feat/theme-teardown  2026-11-01 refactor(ui): 旧主题栈收口第一步 —— ControlShortcutActivity 脱离 ThemePref、ApShellActivity 去掉 applyRuntimeTheme
+f6a4cd4caa205731409e15b4083c5d53e5b94e7f  feat/touch-visual  2026-11-01 feat(ui): 触控板画出触摸形状（每指一个圈 + 滑动尾迹）
+57ee0d12d4f7c317c9694809fffa0586b34a1081  feat/tv-overlay-compose  2026-11-01 feat(tv): 新增 TvOverlayHost（浮层窗口的 lifecycle 三件套）+ 通知浮窗改 Compose 渲染
+2391cbd9ccd8856514f40551aab564c76d6efb65  feat/tv-overlay-decisions  2026-11-01 docs(tv): 记录 TvOverlay / RemoteInputOverlay 不迁 Compose 的工程理由
+3b854a28fbcb6d6ea02d5662020b9cfa7141679d  fix/ball-enabled-name  2026-11-01 fix(ui): 修正 BallConfig 取值函数名（enabled 而非 getEnabled）+ 显式 List<String> 类型
+879e2f7b9f6979c56a8b8fa2a741af7776684fd1  fix/notify-tap-stop-ball  2026-11-04 docs(changelog): 新增 v223.29.10 段——悬浮球点通知不再直接关球
+39334fc802e9be42a9872e39a88d1327b8f1d17b  fix/phone-fgs-retry  2026-11-06 fix(android): 后台启前台服务被 Android 12+ 拒绝时，首个界面可见后补启
+e2659ab04dde17fff6d8cf79ba8aa546dec08ffa  fix/status-kit-reuse  2026-11-04 fix(strings): 补回 ui_set_label_usb_spk（上次全量重写漏行，StatusPage:181 编译红）
+a8765fce78c6465319c92c6efa23e7a83703d4d5  fix/v223.29.1  2026-11-03 fix(v223.29.1)：悬浮窗自愈/触控板手势对齐/长按低栏唤出/横竖屏回跳与弹框滚动
+b41882dd3f6139f475735d062483c502006aedf1  fix/v223.29.1-heal  2026-11-03 fix(v223.29.1)：悬浮球自愈真 bug —— 权限判读假阴性会永久停掉自检闹钟
+fe0e8960533d30a93c51e1c91047abed7065dc46  fix/v2294  2026-11-03 docs(v223.29.4): 按键特效三档 + 关闭对照真机复验通过，收窄「已知未验证」段
+0169a27b22b758645c6afed5abee301075e97f0e  fix/v2295-bgreflect  2026-11-03 fix(v223.29.5): 选择/清除背景图当场不生效——补 onRecreate，与预设底色口径对齐
+15377ec0fdd1171a04dc87f572946c3b2850f012  fix/v2296-polish  2026-11-03 refactor(v223.29.6): ApPress 去掉无用 import；快捷入口的震动交给 ActionButton 统一给（避免双震）
+772809262552b9ec8162b6de96c77ca41dbee737  license/pc-gpl3  2026-11-05 Merge pull request #155 from guocheng1378/pc-ball-fx
+65442002981ff04ad611f08f8c1e634c2d4edb8a  refactor/appearance-facades  2026-11-02 refactor(ui): 把 380 行的 ThemeSkin 拆成五个门面 + 外观门面关卡
+0c46f8b17c7fa3eb640a9543645451a5b2d8a6ff  refactor/keybox-dedup  2026-11-04 refactor(shell): applyImmersive 收敛到 hideSystemBars（消除与 8 子页共用扩展的第二份三件套）
+571d6bf0a9b33252a669d30523b3563119290d9d  refactor/ui-kit-unify  2026-11-02 refactor(ui): 界面层统一走 ApComponents（UI Kit）+ 清理零引用脚手架 + 能力入口关卡
+3e99e8a93274960c1f106624e13b3ad49f87e382  rel-v223.29.11  2026-11-06 chore: repo edit
+
+## B 组：提交未逐条进 master（squash 合并所致），但补丁等价
+5cbcf01952ee5355a0d315aa8a26c23f587b54c5  chore/trim-dead-resources  2026-11-02 chore(res)：清掉 282 处死资源，并新增资源使用关卡
+766cad0db074ea66a8d33c97d7d37654af0db9de  feat/miuix-r3  2026-11-01 fix(tv): 文件页状态字段改名 sendProgress，避开 Activity.setProgress 的同 JVM 签名冲突
+6d4d811115daf6fe33512bf9bf55180959f88bc9  feat/miuix-shell  2026-10-31 feat(ui): 主界面外壳迁 Miuix —— 顶栏 + 悬浮玻璃底栏（Compose 渲染）
+fffab3798357166d43976c8e3b4c06700070b112  feat/miuix-status-pane  2026-11-01 feat(ui): 设置页状态块迁 Miuix + 强调色接 ThemeSkin（第二刀）
+b572f8f475fbb650bbd11f443d9745afbea6d6c0  feat/root-pointer-v2  2026-10-31 fix(touchpad): 指针设备发现加能力位图兜底 —— 真机内核无 mousedev 时旧判据必空
+2da7cf5e5469a90f24d53a1a9469f71aeb573adc  feat/v2299-adaptive-ui  2026-11-04 feat(v223.29.9): 状态页去运行状态 + 触摸板横屏判定同源 + 设备形态设置 + 悬浮窗尺寸可调
+ccdcdcbd1eedd50d1a554a5e97860b7691d6fb4a  fix/ball-entry  2026-11-01 fix(悬浮球): 「悬浮球功能」入口挪到「通用」首页 —— 原先埋在「远程」分组里等于找不到
+17372067691f38c669181723a6e7c7299a810190  fix/ball-multiselect  2026-10-31 fix(悬浮球): 「悬浮球功能」多选对话框里一个选项都没有 —— setMessage 与 setMultiChoiceItems 互斥
+00ba4cbdc6134ee784cd8d1dcab35361670f4445  fix/compose-crashes-space  2026-11-02 fix：真机反馈一批 —— Compose 页面闪退 + 主壳可操作面积
+7a18ef92ec9e84d2f58d040cd164e2f472be0a2f  fix/evdev-pointer-detection  2026-10-31 fix(touchpad): 指针设备发现加能力位图兜底 —— 真机内核无 mousedev 时旧判据必空
+a327ec466721f59a6baff96c4c4862f3f537478e  fix/insets-statusbar  2026-11-02 fix(insets)：insets 兜底读根窗口，顶栏让出状态栏
+de234d76ae910faa407484d3f37c98b05df2ada8  fix/issue52-mode-sync  2026-11-01 fix(模式状态): 各端模式显示不一致 + 切换后停留上一个模式（issue #52 第 8 条）
+d614903a8b12e6a0d85500ee19d292acf580245a  fix/issue52-r4  2026-11-01 fix(issue52-r4): 按钮文字居中、弹窗限高滚动、日志导出三端统一命名与选目录（第 3/4/6/10 条）
+c8b939ef21dbcb9f1c39e448e984d4d25d41a324  fix/kb-layout-parity  2026-11-02 fix(v223.24)：主屏悬浮低栏换成组件总览同款玻璃 + 键盘页对齐被控页 8 套键位 + 快捷键 usage 错值修复
+16d8d728b0df6cec953ca6d3bb275df549c16716  fix/orphan-ime-service  2026-11-02 fix(ui)：删掉从未注册的孤儿输入法，并新增组件声明关卡
+457f1147b06ada7a7959307f8b7f672991685bbc  fix/shell-insets-tabs  2026-11-02 fix(ui)：真机反馈两处 —— 设置页页签挤压、横屏顶部空档
+245a316c5282663b3a9cf716d2b29912b601ed3f  fix/tv-color-any  2026-10-31 fix(tv): 主屏焦点描边色 if 两分支公共类型退化成 Any（master 编译不过）
+fae3a4375a0803cea0a36f9428357c033c3a354d  fix/v223.29.2  2026-11-03 fix(v223.29.2)：横屏低栏吃掉设置页分组点击 + 状态页假开关 + 长列表收紧
+a5e1243d99488431f29681820d779dd1c6dcd945  fix/v2297-landing  2026-11-03 fix(v223.29.7): 横屏低栏不固定右上角 + 低栏遮挡 Shift/Win + 长按按键无震动
+e33369f41e1cf72302db10eaa0d955b7dcead88d  fix/v2298-clean  2026-11-04 fix(v223.29.8): 低栏横屏跟随改用窗口实测尺寸 + 长按确认改墙钟计时
+bca5d90de4039ea19031d4439e4f3ac7ec704b0c  fix/v2298-follow  2026-11-03 fix(v223.29.8): 低栏横屏跟随改用窗口实测尺寸 + 长按确认改墙钟计时
+
+## C 组：有独有提交，主题已在 master / 已发版，待人工确认后再删
+d6c42cf166a0c8a945d0812099951b4dcbf7a73a  chore/remove-miuix-showcase  2026-11-04 fix(kit): 还原 SwitchRow KDoc 的「和旧 Views」原措辞（全量复现笔误）
+58324b5a34eaee3e9fdcaa61a05d6c07306ab44c  ci-errors-dump  2026-10-28 ci: dump android build errors (run 40694074383)
+efde6bd70aa752211ede6a1d9412f943d6a8bee0  ci-logs  2026-11-06 ci errors: run 42209028460
+1228b8839cd97427b4b9ac9c2eaeac12bb6d4d95  docs/repo-readme  2026-11-01 docs: 按 Compose 版实情更新仓库说明（README/ARCHITECTURE/使用说明/CHANGELOG）
+6c84e7f617a99d7d43c30b2ea1b0c1f9eaf117e3  docs/repo-readme-v2  2026-11-01 docs: 按 Compose 版实情更新仓库说明（README/ARCHITECTURE/使用说明/CHANGELOG）
+4424af3d4b904f60c9f8a50bcf4e5bee65d4b602  feat/ball-fan-menu  2026-10-31 fix(悬浮球): 扇形圆心/包围盒改用屏幕坐标，并避免展开手势自己关掉菜单
+8978b1e8ef002674789be2812bf1101f7663d43f  feat/compose-miuix-refactor-2026-10-28  2026-10-28 fix(ui): 恢复被误删的 layout-land/activity_main.xml 及包含布局
+a20b6ae505912dbc19eabaed195ad902dce73771  feat/ime-keyboard-bridge  2026-10-31 feat(android): 外接触控板 root 直读 —— 建议 6 的第二条腿（需 root）
+b4717507a83e95b4aadf3418204b608ed08f37d4  feat/keyboard-ux-mech  2026-10-29 fix(controlled): 控制断开后光标浮层没收起，反被画回最后落点（#47）
+0a29851f325bc485d431b31f6bd22f47cfa74a4a  feat/mac-panel-fixes  2026-10-29 docs(changelog): v223.11 段 —— mac 四问题修复 + #49 双击闪退修复随版发布
+ad37437e2af327c1db264dae496e9155dfa147d1  feat/miuix-ee6edcd-2026-11-01  2026-11-01 fix(tv): Color 三元分支类型统一（Int 与 Color 混用导致 CI 报 Any→Int）
+6e8a056820db92bc5f64c49ce1271f32a9eab733  feat/miuix-full-2026-11-01  2026-10-31 fix(tv): 焦点描边色 if 两分支公共类型退化成 Any，Color(Any) 编译不过
+3fc0320c933cb5337face71cc58878314f2d8d6b  feat/settings-rest  2026-11-01 feat(ui): 设置页补「遥控与键盘」「主题数据」两组
+236d23de2e1d5e259210f3de7c7433c88d08c906  fix/ball-menu-inflate-crash  2026-10-31 fix(ui): 悬浮球单击即崩 —— Service 上下文拿不到 App 主题，?attr 解析失败
+df75a7bd98addbd5e17492cb92e70153c047e953  fix/changelog-escape  2026-11-01 docs(changelog): 去掉 v223.15 段误转义的 9 处反斜杠
+e5eaeec6e01f50a806c888bd5362debd693044fc  fix/issue52-2026-11-01  2026-10-31 fix(input): 长按连续输入 —— 按下改 hold、连发前先释放（issue #52 长按只出 2 个字符）
+4e5750d7d66cf9b0b2a99dd3157e1b6637dfdf5e  fix/issue52-feedback  2026-10-31 docs(changelog): v223.13 段 —— issue #52 全量落地（6 问题 + 6 建议）
+4aa2eb97d7106bfccc4c63ffb2a5667305bdaeb8  fix/kb-pref-main-shell  2026-11-02 fix: offset 的包路径是 foundation.layout.offset（CI 编译失败修正）
+5cedb5d91a4ff6014be6188d34bc764fa60fcbf4  fix/mac-app-seal  2026-10-29 fix(macos): add missing notify-queue globals (edit script died before write)
+11d1b626f954f22a7d18907dd98e65064563a94d  fix/v223.29  2026-11-02 fix(v223.29)：补回三方合并静默丢掉的 import（CI 41470732427）
+7f423d8eaeae70a2073d8357bb08572cf5f8f886  fix/v2293  2026-11-03 fix(v223.29.3)：修 CI 首轮编译失败（3 类「声明留旧位置」）+ 补两处开关一致性缺口
+da618079aa87d45cbbe914f8ea7b9e799b54041b  miuix-ui  2026-10-28 fix(ui): 悬浮底栏贴顶——0.9.4 FloatingNavigationBar 的 modifier 不作用于根布局
+973236cbdbaffa6f89fb0f58d15c509755171373  pc-ball-fx  2026-11-04 fix(pc-ball): MBCS 字符集配对 —— LoadCursor/GetMonitorInfo 泛型宏修 C2664（批 P-4）

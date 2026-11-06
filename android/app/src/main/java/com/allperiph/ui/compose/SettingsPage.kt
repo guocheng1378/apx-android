@@ -734,6 +734,40 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+                    // ★ 2026-11-07 扇形菜单大小（成宇「悬浮球弹出的窗口要能调节大小」）：
+                    // 上面两枚滑块管的是**面板高度**，这一行管球展开后那一圈菜单 ——
+                    // 项直径与扇形半径一起换档，点一下循环（紧凑 → 标准 → 大），立即落盘。
+                    // 菜单是每次展开现建的，回到桌面点球就能看到新尺寸。
+                    var menuScale by remember {
+                        mutableIntStateOf(BallConfig.menuScale(ctx))
+                    }
+                    ApComponents.ClickRow(
+                        title = ctx.getString(R.string.ui_ball_menu_size),
+                        summary = ctx.getString(R.string.ui_ball_menu_size_sum),
+                        trailing = {
+                            Text(
+                                text = ctx.getString(
+                                    when (menuScale) {
+                                        BallConfig.MENU_COMPACT -> R.string.ui_ball_menu_size_compact
+                                        BallConfig.MENU_LARGE -> R.string.ui_ball_menu_size_large
+                                        else -> R.string.ui_ball_menu_size_normal
+                                    },
+                                ),
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            )
+                        },
+                        onClick = {
+                            val next = when (menuScale) {
+                                BallConfig.MENU_COMPACT -> BallConfig.MENU_NORMAL
+                                BallConfig.MENU_NORMAL -> BallConfig.MENU_LARGE
+                                else -> BallConfig.MENU_COMPACT
+                            }
+                            menuScale = next
+                            BallConfig.setMenuScale(ctx, next)
+                            Feedback.haptic(ctx)
+                        },
+                    )
                 }
             }
 

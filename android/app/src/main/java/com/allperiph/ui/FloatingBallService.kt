@@ -800,10 +800,12 @@ class FloatingBallService : Service() {
         val dm = resources.displayMetrics
         val screenW = dm.widthPixels
         val screenH = dm.heightPixels
-        val itemPx = dp(BallConfig.ITEM_DP)
+        // 菜单尺寸档（2026-11-07）：项直径与扇形半径一起按用户选的三档缩放，
+        // 见 BallConfig.itemDp / arcRadiusDp（设置页「悬浮栏 → 菜单大小」）。
+        val itemPx = dp(BallConfig.itemDp(this))
         val gapPx = dp(FAN_GAP_DP)
         val half = itemPx / 2f
-        val designR = dp(BallConfig.ARC_RADIUS_DP).toFloat()
+        val designR = dp(BallConfig.arcRadiusDp(this)).toFloat()
 
         // ⚠️ 圆心必须用「屏幕坐标」，不能直接用 lp.x / lp.y，也不能用 View.x / .y：
         //    前者相对父框（父框顶部被状态栏顶下去 144px），后者在 overlay 里恒为 0。

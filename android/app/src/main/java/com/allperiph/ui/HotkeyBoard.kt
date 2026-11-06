@@ -451,7 +451,13 @@ class HotkeyBoard(
         box.addView(nameEt, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         box.addView(label(act.getString(R.string.ui_hotkey_field_mods), s), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
-        val modRow = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL }
+        // 修饰键用**会换行**的容器（issue#166 第 1 条「编辑页横向元素显示不全」）：
+        // 此前是一条 HORIZONTAL LinearLayout —— Ctrl/Alt/Shift/Win(/Fn) 五个复选框，
+        // 每个带 14sp 文字 + 复选图标，在窄屏弹窗里最后一项会被挤出屏幕右边。
+        val modRow = com.allperiph.ui.kit.FlowRow(act).apply {
+            hGap = dp(6)
+            vGap = dp(2)
+        }
         val boxes = LinkedHashMap<Int, CheckBox>()
         HidKeys.MOD_LABELS.forEach { (text, bit) ->
             val cb = CheckBox(act).apply {
@@ -461,9 +467,9 @@ class HotkeyBoard(
                 isChecked = cur.mod and bit != 0
             }
             boxes[bit] = cb
-            modRow.addView(cb, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(6) })
+            modRow.addView(cb, android.view.ViewGroup.LayoutParams(-2, -2))
         }
-        box.addView(modRow)
+        box.addView(modRow, LinearLayout.LayoutParams(-1, -2))
 
         // 按键：先选组再选键（79 项平铺的 Spinner 太难滑）
         box.addView(label(act.getString(R.string.ui_hotkey_field_key), s), LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(6) })

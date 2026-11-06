@@ -72,6 +72,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
@@ -387,12 +390,33 @@ class ApShellActivity : ComponentActivity() {
                 // 中间一条 —— v223.23 真机反馈「底栏和顶栏把可操作区域压的很小」，
                 // 旧实现容器级 padding 让滚动内容也被压缩，设置页底部更是双倍留白）。
                 // 触控板页手势面连 64dp 都不留，直接全屏。
+                // 页切换动效（2026-11-07）：此前 `when(page)` 是硬切 —— 四页之间跳变
+                // 没有任何过渡，观感上像换了个应用。这里只给**新页**做一次 12dp 上浮 + 淡入
+                // （不做交叉淡出：两页同时在场会让触控板/键盘页的手势订阅短暂翻倍）。
+                // 时长走 ApMotion.durationMs，设置页「动效」关掉时是 0ms（直接落位）。
+                val pageIn = remember { Animatable(1f) }
+                androidx.compose.runtime.LaunchedEffect(page) {
+                    pageIn.snapTo(0f)
+                    pageIn.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(
+                                this@ApShellActivity, 190,
+                            ),
+                        ),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
                         .layerBackdrop(navBackdrop)
-                        .apHazeSource(hazeState),
+                        .apHazeSource(hazeState)
+                        .graphicsLayer {
+                            val v = pageIn.value
+                            alpha = 0.55f + 0.45f * v
+                            translationY = (1f - v) * 12f * density
+                        },
                 ) {
                     when (page) {
                         0 -> StatusPage(
@@ -535,11 +559,33 @@ class ApShellActivity : ComponentActivity() {
             // 「整条顶部横带」，把左上角设置页分类列的点击全吃了（成宇 2026-11-03
             // 「横屏时设置页分组不能切换了」，真机 input tap 复现：页签能点、分组点不动）。
             // 限到 440dp 后触摸判定跟胶囊走，横屏左列、竖屏底栏两侧的内容恢复可点。
+            // 低栏收/展动效（2026-11-07）：收起成球 / 展开成胶囊此前是一帧硬切 ——
+            // 这是屏幕上唯一的常驻控件，跳变最扎眼。给一次弹簧缩放 + 淡入。
+            val barFx = remember { Animatable(1f) }
+            androidx.compose.runtime.LaunchedEffect(barCollapsed) {
+                barFx.snapTo(0.84f)
+                barFx.animateTo(
+                    targetValue = 1f,
+                    animationSpec = com.allperiph.ui.miuix.ApMotion.springSpec(
+                        this@ApShellActivity,
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    ),
+                )
+            }
             Box(
                 modifier = Modifier
                     .align(barAlign)
-                    .then(if (landscape) Modifier.padding(top = 8.dp) else Modifier)
+                    // 横屏顶栏贴到屏幕上沿时，8dp 会落进大圆角/挖孔的弧内（真机横屏截图里
+                    // 胶囊左上角被屏幕弧切掉一截）。这里叠上挖孔让位量 topPad。
+                    .then(if (landscape) Modifier.padding(top = 8.dp + topPad) else Modifier)
                     .widthIn(max = 440.dp)
+                    .graphicsLayer {
+                        val v = barFx.value
+                        alpha = 0.72f + 0.28f * v
+                        scaleX = v
+                        scaleY = v
+                    }
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             // ⚠️ 必须走 Initial pass：低栏四个页签都是 clickable，事件在

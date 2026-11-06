@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -365,12 +366,45 @@ object ApComponents {
                         __d.fontScale,
                     ),
             ) {
+            // 入场动效（2026-11-07）：0.94 → 1 缩放 + 淡入。规格取 ApMotion，设置页
+            // 「动效」关掉时 springSpec 退化成 0ms tween，直接落终态（不是变快，是不动）。
+            val __mctx = androidx.compose.ui.platform.LocalContext.current
+            val __enter = androidx.compose.runtime.remember {
+                androidx.compose.animation.core.Animatable(0f)
+            }
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                __enter.animateTo(
+                    targetValue = 1f,
+                    animationSpec = ApMotion.springSpec(
+                        __mctx,
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+                    ),
+                )
+            }
+            // 限高改成「最多」而不是「恰好占 62%」：
+            //   · 内容短（两行字 + 一个按钮）时卡片贴着内容收 —— 此前 fillMaxHeight 会把它
+            //     撑成一张大半屏的空心大卡，真机上就是「弹窗又大又空、按钮离得老远」；
+            //   · 内容长时顶到上限，卡片内的 verticalScroll 接管（scrollable=true 时）。
+            val __maxH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp *
+                heightRatio
             // fillMaxWidth 在前（与 Card 的默认一致），调用方的 modifier 可以覆盖它
             top.yukonga.miuix.kmp.basic.Card(
                 // 2026-11-07：封顶 94% —— 横向不再顶到屏边，缩放调大时也有安全余量。
-                modifier = Modifier.fillMaxWidth(0.94f)
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    // 横屏/平板下 0.94×屏宽 会变成一张 800dp 级的巨卡（真机横屏实测：一列
+                    // 开关被拉成两道相隔 700dp 的边）。封顶 560dp 才是「一列信息」该有的宽度。
+                    .widthIn(max = 560.dp)
                     .then(modifier)
-                    .fillMaxHeight(heightRatio),
+                    .heightIn(max = __maxH)
+                    .graphicsLayer {
+                        val v = __enter.value
+                        alpha = 0.6f + 0.4f * v
+                        val s = 0.94f + 0.06f * v
+                        scaleX = s
+                        scaleY = s
+                    },
             ) {
                 Column(
                     modifier = Modifier

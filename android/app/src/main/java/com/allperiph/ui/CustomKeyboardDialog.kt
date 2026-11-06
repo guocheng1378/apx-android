@@ -68,12 +68,12 @@ object CustomKeyboardDialog {
         fun rebuild() {
             col.removeAllViews()
             rows.forEachIndexed { i, row ->
+                // 行操作 + 「+ 键」单独一行（短，永远放得下）
                 val rc = LinearLayout(act).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(0, dp(this, 4), 0, dp(this, 4))
+                    setPadding(0, dp(this, 6), 0, 0)
                 }
-                // 行操作：上移 / 下移 / 删行
                 rc.addView(smallBtn(act, "↑") {
                     if (i > 0) {
                         val tmp = rows.removeAt(i)
@@ -92,9 +92,29 @@ object CustomKeyboardDialog {
                     rows.removeAt(i)
                     rebuild()
                 })
-                // 行内键（点一下即删）
+                rc.addView(smallBtn(act, "+ 键") {
+                    pickKey(act) { label -> rows[i].add(label); rebuild() }
+                })
+                rc.addView(TextView(act).apply {
+                    text = act.getString(R.string.ui_custom_kbd_row_keys, row.size)
+                    textSize = 12f
+                    setTextColor(act.getColor(R.color.md_on_surface_variant))
+                    setPadding(dp(this, 8), 0, 0, 0)
+                })
+                col.addView(rc)
+
+                // 键位：**会换行**的容器（issue#166 第 1 条「编辑页横向元素显示不全」）。
+                // 此前 12 颗键全塞进上面那条 HORIZONTAL LinearLayout —— 每颗 28dp 内边距
+                // 加文字，在弹窗宽度里必然溢出，右侧几颗画到屏外、点不到；这里排满即换行，
+                // 一行几颗由可用宽度自己决定（窄屏 4~5 颗、横屏 8~10 颗）。
+                val flow = com.allperiph.ui.kit.FlowRow(act).apply {
+                    hGap = dp(this, 6)
+                    vGap = dp(this, 6)
+                    setPadding(0, dp(this, 2), 0, dp(this, 4))
+                }
+                // 行内键（长按即删）
                 row.toList().forEach { label ->
-                    rc.addView(TextView(act).apply {
+                    flow.addView(TextView(act).apply {
                         text = label
                         textSize = 13f
                         gravity = Gravity.CENTER
@@ -109,11 +129,7 @@ object CustomKeyboardDialog {
                         }
                     })
                 }
-                // 加键
-                rc.addView(smallBtn(act, "+ 键") {
-                    pickKey(act) { label -> rows[i].add(label); rebuild() }
-                })
-                col.addView(rc)
+                col.addView(flow)
             }
             // 末尾：新增空行
             col.addView(smallBtn(act, "+ 新行") {

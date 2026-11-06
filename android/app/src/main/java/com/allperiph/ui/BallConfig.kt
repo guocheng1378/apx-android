@@ -55,8 +55,43 @@ object BallConfig {
     /** 扇形半径（dp）：球心到快捷项中心的距离 */
     const val ARC_RADIUS_DP = 96
 
+    // ———————————————— 菜单尺寸档（2026-11-07 成宇「悬浮球弹出的窗口要能调节大小」） ————————————————
+    //
+    // 此前快捷项直径 52dp、扇形半径 96dp 都是**写死的常量**：小屏机上扇形铺到半屏、
+    // 点哪都像在挡内容；大屏机上 52dp 又偏小、边缘项容易点空。三档同时缩放
+    // 「项直径 + 半径」，设置页点一下就切，下次展开即生效（菜单是每次现建的）。
+    const val MENU_COMPACT = 0
+    const val MENU_NORMAL = 1
+    const val MENU_LARGE = 2
+
+    private const val KEY_MENU_SCALE = "menu_scale"
+
     private const val PREF = "apx_ball_config"
     private const val KEY_ITEMS = "items"
+
+    /** 当前菜单尺寸档（越界值按标准档处理） */
+    fun menuScale(ctx: Context): Int = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        .getInt(KEY_MENU_SCALE, MENU_NORMAL).coerceIn(MENU_COMPACT, MENU_LARGE)
+
+    fun setMenuScale(ctx: Context, value: Int) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_MENU_SCALE, value.coerceIn(MENU_COMPACT, MENU_LARGE))
+            .apply()
+    }
+
+    /** 快捷项直径（dp），随尺寸档 */
+    fun itemDp(ctx: Context): Int = when (menuScale(ctx)) {
+        MENU_COMPACT -> 44
+        MENU_LARGE -> 62
+        else -> ITEM_DP
+    }
+
+    /** 扇形半径（dp），随尺寸档 —— 与 [itemDp] 同涨同缩，项之间的间距才不会被拉散 */
+    fun arcRadiusDp(ctx: Context): Int = when (menuScale(ctx)) {
+        MENU_COMPACT -> 82
+        MENU_LARGE -> 118
+        else -> ARC_RADIUS_DP
+    }
     /** v223.25 升级补挂标记：键盘/手柄两项加入菜单后只补一次，尊重用户之后的手工增删 */
     private const val KEY_MIGRATED_V2 = "migrated_v2"
 
