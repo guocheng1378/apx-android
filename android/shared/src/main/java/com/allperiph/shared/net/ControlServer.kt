@@ -107,6 +107,8 @@ class ControlServer(
     private var rightDownAt = 0L
     private var rightMovedPx = 0
     private var rightUpPending: Runnable? = null
+    // D-1 诊断：静默丢帧计数（magic/payloadLen/CRC 三类，每 50 次记一条）
+    private var frameDrops = 0
 
     private val injectThread = android.os.HandlerThread("apx-inject").apply { start() }
     private val injectHandler = Handler(injectThread.looper)
@@ -260,12 +262,21 @@ class ControlServer(
         synchronized(rxLock) {
             var off = 0
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
-                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
+                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) {
+                    if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} magic不符 off=$off rxLen=$rxLen")
+                    off++; continue
+                }
                 val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
+                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {
+                    if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} payloadLen=$payloadLen")
+                    off++; continue
+                }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
-                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
+                if (!ApxFrame.verify(rxBuf, off, payloadLen)) {
+                    if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} CRC不符 off=$off len=$payloadLen")
+                    off += total; continue
+                }
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL && payloadLen >= 1) {
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null && body.isNotEmpty()) {
@@ -273,7 +284,12 @@ class ControlServer(
                         if (suspended && cmd != 'p'.code && cmd != 0x10) {
                             // 控制面已挂起：忽略鼠标/键盘/触摸等输入
                         } else when (cmd) {
-                            'p'.code -> actions.add { sendControl(PONG) }
+                            'p'.code -> {
+                                Log.i("控制面", "诊断:收到ping→回pong")
+                                actions.add {
+                                    if (!sendControl(PONG)) Log.w("控制面", "诊断:pong发送失败 ready=$ready")
+                                }
+                            }
                             0x01 -> if (body.size >= 5) actions.add { onMouse(body) }
                             0x02 -> if (body.size >= 3) actions.add { onConsumer(body) }
                             0x03 -> if (body.size >= 3) actions.add { onKeyboard(body) }

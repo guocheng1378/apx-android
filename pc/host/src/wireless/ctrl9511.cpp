@@ -905,6 +905,7 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                     im->pingPending_.store(false);
                     im->missedPongs_.store(0);   // v184：收到 pong，失败计数清零
                     const auto sent = im->pingSentMs_.load();
+                    APX_LOGI("9511 收到 pong（心跳恢复）");
                     if (sent > 0) im->rttMs_.store(im->nowMs() - sent);
                 }
                 off += total;
