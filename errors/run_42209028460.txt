@@ -1,0 +1,28 @@
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 90%] Built target apxpc_wireless
+[ 96%] Built target apxpc_localsend
+[100%] Built target apxhost
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 79%] Built target apxpc_service
+[ 90%] Built target apxpc_wireless
+[ 96%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/desktop_main.cpp:720:50: error: cannot initialize a parameter of type 'void **' with an lvalue of type 'void *'
+  720 |     if (g_hk && unreg && target) unreg(target(), g_hk);
+      |                                                  ^~~~
+1 error generated.
+make[3]: *** [CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
