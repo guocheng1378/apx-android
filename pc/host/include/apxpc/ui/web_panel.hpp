@@ -23,7 +23,7 @@
 //   后端 → 前端：
 //     {"kind":"act-response",     "id":"req-1", "ok":true,  "data":{…}}
 //     {"kind":"query-response",   "id":"req-2", "ok":true,  "data":{…}}
-//     {"kind":"open-file-response","id":"req-3","ok":true,  "path":"C:\\…\\foo.png"}
+//     {"kind":"open-file-response","id":"req-3", "ok":true,  "path":"C:\\…\\foo.png"}
 //     {"kind":"state",            "t":12345,   "data":{…}}   ← 400ms 推
 //     {"kind":"event",            "name":"on-remote-input", "hint":"搜索框"}
 // ---------------------------------------------------------------------------
@@ -104,7 +104,15 @@ int runWebPanel(const HostBundle& bundle, const std::string& webDir = {});
 // PostWebMessageAsJson 线程安全，接收线程可直接调（同 web_panel.cpp postEvent 注释的约定）。
 void notifyFileReceived(const std::string& path);
 
-// ———————————————— 平台探测 ———————————————
+// ———————————————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————————————
+// 查到 GitHub releases 有新版 → 推 on-update-available 事件，前端顶部横幅展示；
+// 点「查看」回 app.openUrl act（web_panel 白名单放行本仓库 release 页）。
+// 面板未就绪时仅记日志（检查线程启动 +10s 才跑，正常不会走到这）。
+// 仅 Windows（定义在 web_panel.cpp）；mac 走 panel_http，本轮未接。
+void notifyUpdateAvailable(const std::string& latestTag, const std::string& currentTag,
+                           const std::string& url);
+
+// ———————————————— 平台探测 ————————————————
 bool webPanelAvailable();
 
 }  // namespace apxpc::ui
