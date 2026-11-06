@@ -75,11 +75,14 @@ if(WIN32)
   # 在重入场景没兜住（wil 兜住了、它没兜住），改用磁盘事实：落盘即视为已 populate，
   # 绝不再走直接 Populate（第二次执行 = CMP0169 2043 FATAL，CI 日志实锤两轮）。
   if(EXISTS "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src/CMakeLists.txt")
-    set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")
     set(ViGEmClientSrc_POPULATED TRUE)
   else()
     FetchContent_Populate(ViGEmClientSrc)
   endif()
+  # 源码目录不赌 deprecated 单参 Populate 的变量回填（Build #1275 实测拿到空串，
+  # add_library 拼成 "/src/ViGEmClient.cpp"）——FetchContent 默认落盘路径是确定的
+  # ${CMAKE_BINARY_DIR}/_deps/<name小写>-src（CI 日志与报错路径双实证），两分支统一硬设。
+  set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")
   # 不再 add_subdirectory 上游（Build #1269→#1272 三轮实锤）：上游 project()/option()/
   # GNUInstallDirs 的 cache 写入会触发 CMake 途中重入，而重入清 TARGET 却保留
   # binary-dir 占用记录 → 第二次 add_subdirectory 必死（:88 "already used"）。改为
