@@ -80,25 +80,25 @@ if(WIN32)
   else()
     FetchContent_Populate(ViGEmClientSrc)
   endif()
-  if(NOT TARGET ViGEmClientShared)
-    # 上游硬编码 add_library(... STATIC)，BUILD_SHARED_LIBS 对它无效（Build #1269
-    # 实测推断）；出 DLL 的专有开关 = option ViGEmClient_DLL（默认 OFF）。
-    # 上游 cmake_minimum_required 3.20.2 → CMP0077 NEW：普通变量可压过 option() 默认值。
-    set(ViGEmClient_DLL ON)
-    add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
+  # 不再 add_subdirectory 上游（Build #1269→#1272 三轮实锤）：上游 project()/option()/
+  # GNUInstallDirs 的 cache 写入会触发 CMake 途中重入，而重入清 TARGET 却保留
+  # binary-dir 占用记录 → 第二次 add_subdirectory 必死（:88 "already used"）。改为
+  # 本作用域直接建 DLL：add_library 无 binary-dir 状态，随文件重执行 if(NOT TARGET)
+  # 即自愈；也顺带拆掉了重入触发器。上游 tag 的 CMakeLists 是极简版
+  # （Project + add_library EXCLUDE_FROM_ALL），源码三编译单元；.rc 仅版本资源，
+  # 排除掉可免 enable_language(RC)。Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport，
+  # VIGEM_EXPORTS 定方向，不补则 DLL 零导出（GetProcAddress 全 NULL）。
+  if(NOT TARGET ViGEmClient)
+    add_library(ViGEmClient SHARED
+      "${ViGEmClientSrc_SOURCE_DIR}/src/ViGEmClient.cpp")
+    target_include_directories(ViGEmClient PUBLIC "${ViGEmClientSrc_SOURCE_DIR}/include")
+    target_compile_definitions(ViGEmClient PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
+    target_link_libraries(ViGEmClient PRIVATE setupapi ole32)
+    set_target_properties(ViGEmClient PROPERTIES
+      OUTPUT_NAME "ViGEmClient"
+      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
+      RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
   endif()
-  if(NOT TARGET ViGEmClientShared)
-    message(FATAL_ERROR "ViGEmClientShared 未生成——上游 option 名/结构可能已变，核对 GIT_TAG")
-  endif()
-  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向。
-  # 实测上游 shared 分支也不定义这两个宏（默认路径给静态），不补则 DLL 零导出，
-  # 运行期 LoadLibrary 成功但 GetProcAddress 全 NULL。setupapi：上游已链，此处幂等保底。
-  target_compile_definitions(ViGEmClientShared PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
-  target_link_libraries(ViGEmClientShared PRIVATE setupapi)
-  set_target_properties(ViGEmClientShared PROPERTIES
-    OUTPUT_NAME "ViGEmClient"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
 endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
