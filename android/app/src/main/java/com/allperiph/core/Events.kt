@@ -48,3 +48,10 @@ data class AgentStateEvent(
 
 /** PC 请求打开副屏页（控制通道 0x05，由面板开启副屏推流时下发） */
 class ScreenOpenRequestEvent
+
+/**
+ * PC 面板摄像头开关（0x10 模块开关 id="camera"，M7-c 批4，2026-11-06）。
+ * on=true：AgentForegroundService 拉起推流页开始采集；
+ * on=false：推流页收到同一事件自行 finish（未开页时无人消费，无事发生）。
+ */
+class CameraPushRequestEvent(val on: Boolean)

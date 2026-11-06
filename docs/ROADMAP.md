@@ -185,7 +185,7 @@ exe，窗口与托盘共用同一枚。**手机端图标一改，重跑脚本即
 | **副屏**（镜像主桌面） | 手机 `screen/`（`ScreenModule` + `ScreenRenderer` + `ScreenActivity`）；PC `media/screen_push.cpp`（复用 `pc/display` 的抓屏/编码/组帧/编排，**注入传输适配器**写到共用的媒体连接） | ✅ 已集成进桌面面板，真机**已解码 393 帧** |
 | **音箱**（PC 声 → 手机扬声器） | PC `media/audio_capture.cpp`（**WASAPI loopback**，免驱，**可选采集端点 / 可跟随系统默认**）→ `streamId=1` → 手机 `audio/WirelessAudioModule.kt` 写 AudioTrack | ✅ 面板开关 + 采集设备下拉已接通，真机验证 |
 | **麦克风**（手机 → PC） | 手机 AudioRecord → `MediaOut.mic()`（`streamId=5`） | ✅ PC 侧收到 1002 帧 PCM |
-| **摄像头**（手机 → PC） | 待做：Camera2 JPEG → `MediaOut.camera()`（`streamId=6`）；PC 侧预览 | ❌ **未开始** |
+| **摄像头**（手机 → PC） | 手机 `camera/CameraPushActivity.kt`（CameraX → JPEG → `MediaOut.camera()`，`streamId=6`）→ PC `media/media_session.cpp` 收流 → `media/camera_view.cpp`（GDI+ 解码 → 预览窗 + 虚拟摄像头）；面板 `camera.toggle` 经 0x10「camera」拉起/关闭手机采集页（M7-b + M7-c，2026-11-06） | ✅ 代码完成，**真机未实测**（清单见 [spike §4](./spikes/m7-media-inbound-spike.md)） |
 
 **验证证据**（真机 2026-09-24，PC 与手机同一局域网）：
 

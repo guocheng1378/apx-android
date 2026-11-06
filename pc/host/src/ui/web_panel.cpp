@@ -684,6 +684,12 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
     if (name == "camera.toggle") {
         auto& cv = cameraView();
         cv.setPreview(!cv.status().previewOpen);
+        const bool on = cv.status().previewOpen;
+        // M7-c 批4：预览开关同步下发手机采集 —— 0x10 模块开关「camera」，
+        // 手机端 ControlledService → 前台服务拉起/关闭 CameraPushActivity。
+        // 未连受控端 sendModuleToggle 返回 false：不改面板口径，
+        // 收没收到帧以 buildState 的 cameraFrames 计数为准（0 即没通）。
+        if (b.session) (void)b.session->sendModuleToggle("camera", on);
         return postResponse(p, id, okResp());
     }
     if (name == "camera.vcam") {

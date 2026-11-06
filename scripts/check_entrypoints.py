@@ -49,12 +49,11 @@ MANIFESTS = [
 # ① Activity 可达性豁免：类名 -> 理由
 ACTIVITY_EXEMPT = {
     "ControlShortcutActivity": "有 intent-filter（快捷方式 / 磁贴），系统可直接拉起",
-    "CameraPushActivity":
-        "M7-b 摄像头推流的中间批（2026-11-05，PR #162）：应用内入口按计划"
-        "在 M7-c 由 PC 面板下发拉起（docs/spikes/m7-media-inbound-spike.md §3），"
-        "本批先经 adb 验证链路（am start -n com.allperiph/.camera.CameraPushActivity）；"
-        "M7-c 接入口后删除本豁免",
 }
+# CameraPushActivity 豁免已按约删除（M7-c 批4，2026-11-06）：入口 = PC 面板
+# camera.toggle → 0x10「camera」→ AgentForegroundService 以
+# `Intent(this, CameraPushActivity::class.java)` 拉起（判据①的代码内类引用成立），
+# 通知「摄像头」动作与 adb am start 兜底。
 
 # ② 必须有人调用的能力 API：说明 -> 限定调用名（`类型.方法`）
 #    只认限定名：同名方法在别的类上很常见（applyMic 在 USB / Wi‑Fi 两个模块里都有，

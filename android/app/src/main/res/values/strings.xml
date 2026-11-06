@@ -36,6 +36,7 @@
     <string name="notify_action_stop">停止</string>
     <string name="notify_action_open">打开</string>
     <string name="notify_action_screen">副屏</string>
+    <string name="notify_action_camera">摄像头</string>
 
     <string name="card_link">连接状态</string>
 

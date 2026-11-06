@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.allperiph.R
+import com.allperiph.core.CameraPushRequestEvent
 import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.shared.accessibility.ApxAccessibilityService
 import com.allperiph.shared.event.EventBus
@@ -92,6 +93,11 @@ class ControlledService : Service() {
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {
                 if (on) server?.resumeAccept() else server?.suspendAccept()
+            } else if (id == "camera") {
+                // M7-c 批4：面板 camera.toggle → 开/关推流页。开由 AgentForegroundService
+                // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
+                // 自行 finish。回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
+                EventBus.post(CameraPushRequestEvent(on))
             }
         }
         // 注册远程输入回调：收到 REQUEST_INPUT 时弹出 RemoteInputActivity

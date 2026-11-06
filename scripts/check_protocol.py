@@ -46,6 +46,7 @@ EXPECT_STREAMS = {
     "control": 3,
     "telemetry": 4,
     "mic": 5,
+    "camera": 6,   # M7-b/c：frame.h kStreamCamera 与 ApxFrame.STREAM_CAMERA 两端镜像（PROTOCOL §3.4 已列）
 }
 EXPECT_FLAGS = {
     "key_frame": 1,

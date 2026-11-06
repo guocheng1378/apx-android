@@ -7,6 +7,8 @@ import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Size
 import android.view.Gravity
@@ -24,7 +26,9 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import com.allperiph.core.CameraPushRequestEvent
 import com.allperiph.core.MediaOut
+import com.allperiph.shared.event.EventBus
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
@@ -50,7 +54,8 @@ import java.util.concurrent.Executors
  *     ActivityResultContracts 在 `androidx.activity.result.contract` 子包
  *     （不在 `androidx.activity.result` —— 那里放的是 ActivityResultCallback）。
  *
- * 启动（当前无应用内入口，M7-c 面板接）：
+ * 启动（M7-c 批4 起有面板入口）：PC 面板「摄像头」开关 → 0x10「camera」→
+ *   AgentForegroundService 拉起本页；通知「摄像头」动作 / adb 兜底：
  *   adb shell am start -n com.allperiph/.camera.CameraPushActivity
  */
 class CameraPushActivity : ComponentActivity() {
@@ -60,6 +65,10 @@ class CameraPushActivity : ComponentActivity() {
 
     private var provider: ProcessCameraProvider? = null
     private val analyzerExecutor = Executors.newSingleThreadExecutor()
+
+    // M7-c 批4：PC 关摄像头（0x10「camera」off）→ 订阅同一事件关本页停采集；
+    // 开路径由 AgentForegroundService startActivity 拉起（它只处理 on=true）
+    private var closeDisposable: EventBus.Disposable? = null
 
     // 权限结果回调（必须在 onCreate 前注册 —— 属性初始化器在构造期执行，满足约束）
     private val cameraPermission = registerForActivityResult(
@@ -98,6 +107,13 @@ class CameraPushActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM))
         })
+        closeDisposable = EventBus.on<CameraPushRequestEvent>(Handler(Looper.getMainLooper())) {
+            if (!it.on) {
+                note = "PC 已关闭摄像头采集"
+                render()
+                finish()
+            }
+        }
         note = "等待摄像头权限…"
         render()
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -226,6 +242,7 @@ class CameraPushActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        closeDisposable?.dispose()
         provider?.unbindAll()
         analyzerExecutor.shutdown()
     }
