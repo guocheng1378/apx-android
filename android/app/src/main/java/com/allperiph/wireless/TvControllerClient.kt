@@ -66,6 +66,12 @@ class TvControllerClient(
         thread(name = "tvctrl-reader") { readerLoop(s) }
         startTx()
         startModeStatus()
+        // v223.29.12 热修：会话建立**即刻**上报一帧 0x31，不等 2s 轮询线程。
+        // PC 端握手时会把 modeReported_ 清零（「新会话从未上报开始」）；若模式线程恰在
+        // disconnect/快速重连的 isAlive 早退竞态里死掉（startModeStatus 里
+        // `if (modeThread?.isAlive == true) return` 早退而旧线程随后退出），面板就会
+        // 永久停在「手机未上报」。即刻一帧把这扇窗关掉；轮询线程存活时照常补报。
+        sendModeStatus(runCatching { ModeStatus.currentFlags() }.getOrDefault(0))
         // 重连后自动重发光标浮层偏好：被控端状态是会话级的，重连即重置，
         // 不重发的话用户上次关掉的浮层又会冒出来
         lastOverlayCursorEnabled?.let { sendControl(byteArrayOf(0x32.toByte(), (if (it) 1 else 0).toByte())) }
@@ -266,7 +272,7 @@ class TvControllerClient(
     /** v184：特殊键/组合键（0x28）：mod 位图 1=Ctrl 2=Shift 4=Alt，vk 用 Windows VK 码 */
     fun sendSpecialKey(mod: Int, vk: Int) = sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte()))
     fun keyboard(usage: Int, down: Boolean, mod: Int = 0) = if (down) sendControl(byteArrayOf(0x03.toByte(), mod.toByte(), 0, usage.toByte())) else sendControl(byteArrayOf(0x03.toByte(), 0, 0, 0))
-    fun consumer(bitmap: Int) = sendControl(byteArrayOf(0x02.toByte(), (bitmap and 0xFF).toByte(), ((bitmap ushr 8) and 0xFF).toByte()))
+    fun consumer(bitmap: Int) = sendControl(byteArrayOf(0x02.toByte(), ((bitmap and 0xFF).toByte()), ((bitmap ushr 8).toByte())) )
     fun power(action: Int) = sendControl(byteArrayOf(0x22.toByte(), action.toByte()))
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) = sendControl(byteArrayOf(0x07.toByte(), (buttons and 0xFF).toByte(), ((buttons ushr 8) and 0xFF).toByte(), x.toByte(), y.toByte(), rx.toByte(), ry.toByte()))
     fun sendClipboard(text: String): Boolean {
