@@ -354,7 +354,7 @@ jobs:
             arbiter_test utf16_convert_test ctrl_frame_test relative_move_test `
             gamepad_fallback_test phone_mode_test tcp_probe_test `
             wireless_session_lifecycle_test localsend_protocol_test `
-            localsend_upload_test localsend_sender_test 2>&1 | `
+            localsend_upload_test localsend_sender_test ball_registry_test 2>&1 | `
             Tee-Object -FilePath test_build.log | Select-Object -Last 20
           if ($LASTEXITCODE -ne 0) { Get-Content test_build.log -Tail 60; exit $LASTEXITCODE }
 

@@ -105,13 +105,26 @@ fun rememberApInsets(): ApInsets {
             val bars = insets.getInsets(WindowInsets.Type.systemBars())
             val cut = insets.getInsets(WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
-            // 大圆角（roundedCorners 类型需 API 35；工程 targetSdk 35 可编译，
-            // 跑在 Android 14 及以下的机器走 0 值分支 —— 不垫但也不崩）。
-            val rounded = if (android.os.Build.VERSION.SDK_INT >= 35) {
-                insets.getInsets(WindowInsets.Type.roundedCorners())
-            } else {
-                android.graphics.Insets.NONE
+            // 大圆角：**SDK 里没有 `WindowInsets.Type.roundedCorners()`**（CI 实测
+            // Unresolved reference —— 那条注释里的「API 35+ 可编译」是错的），改走
+            // API 31+ 的 Display.getRoundedCorner 直接取四角半径，再按「该侧最大角半径」
+            // 折成四边留白，语义与 holeX 的并集口径一致。
+            fun cornerPx(pos: Int): Int {
+                if (android.os.Build.VERSION.SDK_INT < 31) return 0
+                val display = view.display ?: return 0
+                return try {
+                    display.getRoundedCorner(pos)?.radius ?: 0
+                } catch (t: Throwable) {
+                    0   // 个别设备/无窗口场景会抛 IAE：不垫，但不许崩
+                }
             }
+            val tl = cornerPx(android.view.Display.RoundedCornerPosition.TOP_LEFT)
+            val tr = cornerPx(android.view.Display.RoundedCornerPosition.TOP_RIGHT)
+            val br = cornerPx(android.view.Display.RoundedCornerPosition.BOTTOM_RIGHT)
+            val bl = cornerPx(android.view.Display.RoundedCornerPosition.BOTTOM_LEFT)
+            val rounded = android.graphics.Insets.of(
+                maxOf(tl, bl), maxOf(tl, tr), maxOf(tr, br), maxOf(bl, br),
+            )
             return ApInsets(
                 bars = ApEdgeInsets(
                     pxToDp(bars.left), pxToDp(bars.top), pxToDp(bars.right), pxToDp(bars.bottom),
