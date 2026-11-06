@@ -67,7 +67,10 @@ object ApxFrame {
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {
             var c = i
-            repeat(8) { c = if (c and 1 != 0) (c ushr 8) xor 0xEDB88320.toInt() else c ushr 8 }
+            // 标准 CRC-32(IEEE 802.3) 表生成：每轮右移 1 位；此前误写成 ushr 8 导致
+            // 整张表错误，手机收发帧 CRC 与 PC 端 frame.cpp(c >> 1) 不一致 —— 所有帧校验
+            // 失败、pong 被丢弃，触发 24s 死亡检测死循环（223.29.3 用 ushr 1 正常）。
+            repeat(8) { c = if (c and 1 != 0) (c ushr 1) xor 0xEDB88320.toInt() else c ushr 1 }
             t[i] = c
         }
     }
