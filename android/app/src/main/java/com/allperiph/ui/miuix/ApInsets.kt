@@ -118,10 +118,13 @@ fun rememberApInsets(): ApInsets {
                     0   // 个别设备/无窗口场景会抛 IAE：不垫，但不许崩
                 }
             }
-            val tl = cornerPx(android.view.Display.RoundedCornerPosition.TOP_LEFT)
-            val tr = cornerPx(android.view.Display.RoundedCornerPosition.TOP_RIGHT)
-            val br = cornerPx(android.view.Display.RoundedCornerPosition.BOTTOM_RIGHT)
-            val bl = cornerPx(android.view.Display.RoundedCornerPosition.BOTTOM_LEFT)
+            // 位置常量取 Display.RoundedCornerPosition 的数值（TOP_LEFT/TOP_RIGHT/
+            // BOTTOM_RIGHT/BOTTOM_LEFT = 1/2/3/4）——直接写类名在 Kotlin 侧解析不了
+            // （CI 实测：Unresolved reference 'RoundedCornerPosition'）。
+            val tl = cornerPx(1)   // Display.RoundedCornerPosition.TOP_LEFT
+            val tr = cornerPx(2)   // Display.RoundedCornerPosition.TOP_RIGHT
+            val br = cornerPx(3)   // Display.RoundedCornerPosition.BOTTOM_RIGHT
+            val bl = cornerPx(4)   // Display.RoundedCornerPosition.BOTTOM_LEFT
             val rounded = android.graphics.Insets.of(
                 maxOf(tl, bl), maxOf(tl, tr), maxOf(tr, br), maxOf(bl, br),
             )
