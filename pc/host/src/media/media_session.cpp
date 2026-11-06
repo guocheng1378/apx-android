@@ -211,6 +211,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     cVideoFrames_ = 0; cVideoBytes_ = 0;
     cAudioFrames_ = 0; cAudioBytes_ = 0;
     cMicFrames_ = 0;   cMicBytes_ = 0;
+    cCameraFrames_ = 0; cCameraBytes_ = 0;
 
     cTouchFrames_ = 0;  cTouchBytes_ = 0;
     cDropped_ = 0;     cResync_ = 0;
@@ -271,6 +272,8 @@ MediaSession::Counters MediaSession::counters() const {
     c.audioBytes = cAudioBytes_.load(std::memory_order_relaxed);
     c.micFrames = cMicFrames_.load(std::memory_order_relaxed);
     c.micBytes = cMicBytes_.load(std::memory_order_relaxed);
+    c.cameraFrames = cCameraFrames_.load(std::memory_order_relaxed);
+    c.cameraBytes = cCameraBytes_.load(std::memory_order_relaxed);
 
     c.touchFrames = cTouchFrames_.load(std::memory_order_relaxed);
     c.touchBytes = cTouchBytes_.load(std::memory_order_relaxed);
@@ -367,6 +370,9 @@ void MediaSession::readerLoop() {
             const size_t bodyLen = h.payloadLen - apx::kFrameCrcSize;
             switch (h.streamId) {
                 case kStreamMic:    bump(bodyLen, cMicFrames_, cMicBytes_); break;
+                // M7-c 批 3：摄像头 JPEG 上行也计数 —— 与 handler 投递解耦，
+                // 即便面板没注册回调，「链路到底走没走」也有客观证据可看。
+                case kStreamCamera: bump(bodyLen, cCameraFrames_, cCameraBytes_); break;
 
                 case kStreamTouch:  // 副屏触摸：计数 + 注入（毫秒级，可留收流线程；
                                     // mac 注入为诚实降级，不影响其余流）

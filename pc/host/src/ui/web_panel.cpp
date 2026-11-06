@@ -252,6 +252,7 @@ void buildState(const HostBundle& b, Json& out) {
         media["videoFramesSent"] = static_cast<double>(cc.videoFrames);
         media["audioFramesSent"] = static_cast<double>(cc.audioFrames);
         media["micFrames"] = static_cast<double>(cc.micFrames);
+        media["cameraFrames"] = static_cast<double>(cc.cameraFrames);
         media["dropped"] = static_cast<double>(cc.dropped);
     }
 
@@ -1345,6 +1346,24 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     panel.bundle = bundle;
     g_panel = &panel;
     panel.running.store(true);
+    // M7-c 批 3：收流回调注册。此前 WebView2 面板从未 setHandler（handler_ 恒空）——
+    // 摄像头 JPEG 与手机麦克风 PCM 到 PC 后被直接丢弃：CameraCard 只能切开关、
+    // 一帧收不到，micBridge 同样吃不到数据。契约见 media_session.hpp FrameHandler：
+    // 回调在收流线程上跑，只做投递、不碰 UI 不阻塞；runWebPanel 退出会把 g_panel
+    // 置空，晚到的回调判空即返（与互传接收端同一约定）。
+    if (panel.bundle.media) {
+        panel.bundle.media->setHandler([](uint8_t streamId, uint8_t /*flags*/,
+                                          uint32_t /*seq*/, const uint8_t* body, size_t len) {
+            Panel* gp = g_panel;
+            if (!gp || !gp->running.load()) return;
+            if (streamId == apxpc::media::kStreamCamera) {
+                apxpc::media::cameraView().feed(body, len);   // 只入队，解码/渲染在消费线程
+            } else if (streamId == apxpc::media::kStreamMic) {
+                if (gp->bundle.micBridge) gp->bundle.micBridge->feed(body, len);
+            }
+        });
+        APX_LOGI("媒体收流回调已注册（camera→CameraView / mic→MicBridge）");
+    }
     // 互传接收端：面板一开就起（与 9511 受控端 / 9512 收文件同口径 —— 面板在跑就能互传）。
     // 失败（53317 被官方 localsend 占用等）只告警、不阻断面板：状态里能点开关重试。
     startLocalSend(panel.bundle);
