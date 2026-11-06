@@ -373,6 +373,7 @@ jobs:
             build_host/Release/apxdesktop.exe
             build_host/Release/apxsetup.exe
             build_host/Release/WebView2Loader.dll
+            build_host/Release/ViGEmClient.dll
             build_host/Release/web/
           retention-days: 14
 
@@ -618,6 +619,7 @@ jobs:
           Copy-Item dist/pc-exes-webview2/apxdesktop.exe portable/
           Copy-Item dist/pc-exes-webview2/apxhost.exe portable/
           Copy-Item dist/pc-exes-webview2/WebView2Loader.dll portable/
+          Copy-Item dist/pc-exes-webview2/ViGEmClient.dll portable/
           Copy-Item -Recurse dist/pc-exes-webview2/web portable/
           Compress-Archive -Path portable/* -DestinationPath "out/AllPeriph-${VER}-portable.zip" -Force
           Get-ChildItem out/
