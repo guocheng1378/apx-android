@@ -1,94 +1,227 @@
 #!/usr/bin/env python3
-"""repo-edit：批 D-1 v2（9511 心跳哑火三角定位诊断，2026-11-07；v1 run#81 失败修复）。
+"""repo-edit：批 U-3（文字排版口径统一，成宇 2026-11-07「过长内容换行/滚动，同类控件对齐」）。
 
-v1 失败原因：E1 锚点错写成 `private var rightUpPending = false`（布尔），
-ControlServer 真身是 `private var rightUpPending: Runnable? = null` —— count=0 校验即败。
-本版已修；其余四锚点（pump magic/payloadLen 块、verify 行、28 空格 ping 派发行、
-ctrl9511 pong 清零三行）经 search_code 逐字节复核无误。
+诊断：全仓 `TextOverflow` 0 命中、Compose 侧无任何 maxLines —— miuix Text 默认
+     overflow=Clip、maxLines=MAX_VALUE：长文本要么无限换行把行高撑爆、要么尾部
+     取值把左列标题挤断，呈现成「乱七八糟」。
 
-解读矩阵（装包跑 60 秒）：
-  手机日志「诊断:收到ping」 + PC 导出「9511 收到 pong」 → 链路通
-  手机「丢帧#N CRC不符」 → 字节级失配直接现形
-  手机无「收到ping」 → PC→手机段未送达（查 PC 侧 send）
-  手机有 ping、无 pong 发送失败日志、PC 无 pong → 手机 pump 没派发（丢帧计数会报原因）
+Kit 级排版口径（ApComponents 一处改，全页面随 Kit 生效）：
+  · 标题（ItemRow/ClickRow/FoldGroup）：最多 2 行，超出省略号；
+  · 摘要/计数：最多 3 行（1 行），超出省略号 —— 再长靠页面/弹窗已有的竖向滚动看全；
+  · 尾部取值（ValueRow）：右对齐、最多 2 行、横向封顶 46% 屏宽（不再挤断左列）；
+  · 胶囊/页签/长按拖柄/折叠箭头：单行省略（按钮类维持随文字宽）；
+  · 同类尾部辅助文字字号统一 13sp（≡ 手柄 14→13，与取值/箭头对齐）。
+
+miuix Text 签名已对同源开源副本逐参核对（maxLines/overflow/textAlign 均存在，
+默认 overflow=Clip、maxLines=Int.MAX_VALUE）。锚点全部取自 master 最新 get_file 全文。
 """
 import sys
 
+F = "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt"
+
 EDITS = [
     {
-        "id": "E1 ControlServer 字段 frameDrops",
-        "file": "android/shared/src/main/java/com/allperiph/shared/net/ControlServer.kt",
+        "id": "U3-1 import widthIn",
+        "file": F,
         "kind": "append_after",
-        "marker": "private var frameDrops = 0",
-        "anchor": "    private var rightUpPending: Runnable? = null",
-        "insert": (
-            "\n    // D-1 诊断：静默丢帧计数（magic/payloadLen/CRC 三类，每 50 次记一条）"
-            "\n    private var frameDrops = 0"
-        ),
+        "marker": "import androidx.compose.foundation.layout.widthIn",
+        "anchor": "import androidx.compose.foundation.layout.heightIn",
+        "insert": "\nimport androidx.compose.foundation.layout.widthIn",
     },
     {
-        "id": "E2 ControlServer pump magic/payloadLen 丢帧日志",
-        "file": "android/shared/src/main/java/com/allperiph/shared/net/ControlServer.kt",
+        "id": "U3-2 import TextOverflow",
+        "file": F,
+        "kind": "append_after",
+        "marker": "import androidx.compose.ui.text.style.TextOverflow",
+        "anchor": "import androidx.compose.ui.text.style.TextAlign",
+        "insert": "\nimport androidx.compose.ui.text.style.TextOverflow",
+    },
+    {
+        "id": "U3-3 ItemRow 标题2行/摘要3行",
+        "file": F,
         "kind": "replace",
         "anchor": (
-            "                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }\n"
-            "                val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)\n"
-            "                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }\n"
-            "                val total = ApxFrame.totalSize(payloadLen)\n"
-            "                if (rxLen - off < total) break"
+            "                Column(modifier = Modifier.weight(1f)) {\n"
+            "                    Text(text = title, fontSize = 15.sp)\n"
+            "                    if (!summary.isNullOrBlank()) {\n"
+            "                        Text(\n"
+            "                            text = summary,\n"
+            "                            fontSize = 12.sp,\n"
+            "                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                        )\n"
+            "                    }\n"
+            "                }\n"
+            "                trailing?.invoke()\n"
+            "            }\n"
+            "            if (showDivider) HorizontalDivider()"
         ),
         "new": (
-            "                if (!ApxFrame.isMagic(rxBuf, off, rxLen)) {\n"
-            "                    if (frameDrops++ % 50 == 0) Log.w(\"控制面\", \"诊断:丢帧#${frameDrops} magic不符 off=$off rxLen=$rxLen\")\n"
-            "                    off++; continue\n"
+            "                Column(modifier = Modifier.weight(1f)) {\n"
+            "                    // 排版口径（2026-11-07）：标题最多 2 行、摘要最多 3 行，超出省略 ——\n"
+            "                    // 再长靠页面/弹窗的竖向滚动看全，不把整行高度撑爆。\n"
+            "                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)\n"
+            "                    if (!summary.isNullOrBlank()) {\n"
+            "                        Text(\n"
+            "                            text = summary,\n"
+            "                            fontSize = 12.sp,\n"
+            "                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                            maxLines = 3,\n"
+            "                            overflow = TextOverflow.Ellipsis,\n"
+            "                        )\n"
+            "                    }\n"
             "                }\n"
-            "                val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)\n"
-            "                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {\n"
-            "                    if (frameDrops++ % 50 == 0) Log.w(\"控制面\", \"诊断:丢帧#${frameDrops} payloadLen=$payloadLen\")\n"
-            "                    off++; continue\n"
-            "                }\n"
-            "                val total = ApxFrame.totalSize(payloadLen)\n"
-            "                if (rxLen - off < total) break"
+            "                trailing?.invoke()\n"
+            "            }\n"
+            "            if (showDivider) HorizontalDivider()"
         ),
     },
     {
-        "id": "E3 ControlServer CRC 丢帧日志",
-        "file": "android/shared/src/main/java/com/allperiph/shared/net/ControlServer.kt",
+        "id": "U3-4 ClickRow 标题2行/摘要3行",
+        "file": F,
         "kind": "replace",
-        "anchor": "                if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }",
+        "anchor": (
+            "            Column(modifier = Modifier.weight(1f)) {\n"
+            "                Text(text = title, fontSize = 15.sp)\n"
+            "                if (!summary.isNullOrBlank()) {\n"
+            "                    Text(\n"
+            "                        text = summary,\n"
+            "                        fontSize = 12.sp,\n"
+            "                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                    )\n"
+            "                }\n"
+            "            }\n"
+            "            trailing?.invoke()\n"
+            "            if (onLongClick != null) {"
+        ),
         "new": (
-            "                if (!ApxFrame.verify(rxBuf, off, payloadLen)) {\n"
-            "                    if (frameDrops++ % 50 == 0) Log.w(\"控制面\", \"诊断:丢帧#${frameDrops} CRC不符 off=$off len=$payloadLen\")\n"
-            "                    off += total; continue\n"
+            "            Column(modifier = Modifier.weight(1f)) {\n"
+            "                // 排版口径（2026-11-07）：与 ItemRow 同规格 —— 标题≤2 行、摘要≤3 行。\n"
+            "                Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)\n"
+            "                if (!summary.isNullOrBlank()) {\n"
+            "                    Text(\n"
+            "                        text = summary,\n"
+            "                        fontSize = 12.sp,\n"
+            "                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                        maxLines = 3,\n"
+            "                        overflow = TextOverflow.Ellipsis,\n"
+            "                    )\n"
+            "                }\n"
+            "            }\n"
+            "            trailing?.invoke()\n"
+            "            if (onLongClick != null) {"
+        ),
+    },
+    {
+        "id": "U3-5 ClickRow 长按手柄字号统一13sp/单行",
+        "file": F,
+        "kind": "replace",
+        "anchor": (
+            "                Text(\n"
+            "                    text = \"\\u2261\",\n"
+            "                    fontSize = 14.sp,\n"
+            "                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                )"
+        ),
+        "new": (
+            "                Text(\n"
+            "                    text = \"\\u2261\",\n"
+            "                    // 同类尾部辅助文字统一 13sp（与取值行/折叠箭头对齐口径一致）\n"
+            "                    fontSize = 13.sp,\n"
+            "                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                    maxLines = 1,\n"
+            "                    overflow = TextOverflow.Ellipsis,\n"
+            "                )"
+        ),
+    },
+    {
+        "id": "U3-6 FoldGroup 标题/计数限行",
+        "file": F,
+        "kind": "replace",
+        "anchor": (
+            "                Column(modifier = Modifier.weight(1f)) {\n"
+            "                    Text(text = title, fontSize = 15.sp)\n"
+            "                    Text(\n"
+            "                        text = countText,\n"
+            "                        fontSize = 12.sp,\n"
+            "                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                    )\n"
+            "                }"
+        ),
+        "new": (
+            "                Column(modifier = Modifier.weight(1f)) {\n"
+            "                    // 排版口径（2026-11-07）：标题≤2 行；计数回显恒单行。\n"
+            "                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)\n"
+            "                    Text(\n"
+            "                        text = countText,\n"
+            "                        fontSize = 12.sp,\n"
+            "                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,\n"
+            "                        maxLines = 1,\n"
+            "                        overflow = TextOverflow.Ellipsis,\n"
+            "                    )\n"
             "                }"
         ),
     },
     {
-        "id": "E4 ControlServer 收到ping/pong发送失败日志",
-        "file": "android/shared/src/main/java/com/allperiph/shared/net/ControlServer.kt",
+        "id": "U3-7 ValueRow 尾值右对齐/2行/半屏封顶",
+        "file": F,
         "kind": "replace",
-        "anchor": "                            'p'.code -> actions.add { sendControl(PONG) }",
+        "anchor": (
+            "            trailing = {\n"
+            "                Text(\n"
+            "                    text = value,\n"
+            "                    fontSize = 13.sp,\n"
+            "                    color = MiuixTheme.colorScheme.onSurfaceSecondary,\n"
+            "                )\n"
+            "            },"
+        ),
         "new": (
-            "                            'p'.code -> {\n"
-            "                                Log.i(\"控制面\", \"诊断:收到ping→回pong\")\n"
-            "                                actions.add {\n"
-            "                                    if (!sendControl(PONG)) Log.w(\"控制面\", \"诊断:pong发送失败 ready=$ready\")\n"
-            "                                }\n"
-            "                            }"
+            "            trailing = {\n"
+            "                Text(\n"
+            "                    text = value,\n"
+            "                    fontSize = 13.sp,\n"
+            "                    color = MiuixTheme.colorScheme.onSurfaceSecondary,\n"
+            "                    // 排版口径（2026-11-07 成宇「同类控件文字需要对齐」）：\n"
+            "                    // 尾值右对齐、最多 2 行、横向上限约半屏 —— 长地址/端口/路径\n"
+            "                    // 不再把左列标题挤断，且换行后与右缘对齐不再参差。\n"
+            "                    textAlign = TextAlign.End,\n"
+            "                    maxLines = 2,\n"
+            "                    overflow = TextOverflow.Ellipsis,\n"
+            "                    modifier = Modifier.widthIn(\n"
+            "                        max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.46f).dp,\n"
+            "                    ),\n"
+            "                )\n"
+            "            },"
         ),
     },
     {
-        "id": "E5 ctrl9511 收到 pong 落 INFO",
-        "file": "pc/host/src/wireless/ctrl9511.cpp",
-        "kind": "append_after",
-        "marker": "9511 收到 pong（心跳恢复）",
+        "id": "U3-8 Pill 单行省略",
+        "file": F,
+        "kind": "replace",
+        "anchor": "            Text(text = text, fontSize = 12.sp, color = color)",
+        "new": "            Text(text = text, fontSize = 12.sp, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)",
+    },
+    {
+        "id": "U3-9 TabChip 单行省略",
+        "file": F,
+        "kind": "replace",
         "anchor": (
-            "                    im->pingPending_.store(false);\n"
-            "                    im->missedPongs_.store(0);   // v184：收到 pong，失败计数清零\n"
-            "                    const auto sent = im->pingSentMs_.load();"
+            "            Text(\n"
+            "                text = text,\n"
+            "                fontSize = 14.sp,\n"
+            "                color = if (active) tint else MiuixTheme.colorScheme.onSurfaceSecondary,\n"
+            "                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,\n"
+            "            )"
         ),
-        "insert": (
-            "\n                    APX_LOGI(\"9511 收到 pong（心跳恢复）\");"
+        "new": (
+            "            Text(\n"
+            "                text = text,\n"
+            "                fontSize = 14.sp,\n"
+            "                color = if (active) tint else MiuixTheme.colorScheme.onSurfaceSecondary,\n"
+            "                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,\n"
+            "                // 页签/芯片恒单行：过长出省略号，不把页签行顶出屏外\n"
+            "                maxLines = 1,\n"
+            "                overflow = TextOverflow.Ellipsis,\n"
+            "            )"
         ),
     },
 ]
@@ -115,7 +248,7 @@ def main() -> int:
                     continue
                 n = text.count(e["anchor"])
                 if n != 1:
-                    print(f"VALIDATION FAILED: {e['id']} anchor count={n} expect=1\n---anchor---\n{e['anchor'][:200]}")
+                    print(f"VALIDATION FAILED: {e['id']} anchor count={n} expect=1\n---anchor---\n{e['anchor'][:300]}")
                     return 1
                 text = text.replace(e["anchor"], e["new"], 1)
             elif e["kind"] == "append_after":
@@ -124,7 +257,7 @@ def main() -> int:
                     continue
                 n = text.count(e["anchor"])
                 if n != 1:
-                    print(f"VALIDATION FAILED: {e['id']} anchor count={n} expect=1\n---anchor---\n{e['anchor'][:200]}")
+                    print(f"VALIDATION FAILED: {e['id']} anchor count={n} expect=1\n---anchor---\n{e['anchor'][:300]}")
                     return 1
                 text = text.replace(e["anchor"], e["anchor"] + e["insert"], 1)
             else:
