@@ -14,6 +14,9 @@ import com.allperiph.R
  *
  * ⚠️ [ALL] 是**全部可选项**，[DEFAULT] 只用于「用户从没改过」的首次体验 ——
  * 两者都不能空，否则菜单展开后是一颗空球（点哪儿都没反应，比不展开还糟）。
+ *
+ * 图标全部采用 ic_outline_* 描边系列（2026-11-07 成宇「图标风格统一」），与
+ * 第三方库图标包（top.yukonga.miuix.kmp.icon.*）分离，避免风格混用。
  */
 object BallConfig {
 
@@ -67,18 +70,18 @@ object BallConfig {
     }
 
     fun iconRes(id: String): Int = when (id) {
-        TOUCHPAD -> R.drawable.ic_apx_touchpad
-        DEVICES -> R.drawable.ic_apx_devices
-        FILES -> R.drawable.ic_apx_files
-        MODE_WIFI -> R.drawable.ic_apx_wifi
-        MODE_BT -> R.drawable.ic_apx_bt
-        MODE_USB -> R.drawable.ic_apx_usb
-        CONSOLE -> R.drawable.ic_apx_expand
-        KEYBOARD -> R.drawable.ic_apx_keyboard
-        GAMEPAD -> R.drawable.ic_apx_gamepad
-        CLIPBOARD -> R.drawable.ic_apx_clipboard
-        SCREEN -> R.drawable.ic_apx_screen
-        QUIT -> R.drawable.ic_apx_power
+        TOUCHPAD -> R.drawable.ic_outline_touchpad
+        DEVICES -> R.drawable.ic_outline_devices
+        FILES -> R.drawable.ic_outline_files
+        MODE_WIFI -> R.drawable.ic_outline_wifi
+        MODE_BT -> R.drawable.ic_outline_bt
+        MODE_USB -> R.drawable.ic_outline_usb
+        CONSOLE -> R.drawable.ic_outline_expand
+        KEYBOARD -> R.drawable.ic_outline_keyboard
+        GAMEPAD -> R.drawable.ic_outline_gamepad
+        CLIPBOARD -> R.drawable.ic_outline_clipboard
+        SCREEN -> R.drawable.ic_outline_screen
+        QUIT -> R.drawable.ic_outline_power
         else -> R.drawable.ic_apx_touchpad
     }
 
