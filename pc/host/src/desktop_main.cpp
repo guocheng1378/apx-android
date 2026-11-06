@@ -231,18 +231,18 @@ LONG WINAPI apxVehHandler(EXCEPTION_POINTERS* ep) {
             static char report[8192];
             char line[320], where[160];
             int off = 0;
-            const char* err = (code == 0xC0000005u) ? "ACCESS_VIOLATION"
+            const char* en = (code == 0xC0000005u) ? "ACCESS_VIOLATION"
                             : (code == 0xC0000409u) ? "STACK_BUFFER_OVERRUN/__fastfail"
                             : (code == 0xC000001Du) ? "ILLEGAL_INSTRUCTION"
                             : "HEAP_CORRUPTION";
-            std::snprintf(line, sizeof(line), "异常：0x%08lX  %s", static_cast<unsigned long>(code), err);
+            std::snprintf(line, sizeof(line), "异常：0x%08lX  %s", static_cast<unsigned long>(code), en);
             off = appendLine(report, sizeof(report), off, line);
             formatAddr(where, sizeof(where), reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress));
             std::snprintf(line, sizeof(line), "出错地址：%s", where);
             off = appendLine(report, sizeof(report), off, line);
             off = appendLine(report, sizeof(report), off, "调用栈（「模块+偏移」配 PDB 定位；crash.dmp 可用 cdb 打开）：");
             void* frames[40]{};
-            const USHORT n = ::CaptureStackBackTrace(0, 40, frames);
+            const USHORT n = ::CaptureStackBackTrace(0, 40, frames, nullptr);
             for (USHORT i = 0; i < n; ++i) {
                 formatAddr(where, sizeof(where), reinterpret_cast<uintptr_t>(frames[i]));
                 std::snprintf(line, sizeof(line), "  #%-2u %s", i, where);
@@ -265,10 +265,10 @@ void apxInvalidParamHandler(const wchar_t* expr, const wchar_t* func, const wcha
         HANDLE f = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f != INVALID_HANDLE_VALUE) {
             wchar_t buf[1024]{};
-            _snwprintf_s(buf, 1024, _TRUNCATE, L"invalid parameter: expr=%hs func=%hs file=%hs line=%u\r\n",
-                         expr ? expr : L"?", func ? func : L"?", file ? file : L"?", line);
+            const int n = std::swprintf(buf, 1024, L"invalid parameter: expr=%s func=%s file=%s line=%u\r\n",
+                                        expr ? expr : L"?", func ? func : L"?", file ? file : L"?", line);
             DWORD written = 0;
-            ::WriteFile(f, buf, static_cast<DWORD>(wcslen(buf) * sizeof(wchar_t)), &written, nullptr);
+            if (n > 0) ::WriteFile(f, buf, static_cast<DWORD>(n) * sizeof(wchar_t), &written, nullptr);
             ::CloseHandle(f);
         }
     }
@@ -312,7 +312,7 @@ void startFileLogging() {
 
     // 超过 2MB 就删除重建（诊断只需要最近一次运行的日志）
     WIN32_FILE_ATTRIBUTE_DATA fa{};
-    if (::GetFileAttributesExW(g_path.c_str(), GetFileExInfoStandard, &fa) &&
+    if (::GetFileAttributesExW(g_path.c_str(), ::GetFileExInfoStandard, &fa) &&
         fa.nFileSizeHigh > 0) {
         ::DeleteFileW(g_path.c_str());
     } else if (fa.nFileSizeLow > 2u * 1024u * 1024u) {
@@ -346,13 +346,13 @@ void startFileLogging() {
 
 std::string logDir() {
     const char* home = std::getenv("HOME");
-    const std::string s = (home && *home) ? home : ".";
+    const std::string h = (home && *home) ? home : ".";
 #if defined(__APPLE__)
-    return s + "/Library/Logs/AllPeriph";
+    return h + "/Library/Logs/AllPeriph";
 #else
     const char* state = std::getenv("XDG_STATE_HOME");
     if (state && *state) return std::string(state) + "/AllPeriph";
-    return s + "/.local/state/AllPeriph";
+    return h + "/.local/state/AllPeriph";
 #endif
 }
 
@@ -368,8 +368,7 @@ size_t hexStr(char* out, uintptr_t v) {           // "0x…"，最长 18 字节 
         v >>= 4;
     }
     size_t k = 0;
-    out[k++] = '0';
-    out[k++] = 'x';
+    out[k++] = '0'; out[k++] = 'x';
     while (n) out[k++] = tmp[--n];
     out[k] = '\0';
     return k;
@@ -378,9 +377,10 @@ size_t hexStr(char* out, uintptr_t v) {           // "0x…"，最长 18 字节 
 size_t decStr(char* out, long long v) {           // 十进制，最长 20 字节 + NUL
     char tmp[24];
     size_t n = 0;
-    unsigned long long u = v < 0 ? static_cast<unsigned long long>(-v) : static_cast<unsigned long long>(v);
+    unsigned long long u = (v < 0) ? static_cast<unsigned long long>(-v)
+                                   : static_cast<unsigned long long>(v);
     if (u == 0) tmp[n++] = '0';
-    while (u) { tmp[n++] = static_cast<char>('0' + u % 10); u /= 10; }
+    while (u) { tmp[n++] = static_cast<char>('0' + (u % 10)); u /= 10; }
     if (v < 0) tmp[n++] = '-';
     size_t k = 0;
     while (n) out[k++] = tmp[--n];
@@ -395,11 +395,15 @@ void bufAppend(char* dst, size_t cap, size_t& off, const char* s) {
 }
 
 void bufAppendHex(char* dst, size_t cap, size_t& off, uintptr_t v) {
-    char tmp[20]; hexStr(tmp, v); bufAppend(dst, cap, off, tmp);
+    char tmp[20];
+    hexStr(tmp, v);
+    bufAppend(dst, cap, off, tmp);
 }
 
 void bufAppendDec(char* dst, size_t cap, size_t& off, long long v) {
-    char tmp[24]; decStr(tmp, v); bufAppend(dst, cap, off, tmp);
+    char tmp[24];
+    decStr(tmp, v);
+    bufAppend(dst, cap, off, tmp);
 }
 
 // 一张报告覆盖「terminate」与「致命信号」两种入口（kind 区分）。内容刻意对齐苹果
@@ -660,8 +664,8 @@ using InstallHandler_t = int (*)(int (*)(void*, void*, void*), unsigned int,
                                  const void*, void*, void**);
 using AppTarget_t = void* (*)();
 using RegisterHotKey_t = int (*)(unsigned int, unsigned int, EventHotKeyID,
-                                 unsigned int, void**, void**);
-using UnregisterHotKey_t = int (*)(unsigned int, void**);
+                                 void*, unsigned int, void**);
+using UnregisterHotKey_t = int (*)(void*, void**);
 
 void* g_lib = nullptr;
 void* g_hk = nullptr;
@@ -979,7 +983,7 @@ int main(int /*argc*/, char** /*argv*/) {
             wchar_t exePath[MAX_PATH] = {};
             if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
                 WIN32_FILE_ATTRIBUTE_DATA fa{};
-                if (::GetFileAttributesExW(exePath, GetFileExInfoStandard, &fa))
+                if (::GetFileAttributesExW(exePath, ::GetFileExInfoStandard, &fa))
                     fileWrite = fa.ftLastWriteTime;
             }
             const ULONGLONG ps = (static_cast<ULONGLONG>(procStart.dwHighDateTime) << 32) | procStart.dwLowDateTime;
@@ -1027,7 +1031,7 @@ int main(int /*argc*/, char** /*argv*/) {
         std::fprintf(stderr, "[AllPeriph] 桌面壳异常退出：%s\n", e.what());
         return 2;
     } catch (...) {
-        writeCrashReport("exception（main 兜底）", "(非 std 异常)");
+        writeCrashReport("exception（main 兜底）", "(非 std 异常)", 0);
         std::fprintf(stderr, "[AllPeriph] 桌面壳异常退出（非 std 异常）\n");
         return 2;
     }
