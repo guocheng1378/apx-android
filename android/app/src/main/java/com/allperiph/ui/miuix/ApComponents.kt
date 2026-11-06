@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -117,12 +119,16 @@ object ApComponents {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = title, fontSize = 15.sp)
+                    // 排版口径（2026-11-07）：标题最多 2 行、摘要最多 3 行，超出省略 ——
+                    // 再长靠页面/弹窗的竖向滚动看全，不把整行高度撑爆。
+                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (!summary.isNullOrBlank()) {
                         Text(
                             text = summary,
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -197,12 +203,15 @@ object ApComponents {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = title, fontSize = 15.sp)
+                // 排版口径（2026-11-07）：与 ItemRow 同规格 —— 标题≤2 行、摘要≤3 行。
+                Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!summary.isNullOrBlank()) {
                     Text(
                         text = summary,
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -210,8 +219,11 @@ object ApComponents {
             if (onLongClick != null) {
                 Text(
                     text = "\u2261",
-                    fontSize = 14.sp,
+                    // 同类尾部辅助文字统一 13sp（与取值行/折叠箭头对齐口径一致）
+                    fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -228,6 +240,15 @@ object ApComponents {
                     text = value,
                     fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    // 排版口径（2026-11-07 成宇「同类控件文字需要对齐」）：
+                    // 尾值右对齐、最多 2 行、横向上限约半屏 —— 长地址/端口/路径
+                    // 不再把左列标题挤断，且换行后与右缘对齐不再参差。
+                    textAlign = TextAlign.End,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(
+                        max = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.46f).dp,
+                    ),
                 )
             },
         )
@@ -241,7 +262,7 @@ object ApComponents {
                 .background(color.copy(alpha = 0.14f), RoundedCornerShape(50))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            Text(text = text, fontSize = 12.sp, color = color)
+            Text(text = text, fontSize = 12.sp, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 
@@ -295,6 +316,9 @@ object ApComponents {
                 fontSize = 14.sp,
                 color = if (active) tint else MiuixTheme.colorScheme.onSurfaceSecondary,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                // 页签/芯片恒单行：过长出省略号，不把页签行顶出屏外
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -430,11 +454,14 @@ object ApComponents {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = title, fontSize = 15.sp)
+                    // 排版口径（2026-11-07）：标题≤2 行；计数回显恒单行。
+                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
                         text = countText,
                         fontSize = 12.sp,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
