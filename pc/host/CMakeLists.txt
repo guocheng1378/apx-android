@@ -71,9 +71,13 @@ if(WIN32)
     GIT_TAG        v1.21.222.0
     GIT_SHALLOW    TRUE
   )
-  # 重入安全同上（Build #1269）：幂等守卫，重入时跳过重复 Populate/add_subdirectory。
-  FetchContent_GetProperties(ViGEmClientSrc)
-  if(NOT ViGEmClientSrc_POPULATED)
+  # 重入自愈（Build #1269→#1271 两轮实测）：变量/GetProperties 守卫对本 content
+  # 在重入场景没兜住（wil 兜住了、它没兜住），改用磁盘事实：落盘即视为已 populate，
+  # 绝不再走直接 Populate（第二次执行 = CMP0169 2043 FATAL，CI 日志实锤两轮）。
+  if(EXISTS "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src/CMakeLists.txt")
+    set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")
+    set(ViGEmClientSrc_POPULATED TRUE)
+  else()
     FetchContent_Populate(ViGEmClientSrc)
   endif()
   if(NOT TARGET ViGEmClientShared)
