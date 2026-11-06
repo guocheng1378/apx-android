@@ -45,8 +45,11 @@ App「状态」页打开总开关后，手机作为 USB 复合设备被 Windows 
 
 ### 2.1 蓝牙（免 root、免线缆的输入通道）
 
-`bt/BtHidDevice` 目前已有 **鼠标**（`reportMouse`，rid 1）与 **多媒体键**（`reportConsumer`，rid 3）。
-待补：
+**2026-11-06 源码复核**：四类报告（鼠标 rid1 / 多媒体 rid3 / 键盘 rid2 / 手柄 rid4）与
+四点发送接入全部落地，择路判据唯一 = `core/Uplink.resolve`（无线 → USB → 蓝牙 → NONE）。
+下表保留 2026-10-23 的核对明细。**剩余欠账两条**：① 真机配对实测（按
+[REALDEVICE-NOTES §9](./REALDEVICE-NOTES.md) 清单执行）；② 手柄 TCP 出口（ViGEmBus
+第三方驱动，归入架构 §2.2「阶段二 借力第三方」，非本轮）。
 
 | 能力 | 报告 | 状态（2026-10-23 源码核对） |
 |---|---|---|

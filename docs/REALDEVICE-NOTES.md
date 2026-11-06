@@ -273,3 +273,27 @@ adb shell "ls -l /dev/hidg0 /dev/ttyGS0"
    gadget 不会被卸载。必须保证"卸载可被下次启动的兜底清理完成"（这依赖第 2、3 条）。
 8. **卸载时绝不删除 gadget 本体**，只解绑 UDC（§3.1 对策）。删了就再也建不回来，
    只能重启手机。
+
+## 9. 蓝牙真机配对实测清单（2026-11-06——代码收口，欠的只剩这步）
+
+2026-11-06 源码复核结论：键盘（`hid/HidKeys.send`，真值 `bt?.isConnected` + BLUETOOTH
+分支）、手柄（`ui/GamepadController.send` 蓝牙优先 `reportGamepad`）、多媒体键
+（`ui/HotkeyController`，Consumer TLC）、鼠标（`touchpad/TouchpadModule.dispatch`，
+USB 停用自动回退蓝牙）四点全部经 `core/Uplink.resolve` 择路（无线 → USB → 蓝牙 →
+NONE，判据唯一）；native 蓝牙描述符四 TLC + Report ID 声明齐（v186）。**代码不再欠账，
+以下为必须按序执行的物理验证（PC 需带蓝牙适配器）：**
+
+1. **配对**：手机 设置 → 蓝牙 → 与 PC 配对；`adb logcat` 确认 `BtHidDevice.registerApp`
+   成功且取到 native 描述符（`ApxNative.btReportDescriptor()` 非空）。
+2. **状态真值**：界面蓝牙状态应显示已连接；若写死/不刷新，按 §6 口径记为未解决项。
+3. **键盘**：PC 打开文本编辑器输入字符；**重点测组合键 Ctrl+C / Ctrl+V / Alt+Tab**——
+   历史 bug（写死 `btConnected=false`）正是让组合键发不出去。
+4. **鼠标/触控板**：光标移动、左/右键、滚轮；随后在设置里**停用 USB 触摸板**，
+   验证自动回退蓝牙仍可用（`TouchpadModule` 的回落逻辑）。
+5. **多媒体键**：音量加减、播放/暂停 → PC 实时响应。
+6. **手柄**：`GamepadController` 发出 → PC 蓝牙侧识别为手柄并有按键/摇杆响应。
+   注意：Windows 蓝牙直连**不需要 ViGEmBus**——那只为 TCP 出口服务（归阶段二）。
+7. **断开诚实性**：关掉 PC 蓝牙后，四点均应转入 `Uplink.NONE` 的降级文案，
+   不得静默失败（硬性原则：不可用则如实标注）。
+8. 每项记录：✅/❌ + 现象 + logcat 片段，回填本节；全 ✅ 后才能把 ROADMAP §2.1
+   里的「真机未实测」字样去掉。
