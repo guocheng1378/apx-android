@@ -12,6 +12,11 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose, state }) => {
   const [logLevel, setLogLevel] = useState(state?.config.logLevel as string || 'info');
   const [mbps, setMbps] = useState(state?.config.bitrateMbps ?? 8);
 
+  // —— 悬浮球（桌面端主界面）：显隐 + 球上显示哪些功能 ——
+  const [ballVisible, setBallVisible] = useState(true);
+  const [ballActions, setBallActions] = useState<{ id: string; icon: string; label: string }[]>([]);
+  const [ballSel, setBallSel] = useState<string[]>([]);
+
   // 传输状态（C++ buildState.transports）—— USB gadget 挂载三态诊断
   const tp = (state?.transports ?? {}) as {
     usbDevice?: boolean; usbNcm?: boolean; usbHid?: boolean;
@@ -32,12 +37,38 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose, state }) => {
     }
   }, [state]);
 
+  // 球配置：打开设置页时拉一次（清单 + 当前可见态 + 已选功能）
+  React.useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const r = await bridge.act('ball.config');
+        const d = (r?.data ?? {}) as any;
+        const acts: { id: string; icon: string; label: string }[] = Array.isArray(d.actions) ? d.actions : [];
+        const sel: string[] = Array.isArray(d.selected) ? d.selected : [];
+        setBallActions(acts);
+        // selected 为空 = 用户没自定义过（后端按默认全装）→ 前端按清单全选回显
+        setBallSel(sel.length ? sel : acts.map(a => a.id));
+        setBallVisible(!!d.visible);
+      } catch {
+        /* 球不可用（mac / 未创建）→ 保持前端默认，不阻塞设置页 */
+      }
+    })();
+  }, [open]);
+
   if (!open) return null;
+
+  const toggleBallAction = (id: string) => {
+    setBallSel(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
+  };
 
   const apply = async () => {
     await bridge.act('config.setAdaptive', { on: adaptive });
     await bridge.act('config.setLogLevel', { level: logLevel });
     await bridge.act('config.setBitrate', { mbps });
+    // 悬浮球：显隐 + 功能白名单（后端保存 config.json 并立刻重装注册表）
+    await bridge.act('ball.setVisible', { visible: ballVisible });
+    await bridge.act('ball.setActions', { actions: ballSel });
     onClose();
   };
 
@@ -72,6 +103,29 @@ export const SettingsModal: React.FC<Props> = ({ open, onClose, state }) => {
             <span className="switch-thumb" />
           </label>
         </div>
+
+        {/* 悬浮球（桌面端主界面）—— 显隐 + 「球上显示哪些功能」功能自定义 */}
+        <div className="flex items-center justify-between py-3 border-b border-stroke">
+          <div className="body-text">显示悬浮球</div>
+          <label className="switch" data-on={ballVisible} onClick={() => setBallVisible(!ballVisible)}>
+            <span className="switch-thumb" />
+          </label>
+        </div>
+
+        {ballActions.length > 0 && (
+          <div className="py-3 border-b border-stroke">
+            <div className="body-text">球上显示的功能</div>
+            <div className="data-text text-on-tertiary mb-2">点一下切换显示 / 隐藏；应用后立即生效</div>
+            <div className="chip-group">
+              {ballActions.map(a => (
+                <button key={a.id} className="chip" data-active={ballSel.includes(a.id)}
+                        onClick={() => toggleBallAction(a.id)}>
+                  {a.icon} {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between py-3 border-b border-stroke gap-3">
           <div className="body-text">默认码率</div>

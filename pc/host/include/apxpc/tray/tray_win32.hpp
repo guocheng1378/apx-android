@@ -55,6 +55,11 @@ public:
     // 「导出诊断包…」回调：把状态快照 + 显示器布局 + 日志尾部写成**一个文件**并选中它。
     // 未设置则菜单不出该项。用户报障时"发一个文件"即可，不必自己去找三个日志。
     void setExportDiagCallback(std::function<void()> cb) { onExportDiag_ = std::move(cb); }
+    // 「显示/隐藏悬浮球」回调：托盘右键菜单里的悬浮球开关。
+    // onBallToggle_ 点击时切换可见性；ballVisibleFn_ 供菜单文案取当前态（显示 / 隐藏）。
+    // 未设置 onBallToggle_ 则菜单不出该项（mac 侧无球）。
+    void setBallCallback(std::function<void()> cb) { onBallToggle_ = std::move(cb); }
+    void setBallVisibleCallback(std::function<bool()> cb) { ballVisibleFn_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 连接状态角标：true=未连接（图标亮红点），false=已连接（熄）。
@@ -97,6 +102,8 @@ public:
     std::function<void()> onInput_;
     std::function<void()> onDiagnose_;
     std::function<void()> onExportDiag_;
+    std::function<void()> onBallToggle_;    // 托盘「显示/隐藏悬浮球」
+    std::function<bool()> ballVisibleFn_;   // 取当前可见态（菜单文案用）
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;

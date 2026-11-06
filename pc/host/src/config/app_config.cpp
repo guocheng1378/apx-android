@@ -90,6 +90,14 @@ AppConfig loadConfig(const std::string& path) {
     cfg.logLevel        = str("logLevel", "info");
     cfg.mode            = str("mode", "wired");
 
+    // 悬浮球功能自定义：ballActions（缺失/空 = 全默认；非空 = 白名单 + 扇形排布顺序）
+    if (auto* ba = j.find("ballActions")) {
+        for (const auto& v : ba->asArray()) {
+            const std::string id = v.asString();
+            if (!id.empty()) cfg.ballActions.push_back(id);
+        }
+    }
+
     cfg.displayEnabled  = bol("displayEnabled", false);
     cfg.displayW        = static_cast<uint32_t>(num("displayW", 1080));
     cfg.displayH        = static_cast<uint32_t>(num("displayH", 2400));
@@ -139,6 +147,11 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["autostart"]       = cfg.autostart;
     j["logLevel"]        = cfg.logLevel;
     j["mode"]            = cfg.mode;
+
+    // 悬浮球功能自定义（数组顺序即扇形顺序；空 = 全默认）
+    auto ba = net::Json::makeArray();
+    for (const auto& s : cfg.ballActions) ba.push(s);
+    j["ballActions"] = std::move(ba);
 
     j["displayEnabled"]  = cfg.displayEnabled;
     j["displayW"]        = static_cast<double>(cfg.displayW);

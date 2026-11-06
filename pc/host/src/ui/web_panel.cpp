@@ -161,6 +161,11 @@ struct Panel {
     std::atomic<bool> sendBusy{false};
 };
 Panel* g_panel = nullptr;
+// 球的动作钩子（Win 段装配一次后存这里）：面板「功能自定义」保存后用它重装注册表 ——
+// 球本体零改动，重装注册表即换扇形内容与顺序。
+apxpc::ball::HostActions g_ballHostActions;
+// 球的动作钩子（Win 段装配一次后存这里）：面板「功能自定义」保存后用它重装注册表 ——
+// 球本体零改动，重装注册表即换扇形内容与顺序。
 
 // ———————————————— 工具：JSON 辅助 ————————————————
 Json okResp(const Json& data = {}) {
@@ -757,6 +762,57 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         if (l) b.cfg->logLevel = l->asString();
         if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
         return postResponse(p, id, okResp());
+    }
+
+    // —— 悬浮球（桌面端主界面）：显隐 / 展开 / 功能自定义 ——
+    // 球本体零改动：显隐走球窗口消息，功能自定义走「重装注册表」。
+    if (name == "ball.setVisible") {
+        auto* v = payload.find("visible");
+        const bool vis = v ? v->asBool(true) : true;
+        if (vis) apxpc::ball::showBall(); else apxpc::ball::hideBall();
+        Json d = Json::makeObject(); d["visible"] = vis;
+        return postResponse(p, id, okResp(d));
+    }
+    if (name == "ball.toggle") {
+        apxpc::ball::toggleBallVisible();
+        Json d = Json::makeObject(); d["visible"] = apxpc::ball::ballVisible();
+        return postResponse(p, id, okResp(d));
+    }
+    if (name == "ball.expand") {
+        apxpc::ball::toggleBallFan();
+        return postResponse(p, id, okResp());
+    }
+    // 功能自定义：保存白名单 + 顺序，立刻重装注册表（扇形即刻换内容与顺序）
+    if (name == "ball.setActions" && b.cfg) {
+        auto* arr = payload.find("actions");
+        if (arr) {
+            b.cfg->ballActions.clear();
+            for (const auto& v : arr->asArray()) {
+                const std::string aid = v.asString();
+                if (!aid.empty()) b.cfg->ballActions.push_back(aid);
+            }
+            if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
+            apxpc::ball::installDefaultActions(g_ballHostActions, b.cfg->ballActions);
+            APX_LOGI("球功能自定义已生效：{} 项", (int)b.cfg->ballActions.size());
+        }
+        return postResponse(p, id, okResp());
+    }
+    // 悬浮球配置清单（面板「功能自定义」的数据源）
+    if (name == "ball.config") {
+        Json d = Json::makeObject();
+        d["created"] = apxpc::ball::ballCreated();
+        d["visible"] = apxpc::ball::ballVisible();
+        Json cat = Json::makeArray();
+        for (const auto& a : apxpc::ball::actionCatalog()) {
+            Json o = Json::makeObject();
+            o["id"] = a.id; o["icon"] = a.icon; o["label"] = a.label;
+            cat.push(std::move(o));
+        }
+        d["actions"] = std::move(cat);
+        Json sel = Json::makeArray();
+        if (b.cfg) for (const auto& s : b.cfg->ballActions) sel.push(s);
+        d["selected"] = std::move(sel);
+        return postResponse(p, id, okResp(d));
     }
 
     // —— 文件传输（PC ↔ 手机，TCP 9512）——
@@ -1464,7 +1520,11 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         nullptr, nullptr, GetModuleHandleW(nullptr), &panel);
     if (!hwnd) { APX_LOGE("Web 窗口创建失败: GetLastError={}", ::GetLastError()); return -1; }
     panel.hwnd = hwnd;
-    ::ShowWindow(hwnd, SW_SHOW);
+    // 球模式（enableBall）：启动只显示悬浮球、隐藏 WebView2 窗口；窗口由球/托盘按需唤出
+    // （点球内「面板」项、托盘「打开面板」都会 ShowWindow(SW_RESTORE)）。无球时（enableBall=false）
+    // 维持原行为：窗口正常显示，否则根本没有界面。
+    const bool ballMode = (bundle.cfg && bundle.cfg->enableBall);
+    ::ShowWindow(hwnd, ballMode ? SW_HIDE : SW_SHOW);
     ::UpdateWindow(hwnd);
 
     // 托盘接线（desktop_main 只建了图标，「打开面板 / 退出」的回调一直没注册 ——
@@ -1537,7 +1597,8 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     if (bundle.cfg && !bundle.cfg->enableBall) {
         APX_LOGI("桌面悬浮球已在 config.json 关闭（enableBall=false）");
     } else {
-        apxpc::ball::HostActions ha;
+        // 钩子存进全局 g_ballHostActions：面板「功能自定义」保存后要用它重装注册表
+        apxpc::ball::HostActions& ha = g_ballHostActions;
         ha.open_panel = [&panel] {
             const HWND h = panel.hwnd;
             if (!h || !::IsWindow(h)) return;
@@ -1579,8 +1640,29 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
                 exe, {}, apxpc::screen::defaultSpikeLogPath(), pidFile);
             return r.ok;
         };
-        apxpc::ball::installDefaultActions(ha);
-        if (!apxpc::ball::createBall()) APX_LOGI("ball v2 创建失败（面板/托盘不受影响）");
+        // 用户自定义（config.json 的 ballActions）：非空 = 白名单 + 扇形排布顺序
+        apxpc::ball::installDefaultActions(
+            ha, bundle.cfg ? bundle.cfg->ballActions : std::vector<std::string>{});
+        // 球没起来 / 不可见 → 不能只剩一个空桌面：把大窗口放出来。
+        // 历史上踩过「球永远不可见」（WS_EX_LAYERED 漏写）的坑，窗口是唯一兜底。
+        const bool ballOk = apxpc::ball::createBall();
+        if (!ballOk || !apxpc::ball::ballVisible()) {
+            APX_LOGI("悬浮球不可用（{}），回退显示主窗口",
+                     ballOk ? "创建成功但不可见" : "创建失败");
+            ::ShowWindow(panel.hwnd, SW_SHOW);
+            ::SetForegroundWindow(panel.hwnd);
+        }
+
+        // 托盘「显示/隐藏悬浮球」：桌面端改成「球为主界面」后最直接的入口 ——
+        // 球模式下大窗口启动即隐藏，用户从托盘把球叫出来 / 收回去。
+        if (panel.bundle.tray) {
+            panel.bundle.tray->setBallCallback([] {
+                apxpc::ball::toggleBallVisible();
+            });
+            panel.bundle.tray->setBallVisibleCallback([] {
+                return apxpc::ball::ballVisible();
+            });
+        }
     }
 
     // 消息循环

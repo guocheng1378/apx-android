@@ -115,8 +115,9 @@ std::vector<int> queryBadges(const std::vector<MenuItem>& items) {
     return out;
 }
 
+// 任一动作有角标即亮球缘（用户自定义后档位失去意义 → 扫全部动作）
 bool anyHighBadge() {
-    for (const Action* a : registry().highPriority())
+    for (const Action* a : registry().all())
         if (a->badge_fn && a->badge_fn()) return true;
     return false;
 }
@@ -301,10 +302,11 @@ RECT snapTarget(HWND w) {
     return t;
 }
 
-// 从注册表开扇（HIGH 档；方向按球在工作区的位置）
+// 从注册表开扇（全部动作，按注册序；方向按球在工作区的位置）
 void openFanFromRegistry(HWND w) {
     std::vector<MenuItem> items;
-    for (const Action* a : registry().highPriority()) {
+    // 全部动作（按注册序）—— 用户自定义的顺序即扇形顺序
+    for (const Action* a : registry().all()) {
         MenuItem m;
         m.actionId = a->id;
         m.label    = a->label;
@@ -356,6 +358,30 @@ void toggleBallFan() {
     if (!g_ballWnd) return;   // 球未创建：静默无操作
     ::PostMessageW(g_ballWnd, kFanHotkeyMsg, 0, 0);
 }
+
+// —— 可见性（托盘「显示/隐藏悬浮球」+ 面板设置开关）——
+// 球窗口活在面板 UI 线程上，但托盘回调在托盘线程 → 统一只投消息，
+// ShowWindow/绘制回到球所在线程做（不跨线程碰 GDI+ 位图）。
+constexpr UINT kBallShowMsg = WM_APP + 42;
+constexpr UINT kBallHideMsg = WM_APP + 43;
+
+void showBall() {
+    if (!g_ballWnd) return;
+    ::PostMessageW(g_ballWnd, kBallShowMsg, 0, 0);
+}
+
+void hideBall() {
+    if (!g_ballWnd) return;
+    ::PostMessageW(g_ballWnd, kBallHideMsg, 0, 0);
+}
+
+void toggleBallVisible() {
+    if (!g_ballWnd) return;
+    if (::IsWindowVisible(g_ballWnd)) hideBall(); else showBall();
+}
+
+bool ballVisible() { return g_ballWnd && ::IsWindowVisible(g_ballWnd); }
+bool ballCreated() { return g_ballWnd != nullptr; }
 
 LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
@@ -499,6 +525,17 @@ LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         return 0;
     }
 
+    // 显隐（托盘 / 面板设置投消息过来）：只动可见性，不碰 GDI+ 位图
+    case kBallShowMsg: {
+        if (g) present(w);
+        ::ShowWindow(w, SW_SHOWNOACTIVATE);
+        return 0;
+    }
+    case kBallHideMsg: {
+        if (g && g->fanOpen) collapseLocked(w);
+        ::ShowWindow(w, SW_HIDE);
+        return 0;
+    }
     case kFanHotkeyMsg: {              // 热键：开→收扇；收→按注册表开扇
         auto* s = g;
         if (!s) return 0;
@@ -584,8 +621,8 @@ bool createBall() {
     s->lastRing = anyHighBadge();
     ::ShowWindow(w, SW_SHOWNOACTIVATE);
     ::SetTimer(w, kTimerBadge, kBadgeMs, nullptr);
-    APX_LOGI("球 v2 已创建（{}px，HIGH 动作 {} 个）", s->ballPx,
-             (int)registry().highPriority().size());
+    APX_LOGI("球 v2 已创建（{}px，动作 {} 个）", s->ballPx,
+             (int)registry().all().size());
     return true;
 }
 

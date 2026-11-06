@@ -8,9 +8,12 @@
 //   legacy 壳在 M3 收编前保持原样（点击 = 唤面板），两壳窗口类名/命名空间不同，可共存。
 #pragma once
 
-#if defined(_WIN32)
-
+// registry.hpp 是平台中立的（只用 std::function/string/vector）—— Win 与 mac 两侧都用它，
+// 故在平台分支之外引入：HostActions / ActionInfo 这些类型要跨分支可见（面板的
+// 「悬浮球显隐 + 功能自定义」走同一套 act，两端同形）。
 #include "registry.hpp"
+
+#if defined(_WIN32)
 
 #ifndef UNICODE
 #define UNICODE
@@ -57,6 +60,14 @@ void bringToFront(HWND hwnd);
 // 开合动作回到球窗口线程的 wndproc 里做（见 kFanHotkeyMsg 分支）。
 void toggleBallFan();
 
+// 可见性（托盘「显示/隐藏悬浮球」+ 面板设置开关用）。任意线程可调：
+// Win 侧只投消息，ShowWindow 回到球所在线程做（不跨线程碰 GDI+ 位图）。
+void showBall();
+void hideBall();
+void toggleBallVisible();
+bool ballVisible();   // 球已创建且当前可见
+bool ballCreated();   // 球已创建（未创建时 ballVisible 恒 false）
+
 } // namespace ball
 } // namespace apxpc
 
@@ -67,6 +78,13 @@ namespace ball {
 
 // 切换扇形展开/收起；球未创建时静默返回。
 void toggleBallFan();
+
+// 可见性：mac 侧暂不支持显隐 —— 空桩（保持两端 API 同形，调用点不必 #if 分叉）
+inline void showBall() {}
+inline void hideBall() {}
+inline void toggleBallVisible() {}
+inline bool ballVisible() { return false; }
+inline bool ballCreated() { return false; }
 
 } // namespace ball
 } // namespace apxpc

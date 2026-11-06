@@ -35,6 +35,7 @@ const UINT IDM_CLIPBOARD = 1005;   // 「把电脑剪贴板发给手机」
 const UINT IDM_INPUT = 1006;       // 「让手机帮我输入…」（请求对端弹输入法）
 const UINT IDM_DIAGNOSE = 1007;    // 「连接诊断…」（一键自检，v184）
 const UINT IDM_EXPORT_DIAG = 1008; // 「导出诊断包…」（状态+环境+日志合成一个文件，v184）
+const UINT IDM_BALL = 1009;       // 「显示/隐藏悬浮球」（桌面端改成球为主界面后的入口）
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -69,6 +70,12 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 AppendMenu(m, MF_STRING, IDM_CLIPBOARD, L"把剪贴板发给手机");
             if (self2 && self2->onInput_)
                 AppendMenu(m, MF_STRING, IDM_INPUT, L"让手机帮我输入…");
+            // 悬浮球开关：桌面端改成「球为主界面」后，这是最直接的入口 ——
+            // 球模式下大窗口启动即隐藏，用户从托盘随时把球叫出来 / 收回去。
+            if (self2 && self2->onBallToggle_) {
+                const bool vis = self2->ballVisibleFn_ ? self2->ballVisibleFn_() : false;
+                AppendMenu(m, MF_STRING, IDM_BALL, vis ? L"隐藏悬浮球" : L"显示悬浮球");
+            }
             AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);
@@ -92,6 +99,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         else if (id == IDM_INPUT && self && self->onInput_) { self->onInput_(); }
         else if (id == IDM_DIAGNOSE && self && self->onDiagnose_) { self->onDiagnose_(); }
         else if (id == IDM_EXPORT_DIAG && self && self->onExportDiag_) { self->onExportDiag_(); }
+        else if (id == IDM_BALL && self && self->onBallToggle_) { self->onBallToggle_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }

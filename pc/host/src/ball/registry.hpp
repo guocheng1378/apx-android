@@ -45,6 +45,10 @@ public:
     // badge/enabled 的按 id 查询（find 的别名，语义上绑定状态钩子）
     const Action* get(const std::string& id) const;
 
+    // 全部动作（按注册序）—— 球壳扇形按此渲染：**自定义顺序 = 注册顺序 = 扇形顺序**。
+    // 为什么不按档位取：HIGH/CARD 只是默认分组，用户自定义之后档位就失去意义了。
+    std::vector<const Action*> all() const;
+
 private:
     // vector 而非 map：顺序即排布；条目 ≤ 30，线性扫足够
     std::vector<Action> s_actions_;
@@ -71,8 +75,20 @@ struct HostActions {
     std::function<bool()> sunshine_running;   // Sunshine 在跑（副屏可点亮）
 };
 
-// 首批动作按三档灌入（整体重装：先 clear 再按序 add）
-void installDefaultActions(const HostActions& host);
+// 可供用户勾选的动作目录（面板「功能自定义」的清单来源）。
+// id 与 installDefaultActions 注册的 id **必须同源** —— 改一处记得改另一处。
+struct ActionInfo {
+    std::string id;
+    std::string icon;
+    std::string label;
+};
+std::vector<ActionInfo> actionCatalog();
+
+// 首批动作灌入（整体重装：先 clear 再按序 add）。
+// order = 用户自定义的功能白名单 + 排布顺序（config.json 的 ballActions）：
+//   · 空 = 默认全装（声明顺序）
+//   · 非空 = 只装 order 里列出的，且**按 order 的顺序注册**（= 球上扇形的排布顺序）
+void installDefaultActions(const HostActions& host, const std::vector<std::string>& order = {});
 void clearActions();
 
 extern const Registry& registry();

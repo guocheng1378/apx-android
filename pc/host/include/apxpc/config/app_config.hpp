@@ -22,6 +22,11 @@ struct AppConfig {
     //       旧 config.json 里的这两个键会被忽略，不影响加载）
     bool     enableTray = true;
     bool     enableBall = true;    // 桌面悬浮球（仅 Win；config.json 手改 false 即不创建）
+    // 悬浮球「功能自定义」（config.json 顶层键 ballActions）：
+    //   空数组 = 默认全部功能；非空 = 白名单，**数组顺序即球上扇形的排布顺序**。
+    //   可选 id 见 ball/registry.cpp 的 actionCatalog()：open_panel / send_clipboard /
+    //   toggle_speaker / toggle_mic / toggle_display / conn_status / exit。
+    std::vector<std::string> ballActions;
     bool     autostart = false;    // 开机自启
     std::string logLevel = "info"; // trace debug info warn error
 
