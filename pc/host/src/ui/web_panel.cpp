@@ -1333,6 +1333,24 @@ void notifyFileReceived(const std::string& path) {
     postEvent(p, std::string("on-file-received"), d);
 }
 
+// ———————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————
+// 查到 GitHub releases 有新版 → 推 on-update-available 事件，前端顶部横幅展示；
+// 点「查看」回 app.openUrl act（白名单放行本仓库 release 页）。
+// PostWebMessageAsJson 线程安全（同 notifyFileReceived 的约定），检查线程可直接调。
+void notifyUpdateAvailable(const std::string& latestTag, const std::string& currentTag,
+                           const std::string& url) {
+    Panel* p = g_panel;
+    if (!p) {
+        APX_LOGW("发现新版本 {} 但面板未就绪（当前 {}）", latestTag.c_str(), currentTag.c_str());
+        return;
+    }
+    Json d = Json::makeObject();
+    d["latest"] = latestTag;
+    d["current"] = currentTag;
+    d["url"] = url;
+    postEvent(p, std::string("on-update-available"), d);
+}
+
 bool webPanelAvailable() {
 #if defined(_WIN32)
     // CreateCoreWebView2EnvironmentWithOptions 是异步的：用事件对象等待回调，超时就算不可用
