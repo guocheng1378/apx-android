@@ -1,0 +1,18 @@
+[ 10%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 32%] Built target apxpc_media
+[ 42%] Built target apxpc_discovery
+[ 46%] Built target apxpc_sensors
+[ 77%] Built target apxpc_service
+[ 87%] Built target apxpc_wireless
+[ 93%] Built target apxpc_localsend
+[100%] Built target apxhost
+[ 10%] Built target apx_shared
+[ 22%] Built target apxpc_core
+[ 32%] Built target apxpc_media
+[ 42%] Built target apxpc_discovery
+[ 46%] Built target apxpc_sensors
+[ 77%] Built target apxpc_service
+[ 87%] Built target apxpc_wireless
+[ 93%] Built target apxpc_localsend
+[100%] Built target apxdesktop
