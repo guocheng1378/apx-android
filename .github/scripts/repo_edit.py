@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """repo-edit：锚点替换编辑器（两阶段：先全量校验命中次数，全过才写盘）。
 
-批 10（2026-11-06）：Build #1272 实测 —— 两个 populate 守卫（wil 变量 / vigem
-磁盘）在重入下全部生效，死点收敛到 add_subdirectory：binary-dir 占用记录跨重入
-保留、TARGET 被清，第二次 add 必死。且上游 tag 的 CMakeLists 是极简版
-（Project+add_library，无 ViGEmClient_DLL——批 8 找错了目标）。故弃用 add_subdirectory：
-  · 上游 project()/option()/GNUInstallDirs 的 cache 写入即重入触发器 → 删之重入大概率消失
-  · 改本作用域直接 add_library(SHARED)：无 binary-dir 状态，if(NOT TARGET) 自愈
-  · .rc 仅版本资源，排除可免 enable_language(RC)
-  · 磁盘守卫取源码块保留（两轮实测有效）；目标名 ViGEmClient 与 apxhost 依赖/artifact 对齐
+批 11（2026-11-06）：Build #1275 实测 —— 重入已消灭（Configuring done 34.6s
+一遍跑通），Generate 阶段挂在一个空变量：deprecated 单参 FetchContent_Populate
+跑完未回填 ViGEmClientSrc_SOURCE_DIR（clone 成功），add_library 拼出
+"/src/ViGEmClient.cpp"。修：不再赌回填，两分支后统一硬设 SOURCE_DIR
+（FetchContent 默认路径 ${CMAKE_BINARY_DIR}/_deps/<name小写>-src 确定，
+CI 日志与报错路径均已实证）。
 """
 import difflib
 import os
@@ -23,51 +21,16 @@ EDITS = [
     set(ViGEmClientSrc_POPULATED TRUE)
   else()
     FetchContent_Populate(ViGEmClientSrc)
-  endif()
-  if(NOT TARGET ViGEmClientShared)
-    # 上游硬编码 add_library(... STATIC)，BUILD_SHARED_LIBS 对它无效（Build #1269
-    # 实测推断）；出 DLL 的专有开关 = option ViGEmClient_DLL（默认 OFF）。
-    # 上游 cmake_minimum_required 3.20.2 → CMP0077 NEW：普通变量可压过 option() 默认值。
-    set(ViGEmClient_DLL ON)
-    add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
-  endif()
-  if(NOT TARGET ViGEmClientShared)
-    message(FATAL_ERROR "ViGEmClientShared 未生成——上游 option 名/结构可能已变，核对 GIT_TAG")
-  endif()
-  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向。
-  # 实测上游 shared 分支也不定义这两个宏（默认路径给静态），不补则 DLL 零导出，
-  # 运行期 LoadLibrary 成功但 GetProcAddress 全 NULL。setupapi：上游已链，此处幂等保底。
-  target_compile_definitions(ViGEmClientShared PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
-  target_link_libraries(ViGEmClientShared PRIVATE setupapi)
-  set_target_properties(ViGEmClientShared PROPERTIES
-    OUTPUT_NAME "ViGEmClient"
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")''',
+  endif()''',
          '''  if(EXISTS "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src/CMakeLists.txt")
-    set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")
     set(ViGEmClientSrc_POPULATED TRUE)
   else()
     FetchContent_Populate(ViGEmClientSrc)
   endif()
-  # 不再 add_subdirectory 上游（Build #1269→#1272 三轮实锤）：上游 project()/option()/
-  # GNUInstallDirs 的 cache 写入会触发 CMake 途中重入，而重入清 TARGET 却保留
-  # binary-dir 占用记录 → 第二次 add_subdirectory 必死（:88 "already used"）。改为
-  # 本作用域直接建 DLL：add_library 无 binary-dir 状态，随文件重执行 if(NOT TARGET)
-  # 即自愈；也顺带拆掉了重入触发器。上游 tag 的 CMakeLists 是极简版
-  # （Project + add_library EXCLUDE_FROM_ALL），源码三编译单元；.rc 仅版本资源，
-  # 排除掉可免 enable_language(RC)。Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport，
-  # VIGEM_EXPORTS 定方向，不补则 DLL 零导出（GetProcAddress 全 NULL）。
-  if(NOT TARGET ViGEmClient)
-    add_library(ViGEmClient SHARED
-      "${ViGEmClientSrc_SOURCE_DIR}/src/ViGEmClient.cpp")
-    target_include_directories(ViGEmClient PUBLIC "${ViGEmClientSrc_SOURCE_DIR}/include")
-    target_compile_definitions(ViGEmClient PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
-    target_link_libraries(ViGEmClient PRIVATE setupapi ole32)
-    set_target_properties(ViGEmClient PROPERTIES
-      OUTPUT_NAME "ViGEmClient"
-      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-      RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
-  endif()''', 1),
+  # 源码目录不赌 deprecated 单参 Populate 的变量回填（Build #1275 实测拿到空串，
+  # add_library 拼成 "/src/ViGEmClient.cpp"）——FetchContent 默认落盘路径是确定的
+  # ${CMAKE_BINARY_DIR}/_deps/<name小写>-src（CI 日志与报错路径双实证），两分支统一硬设。
+  set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")''', 1),
     ]),
 ]
 
