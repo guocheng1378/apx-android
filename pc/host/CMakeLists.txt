@@ -54,6 +54,34 @@ if(WIN32 AND APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2)
     )
   endif()
 endif()
+
+# ---- ViGEmClient.dll（Windows 真手柄，阶段二「借力第三方」的运行时配套）----
+# input_injector_win.cpp 以 LoadLibrary/GetProcAddress 动态加载本 DLL（链接期零依赖，
+# 设计不变）；这里只负责按上游源码把它编成 DLL 并落到 exe 同目录，随安装器/portable 分发。
+# 上游 = nefarius/ViGEmClient，MIT 许可，版权声明见其 include/ViGEm/Client.h。
+if(WIN32)
+  include(FetchContent)
+  FetchContent_Declare(ViGEmClientSrc
+    GIT_REPOSITORY https://github.com/nefarius/ViGEmClient.git
+    GIT_TAG        v1.21.222.0
+    GIT_SHALLOW    TRUE
+  )
+  FetchContent_Populate(ViGEmClientSrc)
+  set(BUILD_SHARED_LIBS ON)   # 仅本作用域：上游 add_library 未写 SHARED → 按此变量出 DLL
+  add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
+  unset(BUILD_SHARED_LIBS)
+  if(NOT TARGET ViGEmClient)
+    message(FATAL_ERROR "ViGEmClient target 未生成——上游 CMakeLists 结构可能已变，核对 GIT_TAG")
+  endif()
+  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向；
+  # 上游 CMake 两者都没定义（给静态用），出 DLL 必须补。setupapi 是上游漏链（SetupDi*）。
+  target_compile_definitions(ViGEmClient PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
+  target_link_libraries(ViGEmClient PRIVATE setupapi)
+  set_target_properties(ViGEmClient PROPERTIES
+    OUTPUT_NAME "ViGEmClient"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
+endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -425,6 +453,10 @@ endif()
 add_executable(apxhost "${APXPC_ROOT}/src/host_main.cpp"
                        "${APXPC_ROOT}/src/ui/panel_http.cpp")
 target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless apxpc_media apxpc_localsend)
+if(WIN32 AND TARGET ViGEmClient)
+  # EXCLUDE_FROM_ALL：靠构建依赖把 DLL 编出来（只编不链，保持动态加载零链接依赖）
+  add_dependencies(apxhost ViGEmClient)
+endif()
 if(WIN32)
   target_link_libraries(apxhost PRIVATE ws2_32 shell32 user32 hid setupapi cfgmgr32)
 endif()

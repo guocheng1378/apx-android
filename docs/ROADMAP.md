@@ -351,8 +351,10 @@ CI artifact 或 Release 资产。详见 [`使用说明.md`](./使用说明.md) �
 
 ---
 
-**尚未接入**：手柄（`SendInput` 无法模拟游戏手柄，需 ViGEmBus 等第三方驱动，
-归入架构 §2.2「阶段二 借力第三方」）。
+**手柄真注入已接入（2026-11-06 核对源码，PR #24 落地）**：0x07 手柄帧 →
+Windows `input_injector_win.cpp` 运行时探测 `ViGEmClient.dll`（2026-11-06 起随包分发）
++ ViGEmBus 驱动注入虚拟 X360，缺任一则降级「按钮→键盘 + 摇杆→鼠标/滚动」并如实记日志；
+Linux 走 `/dev/uinput` 真手柄；macOS 无 CGEvent 手柄通道仅降级（AMFI 限制见 `gamepad_fallback.hpp`）。
 
 ---
 
@@ -506,13 +508,13 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 2. ~~**蓝牙键盘**~~ ✅ 已完成（2026-10-23）：native 描述符 + `reportKeyboard` 早已在，
    `HidKeys.send` 已接 `Uplink.BLUETOOTH` 分支（剩真机配对打字验证）。
 3. ~~**蓝牙手柄**~~ ✅ 描述符与 `reportGamepad`（rid 4）均已实现（v184），`GamepadController` 已走蓝牙优先；
-   剩真机配对验证；TCP 出口受 ViGEmBus 限制（见 §2.2「尚未接入」）。
+   剩真机配对验证；TCP 出口已接入（ViGEmBus 运行时探测 + 降级，见 §2.2 手柄条）。
 4. ~~**Wi‑Fi 控制**~~：✅ 曾完成并真机验证；v1.11 起 Android 侧（服务端/出口/信标）移入 `.attic`，
    现行无线出口 = 受控目标链路（§2.2 核对注）。PC 侧是否仍在构建以 `pc/host/CMakeLists.txt` 为准（§2.2 末核对注）。
 
 > 2026-10-23 更新：**输入出口已统一在 `Uplink.resolve`**（§3.2）；`reportKeyboard`/`reportGamepad` 与
-> native 蓝牙描述符均已存在，本轮把键盘接进蓝牙分支。手柄仍无 TCP 出口（发送面受控目标）：
-> 手柄（`ui/GamepadController`）尚无 TCP 出口 —— 因 `SendInput` 无法模拟手柄，
-> 需第三方虚拟手柄驱动，见 §2.2「尚未接入」。
+> native 蓝牙描述符均已存在，本轮把键盘接进蓝牙分支。手柄 TCP 出口后于 PR #24 落地
+> （2026-11-06 核对）：`ui/GamepadController` → 受控目标 0x07 → Windows ViGEmBus 虚拟
+> X360（驱动缺失则键盘降级并如实记日志，DLL 随包分发，见 §2.2 手柄条）。
 
 > 每一步都遵循项目硬性原则：**不可用则如实标注（`ModuleState.DEGRADED/ERROR`），绝不伪装成功。**

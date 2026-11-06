@@ -473,9 +473,9 @@ public:
         if (!warned) {
             warned = true;
             // 本文件不引日志头（与其它注入路径一致，用 stderr 直接输出）
-            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：本平台无真手柄注入能力，已降级为"
-                                 "「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
-                                 "要真手柄需 ViGEmBus 之类的虚拟 HID 驱动\n");
+            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：未检测到 ViGEmBus 驱动或 ViGEmClient.dll，"
+                                 "本帧起降级为「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
+                                 "安装 ViGEmBus 驱动（ViGEmClient.dll 已随安装包/便携包分发）后重启面板即启用真手柄\n");
         }
     }
 

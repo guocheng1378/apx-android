@@ -46,6 +46,7 @@ Name: "autostart";   Description: "开机自启（后台常驻托盘）"; GroupD
 ; —— 所有文件都压进这个 Setup.exe 里，用户只拿到一个 exe ——
 Source: "{#ArtifactsDir}\apxdesktop.exe";     DestDir: "{app}";     Flags: ignoreversion
 Source: "{#ArtifactsDir}\WebView2Loader.dll"; DestDir: "{app}";     Flags: ignoreversion
+Source: "{#ArtifactsDir}\ViGEmClient.dll";  DestDir: "{app}";     Flags: ignoreversion
 Source: "{#ArtifactsDir}\apxhost.exe";         DestDir: "{app}";     Flags: ignoreversion
 Source: "{#ArtifactsDir}\web\*";               DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 
