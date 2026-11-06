@@ -2,11 +2,11 @@
 """repo-edit：大文件锚点替换编辑器。
 
 批 ball-mac-2（修 macOS Build #584：ball_mac.mm 首次编译的 ObjC 作用域错误，2026-11-06）：
- · pc/host/src/ball/ball_mac.mm —— 3 组编辑：
- ① 匿名层闭合后关 ball/apxpc + 全局 using（@interface/@implementation 只允许在全局作用域）；
- ② 实现段 @end 后重开 apxpc/ball（createBall/destroyBall/toggleBallFan 必须回 apxpc::ball，
-    否则符号与 ball_win32.hpp 声明错位、desktop_main 链接再次缺符号）；
- ③ 显式 #include <algorithm>（tick 内 std::min/max，原靠传递包含兜底）。
+  · pc/host/src/ball/ball_mac.mm —— 3 组编辑：
+    ① 匿名层闭合后关 ball/apxpc + 全局 using（@interface/@implementation 只允许在全局作用域）；
+    ② 实现段 @end 后重开 apxpc/ball（createBall/destroyBall/toggleBallFan 必须回 apxpc::ball，
+       否则符号与 ball_win32.hpp 声明错位、desktop_main 链接再次缺符号）；
+    ③ 显式 #include <algorithm>（tick 内 std::min/max，原靠传递包含兜底）。
 根因：M4-b 的 ball_mac.mm 从未进过构建（CMake 未挂），补挂后首编暴露
 `Objective-C declarations may only appear in global scope` 7 连错。
 两阶段：①按期望次数全量校验；②全过才写盘。
