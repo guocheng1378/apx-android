@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""repo-edit：单文件锚点替换（两阶段：先校验命中次数，全过才写盘）。
+"""repo-edit：单文件锚点替换（两阶段：先全量校验命中次数，全过才写盘）。
 
-批 5 尾巴（2026-11-06）：ROADMAP §2.4 补「浏览器面板摄像头」行（M7-c 已收口，与 §2.3 对齐）。
+批 6（2026-11-06）：蓝牙补全收口 —— 源码复核四点发送全落地，欠账只剩真机配对。
+  · ROADMAP §2.1 过期头「目前已有鼠标/多媒体，待补：」→ 2026-11-06 复核结论
+    + 剩余两条欠账（真机配对清单指针、手柄 TCP 出口归阶段二）
+  · REALDEVICE-NOTES 新增 §9 蓝牙真机配对实测清单（8 步，行为可观测）
 """
 import difflib
 import os
@@ -11,26 +14,43 @@ ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
 EDITS = [
     ("docs/ROADMAP.md", [
-        ('''| 媒体通道 9502 | ✅ | `media_session.cpp` 跨平台（connect/收发流/5s 拥塞重试，6 处等价变换保留 Win 语义）；面板媒体泵自动建链 |''',
-         '''| 媒体通道 9502 | ✅ | `media_session.cpp` 跨平台（connect/收发流/5s 拥塞重试，6 处等价变换保留 Win 语义）；面板媒体泵自动建链 |''', 1),
-        ('''| 麦克风桥 | ✅ | `mic_bridge.cpp` `__APPLE__` 分支：CoreAudio **AudioQueue**（回调驱动、缺数据补静音、400ms 环形上限）；接线 = panel_http `setHandler`（`kStreamMic → feed`） |''',
-         '''| 麦克风桥 | ✅ | `mic_bridge.cpp` `__APPLE__` 分支：CoreAudio **AudioQueue**（回调驱动、缺数据补静音、400ms 环形上限）；接线 = panel_http `setHandler`（`kStreamMic → feed`） |''', 1),
-        ('''| 音箱（系统声音） | ✅ | `audio_capture_mac.mm`：**CoreAudio Process Tap**（`CATapDescription` 全局立体声 + 聚合设备 + IOProc），**macOS 14.2+**，需「系统音频录制」TCC 授权；DRM 内容可能静音（平台限制）；部署目标压 12.0 使新 API 弱链接可降级 |''',
-         '''| 音箱（系统声音） | ✅ | `audio_capture_mac.mm`：**CoreAudio Process Tap**（`CATapDescription` 全局立体声 + 聚合设备 + IOProc），**macOS 14.2+**，需「系统音频录制」TCC 授权；DRM 内容可能静音（平台限制）；部署目标压 12.0 使新 API 弱链接可降级 |''', 1),
-        ('''| 副屏 | ❌ | 虚拟显示器仅 Windows；`screenPush=nullptr`，面板显示未初始化形态 + `screen.toggle` 明确拒绝 |''',
-         '''| 副屏 | ❌ | 虚拟显示器仅 Windows；`screenPush=nullptr`，面板显示未初始化形态 + `screen.toggle` 明确拒绝 |''', 1),
-        ('''| 全局热键 | ❌ | 热键 Win-only（mac 侧 `HotkeyManager` 是空实现，面板如实显示不可用） |''',
-         '''| 全局热键 | ❌ | 热键 Win-only（mac 侧 `HotkeyManager` 是空实现，面板如实显示不可用） |''', 1),
-        ('''| USB 有线（枚举） | ◑ | v223.7 起 mac 走 **IOKit**（`usb_enum_iokit.cpp`）：VID/PID/名称/序列号/bcdUSB/接口类码齐（速度留 unknown，理由见文件头），面板 USB 状态不再恒 false；**端点/HID 集合/CDC 串口名未做**（见文件头注释），且只有编译级验证 |''',
-         '''| USB 有线（枚举） | ◑ | v223.7 起 mac 走 **IOKit**（`usb_enum_iokit.cpp`）：VID/PID/名称/序列号/bcdUSB/接口类码齐（速度留 unknown，理由见文件头），面板 USB 状态不再恒 false；**端点/HID 集合/CDC 串口名未做**（见文件头注释），且只有编译级验证 |''', 1),
-        ('''| 开机自启 | ✅ | `~/Library/LaunchAgents/` plist（`autostart.cpp` 非 Win 分支） |''',
-         '''| 开机自启 | ✅ | `~/Library/LaunchAgents/` plist（`autostart.cpp` 非 Win 分支） |''', 1),
-        ('''| 检查更新 | ✅ | `update_check_mac.mm`（NSURLSession + gh-proxy 镜像兑底，与 Windows 同比对算法） |''',
-         '''| 检查更新 | ✅ | `update_check_mac.mm`（NSURLSession + gh-proxy 镜像兑底，与 Windows 同比对算法） |''', 1),
-        ('''| 发版产物 | ✅ | macos.yml `tags: ['v*']` → `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml release job 双向幂等） |''',
-         '''| 发版产物 | ✅ | macos.yml `tags: ['v*']` → `AllPeriph-<tag>-macos-arm64.zip` 上传 Release（与 build.yml release job 双向幂等） |''', 1),
-        ('''| 浏览器面板摄像头 | ✅ | `panel_http.cpp` + `bridge.ts`：0x10「camera」拉起手机采集（跨平台，与 §2.3 同通道）；收流计数/尺寸/停滞实时上卡片；**无原生预览窗与虚拟摄像头**（camera_view 仅 Windows，CMake `if(WIN32)`，诚实标注） |''',
-         '''| 浏览器面板摄像头 | ✅ | `panel_http.cpp` + `bridge.ts`：0x10「camera」拉起手机采集（跨平台，与 §2.3 同通道）；收流计数/尺寸/停滞实时上卡片；**无原生预览窗与虚拟摄像头**（camera_view 仅 Windows，CMake `if(WIN32)`，诚实标注） |''', 1),
+        ('''`bt/BtHidDevice` 目前已有 **鼠标**（`reportMouse`，rid 1）与 **多媒体键**（`reportConsumer`，rid 3）。
+待补：''',
+         '''**2026-11-06 源码复核**：四类报告（鼠标 rid1 / 多媒体 rid3 / 键盘 rid2 / 手柄 rid4）与
+四点发送接入全部落地，择路判据唯一 = `core/Uplink.resolve`（无线 → USB → 蓝牙 → NONE）。
+下表保留 2026-10-23 的核对明细。**剩余欠账两条**：① 真机配对实测（按
+[REALDEVICE-NOTES §9](./REALDEVICE-NOTES.md) 清单执行）；② 手柄 TCP 出口（ViGEmBus
+第三方驱动，归入架构 §2.2「阶段二 借力第三方」，非本轮）。''', 1),
+    ]),
+    ("docs/REALDEVICE-NOTES.md", [
+        ('''8. **卸载时绝不删除 gadget 本体**，只解绑 UDC（§3.1 对策）。删了就再也建不回来，
+   只能重启手机。''',
+         '''8. **卸载时绝不删除 gadget 本体**，只解绑 UDC（§3.1 对策）。删了就再也建不回来，
+   只能重启手机。
+
+## 9. 蓝牙真机配对实测清单（2026-11-06——代码收口，欠的只剩这步）
+
+2026-11-06 源码复核结论：键盘（`hid/HidKeys.send`，真值 `bt?.isConnected` + BLUETOOTH
+分支）、手柄（`ui/GamepadController.send` 蓝牙优先 `reportGamepad`）、多媒体键
+（`ui/HotkeyController`，Consumer TLC）、鼠标（`touchpad/TouchpadModule.dispatch`，
+USB 停用自动回退蓝牙）四点全部经 `core/Uplink.resolve` 择路（无线 → USB → 蓝牙 →
+NONE，判据唯一）；native 蓝牙描述符四 TLC + Report ID 声明齐（v186）。**代码不再欠账，
+以下为必须按序执行的物理验证（PC 需带蓝牙适配器）：**
+
+1. **配对**：手机 设置 → 蓝牙 → 与 PC 配对；`adb logcat` 确认 `BtHidDevice.registerApp`
+   成功且取到 native 描述符（`ApxNative.btReportDescriptor()` 非空）。
+2. **状态真值**：界面蓝牙状态应显示已连接；若写死/不刷新，按 §6 口径记为未解决项。
+3. **键盘**：PC 打开文本编辑器输入字符；**重点测组合键 Ctrl+C / Ctrl+V / Alt+Tab**——
+   历史 bug（写死 `btConnected=false`）正是让组合键发不出去。
+4. **鼠标/触控板**：光标移动、左/右键、滚轮；随后在设置里**停用 USB 触摸板**，
+   验证自动回退蓝牙仍可用（`TouchpadModule` 的回落逻辑）。
+5. **多媒体键**：音量加减、播放/暂停 → PC 实时响应。
+6. **手柄**：`GamepadController` 发出 → PC 蓝牙侧识别为手柄并有按键/摇杆响应。
+   注意：Windows 蓝牙直连**不需要 ViGEmBus**——那只为 TCP 出口服务（归阶段二）。
+7. **断开诚实性**：关掉 PC 蓝牙后，四点均应转入 `Uplink.NONE` 的降级文案，
+   不得静默失败（硬性原则：不可用则如实标注）。
+8. 每项记录：✅/❌ + 现象 + logcat 片段，回填本节；全 ✅ 后才能把 ROADMAP §2.1
+   里的「真机未实测」字样去掉。''', 1),
     ]),
 ]
 
