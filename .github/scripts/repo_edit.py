@@ -1,242 +1,334 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-6（悬浮球双开关 + 设置功能自定义纳管，成宇 2026-11-07）。
+"""repo-edit：批 U-7（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
+编辑控件降级，成宇 2026-11-07 深化反馈）。
 
-需求原文：「悬浮球菜单应该加上物理键盘全局转发和外接触控板直读的切换开关，
-方便不用的时候关闭功能。最好是设置里面常用的功能都能自定义到悬浮球菜单。」
+需求原文（核心四条）：
+  1.「需要根据安卓 aosp 规范适配，而不是直接隐藏状态栏和手势小白条」
+  2.「屏幕圆角和摄像头挖孔优化，不是直接上部分不显示内容」
+  3.「dpi 缩放滑动条没有跟手，而且 dpi 变一下 ui 跳动一下，需要优化」
+  4.「弹窗和横竖屏内容排版…内容显示不全，并且没有跟随 dpi 调整变化；编辑类控件
+     （排序、删除、添加）应降低优先级，先把编辑内容显示完整，再放这些控件」
 
-实现（锚点全部取自 master 权威全文 BallConfig / FloatingBallService / strings.xml）：
-  · BallConfig 新增 kb_forward / pointer_read 两个 id → 进 ALL（设置页「悬浮球功能」
-    勾选框遍历 ALL，新项自动进自定义列表）+ DEFAULT + 老用户 v5 补挂一次；
-  · 球菜单点一下就地翻转、不收菜单；状态高亮复用连接模式主色实底；
-  · 写点与设置页同一份 prefs（GlobalKeyForwarder / RootPointerBridge 自己的出口）；
-  · 诚实闸门（issue #52 教训）：无障碍未启用 / 无 root 无指针设备时如实回退 + 提示，
-    不显示假的「已开启」；
-  · 图标 ic_apx_kb_fwd / ic_apx_pointer 已先行提交（26eba64e / 571c2b15），
-    资源与引用同批落地，不重蹈批 U-5 引用悬空的红。
+实现（锚点全部取自 master 权威全文）：
+  · hideSystemBars() → applyEdgeToEdge()：show(systemBars) + BEHAVIOR_DEFAULT，
+    9 处引用（7 子页 + 主壳）同批改名；
+  · holeX 只算孔不算圆角（rounded 半径垫进 top 就是「上部分不显示内容」的根因）；
+    主壳 topPad 改 readApInsets().top（含状态栏，AOSP 垫边口径）；
+  · 主壳与弹窗两处 LocalDensity 缩放改 animateFloatAsState(150ms) —— 不再跳变；
+  · 缩放滑条自身按 100% 渲染（除以当前缩放）—— 不变形、严格跟手；
+  · 模板管理四个编辑按钮 ActionButton → NarrowButton（随文字宽，降优先级）。
 """
 import sys
 
-BALL = "android/app/src/main/java/com/allperiph/ui/BallConfig.kt"
-SVC = "android/app/src/main/java/com/allperiph/ui/FloatingBallService.kt"
-STR = "android/app/src/main/res/values/strings.xml"
+INSETS = "android/app/src/main/java/com/allperiph/ui/miuix/ApInsets.kt"
+SHELL = "android/app/src/main/java/com/allperiph/ui/compose/ApShellActivity.kt"
+COMP = "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt"
+SET = "android/app/src/main/java/com/allperiph/ui/compose/SettingsPage.kt"
+SUB = "android/app/src/main/java/com/allperiph"
 
-EDITS = [
-    # ———————— BallConfig.kt ————————
+SUB_PAGES = [
+    (f"{SUB}/ui/RemoteActivity.kt"),
+    (f"{SUB}/touchpad/TouchpadActivity.kt"),
+    (f"{SUB}/screen/ScreenActivity.kt"),
+    (f"{SUB}/ui/GamepadActivity.kt"),
+    (f"{SUB}/controlled/RemoteInputActivity.kt"),
+    (f"{SUB}/localsend/SendActivity.kt"),
+    (f"{SUB}/ui/FilePanelActivity.kt"),
+]
+
+EDITS = []
+
+# ———————— ApInsets.kt ————————
+EDITS += [
     {
-        "id": "U6-1 新增两 id",
-        "file": BALL,
+        "id": "U7-1 KDoc 改口径",
+        "file": INSETS,
         "kind": "replace",
-        "anchor": "    const val QUIT = \"quit\"",
+        "anchor": " * 全屏：隐藏状态栏与导航栏（成宇 2026-11-02「所有页屏蔽状态栏」）。",
         "new": (
-            "    const val QUIT = \"quit\"\n"
-            "\n"
-            "    /**\n"
-            "     * 物理键盘全局转发（无障碍，无需 root）—— 成宇 2026-11-07「悬浮球菜单加上\n"
-            "     * 切换开关，方便不用的时候关闭」。开关类快捷项：点一下就地翻转，不开面板。\n"
-            "     */\n"
-            "    const val KB_FORWARD = \"kb_forward\"\n"
-            "\n"
-            "    /** 外接触控板 root 直读 —— 同上；写点与设置页同一份 prefs（RootPointerBridge.prefs） */\n"
-            "    const val POINTER_READ = \"pointer_read\""
+            " * edge-to-edge（成宇 2026-11-07「按安卓 aosp 规范适配，而不是直接隐藏状态栏和\n"
+            " * 手势小白条」）：系统栏显示且透明，内容经 [rememberApInsets] 自行垫边。\n"
+            " * 2026-11-02「所有页屏蔽状态栏」的隐藏口径已按新需求反转；函数随之更名。"
         ),
     },
     {
-        "id": "U6-2 ALL 收编两开关",
-        "file": BALL,
+        "id": "U7-2 hideSystemBars 定义 → applyEdgeToEdge(show)",
+        "file": INSETS,
         "kind": "replace",
-        "anchor": "        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,",
-        "new": "        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, POINTER_READ, QUIT,",
-    },
-    {
-        "id": "U6-3 DEFAULT 带上两开关",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, QUIT)",
-        "new": "    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, QUIT)",
-    },
-    {
-        "id": "U6-4 labelRes",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "        QUIT -> R.string.ui_ball_fn_quit",
-        "new": (
-            "        KB_FORWARD -> R.string.ui_ball_fn_kb_forward\n"
-            "        POINTER_READ -> R.string.ui_main_label_root_pointer\n"
-            "        QUIT -> R.string.ui_ball_fn_quit"
-        ),
-    },
-    {
-        "id": "U6-5 iconRes（资源已先行落地）",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "        QUIT -> R.drawable.ic_apx_power",
-        "new": (
-            "        KB_FORWARD -> R.drawable.ic_apx_kb_fwd\n"
-            "        POINTER_READ -> R.drawable.ic_apx_pointer\n"
-            "        QUIT -> R.drawable.ic_apx_power"
-        ),
-    },
-    {
-        "id": "U6-6 isToggle 判定",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "    /** 连接模式类快捷项对应的出口标识（[AgentController.TRANSPORTS] 同口径）；非模式类返回 null */",
-        "new": (
-            "    /** 开关类快捷项（球上点一下翻转状态、不开面板）—— 与 [transportOf] 互斥 */\n"
-            "    fun isToggle(id: String): Boolean = id == KB_FORWARD || id == POINTER_READ\n"
-            "\n"
-            "    /** 连接模式类快捷项对应的出口标识（[AgentController.TRANSPORTS] 同口径）；非模式类返回 null */"
-        ),
-    },
-    {
-        "id": "U6-7 v5 补挂标记",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "    private const val KEY_MIGRATED_V4 = \"migrated_v4\"",
-        "new": (
-            "    private const val KEY_MIGRATED_V4 = \"migrated_v4\"\n"
-            "\n"
-            "    /** 双开关项（全局转发 / root 直读）加入菜单后的补挂标记（同样只补一次） */\n"
-            "    private const val KEY_MIGRATED_V5 = \"migrated_v5\""
-        ),
-    },
-    {
-        "id": "U6-8 v5 补挂逻辑（插在 v4 注释前）",
-        "file": BALL,
-        "kind": "replace",
-        "anchor": "        // 摄像头项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这一项",
-        "new": (
-            "        // 双开关项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这两项\n"
-            "        if (!p.getBoolean(KEY_MIGRATED_V5, false)) {\n"
-            "            val cur = p.getString(KEY_ITEMS, null)\n"
-            "            if (cur != null) {\n"
-            "                val kept = cur.split(\",\").map { it.trim() }\n"
-            "                val add = listOf(KB_FORWARD, POINTER_READ).filter { it !in kept }\n"
-            "                if (add.isNotEmpty()) {\n"
-            "                    p.edit().putString(KEY_ITEMS, (kept + add).joinToString(\",\")).apply()\n"
-            "                }\n"
-            "            }\n"
-            "            p.edit().putBoolean(KEY_MIGRATED_V5, true).apply()\n"
-            "        }\n"
-            "\n"
-            "        // 摄像头项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这一项"
-        ),
-    },
-    # ———————— FloatingBallService.kt ————————
-    {
-        "id": "U6-9 import RootPointerBridge",
-        "file": SVC,
-        "kind": "replace",
-        "anchor": "import com.allperiph.touchpad.TouchpadModule",
-        "new": (
-            "import com.allperiph.touchpad.RootPointerBridge\n"
-            "import com.allperiph.touchpad.TouchpadModule"
-        ),
-    },
-    {
-        "id": "U6-10 applyFanState 纳入开关态",
-        "file": SVC,
-        "kind": "replace",
-        "anchor": "        val on = kind != null && AgentController.isTransportEnabled(this, kind)",
-        "new": (
-            "        val on = (kind != null && AgentController.isTransportEnabled(this, kind)) ||\n"
-            "            (BallConfig.isToggle(id) && fanToggleOn(id))"
-        ),
-    },
-    {
-        "id": "U6-11 onFanItem 分发到 onFanToggle",
-        "file": SVC,
-        "kind": "replace",
-        "anchor": "            else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }",
-        "new": (
-            "            BallConfig.KB_FORWARD, BallConfig.POINTER_READ -> onFanToggle(id)\n"
-            "            else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }"
-        ),
-    },
-    {
-        "id": "U6-12 三个新函数（插在 onMenuTransport 注释前）",
-        "file": SVC,
-        "kind": "replace",
-        "anchor": "    /**\n     * 切换连接模式。与状态页 `StatusFragment.onTransportToggle` 同一套语义：",
-        "new": (
-            "    /** 双开关项的当前态：与设置页同一读点（各自的 prefs 出口），两处状态不会打架 */\n"
-            "    private fun fanToggleOn(id: String): Boolean = when (id) {\n"
-            "        BallConfig.KB_FORWARD -> GlobalKeyForwarder.isEnabled(GlobalKeyForwarder.prefs(this))\n"
-            "        BallConfig.POINTER_READ -> RootPointerBridge.isEnabled(RootPointerBridge.prefs(this))\n"
-            "        else -> false\n"
+        "anchor": (
+            "fun android.app.Activity.hideSystemBars() {\n"
+            "    window.setDecorFitsSystemWindows(false)\n"
+            "    window.decorView.post {\n"
+            "        val c = window.insetsController ?: return@post\n"
+            "        c.systemBarsBehavior =\n"
+            "            android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE\n"
+            "        c.hide(android.view.WindowInsets.Type.statusBars())\n"
+            "        c.hide(android.view.WindowInsets.Type.navigationBars())\n"
             "    }\n"
-            "\n"
-            "    /**\n"
-            "     * 系统无障碍里本应用的转发服务是否已启用。\n"
-            "     *\n"
-            "     * 开关落了盘但无障碍服务没挂 = 按键根本不会送进 onKeyEvent —— 球上若显示「已开启」\n"
-            "     * 就是假的（issue #52「界面状态必须与实际一致」的同款坑）。按类名 contains 判定，\n"
-            "     * 不写死完整组件名，包名变化时也不至于静默误判。\n"
-            "     */\n"
-            "    private fun a11yForwardOn(): Boolean {\n"
-            "        val s = runCatching {\n"
-            "            Settings.Secure.getString(\n"
-            "                contentResolver,\n"
-            "                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,\n"
+            "}"
+        ),
+        "new": (
+            "fun android.app.Activity.applyEdgeToEdge() {\n"
+            "    window.setDecorFitsSystemWindows(false)\n"
+            "    window.decorView.post {\n"
+            "        val c = window.insetsController ?: return@post\n"
+            "        // AOSP 规范（成宇 2026-11-07）：系统栏**显示**且透明，内容经 WindowInsets\n"
+            "        // 自行垫边；BEHAVIOR_DEFAULT = 系统默认（下滑临时呼出）。\n"
+            "        c.systemBarsBehavior =\n"
+            "            android.view.WindowInsetsController.BEHAVIOR_DEFAULT\n"
+            "        c.show(android.view.WindowInsets.Type.systemBars())\n"
+            "    }\n"
+            "}"
+        ),
+    },
+    {
+        "id": "U7-3 hole 注释 + holeTop 去 rounded",
+        "file": INSETS,
+        "kind": "replace",
+        "anchor": (
+            "    // —— 挖孔/大圆角回避（2026-11-07）——\n"
+            "    // 语义：**不含系统栏**。状态栏是 hideSystemBars 刻意隐藏的（内容本来就画到\n"
+            "    // 最上沿），这几项只算「孔 + 圆角」，不会把 v223.22 修掉的那条系统栏空档带回来。\n"
+            "    val holeTop: Dp get() = maxOf(cutout.top, rounded.top)"
+        ),
+        "new": (
+            "    // —— 挖孔回避（2026-11-07 二轮，成宇「圆角和挖孔优化不是直接上部分不显示内容」）——\n"
+            "    // 语义：只算孔，**不算圆角**。圆角半径是屏幕四角的弧，系统 UI 自己会避让；\n"
+            "    // 把它垫进 top 会把顶部内容整块推走（真机表现即「上部分不显示内容」）。\n"
+            "    // 系统栏显示后，状态栏高度已天然盖住孔区，这里只作弹窗等窗口的兜底。\n"
+            "    val holeTop: Dp get() = cutout.top"
+        ),
+    },
+    {
+        "id": "U7-4 holeBottom",
+        "file": INSETS,
+        "kind": "replace",
+        "anchor": "    val holeBottom: Dp get() = maxOf(cutout.bottom, rounded.bottom)",
+        "new": "    val holeBottom: Dp get() = cutout.bottom",
+    },
+    {
+        "id": "U7-5 holeLeft",
+        "file": INSETS,
+        "kind": "replace",
+        "anchor": "    val holeLeft: Dp get() = maxOf(cutout.left, rounded.left)",
+        "new": "    val holeLeft: Dp get() = cutout.left",
+    },
+    {
+        "id": "U7-6 holeRight",
+        "file": INSETS,
+        "kind": "replace",
+        "anchor": "    val holeRight: Dp get() = maxOf(cutout.right, rounded.right)",
+        "new": "    val holeRight: Dp get() = cutout.right",
+    },
+]
+
+# ———————— 7 子页改名（import + call 各一锚，每文件内均唯一） ————————
+for p in SUB_PAGES:
+    EDITS.append({
+        "id": f"U7-import {p.rsplit('/', 1)[-1]}",
+        "file": p,
+        "kind": "replace",
+        "anchor": "import com.allperiph.ui.miuix.hideSystemBars",
+        "new": "import com.allperiph.ui.miuix.applyEdgeToEdge",
+    })
+    EDITS.append({
+        "id": f"U7-call {p.rsplit('/', 1)[-1]}",
+        "file": p,
+        "kind": "replace",
+        "anchor": "hideSystemBars()",
+        "new": "applyEdgeToEdge()",
+    })
+
+# ———————— ApShellActivity.kt ————————
+EDITS += [
+    {
+        "id": "U7-shell import",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": "import com.allperiph.ui.miuix.hideSystemBars",
+        "new": "import com.allperiph.ui.miuix.applyEdgeToEdge",
+    },
+    {
+        "id": "U7-shell call",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": "        hideSystemBars()",
+        "new": "        applyEdgeToEdge()",
+    },
+    {
+        "id": "U7-shell topPad 改含状态栏口径",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": (
+            "        // 状态栏整块屏蔽（成宇 2026-11-02「所有页屏蔽状态栏」）：applyImmersive 里\n"
+            "        // statusBars 也一并 hide 了，所以这里**不用再按边算顶部留白** —— 内容直接画到\n"
+            "        // 屏幕最上沿。此前竖屏垫 insets.top（且 v223.23 前那个值恒为 0），横竖屏各说各话，\n"
+            "        // 顶栏标题才会压在系统时间那一行上。\n"
+            "        // 顶栏整块去除后侧向留白也由各页自己按 insets.left/right 处理，这里不再介入。\n"
+            "        // 2026-11-07（成宇「优化回避屏幕大圆角和摄像头挖孔，避免遮挡」）：上一段旧\n"
+            "        // 注释里「不按边算顶部留白」说的是**系统栏**（仍成立，状态栏照旧隐藏）；本行\n"
+            "        // 只按挖孔/大圆角让位 —— 顶部压着摄像头孔时标题与卡片不再画进孔里。横屏\n"
+            "        // 孔在左右侧，走 ApAdaptive 的 padCutout 与页内 insets.left/right，这里恒≈0。\n"
+            "        val topPad = com.allperiph.ui.miuix.rememberApInsets().holeTop"
+        ),
+        "new": (
+            "        // 2026-11-07 二轮（成宇「按安卓 aosp 规范适配，不是直接隐藏状态栏和小白条」\n"
+            "        // 「圆角和挖孔优化不是直接上部分不显示内容」）：系统栏改为显示\n"
+            "        // （applyEdgeToEdge），顶部按**含状态栏**的 top 垫 —— 竖屏内容从状态栏下\n"
+            "        // 开始（状态栏高度已天然盖住孔区）；横屏状态栏 inset 落在侧边、top≈0 不变；\n"
+            "        // 圆角不再参与垫边（四角由系统 UI 避让，垫半径会把顶部内容整块推走）。\n"
+            "        val topPad = com.allperiph.ui.miuix.rememberApInsets().top"
+        ),
+    },
+    {
+        "id": "U7-shell 缩放平滑动画",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": (
+            "            val __base = androidx.compose.ui.platform.LocalDensity.current\n"
+            "            val __scale = com.allperiph.ui.UiScalePref.current.floatValue\n"
+            "            androidx.compose.runtime.CompositionLocalProvider(\n"
+            "                androidx.compose.ui.platform.LocalDensity provides\n"
+            "                    androidx.compose.ui.unit.Density(__base.density * __scale, __base.fontScale),\n"
+            "            ) {"
+        ),
+        "new": (
+            "            val __base = androidx.compose.ui.platform.LocalDensity.current\n"
+            "            // 平滑过渡（成宇 2026-11-07「dpi 变一下 UI 跳动一下」）：缩放改 150ms\n"
+            "            // 缓动到位，密度不再一帧硬切 —— 整树跟一条曲线重排，跳变消失。\n"
+            "            val __scale by androidx.compose.animation.core.animateFloatAsState(\n"
+            "                targetValue = com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                animationSpec = androidx.compose.animation.core.tween(150),\n"
             "            )\n"
-            "        }.getOrNull()\n"
-            "        return s?.contains(\"ApxAccessibilityService\") == true\n"
-            "    }\n"
-            "\n"
-            "    /**\n"
-            "     * 双开关项（成宇 2026-11-07「悬浮球菜单加上物理键盘全局转发 / 外接触控板直读的\n"
-            "     * 切换开关，方便不用的时候关闭」）。\n"
-            "     *\n"
-            "     * 语义与连接模式项一致：就地翻转、Toast 报态、**不收菜单** —— 两个开关相邻，\n"
-            "     * 用户可能连着切。写点与设置页完全同一条 prefs；开不起来时（无障碍没启用 /\n"
-            "     * 没 root、没指针设备）**如实回退并提示**，绝不让球上显示假的「已开启」。\n"
-            "     */\n"
-            "    private fun onFanToggle(id: String) {\n"
-            "        val label = getString(BallConfig.labelRes(id))\n"
-            "        val next = !fanToggleOn(id)\n"
-            "        when (id) {\n"
-            "            BallConfig.KB_FORWARD -> {\n"
-            "                GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), next)\n"
-            "                if (next && !a11yForwardOn()) {\n"
-            "                    GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), false)\n"
-            "                    Toast.makeText(this, getString(R.string.ui_ball_toggle_kb_a11y), Toast.LENGTH_SHORT).show()\n"
-            "                    renderFanStates()\n"
-            "                    return\n"
-            "                }\n"
-            "            }\n"
-            "            BallConfig.POINTER_READ -> {\n"
-            "                RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), next)\n"
-            "                if (next && !RootPointerBridge.active) {\n"
-            "                    // 拿不到 root / 没接指针设备：start() 自己降级了，这里如实回退，不显示假开启\n"
-            "                    RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), false)\n"
-            "                    Toast.makeText(this, getString(R.string.ui_ball_toggle_pointer_fail), Toast.LENGTH_SHORT).show()\n"
-            "                    renderFanStates()\n"
-            "                    return\n"
-            "                }\n"
-            "            }\n"
-            "        }\n"
-            "        Toast.makeText(\n"
-            "            this,\n"
-            "            getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),\n"
-            "            Toast.LENGTH_SHORT,\n"
-            "        ).show()\n"
-            "        renderFanStates()\n"
-            "    }\n"
-            "\n"
-            "    /**\n     * 切换连接模式。与状态页 `StatusFragment.onTransportToggle` 同一套语义："
+            "            androidx.compose.runtime.CompositionLocalProvider(\n"
+            "                androidx.compose.ui.platform.LocalDensity provides\n"
+            "                    androidx.compose.ui.unit.Density(__base.density * __scale, __base.fontScale),\n"
+            "            ) {"
         ),
     },
-    # ———————— strings.xml ————————
+    # ———————— ApComponents.kt：弹窗缩放同款平滑 ————————
     {
-        "id": "U6-13 三条新文案",
-        "file": STR,
+        "id": "U7-dialog 缩放平滑动画",
+        "file": COMP,
         "kind": "replace",
-        "anchor": "    <string name=\"ui_main_label_root_pointer\">外接触控板直读（需 root）</string>",
+        "anchor": (
+            "            val __ins = rememberApInsets()\n"
+            "            val __d = androidx.compose.ui.platform.LocalDensity.current\n"
+            "            androidx.compose.runtime.CompositionLocalProvider(\n"
+            "                androidx.compose.ui.platform.LocalDensity provides\n"
+            "                    androidx.compose.ui.unit.Density(\n"
+            "                        __d.density * com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                        __d.fontScale,\n"
+            "                    ),\n"
+            "            ) {"
+        ),
         "new": (
-            "    <string name=\"ui_main_label_root_pointer\">外接触控板直读（需 root）</string>\n"
-            "    <string name=\"ui_ball_fn_kb_forward\">物理键盘全局转发</string>\n"
-            "    <string name=\"ui_ball_toggle_kb_a11y\">全局转发需先在系统「无障碍」里启用本应用，已保持关闭</string>\n"
-            "    <string name=\"ui_ball_toggle_pointer_fail\">直读未生效（缺 root 或未接指针设备），已保持关闭</string>"
+            "            val __ins = rememberApInsets()\n"
+            "            val __d = androidx.compose.ui.platform.LocalDensity.current\n"
+            "            // 平滑过渡（成宇 2026-11-07）：与主壳同一口径，缩放 150ms 缓动不跳变。\n"
+            "            val __s by androidx.compose.animation.core.animateFloatAsState(\n"
+            "                targetValue = com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                animationSpec = androidx.compose.animation.core.tween(150),\n"
+            "            )\n"
+            "            androidx.compose.runtime.CompositionLocalProvider(\n"
+            "                androidx.compose.ui.platform.LocalDensity provides\n"
+            "                    androidx.compose.ui.unit.Density(__d.density * __s, __d.fontScale),\n"
+            "            ) {"
+        ),
+    },
+    # ———————— SettingsPage.kt ————————
+    {
+        "id": "U7-滑条固定 density（跟手）",
+        "file": SET,
+        "kind": "replace",
+        "anchor": (
+            "            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ui_scale)) {\n"
+            "                SliderPreference(\n"
+            "                    value = com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                    onValueChange = { com.allperiph.ui.UiScalePref.set(ctx, it) },\n"
+            "                    title = ctx.getString(R.string.ui_set_label_ui_scale),\n"
+            "                    valueText = \"${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%\",\n"
+            "                    valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,\n"
+            "                    steps = 0,\n"
+            "                )\n"
+            "            }"
+        ),
+        "new": (
+            "            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ui_scale)) {\n"
+            "                // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局\n"
+            "                // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按\n"
+            "                // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层\n"
+            "                // 已改 animate 150ms 平滑，不再跳变）。\n"
+            "                val __sd = LocalDensity.current\n"
+            "                androidx.compose.runtime.CompositionLocalProvider(\n"
+            "                    androidx.compose.ui.platform.LocalDensity provides\n"
+            "                        androidx.compose.ui.unit.Density(\n"
+            "                            __sd.density / com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                            __sd.fontScale,\n"
+            "                        ),\n"
+            "                ) {\n"
+            "                SliderPreference(\n"
+            "                    value = com.allperiph.ui.UiScalePref.current.floatValue,\n"
+            "                    onValueChange = { com.allperiph.ui.UiScalePref.set(ctx, it) },\n"
+            "                    title = ctx.getString(R.string.ui_set_label_ui_scale),\n"
+            "                    valueText = \"${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%\",\n"
+            "                    valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,\n"
+            "                    steps = 0,\n"
+            "                )\n"
+            "                }\n"
+            "            }"
+        ),
+    },
+    {
+        "id": "U7-模板按钮降级：应用",
+        "file": SET,
+        "kind": "replace",
+        "anchor": (
+            "                        ApComponents.ActionButton(\n"
+            "                            text = \"应用「${t.name}」\",""
+        ),
+        "new": (
+            "                        ApComponents.NarrowButton(\n"
+            "                            text = \"应用「${t.name}」\",""
+        ),
+    },
+    {
+        "id": "U7-模板按钮降级：上移",
+        "file": SET,
+        "kind": "replace",
+        "anchor": (
+            "                        ApComponents.ActionButton(\n"
+            "                            text = \"「${t.name}」上移\",""
+        ),
+        "new": (
+            "                        ApComponents.NarrowButton(\n"
+            "                            text = \"「${t.name}」上移\",""
+        ),
+    },
+    {
+        "id": "U7-模板按钮降级：删除",
+        "file": SET,
+        "kind": "replace",
+        "anchor": (
+            "                        ApComponents.ActionButton(\n"
+            "                            text = \"删除「${t.name}」\",""
+        ),
+        "new": (
+            "                        ApComponents.NarrowButton(\n"
+            "                            text = \"删除「${t.name}」\",""
+        ),
+    },
+    {
+        "id": "U7-模板按钮降级：新建",
+        "file": SET,
+        "kind": "replace",
+        "anchor": (
+            "                    ApComponents.ActionButton(\n"
+            "                        text = \"从内置模板新建一份可改的\",""
+        ),
+        "new": (
+            "                    ApComponents.NarrowButton(\n"
+            "                        text = \"从内置模板新建一份可改的\",""
         ),
     },
 ]
