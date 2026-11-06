@@ -37,6 +37,9 @@ export default function App() {
   const [remoteInputOpen, setRemoteInputOpen] = useState(false);
   const [remoteInputHint, setRemoteInputHint] = useState('');
 
+  // 更新通道（v223.29.16）：C++ 启动后台查 GitHub releases → on-update-available 事件
+  const [updateInfo, setUpdateInfo] = useState<{ latest: string; current: string; url: string } | null>(null);
+
   // —— 400ms 状态推流（C++ tickState）——
   useEffect(() => bridge.subscribeState(s => setState(s)), []);
 
@@ -49,6 +52,12 @@ export default function App() {
 
   // 托盘「文件传输…」→ C++ 唤回面板后推事件，在此打开文件传输弹窗
   useEffect(() => bridge.onEvent('open-file-panel', () => setFileOpen(true)), []);
+
+  // 更新横幅：有新版时置顶展示；「查看」走 app.openUrl 白名单 act 打开 release 页
+  useEffect(() => bridge.onEvent('on-update-available', (evt: any) => {
+    const d = evt?.data || {};
+    if (d.latest && d.url) setUpdateInfo({ latest: d.latest, current: d.current || '', url: d.url });
+  }), []);
 
   const handleManualConnect = async (host: string, port: number) => {
     if (!host) return;
@@ -81,6 +90,26 @@ export default function App() {
             AllPeriph
           </div>
         </div>
+
+        {/* 更新横幅（v223.29.16）：C++ 查到新版才出现；无玻璃雾、16px 圆角、品牌蓝淡底 */}
+        {updateInfo && (
+          <div
+            className="mb-[14px] flex items-center justify-between gap-3 px-4 py-3 rounded-[16px]"
+            style={{ border: '1px solid rgba(38,107,229,0.35)', background: 'rgba(38,107,229,0.07)' }}
+          >
+            <span className="body-text text-on-surface">
+              发现新版本 {updateInfo.latest}
+              {updateInfo.current ? `（当前 ${updateInfo.current}）` : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-primary h-[38px]"
+                onClick={() => { bridge.act('app.openUrl', { url: updateInfo.url }).catch(() => {}); }}
+              >查看</button>
+              <button className="btn-ghost h-[38px]" onClick={() => setUpdateInfo(null)}>忽略</button>
+            </div>
+          </div>
+        )}
 
         {/* 连接卡 —— 整宽 */}
         <ConnectionCard state={state} onManualConnect={handleManualConnect} />
