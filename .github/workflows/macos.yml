@@ -1,7 +1,7 @@
 name: macOS Build
 
-# macOS 端（mac-port 分支）编译验证：
-#   push mac-port / master —— 构建 apxhost（CLI 宿主 + 浏览器面板 panel_http）
+# macOS 端编译验证：
+#   push master           —— 构建 apxhost（CLI 宿主 + 浏览器面板 panel_http）
 #                              + apxdesktop（桌面壳，mac=HTTP 面板宿主，mac-desktop 起纳入 CI）
 #   push tag v*           —— 同上构建，并把 zip 重命名为 AllPeriph-<tag>-macos-arm64.zip
 #                            上传到对应 GitHub Release（与 build.yml release job 双向幂等：
@@ -20,11 +20,17 @@ name: macOS Build
 
 on:
   push:
-    branches: [master, mac-port]
+    branches: [master]
     tags: ['v*']
   pull_request:
     branches: [master]
   workflow_dispatch:
+
+# 2026-11-07：mac-port 分支已合入并删除，触发里去掉它（留着是永不命中的死配置）。
+# 同 build.yml：同 ref 只跑最新一轮，tag 构建不取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: write   # 失败时推 ci-logs 分支；tag 构建时上传 Release 资产

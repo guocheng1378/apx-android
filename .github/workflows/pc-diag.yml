@@ -18,13 +18,13 @@ name: PC Diagnose
 #     `if: failure()` 只覆盖**该 step**，前面的 Build 步 exit 1 时脚本根本没跑，
 #     annotation 和 artifact 都出不来。所以 `if: always()` —— 无论死活都发，
 #     失败时 annotation 兜底发错误行（error 标记公开可读），成功时也传一份无害。
+# 2026-11-07：原先还挂了 push: [feat/ci-pc-annotations] —— 该分支早已合入并删除，
+# 这个触发器永远不会命中，属于死配置。诊断一律手动 dispatch（可选 ref）。
 on:
-  push:
-    branches: [feat/ci-pc-annotations]
   workflow_dispatch:
     inputs:
       ref:
-        description: "诊断目标 ref/sha（push 触发时默认 = 本分支，即 master 内容 + 本文件）"
+        description: "诊断目标 ref/sha（默认 master）"
         required: false
         default: "master"
 
