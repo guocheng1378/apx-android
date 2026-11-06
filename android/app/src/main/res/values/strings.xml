@@ -59,6 +59,9 @@
     <string name="ui_main_item_screen">加入副屏</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
     <string name="ui_main_label_root_pointer">外接触控板直读（需 root）</string>
+    <string name="ui_ball_fn_kb_forward">物理键盘全局转发</string>
+    <string name="ui_ball_toggle_kb_a11y">全局转发需先在系统「无障碍」里启用本应用，已保持关闭</string>
+    <string name="ui_ball_toggle_pointer_fail">直读未生效（缺 root 或未接指针设备），已保持关闭</string>
     <string name="ui_common_close">关闭</string>
     <!-- 读屏用：长按可调序的行，给一句带标题的说明（v223.29.4 悬浮球顺序改长按） -->
     <string name="ui_common_long_press_reorder">%1$s，长按可调整顺序</string>

@@ -40,14 +40,23 @@ object BallConfig {
     const val CAMERA = "camera"
     const val QUIT = "quit"
 
+    /**
+     * 物理键盘全局转发（无障碍，无需 root）—— 成宇 2026-11-07「悬浮球菜单加上
+     * 切换开关，方便不用的时候关闭」。开关类快捷项：点一下就地翻转，不开面板。
+     */
+    const val KB_FORWARD = "kb_forward"
+
+    /** 外接触控板 root 直读 —— 同上；写点与设置页同一份 prefs（RootPointerBridge.prefs） */
+    const val POINTER_READ = "pointer_read"
+
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
         TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, CAMERA,
-        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
+        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, POINTER_READ, QUIT,
     )
 
     /** 首次打开时的默认四项 —— 与旧版写死菜单的主干一致 */
-    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, QUIT)
+    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, QUIT)
 
     /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏 */
     const val ITEM_DP = 52
@@ -108,6 +117,8 @@ object BallConfig {
         CLIPBOARD -> R.string.ui_ball_fn_clipboard
         SCREEN -> R.string.ui_ball_fn_screen
         CAMERA -> R.string.ui_ball_fn_camera
+        KB_FORWARD -> R.string.ui_ball_fn_kb_forward
+        POINTER_READ -> R.string.ui_main_label_root_pointer
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
@@ -125,9 +136,14 @@ object BallConfig {
         CLIPBOARD -> R.drawable.ic_apx_clipboard
         SCREEN -> R.drawable.ic_apx_screen
         CAMERA -> R.drawable.ic_apx_camera
+        KB_FORWARD -> R.drawable.ic_apx_kb_fwd
+        POINTER_READ -> R.drawable.ic_apx_pointer
         QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
+
+    /** 开关类快捷项（球上点一下翻转状态、不开面板）—— 与 [transportOf] 互斥 */
+    fun isToggle(id: String): Boolean = id == KB_FORWARD || id == POINTER_READ
 
     /** 连接模式类快捷项对应的出口标识（[AgentController.TRANSPORTS] 同口径）；非模式类返回 null */
     fun transportOf(id: String): String? = when (id) {
@@ -163,6 +179,9 @@ object BallConfig {
     /** 摄像头项加入菜单后的补挂标记（同样只补一次，之后尊重用户增删） */
     private const val KEY_MIGRATED_V4 = "migrated_v4"
 
+    /** 双开关项（全局转发 / root 直读）加入菜单后的补挂标记（同样只补一次） */
+    private const val KEY_MIGRATED_V5 = "migrated_v5"
+
     /**
      * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
      * 这里只把**清单里没有**的两项追加到尾部，一次即可（标记位防重复）；用户之后删掉
@@ -194,6 +213,19 @@ object BallConfig {
             }
             p.edit().putBoolean(KEY_MIGRATED_V3, true).apply()
         }
+        // 双开关项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这两项
+        if (!p.getBoolean(KEY_MIGRATED_V5, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                val add = listOf(KB_FORWARD, POINTER_READ).filter { it !in kept }
+                if (add.isNotEmpty()) {
+                    p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+                }
+            }
+            p.edit().putBoolean(KEY_MIGRATED_V5, true).apply()
+        }
+
         // 摄像头项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这一项
         if (!p.getBoolean(KEY_MIGRATED_V4, false)) {
             val cur = p.getString(KEY_ITEMS, null)

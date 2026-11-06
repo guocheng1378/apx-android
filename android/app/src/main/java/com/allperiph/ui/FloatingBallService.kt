@@ -56,6 +56,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.allperiph.R
 import com.allperiph.shared.util.Log
+import com.allperiph.touchpad.RootPointerBridge
 import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
 import com.allperiph.ui.compose.ApFullKeyboard
@@ -978,7 +979,8 @@ class FloatingBallService : Service() {
     /** 快捷项外观：连接模式类按开关态走主色实底，其余走和球同款半透明白／黑 */
     private fun applyFanState(cell: View, id: String) {
         val kind = BallConfig.transportOf(id)
-        val on = kind != null && AgentController.isTransportEnabled(this, kind)
+        val on = (kind != null && AgentController.isTransportEnabled(this, kind)) ||
+            (BallConfig.isToggle(id) && fanToggleOn(id))
         cell.setBackgroundResource(if (on) R.drawable.bg_ball_item_on else R.drawable.bg_ball_item)
         val tint = if (on) ApPalette.onPrimary(themed) else themed.resources.getColor(R.color.ball_text)
         (cell as? FrameLayout)?.getChildAt(0)?.let { (it as? ImageView)?.setImageTintList(ColorStateList.valueOf(tint)) }
@@ -1114,8 +1116,73 @@ class FloatingBallService : Service() {
                 closeMenu()
                 quitApp()
             }
+            BallConfig.KB_FORWARD, BallConfig.POINTER_READ -> onFanToggle(id)
             else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }
         }
+    }
+
+    /** 双开关项的当前态：与设置页同一读点（各自的 prefs 出口），两处状态不会打架 */
+    private fun fanToggleOn(id: String): Boolean = when (id) {
+        BallConfig.KB_FORWARD -> GlobalKeyForwarder.isEnabled(GlobalKeyForwarder.prefs(this))
+        BallConfig.POINTER_READ -> RootPointerBridge.isEnabled(RootPointerBridge.prefs(this))
+        else -> false
+    }
+
+    /**
+     * 系统无障碍里本应用的转发服务是否已启用。
+     *
+     * 开关落了盘但无障碍服务没挂 = 按键根本不会送进 onKeyEvent —— 球上若显示「已开启」
+     * 就是假的（issue #52「界面状态必须与实际一致」的同款坑）。按类名 contains 判定，
+     * 不写死完整组件名，包名变化时也不至于静默误判。
+     */
+    private fun a11yForwardOn(): Boolean {
+        val s = runCatching {
+            Settings.Secure.getString(
+                contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            )
+        }.getOrNull()
+        return s?.contains("ApxAccessibilityService") == true
+    }
+
+    /**
+     * 双开关项（成宇 2026-11-07「悬浮球菜单加上物理键盘全局转发 / 外接触控板直读的
+     * 切换开关，方便不用的时候关闭」）。
+     *
+     * 语义与连接模式项一致：就地翻转、Toast 报态、**不收菜单** —— 两个开关相邻，
+     * 用户可能连着切。写点与设置页完全同一条 prefs；开不起来时（无障碍没启用 /
+     * 没 root、没指针设备）**如实回退并提示**，绝不让球上显示假的「已开启」。
+     */
+    private fun onFanToggle(id: String) {
+        val label = getString(BallConfig.labelRes(id))
+        val next = !fanToggleOn(id)
+        when (id) {
+            BallConfig.KB_FORWARD -> {
+                GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), next)
+                if (next && !a11yForwardOn()) {
+                    GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), false)
+                    Toast.makeText(this, getString(R.string.ui_ball_toggle_kb_a11y), Toast.LENGTH_SHORT).show()
+                    renderFanStates()
+                    return
+                }
+            }
+            BallConfig.POINTER_READ -> {
+                RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), next)
+                if (next && !RootPointerBridge.active) {
+                    // 拿不到 root / 没接指针设备：start() 自己降级了，这里如实回退，不显示假开启
+                    RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), false)
+                    Toast.makeText(this, getString(R.string.ui_ball_toggle_pointer_fail), Toast.LENGTH_SHORT).show()
+                    renderFanStates()
+                    return
+                }
+            }
+        }
+        Toast.makeText(
+            this,
+            getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
+            Toast.LENGTH_SHORT,
+        ).show()
+        renderFanStates()
     }
 
     /**
