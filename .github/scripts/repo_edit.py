@@ -1,122 +1,104 @@
 #!/usr/bin/env python3
-"""repo-edit：大文件锚点替换编辑器。
+"""repo-edit：大文件锚点替换编辑器（无参执行；EDITS 自包含；两阶段：先全量校验命中次数，全过才写盘）。\n\n批2（2026-11-06 修正方案）：\n  · media_session.hpp — 补 kStreamCamera = 6（frame.h 已有 6，镜像枚举缺）\n  · camera_view.hpp/cpp — 单例 cameraView() 定义挪进 apxpc_media 库并声明\n  · web_panel.cpp — 删匿名层单例，改 using 引入同一实例\n  · panel_win32.cpp — include + setHandler 加 s6→cameraView().feed() 分支\n  · panel_http.cpp — 不改（非 Win 分支无 CameraView 实现，加了必链接失败）\n"""
+import difflib
+import os
+import sys
 
-约定：无参执行，脚本内 EDITS 自包含；每步 git diff 非空才提交。
-"""
-import sys, json, os, re, difflib
+ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
-BASE = os.path.dirname(os.path.abspath(__file__))
-WORKSPACE = os.environ.get("GITHUB_WORKSPACE", BASE)
-API = os.environ["GITHUB_API_URL"].rstrip("/")
-HEAD = os.environ["GITHUB_REF_NAME"].strip("refs/heads/")
-OWNER = os.environ["GITHUB_REPOSITORY_OWNER"]
-REPO = os.environ["GITHUB_REPOSITORY"].split("/")[1]
-TOKEN = os.environ["GH_TOKEN"]
+# (相对路径, [(old, new, 期望命中次数), ...])
+EDITS = [
+    ("pc/host/include/apxpc/media/media_session.hpp", [
+        ("    kStreamMic     = 5,\n",
+         "    kStreamMic     = 5,\n    kStreamCamera  = 6,\n", 1),
+    ]),
+    ("pc/host/include/apxpc/media/camera_view.hpp", [
+        ("    std::unique_ptr<Impl> impl_;\n};\n\n} // namespace apxpc::media",
+         "    std::unique_ptr<Impl> impl_;\n};\n\n"
+         "// M7-c 批 2：进程内单例 —— panel_win32 的 setHandler 喂帧、web_panel 的状态/动作\n"
+         "// 必须命中同一个实例；定义放 camera_view.cpp（进 apxpc_media 库，Win 各目标都链）。\n"
+         "CameraView& cameraView();\n\n} // namespace apxpc::media", 1),
+    ]),
+    ("pc/host/src/media/camera_view.cpp", [
+        ("CameraView::Status CameraView::status() const { return impl_->status(); }\n\n} // namespace apxpc::media",
+         "CameraView::Status CameraView::status() const { return impl_->status(); }\n\n"
+         "// M7-c 批 2：单例从 web_panel.cpp 匿名命名空间挪到这里 —— 匿名层只有 web_panel.cpp\n"
+         "// 自己可见，panel_win32.cpp（apxpc_ui）链不到 web_panel.cpp（apxpc_webpanel），\n"
+         "// 放 apxpc_media 两边拿同一实例。\n"
+         "CameraView& cameraView() {\n    static CameraView instance;\n    return instance;\n}\n\n"
+         "} // namespace apxpc::media", 1),
+    ]),
+    ("pc/host/src/ui/web_panel.cpp", [
+        ("// M7-c 1/8：摄像头出口单例——本批只接面板动作/状态；s6 收流 feed 在后续批接线。\n"
+         "namespace {\n"
+         "apxpc::media::CameraView& cameraView() {\n"
+         "    static apxpc::media::CameraView v;\n"
+         "    return v;\n"
+         "}\n"
+         "}  // namespace",
+         "// M7-c 批 2：单例已挪进 camera_view.cpp（apxpc_media 库，Win 各目标都链）——\n"
+         "// 匿名层单例 panel_win32.cpp 链不到，只会各喂各的。这里仅做引入，\n"
+         "// 保证状态/动作与 s6 收流 feed 命中同一实例。\n"
+         "using apxpc::media::cameraView;", 1),
+    ]),
+    ("pc/host/src/ui/panel_win32.cpp", [
+        ("#include \"apxpc/media/audio_capture.hpp\"\n\n#include \"apxpc/media/media_session.hpp\"",
+         "#include \"apxpc/media/audio_capture.hpp\"\n"
+         "#include \"apxpc/media/camera_view.hpp\"   // M7-c 批 2：s6 收流 feed 进程内单例\n"
+         "\n"
+         "#include \"apxpc/media/media_session.hpp\"", 1),
+        ("            panel.micBridge->feed(body, len);\n        }\n    });",
+         "            panel.micBridge->feed(body, len);\n"
+         "        } else if (streamId == apxpc::media::kStreamCamera) {\n"
+         "            // M7-c 批 2：手机 JPEG 单帧（streamId=6）→ 摄像头出口单例\n"
+         "            // （只入队，GDI+ 解码/渲染在消费线程 —— 见 camera_view.hpp 头注释）\n"
+         "            apxpc::media::cameraView().feed(body, len);\n"
+         "        }\n"
+         "    });", 1),
+    ]),
+]
 
-def req(method, path, data=None):
-    url = f"{API}/{OWNER}/{REPO}/{path}"
-    h = {"Accept": "application/vnd.github.v3+json", "Authorization": f"token {TOKEN}"}
-    r = __import__("requests").requests.request(method, url, headers=h, json=data)
-    r.raise_for_status()
-    return r.json() if data else r.json()
-
-def find_file(name):
-    for p in (WORKSPACE, BASE):
-        for x in (name, os.path.basename(name)):
-            if os.path.exists(os.path.join(p, x)):
-                return os.path.join(p, x)
-    try:
-        r = req("GET", f"search/code?q={name}&per_page=10")
-        for it in r.get("items", []):
-            p = os.path.join(WORKSPACE, it["path"])
-            if os.path.exists(p):
-                return p
-    except Exception:
-        pass
-    return None
-
-def read_file(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-def write_file(path, content):
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
-def diff_content(old, new):
-    return "".join(c[1] for c in list(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True), lineterm=""))[-4000:])
-
-def find_anchor(name, content):
-    hits = []
-    for m in re.finditer(rf"//\s*#\s*{{re.escape(name)}}\s*(?:\{{[^}]*\}})?\s*(?:@\d+)?", content):
-        hits.append((m.start(), m.end(), m.group(0)))
-    if not hits:
-        return None
-    if len(hits) == 1:
-        return hits[0]
-    return max(hits, key=lambda h: h[1] - h[0])
-
-def do_replacements(text, edits):
-    for old, new in edits:
-        text = text.replace(old, new)
-    return text
-
-def commit(msg, files):
-    for f in files:
-        r = req("GET", f"repos/{{OWNER}}/{{REPO}}/git/blobs/{{f['sha']}}")
-        write_file(f["path"], r["content"].decode("utf-8"))
-    parent = req("GET", f"repos/{{OWNER}}/{{REPO}}/git/refs/heads/{{HEAD}}").get("object", {}).get("sha")
-    tree = req("POST", f"repos/{{OWNER}}/{{REPO}}/git/trees", json={"tree": files, "base_tree": parent}).get("sha")
-    req("POST", f"repos/{{OWNER}}/{{REPO}}/git/commits", json={"message": msg, "tree": tree, "parents": [parent]})
-    for f in files:
-        req("POST", f"repos/{{OWNER}}/{{REPO}}/git/blobs/{{f['sha']}}/comments", json={"message": "edited by repo-edit"})
-
-def step(path, anchor, edit, files_out):
-    content = read_file(path)
-    anchor_found = find_anchor(anchor, content)
-    if not anchor_found:
-        print(f"ANCHOR_NOT_FOUND:{path}:{anchor}")
-        return False
-    new_content = do_replacements(content, edit)
-    if new_content == content:
-        print(f"NO_CHANGE:{path}:{anchor}")
-        return False
-    files_out.append({"path": path, "sha": None})
-    return True
 
 def main():
-    if len(sys.argv) < 4:
-        print(__doc__)
-        sys.exit(1)
-    target, anchor_name, edit_index = sys.argv[1], sys.argv[2], int(sys.argv[3])
-    path = find_file(target)
-    if not path:
-        print(f"FILE_NOT_FOUND:{target}")
-        sys.exit(1)
-    content = read_file(path)
-    anchor = find_anchor(anchor_name, content)
-    if not anchor:
-        print(f"ANCHOR_NOT_FOUND:{target}:{anchor_name}")
-        sys.exit(1)
-    edit = edits[edit_index]
-    new_content = do_replacements(content, edit)
-    diff = diff_content(content, new_content)
-    print(json.dumps({"path": path, "anchor": anchor_name, "diff": diff}, ensure_ascii=False))
+    plan = []
+    failed = False
+    for rel, reps in EDITS:
+        full = os.path.join(ROOT, rel)
+        if not os.path.exists(full):
+            print("MISSING_FILE " + rel)
+            failed = True
+            continue
+        with open(full, "r", encoding="utf-8") as f:
+            text = f.read()
+        new = text
+        for old, repl, want in reps:
+            got = new.count(old)
+            if got != want:
+                print("ANCHOR_FAIL " + rel + " count=" + str(got) + " want=" + str(want))
+                print("  old[0:80]=" + old[:80].replace("\n", "\\n"))
+                failed = True
+            else:
+                new = new.replace(old, repl)
+        if new != text:
+            plan.append((rel, text, new))
+    if failed:
+        print("VALIDATE_FAILED: 有锚点未命中，不写盘。")
+        return 1
+    if not plan:
+        print("NO_CHANGES: 所有编辑的期望文本均已存在。")
+        return 0
+    for rel, text, new in plan:
+        full = os.path.join(ROOT, rel)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(new)
+        print("WROTE " + rel)
+        diff = "".join(difflib.unified_diff(
+            text.splitlines(keepends=True), new.splitlines(keepends=True),
+            fromfile="a/" + rel, tofile="b/" + rel, n=3))
+        print(diff)
+    print("OK: wrote " + str(len(plan)) + " file(s)")
     return 0
 
-edits = {}
 
-files_out = []
-for (path, anchor), edit in edits.items():
-    if step(path, anchor, edit, files_out):
-        print(f"OK:{path}:{anchor}")
-    else:
-        print(f"SKIP:{path}:{anchor}")
-
-if files_out:
-    commit("batch 2: 修正方案 — 补 kStreamCamera、导出 cameraView 单例、panel_win32 接 s6 feed", files_out)
-    print(f"COMMITTED:{len(files_out)} files")
-else:
-    print("NO_CHANGES")
-
-sys.exit(0)
+if __name__ == "__main__":
+    sys.exit(main())
