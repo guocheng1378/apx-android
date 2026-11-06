@@ -68,14 +68,18 @@ void clearActions() { mutableRegistry().clear(); }
 
 // 可供用户勾选的动作目录（面板「功能自定义」的清单来源）。
 // id 与下面 installDefaultActions 注册的 id 必须同源 —— 改一处记得改另一处。
+// 顺序 = 面板清单的展示顺序 = 默认扇形顺序（用户没自定义时）。
 std::vector<ActionInfo> actionCatalog() {
     return {
         {"open_panel",     "🖥", "开面板"},
         {"send_clipboard", "📋", "发剪贴板"},
+        {"phone_input",    "⌨", "手机输入"},
+        {"send_file",      "📎", "发文件"},
+        {"toggle_display", "🖥", "副屏"},
         {"toggle_speaker", "🔊", "音箱"},
         {"toggle_mic",     "🎙", "麦克风"},
-        {"toggle_display", "🖥", "副屏"},
-        {"conn_status",    "📶", "连接"},
+        {"toggle_camera",  "📷", "摄像头"},
+        {"wireless",       "📶", "无线"},
         {"exit",           "⏻", "退出"},
     };
 }
@@ -101,47 +105,74 @@ void installDefaultActions(const HostActions& host, const std::vector<std::strin
         // 待发角标常驻球上：有未发内容时球缘亮环
         .badge_fn = [h] { return callBool(h->clipboard_pending); },
         // 没有对端就没得发 → 灰显
-        .enabled_fn = [h] { return callBool(h->connected); },
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->send_clipboard); },
         .run_fn = [h] { (void)callBool(h->send_clipboard); },   // false 的 toast 由 M3 桥接接
     });
     all.push_back(Action{
-        .id = "toggle_speaker", .icon = "🔊", .label = "音箱", .slot = Slot::HIGH,
-        .badge_fn = [h] { return callBool(h->speaker_on); },
-        .enabled_fn = [h] { return callBool(h->connected); },
-        .run_fn = [h] { (void)callBool(h->toggle_speaker); },
+        .id = "phone_input", .icon = "⌨", .label = "手机输入", .slot = Slot::HIGH,
+        .badge_fn = {},
+        // 手机当键盘：要控制面在（0x25 走 9511 控制通道）
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->phone_input); },
+        .run_fn = [h] { callVoid(h->phone_input); },
     });
     all.push_back(Action{
-        .id = "exit", .icon = "⏻", .label = "退出", .slot = Slot::HIGH,
+        .id = "send_file", .icon = "📎", .label = "发文件", .slot = Slot::HIGH,
         .badge_fn = {},
-        .enabled_fn = {},
-        .run_fn = [h] { callVoid(h->exit_app); },
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->send_file); },
+        .run_fn = [h] { callVoid(h->send_file); },
     });
 
     // —— CARD：卡片第二档（Win 球壳按注册序与 HIGH 一起进扇形；mac 侧仍是内弧）
-    all.push_back(Action{
-        .id = "toggle_mic", .icon = "🎙", .label = "麦克风", .slot = Slot::CARD,
-        .badge_fn = [h] { return callBool(h->mic_on); },
-        .enabled_fn = [h] { return callBool(h->connected); },
-        .run_fn = [h] { (void)callBool(h->toggle_mic); },
-    });
+    // 副屏的先决条件是 Sunshine 在跑（面板里装的），不是「连上手机」；其余三项都看连没连。
     all.push_back(Action{
         .id = "toggle_display", .icon = "🖥", .label = "副屏", .slot = Slot::CARD,
         .badge_fn = [h] { return callBool(h->display_on); },
-        .enabled_fn = [h] { return callBool(h->sunshine_running); },
+        .enabled_fn = [h] { return callBool(h->sunshine_running) && static_cast<bool>(h->toggle_display); },
         .run_fn = [h] { (void)callBool(h->toggle_display); },
     });
     all.push_back(Action{
-        .id = "conn_status", .icon = "📶", .label = "连接", .slot = Slot::CARD,
+        .id = "toggle_speaker", .icon = "🔊", .label = "音箱", .slot = Slot::CARD,
+        .badge_fn = [h] { return callBool(h->speaker_on); },
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->toggle_speaker); },
+        .run_fn = [h] { (void)callBool(h->toggle_speaker); },
+    });
+    all.push_back(Action{
+        .id = "toggle_mic", .icon = "🎙", .label = "麦克风", .slot = Slot::CARD,
+        .badge_fn = [h] { return callBool(h->mic_on); },
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->toggle_mic); },
+        .run_fn = [h] { (void)callBool(h->toggle_mic); },
+    });
+    all.push_back(Action{
+        .id = "toggle_camera", .icon = "📷", .label = "摄像头", .slot = Slot::CARD,
+        .badge_fn = [h] { return callBool(h->camera_on); },
+        .enabled_fn = [h] { return callBool(h->connected) && static_cast<bool>(h->toggle_camera); },
+        .run_fn = [h] { (void)callBool(h->toggle_camera); },
+    });
+    all.push_back(Action{
+        // 无线：连上时点它 = 断开；未连时点它 = 重新发起自动发现（面板概览页同一条链路）。
+        // 只在「宿主没装这个钩子」时灰显 —— 不看连接状态：连不上时用户正需要点它重试。
+        // 断开只断本机一侧、不推 0x10（手机侧模块开关）—— 推「wireless=off」会让手机停止
+        // 广播，之后 PC 再 startAuto 就永远发现不了它。面板概览页那个开关是另一套语义。
+        .id = "wireless", .icon = "📶", .label = "无线", .slot = Slot::CARD,
         .badge_fn = [h] { return callBool(h->connected); },
+        .enabled_fn = [h] { return static_cast<bool>(h->toggle_session); },
+        .run_fn = [h] { (void)callBool(h->toggle_session); },
+    });
+    all.push_back(Action{
+        .id = "exit", .icon = "⏻", .label = "退出", .slot = Slot::CARD,
+        .badge_fn = {},
         .enabled_fn = {},
-        .run_fn = [h] { callVoid(h->open_panel); },   // 点它 = 去面板看连接诊断
+        .run_fn = [h] { callVoid(h->exit_app); },
     });
 
     // 用户自定义（config.json 的 ballActions）：非空 = 白名单 + 排布顺序。
     // 顺序即注册顺序即扇形顺序 —— Slot 只是默认分组，自定义之后不再拆 HIGH/CARD。
     if (!order.empty()) {
         std::vector<Action> sel;
-        for (const auto& id : order) {
+        for (auto id : order) {
+            // 老配置兼容：conn_status（旧「连接」项，点开面板）已被 wireless 取代，
+            // 直接映射过去 —— 否则升级后老用户的自定义清单会少一项、扇形看着「少了个功能」。
+            if (id == "conn_status") id = "wireless";
             for (const auto& a : all) {
                 if (a.id == id) { sel.push_back(a); break; }
             }

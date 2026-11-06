@@ -159,8 +159,38 @@ struct Panel {
     // 互传发送线程（PC → 对端）：一次一批，结果走 on-localsend-sent 事件
     std::thread sendThread;
     std::atomic<bool> sendBusy{false};
+
+    // 上次开流用的投屏模式（false = 扩展屏，true = 桌面镜像）。
+    // 只做会话内记忆：面板刷新后靠 buildState 回读，避免「选了镜像、刷新后变回扩展」。
+    bool screenMirror = false;
 };
 Panel* g_panel = nullptr;
+
+// ————————————————————————————————————————————————————————————————————————————
+// 面板「唤出」统一入口。
+//
+// 2026-11-06 实测根因：球模式（enableBall=true）下窗口启动即 SW_HIDE 创建，
+// WebView2 的 controller 是在「窗口不可见」状态下创建的 —— 此时 WebView2 会把页面
+// 标记为 document.visibilityState='hidden'。之后即便 ShowWindow 把窗口显示出来，
+// 页面仍是 hidden → **渲染层不合成 → 面板整片空白**（DOM 其实已渲染：root 8399 字符，
+// viewport 960×808 正常，但用户只看到一块白）。
+//
+// 只 ShowWindow 唤不回来，必须显式 put_IsVisible(TRUE) + 重设 bounds（让 WebView2
+// 重新合成一帧）。所有「显示面板」的入口都走这里，别再裸调 ShowWindow。
+void showPanelWindow(HWND hwnd, bool foreground = true) {
+    if (!hwnd || !::IsWindow(hwnd)) return;
+    ::ShowWindow(hwnd, SW_RESTORE);
+    if (foreground) ::SetForegroundWindow(hwnd);
+    Panel* p = g_panel;
+    if (p && p->controller) {
+        p->controller->put_IsVisible(TRUE);
+        RECT rc{};
+        ::GetClientRect(hwnd, &rc);
+        p->controller->put_Bounds({0, 0, rc.right, rc.bottom});
+        ::InvalidateRect(hwnd, nullptr, TRUE);
+        ::UpdateWindow(hwnd);
+    }
+}
 // 球的动作钩子（Win 段装配一次后存这里）：面板「功能自定义」保存后用它重装注册表 ——
 // 球本体零改动，重装注册表即换扇形内容与顺序。
 apxpc::ball::HostActions g_ballHostActions;
@@ -323,6 +353,9 @@ void buildState(const HostBundle& b, Json& out) {
         cfg["adaptiveBitrate"] = b.cfg->displayAdaptive;
         cfg["bitrateMbps"] = static_cast<double>(b.cfg->displayBitrateMbps);
         cfg["screenMode"] = static_cast<double>(b.cfg->displayEnabled ? 1 : 0);
+        // 投屏模式（会话内记忆）：面板据此回显「扩展屏 / 桌面镜像」，
+        // 刷新页面不会把用户选的镜像悄悄变回扩展。
+        cfg["screenMirror"] = g_panel ? g_panel->screenMirror : false;
         transports["btSupported"] = true;
     }
 
@@ -566,6 +599,27 @@ void startFileSend(Panel* p, const std::string& path, const std::string& respId)
     g_sendThreads.push_back(std::move(th));
 }
 
+// 「发送文件到手机…」的选文件 + 发送。托盘菜单与球的「发文件」项共走这一条路径
+// （2026-11-07：原来这段对话框代码只写在托盘回调里，球上没入口）。
+// 同步模态对话框 —— 调用方必须是跑着消息循环的 UI 线程（托盘线程 / 球所在的面板线程）。
+void pickAndSendFile(Panel* pp) {
+    if (!pp) return;
+    wchar_t file[MAX_PATH] = {};
+    OPENFILENAMEW of{};
+    of.lStructSize = sizeof(of);
+    of.hwndOwner = pp->hwnd;
+    of.nMaxFile = MAX_PATH;
+    of.lpstrFile = file;
+    of.lpstrFilter = L"全部文件\0*.*\0";
+    of.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!::GetOpenFileNameW(&of)) return;   // 用户取消
+    const std::string path = wideToUtf8(std::wstring(file));
+    const size_t slash = path.find_last_of("\\/");
+    const std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    if (pp->bundle.tray) pp->bundle.tray->notify("正在发送文件", name);
+    startFileSend(pp, path, "");   // 后台线程：大文件不能卡住消息循环
+}
+
 // ———————————————— 动作分发（前端 act 请求） ———————————————
 // 互传（LocalSend 协议 v2.2）
 // 起停与 panel_http.cpp 同口径：落盘目录固定取 FileReceiver::defaultDir()（下载\AllPeriph），
@@ -660,13 +714,43 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         return postResponse(p, id, ok ? okResp() : failResp("发送完成通知失败"));
     }
 
+    // —— 输入注入权限（macOS 的「辅助功能」）：Win 上恒 true / 打不开系统设置 ——
+    // 新面板概览页带了这条权限横幅（只在 inputTrusted === false 时出现，Win 永不出现）。
+    // 分支仍按契约回话：以前这两个 act 只有 panel_http.cpp 有，WebView 面板误调会挂到
+    // 10s act 超时才报错 —— 缺一条「不支持」的回话比没有这条通道更糟。
+    if (name == "input.recheck") {
+        const bool trusted = apxpc::wireless::requestPlatformInputTrust();
+        APX_LOGI("input.recheck → {}（Win 恒已授权）", trusted ? "trusted" : "not trusted");
+        Json dr = Json::makeObject();
+        dr["trusted"] = trusted;
+        dr["label"] = apxpc::wireless::inputTrustSettingsLabel();
+        return postResponse(p, id, okResp(dr));
+    }
+    if (name == "input.openSettings") {
+        const bool opened = apxpc::wireless::openPlatformInputSettings();
+        Json d = Json::makeObject();
+        d["opened"] = opened;
+        return postResponse(p, id, okResp(d));
+    }
+
     // —— 副屏 ——
     if (name == "screen.toggle" && b.screenPush) {
         if (b.screenPush->running()) { b.screenPush->stop(); return postResponse(p, id, okResp()); }
         if (!b.media || !b.media->status().connected)
             return postResponse(p, id, failResp("媒体通道未连接（需与手机同一 Wi‑Fi）"));
         apxpc::media::ScreenPushOptions opt;
-        opt.mirrorMode = false; opt.bitrateKbps = 8000;
+        // 开流参数以前在这里写死（mirrorMode=false、bitrateKbps=8000、adaptive 缺省 false）：
+        // 设置页的「默认码率 / 自适应码率」改了不生效、「复制屏幕」也没有入口 ——
+        // 用户看到的就是「加的特性没用上」。现在：面板参数优先，其次读配置文件。
+        if (const Json* m = payload.find("mirror")) opt.mirrorMode = m->asBool(false);
+        if (b.cfg) {
+            if (b.cfg->displayBitrateMbps > 0)
+                opt.bitrateKbps = static_cast<uint32_t>(b.cfg->displayBitrateMbps) * 1000u;
+            opt.adaptive = b.cfg->displayAdaptive;
+        }
+        if (const Json* v = payload.find("bitrateKbps"))
+            opt.bitrateKbps = static_cast<uint32_t>(v->asInt(static_cast<int>(opt.bitrateKbps)));
+        if (const Json* v = payload.find("adaptive")) opt.adaptive = v->asBool(opt.adaptive);
         std::string err;
         const bool ok = b.screenPush->start(b.media, opt, &err);
         if (ok) {
@@ -676,7 +760,13 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
             // 手机副屏页没开 → 帧全进 Renderer.droppedNoSurface，手机毫无反应。
             if (b.session) p->bundle.session->requestOpenScreen();
         }
-        return postResponse(p, id, ok ? okResp() : failResp(err));
+        // 回显本次实际生效的参数：面板据此显示「镜像 / 扩展 · N Mbps」，不再自己猜
+        if (Panel* gp = g_panel; gp && ok) gp->screenMirror = opt.mirrorMode;
+        Json sd = Json::makeObject();
+        sd["mirror"] = opt.mirrorMode;
+        sd["bitrateKbps"] = static_cast<double>(opt.bitrateKbps);
+        sd["adaptive"] = opt.adaptive;
+        return postResponse(p, id, ok ? okResp(sd) : failResp(err));
     }
 
     // —— 音箱 ——
@@ -1532,9 +1622,9 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     // 与老面板 panel_win32 同款。
     if (panel.bundle.tray) {
         panel.bundle.tray->setOpenCallback([hwnd] {
-            // X/最小化/隐藏后从托盘唤回面板
-            ::ShowWindow(hwnd, SW_RESTORE);
-            ::SetForegroundWindow(hwnd);
+            // X/最小化/隐藏后从托盘唤回面板（走统一入口：顺带修 WebView2 的
+            // document.hidden → 白屏，见 showPanelWindow 注释）
+            showPanelWindow(hwnd);
         });
         panel.bundle.tray->setQuitCallback([hwnd] {
             // 托盘「退出」= 真退出整个进程。此前 desktop_main 的回调是 PostQuitMessage(0)
@@ -1564,23 +1654,9 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         });
 
         // 「发送文件到手机…」：选文件 → 与前端 file.send 同一条链路后台发送
+        // （对话框代码提到 pickAndSendFile，球的「发文件」项复用同一条路径）
         panel.bundle.tray->setSendFileCallback([] {
-            Panel* pp = g_panel;
-            if (!pp) return;
-            OPENFILENAMEW of{};
-            wchar_t file[MAX_PATH] = {};
-            of.lStructSize = sizeof(of);
-            of.hwndOwner = pp->hwnd;
-            of.nMaxFile = MAX_PATH;
-            of.lpstrFile = file;
-            of.lpstrFilter = L"全部文件\0*.*\0";
-            of.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
-            if (!::GetOpenFileNameW(&of)) return;
-            const std::string path = wideToUtf8(std::wstring(file));
-            const size_t slash = path.find_last_of("\\/");
-            const std::string name = (slash == std::string::npos) ? path : path.substr(slash + 1);
-            pp->bundle.tray->notify("正在发送文件", name);
-            startFileSend(pp, path, "");   // 后台线程：托盘线程不能被大文件卡住
+            pickAndSendFile(g_panel);   // 退出后 g_panel 已置空，托盘线程晚触发不悬空
         });
 
         // 「文件传输…」：唤回面板 + 推事件打开文件传输弹窗（前端 App.tsx 监听 open-file-panel）
@@ -1602,8 +1678,7 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         ha.open_panel = [&panel] {
             const HWND h = panel.hwnd;
             if (!h || !::IsWindow(h)) return;
-            ::ShowWindow(h, SW_RESTORE);
-            ::SetForegroundWindow(h);
+            showPanelWindow(h);
         };
         ha.send_clipboard = [&bundle]() -> bool {
             if (!bundle.session || !bundle.session->connected()) return false;
@@ -1640,17 +1715,81 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
                 exe, {}, apxpc::screen::defaultSpikeLogPath(), pidFile);
             return r.ok;
         };
+        ha.display_on = [&bundle] { return bundle.screenPush && bundle.screenPush->running(); };
+
+        // —— 2026-11-07 用户点名补齐的常用项（手机输入 / 发文件 / 音箱 / 麦克风 / 摄像头 / 无线）——
+        // 全部复用面板已有的链路，不在球里新造协议。
+        // 手机输入：0x25 请求对端弹输入法，手机打的字由 WirelessSession 注入本机光标处
+        //（与托盘「让手机帮我输入…」完全同一条链路）。
+        ha.phone_input = [&bundle] {
+            if (!bundle.session || !bundle.session->connected()) return;
+            if (!bundle.session->requestInput("电脑请求输入文本"))
+                APX_LOGW("球「手机输入」请求未送达（控制面刚断？）");
+        };
+        // 发文件：选文件 → 9512 后台发送（与托盘 / 前端 file.send 同一 startFileSend）
+        ha.send_file = [] { pickAndSendFile(g_panel); };
+        // 音箱：本机声音 → 手机（AudioCapture 起停，与面板 speaker.toggle 同口径）
+        ha.speaker_on = [&bundle] { return bundle.audio && bundle.audio->running(); };
+        ha.toggle_speaker = [&bundle]() -> bool {
+            if (!bundle.audio) return false;
+            if (bundle.audio->running()) { bundle.audio->stop(); return false; }
+            if (!bundle.media || !bundle.media->status().connected) return false;
+            apxpc::media::AudioCaptureOptions opt;   // 空 deviceId = 跟随系统默认播放设备
+            std::string err;
+            if (!bundle.audio->start(bundle.media, opt, &err)) {
+                APX_LOGW("球「音箱」启动失败：{}", err);
+                return false;
+            }
+            return true;
+        };
+        // 麦克风：手机麦 → 本机播放设备（与面板 mic.toggle 同口径，走系统默认设备）
+        ha.mic_on = [&bundle] { return bundle.micBridge && bundle.micBridge->running(); };
+        ha.toggle_mic = [&bundle]() -> bool {
+            if (!bundle.micBridge) return false;
+            if (bundle.micBridge->running()) { bundle.micBridge->stop(); return false; }
+            std::string err;
+            if (!bundle.micBridge->start("", &err)) {
+                APX_LOGW("球「麦克风」启动失败：{}", err);
+                return false;
+            }
+            return true;
+        };
+        // 摄像头：预览窗 + 0x10 模块开关（与面板 camera.toggle 完全同口径）
+        ha.camera_on = [] { return cameraView().status().previewOpen; };
+        ha.toggle_camera = [&bundle]() -> bool {
+            auto& cv = cameraView();
+            cv.setPreview(!cv.status().previewOpen);
+            const bool on = cv.status().previewOpen;
+            if (bundle.session) (void)bundle.session->sendModuleToggle("camera", on);
+            return on;
+        };
+        // 无线：已连 = 断开；未连 = 重新发起自动发现（面板概览页读的是同一条链路）。
+        // 返回 false 是常态：连接是异步的，角标下一拍由 connected 刷成绿点。
+        ha.toggle_session = [&bundle]() -> bool {
+            if (!bundle.session) return false;
+            if (bundle.session->connected()) { bundle.session->disconnect(); return false; }
+            bundle.session->startAuto();
+            return false;
+        };
         // 用户自定义（config.json 的 ballActions）：非空 = 白名单 + 扇形排布顺序
         apxpc::ball::installDefaultActions(
             ha, bundle.cfg ? bundle.cfg->ballActions : std::vector<std::string>{});
+        // 球右键菜单的宿主钩子（兜底入口）：球模式下大窗口启动即隐藏，此前唯一能唤出
+        // 面板的入口是扇形里的「开面板」项 —— 项一多就点不准（2026-11-06 用户报
+        // 「面板也打不开」）。右键球 = 打开面板 / 展开扇形 / 退出，位置固定不受扇形影响。
+        {
+            apxpc::ball::BallHostHooks hooks;
+            hooks.open_panel = ha.open_panel;
+            hooks.exit_app   = ha.exit_app;
+            apxpc::ball::setBallHostHooks(hooks);
+        }
         // 球没起来 / 不可见 → 不能只剩一个空桌面：把大窗口放出来。
         // 历史上踩过「球永远不可见」（WS_EX_LAYERED 漏写）的坑，窗口是唯一兜底。
         const bool ballOk = apxpc::ball::createBall();
         if (!ballOk || !apxpc::ball::ballVisible()) {
             APX_LOGI("悬浮球不可用（{}），回退显示主窗口",
                      ballOk ? "创建成功但不可见" : "创建失败");
-            ::ShowWindow(panel.hwnd, SW_SHOW);
-            ::SetForegroundWindow(panel.hwnd);
+            showPanelWindow(panel.hwnd);
         }
 
         // 托盘「显示/隐藏悬浮球」：桌面端改成「球为主界面」后最直接的入口 ——

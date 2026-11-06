@@ -23,6 +23,8 @@
 #include <gdiplus.h>
 #include <windowsx.h>
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -36,17 +38,34 @@ namespace {
 // 必须是数组/指针型：值型 `wchar_t` 装不下字符串字面量（diag run #6: C2440 + C2664 + C2131
 // 三条全出自这里 —— lpszClassName 赋值、CreateWindowExW 第 2 参、初始化三处同时炸）。
 constexpr wchar_t kClass[] = L"APXBallV2";
-constexpr int     kBallDip       = 44;    // 与 legacy 壳同直径
-constexpr int     kItemDip       = 52;    // 扇形项直径
-constexpr int     kFanRadiusDip  = 128;   // 扇形半径（项心轨迹）
-constexpr double  kFanSpan       = 1.7;   // 展开弧度 ≈ 97°（单手拇指弧）
+
+// —— 尺寸（DIP）——
+// 2026-11-06 实测反馈「分辨率太低、按钮样式太烂、展开后还叠加在一起」，三根因：
+//   ① 球只有 44px、项只有 52px，在 1080p 上就是两粒米；② 7 项固定摆 1.7rad、
+//      R=128 → 相邻项心弦距仅 2*128*sin(1.7/14)=31px < 项径 52px，**必然重叠**；
+//   ③ 纯色圆 + 居中小字，没有层次。
+// 现在：球/项都放大到 64px，扇形几何按项数动态算（见 layoutOpen，保证弦距 > 项径）。
+// 2026-11-07 用户再反馈「图标太大、要有手机那种透明的质感」→ 球/项回到 52dip、
+//   圆内图标占比 58% → 46%、玻璃调薄（alpha 见 paintGlassDisc），并补齐 10 个常用项。
+constexpr int     kBallDip       = 52;    // 球直径（2026-11-07：64 → 52，用户「不能太大」）
+constexpr int     kItemDip       = 52;    // 扇形项直径（同上；圆内图标同步缩到 46%）
+constexpr int     kFanRadiusDip  = 176;   // 扇形半径（项心轨迹，理想值；实际按项数微调）
+constexpr double  kFanSpanMin    = 1.0;   // 展开张角下限（rad）
+constexpr double  kFanSpanMax    = fx::kPi;  // 展开张角上限（rad）：10 项需要半圆，见 layoutOpen
+constexpr double  kItemGapRatio  = 1.08;  // 相邻项心距 / 项径（>1 = 圆不相交；1.08 = 留一点余量）
 constexpr int     kTickMs        = 16;
 constexpr int     kBadgeMs       = 500;   // 状态角标轮询
 constexpr int     kSnapMs        = 160;   // 贴边时长（对齐 Android dock / legacy 壳）
-constexpr int     kDragSlop      = 3;     // 位移 > 3px 才算拖动
+// 拖动判定门槛。旧值 3px 太紧：真人点击时鼠标/手指常带 2~4px 抖动，一旦越过就
+// 变成「拖球」而不是「点开扇形」，松手只是贴边 —— 表现就是「点了没反应」。
+constexpr int     kDragSlop      = 7;     // 位移 > 7px 才算拖动
 constexpr UINT_PTR kTimerAnim    = 1;
 constexpr UINT_PTR kTimerBadge   = 2;
 constexpr UINT     kFanHotkeyMsg = WM_APP + 41;  // 热键线程投递：切换扇形
+// 球右键菜单命令号
+constexpr UINT     kMenuOpenPanel  = 3101;
+constexpr UINT     kMenuToggleBall = 3102;
+constexpr UINT     kMenuExit       = 3103;
 
 int dip(int v, UINT dpi) { return ::MulDiv(v, (int)dpi, 96); }
 
@@ -61,11 +80,17 @@ std::wstring wide(const std::string& s) {
 
 struct ItemHit { RECT rc{}; std::string actionId; bool enabled = true; };
 
+// 宿主钩子（右键菜单用）：打开面板 / 退出。类型定义在头文件（两端同形），
+// 这里只存一份实例。
+BallHostHooks g_hooks;
+
 struct BallState {
     UINT dpi = 96;
     int ballPx = kBallDip;
     int itemPx = kItemDip;
-    int fanR   = kFanRadiusDip;
+    int fanR   = kFanRadiusDip;   // 实际半径（按项数算，见 layoutOpen）
+    int fanRIdeal = kFanRadiusDip;// 理想半径（角步长基准）
+    double fanSpan = 0.0;         // 实际张角（rad）
 
     int side = kBallDip;   // 当前窗口边长（闭 = 球径；开 = 2*(fanR+itemPx/2+pad)）
     int cx = 0, cy = 0;    // 球心（客户区坐标，两态都取窗口中心）
@@ -92,15 +117,36 @@ BallState* g = nullptr;
 
 // —— 布局 ——
 void layoutClosed(BallState* s) { s->side = s->ballPx; s->cx = s->side / 2; s->cy = s->side / 2; }
+
+// 展开态几何：**按项数动态算**，保证任意项数下相邻项圆都不相交。
+// 弦距公式：相邻项心距 = 2R·sin(span/2n)。取下限 chord = 项径×1.14，
+// 先按理想半径反推角步长 → 得到张角 span（再夹到 [1.0, 2.7] rad），
+// 最后用 span 反解 R —— 张角被上限截断时 R 自动变大，间距下限依然成立。
+// 这条式子替代了旧版「固定 span=1.7 + 固定 R=128」（7 项时弦距仅 31px < 项径 52px）。
 void layoutOpen(BallState* s) {
-    s->side = 2 * (s->fanR + s->itemPx / 2 + 4);
+    const int n = (int)s->items.size();
+    int r = 0;
+    double span = 0.0;
+    if (n > 0) {
+        const double chord = (double)s->itemPx * kItemGapRatio;   // 相邻项心最小间距
+        const double stepIdeal = chord / (double)(s->fanRIdeal > 0 ? s->fanRIdeal : 1);
+        span = (double)n * stepIdeal;
+        if (span < kFanSpanMin) span = kFanSpanMin;
+        if (span > kFanSpanMax) span = kFanSpanMax;
+        const double half = span / (2.0 * n);
+        const double sinHalf = std::sin(half);
+        r = (int)std::ceil(chord / (2.0 * (sinHalf > 0.02 ? sinHalf : 0.02)));
+    }
+    s->fanSpan = span;
+    s->fanR    = r;
+    s->side = 2 * (s->fanR + s->itemPx / 2 + 8);
     s->cx = s->side / 2;
     s->cy = s->side / 2;
 }
 
 // 扇形项中心（每帧重算，同时喂渲染与命中）
 fx::Pt itemCenter(const BallState* s, size_t i) {
-    const double a = fx::itemAngle((int)i, (int)s->items.size(), s->fanDir - kFanSpan / 2, kFanSpan);
+    const double a = fx::itemAngle((int)i, (int)s->items.size(), s->fanDir - s->fanSpan / 2.0, s->fanSpan);
     return fx::polar(s->cx, s->cy, s->fanR, a);
 }
 
@@ -122,35 +168,233 @@ bool anyHighBadge() {
     return false;
 }
 
-// —— 区域：球圆 ∪ 项圆（区域外穿透；含脉冲缩放，与绘制同参）——
+// —— 区域：闭态整窗可点；展开态 = 球圆 ∪ 项圆 ——
+// 这里踩过一个**致命坑**：旧实现每帧（present 16ms）都 SetWindowRgn 一次，用
+// pulse.scale() 跟着按压动画缩。结果收起时偶尔 SetWindowRgn 没落地（窗口刚 resize、
+// 或与系统重绘打架），窗口上还留着「扇形那一大块」的旧区域，而窗口已经缩回 64px ——
+// 球心根本不在命中区里，真人点击直接穿透到桌面。表现就是用户说的
+// 「悬浮球的功能没一个能用、点了没反应」（PostMessage 绕过 hit-test 反而是好的，
+// 所以自己测「点得开」）。
+// 现在：只在开关状态/项数/DPI 变化时更新一次，且闭态清空 region（整窗可点）。
 void applyRegion(HWND w) {
     const auto* s = g;
     if (!s) return;
-    const double sc = s->pulse.scale();
-    const int br = (int)(s->ballPx * 0.5 * sc + 0.5);
+    static bool   lastOpen = true;      // 初值取反，保证第一次一定执行
+    static size_t lastItems = 0;
+    static int    lastDpi = 0;
+    if (lastOpen == s->fanOpen && lastItems == s->items.size() && lastDpi == s->dpi) return;
+    lastOpen = s->fanOpen;
+    lastItems = s->items.size();
+    lastDpi = s->dpi;
+
+    if (!s->fanOpen) {
+        ::SetWindowRgn(w, nullptr, TRUE);   // 闭态：不留 region，64×64 整窗都能点
+        return;
+    }
+
+    const int br = (int)(s->ballPx * 0.5 + 0.5);
     HRGN rgn = ::CreateEllipticRgn(s->cx - br, s->cy - br, s->cx + br, s->cy + br);
     if (!rgn) return;
-    if (s->fanOpen) {
-        for (size_t i = 0; i < s->items.size(); ++i) {
-            const fx::Pt p = itemCenter(s, i);
-            const int ir = s->itemPx / 2;
-            HRGN c = ::CreateEllipticRgn((int)p.x - ir, (int)p.y - ir, (int)p.x + ir, (int)p.y + ir);
-            HRGN n = c ? ::CreateRectRgn(0, 0, 0, 0) : nullptr;
-            if (c && n) {
-                ::CombineRgn(n, rgn, c, RGN_OR);
-                ::DeleteObject(rgn);
-                rgn = n;
-                ::DeleteObject(c);
-            } else {
-                if (c) ::DeleteObject(c);
-                if (n) ::DeleteObject(n);
-            }
+    for (size_t i = 0; i < s->items.size(); ++i) {
+        const fx::Pt p = itemCenter(s, i);
+        const int ir = s->itemPx / 2;
+        HRGN c = ::CreateEllipticRgn((int)p.x - ir, (int)p.y - ir, (int)p.x + ir, (int)p.y + ir);
+        HRGN n = c ? ::CreateRectRgn(0, 0, 0, 0) : nullptr;
+        if (c && n) {
+            ::CombineRgn(n, rgn, c, RGN_OR);
+            ::DeleteObject(rgn);
+            rgn = n;
+            ::DeleteObject(c);
+        } else {
+            if (c) ::DeleteObject(c);
+            if (n) ::DeleteObject(n);
         }
     }
-    if (!::SetWindowRgn(w, rgn, TRUE)) ::DeleteObject(rgn);   // 成功则区域归窗口管
+    if (!::SetWindowRgn(w, rgn, TRUE)) {
+        APX_LOGW("球 SetWindowRgn 失败（err={}）—— 区域残留会让球点不动", ::GetLastError());
+        ::DeleteObject(rgn);
+    }
 }
 
 // —— 渲染：GDI+ 画进 PARGB 位图 → UpdateLayeredWindow（同时重建命中矩形）——
+
+// 品牌色（#266BE5 的三通道；渐变端点由它派生）
+constexpr int kBrandR = 38, kBrandG = 107, kBrandB = 229;
+
+// 扇形项图标字符：白底圆盘 + 品牌色关键字。
+// 不用 emoji —— GDI+ 的 Segoe UI Emoji 渲染彩色 emoji 不可靠（掉字形/黑白），
+// 这里按 action id 映射到一个单字（源码里写 UTF-8 字节转义，避免 MSVC 按 ACP 误解码）。
+std::wstring glyphChar(const std::string& id, const std::wstring& label) {
+    struct Map { const char* id; const char* utf8; };
+    static const Map kMap[] = {
+        { "open_panel",     "\xE9\x9D\xA2" },   // 面
+        { "send_clipboard", "\xE5\x89\xAA" },   // 剪
+        { "toggle_speaker", "\xE5\xA3\xB0" },   // 声
+        { "toggle_mic",     "\xE9\xBA\xA6" },   // 麦
+        { "toggle_display", "\xE5\xB1\x8F" },   // 屏
+        { "conn_status",    "\xE8\xBF\x9E" },   // 连
+        { "exit",           "\xE9\x80\x80" },   // 退
+    };
+    for (const auto& m : kMap) {
+        if (id == m.id) return wide(std::string(m.utf8));
+    }
+    if (!label.empty()) return label.substr(0, 1);
+    return std::wstring(1, (wchar_t)0x2022);
+}
+
+// 玻璃配色 —— 与手机端 res/values/colors.xml 的 ball_* 同源。
+// 2026-11-07 用户「要有手机那种透明的质感」：白蒙从 0.80/0.55 降到 0.69/0.41（后面的
+// 壁纸/窗口要能透出来，再低在白底窗口上会糊成一片），顶部高光从「68% 宽的大白片」
+// 收成 58% 宽的扁椭圆，另加一道上缘内反光弧 —— 半透明 + 边光才像玻璃，
+// 只有半透明会像磨砂塑料。
+constexpr int kGlassTopA = 176;   // #B0FFFFFF 顶部白蒙
+constexpr int kGlassBotA = 104;   // #68FFFFFF 底部（更透）
+constexpr int kStrokeA   = 46;    // #2E000000 描边（白底上要靠它定形）
+constexpr int kHiA       = 118;   // #76FFFFFF 顶部高光
+constexpr int kRimA      = 96;    // #60FFFFFF 上缘内反光
+constexpr int kInkR = 32, kInkG = 38, kInkB = 48;   // 图标墨色（近黑）
+
+// 一颗玻璃圆：球本体与扇形项共用同一套画法（只在透明度上分档）。
+// 顺序 = 外柔影 → 上亮下透渐变 → 顶部高光 → 1px 描边 → 上缘边光。
+void paintGlassDisc(Gdiplus::Graphics& gr, const Gdiplus::RectF& r, int topA, int botA) {
+    // 柔影：一层就够，两层在小圆上会发脏
+    Gdiplus::SolidBrush sh(Gdiplus::Color(52, 0, 0, 0));
+    gr.FillEllipse(&sh, r.X - 1.f, r.Y + 2.f, r.Width + 2, r.Height + 3.f);
+
+    // 玻璃主体：上亮下透的半透明白（手机端 bg_floating_ball 同款）
+    Gdiplus::LinearGradientBrush gb(
+        Gdiplus::Point((int)r.X, (int)r.Y),
+        Gdiplus::Point((int)r.X, (int)r.GetBottom()),
+        Gdiplus::Color(topA, 255, 255, 255),
+        Gdiplus::Color(botA, 255, 255, 255));
+    gr.FillEllipse(&gb, r);
+
+    // 顶部高光：扁椭圆、居中偏上，越小越像玻璃反光（旧版铺 68% 宽，读作白瓷片）
+    {
+        const float hw = r.Width * 0.58f;
+        const float hh = r.Height * 0.24f;
+        Gdiplus::SolidBrush hi(Gdiplus::Color(kHiA, 255, 255, 255));
+        gr.FillEllipse(&hi, r.X + (r.Width - hw) * 0.5f, r.Y + r.Height * 0.08f, hw, hh);
+    }
+
+    // 1px 描边
+    Gdiplus::Pen ring(Gdiplus::Color(kStrokeA, 0, 0, 0), 1.f);
+    gr.DrawEllipse(&ring, r.X + 0.5f, r.Y + 0.5f, r.Width - 1.f, r.Height - 1.f);
+
+    // 上缘内反光弧（只走上半圈，和最外描边错开 1.6px）
+    Gdiplus::Pen rim(Gdiplus::Color(kRimA, 255, 255, 255), 1.2f);
+    rim.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+    gr.DrawArc(&rim, r.X + 1.6f, r.Y + 1.6f, r.Width - 3.2f, r.Height - 3.2f, 190.f, 160.f);
+}
+
+void drawBallBody(Gdiplus::Graphics& gr, const Gdiplus::RectF& r) {
+    paintGlassDisc(gr, r, kGlassTopA, kGlassBotA);
+}
+
+// —— 单色线性图标（24×24 基准，按 box 缩放）——
+// 与手机端 res/drawable/ic_apx_*.xml 同形：只描边、线宽随尺寸走、圆头圆角。
+// 汉字在 64px 的圆里怎么排都挤（前两版都栽在这），单色线条缩到任何尺寸都干净。
+void drawGlyph(Gdiplus::Graphics& gr, const std::string& id, const Gdiplus::RectF& box,
+               const Gdiplus::Color& col) {
+    const float k  = box.Width / 24.f;
+    const float ox = box.X, oy = box.Y;
+    Gdiplus::Pen pen(col, std::max(1.5f, 1.9f * k));
+    pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+    pen.SetLineJoin(Gdiplus::LineJoinRound);
+    auto X = [&](float v) { return ox + v * k; };
+    auto Y = [&](float v) { return oy + v * k; };
+
+    if (id == "open_panel") {              // 窗口：框 + 标题栏
+        gr.DrawRectangle(&pen, X(3.5f), Y(4.5f), 17.f * k, 15.f * k);
+        gr.DrawLine(&pen, X(3.5f), Y(9.f), X(20.5f), Y(9.f));
+    } else if (id == "send_clipboard") {   // 剪贴板：板 + 夹子 + 两行内容
+        gr.DrawRectangle(&pen, X(5.f), Y(5.5f), 14.f * k, 14.5f * k);
+        gr.DrawRectangle(&pen, X(9.f), Y(2.8f), 6.f * k, 4.4f * k);
+        gr.DrawLine(&pen, X(8.5f), Y(12.f), X(15.5f), Y(12.f));
+        gr.DrawLine(&pen, X(8.5f), Y(15.5f), X(13.f), Y(15.5f));
+    } else if (id == "toggle_speaker") {   // 喇叭 + 声波
+        Gdiplus::GraphicsPath p;
+        p.AddLine(X(4.f), Y(9.f), X(8.5f), Y(9.f));
+        p.AddLine(X(8.5f), Y(9.f), X(13.f), Y(4.8f));
+        p.AddLine(X(13.f), Y(4.8f), X(13.f), Y(19.2f));
+        p.AddLine(X(13.f), Y(19.2f), X(8.5f), Y(15.f));
+        p.AddLine(X(8.5f), Y(15.f), X(4.f), Y(15.f));
+        p.CloseFigure();
+        gr.DrawPath(&pen, &p);
+        gr.DrawArc(&pen, X(14.f), Y(8.f), 6.f * k, 8.f * k, -55.f, 110.f);
+    } else if (id == "toggle_mic") {       // 麦克风：胶囊 + 托架 + 底座
+        gr.DrawArc(&pen, X(9.f), Y(2.5f), 6.f * k, 11.f * k, 180.f, 180.f);
+        gr.DrawArc(&pen, X(9.f), Y(7.f), 6.f * k, 11.f * k, 0.f, 180.f);
+        gr.DrawArc(&pen, X(5.5f), Y(9.f), 13.f * k, 11.f * k, 0.f, 180.f);
+        gr.DrawLine(&pen, X(12.f), Y(20.f), X(12.f), Y(16.f));
+        gr.DrawLine(&pen, X(8.5f), Y(20.6f), X(15.5f), Y(20.6f));
+    } else if (id == "toggle_display") {   // 显示器 + 底座
+        gr.DrawRectangle(&pen, X(3.f), Y(4.5f), 18.f * k, 12.5f * k);
+        gr.DrawLine(&pen, X(12.f), Y(17.f), X(12.f), Y(20.f));
+        gr.DrawLine(&pen, X(8.f), Y(20.2f), X(16.f), Y(20.2f));
+    } else if (id == "phone_input") {      // 手机输入：键盘（机身 + 两排键 + 空格）
+        gr.DrawRectangle(&pen, X(2.6f), Y(6.2f), 18.8f * k, 11.6f * k);
+        gr.DrawLine(&pen, X(6.2f), Y(10.f), X(9.4f), Y(10.f));
+        gr.DrawLine(&pen, X(11.f), Y(10.f), X(13.f), Y(10.f));
+        gr.DrawLine(&pen, X(14.6f), Y(10.f), X(17.8f), Y(10.f));
+        gr.DrawLine(&pen, X(8.f), Y(14.2f), X(16.f), Y(14.2f));
+    } else if (id == "send_file") {        // 发文件：托盘 + 上箭头（发送）
+        gr.DrawLine(&pen, X(4.5f), Y(14.6f), X(4.5f), Y(19.f));
+        gr.DrawLine(&pen, X(4.5f), Y(19.f), X(19.5f), Y(19.f));
+        gr.DrawLine(&pen, X(19.5f), Y(19.f), X(19.5f), Y(14.6f));
+        gr.DrawLine(&pen, X(12.f), Y(15.4f), X(12.f), Y(4.6f));
+        gr.DrawLine(&pen, X(12.f), Y(4.6f), X(8.2f), Y(8.4f));
+        gr.DrawLine(&pen, X(12.f), Y(4.6f), X(15.8f), Y(8.4f));
+    } else if (id == "toggle_camera") {    // 摄像头：机身 + 取景凸起 + 镜头
+        gr.DrawRectangle(&pen, X(3.f), Y(7.f), 18.f * k, 12.4f * k);
+        gr.DrawRectangle(&pen, X(8.6f), Y(4.4f), 5.f * k, 2.6f * k);
+        gr.DrawEllipse(&pen, X(8.6f), Y(9.6f), 6.8f * k, 6.8f * k);
+    } else if (id == "wireless") {         // 无线：两道弧 + 实心点（旧 conn_status 同形）
+        gr.DrawArc(&pen, X(3.5f), Y(5.5f), 17.f * k, 17.f * k, 202.f, 136.f);
+        gr.DrawArc(&pen, X(7.5f), Y(9.5f), 9.f * k, 9.f * k, 202.f, 136.f);
+        Gdiplus::SolidBrush b(col);
+        gr.FillEllipse(&b, X(10.3f), Y(16.6f), 3.4f * k, 3.4f * k);
+    } else if (id == "touchpad") {         // 触控板：板 + 中心点（球内图标）
+        gr.DrawRectangle(&pen, X(5.5f), Y(3.5f), 13.f * k, 17.f * k);
+        Gdiplus::SolidBrush b(col);
+        gr.FillEllipse(&b, X(9.7f), Y(9.7f), 4.6f * k, 4.6f * k);
+    } else {                               // exit：断口圆 + 竖线
+        gr.DrawArc(&pen, X(4.5f), Y(4.5f), 15.f * k, 15.f * k, -55.f, 290.f);
+        gr.DrawLine(&pen, X(12.f), Y(2.8f), X(12.f), Y(11.5f));
+    }
+}
+
+// 一个扇形项：与球同款的玻璃圆 + 单色线性图标（**不放文字**）。
+// 手机上这一层就是「玻璃圆 + 单色图标」（HyperOS 观感），桌面版前两版用蓝底/白瓷底
+// 叠汉字 + 小标签，在 64px 里怎么排都糊 —— 现在照搬手机端，只留图形。
+void drawFanItem(Gdiplus::Graphics& gr, const fx::Pt& p, const MenuItem& it,
+                 int itemPx, bool badge) {
+    const float ir = itemPx * 0.5f;
+    const Gdiplus::RectF rc(p.x - ir, p.y - ir, ir * 2, ir * 2);
+
+    // 玻璃底：与球本体同一套画法（禁用项整体压淡一档）
+    const int topA = it.enabled ? kGlassTopA : (kGlassTopA * 2 / 3);
+    const int botA = it.enabled ? kGlassBotA : (kGlassBotA * 2 / 3);
+    paintGlassDisc(gr, rc, topA, botA);
+
+    // 图标：单色墨黑（禁用压到 108/255），占圆内 ~46%
+    // —— 2026-11-07 用户「图标太大」：旧值 ir*1.16（=58%）在 52px 圆里会顶到边光，
+    //    收到 ir*0.92（=46%）后图标四周留出呼吸区，才像手机那套玻璃圆。
+    const float gsz = ir * 0.92f;
+    drawGlyph(gr, it.actionId, Gdiplus::RectF(p.x - gsz / 2, p.y - gsz / 2, gsz, gsz),
+              Gdiplus::Color((BYTE)(it.enabled ? 208 : 108), kInkR, kInkG, kInkB));
+
+    // 状态角标：绿点 + 白圈（白底上纯绿点会糊成一小块）
+    if (badge) {
+        const float br2 = ir * 0.19f;
+        const float cx = p.x + ir * 0.50f;
+        const float cy = p.y - ir * 0.84f;
+        Gdiplus::SolidBrush wring(Gdiplus::Color(245, 255, 255, 255));
+        gr.FillEllipse(&wring, cx - br2 - 1.6f, cy - br2 - 1.6f, (br2 + 1.6f) * 2, (br2 + 1.6f) * 2);
+        Gdiplus::SolidBrush dot(Gdiplus::Color(255, 46, 188, 88));
+        gr.FillEllipse(&dot, cx - br2, cy - br2, br2 * 2, br2 * 2);
+    }
+}
 bool present(HWND w) {
     auto* s = g;
     if (!s || !s->gdipOk) return false;
@@ -162,17 +406,12 @@ bool present(HWND w) {
     gr.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
     gr.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
 
-    Gdiplus::StringFormat sf;
-    sf.SetAlignment(Gdiplus::StringAlignmentCenter);
-    sf.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-
     const double sc = s->pulse.scale();
     const float br = s->ballPx * 0.5f * (float)sc;
     const Gdiplus::RectF ballRect(s->cx - br, s->cy - br, br * 2, br * 2);
 
-    // 球本体（legacy 同色 #266BE5）
-    Gdiplus::SolidBrush ballBr(Gdiplus::Color(255, 38, 107, 229));
-    gr.FillEllipse(&ballBr, ballRect);
+    // 球本体：品牌蓝渐变 + 高光 + 白环（旧版是纯色平涂，看着很「糊」）
+    drawBallBody(gr, ballRect);
 
     // 球缘亮环：闭态看全局 anyBadge，开态由 badges 驱动项角标
     if (!s->fanOpen && anyHighBadge()) {
@@ -180,10 +419,12 @@ bool present(HWND w) {
         gr.DrawEllipse(&pen, s->cx - br - 3, s->cy - br - 3, (br + 3) * 2, (br + 3) * 2);
     }
 
-    // 球字（与 legacy 同为 "A"）
-    Gdiplus::Font fBall(L"Segoe UI", br * 0.8f, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
-    Gdiplus::SolidBrush white(Gdiplus::Color(255, 255, 255, 255));
-    gr.DrawString(L"A", -1, &fBall, ballRect, &sf, &white);
+    // 球内图标：与手机端 ic_apx_touchpad 同形（触控板框 + 中心点）。
+    // 旧版是一个白色 "A"（品牌首字母）—— 缩到 64px 就是个字母块，手机端从不放字。
+    // 2026-11-07：占比 66% → 52%（同「图标太大」的反馈，球内图标也要留出玻璃边）。
+    drawGlyph(gr, "touchpad",
+              Gdiplus::RectF(s->cx - br * 0.53f, s->cy - br * 0.53f, br * 1.06f, br * 1.06f),
+              Gdiplus::Color(214, kInkR, kInkG, kInkB));
 
     // 扇形项
     s->hits.clear();
@@ -192,28 +433,8 @@ bool present(HWND w) {
             const auto& it = s->items[i];
             const fx::Pt p = itemCenter(s, i);
             const float ir = s->itemPx * 0.5f;
-            const Gdiplus::RectF rc((float)p.x - ir, (float)p.y - ir, ir * 2, ir * 2);
-
-            Gdiplus::SolidBrush fill(it.enabled ? Gdiplus::Color(255, 38, 107, 229)
-                                                : Gdiplus::Color(170, 150, 158, 170));
-            gr.FillEllipse(&fill, rc);
-
-            // label：UTF-8 → 宽字符；超宽则 75% 字号重画
-            const std::wstring lb = wide(it.label);
-            Gdiplus::Font f1(L"Segoe UI", ir * 0.52f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
-            Gdiplus::Font f2(L"Segoe UI", ir * 0.52f * 0.75f, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
-            Gdiplus::RectF m;
-            gr.MeasureString(lb.c_str(), -1, &f1, rc, &sf, &m);
-            const Gdiplus::Font* fp = (m.Width > ir * 1.6f) ? &f2 : &f1;
-            Gdiplus::SolidBrush txt(Gdiplus::Color(255, 255, 255, 255));
-            gr.DrawString(lb.c_str(), -1, fp, rc, &sf, &txt);
-
-            // 角标点（badge = 1 → 右上绿点）
-            if (i < s->badges.size() && s->badges[i] == 1) {
-                Gdiplus::SolidBrush dot(Gdiplus::Color(255, 60, 200, 90));
-                gr.FillEllipse(&dot, (float)p.x + ir * 0.50f, (float)p.y - ir * 1.05f,
-                               ir * 0.5f, ir * 0.5f);
-            }
+            const bool badge = (i < s->badges.size() && s->badges[i] == 1);
+            drawFanItem(gr, p, it, s->itemPx, badge);
 
             s->hits.push_back(ItemHit{
                 RECT{ (LONG)p.x - (LONG)ir, (LONG)p.y - (LONG)ir,
@@ -383,6 +604,9 @@ void toggleBallVisible() {
 bool ballVisible() { return g_ballWnd && ::IsWindowVisible(g_ballWnd); }
 bool ballCreated() { return g_ballWnd != nullptr; }
 
+// 宿主钩子（右键菜单）：面板线程装配时一次性注入
+void setBallHostHooks(const BallHostHooks& hooks) { g_hooks = hooks; }
+
 LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
     switch (m) {
     case WM_ERASEBKGND:
@@ -402,9 +626,20 @@ LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
             for (const auto& h : s->hits) {
                 if (::PtInRect(&h.rc, pt)) {
                     const Action* a = registry().find(h.actionId);
-                    if (h.enabled && a && (!a->enabled_fn || a->enabled_fn()) && a->run_fn)
-                        a->run_fn();
+                    const bool usable =
+                        h.enabled && a && (!a->enabled_fn || a->enabled_fn()) && a->run_fn;
+                    // 先收扇再执行：球是 topmost，菜单不收的话会压在「发文件」弹出的
+                    // 模态文件对话框上面（2026-11-07 加发文件项时暴露）。
                     collapseLocked(w);
+                    if (usable) {
+                        a->run_fn();
+                    } else if (g_hooks.open_panel) {
+                        // 点了不可用项：**不能静默**。此前直接 return，用户看到的就是
+                        // 「功能没一个能用、点了没反应」—— 实际是手机没连，功能项全被
+                        // enabled_fn 拦下。这里把面板叫出来（概览页就是连接状态 + 传输
+                        // 开关），一眼能看出差在哪儿。
+                        g_hooks.open_panel();
+                    }
                     return 0;
                 }
             }
@@ -455,6 +690,40 @@ LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         s->anim = true;
         s->snapT0 = ::GetTickCount64();
         ::SetTimer(w, kTimerAnim, kTickMs, nullptr);
+        return 0;
+    }
+
+    case WM_RBUTTONUP: {
+        // 右键 = 球的「兜底入口菜单」。2026-11-06 用户反馈「面板打不开」——
+        // 球模式下面板默认隐藏，此前唯一的入口是扇形里的「开面板」项（点错/项重叠就点不到）。
+        // 这里给出稳定的二级入口：打开面板 / 显隐球 / 退出。
+        auto* s = g;
+        if (!s) return 0;
+        APX_LOGI("球右键：弹出兜底菜单");
+        const bool wasOpen = s->fanOpen;
+        if (wasOpen) collapseLocked(w);
+        ::SetForegroundWindow(w);
+        HMENU menu = ::CreatePopupMenu();
+        if (menu) {
+            ::AppendMenuW(menu, MF_STRING, kMenuOpenPanel, L"打开面板");
+            ::AppendMenuW(menu, MF_STRING, kMenuToggleBall,
+                          wasOpen ? L"收起功能扇形" : L"展开功能扇形");
+            ::AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            ::AppendMenuW(menu, MF_STRING, kMenuExit, L"退出");
+            POINT pt{};
+            ::GetCursorPos(&pt);
+            const int cmd = ::TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                                             pt.x, pt.y, 0, w, nullptr);
+            ::DestroyMenu(menu);
+            if (cmd == kMenuOpenPanel) {
+                if (g_hooks.open_panel) g_hooks.open_panel();
+            } else if (cmd == kMenuToggleBall) {
+                if (s->fanOpen) collapseLocked(w);
+                else openFanFromRegistry(w);
+            } else if (cmd == kMenuExit) {
+                if (g_hooks.exit_app) g_hooks.exit_app();
+            }
+        }
         return 0;
     }
 
@@ -514,6 +783,7 @@ LRESULT CALLBACK ballWndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         s->dpi = HIWORD(wp);
         s->ballPx = dip(kBallDip, s->dpi);
         s->itemPx = dip(kItemDip, s->dpi);
+        s->fanRIdeal = dip(kFanRadiusDip, s->dpi);
         s->fanR   = dip(kFanRadiusDip, s->dpi);
         RECT rc{};
         ::GetWindowRect(w, &rc);
@@ -579,6 +849,7 @@ bool createBall() {
     s->dpi = ::GetDpiForSystem();
     s->ballPx = dip(kBallDip, s->dpi);
     s->itemPx = dip(kItemDip, s->dpi);
+    s->fanRIdeal = dip(kFanRadiusDip, s->dpi);
     s->fanR   = dip(kFanRadiusDip, s->dpi);
     layoutClosed(s);
 

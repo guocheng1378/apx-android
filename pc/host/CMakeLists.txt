@@ -693,6 +693,16 @@ if(APXPC_BUILD_TESTS)
   target_include_directories(phone_mode_test PRIVATE "${APXPC_ROOT}/include")
   add_test(NAME phone_mode_test COMMAND phone_mode_test)
 
+  # 桌面球动作注册表（扇形摆盘 / 灰显 / 角标 / 自定义顺序）：纯标准库，不链任何库。
+  # 盯的是两条**静默失效**：① actionCatalog()（面板「功能自定义」清单）与
+  # installDefaultActions()（真正装进扇形的）不同源；② 钩子留空却装了死按钮。
+  # 2026-11-07 球上补齐手机输入/发文件/摄像头/无线时，就是靠这条用例守住「清单 == 扇形」。
+  add_executable(ball_registry_test
+                 "${APXPC_ROOT}/tests/ball_registry_test.cpp"
+                 "${APXPC_ROOT}/src/ball/registry.cpp")
+  target_include_directories(ball_registry_test PRIVATE "${APXPC_ROOT}/src/ball")
+  add_test(NAME ball_registry_test COMMAND ball_registry_test)
+
   # v198 无线会话生命周期压测：worker 在 stop() 之后不得重建 beacon 线程，
   # 否则 stop() 末尾 join 收不回，进程无法退出（必须 kill）。
   add_executable(wireless_session_lifecycle_test

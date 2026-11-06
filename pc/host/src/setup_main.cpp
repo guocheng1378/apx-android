@@ -81,9 +81,14 @@ std::wstring wide(const char* s) {
 std::wstring localAppData() { return knownFolder(FOLDERID_LocalAppData); }
 std::wstring programsDir() { return knownFolder(FOLDERID_Programs); }
 
-/// 程序装到 %LOCALAPPDATA%\Programs\AllPeriph（Windows 免管理员安装的惯例位置），
+/// 程序装到 %LOCALAPPDATA%\Programs\全能外设（Windows 免管理员安装的惯例位置），
 /// 用户配置留在 %LOCALAPPDATA%\AllPeriph —— 两者分开，卸载才不会顺手清掉设置。
-std::wstring installDir() { return localAppData() + L"\\Programs\\" + kAppId; }
+///
+/// 2026-11-06：这里原来用内部 id 拼目录名（…\Programs\AllPeriph），而 Inno 安装器
+/// 装的是 %USERPROFILE%\全能外设 —— 两套安装器各装各的目录，快捷方式还各指一处，
+/// 于是本机同时存在三个「全能外设」副本，用户点的图标和实际跑的 exe 不是同一个。
+/// 现在两套安装器统一到这个目录（目录名 = 产品名，用户在资源管理器里也认得）。
+std::wstring installDir() { return localAppData() + L"\\Programs\\" + kAppName; }
 std::wstring startMenuLnk() { return programsDir() + L"\\" + kLnkName; }
 std::wstring desktopLnk() { return knownFolder(FOLDERID_Desktop) + L"\\" + kLnkName; }
 std::wstring uninstallKey() { return std::wstring(kUninstRoot) + L"\\" + kAppId; }
@@ -345,6 +350,22 @@ bool doInstall(bool silent, std::wstring& err) {
     if (!createShortcut(startMenuLnk(), appExe, dir)) {
         err = L"创建开始菜单快捷方式失败";
         return false;
+    }
+
+    // 旧目录清理：老版本装在 %LOCALAPPDATA%\Programs\AllPeriph（目录名是内部 id）。
+    // 两个目录并存 = 两个托盘、两个 9511 监听，用户看到的图标和实际跑的 exe 可能不是
+    // 同一个（2026-11-06 实锤）。只在确认那是本应用的目录（里面有 apxdesktop.exe）时才删。
+    {
+        const std::wstring legacy = localAppData() + L"\\Programs\\" + kAppId;
+        if (legacy != dir && dirExists(legacy) && pathExists(legacy + L"\\" + kAppExe)) {
+            killProcessesUnder(legacy);
+            Sleep(200);
+            SHFILEOPSTRUCTW fo{};
+            fo.wFunc = FO_DELETE;
+            fo.pFrom = legacy.c_str();
+            fo.fFlags = FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+            SHFileOperationW(&fo);
+        }
     }
 
     // 桌面快捷方式（用户主入口；失败不阻断安装 —— 桌面可能被重定向到 OneDrive 等）

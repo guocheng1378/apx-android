@@ -1113,6 +1113,17 @@ private fun QuickActionsDialog(
             },
         )
         ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_home_quick_camera),
+            onClick = {
+                onDismiss()
+                runCatching {
+                    ctx.startActivity(
+                        Intent(ctx, com.allperiph.camera.CameraPushActivity::class.java),
+                    )
+                }
+            },
+        )
+        ApComponents.ActionButton(
             text = ctx.getString(R.string.ui_ball_fn_gamepad),
             onClick = {
                 onDismiss()

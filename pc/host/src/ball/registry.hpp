@@ -1,9 +1,14 @@
 // 动作注册表：球的扇形菜单/卡片由它渲染，注册表决定球上出现什么。
 // 规则（与规划 M1 一致）：
-//   · 高频 4 项（单击扇形第一档 HIGH）：开面板 / 发剪贴板 / 音箱开关 / 退出
-//   · 带状态项（卡片第二档 CARD，M2 接面板）：麦克风、副屏、连接状态（+剪贴板待发角标）
+//   · 高频 4 项（单击扇形第一档 HIGH）：开面板 / 发剪贴板 / 手机输入 / 发文件
+//   · 带状态项（卡片第二档 CARD）：副屏、音箱、麦克风、摄像头、无线、退出
 //   · 重交互（文件浏览/日志/设置）不进球：按需 apxhost panel 浏览器页
 //   · 新增功能 = 加一行注册 + bridge 一个 act，球本体零改动
+//
+// 2026-11-07 用户定调：「图标太大 + 常用功能太少」——球/项缩到 52dip、玻璃调薄（真透明），
+// 并把面板里已有但球上缺席的常用项补齐（手机输入 / 发文件 / 摄像头 / 无线）。
+// 新增项一律走**已有链路**（0x25 请求输入、file.send 同款 startFileSend、camera.toggle
+// 同款 setPreview + 0x10、session.startAuto/disconnect），不在球里新造协议。
 //
 // 动作 ID 与 bridge.ts 的 act 命名同源；与手机端球动作 ID 对齐（低栏长按常用功能同名）。
 #pragma once
@@ -61,11 +66,15 @@ struct HostActions {
     // —— HIGH（扇形第一档）
     std::function<void()> open_panel;        // 唤面板（与 tray onOpen_ 同源）
     std::function<bool()> send_clipboard;     // 本机剪贴板发给手机；false = 当前无对端
+    std::function<void()> phone_input;        // 让手机弹输入框（0x25，手机当键盘给本机打字）
+    std::function<void()> send_file;          // 选一个文件发到手机（后台线程，进度走托盘）
+    // —— CARD（卡片第二档）
     std::function<bool()> toggle_speaker;     // 手机当音箱；返回新开关态
-    std::function<void()> exit_app;           // 退出（与 tray onQuit_ 同源）
-    // —— CARD（卡片第二档，M2）
     std::function<bool()> toggle_mic;         // 手机麦克风；返回新开关态
     std::function<bool()> toggle_display;     // 副屏；返回新开关态
+    std::function<bool()> toggle_camera;      // 手机摄像头预览；返回新开关态
+    std::function<bool()> toggle_session;     // 无线连接开/关；返回新开关态（true = 已连）
+    std::function<void()> exit_app;           // 退出（与 tray onQuit_ 同源）
     // —— 状态查询（badge_fn / enabled_fn 的数据源，M3 接 bridge state）
     std::function<bool()> connected;          // link.phase == connected
     std::function<bool()> clipboard_pending;  // 剪贴板有待发内容
@@ -73,6 +82,7 @@ struct HostActions {
     std::function<bool()> mic_on;
     std::function<bool()> display_on;
     std::function<bool()> sunshine_running;   // Sunshine 在跑（副屏可点亮）
+    std::function<bool()> camera_on;          // 摄像头预览窗在开
 };
 
 // 可供用户勾选的动作目录（面板「功能自定义」的清单来源）。

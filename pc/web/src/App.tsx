@@ -1,195 +1,315 @@
-import React, { useEffect, useState } from 'react';
-import { bridge, HostState } from './api/bridge';
-import { ConnectionCard } from './components/ConnectionCard';
-import { ScreenCard } from './components/ScreenCard';
-import { SpeakerCard } from './components/SpeakerCard';
-import { MicCard } from './components/MicCard';
-import { CameraCard } from './components/CameraCard';
-import { LocalSendCard } from './components/LocalSendCard';
-import { RemoteInputModal } from './components/RemoteInputModal';
-import { SettingsModal } from './components/SettingsModal';
-import { FilePanelModal } from './components/FilePanelModal';
-import { LogExportModal } from './components/LogExportModal';
+import React from 'react';
+import { HostState, bridge } from './api/bridge';
+import { PAGES, pageMeta, type PageId } from './nav';
+import { Overview } from './pages/Overview';
+import { Display } from './pages/Display';
+import { Sound } from './pages/Sound';
+import { Transfer } from './pages/Transfer';
+import { Settings } from './pages/Settings';
+import { RemoteInputDock } from './components/RemoteInputDock';
+import { Badge } from './ui/primitives';
+import { useTheme, type ThemePref } from './ui/hooks';
+import { phaseLabel, phaseTone } from './utils/status';
+import { IconAuto, IconLogo, IconMoon, IconSun, IconX } from './ui/icons';
+
+interface Toast {
+  id: number;
+  text: string;
+  tone: 'ok' | 'err' | 'warn' | 'info';
+}
 
 /**
- * 主面板 —— 双栏 2×2 布局（连接卡整宽 + 功能卡双栏 + 底部控件）。
+ * 主壳 —— 左侧导航轨 + 分区页面。
  *
- * impeccable / taste-skill 设计原则直接体现在：
- *   ✗ 无 glassmorphism（backdrop-blur）—— 所有卡实色白底
- *   ✗ 无装饰性 sparkline —— 不画 RTT 历史折线
- *   ✗ 无卡套卡 —— 卡内直接布局
- *   ✗ 无 bounce/elastic —— 统一 ease-out-expo
- *   ✗ 无纯黑/纯灰 —— 全部带 tint
- *   ✗ 无灰色 on 彩色底 —— primary button 文字纯白
- *   ✗ 无动态 Tailwind class —— 所有 class 静态（见 bridge.ts mock 模式）
- *   ✓ Instrument Sans 字体（不系统默认）
- *   ✓ 8pt 间距
- *   ✓ 16px 统一圆角
- *   ✓ 轻描边 + 轻阴影（只有 shadow-card / shadow-btn-primary）
+ * 为什么不是「一张长页面 + 一堆弹窗」：面板窗口只有 960×808，功能却有六块；
+ * 旧版把每块塞成一张小卡、点设置/文件/日志再各弹一个 Modal，结果是
+ * 「看的信息挤、干的事都躲在窗后面」。现在按手机端的分页思路切开：
+ *   一页只干一件事，功能之间用导航切换 —— 不再有多层窗口。
  */
 export default function App() {
-  const [state, setState] = useState<HostState | null>(null);
+  const [state, setState] = React.useState<HostState | null>(null);
+  const [page, setPage] = React.useState<PageId>('overview');
+  const [toasts, setToasts] = React.useState<Toast[]>([]);
+  const [remote, setRemote] = React.useState<{ hint: string } | null>(null);
+  const [update, setUpdate] = React.useState<{ latest: string; current: string; url: string } | null>(
+    null,
+  );
+  const { pref, setPref } = useTheme();
+  const pageRef = React.useRef<PageId>('overview');
+  pageRef.current = page;
+  const toastSeq = React.useRef(0);
 
-  // 三个 Modal 开关
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [fileOpen, setFileOpen] = useState(false);
-  const [logOpen, setLogOpen] = useState(false);   // 日志导出（issue #52 建议 5）
-  const [remoteInputOpen, setRemoteInputOpen] = useState(false);
-  const [remoteInputHint, setRemoteInputHint] = useState('');
+  const pushToast = React.useCallback((text: string, tone: Toast['tone'] = 'info') => {
+    const id = ++toastSeq.current;
+    setToasts((list) => [...list.slice(-2), { id, text, tone }]);
+    window.setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 3600);
+  }, []);
 
-  // 更新通道（v223.29.16）：C++ 启动后台查 GitHub releases → on-update-available 事件
-  const [updateInfo, setUpdateInfo] = useState<{ latest: string; current: string; url: string } | null>(null);
+  /* —— 400ms 状态推流 —— */
+  React.useEffect(() => bridge.subscribeState((s) => setState(s)), []);
 
-  // —— 400ms 状态推流（C++ tickState）——
-  useEffect(() => bridge.subscribeState(s => setState(s)), []);
+  /* —— 事件（C++ postEvent）—— */
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-remote-input-request', (evt: any) => {
+        setRemote({ hint: evt?.data?.hint || '' });
+      }),
+    [],
+  );
 
-  // —— 事件监听（C++ postEvent）——
-  // 对端（手机/TV）请求本机代输 → 弹 RemoteInputModal
-  useEffect(() => bridge.onEvent('on-remote-input-request', (evt: any) => {
-    setRemoteInputHint(evt.data?.hint || '');
-    setRemoteInputOpen(true);
-  }), []);
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-update-available', (evt: any) => {
+        const d = evt?.data || {};
+        if (d.latest && d.url) setUpdate({ latest: d.latest, current: d.current || '', url: d.url });
+      }),
+    [],
+  );
 
-  // 托盘「文件传输…」→ C++ 唤回面板后推事件，在此打开文件传输弹窗
-  useEffect(() => bridge.onEvent('open-file-panel', () => setFileOpen(true)), []);
+  // 托盘「文件传输…」：以前是弹文件窗，现在直接切到传输页（事件与页面两处同源）
+  React.useEffect(
+    () =>
+      bridge.onEvent('open-file-panel', () => {
+        setPage('transfer');
+        pushToast('已切到传输页', 'info');
+      }),
+    [pushToast],
+  );
 
-  // 更新横幅：有新版时置顶展示；「查看」走 app.openUrl 白名单 act 打开 release 页
-  useEffect(() => bridge.onEvent('on-update-available', (evt: any) => {
-    const d = evt?.data || {};
-    if (d.latest && d.url) setUpdateInfo({ latest: d.latest, current: d.current || '', url: d.url });
-  }), []);
+  // 收文件：不管在哪一页都要让人知道（这就是「全局提示」存在的意义）
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-localsend-received', (evt: any) => {
+        const from = evt?.data?.from;
+        pushToast(from ? `${from} 发来文件` : '收到文件（互传）', 'ok');
+      }),
+    [pushToast],
+  );
 
-  const handleManualConnect = async (host: string, port: number) => {
-    if (!host) return;
-    await bridge.act('session.connectManual', { host, port });
-  };
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-file-received', (evt: any) => {
+        const name = (evt?.data?.path || '').split(/[\\/]/).pop();
+        pushToast(name ? `收到手机的 ${name}` : '收到手机文件', 'ok');
+      }),
+    [pushToast],
+  );
 
-  const handleRemoteSend = async (text: string) => {
-    if (!text) { setRemoteInputOpen(false); return; }
-    // 0x04 = INPUT_FLAG_COMMIT（整段提交）—— 与手机端 RemoteInputActivity 同口径
-    await bridge.act('session.sendInputText', { text, flags: 0x04 });
-    await bridge.act('session.sendInputDone');
-    setRemoteInputOpen(false);
-  };
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-file-send-done', (evt: any) => {
+        if (pageRef.current === 'transfer') return;
+        pushToast(evt?.data?.ok ? '文件已发送到手机' : '文件发送失败', evt?.data?.ok ? 'ok' : 'err');
+      }),
+    [pushToast],
+  );
+
+  /* —— 键盘：1..5 切页，Esc 收起代输浮层 —— */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT');
+      if (e.key === 'Escape' && remote) {
+        setRemote(null);
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      const idx = parseInt(e.key, 10);
+      if (idx >= 1 && idx <= PAGES.length) setPage(PAGES[idx - 1].id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [remote]);
+
+  /* —— 导航滑动指示块：量出当前项的位置，交给 CSS 做回弹 —— */
+  const navWrap = React.useRef<HTMLDivElement | null>(null);
+  const navItems = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const [pillY, setPillY] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const i = PAGES.findIndex((p) => p.id === page);
+    const el = navItems.current[i];
+    if (el && navWrap.current) setPillY(el.offsetTop);
+  }, [page]);
 
   if (!state) {
     return (
-      <div className="w-screen h-screen flex items-center justify-center bg-bg">
-        <div className="data-text text-on-tertiary">等待宿主状态…</div>
+      <div className="boot">
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div className="boot-mark">
+            <IconLogo size={26} />
+          </div>
+          <div className="boot-text">正在唤醒面板</div>
+        </div>
       </div>
     );
   }
 
-  return (
-    <>
-      <div className="w-screen h-screen bg-bg p-4 overflow-auto">
-        {/* 顶部 App 徽章（右上角） */}
-        <div className="flex justify-end mb-2">
-          <div className="badge" data-state="ok">
-            <span className="w-[6px] h-[6px] rounded-full bg-state-ok" />
-            AllPeriph
-          </div>
-        </div>
+  const s = state.link;
+  const meta = pageMeta(page);
+  const nextPref: ThemePref = pref === 'auto' ? 'light' : pref === 'light' ? 'dark' : 'auto';
+  const ThemeIcon = pref === 'auto' ? IconAuto : pref === 'light' ? IconSun : IconMoon;
 
-        {/* 更新横幅（v223.29.16）：C++ 查到新版才出现；无玻璃雾、16px 圆角、品牌蓝淡底 */}
-        {updateInfo && (
-          <div
-            className="mb-[14px] flex items-center justify-between gap-3 px-4 py-3 rounded-[16px]"
-            style={{ border: '1px solid rgba(38,107,229,0.35)', background: 'rgba(38,107,229,0.07)' }}
-          >
-            <span className="body-text text-on-surface">
-              发现新版本 {updateInfo.latest}
-              {updateInfo.current ? `（当前 ${updateInfo.current}）` : ''}
-            </span>
-            <div className="flex items-center gap-2">
+  const body =
+    page === 'overview' ? (
+      <Overview state={state} onNavigate={setPage} />
+    ) : page === 'display' ? (
+      <Display state={state} />
+    ) : page === 'sound' ? (
+      <Sound state={state} />
+    ) : page === 'transfer' ? (
+      <Transfer state={state} />
+    ) : (
+      <Settings
+        state={state}
+        theme={pref}
+        onTheme={setPref}
+        version={update?.current || undefined}
+      />
+    );
+
+  return (
+    <div className="app">
+      {/* ————— 导航轨 ————— */}
+      <aside className="rail">
+        <div className="rail-mark" title="全能外设">
+          <IconLogo size={20} />
+        </div>
+        <div className="rail-nav" ref={navWrap}>
+          <div className="rail-pill" style={{ ['--y' as any]: `${pillY}px` }} />
+          {PAGES.map((p, i) => {
+            const Icon = p.icon;
+            return (
               <button
-                className="btn-primary h-[38px]"
-                onClick={() => { bridge.act('app.openUrl', { url: updateInfo.url }).catch(() => {}); }}
-              >查看</button>
-              <button className="btn-ghost h-[38px]" onClick={() => setUpdateInfo(null)}>忽略</button>
+                key={p.id}
+                ref={(el) => {
+                  navItems.current[i] = el;
+                }}
+                className={`nav-item ${p.id === page ? 'is-active' : ''}`}
+                onClick={() => setPage(p.id)}
+                title={`${p.title}（${i + 1}）`}
+                aria-current={p.id === page}
+              >
+                <Icon size={21} />
+                <span className="nav-label">{p.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="rail-foot">
+          <span
+            className={`dot ${s.phase === 3 ? 'live' : ''}`}
+            style={{
+              color:
+                s.phase === 3
+                  ? 'var(--ok)'
+                  : s.phase === 4
+                    ? 'var(--err)'
+                    : s.phase === 0
+                      ? 'var(--ink-3)'
+                      : 'var(--warn)',
+            }}
+          />
+          <span>{s.phase === 3 ? '已连接' : '待连接'}</span>
+        </div>
+      </aside>
+
+      {/* ————— 主区 ————— */}
+      <main className="main">
+        <header className="topbar">
+          <div style={{ minWidth: 0 }}>
+            <div className="topbar-eyebrow">ALLPERIPH</div>
+            <h1 className="topbar-title">{meta.title}</h1>
+            <div className="faint" style={{ fontSize: 12.5, marginTop: 2 }}>
+              {meta.sub}
             </div>
           </div>
-        )}
 
-        {/* 连接卡 —— 整宽 */}
-        <ConnectionCard state={state} onManualConnect={handleManualConnect} />
+          <div className="topbar-right">
+            {update && (
+              <div className="update-pill">
+                新版 {update.latest}
+                <button
+                  className="btn btn-primary btn-sm"
+                  style={{ height: 26, borderRadius: 99 }}
+                  onClick={() => bridge.act('app.openUrl', { url: update.url }).catch(() => {})}
+                >
+                  查看
+                </button>
+                <button
+                  className="icon-btn"
+                  style={{ width: 24, height: 24 }}
+                  onClick={() => setUpdate(null)}
+                  aria-label="忽略更新"
+                >
+                  <IconX size={13} />
+                </button>
+              </div>
+            )}
 
-        {/* 双栏功能区 —— 与旧面板 kColW / kCol2X 同逻辑 */}
-        <div className="mt-[14px] grid grid-cols-2 gap-[14px]">
-          <ScreenCard   state={state} />
-          <SpeakerCard  state={state} />
-          <MicCard      state={state} />
-          {/* 摄像头（M7-c）：手机 → 预览窗 + 虚拟摄像头出口 */}
-          <CameraCard   state={state} />
-          {/* 第四格：旧面板右下是 USB 卡（WebView2 版省掉，BT/USB 状态走设置页），
-              换成互传 —— 手机 / 官方 LocalSend 直发文件到本机，不依赖控制链路先连上 */}
-          <LocalSendCard state={state} />
+            <button
+              style={{ all: 'unset', cursor: 'pointer' }}
+              onClick={() => setPage('overview')}
+              title="回到概览"
+            >
+              <Badge tone={phaseTone(s.phase as 0)} live={s.phase === 1 || s.phase === 2}>
+                {phaseLabel[s.phase as 0]}
+              </Badge>
+            </button>
+
+            <button
+              className="icon-btn"
+              style={{ border: '1px solid var(--line)', background: 'var(--surface)' }}
+              onClick={() => {
+                setPref(nextPref);
+                pushToast(
+                  `主题：${nextPref === 'auto' ? '跟随系统' : nextPref === 'light' ? '浅色' : '深色'}`,
+                  'info',
+                );
+              }}
+              title="切换主题"
+              aria-label="切换主题"
+            >
+              <ThemeIcon size={17} />
+            </button>
+          </div>
+        </header>
+
+        <div className="scroller">
+          <div className="page" key={page}>
+            {body}
+          </div>
         </div>
+      </main>
 
-        {/* 底部 */}
-        <div className="mt-[14px]">
-          <FooterWithActions
-            state={state}
-            onSettings={() => setSettingsOpen(true)}
-            onFilePanel={() => setFileOpen(true)}
-            onLogExport={() => setLogOpen(true)}
-          />
-        </div>
+      {/* ————— 全局提示 ————— */}
+      <div className="toasts">
+        {toasts.map((t) => (
+          <div className="toast" key={t.id} data-tone={t.tone}>
+            <span className="dot" />
+            {t.text}
+          </div>
+        ))}
       </div>
 
-      {/* Modal 层 */}
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} state={state} />
-      <FilePanelModal open={fileOpen} onClose={() => setFileOpen(false)} />
-      <LogExportModal open={logOpen} onClose={() => setLogOpen(false)} />
-      <RemoteInputModal
-        open={remoteInputOpen}
-        hint={remoteInputHint}
-        onClose={() => setRemoteInputOpen(false)}
-        onSend={handleRemoteSend}
-      />
-    </>
-  );
-}
-
-/** Footer 的设置按钮现在会打开 Modal —— 旧 Footer 组件无此 prop，这里用 inline 包装。 */
-function FooterWithActions({ state, onSettings, onFilePanel, onLogExport }: {
-  state: HostState;
-  onSettings: () => void;
-  onFilePanel: () => void;
-  onLogExport: () => void;
-}) {
-  // 直接内联 Footer 结构，加上设置/文件按钮的正确接线
-  const [autostart, setAutostart] = useState(false);
-  React.useEffect(() => { setAutostart(!!state.config.autostart); }, [state.config.autostart]);
-
-  const toggleAutostart = async () => {
-    const next = !autostart;
-    setAutostart(next);
-    await bridge.act('tray.setAutostart', { enable: next });
-  };
-
-  return (
-    <div className="flex items-center justify-between gap-3 pt-2">
-      <div className="flex items-center gap-3">
-        <label className="switch" data-on={autostart} onClick={toggleAutostart}>
-          <span className="switch-thumb" />
-        </label>
-        <span className="body-text text-on-surface">开机自启</span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button className="btn-ghost h-[38px]" onClick={onFilePanel}>文件传输</button>
-        {/* 「隐藏」只对桌面壳（WebView2）有意义：那里 window.hide 真的把面板窗口
-            SW_HIDE。浏览器面板（HTTP 通道）没有宿主窗口可隐藏，后端对 window.hide
-            只能返回成功而不做事 —— 用户看到的就是「点了没反应的按钮」
-            （issue#52 第 9 条）。按通道隐掉，别留一个 no-op 入口。 */}
-        {bridge.mode !== 'http' && (
-          <button className="btn-ghost h-[38px]" onClick={() => bridge.act('window.hide')}>隐藏</button>
-        )}
-        <button className="btn-ghost h-[38px]" onClick={onLogExport}>日志</button>
-        <button className="btn-ghost h-[38px]" onClick={onSettings}>设置</button>
-        <button className="btn-primary h-[38px]" onClick={() => bridge.act('window.quit')}>退出</button>
-      </div>
+      {/* ————— 远程代输（非阻塞浮层）————— */}
+      {remote && (
+        <RemoteInputDock
+          hint={remote.hint}
+          onClose={() => setRemote(null)}
+          onSend={async (text) => {
+            setRemote(null);
+            try {
+              // 0x04 = INPUT_FLAG_COMMIT（整段提交）—— 与手机端 RemoteInputActivity 同口径
+              await bridge.act('session.sendInputText', { text, flags: 0x04 });
+              await bridge.act('session.sendInputDone');
+              pushToast('已发送到手机', 'ok');
+            } catch (e: any) {
+              pushToast(e?.message || '发送失败', 'err');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

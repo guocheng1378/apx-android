@@ -1020,8 +1020,12 @@ int main(int /*argc*/, char** /*argv*/) {
         }
         if (!takeOver) {
             if (exist) {
-                ::ShowWindow(exist, SW_SHOW);
+                // 球模式下大窗口启动即隐藏（只出球），这里必须把它真的显示出来。
+                // 用 SW_RESTORE 而非 SW_SHOW：窗口若处于最小化，SW_SHOW 不会把它还原。
+                ::ShowWindow(exist, SW_RESTORE);
                 ::SetForegroundWindow(exist);
+                ::SetWindowPos(exist, HWND_TOP, 0, 0, 0, 0,
+                               SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
             }
             return 0;
         }

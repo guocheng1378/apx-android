@@ -1087,6 +1087,18 @@ class FloatingBallService : Service() {
                     )
                 }
             }
+            BallConfig.CAMERA -> {
+                closeMenu()
+                // 手机画面回传本机：要 CameraX 预览 + 逐帧编码，只能拉起完整页
+                //（与「副屏」同口径）。此前这项只能由 PC 面板开关或通知栏动作拉起，
+                // 应用内没有入口 —— 手机侧「找不到摄像头」就是缺这一跳。
+                runCatching {
+                    startActivity(
+                        Intent(this, com.allperiph.camera.CameraPushActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
             BallConfig.CONSOLE -> {
                 closeMenu()
                 runCatching {

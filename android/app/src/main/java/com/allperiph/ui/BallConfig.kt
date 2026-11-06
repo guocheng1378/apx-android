@@ -15,8 +15,11 @@ import com.allperiph.R
  * ⚠️ [ALL] 是**全部可选项**，[DEFAULT] 只用于「用户从没改过」的首次体验 ——
  * 两者都不能空，否则菜单展开后是一颗空球（点哪儿都没反应，比不展开还糟）。
  *
- * 图标全部采用 ic_outline_* 描边系列（2026-11-07 成宇「图标风格统一」），与
- * 第三方库图标包（top.yukonga.miuix.kmp.icon.*）分离，避免风格混用。
+ * 图标目前仍用 res/drawable 下的 ic_apx_* 矢量。⚠️ 2026-11-07 批 U-5（d2432a8）把
+ * [iconRes] 的引用改成了 ic_outline_* 描边系列，但对应的 12 个资源没随提交落地 ——
+ * 结果是 Android 构建（R.drawable.ic_outline_* 未解析）与「资源使用」关卡（12 个
+ * ic_apx_* 变成死资源）双红。这里先回退引用保证可编译；等描边系列资源真的加进
+ * res/drawable 后，把 [iconRes] 整体切过去、并顺手删掉随之变死的 ic_apx_*。
  */
 object BallConfig {
 
@@ -31,11 +34,15 @@ object BallConfig {
     const val GAMEPAD = "gamepad"
     const val CLIPBOARD = "clipboard"
     const val SCREEN = "screen"
+
+    /** 摄像头：手机画面回传本机（CameraPushActivity）。此前只能由 PC 面板或通知栏拉起，
+     *  应用内没有任何入口 —— 用户「找不到摄像头」就是这里缺的。 */
+    const val CAMERA = "camera"
     const val QUIT = "quit"
 
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
-        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN,
+        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, CAMERA,
         MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, QUIT,
     )
 
@@ -65,23 +72,25 @@ object BallConfig {
         GAMEPAD -> R.string.ui_ball_fn_gamepad
         CLIPBOARD -> R.string.ui_ball_fn_clipboard
         SCREEN -> R.string.ui_ball_fn_screen
+        CAMERA -> R.string.ui_ball_fn_camera
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
 
     fun iconRes(id: String): Int = when (id) {
-        TOUCHPAD -> R.drawable.ic_outline_touchpad
-        DEVICES -> R.drawable.ic_outline_devices
-        FILES -> R.drawable.ic_outline_files
-        MODE_WIFI -> R.drawable.ic_outline_wifi
-        MODE_BT -> R.drawable.ic_outline_bt
-        MODE_USB -> R.drawable.ic_outline_usb
-        CONSOLE -> R.drawable.ic_outline_expand
-        KEYBOARD -> R.drawable.ic_outline_keyboard
-        GAMEPAD -> R.drawable.ic_outline_gamepad
-        CLIPBOARD -> R.drawable.ic_outline_clipboard
-        SCREEN -> R.drawable.ic_outline_screen
-        QUIT -> R.drawable.ic_outline_power
+        TOUCHPAD -> R.drawable.ic_apx_touchpad
+        DEVICES -> R.drawable.ic_apx_devices
+        FILES -> R.drawable.ic_apx_files
+        MODE_WIFI -> R.drawable.ic_apx_wifi
+        MODE_BT -> R.drawable.ic_apx_bt
+        MODE_USB -> R.drawable.ic_apx_usb
+        CONSOLE -> R.drawable.ic_apx_expand
+        KEYBOARD -> R.drawable.ic_apx_keyboard
+        GAMEPAD -> R.drawable.ic_apx_gamepad
+        CLIPBOARD -> R.drawable.ic_apx_clipboard
+        SCREEN -> R.drawable.ic_apx_screen
+        CAMERA -> R.drawable.ic_apx_camera
+        QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
 
@@ -116,6 +125,9 @@ object BallConfig {
     /** v223.29 升级补挂标记：剪贴板 / 副屏两项加入菜单后只补一次 */
     private const val KEY_MIGRATED_V3 = "migrated_v3"
 
+    /** 摄像头项加入菜单后的补挂标记（同样只补一次，之后尊重用户增删） */
+    private const val KEY_MIGRATED_V4 = "migrated_v4"
+
     /**
      * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
      * 这里只把**清单里没有**的两项追加到尾部，一次即可（标记位防重复）；用户之后删掉
@@ -146,6 +158,17 @@ object BallConfig {
                 }
             }
             p.edit().putBoolean(KEY_MIGRATED_V3, true).apply()
+        }
+        // 摄像头项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这一项
+        if (!p.getBoolean(KEY_MIGRATED_V4, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                if (CAMERA !in kept) {
+                    p.edit().putString(KEY_ITEMS, (kept + CAMERA).joinToString(",")).apply()
+                }
+            }
+            p.edit().putBoolean(KEY_MIGRATED_V4, true).apply()
         }
     }
 }

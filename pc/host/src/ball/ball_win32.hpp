@@ -68,6 +68,14 @@ void toggleBallVisible();
 bool ballVisible();   // 球已创建且当前可见
 bool ballCreated();   // 球已创建（未创建时 ballVisible 恒 false）
 
+// 宿主钩子（球右键菜单用）。球模式下大窗口默认隐藏，右键菜单是「面板打不开」时的
+// 稳定兜底入口：打开面板 / 展开收起扇形 / 退出。
+struct BallHostHooks {
+    std::function<void()> open_panel;
+    std::function<void()> exit_app;
+};
+void setBallHostHooks(const BallHostHooks& hooks);
+
 } // namespace ball
 } // namespace apxpc
 
@@ -85,6 +93,13 @@ inline void hideBall() {}
 inline void toggleBallVisible() {}
 inline bool ballVisible() { return false; }
 inline bool ballCreated() { return false; }
+
+// 右键菜单钩子：mac 侧暂无球右键菜单 —— 空桩（同上，保持 API 同形）
+struct BallHostHooks {
+    std::function<void()> open_panel;
+    std::function<void()> exit_app;
+};
+inline void setBallHostHooks(const BallHostHooks&) {}
 
 } // namespace ball
 } // namespace apxpc

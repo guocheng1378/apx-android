@@ -88,6 +88,9 @@ public:
         shadow_.assign(static_cast<size_t>(info_.stride) * info_.height, 0);
         cleanShadow_.assign(shadow_.size(), 0);
         dumpEnabled_ = ::GetEnvironmentVariableA("APX_DUMP_SHADOW", nullptr, 0) > 0;
+        // 重建成功必须清标记：pipeline 只在 acquireFrame 失败时才看 needsReopen()，
+        // 标记留着会让它在下一次失败时又整段 close + open（重建 D3D 设备，很重）。
+        reopenNeeded_ = false;
         opened_ = true;
         APX_LOG_I("DDA 打开成功: %u x %u", info_.width, info_.height);
         return true;
@@ -284,6 +287,15 @@ private:
                     } else if (target_.preferVirtual && !isPrimary) {
                         // 自动模式：优先非主显示器（IddCx 虚拟屏通常挂在这里）
                         adapter_ = adapter; output_ = output; outputDesc_ = desc; found = true; break;
+                    } else if (!target_.preferVirtual) {
+                        // 镜像模式（复制屏幕）必须抓**主屏**：以前这里只记住第一个 adapter，
+                        // 循环外固定 EnumOutputs(0) —— 多 GPU（核显内屏 + 独显外屏）或装了
+                        // IddCx 虚拟屏的机器上 output 0 未必是主屏，抓到别路输出就是
+                        // 「画面不对 / 花屏」。
+                        if (isPrimary) {
+                            adapter_ = adapter; output_ = output; outputDesc_ = desc; found = true; break;
+                        }
+                        if (!fallback) fallback = adapter;
                     } else if (!fallback) {
                         fallback = adapter;
                     }
@@ -319,7 +331,14 @@ private:
     bool duplicateOutput() {
         ComPtr<IDXGIOutput5> output5;
         if (SUCCEEDED(output_.As(&output5)) && output5) {
-            const DXGI_FORMAT formats[] = {DXGI_FORMAT_B8G8R8A8_UNORM};
+            // 只请求 BGRA8 时，主屏开着 HDR（10bit）会让 DuplicateOutput1 失败并回退到
+            // 无格式约束的 DuplicateOutput()，拿到 R10G10B10A2 —— 下游却一路按 BGRA8 解释，
+            // 于是 CopyResource 跨格式静默失败、影子缓冲停在旧帧 = 花屏。
+            // 这里显式接受 10bit，并在 copyToShadow 里按实际格式转换。
+            const DXGI_FORMAT formats[] = {
+                DXGI_FORMAT_B8G8R8A8_UNORM,
+                DXGI_FORMAT_R10G10B10A2_UNORM,
+            };
             HRESULT hr = output5->DuplicateOutput1(
                 device_.Get(), 0, ARRAYSIZE(formats), formats, &dup_);
             if (SUCCEEDED(hr)) return true;
@@ -333,28 +352,77 @@ private:
         return SUCCEEDED(out1->DuplicateOutput(device_.Get(), &dup_));
     }
 
-    bool ensureStaging(uint32_t w, uint32_t h) {
+    bool ensureStaging(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
         if (staging_) {
             D3D11_TEXTURE2D_DESC d{};
             staging_->GetDesc(&d);
-            if (d.Width == w && d.Height == h) return true;
+            if (d.Width == w && d.Height == h && d.Format == fmt) return true;
             staging_.Reset();
         }
         D3D11_TEXTURE2D_DESC d{};
         d.Width = w; d.Height = h; d.MipLevels = 1; d.ArraySize = 1;
-        d.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        d.Format = fmt;   // 读回纹理必须与桌面对上，跨格式 CopyResource 会直接失败
         d.SampleDesc.Count = 1;
         d.Usage = D3D11_USAGE_STAGING;
         d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         return SUCCEEDED(device_->CreateTexture2D(&d, nullptr, &staging_));
     }
 
+    /// 抓屏线程是 1ms 空转的：同一个失败每帧都打日志会瞬间刷满（1000 行/秒），
+    /// 这里统一 5s 节流一条。
+    void logThrottled(const std::string& msg) {
+        static uint64_t lastMs = 0;
+        const uint64_t now = ::GetTickCount64();
+        if (now - lastMs < 5000) return;
+        lastMs = now;
+        APX_LOG_W("%s", msg.c_str());
+    }
+
+    /// R10G10B10A2（主屏开 HDR10 时 DDA 的输出格式）→ BGRA8。
+    /// 位布局：R 在低 10 位、G 次之、B 再之、A 在最高 2 位；直接 >>2 取高 8 位即可。
+    static void convertRow10ToBgra8(const uint8_t* src, uint8_t* dst, uint32_t w) {
+        const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
+        for (uint32_t x = 0; x < w; ++x) {
+            const uint32_t v = s[x];
+            dst[x * 4 + 0] = static_cast<uint8_t>(((v >> 20) & 0x3FFu) >> 2);  // B
+            dst[x * 4 + 1] = static_cast<uint8_t>(((v >> 10) & 0x3FFu) >> 2);  // G
+            dst[x * 4 + 2] = static_cast<uint8_t>((v & 0x3FFu) >> 2);          // R
+            dst[x * 4 + 3] = 0xFF;
+        }
+    }
+
     bool copyToShadow(ID3D11Texture2D* src) {
         if (!src) return false;
         D3D11_TEXTURE2D_DESC sd{};
         src->GetDesc(&sd);
-        if (!ensureStaging(sd.Width, sd.Height)) return false;
+        // 主屏分辨率变了（镜像模式下插拔显示器、全屏游戏切模式、改缩放）：info_ 还是旧尺寸。
+        // 以前照旧按 info_ 解释新缓冲 —— out.width/height 与编码器尺寸错位，正是
+        // 「扩展屏（虚拟屏分辨率固定）正常、复制屏幕花屏」的形态。这里丢弃本帧并让
+        // pipeline 走 reopen 分支：重建抓屏会话 + 按新尺寸重建编码器。
+        // 判「变小」而不是「不等」：某些驱动给的 DuplicateOutput 纹理比桌面大（对齐），
+        // 用不等判定会每帧都要求重建，永远起不来。
+        if (sd.Width < info_.width || sd.Height < info_.height) {
+            reopenNeeded_ = true;
+            lastError_ = "桌面分辨率变小，正在重建抓屏与编码器";
+            logThrottled(lastError_);
+            return false;
+        }
+        if (!ensureStaging(sd.Width, sd.Height, sd.Format)) {
+            lastError_ = "创建读回纹理失败（格式 " + std::to_string(static_cast<int>(sd.Format)) + "）";
+            logThrottled(lastError_);
+            return false;
+        }
+        // ID3D11DeviceContext::CopyResource 返回 void，看不了返回值；格式对不上/设备被移除
+        // 时会静默失败，staging 停在上一帧 —— 用户看到的是花屏/冻结，日志里一条线索都没有。
+        // 这里补一次设备状态检查（TDR、驱动重置在镜像大屏时并不罕见）。
         context_->CopyResource(staging_.Get(), src);
+        const HRESULT hrDev = device_->GetDeviceRemovedReason();
+        if (FAILED(hrDev)) {
+            lastError_ = "D3D 设备已移除，抓屏中断：" + hrText(hrDev);
+            logThrottled(lastError_);
+            reopenNeeded_ = true;
+            return false;
+        }
 
         ComPtr<IDXGISurface> surface;
         if (FAILED(staging_.As(&surface)) || !surface) return false;
@@ -362,10 +430,25 @@ private:
         if (FAILED(surface->Map(&mapped, DXGI_MAP_READ))) return false;
 
         const uint32_t h = std::min<uint32_t>(info_.height, sd.Height);
-        const uint32_t rowBytes = std::min<uint32_t>(info_.stride, static_cast<uint32_t>(mapped.Pitch));
-        for (uint32_t y = 0; y < h; ++y) {
-            std::memcpy(shadow_.data() + static_cast<size_t>(y) * info_.stride,
-                        mapped.pBits + static_cast<size_t>(y) * mapped.Pitch, rowBytes);
+        const uint32_t w = std::min<uint32_t>(info_.width, sd.Width);
+        if (sd.Format == DXGI_FORMAT_B8G8R8A8_UNORM) {
+            const uint32_t rowBytes = std::min<uint32_t>(info_.stride, static_cast<uint32_t>(mapped.Pitch));
+            for (uint32_t y = 0; y < h; ++y) {
+                std::memcpy(shadow_.data() + static_cast<size_t>(y) * info_.stride,
+                            mapped.pBits + static_cast<size_t>(y) * mapped.Pitch, rowBytes);
+            }
+        } else if (sd.Format == DXGI_FORMAT_R10G10B10A2_UNORM) {
+            for (uint32_t y = 0; y < h; ++y) {
+                convertRow10ToBgra8(mapped.pBits + static_cast<size_t>(y) * mapped.Pitch,
+                                    shadow_.data() + static_cast<size_t>(y) * info_.stride, w);
+            }
+        } else {
+            // scRGB（FP16）等其它格式不做隐式解释：如实失败让上层报错，
+            // 宁可「镜像打不开」也不要「能开但满屏花」。
+            surface->Unmap();
+            lastError_ = "暂不支持当前桌面输出格式（HDR scRGB？请把主屏显示模式改为 SDR / 8bit）";
+            logThrottled("DDA 输出格式 " + std::to_string(static_cast<int>(sd.Format)) + " 暂不支持");
+            return false;
         }
         surface->Unmap();
         // 干净影子同步（无光标版本），供光标区域恢复用

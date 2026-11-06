@@ -212,6 +212,7 @@
     <string name="ui_ball_fn_clipboard_nolink">没有受控设备：先到「状态 → 受控与出口」选一台</string>
     <string name="ui_ball_fn_clipboard_now">当前剪贴板：%1$s</string>
     <string name="ui_ball_fn_screen">副屏</string>
+    <string name="ui_ball_fn_camera">摄像头</string>
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
     <string name="ui_ball_fn_quit">退出</string>
@@ -413,8 +414,10 @@
     <string name="ui_home_quick_file">发送文件</string>
     <string name="ui_home_quick_clip">发送剪贴板</string>
     <string name="ui_home_quick_screen">副屏</string>
+    <string name="ui_home_quick_camera">摄像头</string>
     <string name="ui_home_quick_hint">长按底部悬浮栏即可随时唤出这一排（竖屏底部居中、横屏在右上角）</string>
     <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
+    <string name="ui_set_btn_camera">摄像头（手机画面回传本机）</string>
     <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>
     <string name="ui_set_cat_theme">主题与外观</string>

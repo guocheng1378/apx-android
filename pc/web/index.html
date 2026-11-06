@@ -4,11 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: https: blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data: https:;" />
+    <meta name="color-scheme" content="light dark" />
     <title>全能外设</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Instrument Sans（主字体）+ Geist Mono（等宽数据字体）—— impeccable anti-pattern: 不用系统默认 -->
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <!--
+      字体：全部用本机字体（Segoe UI Variable / 微软雅黑 UI / 苹方 / Cascadia Mono）。
+      面板是 WebView2 里的本地页面，可能完全离线 —— 之前挂 Google Fonts 会在断网时
+      先白屏等超时，得不偿失。
+    -->
+    <script>
+      /* 主题在首帧前定好，避免「先白后黑」的闪屏。auto = 跟随系统。 */
+      (function () {
+        try {
+          var pref = localStorage.getItem('apx.panel.theme') || 'auto';
+          var dark =
+            pref === 'dark' ||
+            (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

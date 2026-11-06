@@ -841,6 +841,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
                         },
                     )
+                    // 摄像头此前只有「PC 面板开关 / 通知栏动作」两条拉起路径，
+                    // 应用内没有任何入口 —— 用户反馈「手机端没有摄像头的入口」。
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_btn_camera),
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(ctx, com.allperiph.camera.CameraPushActivity::class.java),
+                                )
+                            }
+                        },
+                    )
                 }
             }
 
