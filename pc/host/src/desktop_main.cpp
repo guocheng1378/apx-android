@@ -364,7 +364,7 @@ size_t hexStr(char* out, uintptr_t v) {           // "0x…"，最长 18 字节 
     if (v == 0) tmp[n++] = '0';
     while (v) {
         const unsigned nib = static_cast<unsigned>(v & 0xF);
-        tmp[n++] = static_cast<char>(nib < 10 ? '0' + nib : 'a' + nib - 10);
+        tmp[n++] = static_cast<char>(nib < 10 ? '0' + nib : 'a' + (nib - 10));
         v >>= 4;
     }
     size_t k = 0;
@@ -665,7 +665,7 @@ using InstallHandler_t = int (*)(int (*)(void*, void*, void*), unsigned int,
 using AppTarget_t = void* (*)();
 using RegisterHotKey_t = int (*)(unsigned int, unsigned int, EventHotKeyID,
                                  void*, unsigned int, void**);
-using UnregisterHotKey_t = int (*)(void*, void**);
+using UnregisterHotKey_t = int (*)(void*, void*);
 
 void* g_lib = nullptr;
 void* g_hk = nullptr;
