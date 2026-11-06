@@ -58,6 +58,7 @@
 #include "apxpc/hotkey/hotkey.hpp"       // 面板自己注册全局热键（原来只有 apxhost 注册）
 #include "apxpc/log.hpp"
 #include "apxpc/media/audio_capture.hpp"
+#include "apxpc/media/camera_view.hpp"   // M7-c 批 2：s6 收流 feed 进程内单例
 
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/mic_bridge.hpp"
@@ -2757,6 +2758,10 @@ int runPanel(const std::string& /*preferInstanceId*/) {
         if (streamId == apxpc::media::kStreamMic && panel.micBridge &&
             panel.micBridge->running()) {
             panel.micBridge->feed(body, len);
+        } else if (streamId == apxpc::media::kStreamCamera) {
+            // M7-c 批 2：手机 JPEG 单帧（streamId=6）→ 摄像头出口单例
+            // （只入队，GDI+ 解码/渲染在消费线程 —— 见 camera_view.hpp 头注释）
+            apxpc::media::cameraView().feed(body, len);
         }
     });
 

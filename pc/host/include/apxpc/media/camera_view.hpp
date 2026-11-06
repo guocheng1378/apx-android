@@ -76,4 +76,8 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+// M7-c 批 2：进程内单例 —— panel_win32 的 setHandler 喂帧、web_panel 的状态/动作
+// 必须命中同一个实例；定义放 camera_view.cpp（进 apxpc_media 库，Win 各目标都链）。
+CameraView& cameraView();
+
 } // namespace apxpc::media

@@ -204,13 +204,10 @@ void refreshUsbStatus(Panel* p) {
 }
 
 // ———————————————— 状态构建（每 400ms 一次） ————————————————
-// M7-c 1/8：摄像头出口单例——本批只接面板动作/状态；s6 收流 feed 在后续批接线。
-namespace {
-apxpc::media::CameraView& cameraView() {
-    static apxpc::media::CameraView v;
-    return v;
-}
-}  // namespace
+// M7-c 批 2：单例已挪进 camera_view.cpp（apxpc_media 库，Win 各目标都链）——
+// 匿名层单例 panel_win32.cpp 链不到，只会各喂各的。这里仅做引入，
+// 保证状态/动作与 s6 收流 feed 命中同一实例。
+using apxpc::media::cameraView;
 
 void buildState(const HostBundle& b, Json& out) {
     out = Json::makeObject();

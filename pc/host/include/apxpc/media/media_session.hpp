@@ -46,6 +46,7 @@ enum : uint8_t {
     kStreamTouch   = 2,
     kStreamControl = 3,
     kStreamMic     = 5,
+    kStreamCamera  = 6,
 };
 
 /// 手机侧媒体端口（Android `TcpMediaChannel.MEDIA_PORT`）

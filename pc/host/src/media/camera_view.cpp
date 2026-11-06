@@ -751,4 +751,12 @@ void CameraView::setPreview(bool on) { impl_->setPreview(on); }
 void CameraView::setVirtualCam(bool on) { impl_->setVirtualCam(on); }
 CameraView::Status CameraView::status() const { return impl_->status(); }
 
+// M7-c 批 2：单例从 web_panel.cpp 匿名命名空间挪到这里 —— 匿名层只有 web_panel.cpp
+// 自己可见，panel_win32.cpp（apxpc_ui）链不到 web_panel.cpp（apxpc_webpanel），
+// 放 apxpc_media 两边拿同一实例。
+CameraView& cameraView() {
+    static CameraView instance;
+    return instance;
+}
+
 } // namespace apxpc::media
