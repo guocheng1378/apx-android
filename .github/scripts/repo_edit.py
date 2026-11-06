@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """repo-edit：大文件锚点替换编辑器（无参执行；EDITS 自包含；两阶段：先全量校验命中次数，全过才写盘）。
 
-批 4（2026-11-06）：手机侧采集触发通道 + ROADMAP 同步（M7-c 收口）。
-  · web_panel.cpp — camera.toggle 同时经 WirelessSession::sendModuleToggle("camera", on)
-    下发 0x10 模块开关（现有通用通道，无协议变更）
-  · ControlledService — onModuleToggle 认 "camera" → EventBus 发 CameraPushRequestEvent
-  · AgentForegroundService — on=true 拉起 CameraPushActivity（前台直接弹、后台靠通知
-    「摄像头」动作兜底）；off 由推流页自行订阅 finish
-  · CameraPushActivity — 订阅关闭事件 + 更新类头启动说明
-  · check_entrypoints — 删除 CameraPushActivity 豁免（入口已接，按约删）
-  · strings.xml — notify_action_camera；Events.kt — 事件定义
-  · check_protocol — EXPECT_STREAMS 补 camera=6（frame.h/ApxFrame/PROTOCOL 三处已对齐，锁不变量）
-  · ROADMAP §2.3 摄像头行 — ❌未开始 → ✅代码完成真机未实测
+批 5（2026-11-06）：macOS 面板摄像头接线（把 M7-c 从 Win WebView2 对齐到浏览器面板）。
+  · panel_http buildState — 出 out["camera"]（字段对齐 bridge.ts；previewOpen=已下发的
+    0x10 采集开关、native=false 无原生预览窗/虚拟摄像头、frames/bytes=收流计数、
+    width/height/stale=收流回调实测 JPEG 尺寸与停滞）+ jpegDims SOF 解析 + 静态开关态
+  · panel_http handleAct — camera.toggle 下发 sendModuleToggle("camera")（失败如实回报
+    不改开关态）；camera.vcam 如实拒绝（同 screen.toggle 口径）
+  · panel_http setHandler — handler 注册条件由 micBridge 改为 media 必在（mic 判空），
+    增 camera 分支记尺寸/时刻（无解码消费者，camera_view 仅 Windows 编译）
+  · bridge.ts — camera 类型增 native?: boolean
+  · CameraCard.tsx — native=false 时：虚拟摄像头行改「不支持」文案、预览开关说明改
+    「手机采集回传（浏览器面板无本地预览窗）」；Windows 不发该字段 = 默认 true 零变化
 """
 import difflib
 import os
@@ -21,232 +21,172 @@ ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
 # (相对路径, [(old, new, 期望命中次数), ...]) —— 文本用三引号逐字节对齐源文件
 EDITS = [
-    ("docs/ROADMAP.md", [
-        ('''| **摄像头**（手机 → PC） | 待做：Camera2 JPEG → `MediaOut.camera()`（`streamId=6`）；PC 侧预览 | ❌ **未开始** |''',
-         '''| **摄像头**（手机 → PC） | 手机 `camera/CameraPushActivity.kt`（CameraX → JPEG → `MediaOut.camera()`，`streamId=6`）→ PC `media/media_session.cpp` 收流 → `media/camera_view.cpp`（GDI+ 解码 → 预览窗 + 虚拟摄像头）；面板 `camera.toggle` 经 0x10「camera」拉起/关闭手机采集页（M7-b + M7-c，2026-11-06） | ✅ 代码完成，**真机未实测**（清单见 [spike §4](./spikes/m7-media-inbound-spike.md)） |''', 1),
-    ]),
-    ("scripts/check_entrypoints.py", [
-        ('''ACTIVITY_EXEMPT = {
-    "ControlShortcutActivity": "有 intent-filter（快捷方式 / 磁贴），系统可直接拉起",
-    "CameraPushActivity":
-        "M7-b 摄像头推流的中间批（2026-11-05，PR #162）：应用内入口按计划"
-        "在 M7-c 由 PC 面板下发拉起（docs/spikes/m7-media-inbound-spike.md §3），"
-        "本批先经 adb 验证链路（am start -n com.allperiph/.camera.CameraPushActivity）；"
-        "M7-c 接入口后删除本豁免",
-}''',
-         '''ACTIVITY_EXEMPT = {
-    "ControlShortcutActivity": "有 intent-filter（快捷方式 / 磁贴），系统可直接拉起",
-}
-# CameraPushActivity 豁免已按约删除（M7-c 批4，2026-11-06）：入口 = PC 面板
-# camera.toggle → 0x10「camera」→ AgentForegroundService 以
-# `Intent(this, CameraPushActivity::class.java)` 拉起（判据①的代码内类引用成立），
-# 通知「摄像头」动作与 adb am start 兜底。''', 1),
-    ]),
-    ("scripts/check_protocol.py", [
-        ('''    "telemetry": 4,
-    "mic": 5,
-}''',
-         '''    "telemetry": 4,
-    "mic": 5,
-    "camera": 6,   # M7-b/c：frame.h kStreamCamera 与 ApxFrame.STREAM_CAMERA 两端镜像（PROTOCOL §3.4 已列）
-}''', 1),
-    ]),
-    ("android/app/src/main/java/com/allperiph/core/Events.kt", [
-        ('''/** PC 请求打开副屏页（控制通道 0x05，由面板开启副屏推流时下发） */
-class ScreenOpenRequestEvent''',
-         '''/** PC 请求打开副屏页（控制通道 0x05，由面板开启副屏推流时下发） */
-class ScreenOpenRequestEvent
+    ("pc/host/src/ui/panel_http.cpp", [
+        ('''// ——— 状态构建（与 web_panel.cpp buildState 逐字段一致；GetTickCount64 → steadyMs）———
+void buildState(const HostBundle& b, Json& out, HttpPanel* p) {''',
+         '''// ——— 摄像头（macOS 批5，2026-11-06）：camera_view（GDI+ 解码/原生预览窗/虚拟摄像头）
+//      仅 Windows 编译（CMake if(WIN32)），本入口没有 CameraView —— 开关态与收流观测
+//      在此自持：g_camOn = 已下发的 0x10 采集开关；W/H/LastMs = 收流回调实测。——
+static std::atomic<bool> g_camOn{false};
+static std::atomic<uint32_t> g_camW{0}, g_camH{0};
+static std::atomic<int64_t> g_camLastMs{0};  // steady ms 时间戳（0 = 尚无帧）
 
-/**
- * PC 面板摄像头开关（0x10 模块开关 id="camera"，M7-c 批4，2026-11-06）。
- * on=true：AgentForegroundService 拉起推流页开始采集；
- * on=false：推流页收到同一事件自行 finish（未开页时无人消费，无事发生）。
- */
-class CameraPushRequestEvent(val on: Boolean)''', 1),
-    ]),
-    ("android/app/src/main/java/com/allperiph/controlled/ControlledService.kt", [
-        ('''import com.allperiph.core.ScreenOpenRequestEvent''',
-         '''import com.allperiph.core.CameraPushRequestEvent
-import com.allperiph.core.ScreenOpenRequestEvent''', 1),
-        ('''        server?.onModuleToggle = { id, on ->
-            if (id == "wireless") {
-                if (on) server?.resumeAccept() else server?.suspendAccept()
-            }
-        }''',
-         '''        server?.onModuleToggle = { id, on ->
-            if (id == "wireless") {
-                if (on) server?.resumeAccept() else server?.suspendAccept()
-            } else if (id == "camera") {
-                // M7-c 批4：面板 camera.toggle → 开/关推流页。开由 AgentForegroundService
-                // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
-                // 自行 finish。回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
-                EventBus.post(CameraPushRequestEvent(on))
-            }
-        }''', 1),
-    ]),
-    ("android/app/src/main/java/com/allperiph/ui/AgentForegroundService.kt", [
-        ('''import com.allperiph.core.AgentStateEvent
-import com.allperiph.shared.event.EventBus''',
-         '''import com.allperiph.core.AgentStateEvent
-import com.allperiph.core.CameraPushRequestEvent
-import com.allperiph.shared.event.EventBus''', 1),
-        ('''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兜底
-        val screenPi = PendingIntent.getActivity(
-            this, 3,
-            Intent(this, com.allperiph.screen.ScreenActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )''',
-         '''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兜底
-        val screenPi = PendingIntent.getActivity(
-            this, 3,
-            Intent(this, com.allperiph.screen.ScreenActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        // 摄像头一键直达（M7-c 批4）：与副屏同款兜底 —— PC 开预览时后台被拦，靠它拉起
-        val cameraPi = PendingIntent.getActivity(
-            this, 4,
-            Intent(this, com.allperiph.camera.CameraPushActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )''', 1),
-        ('''            .addAction(
-                Notification.Action.Builder(
-                    R.drawable.ic_stat_peripheral,
-                    getString(R.string.notify_action_screen),
-                    screenPi,
-                ).build()
-            )''',
-         '''            .addAction(
-                Notification.Action.Builder(
-                    R.drawable.ic_stat_peripheral,
-                    getString(R.string.notify_action_screen),
-                    screenPi,
-                ).build()
-            )
-            .addAction(
-                Notification.Action.Builder(
-                    R.drawable.ic_stat_peripheral,
-                    getString(R.string.notify_action_camera),
-                    cameraPi,
-                ).build()
-            )''', 1),
-        ('''        disposables += EventBus.on<ScreenOpenRequestEvent>(mainHandler) { onPcOpenScreen() }''',
-         '''        disposables += EventBus.on<ScreenOpenRequestEvent>(mainHandler) { onPcOpenScreen() }
-        disposables += EventBus.on<CameraPushRequestEvent>(mainHandler) { onPcCameraToggle(it.on) }''', 1),
-        ('''    private fun onPcOpenScreen() {
-        runCatching {
-            startActivity(
-                Intent(this, com.allperiph.screen.ScreenActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }.onFailure {
-            Log.w(TAG, "后台打开副屏被系统拦截：${it.message}（通知「副屏」按钮可用）")
+// JPEG SOF 段尺寸（手机侧只出 SOF0 基线；逐段扫到 SOF 即止，失败留 0）
+static bool jpegDims(const uint8_t* p, size_t n, int& w, int& h) {
+    if (!p || n < 4 || p[0] != 0xFF || p[1] != 0xD8) return false;
+    size_t i = 2;
+    while (i + 3 < n) {
+        if (p[i] != 0xFF) { ++i; continue; }
+        const uint8_t m = p[i + 1];
+        if (m == 0xFF || m == 0x00) { ++i; continue; }
+        if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }
+        if (m == 0xD9 || m == 0xDA) return false;   // 到尾/压缩数据起点仍无 SOF
+        const size_t seg = (static_cast<size_t>(p[i + 2]) << 8) | p[i + 3];
+        if (seg < 2) return false;
+        if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+            if (i + 9 > n) return false;
+            h = (p[i + 5] << 8) | p[i + 6];
+            w = (p[i + 7] << 8) | p[i + 8];
+            return w > 0 && h > 0;
         }
-        updateNotification()
-    }''',
-         '''    private fun onPcOpenScreen() {
-        runCatching {
-            startActivity(
-                Intent(this, com.allperiph.screen.ScreenActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }.onFailure {
-            Log.w(TAG, "后台打开副屏被系统拦截：${it.message}（通知「副屏」按钮可用）")
-        }
-        updateNotification()
+        i += 2 + seg;
+    }
+    return false;
+}
+
+// ——— 状态构建（与 web_panel.cpp buildState 逐字段一致；GetTickCount64 → steadyMs）———
+void buildState(const HostBundle& b, Json& out, HttpPanel* p) {''', 1),
+        ('''        media["micFrames"] = static_cast<double>(cc.micFrames);
+        media["dropped"] = static_cast<double>(cc.dropped);
     }
 
-    /**
-     * PC 面板开了摄像头预览（0x10「camera」on，M7-c 批4）：拉起推流页开始采集。
-     * off 不在此处理 —— 同一事件由推流页自己订阅后 finish（没开页 = 无需关）。
-     * 与副屏同口径：后台被拦记日志，通知「摄像头」按钮兜底。
-     */
-    private fun onPcCameraToggle(on: Boolean) {
-        if (!on) return
-        runCatching {
-            startActivity(
-                Intent(this, com.allperiph.camera.CameraPushActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }.onFailure {
-            Log.w(TAG, "后台打开摄像头推流页被系统拦截：${it.message}（通知「摄像头」按钮可用）")
-        }
-        updateNotification()
-    }''', 1),
-    ]),
-    ("android/app/src/main/java/com/allperiph/camera/CameraPushActivity.kt", [
-        (''' * 启动（当前无应用内入口，M7-c 面板接）：
- *   adb shell am start -n com.allperiph/.camera.CameraPushActivity''',
-         ''' * 启动（M7-c 批4 起有面板入口）：PC 面板「摄像头」开关 → 0x10「camera」→
- *   AgentForegroundService 拉起本页；通知「摄像头」动作 / adb 兜底：
- *   adb shell am start -n com.allperiph/.camera.CameraPushActivity''', 1),
-        ('''import android.os.Bundle''',
-         '''import android.os.Bundle
-import android.os.Handler
-import android.os.Looper''', 1),
-        ('''import com.allperiph.core.MediaOut
-import java.io.ByteArrayOutputStream''',
-         '''import com.allperiph.core.CameraPushRequestEvent
-import com.allperiph.core.MediaOut
-import com.allperiph.shared.event.EventBus
-import java.io.ByteArrayOutputStream''', 1),
-        ('''    private var provider: ProcessCameraProvider? = null
-    private val analyzerExecutor = Executors.newSingleThreadExecutor()''',
-         '''    private var provider: ProcessCameraProvider? = null
-    private val analyzerExecutor = Executors.newSingleThreadExecutor()
+    // screen：本入口不挂 ScreenPush（见文件头边界说明）——**刻意不读 b.screenPush**，''',
+         '''        media["micFrames"] = static_cast<double>(cc.micFrames);
+        media["dropped"] = static_cast<double>(cc.dropped);
+    }
 
-    // M7-c 批4：PC 关摄像头（0x10「camera」off）→ 订阅同一事件关本页停采集；
-    // 开路径由 AgentForegroundService startActivity 拉起（它只处理 on=true）
-    private var closeDisposable: EventBus.Disposable? = null''', 1),
-        ('''        note = "等待摄像头权限…"
-        render()
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {''',
-         '''        closeDisposable = EventBus.on<CameraPushRequestEvent>(Handler(Looper.getMainLooper())) {
-            if (!it.on) {
-                note = "PC 已关闭摄像头采集"
-                render()
-                finish()
-            }
+    // camera（macOS 批5）：字段对齐 bridge.ts 契约、语义按浏览器面板如实降级 ——
+    // previewOpen = 已下发的手机采集开关；native=false → 前端标注无原生预览窗/虚拟摄像头；
+    // frames/bytes = media_session 收流计数；width/height/stale = 收流回调实测。
+    {
+        Json c = Json::makeObject();
+        const bool on = g_camOn.load(std::memory_order_relaxed);
+        uint64_t cf = 0, cb = 0;
+        if (b.media) {
+            const auto mc = b.media->counters();
+            cf = mc.cameraFrames;
+            cb = mc.cameraBytes;
         }
-        note = "等待摄像头权限…"
-        render()
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {''', 1),
-        ('''    override fun onDestroy() {
-        super.onDestroy()
-        provider?.unbindAll()
-        analyzerExecutor.shutdown()
+        const auto nowMs = std::chrono::steady_clock::now().time_since_epoch() /
+                           std::chrono::milliseconds(1);
+        const int64_t last = g_camLastMs.load(std::memory_order_relaxed);
+        c["running"] = on;
+        c["previewOpen"] = on;
+        c["virtualCam"] = false;
+        c["native"] = false;
+        c["virtualCamTested"] = false;
+        c["frames"] = static_cast<double>(cf);
+        c["bytes"] = static_cast<double>(cb);
+        c["lastFrameMs"] = static_cast<double>(last > 0 ? nowMs - last : 0);
+        c["width"] = static_cast<double>(g_camW.load(std::memory_order_relaxed));
+        c["height"] = static_cast<double>(g_camH.load(std::memory_order_relaxed));
+        c["stale"] = cf > 0 && last > 0 && (nowMs - last) > 2500;
+        c["error"] = "";
+        out["camera"] = c;
+    }
+
+    // screen：本入口不挂 ScreenPush（见文件头边界说明）——**刻意不读 b.screenPush**，''', 1),
+        ('''        return postResponse(p, id, ok ? okResp()
+                                      : failResp(err.empty() ? "麦克风桥启动失败" : err));
     }''',
-         '''    override fun onDestroy() {
-        super.onDestroy()
-        closeDisposable?.dispose()
-        provider?.unbindAll()
-        analyzerExecutor.shutdown()
+         '''        return postResponse(p, id, ok ? okResp()
+                                      : failResp(err.empty() ? "麦克风桥启动失败" : err));
+    }
+
+    // —— 摄像头（macOS 批5）：无 camera_view（GDI+/原生预览窗/虚拟摄像头仅 Windows）——
+    //    camera.toggle = 0x10「camera」下发手机采集（跨平台）；下发失败如实报错、不改开关态。
+    if (name == "camera.toggle") {
+        const bool on = !g_camOn.load(std::memory_order_relaxed);
+        const bool sent = b.session && b.session->sendModuleToggle("camera", on);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发采集开关"));
+        g_camOn.store(on, std::memory_order_relaxed);
+        return postResponse(p, id, okResp());
+    }
+    if (name == "camera.vcam") {
+        return postResponse(p, id, failResp("macOS 不支持虚拟摄像头（camera_view 仅 Windows）"));
+    }''', 1),
+        ('''    if (panel.bundle.media && panel.bundle.micBridge) {
+        apxpc::media::MediaSession* media = panel.bundle.media;
+        apxpc::media::MicBridge* mic = panel.bundle.micBridge;
+        media->setHandler([mic](uint8_t streamId, uint8_t /*flags*/, uint32_t /*seq*/,
+                                const uint8_t* body, size_t len) {
+            if (streamId == apxpc::media::kStreamMic && mic->running()) {
+                mic->feed(body, len);
+            }
+        });
+    }''',
+         '''    if (panel.bundle.media) {
+        apxpc::media::MediaSession* media = panel.bundle.media;
+        apxpc::media::MicBridge* mic = panel.bundle.micBridge;
+        media->setHandler([mic](uint8_t streamId, uint8_t /*flags*/, uint32_t /*seq*/,
+                                const uint8_t* body, size_t len) {
+            if (streamId == apxpc::media::kStreamMic && mic && mic->running()) {
+                mic->feed(body, len);
+            } else if (streamId == apxpc::media::kStreamCamera) {
+                // 摄像头（macOS 批5）：无解码消费者（camera_view 仅 Windows）——
+                // 只记 JPEG 尺寸与最近帧时刻，buildState 据此出 width/height/stale。
+                int w = 0, h = 0;
+                if (jpegDims(body, len, w, h)) {
+                    g_camW.store(static_cast<uint32_t>(w), std::memory_order_relaxed);
+                    g_camH.store(static_cast<uint32_t>(h), std::memory_order_relaxed);
+                }
+                g_camLastMs.store(
+                    std::chrono::steady_clock::now().time_since_epoch() /
+                        std::chrono::milliseconds(1),
+                    std::memory_order_relaxed);
+            }
+        });
     }''', 1),
     ]),
-    ("android/app/src/main/res/values/strings.xml", [
-        ('''    <string name="notify_action_screen">副屏</string>''',
-         '''    <string name="notify_action_screen">副屏</string>
-    <string name="notify_action_camera">摄像头</string>''', 1),
+    ("pc/web/src/api/bridge.ts", [
+        ('''  camera?: {
+    running: boolean;
+    previewOpen: boolean;
+    virtualCam: boolean;''',
+         '''  camera?: {
+    running: boolean;
+    previewOpen: boolean;
+    virtualCam: boolean;
+    /** false = 浏览器面板（macOS 批5）：无原生预览窗/虚拟摄像头，收流仍可用；缺省 = Windows 旧行为 */
+    native?: boolean;''', 1),
     ]),
-    ("pc/host/src/ui/web_panel.cpp", [
-        ('''    if (name == "camera.toggle") {
-        auto& cv = cameraView();
-        cv.setPreview(!cv.status().previewOpen);
-        return postResponse(p, id, okResp());
-    }''',
-         '''    if (name == "camera.toggle") {
-        auto& cv = cameraView();
-        cv.setPreview(!cv.status().previewOpen);
-        const bool on = cv.status().previewOpen;
-        // M7-c 批4：预览开关同步下发手机采集 —— 0x10 模块开关「camera」，
-        // 手机端 ControlledService → 前台服务拉起/关闭 CameraPushActivity。
-        // 未连受控端 sendModuleToggle 返回 false：不改面板口径，
-        // 收没收到帧以 buildState 的 cameraFrames 计数为准（0 即没通）。
-        if (b.session) (void)b.session->sendModuleToggle("camera", on);
-        return postResponse(p, id, okResp());
-    }''', 1),
+    ("pc/web/src/components/CameraCard.tsx", [
+        ('''  const cam = state.camera;
+  const preview = cam?.previewOpen ?? false;''',
+         '''  const cam = state.camera;
+  const preview = cam?.previewOpen ?? false;
+  // false = 浏览器面板（macOS 批5）：无原生预览窗/虚拟摄像头，收流计数仍实时
+  const native = cam?.native ?? true;''', 1),
+        ('''      <div className="flex items-center justify-between">
+        <span className="caption-text">虚拟摄像头（供微信/会议端选）</span>
+        <Switch on={vcam} onChange={toggleVcam} />
+      </div>''',
+         '''      <div className="flex items-center justify-between">
+        <span className="caption-text">
+          {native ? '虚拟摄像头（供微信/会议端选）' : '虚拟摄像头（macOS 不支持，仅 Windows）'}
+        </span>
+        {native ? (
+          <Switch on={vcam} onChange={toggleVcam} />
+        ) : (
+          <span className="caption-text text-on-tertiary">不可用</span>
+        )}
+      </div>''', 1),
+        ('''            <div className="caption-text">打开右上开关：手机画面开预览窗到本机</div>''',
+         '''            <div className="caption-text">
+              {native
+                ? '打开右上开关：手机画面开预览窗到本机'
+                : '打开右上开关：手机开始采集，画面经媒体连接回传（浏览器面板无本地预览窗）'}
+            </div>''', 1),
     ]),
 ]
 
