@@ -1,78 +1,56 @@
 #!/usr/bin/env python3
-"""repo-edit：锚点替换编辑器（两阶段：先全量校验命中次数，全过才写盘）。
+"""repo-edit：批 REL-11（补 docs/CHANGELOG.md 的 v223.29.11 段，2026-11-06）。
 
-批 11（2026-11-06）：Build #1275 实测 —— 重入已消灭（Configuring done 34.6s
-一遍跑通），Generate 阶段挂在一个空变量：deprecated 单参 FetchContent_Populate
-跑完未回填 ViGEmClientSrc_SOURCE_DIR（clone 成功），add_library 拼出
-"/src/ViGEmClient.cpp"。修：不再赌回填，两分支后统一硬设 SOURCE_DIR
-（FetchContent 默认路径 ${CMAKE_BINARY_DIR}/_deps/<name小写>-src 确定，
-CI 日志与报错路径均已实证）。
+发版门禁：Release 正文的“本版本明细缺失”提示指向本文件。当前 CHANGELOG 最新
+段为 v223.29.10，缺 v223.29.11 → 在 `## v223.29.10（2026-11-05）` 锚点前插入。
+两阶段：先按期望次数全量校验，全过才写盘；已存在则幂等退出。
 """
-import difflib
-import os
 import sys
 
-ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
+PATH = "docs/CHANGELOG.md"
+ANCHOR = "## v223.29.10（2026-11-05）\n"
 
-EDITS = [
-    ("pc/host/CMakeLists.txt", [
-        ('''  if(EXISTS "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src/CMakeLists.txt")
-    set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")
-    set(ViGEmClientSrc_POPULATED TRUE)
-  else()
-    FetchContent_Populate(ViGEmClientSrc)
-  endif()''',
-         '''  if(EXISTS "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src/CMakeLists.txt")
-    set(ViGEmClientSrc_POPULATED TRUE)
-  else()
-    FetchContent_Populate(ViGEmClientSrc)
-  endif()
-  # 源码目录不赌 deprecated 单参 Populate 的变量回填（Build #1275 实测拿到空串，
-  # add_library 拼成 "/src/ViGEmClient.cpp"）——FetchContent 默认落盘路径是确定的
-  # ${CMAKE_BINARY_DIR}/_deps/<name小写>-src（CI 日志与报错路径双实证），两分支统一硬设。
-  set(ViGEmClientSrc_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/vigemclientsrc-src")''', 1),
-    ]),
-]
+SECTION = (
+    "## v223.29.11（2026-11-06）\n\n"
+    "摄像头真流（M7-c 批 2）+ ViGEm 手柄 + Sunshine 托管 + 悬浮球热键。\n\n"
+    "### PC 端\n\n"
+    "- **摄像头全链路（M7-c 主线）**：`camera_view.cpp/hpp`（GDI+ 解码 → 顶层预览窗 + NV12\n"
+    "  写共享内存）；`vcam_source.cpp` 虚拟摄像头 DLL（apxvcam，微信/会议跨进程取帧）；\n"
+    "  `media_session` kStreamCamera=6 收流计数；`web_panel` camera.toggle/vcam 动作 + 状态 JSON；\n"
+    "  `panel_http` 0x10 camera 模块开关；CMake 仅 WIN32 编入 camera_view + apxvcam 安装随装。\n"
+    "- **手柄真注入（ViGEmBus）**：本地编 ViGEmClient DLL，运行时探测 → 虚拟 X360，缺依赖\n"
+    "  降级键鼠并记日志；portable/CI 产物新增 ViGEmClient.dll。\n"
+    "- **Sunshine 子进程托管（M6）**：`sunshine_launch` 起/停/查 + `apxhost sunshine-spike`\n"
+    "  子命令 + 面板 screen.sunshineStart/Stop（childAlive/exe 回包）。\n"
+    "- **悬浮球（M4-c(b) 后半）**：全局热键切扇形（PostMessageW 投递球线程）；Windows 托盘\n"
+    "  连接角标从空桩变真现。\n\n"
+    "### mac 端\n\n"
+    "- `ball_mac.mm` ObjC 作用域修复（补挂进构建后首编修复，Build #584）+ `<algorithm>` 头。\n\n"
+    "### 手机端\n\n"
+    "- `CameraPushActivity`（CameraX→JPEG 出流）、`MediaOut.camera()`、`ApxFrame.STREAM_CAMERA=6`、\n"
+    "  面板 camera 开关手机侧接收。\n\n"
+    "> ⚠️ 摄像头链路 CI 编译全绿但真机未实测（Win11 虚拟摄像头/微信出画未跑过），ROADMAP 已标注。\n\n"
+)
 
 
-def main():
-    plan = []
-    failed = False
-    for rel, reps in EDITS:
-        full = os.path.join(ROOT, rel)
-        if not os.path.exists(full):
-            print("MISSING_FILE " + rel)
-            failed = True
-            continue
-        with open(full, "r", encoding="utf-8") as f:
+def main() -> int:
+    try:
+        with open(PATH, encoding="utf-8") as f:
             text = f.read()
-        new = text
-        for old, repl, want in reps:
-            got = new.count(old)
-            if got != want:
-                print("ANCHOR_FAIL " + rel + " count=" + str(got) + " want=" + str(want))
-                print("  old[0:80]=" + old[:80].replace("\n", "\\n"))
-                failed = True
-            else:
-                new = new.replace(old, repl)
-        if new != text:
-            plan.append((rel, text, new))
-    if failed:
-        print("VALIDATE_FAILED: 有锚点未命中，不写盘。")
+    except OSError as e:
+        print(f"open failed: {e}")
         return 1
-    if not plan:
-        print("NO_CHANGES: 所有编辑的期望文本均已存在。")
+    if "## v223.29.11" in text:
+        print("already exists, nothing to do")
         return 0
-    for rel, text, new in plan:
-        full = os.path.join(ROOT, rel)
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(new)
-        print("WROTE " + rel)
-        diff = "".join(difflib.unified_diff(
-            text.splitlines(keepends=True), new.splitlines(keepends=True),
-            fromfile="a/" + rel, tofile="b/" + rel, n=3))
-        print(diff)
-    print("OK: wrote " + str(len(plan)) + " file(s)")
+    n = text.count(ANCHOR)
+    if n != 1:
+        print(f"VALIDATION FAILED：anchor count={n} expect=1\n---anchor---\n{ANCHOR}")
+        return 1
+    text = text.replace(ANCHOR, SECTION + ANCHOR)
+    with open(PATH, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"OK {PATH}: inserted v223.29.11 section")
     return 0
 
 
