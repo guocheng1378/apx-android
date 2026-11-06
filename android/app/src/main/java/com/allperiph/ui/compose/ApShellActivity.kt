@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import android.content.res.Configuration
@@ -218,6 +219,9 @@ class ApShellActivity : ComponentActivity() {
         // 低栏长按弹出的「快捷入口」开关（内容见文件末尾 QuickActionsDialog）。
         // ⚠️ 必须在 Box 之前声明：弹窗判定在 Box 内容 lambda 内（前向引用不成立）。
         var quickActionsOpen by remember { mutableStateOf(false) }
+        // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
+        // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
+        var barCollapsed by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
         //
@@ -330,7 +334,42 @@ class ApShellActivity : ComponentActivity() {
                 // ApBackdrop 的偏好里，四个页一律看不见，用户看到的就是「设了没反应」。
                 // rememberApBackdrop 返回 drawBehind，画在子内容之下、**不新增层级**；
                 // 口径与 Views 侧 Backdrop 一致：自定义图 > 预设底色 > fallback（主题底色）。
-                .then(rememberApBackdrop(this@ApShellActivity, shellBg)),
+                .then(rememberApBackdrop(this@ApShellActivity, shellBg))
+                // 单指上下滑收/展悬浮栏（成宇 2026-11-07 第 4 条）：上滑→收成球、下滑→展开。
+                // · Initial pass 只观察不消费：页面滚动、按钮点击、低栏长按全部照常；
+                // · 96dp 竖向位移且竖 ≥ 2×横 且全程单指才触发 —— 点按/斜滑/双指滚动不会误收；
+                // · 触控板页（page==1）豁免：那页单指滑动是移光标，收栏会跟光标乱跳；
+                //   键盘页不豁免 —— 打字是离散点按，够不到 96dp 的竖向阈值。
+                .pointerInput(page) {
+                    if (page != 1) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(
+                                requireUnconsumed = false,
+                                pass = PointerEventPass.Initial,
+                            )
+                            val sx = down.position.x
+                            val sy = down.position.y
+                            var fired = false
+                            while (true) {
+                                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                if (ev.changes.isEmpty()) break
+                                val c = ev.changes.firstOrNull { it.id == down.id }
+                                    ?: ev.changes.first()
+                                if (!c.pressed) break
+                                if (fired) continue
+                                val dy = c.position.y - sy
+                                val dx = c.position.x - sx
+                                if (ev.changes.count { it.pressed } == 1 &&
+                                    kotlin.math.abs(dy) > 96f * density &&
+                                    kotlin.math.abs(dy) > 2f * kotlin.math.abs(dx)
+                                ) {
+                                    fired = true
+                                    barCollapsed = dy < 0
+                                }
+                            }
+                        }
+                    }
+                },
         ) {
             Column(
                 modifier = Modifier
@@ -561,6 +600,26 @@ class ApShellActivity : ComponentActivity() {
                         }
                     },
             ) {
+                if (barCollapsed) {
+                    // 收起态：一枚 48dp 小球顶在原角位（成宇 2026-11-07 第 4 条），点按展开。
+                    // 竖屏补 26dp 底距 = 低栏组件自管的离底高度；横屏补 20dp 侧距与低栏
+                    // End 侧内留白对位（外层 Box 的横屏 top 8dp 已由父级给出，这里不重复）。
+                    Box(
+                        modifier = Modifier
+                            .then(
+                                if (landscape) Modifier.padding(end = 20.dp)
+                                else Modifier.padding(bottom = 26.dp),
+                            )
+                            .size(48.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(MiuixTheme.colorScheme.surfaceContainer)
+                            .clickable { barCollapsed = false },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = "\u2261", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+                    }
+                } else {
+                // （else 分支内容沿用原缩进：收/展只切低栏 Box 的内容，不动布局结构）
                 FloatingNavigationBar(
                     horizontalAlignment = barHorizontal,
                     modifier = Modifier
@@ -625,6 +684,7 @@ class ApShellActivity : ComponentActivity() {
                         label = stringResource(R.string.ui_nav_settings),
                         enabled = true,
                     )
+                }
                 }
             }
         }
