@@ -297,6 +297,7 @@ MSVC 回归），**真机实测尚未执行**（用户声明跳过）—— 下�
 | 麦克风桥 | ✅ | `mic_bridge.cpp` `__APPLE__` 分支：CoreAudio **AudioQueue**（回调驱动、缺数据补静音、400ms 环形上限）；接线 = panel_http `setHandler`（`kStreamMic → feed`） |
 | 音箱（系统声音） | ✅ | `audio_capture_mac.mm`：**CoreAudio Process Tap**（`CATapDescription` 全局立体声 + 聚合设备 + IOProc），**macOS 14.2+**，需「系统音频录制」TCC 授权；DRM 内容可能静音（平台限制）；部署目标压 12.0 使新 API 弱链接可降级 |
 | 副屏 | ❌ | 虚拟显示器仅 Windows；`screenPush=nullptr`，面板显示未初始化形态 + `screen.toggle` 明确拒绝 |
+| 浏览器面板摄像头 | ✅ | `panel_http.cpp` + `bridge.ts`：0x10「camera」拉起手机采集（跨平台，与 §2.3 同通道）；收流计数/尺寸/停滞实时上卡片；**无原生预览窗与虚拟摄像头**（camera_view 仅 Windows，CMake `if(WIN32)`，诚实标注） |
 | 音箱设备下拉 | ❌（无此概念） | Process Tap 采全局进程组混音，不挂具体端点（`listRenderDevices` 返回空、面板下拉为空，自洽） |
 | 全局热键 | ❌ | 热键 Win-only（mac 侧 `HotkeyManager` 是空实现，面板如实显示不可用） |
 | USB 有线（枚举） | ◑ | v223.7 起 mac 走 **IOKit**（`usb_enum_iokit.cpp`）：VID/PID/名称/序列号/bcdUSB/接口类码齐（速度留 unknown，理由见文件头），面板 USB 状态不再恒 false；**端点/HID 集合/CDC 串口名未做**（见文件头注释），且只有编译级验证 |
