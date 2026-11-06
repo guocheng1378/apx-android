@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-1（PC 更新通道，2026-11-06）。
+"""repo-edit：批 U-1R（PC 更新通道修复重跑，2026-11-06）。
 
-web_panel.cpp（~72KB，无法整文件回传）按两个唯一锚点插入：
-  ① notifyFileReceived 函数收尾处 → 插 notifyUpdateAvailable（推 on-update-available 事件）；
-  ② session.connectManual 分发入口前 → 插 app.openUrl act（白名单开 release 页）。
-两阶段：先按期望次数全量校验，全过才写盘；已存在则幂等退出。
+上一轮（U-1）把 edit1 的新函数插到了 notifyFileReceived **函数体中间**
+（replace(anchor, insert+anchor) 方向写反：插在锚点前，而锚点含 postEvent 行与收尾
+大括号，于是函数定义被夹在 d["path"] 与 postEvent 之间 → 函数套函数，pc job 编译失败）。
+
+本轮：
+  ① 若检测到 insert 紧贴 anchor 之前（错位形态）→ 先剥离还原；
+  ② 按 placement=after 重插到 anchor 之后（notifyFileReceived 收尾之后的顶层位置）；
+  ③ edit2（app.openUrl act，插在 session.connectManual 前）上轮位置正确，幂等跳过；
+  ④ 全部在内存完成校验/修复，最后一次写盘（两阶段精神不变）。
 """
 import sys
 
@@ -13,6 +18,7 @@ PATH = "pc/host/src/ui/web_panel.cpp"
 EDITS = [
     {
         "id": "notifyUpdateAvailable",
+        "placement": "after",   # 新函数必须在 notifyFileReceived 收尾之后（顶层）
         "anchor": '    postEvent(p, std::string("on-file-received"), d);\n}\n',
         "insert": (
             '\n// ———————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————\n'
@@ -36,6 +42,7 @@ EDITS = [
     },
     {
         "id": "app.openUrl act",
+        "placement": "before",  # act 分发链上，插在 connectManual 之前
         "anchor": '    if (name == "session.connectManual" && b.session) {',
         "insert": (
             '    // ———————— 更新通道（v223.29.16）：前端横幅点「查看」→ 打开 release 页 ————————\n'
@@ -66,21 +73,34 @@ def main() -> int:
     except OSError as e:
         print(f"open failed: {e}")
         return 1
+
+    # —— 阶段一（内存）：错位修复 + 位置校验 ——
     todo = []
-    # 阶段一：全量校验（锚点唯一命中 / 已存在则幂等跳过）
     for e in EDITS:
-        if e["insert"].splitlines()[0] in text and e["anchor"] in text:
-            # 粗查幂等：插入块首行已存在即视为打过
-            print(f"already exists, skip: {e['id']}")
+        ins, anc, place = e["insert"], e["anchor"], e["placement"]
+        correct = (anc + ins) if place == "after" else (ins + anc)
+        wrong = (ins + anc) if place == "after" else (anc + ins)
+        if correct in text:
+            print(f"already correct, skip: {e['id']}")
             continue
-        n = text.count(e["anchor"])
+        if wrong in text:
+            # 上轮错位形态：先剥离，再走正常插入
+            text = text.replace(wrong, anc, 1)
+            print(f"repaired misplaced block: {e['id']}")
+        # 此时目标形态不存在 → 校验锚点唯一
+        n = text.count(anc)
         if n != 1:
-            print(f"VALIDATION FAILED：{e['id']} anchor count={n} expect=1\n---anchor---\n{e['anchor']}")
+            print(f"VALIDATION FAILED：{e['id']} anchor count={n} expect=1\n---anchor---\n{anc}")
             return 1
-        todo.append(e)
-    # 阶段二：全部校验通过才写盘
-    for e in todo:
-        text = text.replace(e["anchor"], e["insert"] + e["anchor"])
+        # 预演插入，确认结果只出现一次且锚点仍在
+        candidate = text.replace(anc, correct, 1)
+        if candidate.count(ins) != 1:
+            print(f"VALIDATION FAILED：{e['id']} 插入后 insert 出现 {candidate.count(ins)} 次")
+            return 1
+        text = candidate
+        todo.append(e["id"])
+
+    # —— 阶段二：全部通过才写盘 ——
     if not todo:
         print("no changes")
         return 0
@@ -90,7 +110,7 @@ def main() -> int:
     except OSError as e:
         print(f"write failed: {e}")
         return 1
-    print(f"OK {PATH}: inserted " + ", ".join(e["id"] for e in todo))
+    print(f"OK {PATH}: fixed/inserted " + ", ".join(todo))
     return 0
 
 
