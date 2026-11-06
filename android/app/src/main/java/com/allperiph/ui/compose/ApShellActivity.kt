@@ -119,6 +119,9 @@ class ApShellActivity : ComponentActivity() {
         // 因为 ApMiuixTheme 的明暗取值来自 configuration.uiMode —— 正是 wrap 注入的用户选择。
         ApAccentSync.apply(this)
         applyImmersive()
+        // 全局界面缩放（2026-11-07）：冷启动在此读回（幂等）。悬浮球等非主壳宿主
+        // 目前按 100% 渲染，等有反馈再扩到那侧（见 UiScalePref 的 KDoc）。
+        com.allperiph.ui.UiScalePref.load(this)
         // 方向锁定（审查条 1.1）：按偏好钉住/放开本 Activity 的朝向。必须在 setContent 之前，
         // 否则首帧会按系统朝向排版一次再被改回来（真机上表现为「闪一下才转」）。
         OrientLock.apply(this)
@@ -128,7 +131,17 @@ class ApShellActivity : ComponentActivity() {
         // 「用户刚才看的是哪一页」；extra 只在冷启动带参时才有）。
         savedInstanceState?.getInt(STATE_PAGE, -1)?.takeIf { it >= 0 }?.let { pageState = it }
         setContent {
-            ApMiuixTheme { Shell() }
+            // 2026-11-07（成宇「做成可以无极自定义 dpi 缩放」）：整体密度乘全局缩放。
+            // 这一层只管主壳四页；弹窗是独立组合，在 ApComponents.DialogCard 里
+            // 自己再供一次 —— 两处都读 UiScalePref.current，拖滑条即刻全端生效。
+            val __base = androidx.compose.ui.platform.LocalDensity.current
+            val __scale = com.allperiph.ui.UiScalePref.current.floatValue
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides
+                    androidx.compose.ui.unit.Density(__base.density * __scale, __base.fontScale),
+            ) {
+                ApMiuixTheme { Shell() }
+            }
         }
     }
 
@@ -166,7 +179,11 @@ class ApShellActivity : ComponentActivity() {
         // 屏幕最上沿。此前竖屏垫 insets.top（且 v223.23 前那个值恒为 0），横竖屏各说各话，
         // 顶栏标题才会压在系统时间那一行上。
         // 顶栏整块去除后侧向留白也由各页自己按 insets.left/right 处理，这里不再介入。
-        val topPad = 0.dp
+        // 2026-11-07（成宇「优化回避屏幕大圆角和摄像头挖孔，避免遮挡」）：上一段旧
+        // 注释里「不按边算顶部留白」说的是**系统栏**（仍成立，状态栏照旧隐藏）；本行
+        // 只按挖孔/大圆角让位 —— 顶部压着摄像头孔时标题与卡片不再画进孔里。横屏
+        // 孔在左右侧，走 ApAdaptive 的 padCutout 与页内 insets.left/right，这里恒≈0。
+        val topPad = com.allperiph.ui.miuix.rememberApInsets().holeTop
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop。

@@ -923,6 +923,21 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
 
             // ———————————————— 主题数据 ————————————————
+            // ————————————— 界面缩放（2026-11-07 成宇「无极自定义 dpi 缩放」） —————————————
+            // steps=0 = 连续滑条（无极）；80%~125%：再小字不可读，再大就失去
+            // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
+            // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ui_scale)) {
+                SliderPreference(
+                    value = com.allperiph.ui.UiScalePref.current.floatValue,
+                    onValueChange = { com.allperiph.ui.UiScalePref.set(ctx, it) },
+                    title = ctx.getString(R.string.ui_set_label_ui_scale),
+                    valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
+                    valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
+                    steps = 0,
+                )
+            }
+
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme)) {
                 Column {
                     ApComponents.ActionButton(

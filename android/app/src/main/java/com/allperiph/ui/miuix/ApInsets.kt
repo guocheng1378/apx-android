@@ -39,12 +39,23 @@ data class ApInsets(
     val bars: ApEdgeInsets = ApEdgeInsets(),
     val cutout: ApEdgeInsets = ApEdgeInsets(),
     val imeBottom: Dp = 0.dp,
+    // 2026-11-07（成宇「优化回避屏幕大圆角和摄像头挖孔」）：大圆角是独立 insets
+    // 类型（API 35+ roundedCorners），与挖孔分开读、内容安全区取并集。
+    val rounded: ApEdgeInsets = ApEdgeInsets(),
 ) {
     /** 内容安全区：系统栏与刘海取较大者 */
     val top: Dp get() = maxOf(bars.top, cutout.top)
     val bottom: Dp get() = bars.bottom
     val left: Dp get() = maxOf(bars.left, cutout.left)
     val right: Dp get() = maxOf(bars.right, cutout.right)
+
+    // —— 挖孔/大圆角回避（2026-11-07）——
+    // 语义：**不含系统栏**。状态栏是 hideSystemBars 刻意隐藏的（内容本来就画到
+    // 最上沿），这几项只算「孔 + 圆角」，不会把 v223.22 修掉的那条系统栏空档带回来。
+    val holeTop: Dp get() = maxOf(cutout.top, rounded.top)
+    val holeBottom: Dp get() = maxOf(cutout.bottom, rounded.bottom)
+    val holeLeft: Dp get() = maxOf(cutout.left, rounded.left)
+    val holeRight: Dp get() = maxOf(cutout.right, rounded.right)
 
     /** 输入法抬起时的底部留白（键盘页用；无 IME 时等于系统栏） */
     val bottomWithIme: Dp get() = maxOf(bars.bottom, imeBottom)
@@ -94,6 +105,13 @@ fun rememberApInsets(): ApInsets {
             val bars = insets.getInsets(WindowInsets.Type.systemBars())
             val cut = insets.getInsets(WindowInsets.Type.displayCutout())
             val ime = insets.getInsets(WindowInsets.Type.ime())
+            // 大圆角（roundedCorners 类型需 API 35；工程 targetSdk 35 可编译，
+            // 跑在 Android 14 及以下的机器走 0 值分支 —— 不垫但也不崩）。
+            val rounded = if (android.os.Build.VERSION.SDK_INT >= 35) {
+                insets.getInsets(WindowInsets.Type.roundedCorners())
+            } else {
+                android.graphics.Insets.NONE
+            }
             return ApInsets(
                 bars = ApEdgeInsets(
                     pxToDp(bars.left), pxToDp(bars.top), pxToDp(bars.right), pxToDp(bars.bottom),
@@ -102,6 +120,10 @@ fun rememberApInsets(): ApInsets {
                     pxToDp(cut.left), pxToDp(cut.top), pxToDp(cut.right), pxToDp(cut.bottom),
                 ),
                 imeBottom = pxToDp(ime.bottom),
+                rounded = ApEdgeInsets(
+                    pxToDp(rounded.left), pxToDp(rounded.top),
+                    pxToDp(rounded.right), pxToDp(rounded.bottom),
+                ),
             )
         }
 

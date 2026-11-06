@@ -329,15 +329,33 @@ object ApComponents {
         content: @Composable ColumnScope.() -> Unit,
     ) {
         androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+            // 2026-11-07（成宇「弹窗和编辑页显示不全」）：弹窗是独立窗口、独立组合 ——
+            // 主壳 setContent 的 LocalDensity 覆盖不到这里，全局缩放必须自己再供一次；
+            // __ins 读弹窗自己窗口的 insets（挖孔/圆角若与弹窗相交就垫进内容留白）。
+            val __ins = rememberApInsets()
+            val __d = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides
+                    androidx.compose.ui.unit.Density(
+                        __d.density * com.allperiph.ui.UiScalePref.current.floatValue,
+                        __d.fontScale,
+                    ),
+            ) {
             // fillMaxWidth 在前（与 Card 的默认一致），调用方的 modifier 可以覆盖它
             top.yukonga.miuix.kmp.basic.Card(
-                modifier = Modifier.fillMaxWidth()
+                // 2026-11-07：封顶 94% —— 横向不再顶到屏边，缩放调大时也有安全余量。
+                modifier = Modifier.fillMaxWidth(0.94f)
                     .then(modifier)
                     .fillMaxHeight(heightRatio),
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(padding)
+                        .padding(
+                            start = padding + __ins.holeLeft,
+                            top = padding + __ins.holeTop,
+                            end = padding + __ins.holeRight,
+                            bottom = padding + __ins.holeBottom,
+                        )
                         .then(
                             if (scrollable) {
                                 Modifier.verticalScroll(rememberScrollState())
@@ -347,6 +365,7 @@ object ApComponents {
                         ),
                     content = content,
                 )
+            }
             }
         }
     }
