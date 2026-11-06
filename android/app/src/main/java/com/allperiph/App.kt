@@ -27,6 +27,18 @@ class App : Application() {
             private set
 
         /**
+         * 后台启前台服务被系统拒绝、待首个界面可见时补启的挂起位。
+         *
+         * Android 12+ 禁止后台启动前台服务：更新（MY_PACKAGE_REPLACED）/ 闹钟广播把
+         * 进程在后台拉起时，Application.onCreate 里 startForegroundService 必抛
+         * ForegroundServiceStartNotAllowedException（真机日志：装完新版首次被广播拉起，
+         * 外设服务与悬浮球同时报 not allowed）。此刻前台不可见，唯一合规的补启时机是
+         * 首个 Activity onStart —— 由 [AgentStartRetry] 消费此位。
+         */
+        @Volatile
+        private var pendingAgentStart = false
+
+        /**
          * 需要遮蔽三指手势的界面（触控板能收到三指滑动的两处）。
          *
          * 只在这两个界面前台期间关掉系统三指截屏；退到后台（Home / 切应用 / 锁屏）
@@ -66,6 +78,9 @@ class App : Application() {
             com.allperiph.touchpad.RootPointerBridge.prefs(this)
         )
         registerActivityLifecycleCallbacks(ShieldLifecycle)
+        // 后台启前台服务被拒（Android 12+）时的补启钩子 —— 与 ShieldLifecycle 分开注册，
+        // 职责不同：那个管手势还原，这个只管「界面第一次可见时把被拒的服务补起来」。
+        registerActivityLifecycleCallbacks(AgentStartRetry)
         // 成宇 2026-11-02「悬浮窗不会自动拉起」：悬浮球此前是纯手动开关 ——
         // 用户开着球，进程被系统回收 / 手机重启后，球就再也不回来，得手动去设置页再打开一次。
         // 这里在进程起点做自愈（只认「用户意愿位」[FloatingBallService.isOn]，
@@ -88,7 +103,27 @@ class App : Application() {
                 com.allperiph.ui.AgentController.isTransportEnabled(this, t)
             }
             if (anyTransport) com.allperiph.ui.AgentForegroundService.start(this)
-        }.onFailure { com.allperiph.shared.util.Log.w("App", "外设自愈失败：${'$'}{it.message}") }
+        }.onFailure { deferAgentStartOnNotAllowed(it) }
+    }
+
+    /**
+     * [com.allperiph.ui.AgentForegroundService.start] 被 Android 12+ 后台启动限制拒绝时：
+     * 记挂起位、等首个 Activity onStart 补启（此时前台可见，系统放行）。
+     *
+     * 判定用类名字符串而不是 `is ForegroundServiceStartNotAllowedException`：
+     * 该类 API 31 才有，直接引用在低版本设备上做 instanceof 有类加载风险；
+     * 其余异常维持原日志口径，不挂起（界面可见后重试也没意义）。
+     */
+    private fun deferAgentStartOnNotAllowed(t: Throwable) {
+        if (t.javaClass.name.contains("ForegroundServiceStartNotAllowed")) {
+            pendingAgentStart = true
+            com.allperiph.shared.util.Log.w(
+                "App",
+                "外设自愈：后台启前台服务被系统拒绝（更新广播拉起的常态），待界面可见后补启"
+            )
+        } else {
+            com.allperiph.shared.util.Log.w("App", "外设自愈失败：${'$'}{t.message}")
+        }
     }
 
     /**
@@ -106,7 +141,7 @@ class App : Application() {
 
         override fun onActivityPaused(activity: Activity) {
             if (nameOf(activity) in SHIELD_ACTIVITIES) {
-                // releaseSoon：A.onPause → B.onResume 挨着发生，等 1.2s 再决定要不要还，
+                // releaseSoon：A.onPause → B.onResume 挨着发生，先等 1.2s 再决定要不要还，
                 // 免得为了几十毫秒白跑两次 su（每次 fork 都要 200ms 上下），屏幕也不会闪。
                 GestureShield.releaseSoon(activity, nameOf(activity))
             }
@@ -117,5 +152,33 @@ class App : Application() {
         override fun onActivityStopped(activity: Activity) = Unit
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         override fun onActivityDestroyed(activity: Activity) = Unit
+    }
+
+    /**
+     * 挂起位 [pendingAgentStart] 的消费者：首个 Activity onStart（界面已可见，
+     * 后台启动限制不再适用）时补启外设前台服务。
+     *
+     * 真机场景（v223.29.11 装机日志）：更新广播在后台拉起进程 → onCreate 里启动
+     * 被拒 → AgentForegroundService 起不来，面板/推送链路断到下次手动开界面为止；
+     * 悬浮球同场景靠 BroadcastKeepAlive 兜住、外设服务没有对等路径 —— 这里补上。
+     * 补启仍失败（可见期理论上不会是后台限制）则保留挂起位，下次 onStart 再试，
+     * 每次界面启动至多尝试一次，不会打成循环。
+     */
+    private object AgentStartRetry : ActivityLifecycleCallbacks {
+        override fun onActivityStarted(activity: Activity) {
+            if (!pendingAgentStart) return
+            runCatching { com.allperiph.ui.AgentForegroundService.start(activity) }
+                .onFailure {
+                    com.allperiph.shared.util.Log.w("App", "前台服务补启失败：${'$'}{it.message}")
+                }
+                .onSuccess { pendingAgentStart = false }
+        }
+
+        override fun onActivityCreated(a: Activity, s: Bundle?) = Unit
+        override fun onActivityResumed(a: Activity) = Unit
+        override fun onActivityPaused(a: Activity) = Unit
+        override fun onActivityStopped(a: Activity) = Unit
+        override fun onActivitySaveInstanceState(a: Activity, outState: Bundle) = Unit
+        override fun onActivityDestroyed(a: Activity) = Unit
     }
 }
