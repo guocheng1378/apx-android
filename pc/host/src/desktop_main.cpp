@@ -126,8 +126,10 @@ void ensurePanelFirewallRule() {
     char exePath[MAX_PATH] = {0};
     if (::GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0) return;
     std::string params = "advfirewall firewall add rule name=\"";
-    params += ruleName; params += "\" dir=in action=allow program=\"";
-    params += exePath; params += "\" profile=private,public";
+    params += ruleName;
+    params += "\" dir=in action=allow program=\"";
+    params += exePath;
+    params += "\" profile=private,public";
     ::ShellExecuteA(nullptr, "runas", "netsh", params.c_str(), nullptr, SW_HIDE);
 }
 
@@ -139,7 +141,8 @@ bool crashPath(wchar_t* dst, size_t cap, const wchar_t* name) {
     if (!slash) return false;
     *slash = L'\0';
     if (wcslen(dst) + 1 + wcslen(name) >= cap) return false;
-    wcscat_s(dst, cap, L"\\"); wcscat_s(dst, cap, name);
+    wcscat_s(dst, cap, L"\\");
+    wcscat_s(dst, cap, name);
     return true;
 }
 
@@ -228,18 +231,18 @@ LONG WINAPI apxVehHandler(EXCEPTION_POINTERS* ep) {
             static char report[8192];
             char line[320], where[160];
             int off = 0;
-            const char* en = (code == 0xC0000005u) ? "ACCESS_VIOLATION"
+            const char* err = (code == 0xC0000005u) ? "ACCESS_VIOLATION"
                             : (code == 0xC0000409u) ? "STACK_BUFFER_OVERRUN/__fastfail"
                             : (code == 0xC000001Du) ? "ILLEGAL_INSTRUCTION"
                             : "HEAP_CORRUPTION";
-            std::snprintf(line, sizeof(line), "异常：0x%08lX  %s", static_cast<unsigned long>(code), en);
+            std::snprintf(line, sizeof(line), "异常：0x%08lX  %s", static_cast<unsigned long>(code), err);
             off = appendLine(report, sizeof(report), off, line);
             formatAddr(where, sizeof(where), reinterpret_cast<uintptr_t>(ep->ExceptionRecord->ExceptionAddress));
             std::snprintf(line, sizeof(line), "出错地址：%s", where);
             off = appendLine(report, sizeof(report), off, line);
             off = appendLine(report, sizeof(report), off, "调用栈（「模块+偏移」配 PDB 定位；crash.dmp 可用 cdb 打开）：");
             void* frames[40]{};
-            const USHORT n = ::CaptureStackBackTrace(0, 40, frames, nullptr);
+            const USHORT n = ::CaptureStackBackTrace(0, 40, frames);
             for (USHORT i = 0; i < n; ++i) {
                 formatAddr(where, sizeof(where), reinterpret_cast<uintptr_t>(frames[i]));
                 std::snprintf(line, sizeof(line), "  #%-2u %s", i, where);
@@ -247,7 +250,7 @@ LONG WINAPI apxVehHandler(EXCEPTION_POINTERS* ep) {
             }
             const char bom[3] = {'\xEF', '\xBB', '\xBF'};
             DWORD written = 0;
-            ::WriteFile(f, bom, sizeof(bom), &written, nullptr);
+            ::WriteFile(f, bom, 3, &written, nullptr);
             const int len = (off > 0 && off < static_cast<int>(sizeof(report))) ? off : 0;
             if (len > 0) ::WriteFile(f, report, static_cast<DWORD>(len), &written, nullptr);
             ::CloseHandle(f);
@@ -262,10 +265,10 @@ void apxInvalidParamHandler(const wchar_t* expr, const wchar_t* func, const wcha
         HANDLE f = ::CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (f != INVALID_HANDLE_VALUE) {
             wchar_t buf[1024]{};
-            const int n = std::swprintf(buf, 1024, L"invalid parameter: expr=%s func=%s file=%s line=%u\r\n",
-                                        expr ? expr : L"?", func ? func : L"?", file ? file : L"?", line);
+            _snwprintf_s(buf, 1024, _TRUNCATE, L"invalid parameter: expr=%hs func=%hs file=%hs line=%u\r\n",
+                         expr ? expr : L"?", func ? func : L"?", file ? file : L"?", line);
             DWORD written = 0;
-            if (n > 0) ::WriteFile(f, buf, static_cast<DWORD>(n) * sizeof(wchar_t), &written, nullptr);
+            ::WriteFile(f, buf, static_cast<DWORD>(wcslen(buf) * sizeof(wchar_t)), &written, nullptr);
             ::CloseHandle(f);
         }
     }
@@ -309,7 +312,7 @@ void startFileLogging() {
 
     // 超过 2MB 就删除重建（诊断只需要最近一次运行的日志）
     WIN32_FILE_ATTRIBUTE_DATA fa{};
-    if (::GetFileAttributesExW(g_path.c_str(), ::GetFileExInfoStandard, &fa) &&
+    if (::GetFileAttributesExW(g_path.c_str(), GetFileExInfoStandard, &fa) &&
         fa.nFileSizeHigh > 0) {
         ::DeleteFileW(g_path.c_str());
     } else if (fa.nFileSizeLow > 2u * 1024u * 1024u) {
@@ -343,13 +346,13 @@ void startFileLogging() {
 
 std::string logDir() {
     const char* home = std::getenv("HOME");
-    const std::string h = (home && *home) ? home : ".";
+    const std::string s = (home && *home) ? home : ".";
 #if defined(__APPLE__)
-    return h + "/Library/Logs/AllPeriph";
+    return s + "/Library/Logs/AllPeriph";
 #else
     const char* state = std::getenv("XDG_STATE_HOME");
     if (state && *state) return std::string(state) + "/AllPeriph";
-    return h + "/.local/state/AllPeriph";
+    return s + "/.local/state/AllPeriph";
 #endif
 }
 
@@ -361,11 +364,12 @@ size_t hexStr(char* out, uintptr_t v) {           // "0x…"，最长 18 字节 
     if (v == 0) tmp[n++] = '0';
     while (v) {
         const unsigned nib = static_cast<unsigned>(v & 0xF);
-        tmp[n++] = static_cast<char>(nib < 10 ? '0' + nib : 'a' + (nib - 10));
+        tmp[n++] = static_cast<char>(nib < 10 ? '0' + nib : 'a' + nib - 10);
         v >>= 4;
     }
     size_t k = 0;
-    out[k++] = '0'; out[k++] = 'x';
+    out[k++] = '0';
+    out[k++] = 'x';
     while (n) out[k++] = tmp[--n];
     out[k] = '\0';
     return k;
@@ -374,10 +378,9 @@ size_t hexStr(char* out, uintptr_t v) {           // "0x…"，最长 18 字节 
 size_t decStr(char* out, long long v) {           // 十进制，最长 20 字节 + NUL
     char tmp[24];
     size_t n = 0;
-    unsigned long long u = (v < 0) ? static_cast<unsigned long long>(-v)
-                                   : static_cast<unsigned long long>(v);
+    unsigned long long u = v < 0 ? static_cast<unsigned long long>(-v) : static_cast<unsigned long long>(v);
     if (u == 0) tmp[n++] = '0';
-    while (u) { tmp[n++] = static_cast<char>('0' + (u % 10)); u /= 10; }
+    while (u) { tmp[n++] = static_cast<char>('0' + u % 10); u /= 10; }
     if (v < 0) tmp[n++] = '-';
     size_t k = 0;
     while (n) out[k++] = tmp[--n];
@@ -392,15 +395,11 @@ void bufAppend(char* dst, size_t cap, size_t& off, const char* s) {
 }
 
 void bufAppendHex(char* dst, size_t cap, size_t& off, uintptr_t v) {
-    char tmp[20];
-    hexStr(tmp, v);
-    bufAppend(dst, cap, off, tmp);
+    char tmp[20]; hexStr(tmp, v); bufAppend(dst, cap, off, tmp);
 }
 
 void bufAppendDec(char* dst, size_t cap, size_t& off, long long v) {
-    char tmp[24];
-    decStr(tmp, v);
-    bufAppend(dst, cap, off, tmp);
+    char tmp[24]; decStr(tmp, v); bufAppend(dst, cap, off, tmp);
 }
 
 // 一张报告覆盖「terminate」与「致命信号」两种入口（kind 区分）。内容刻意对齐苹果
@@ -661,8 +660,8 @@ using InstallHandler_t = int (*)(int (*)(void*, void*, void*), unsigned int,
                                  const void*, void*, void**);
 using AppTarget_t = void* (*)();
 using RegisterHotKey_t = int (*)(unsigned int, unsigned int, EventHotKeyID,
-                                 void*, unsigned int, void**);
-using UnregisterHotKey_t = int (*)(void*, void*);
+                                 unsigned int, void**, void**);
+using UnregisterHotKey_t = int (*)(unsigned int, void**);
 
 void* g_lib = nullptr;
 void* g_hk = nullptr;
@@ -947,26 +946,78 @@ int runDesktopMain() {
 // POSIX 侧此前完全没有这两层：apxdesktop 一旦抛异常就直接 abort，用户只看到窗口一闪、
 // 报告里只有地址没有原因（issue#47 的 mac 崩溃就是这么发生的）。
 int main(int /*argc*/, char** /*argv*/) {
-#if !defined(_WIN32)
-    installCrashForensics();   // 必须在任何业务代码之前：后面每一步挂了都要留下现场
-    startFileLogging();        // 双击启动没有终端，日志不落盘等于没有
-#endif
-
 #if defined(_WIN32)
     // 单实例锁（对齐老面板 Local\AllPeriph.Panel.SingleInstance 语义，见 panel_win32.cpp）。
     // web 面板路径此前没有任何单实例保护 —— 双击两次 / 自启+手动各拉一次，就是
     // 两个一模一样的窗口 + 两个托盘（2026-11-05 用户报「装完有两个一样的界面」）。
-    // 抢不到锁就唤起已有实例的主窗然后退出，9511/托盘/WebView2/悬浮球一个都不建。
     // 类名/标题必须与 web_panel.cpp 的 kClassName/kWindowTitle 保持一致。
+    //
+    // v223.29.13 接管语义（修「装了新版但新版秒退 → 球/9511/托盘一个都不建」）：
+    //   旧逻辑「抢不到锁 → 唤窗（FindWindow 找不到就静默）→ return 0」在旧版本僵尸
+    //   握锁时 = 新 exe 永远起不来：用户没重启电脑就一直看到旧进程的界面 ——
+    //   2026-11-06 报的「一直没有悬浮球、触摸键盘全废」与 code 5 装不上是同一条根。
+    //   现在按「exe 文件是否在进程启动后被替换过」甄别：
+    //     · 合法重复双击（文件没动）→ 唤起已有窗口退出（行为不变）；
+    //     · 有窗但文件被安装器换过（跑的还是旧代码）→ 结束旧进程接管；
+    //     · 无窗隐形僵尸（FindWindow 永远找不到）→ 同样接管；
+    //   接管 = 结束除自己外的 apxdesktop.exe，等窗口类消亡后继续正常启动。
+    startFileLogging();   // 接管过程要留痕（static 句柄，runDesktopMain 内重复调用幂等）
     if (::CreateMutexW(nullptr, FALSE, L"Local\\AllPeriph.WebPanel.SingleInstance") &&
         ::GetLastError() == ERROR_ALREADY_EXISTS) {
         const HWND exist = ::FindWindowW(L"AllPeriphWebPanel", L"全能外设");
+        bool takeOver = (exist == nullptr);   // 无窗 = 隐形僵尸，必接管
         if (exist) {
-            ::ShowWindow(exist, SW_SHOW);
-            ::SetForegroundWindow(exist);
+            DWORD pid = 0;
+            ::GetWindowThreadProcessId(exist, &pid);
+            FILETIME procStart{}, fileWrite{};
+            if (pid) {
+                if (HANDLE hp = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+                    ::GetProcessTimes(hp, &procStart, nullptr, nullptr, nullptr);
+                    ::CloseHandle(hp);
+                }
+            }
+            wchar_t exePath[MAX_PATH] = {};
+            if (::GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+                WIN32_FILE_ATTRIBUTE_DATA fa{};
+                if (::GetFileAttributesExW(exePath, GetFileExInfoStandard, &fa))
+                    fileWrite = fa.ftLastWriteTime;
+            }
+            const ULONGLONG ps = (static_cast<ULONGLONG>(procStart.dwHighDateTime) << 32) | procStart.dwLowDateTime;
+            const ULONGLONG fw = (static_cast<ULONGLONG>(fileWrite.dwHighDateTime) << 32) | fileWrite.dwLowDateTime;
+            // 进程启动时间早于 exe 文件写入时间 = 文件已被安装器替换而进程还是旧代码 → 接管。
+            // 取证缺失（任一时间为 0）保守不接管，维持旧行为。
+            takeOver = (ps == 0 || fw == 0) ? false : (ps < fw);
         }
-        return 0;
+        if (!takeOver) {
+            if (exist) {
+                ::ShowWindow(exist, SW_SHOW);
+                ::SetForegroundWindow(exist);
+            }
+            return 0;
+        }
+        // —— 接管：结束除自己外的所有 apxdesktop.exe（含旧版本与无窗僵尸）——
+        HANDLE snap = ::CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe{}; pe.dwSize = sizeof(pe);
+            const DWORD self = ::GetCurrentProcessId();
+            if (::Process32FirstW(snap, &pe)) {
+                do {
+                    if (pe.th32ProcessID == self) continue;
+                    if (_wcsicmp(pe.szExeFile, L"apxdesktop.exe") != 0) continue;
+                    if (HANDLE hp = ::OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID)) {
+                        ::TerminateProcess(hp, 0);
+                        ::CloseHandle(hp);
+                    }
+                } while (::Process32NextW(snap, &pe));
+            }
+            ::CloseHandle(snap);
+        }
+        for (int i = 0; i < 40 && ::FindWindowW(L"AllPeriphWebPanel", L"全能外设"); ++i)
+            ::Sleep(50);
     }
+#else
+    installCrashForensics();   // 必须在任何业务代码之前：后面每一步挂了都要留下现场
+    startFileLogging();        // 双击启动没有终端，日志不落盘等于没有
 #endif
 
     try {
@@ -976,7 +1027,7 @@ int main(int /*argc*/, char** /*argv*/) {
         std::fprintf(stderr, "[AllPeriph] 桌面壳异常退出：%s\n", e.what());
         return 2;
     } catch (...) {
-        writeCrashReport("exception（main 兜底）", "(非 std 异常)", 0);
+        writeCrashReport("exception（main 兜底）", "(非 std 异常)");
         std::fprintf(stderr, "[AllPeriph] 桌面壳异常退出（非 std 异常）\n");
         return 2;
     }
