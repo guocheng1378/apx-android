@@ -6,7 +6,7 @@
     下发 0x10 模块开关（现有通用通道，无协议变更）
   · ControlledService — onModuleToggle 认 "camera" → EventBus 发 CameraPushRequestEvent
   · AgentForegroundService — on=true 拉起 CameraPushActivity（前台直接弹、后台靠通知
-    「摄像头」动作兔底）；off 由推流页自行订阅 finish
+    「摄像头」动作兜底）；off 由推流页自行订阅 finish
   · CameraPushActivity — 订阅关闭事件 + 更新类头启动说明
   · check_entrypoints — 删除 CameraPushActivity 豁免（入口已接，按约删）
   · strings.xml — notify_action_camera；Events.kt — 事件定义
@@ -40,7 +40,7 @@ EDITS = [
 # CameraPushActivity 豁免已按约删除（M7-c 批4，2026-11-06）：入口 = PC 面板
 # camera.toggle → 0x10「camera」→ AgentForegroundService 以
 # `Intent(this, CameraPushActivity::class.java)` 拉起（判据①的代码内类引用成立），
-# 通知「摄像头」动作与 adb am start 兔底。''', 1),
+# 通知「摄像头」动作与 adb am start 兜底。''', 1),
     ]),
     ("scripts/check_protocol.py", [
         ('''    "telemetry": 4,
@@ -78,7 +78,7 @@ import com.allperiph.core.ScreenOpenRequestEvent''', 1),
                 if (on) server?.resumeAccept() else server?.suspendAccept()
             } else if (id == "camera") {
                 // M7-c 批4：面板 camera.toggle → 开/关推流页。开由 AgentForegroundService
-                // 执行 startActivity（后台被拦时通知按钮兔底），关由推流页订阅同一事件
+                // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
                 // 自行 finish。回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
                 EventBus.post(CameraPushRequestEvent(on))
             }
@@ -90,21 +90,21 @@ import com.allperiph.shared.event.EventBus''',
          '''import com.allperiph.core.AgentStateEvent
 import com.allperiph.core.CameraPushRequestEvent
 import com.allperiph.shared.event.EventBus''', 1),
-        ('''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兔底
+        ('''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兜底
         val screenPi = PendingIntent.getActivity(
             this, 3,
             Intent(this, com.allperiph.screen.ScreenActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )''',
-         '''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兔底
+         '''        // 副屏一键直达：PC 开副屏时若 app 在后台被系统拦了弹页，通知这个动作兜底
         val screenPi = PendingIntent.getActivity(
             this, 3,
             Intent(this, com.allperiph.screen.ScreenActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        // 摄像头一键直达（M7-c 批4）：与副屏同款兔底 —— PC 开预览时后台被拦，靠它拉起
+        // 摄像头一键直达（M7-c 批4）：与副屏同款兜底 —— PC 开预览时后台被拦，靠它拉起
         val cameraPi = PendingIntent.getActivity(
             this, 4,
             Intent(this, com.allperiph.camera.CameraPushActivity::class.java)
@@ -161,7 +161,7 @@ import com.allperiph.shared.event.EventBus''', 1),
     /**
      * PC 面板开了摄像头预览（0x10「camera」on，M7-c 批4）：拉起推流页开始采集。
      * off 不在此处理 —— 同一事件由推流页自己订阅后 finish（没开页 = 无需关）。
-     * 与副屏同口径：后台被拦记日志，通知「摄像头」按钮兔底。
+     * 与副屏同口径：后台被拦记日志，通知「摄像头」按钮兜底。
      */
     private fun onPcCameraToggle(on: Boolean) {
         if (!on) return
@@ -180,7 +180,7 @@ import com.allperiph.shared.event.EventBus''', 1),
         (''' * 启动（当前无应用内入口，M7-c 面板接）：
  *   adb shell am start -n com.allperiph/.camera.CameraPushActivity''',
          ''' * 启动（M7-c 批4 起有面板入口）：PC 面板「摄像头」开关 → 0x10「camera」→
- *   AgentForegroundService 拉起本页；通知「摄像头」动作 / adb 兔底：
+ *   AgentForegroundService 拉起本页；通知「摄像头」动作 / adb 兜底：
  *   adb shell am start -n com.allperiph/.camera.CameraPushActivity''', 1),
         ('''import android.os.Bundle''',
          '''import android.os.Bundle
