@@ -56,6 +56,7 @@
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/media/audio_capture.hpp"
 #include "apxpc/media/mic_bridge.hpp"
+#include "apxpc/media/camera_view.hpp"  // M7-c 1/8：面板接摄像头（预览窗 + 虚拟摄像头出口）
 #include "apxpc/autostart.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/discovery/discovery.hpp"
@@ -203,6 +204,14 @@ void refreshUsbStatus(Panel* p) {
 }
 
 // ———————————————— 状态构建（每 400ms 一次） ————————————————
+// M7-c 1/8：摄像头出口单例——本批只接面板动作/状态；s6 收流 feed 在后续批接线。
+namespace {
+apxpc::media::CameraView& cameraView() {
+    static apxpc::media::CameraView v;
+    return v;
+}
+}  // namespace
+
 void buildState(const HostBundle& b, Json& out) {
     out = Json::makeObject();
 
@@ -283,6 +292,24 @@ void buildState(const HostBundle& b, Json& out) {
         m["running"] = s.running;
         m["device"] = s.device;
         media["mic"] = m;
+    }
+
+    // M7-c 1/8：摄像头状态（root 键 camera = CameraView::Status 逐字段，对齐 bridge.ts 契约）
+    {
+        auto s = cameraView().status();
+        Json c = Json::makeObject();
+        c["running"] = s.running;
+        c["previewOpen"] = s.previewOpen;
+        c["virtualCam"] = s.virtualCam;
+        c["virtualCamTested"] = s.virtualCamTested;
+        c["frames"] = static_cast<double>(s.frames);
+        c["bytes"] = static_cast<double>(s.bytes);
+        c["lastFrameMs"] = static_cast<double>(s.lastFrameMs);
+        c["width"] = static_cast<double>(s.width);
+        c["height"] = static_cast<double>(s.height);
+        c["stale"] = s.stale;
+        c["error"] = s.error;
+        out["camera"] = c;
     }
 
     // 配置（传给前端，允许改动后持久化）
@@ -653,6 +680,18 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         std::string err;
         const bool ok = b.micBridge->start(devId, &err);
         return postResponse(p, id, ok ? okResp() : failResp(err));
+    }
+
+    // —— M7-c 1/8：摄像头（预览窗 / 虚拟摄像头；虚拟摄像头未真机实测，错误如实回在 Status.error）——
+    if (name == "camera.toggle") {
+        auto& cv = cameraView();
+        cv.setPreview(!cv.status().previewOpen);
+        return postResponse(p, id, okResp());
+    }
+    if (name == "camera.vcam") {
+        auto& cv = cameraView();
+        cv.setVirtualCam(!cv.status().virtualCam);
+        return postResponse(p, id, okResp());
     }
 
     // —— 设置项 ——

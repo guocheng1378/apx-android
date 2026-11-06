@@ -366,11 +366,18 @@ if(APPLE)
   enable_language(OBJCXX)
   list(APPEND APXPC_MEDIA_SRC "${APXPC_ROOT}/src/media/audio_capture_mac.mm")
 endif()
+if(WIN32)
+  # M7-c 摄像头出口（producer 侧）：GDI+ 预览窗 + NV12/shm 写入 + MFCreateVirtualCamera
+  # 注册 —— 全是 Win32 实现，mac/Linux 面板无此动作，不编入（诚实降级，见 ROADMAP M7-c）。
+  list(APPEND APXPC_MEDIA_SRC "${APXPC_ROOT}/src/media/camera_view.cpp")
+endif()
 add_library(apxpc_media STATIC ${APXPC_MEDIA_SRC})
 target_include_directories(apxpc_media PUBLIC "${APXPC_ROOT}/include")
 target_link_libraries(apxpc_media PUBLIC apxpc_core)
 if(WIN32)
-  target_link_libraries(apxpc_media PUBLIC ws2_32 ole32 uuid)
+  # ole32 uuid：既有依赖；gdiplus/advapi32/mfplat：camera_view.cpp（GDI+ 解码与绘制、
+  # HKCU CLSID 注册表、MFStartup）—— #pragma comment 同步列了，CMake 侧冗余不冲突。
+  target_link_libraries(apxpc_media PUBLIC ws2_32 ole32 uuid gdiplus advapi32 mfplat)
 endif()
 if(APPLE)
   # mic_bridge 的 macOS 实现：CoreAudio AudioQueue 播放 + 默认输出设备名；
@@ -380,6 +387,22 @@ if(APPLE)
   target_compile_options(apxpc_media PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
 endif()
 target_link_libraries(apxpc_wireless PUBLIC apxpc_media)
+
+# ---------------------------------------------------------------- 目标：虚拟摄像头 Media Source DLL（M7-c c-2）
+# in-proc COM DLL：微信/会议端打开这台虚拟摄像头时被 CoCreateInstance 到**它们自己的进程**，
+# 从共享内存取帧（vcam_shm.hpp）。CLSID → 本 DLL 的注册写在主程序 HKCU（camera_view.cpp，
+# 免管理员），这里只管编译与链接：
+#   · mfplat：MFCreateEventQueue/MFCreateSample/MFStartup；mfuuid：IID_IMFMediaSource 等 GUID；
+#   · ole32：PropVariantClear/COM 基础。
+# 输出目录：未设 RUNTIME_OUTPUT_DIRECTORY → 与 apxdesktop 落同一构建目录，
+# camera_view.cpp 的 dllPath() 按「exe 同目录 / apxvcam.dll」查找，开发构建即生效。
+# ⚠️ 安装包（payload rc）暂未拷此 DLL —— 装机场景会诚实报「未找到 apxvcam.dll」，随装包批次补。
+# ⚠️ 未真机实测：云端无 Win11 摄像头/微信端，CI 只验编译（spike M7 红线：不假装完成）。
+if(WIN32)
+  add_library(apxvcam SHARED "${APXPC_ROOT}/src/media/vcam_source.cpp")
+  target_include_directories(apxvcam PRIVATE "${APXPC_ROOT}/include")
+  target_link_libraries(apxvcam PRIVATE mfplat mfuuid ole32)
+endif()
 
 # ---------------------------------------------------------------- 目标：副屏推流
 set(APXDISP_BUILD_APP   OFF CACHE BOOL "" FORCE)
@@ -606,7 +629,7 @@ if(APXPC_BUILD_TESTS)
 
   # 本机端口占用探测：真起监听 → 探到 → 探不到。
   # 盯的是 v223.7 已交付的「9511 已在运行检测」（apxpc::net::tcp_probe）——这条判错的后果是面板不再起受控端，
-  # 却又没人提供，手机就永远发现不了本机（静默失效），所以必须有用例钉住。
+  # 又没人提供，手机就永远发现不了本机（静默失效），所以必须有用例钉住。
   add_executable(tcp_probe_test "${APXPC_ROOT}/tests/tcp_probe_test.cpp")
   target_link_libraries(tcp_probe_test PRIVATE apxpc_core)
   add_test(NAME tcp_probe_test COMMAND tcp_probe_test)
@@ -662,6 +685,10 @@ endif()
 
 # ---------------------------------------------------------------- 安装
 install(TARGETS apxhost apxdesktop RUNTIME DESTINATION bin)
+if(WIN32)
+  # 虚拟摄像头 Media Source DLL 随装（装机后 camera_view 的 dllPath() 在同目录找它）
+  install(TARGETS apxvcam RUNTIME DESTINATION bin)
+endif()
 if(APXPC_BUILD_SDK)
   install(TARGETS apxpc_sdk ARCHIVE DESTINATION lib)
   install(DIRECTORY "${APXPC_ROOT}/sdk/include/" DESTINATION include)
