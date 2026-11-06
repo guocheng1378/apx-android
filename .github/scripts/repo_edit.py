@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """repo-edit：锚点替换编辑器（两阶段：先全量校验命中次数，全过才写盘）。
 
-批 7'（2026-11-06，判别轮）：从批 7 中**移除 .github/workflows/build.yml 的两处编辑**
-（假设：bot 的 GITHUB_TOKEN 推送被分支保护/规则拦（仅 workflow 文件），管理员 PAT API
-可绕——若本轮绿即证实；build.yml 随后改走 API 直推）。其余 9→7 锚点不变：
-  · CMake — FetchContent ViGEmClient 源码（tag v1.21.222.0，MIT）编 DLL + 导出宏/补链 +
-    apxhost 构建依赖（不链接）
-  · AllPeriph.iss — 安装器 Files 段加 DLL
-  · input_injector_win.cpp — 降级日志纠偏（未检测到驱动/DLL 的诚实表述）
-  · ROADMAP — §2.2 手柄条 + 两处「尚未接入」引用 翻新为已接入现状（PR #24）
+批 8（2026-11-06）：Build #1269 pc job Configure 死因修复 —— CMake 中途重入
+（上游 project()+GNUInstallDirs cache 写入触发），第二次直接 FetchContent_Populate(wil)
+撞 CMP0169 FATAL "Content already populated"。
+  · wil 段 + Vigem 段改 GetProperties + if(NOT *_POPULATED) 幂等守卫（重入免疫）
+  · 顺手纠正 DLL 逻辑：上游硬编码 STATIC，BUILD_SHARED_LIBS 无效；
+    改用上游专有 option ViGEmClient_DLL=ON（CMP0077 NEW 可用普通变量压过）
+    → 生成 ViGEmClientShared（OUTPUT_NAME=ViGEmClient、自带 setupapi 链接）；
+    VIGEM_DYNAMIC/VIGEM_EXPORTS 必须补（Client.h 实测；不补则 DLL 零导出）
+  · add_subdirectory 加 if(NOT TARGET) 守卫防重入双加
 """
 import difflib
 import os
@@ -18,22 +19,24 @@ ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
 EDITS = [
     ("pc/host/CMakeLists.txt", [
-        ('''endif()
-set(CMAKE_CXX_STANDARD 20)''',
-         '''endif()
-
-# ---- ViGEmClient.dll（Windows 真手柄，阶段二「借力第三方」的运行时配套）----
-# input_injector_win.cpp 以 LoadLibrary/GetProcAddress 动态加载本 DLL（链接期零依赖，
-# 设计不变）；这里只负责按上游源码把它编成 DLL 并落到 exe 同目录，随安装器/portable 分发。
-# 上游 = nefarius/ViGEmClient，MIT 许可，版权声明见其 include/ViGEm/Client.h。
-if(WIN32)
-  include(FetchContent)
-  FetchContent_Declare(ViGEmClientSrc
-    GIT_REPOSITORY https://github.com/nefarius/ViGEmClient.git
-    GIT_TAG        v1.21.222.0
+        ('''  FetchContent_Declare(wil
+    GIT_REPOSITORY https://github.com/microsoft/wil.git
+    GIT_TAG        v1.0.240803.1
     GIT_SHALLOW    TRUE
   )
-  FetchContent_Populate(ViGEmClientSrc)
+  FetchContent_Populate(wil)''',
+         '''  FetchContent_Declare(wil
+    GIT_REPOSITORY https://github.com/microsoft/wil.git
+    GIT_TAG        v1.0.240803.1
+    GIT_SHALLOW    TRUE
+  )
+  # 重入安全（Build #1269 教训）：CMake 中途可整文件重入，第二次直接 Populate =
+  # CMP0169 FATAL "Content already populated"。GetProperties 幂等，重入无害。
+  FetchContent_GetProperties(wil)
+  if(NOT wil_POPULATED)
+    FetchContent_Populate(wil)
+  endif()''', 1),
+        ('''  FetchContent_Populate(ViGEmClientSrc)
   set(BUILD_SHARED_LIBS ON)   # 仅本作用域：上游 add_library 未写 SHARED → 按此变量出 DLL
   add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
   unset(BUILD_SHARED_LIBS)
@@ -47,44 +50,31 @@ if(WIN32)
   set_target_properties(ViGEmClient PROPERTIES
     OUTPUT_NAME "ViGEmClient"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")
-endif()
-set(CMAKE_CXX_STANDARD 20)''', 1),
-        ('''target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless apxpc_media apxpc_localsend)''',
-         '''target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless apxpc_media apxpc_localsend)
-if(WIN32 AND TARGET ViGEmClient)
-  # EXCLUDE_FROM_ALL：靠构建依赖把 DLL 编出来（只编不链，保持动态加载零链接依赖）
-  add_dependencies(apxhost ViGEmClient)
-endif()''', 1),
-    ]),
-    ("scripts/installer/AllPeriph.iss", [
-        ('''Source: "{#ArtifactsDir}\\WebView2Loader.dll"; DestDir: "{app}";     Flags: ignoreversion''',
-         '''Source: "{#ArtifactsDir}\\WebView2Loader.dll"; DestDir: "{app}";     Flags: ignoreversion
-Source: "{#ArtifactsDir}\\ViGEmClient.dll";  DestDir: "{app}";     Flags: ignoreversion''', 1),
-    ]),
-    ("pc/host/src/wireless/input_injector_win.cpp", [
-        ('''            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：本平台无真手柄注入能力，已降级为"
-                                 "「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
-                                 "要真手柄需 ViGEmBus 之类的虚拟 HID 驱动\\n");''',
-         '''            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：未检测到 ViGEmBus 驱动或 ViGEmClient.dll，"
-                                 "本帧起降级为「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
-                                 "安装 ViGEmBus 驱动（ViGEmClient.dll 已随安装包/便携包分发）后重启面板即启用真手柄\\n");''', 1),
-    ]),
-    ("docs/ROADMAP.md", [
-        ('''**尚未接入**：手柄（`SendInput` 无法模拟游戏手柄，需 ViGEmBus 等第三方驱动，
-归入架构 §2.2「阶段二 借力第三方」）。''',
-         '''**手柄真注入已接入（2026-11-06 核对源码，PR #24 落地）**：0x07 手柄帧 →
-Windows `input_injector_win.cpp` 运行时探测 `ViGEmClient.dll`（2026-11-06 起随包分发）
-+ ViGEmBus 驱动注入虚拟 X360，缺任一则降级「按钮→键盘 + 摇杆→鼠标/滚动」并如实记日志；
-Linux 走 `/dev/uinput` 真手柄；macOS 无 CGEvent 手柄通道仅降级（AMFI 限制见 `gamepad_fallback.hpp`）。''', 1),
-        ('''   剩真机配对验证；TCP 出口受 ViGEmBus 限制（见 §2.2「尚未接入」）。''',
-         '''   剩真机配对验证；TCP 出口已接入（ViGEmBus 运行时探测 + 降级，见 §2.2 手柄条）。''', 1),
-        ('''> native 蓝牙描述符均已存在，本轮把键盘接进蓝牙分支。手柄仍无 TCP 出口（发送面受控目标）：
-> 手柄（`ui/GamepadController`）尚无 TCP 出口 —— 因 `SendInput` 无法模拟手柄，
-> 需第三方虚拟手柄驱动，见 §2.2「尚未接入」。''',
-         '''> native 蓝牙描述符均已存在，本轮把键盘接进蓝牙分支。手柄 TCP 出口后于 PR #24 落地
-> （2026-11-06 核对）：`ui/GamepadController` → 受控目标 0x07 → Windows ViGEmBus 虚拟
-> X360（驱动缺失则键盘降级并如实记日志，DLL 随包分发，见 §2.2 手柄条）。''', 1),
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")''',
+         '''  # 重入安全同上（Build #1269）：幂等守卫，重入时跳过重复 Populate/add_subdirectory。
+  FetchContent_GetProperties(ViGEmClientSrc)
+  if(NOT ViGEmClientSrc_POPULATED)
+    FetchContent_Populate(ViGEmClientSrc)
+  endif()
+  if(NOT TARGET ViGEmClientShared)
+    # 上游硬编码 add_library(... STATIC)，BUILD_SHARED_LIBS 对它无效（Build #1269
+    # 实测推断）；出 DLL 的专有开关 = option ViGEmClient_DLL（默认 OFF）。
+    # 上游 cmake_minimum_required 3.20.2 → CMP0077 NEW：普通变量可压过 option() 默认值。
+    set(ViGEmClient_DLL ON)
+    add_subdirectory("${ViGEmClientSrc_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/vigemclient_src")
+  endif()
+  if(NOT TARGET ViGEmClientShared)
+    message(FATAL_ERROR "ViGEmClientShared 未生成——上游 option 名/结构可能已变，核对 GIT_TAG")
+  endif()
+  # Client.h：VIGEM_DYNAMIC 才走 dllexport/dllimport 分支，VIGEM_EXPORTS 决定导出方向。
+  # 实测上游 shared 分支也不定义这两个宏（默认路径给静态），不补则 DLL 零导出，
+  # 运行期 LoadLibrary 成功但 GetProcAddress 全 NULL。setupapi：上游已链，此处幂等保底。
+  target_compile_definitions(ViGEmClientShared PRIVATE VIGEM_DYNAMIC VIGEM_EXPORTS)
+  target_link_libraries(ViGEmClientShared PRIVATE setupapi)
+  set_target_properties(ViGEmClientShared PROPERTIES
+    OUTPUT_NAME "ViGEmClient"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/Release"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/Release")''', 1),
     ]),
 ]
 
