@@ -235,6 +235,36 @@ void refreshUsbStatus(HttpPanel* p) {
     }
 }
 
+// ——— 摄像头（macOS 批5，2026-11-06）：camera_view（GDI+ 解码/原生预览窗/虚拟摄像头）
+//      仅 Windows 编译（CMake if(WIN32)），本入口没有 CameraView —— 开关态与收流观测
+//      在此自持：g_camOn = 已下发的 0x10 采集开关；W/H/LastMs = 收流回调实测。——
+static std::atomic<bool> g_camOn{false};
+static std::atomic<uint32_t> g_camW{0}, g_camH{0};
+static std::atomic<int64_t> g_camLastMs{0};  // steady ms 时间戳（0 = 尚无帧）
+
+// JPEG SOF 段尺寸（手机侧只出 SOF0 基线；逐段扫到 SOF 即止，失败留 0）
+static bool jpegDims(const uint8_t* p, size_t n, int& w, int& h) {
+    if (!p || n < 4 || p[0] != 0xFF || p[1] != 0xD8) return false;
+    size_t i = 2;
+    while (i + 3 < n) {
+        if (p[i] != 0xFF) { ++i; continue; }
+        const uint8_t m = p[i + 1];
+        if (m == 0xFF || m == 0x00) { ++i; continue; }
+        if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }
+        if (m == 0xD9 || m == 0xDA) return false;   // 到尾/压缩数据起点仍无 SOF
+        const size_t seg = (static_cast<size_t>(p[i + 2]) << 8) | p[i + 3];
+        if (seg < 2) return false;
+        if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+            if (i + 9 > n) return false;
+            h = (p[i + 5] << 8) | p[i + 6];
+            w = (p[i + 7] << 8) | p[i + 8];
+            return w > 0 && h > 0;
+        }
+        i += 2 + seg;
+    }
+    return false;
+}
+
 // ——— 状态构建（与 web_panel.cpp buildState 逐字段一致；GetTickCount64 → steadyMs）———
 void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
     out = Json::makeObject();
@@ -274,6 +304,36 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         media["audioFramesSent"] = static_cast<double>(cc.audioFrames);
         media["micFrames"] = static_cast<double>(cc.micFrames);
         media["dropped"] = static_cast<double>(cc.dropped);
+    }
+
+    // camera（macOS 批5）：字段对齐 bridge.ts 契约、语义按浏览器面板如实降级 ——
+    // previewOpen = 已下发的手机采集开关；native=false → 前端标注无原生预览窗/虚拟摄像头；
+    // frames/bytes = media_session 收流计数；width/height/stale = 收流回调实测。
+    {
+        Json c = Json::makeObject();
+        const bool on = g_camOn.load(std::memory_order_relaxed);
+        uint64_t cf = 0, cb = 0;
+        if (b.media) {
+            const auto mc = b.media->counters();
+            cf = mc.cameraFrames;
+            cb = mc.cameraBytes;
+        }
+        const auto nowMs = std::chrono::steady_clock::now().time_since_epoch() /
+                           std::chrono::milliseconds(1);
+        const int64_t last = g_camLastMs.load(std::memory_order_relaxed);
+        c["running"] = on;
+        c["previewOpen"] = on;
+        c["virtualCam"] = false;
+        c["native"] = false;
+        c["virtualCamTested"] = false;
+        c["frames"] = static_cast<double>(cf);
+        c["bytes"] = static_cast<double>(cb);
+        c["lastFrameMs"] = static_cast<double>(last > 0 ? nowMs - last : 0);
+        c["width"] = static_cast<double>(g_camW.load(std::memory_order_relaxed));
+        c["height"] = static_cast<double>(g_camH.load(std::memory_order_relaxed));
+        c["stale"] = cf > 0 && last > 0 && (nowMs - last) > 2500;
+        c["error"] = "";
+        out["camera"] = c;
     }
 
     // screen：本入口不挂 ScreenPush（见文件头边界说明）——**刻意不读 b.screenPush**，
@@ -710,6 +770,19 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         const bool ok = b.micBridge->start(devId, &err);
         return postResponse(p, id, ok ? okResp()
                                       : failResp(err.empty() ? "麦克风桥启动失败" : err));
+    }
+
+    // —— 摄像头（macOS 批5）：无 camera_view（GDI+/原生预览窗/虚拟摄像头仅 Windows）——
+    //    camera.toggle = 0x10「camera」下发手机采集（跨平台）；下发失败如实报错、不改开关态。
+    if (name == "camera.toggle") {
+        const bool on = !g_camOn.load(std::memory_order_relaxed);
+        const bool sent = b.session && b.session->sendModuleToggle("camera", on);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发采集开关"));
+        g_camOn.store(on, std::memory_order_relaxed);
+        return postResponse(p, id, okResp());
+    }
+    if (name == "camera.vcam") {
+        return postResponse(p, id, failResp("macOS 不支持虚拟摄像头（camera_view 仅 Windows）"));
     }
 
     // —— 设置项 ——
@@ -1601,13 +1674,25 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     // streamId==kStreamMic 且麦克风桥在跑 → feed。回调在媒体收流线程上执行，
     // feed 自身加锁不阻塞 ✓。注：Win 的 web_panel 模式此前未接这条线（既有缺口，
     // 不在本 PR 范围），HTTP 面板补上。
-    if (panel.bundle.media && panel.bundle.micBridge) {
+    if (panel.bundle.media) {
         apxpc::media::MediaSession* media = panel.bundle.media;
         apxpc::media::MicBridge* mic = panel.bundle.micBridge;
         media->setHandler([mic](uint8_t streamId, uint8_t /*flags*/, uint32_t /*seq*/,
                                 const uint8_t* body, size_t len) {
-            if (streamId == apxpc::media::kStreamMic && mic->running()) {
+            if (streamId == apxpc::media::kStreamMic && mic && mic->running()) {
                 mic->feed(body, len);
+            } else if (streamId == apxpc::media::kStreamCamera) {
+                // 摄像头（macOS 批5）：无解码消费者（camera_view 仅 Windows）——
+                // 只记 JPEG 尺寸与最近帧时刻，buildState 据此出 width/height/stale。
+                int w = 0, h = 0;
+                if (jpegDims(body, len, w, h)) {
+                    g_camW.store(static_cast<uint32_t>(w), std::memory_order_relaxed);
+                    g_camH.store(static_cast<uint32_t>(h), std::memory_order_relaxed);
+                }
+                g_camLastMs.store(
+                    std::chrono::steady_clock::now().time_since_epoch() /
+                        std::chrono::milliseconds(1),
+                    std::memory_order_relaxed);
             }
         });
     }

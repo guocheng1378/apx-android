@@ -95,6 +95,8 @@ export interface HostState {
     running: boolean;
     previewOpen: boolean;
     virtualCam: boolean;
+    /** false = 浏览器面板（macOS 批5）：无原生预览窗/虚拟摄像头，收流仍可用；缺省 = Windows 旧行为 */
+    native?: boolean;
     /** 注册流程是否已实际执行过（没开过 = 未实测，前端不冒充可用） */
     virtualCamTested: boolean;
     frames: number;

@@ -15,6 +15,8 @@ export const CameraCard: React.FC<Props> = ({ state }) => {
 
   const cam = state.camera;
   const preview = cam?.previewOpen ?? false;
+  // false = 浏览器面板（macOS 批5）：无原生预览窗/虚拟摄像头，收流计数仍实时
+  const native = cam?.native ?? true;
   React.useEffect(() => { setOn(preview); }, [preview]);
   React.useEffect(() => { setVcam(cam?.virtualCam ?? false); }, [cam?.virtualCam]);
 
@@ -41,8 +43,14 @@ export const CameraCard: React.FC<Props> = ({ state }) => {
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="caption-text">虚拟摄像头（供微信/会议端选）</span>
-        <Switch on={vcam} onChange={toggleVcam} />
+        <span className="caption-text">
+          {native ? '虚拟摄像头（供微信/会议端选）' : '虚拟摄像头（macOS 不支持，仅 Windows）'}
+        </span>
+        {native ? (
+          <Switch on={vcam} onChange={toggleVcam} />
+        ) : (
+          <span className="caption-text text-on-tertiary">不可用</span>
+        )}
       </div>
 
       <div className="mt-1 flex flex-col gap-0.5">
@@ -72,7 +80,11 @@ export const CameraCard: React.FC<Props> = ({ state }) => {
         ) : (
           <>
             <div className="body-text text-on-surface">未开始</div>
-            <div className="caption-text">打开右上开关：手机画面开预览窗到本机</div>
+            <div className="caption-text">
+              {native
+                ? '打开右上开关：手机画面开预览窗到本机'
+                : '打开右上开关：手机开始采集，画面经媒体连接回传（浏览器面板无本地预览窗）'}
+            </div>
           </>
         )}
 
