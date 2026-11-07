@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b16 内容（复用已验证通道：repo-edit-b12.yml）。
+"""repo_edit_b12.py —— b16 内容（复用已验证通道：repo-edit-b12.yml）。v2 修正见文末。
 
 b16（2026-11-08）键盘布局两处用户反馈：「上面没有半角符号，回车键的位置也不对」。根因（源码实证）：
   1. KeyPref 只有 DIGIT_ROW[1-0-=] + 3 字母行 + FN_ROW，整套无半角符号排；
@@ -13,6 +13,12 @@ b16（2026-11-08）键盘布局两处用户反馈：「上面没有半角符号�
      漏掉操控面就会出现「主屏键盘有符号、触控板页符号键点不动」的半成品。
      TouchpadActivity 678 行注释「letterRows 含符号行」正是历史证据：符号行本来就是
      设计内的，后来从行表里丢了。
+
+v2（run #6 失败后修正）：KeyboardPage 第 3 锚（CustomLayout）多写了闭括号行，其中
+Row 层是凭结构猜的、没逐行 sed 实证，count=0（其余 9 锚全过、两阶段零部分写盘）。
+修法：锚 1 先替换会把 214 行同文本改掉，第 3 锚因此缩成单行（基于 new 的累积替换，
+此时 count 必为 1）—— 排序依赖写在 EDITS 列表顺序里，勿倒序。
+
 改动：KeyPref（符号排 + Enter 归右端 + 行数注释）、HidKeys（SHIFTED 表 + tapLabel）、
 KeyboardPage×3、TouchpadActivity×3。行表 5 行→6 行（+修饰排=7 weight 行），
 KeyBox heightIn(min=48dp) 保底可点；横屏超高观感待真机（如实不吹）。
@@ -30,14 +36,12 @@ KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
 TP = "android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt"
 
 EDITS = [
-    # —— 1. KeyPref：KDoc 行数口径
     (KP, [
         ('''     * 当前排列方案下的**完整键盘**行表（数字行 + 3 行字母 + 功能行，共 5 行）。
      * 数字行与功能行三套共用，只换字母行的顺序。''',
          '''     * 当前排列方案下的**完整键盘**行表（符号排 + 数字行 + 3 行字母 + 功能行，共 6 行；
      * b16 补半角符号排 —— 用户报「上面没有半角符号」）。
      * 数字行与功能行三套共用，只换字母行的顺序。''', 1),
-        # —— 2/3. SYMBOL_ROW 新增 + FN_ROW 的 Enter 归右端（两行连体锚一次改）
         ('''    private val DIGIT_ROW = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=")
     private val FN_ROW = listOf("Esc", "Tab", "Space", "Enter", "⌫", "Del")''',
          '''    // b16 半角符号排：上档符号无独立 HID usage，发送走 HidKeys.tapLabel（Shift+底键组合）
@@ -48,7 +52,6 @@ EDITS = [
         ('''        return listOf(DIGIT_ROW) + letters + listOf(FN_ROW)''',
          '''        return listOf(SYMBOL_ROW, DIGIT_ROW) + letters + listOf(FN_ROW)''', 1),
     ]),
-    # —— 4. HidKeys：SHIFTED 表 + tapLabel（插在 usageOf 的 KDoc 前）
     (HK, [
         ('''    /** 键面标签 → Keyboard Page (0x07) usage code；未识别返回 0 */
     fun usageOf(label: String): Int = when (label) {''',
@@ -81,7 +84,6 @@ EDITS = [
     /** 键面标签 → Keyboard Page (0x07) usage code；未识别返回 0 */
     fun usageOf(label: String): Int = when (label) {''', 1),
     ]),
-    # —— 5/6/7. KeyboardPage 三处调用点 → tapLabel
     (KB, [
         ('''                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                         HidKeys.tap(HidKeys.usageByLabel(label))
@@ -97,20 +99,10 @@ EDITS = [
                             HidKeys.tapLabel(text)
                             sticky = 0
                         }''', 1),
-        ('''                            HidKeys.tap(HidKeys.usageByLabel(label))
-                        }
-                    }
-                }
-            }
-        ApComponents.ActionButton(''',
-         '''                            HidKeys.tapLabel(label)
-                        }
-                    }
-                }
-            }
-        ApComponents.ActionButton(''', 1),
+        # v2：单行锚 —— 依赖锚 1 先替换（214 行同文本已变），此后本行 count=1
+        ('''                            HidKeys.tap(HidKeys.usageByLabel(label))''',
+         '''                            HidKeys.tapLabel(label)''', 1),
     ]),
-    # —— 8/9/10. TouchpadActivity 三处 → tapLabel（否则操控面符号键点不动）
     (TP, [
         ('''                    HidKeys.tap(HidKeys.usageByLabel(text)) // letterRows 含符号行，按 label 反查更全''',
          '''                    HidKeys.tapLabel(text) // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）''', 1),
