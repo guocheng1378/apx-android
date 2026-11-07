@@ -1,0 +1,32 @@
+name: Fix Release Notes
+
+# 发版后修 Release 正文：release job 在 tag 上找不到 docs/CHANGELOG.md 对应段时
+# 会降级为「本版本明细缺失」占位；本工作流用 gh release edit 把正文补成完整版。
+# 手动触发，输入 tag 与多行 Markdown 正文即可。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要修改正文的 Release tag（如 v223.29.28）
+        required: true
+      notes:
+        description: 新的 Release 正文（Markdown，可多行）
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: gh release edit --notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$NOTES" | gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file -
+          echo "updated release $TAG"
