@@ -188,6 +188,9 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
 private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val ctx = LocalContext.current
     val rows = KeyPref.letterRows(ctx)
+    // b17 方案 C：横屏切真键盘（15u 行制），竖屏保持 letterRows 紧凑排
+    val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+        android.content.Configuration.ORIENTATION_LANDSCAPE
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）
@@ -207,7 +210,12 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
             }
         }
         // 数字 / 字母三行 / 功能行（Esc Tab Space Enter ⌫ Del）全随 KeyPref 行表走
-        rows.forEach { labels ->
+        if (wide) {
+            // b17 方案 C：横屏按现实真键盘排（15u 行制变宽）；weight(6f) 对齐竖屏 6 行比例
+            Box(modifier = Modifier.weight(6f).fillMaxWidth()) {
+                KeyGridLayout(com.allperiph.ui.KeyLayouts.FULL, dens, keycap, fx)
+            }
+        } else rows.forEach { labels ->
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 labels.forEach { label ->
                     KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
@@ -364,7 +372,10 @@ private fun KeyGridLayout(
             Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
                 row.forEach { k ->
                     KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, keycap, fx) {
-                        HidKeys.tap(k.usage)
+                        // b17：FULL 的 Shift/Ctrl/Alt 是修饰词 → 转 sticky（裸 usage 无意义）；
+                        // NUMPAD/GRID9/ARROWS/FN 无修饰词 label，行为不变
+                        val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                        if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
                     }
                 }
             }

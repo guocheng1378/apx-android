@@ -95,4 +95,36 @@ object KeyLayouts {
             Key("⏎", ENTER), Key("⌫", BACKSPACE), Key("Del", DELETE),
         ),
     )
+
+    /**
+     * b17 横屏全键盘（方案 C「按现实真键盘排」）：15u 行制 ANSI 比例，只上横屏
+     * （既定口径：横屏电脑全键盘、竖屏保持 letterRows；竖屏 15u 每键仅 27dp 不可用）。
+     * 双标键面（"1!" = 主字符+上档）：usage 是**底键**，点击出主字符；sticky Shift 在时
+     * HidKeys.tap 自带 sticky mod → 自动出上档（真键盘语义，发送层零改动）。
+     * 变宽 weight：Tab1.5 / Caps1.75 / Shift2.25 / Enter2.25 / ⌫2 / Space9；行首错位由
+     * 首键宽度自然形成。Caps=0x39 显式给出（KEY_CHOICES 不含 Caps，label 反查落 0）。
+     * Shift/Ctrl/Alt usage=0：渲染层按 MOD_LABELS 分支转 toggleSticky（裸修饰无意义）。
+     * 行0（Esc+F1..F12）行内 13 等分 —— 真键盘 F 区本与主区分组，不强求 15u 对齐。
+     */
+    val FULL: List<List<Key>> = listOf(
+        listOf(Key("Esc", ESC)) + (1..12).map { Key("F$it", fn(it)) },
+        listOf(
+            Key("`~", 0x35), Key("1!", d(1)), Key("2@", d(2)), Key("3#", d(3)), Key("4$", d(4)),
+            Key("5%", d(5)), Key("6^", d(6)), Key("7&", d(7)), Key("8*", d(8)), Key("9(", d(9)),
+            Key("0)", d(0)), Key("-_", 0x2D), Key("=+", 0x2E), Key("⌫", BACKSPACE, 2f),
+        ),
+        listOf(Key("Tab", TAB, 1.5f)) +
+            "QWERTYUIOP".map { Key(it.toString(), 0x04 + (it - 'A')) } +
+            listOf(Key("[{", 0x2F), Key("]}", 0x30), Key("\|", 0x31, 1.5f)),
+        listOf(Key("Caps", 0x39, 1.75f)) +
+            "ASDFGHJKL".map { Key(it.toString(), 0x04 + (it - 'A')) } +
+            listOf(Key(";:", 0x33), Key("'"", 0x34), Key("⏎", ENTER, 2.25f)),
+        listOf(Key("Shift", 0, 2.25f)) +
+            "ZXCVBNM".map { Key(it.toString(), 0x04 + (it - 'A')) } +
+            listOf(Key(",<", 0x36), Key(".>", 0x37), Key("/?", 0x38), Key("Shift", 0, 2.75f)),
+        listOf(
+            Key("Ctrl", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 9f),
+            Key("Alt", 0, 1.5f), Key("Ctrl", 0, 1.5f),
+        ),
+    )
 }

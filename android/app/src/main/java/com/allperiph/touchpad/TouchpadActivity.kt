@@ -670,6 +670,11 @@ class TouchpadActivity : Activity() {
             })
         }
         col.addView(modRow, LinearLayout.LayoutParams(-1, 0, 1f))
+        if (resources.configuration.orientation == android.content.Configuration.ORIENTATION_LANDSCAPE) {
+            // b17 方案 C：横屏按现实真键盘排（15u 行制变宽）；weight 6f 对齐竖屏 6 行比例
+            col.addView(keyGrid(com.allperiph.ui.KeyLayouts.FULL), LinearLayout.LayoutParams(-1, 0, 6f))
+            return col
+        }
         com.allperiph.ui.KeyPref.letterRows(this).forEach { labels ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val g = dp(dens.gapDp)
@@ -1004,7 +1009,12 @@ class TouchpadActivity : Activity() {
         rows.forEach { row ->
             val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             row.forEach { k ->
-                r.addView(keyCap(k.label, k.usage), LinearLayout.LayoutParams(0, -1, k.weight).apply {
+                // b17：FULL 的 Shift/Ctrl/Alt → toggleSticky（与 quickKeyboard 修饰排同口径）
+                val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                val cap = keyCap(k.label, bit != null) {
+                    if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
+                }
+                r.addView(cap, LinearLayout.LayoutParams(0, -1, k.weight).apply {
                     setMargins(dp(3), dp(3), dp(3), dp(3))
                 })
             }
