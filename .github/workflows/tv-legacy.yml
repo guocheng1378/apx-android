@@ -6,8 +6,8 @@ name: TV Legacy (Android 4.3)
 # 调试期只手动触发（不挂 push，避免绿之前把 master 状态打红）；绿了再考虑挂 master/PR。
 # 不装 android-actions/setup-android：runner 预装 SDK/licenses，该 action 在 run #1 3 秒挂（根因）。
 # run #2 起：构建日志经 FAILURE 段转 ::error:: 注解 —— annotations API 直读错误，绕开 logs API 需登录的限制。
-# run #5 起：绿了把 APK 强推到 legacy-artifacts 分支 —— raw.githubusercontent.com 匿名可拉，
-#   是本机（api.github.com 通、github.com 超时、artifact API 401）唯一可达的产物拉取通道。
+# run #5 起：绿了把 APK 强推到 legacy-artifacts 分支 —— raw.githubusercontent.com 匿名可拉。
+# run #6 起：本机链路大包体（732KB）超时/CANCEL，APK 额外切 64KB 分片（part_NN）+ sha256，分片拉取后本地 cat 重组。
 
 on:
   workflow_dispatch:
@@ -77,13 +77,17 @@ jobs:
           work=$(mktemp -d)
           cp "$apk" "$work/tv-legacy43.apk"
           cd "$work"
+          sha256sum tv-legacy43.apk > tv-legacy43.apk.sha256
+          # 64KB 分片 —— 本机链路对 >100KB 单包体超时，分片后逐片拉取
+          split -b 65536 -d -a 2 tv-legacy43.apk part_
+          ls -la
           git init -q -b main
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add tv-legacy43.apk
+          git add tv-legacy43.apk tv-legacy43.apk.sha256 part_*
           git commit -qm "tv-legacy43 apk from run ${GITHUB_RUN_ID}"
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push -qf origin main:legacy-artifacts
-          echo "published: https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/legacy-artifacts/tv-legacy43.apk"
+          echo "published parts: $(ls part_* | wc -l), total $(stat -c%s tv-legacy43.apk) bytes"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
