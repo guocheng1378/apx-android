@@ -87,6 +87,12 @@
     <string name="ui_keyfx_ripple">涟漪</string>
     <string name="ui_keyfx_highlight">高光</string>
     <string name="ui_keyfx_bounce">弹跳</string>
+    <!-- RGB 灯效（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）：键帽底色动画，
+         与材质 / 特效正交的第三档外观；选项文案同走资源（棘轮方向）。 -->
+    <string name="ui_set_label_rgb">RGB 灯效</string>
+    <string name="ui_keyrgb_off">关闭</string>
+    <string name="ui_keyrgb_breath">呼吸</string>
+    <string name="ui_keyrgb_wave">波浪</string>
     <string name="ui_touchpad_text_controlled">被控</string>
     <string name="ui_touchpad_text_remote">遥控</string>
     <string name="ui_touchpad_text_file">文件</string>
@@ -549,7 +555,7 @@
     <!-- 环境自检未跑时的占位 -->
     <string name="ui_home_env_not_checked">未检测</string>
 
-    <!-- ↓↓↓ AgentController 数据层 11 处硬编码资源化（2026-11-04）↓↓↓
+    <!-- ↓↓↓ AgentController 数据层 11 处硬编码文案资源化（2026-11-04）↓↓↓
          transportLabel() / label() / refreshEnv() 都是无 Context 的纯函数，
          返回的中文直通状态页标题 —— 与 snapshot() 同款「数据层写死文案」。
          顺手按**词汇表**清掉模块名里的实现词：Gadget / UAC2 / HID / Wi‑Fi 镜像
