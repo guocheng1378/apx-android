@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-7 v3（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
+"""repo-edit：批 U-7 v4（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
 编辑控件降级，成宇 2026-11-07 深化反馈）。
 
 v3 修正（run #89 错误日志定位）：
@@ -8,7 +8,12 @@ v3 修正（run #89 错误日志定位）：
   2. SettingsPage「上移」按钮在 if (index > 0) 块内，缩进深一层（28/32 空格），
      v2 锚按 24/28 写导致 count=0。应用/删除/新建三个按钮 v2 已过验证，不动。
   3. 成功时清理上次遗留的 docs/edit_error.log，失败时照旧落盘全部错误。
-其余锚均已在 run #89 本地 grep 实证 + CI 计数验证通过。
+v4（成宇 2026-11-07 凌晨截图「你自己看看」）：
+  4. StatusPage 环境自检行 ValueRow → ItemRow(summary)：长诊断详情（root · USB
+     速度 · 白名单…）在右值位只分到 46% 宽、两行省略会吃掉尾巴；老包上更是把
+     左标题挤成竖排（U-6 宽度上限已防挤压）。改挂 title 下方全宽 summary（3 行），
+     标题独立成行、诊断信息一字不丢。锚经本地 grep 实证 count=1。
+其余锚均已在 run #89/#90 验证通过（已落地）。
 """
 import os
 import sys
@@ -17,6 +22,7 @@ INSETS = "android/app/src/main/java/com/allperiph/ui/miuix/ApInsets.kt"
 SHELL = "android/app/src/main/java/com/allperiph/ui/compose/ApShellActivity.kt"
 COMP = "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt"
 SET = "android/app/src/main/java/com/allperiph/ui/compose/SettingsPage.kt"
+ST = "android/app/src/main/java/com/allperiph/ui/compose/StatusPage.kt"
 SUB = "android/app/src/main/java/com/allperiph"
 ERRLOG = "docs/edit_error.log"
 
@@ -300,6 +306,28 @@ EDITS += [
         "kind": "replace",
         "anchor": "                    ApComponents.ActionButton(\n                        text = \"从内置模板新建一份可改的\",",
         "new": "                    ApComponents.NarrowButton(\n                        text = \"从内置模板新建一份可改的\",",
+    },
+    # ———————— StatusPage.kt（v4：环境自检行） ————————
+    {
+        "id": "U7-env行改summary",
+        "file": ST,
+        "kind": "replace",
+        "anchor": (
+            "                ApComponents.ValueRow(\n"
+            "                    title = ctx.getString(R.string.ui_home_label_env),\n"
+            "                    value = state.envSummary,\n"
+            "                )"
+        ),
+        "new": (
+            "                // 2026-11-07（成宇发截图「你自己看看」）：环境自检是长诊断详情\n"
+            "                // （root · USB 速度 · 白名单…），放 ValueRow 右值位只有 46% 宽、\n"
+            "                // 两行省略会吃掉尾巴；老包上更是把左标题挤成竖排。改挂 title 下方\n"
+            "                // 全宽 summary（maxLines 3），标题独立成行、诊断信息一字不丢。\n"
+            "                ApComponents.ItemRow(\n"
+            "                    title = ctx.getString(R.string.ui_home_label_env),\n"
+            "                    summary = state.envSummary,\n"
+            "                )"
+        ),
     },
 ]
 
