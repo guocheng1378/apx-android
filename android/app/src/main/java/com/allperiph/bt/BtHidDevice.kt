@@ -208,8 +208,12 @@ class BtHidDevice(private val appContext: Context) : Module {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
         val hosts = runCatching { adapter.bondedDevices }.getOrNull().orEmpty().filter { d ->
             val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull() ?: -1
+            // 2026-11-08 电视兜底：电视 / 盒子不少上报 UNCATEGORIZED（major 查不到类），
+            // 一并纳入 —— connect 到非 HID 主机被拒只是无害的一条日志，换盒子的配对回连。
+            // 手机（PHONE major）仍排除：手机被控走 9511 + 无障碍，不是 HID 主机。
             major == BluetoothClass.Device.Major.COMPUTER ||
-                major == BluetoothClass.Device.Major.AUDIO_VIDEO
+                major == BluetoothClass.Device.Major.AUDIO_VIDEO ||
+                major == BluetoothClass.Device.Major.UNCATEGORIZED
         }
         if (hosts.isEmpty()) {
             Log.i(TAG, "没有已配对的电脑/电视主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")
@@ -281,7 +285,7 @@ class BtHidDevice(private val appContext: Context) : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待 PC 配对）"
+        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待电脑 / 电视配对）"
         ModuleState.STARTING -> "蓝牙 HID 启动中"
         ModuleState.DEGRADED -> "蓝牙 HID 权限不足"
         ModuleState.ERROR -> "蓝牙 HID 错误：无蓝牙适配器"

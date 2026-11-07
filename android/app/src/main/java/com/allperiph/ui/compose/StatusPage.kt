@@ -208,6 +208,8 @@ fun StatusPage(
         //    （本机被控）。选择器弹的是与悬浮球面板同一份 ApDevicePickerBody，连接逻辑
         //    仍只有 connectControlledDevice 一处）——
         var pickerOpen by remember { mutableStateOf(false) }
+        // 蓝牙配对引导弹窗（2026-11-08 电视蓝牙兜底）：入口在下方受控与出口区块
+        var btGuideOpen by remember { mutableStateOf(false) }
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_control)) {
             Column {
                 ApComponents.ValueRow(
@@ -226,6 +228,46 @@ fun StatusPage(
                     text = ctx.getString(R.string.ui_pick_device_button),
                     onClick = { pickerOpen = true },
                 )
+                // 蓝牙配对引导（2026-11-08 电视蓝牙兜底）：配对本身在系统设置完成
+                // （手机只注册 HID SDP，发现与配对由对端发起），此前没有任何一屏告诉
+                // 用户怎么配 —— 断 Wi-Fi 想回落蓝牙时无从下手。只补引导与能力边界，
+                // 择路/回落不动（Uplink.resolve 已结构性支持，本轮源码复核确认）。
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_bt_pair_guide),
+                    onClick = { btGuideOpen = true },
+                )
+                if (btGuideOpen) {
+                    ApComponents.DialogCard(onDismiss = { btGuideOpen = false }) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = ctx.getString(R.string.ui_bt_pair_title),
+                                fontSize = 15.sp,
+                            )
+                            Text(
+                                text = ctx.getString(R.string.ui_bt_pair_body),
+                                fontSize = 13.sp,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.padding(top = 8.dp),
+                            )
+                            ApComponents.ActionButton(
+                                text = ctx.getString(R.string.ui_bt_pair_open_settings),
+                                onClick = {
+                                    runCatching {
+                                        ctx.startActivity(
+                                            Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS),
+                                        )
+                                    }.onFailure {
+                                        Toast.makeText(
+                                            ctx,
+                                            R.string.ui_bt_pair_open_failed,
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
                 if (pickerOpen) {
                     // DialogCard 内部已包一层 androidx.compose.ui.window.Dialog，
                     // 外面再套 Dialog = 「弹窗里再开一个窗口」（双层遮罩）。

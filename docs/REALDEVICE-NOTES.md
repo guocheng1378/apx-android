@@ -297,3 +297,8 @@ NONE，判据唯一）；native 蓝牙描述符四 TLC + Report ID 声明齐（v
    不得静默失败（硬性原则：不可用则如实标注）。
 8. 每项记录：✅/❌ + 现象 + logcat 片段，回填本节；全 ✅ 后才能把 ROADMAP §2.1
    里的「真机未实测」字样去掉。
+9. **电视配对与回落**（2026-11-08 新增）：与 Android TV / 盒子配对（状态页「蓝牙配对
+   引导」有步骤），断开 Wi-Fi 后 TV 遥控页方向键 / 确认 / 触摸条应经蓝牙可用，
+   重连 Wi-Fi 后应在 2s 内自动切回 9511。记录电视型号与其 BluetoothClass major
+   （`dumpsys bluetooth_manager`）—— `connectBondedHost` 已放宽到 UNCATEGORIZED
+   （2026-11-08），但盒子实际上报类别未经实测确认。
