@@ -675,7 +675,7 @@ class TouchpadActivity : Activity() {
             val g = dp(dens.gapDp)
             labels.forEach { text ->
                 val b = keyCap(text, false) {
-                    HidKeys.tap(HidKeys.usageByLabel(text)) // letterRows 含符号行，按 label 反查更全
+                    HidKeys.tapLabel(text) // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）
                     refreshMods() // tap 会清 sticky，同步熄灭修饰键
                 }
                 row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
@@ -854,7 +854,7 @@ class TouchpadActivity : Activity() {
                     if (bit != null) {
                         HidKeys.toggleSticky(bit)
                     } else {
-                        HidKeys.tap(HidKeys.usageByLabel(text))
+                        HidKeys.tapLabel(text)
                     }
                     refreshMods()
                 }
@@ -957,7 +957,7 @@ class TouchpadActivity : Activity() {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             labels.forEach { text ->
                 val b = keyCap(text, false) {
-                    HidKeys.tap(HidKeys.usageByLabel(text))
+                    HidKeys.tapLabel(text)
                     refreshMods()
                 }
                 row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {

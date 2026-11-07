@@ -211,7 +211,7 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 labels.forEach { label ->
                     KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
-                        HidKeys.tap(HidKeys.usageByLabel(label))
+                        HidKeys.tapLabel(label)
                         sticky = 0 // tap 自动清 sticky，同步燄灭修饰键（与操控面 refreshMods 同口径）
                     }
                 }
@@ -341,7 +341,7 @@ private fun GameLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
                         }
                     } else {
                         KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
-                            HidKeys.tap(HidKeys.usageByLabel(text))
+                            HidKeys.tapLabel(text)
                             sticky = 0
                         }
                     }
@@ -398,7 +398,7 @@ private fun CustomLayout(
                 Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     labels.forEach { label ->
                         KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
-                            HidKeys.tap(HidKeys.usageByLabel(label))
+                            HidKeys.tapLabel(label)
                         }
                     }
                 }

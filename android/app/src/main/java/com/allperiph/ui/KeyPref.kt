@@ -38,11 +38,15 @@ object KeyPref {
     }
 
     /**
-     * 当前排列方案下的**完整键盘**行表（数字行 + 3 行字母 + 功能行，共 5 行）。
+     * 当前排列方案下的**完整键盘**行表（符号排 + 数字行 + 3 行字母 + 功能行，共 6 行；
+     * b16 补半角符号排 —— 用户报「上面没有半角符号」）。
      * 数字行与功能行三套共用，只换字母行的顺序。
      */
+    // b16 半角符号排：上档符号无独立 HID usage，发送走 HidKeys.tapLabel（Shift+底键组合）
+    private val SYMBOL_ROW = listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+")
     private val DIGIT_ROW = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=")
-    private val FN_ROW = listOf("Esc", "Tab", "Space", "Enter", "⌫", "Del")
+    // b16：Enter 归右端（用户报「回车键的位置也不对」，从第 4 位移到行末）
+    private val FN_ROW = listOf("Esc", "Tab", "Space", "⌫", "Del", "Enter")
 
     fun letterRows(ctx: Context): List<List<String>> {
         val letters = when (layoutIndex(ctx)) {
@@ -62,7 +66,7 @@ object KeyPref {
                 listOf("Z", "X", "C", "V", "B", "N", "M", ",", ".", "/"),
             )
         }
-        return listOf(DIGIT_ROW) + letters + listOf(FN_ROW)
+        return listOf(SYMBOL_ROW, DIGIT_ROW) + letters + listOf(FN_ROW)
     }
 
     // —————————————————————————— 键帽密度 ——————————————————————————

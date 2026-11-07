@@ -269,6 +269,32 @@ object HidKeys {
         return used
     }
 
+    /** 上档符号 → (修饰位, 底键 usage)：US 布局 Shift+数字/-/= 的标准产出（b16） */
+    private val SHIFTED: Map<String, Pair<Int, Int>> = mapOf(
+        "!" to (MOD_SHIFT to 0x1E), "@" to (MOD_SHIFT to 0x1F), "#" to (MOD_SHIFT to 0x20),
+        "$" to (MOD_SHIFT to 0x21), "%" to (MOD_SHIFT to 0x22), "^" to (MOD_SHIFT to 0x23),
+        "&" to (MOD_SHIFT to 0x24), "*" to (MOD_SHIFT to 0x25), "(" to (MOD_SHIFT to 0x26),
+        ")" to (MOD_SHIFT to 0x27), "_" to (MOD_SHIFT to 0x2D), "+" to (MOD_SHIFT to 0x2E),
+    )
+
+    /**
+     * 键面 label 发送入口（b16）：上档符号按 Shift+底键组合发送，其余透传
+     * [usageByLabel] → [tap]。行表里的符号键必须走本函数 —— usageOf 对上档符号
+     * 返回 0，直接 tap 会被静默忽略（「加了符号键没反应」的坑）。时序与 [tap] 同款：
+     * 60ms 自动全释放、发完清 sticky（sticky Shift 与本表 Shift 叠加无害）。
+     */
+    fun tapLabel(label: String): Int {
+        SHIFTED[label]?.let { (mod, usage) ->
+            handler.removeCallbacks(releaseTask)
+            send(sticky or mod, intArrayOf(usage))
+            handler.postDelayed(releaseTask, 60)
+            val used = sticky
+            sticky = 0
+            return used
+        }
+        return tap(usageByLabel(label))
+    }
+
     /** 键面标签 → Keyboard Page (0x07) usage code；未识别返回 0 */
     fun usageOf(label: String): Int = when (label) {
         "Esc" -> 0x29; "Tab" -> 0x2B; "Enter" -> 0x28; "Space" -> 0x2C
