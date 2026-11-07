@@ -30,6 +30,11 @@
 5. **引用可解析**：`ui` 包外引用这五个门面时，必须有 `import` 或写成全限定名；
    漏 import 是会编译失败的，但那份报错在 Android 构建里往往被别的错误抢先，定位费时间。
 
+6. **写死色值判红**（2026-11-07）：`ui/` 下出现 `Color(0x…)` 字面量 → 失败。
+   换肤与深浅色都不跟，是「换了皮肤这块没变」的同一根因。
+7. **浮层未走统一封装**（2026-11-07）：裸 `androidx.compose.ui.window.Dialog(` 或
+   `AlertDialog.Builder(` → 失败。白名单只留 `ApComponents.kt` 与 `ApDialog.kt` 本身。
+
 只做静态文本分析，不需要编译器。退出码非 0 = 有违规。
 """
 import re
@@ -71,6 +76,22 @@ PREF_FILE_NAME = re.compile(r"apx_theme")
 ACCENT_CONST = re.compile(
     r"\bR\.color\.(md_primary|md_primary_pressed|md_primary_container|md_on_primary)\b")
 
+# —— 2026-11-07 浮层收敛：写死色值 + 裸弹窗 ——
+# 第 6 条：页面里直接写 Color(0x…) 就绕过了 values / values-night 的语义令牌，
+# 换肤与深浅色都不跟（手柄页 #14161B、文件面板 #3482FF 就是这么漏出去的）。
+COLOR_LITERAL = re.compile(r"\bColor\(\s*0x[0-9A-Fa-f]{6,8}\s*\)")
+
+# 第 7 条：浮层必须走统一封装。Compose 侧走 ApComponents.DialogCard，
+# View 侧走 ApDialog —— 直接 new 底层弹窗就绕过了 theme、缩放与 insets。
+COMPOSE_DIALOG = re.compile(r"androidx\.compose\.ui\.window\.Dialog\s*\(")
+VIEW_DIALOG = re.compile(r"\bAlertDialog\.Builder\s*\(")
+
+# 白名单只留两个封装本身，别的一律判红（分层选型见 docs/ui-overlay-rules.md）
+OVERLAY_WHITELIST = {
+    "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt",
+    "android/app/src/main/java/com/allperiph/ui/ApDialog.kt",
+}
+
 
 def strip_comments(text):
     """剥掉 // 行注释与 /* */ 块注释（KDoc 也算），避免文档里举例被误判。"""
@@ -106,6 +127,29 @@ def main():
                     problems.append(
                         f"{rel}:{line}: 直接取强调色常量 `{m.group(0)}` —— 皮肤与莫奈会静默失效，"
                         f"请走 ApPalette.primary / onPrimary / primaryContainer")
+
+            # —— 6. 写死色值（2026-11-07）——
+            if "/ui/" in rel and rel not in OVERLAY_WHITELIST:
+                for m in COLOR_LITERAL.finditer(code):
+                    line = code[: m.start()].count("\n") + 1
+                    problems.append(
+                        f"{rel}:{line}: 写死色值 `{m.group(0)}` —— 皮肤与深浅色都不跟，"
+                        f"请收进 res/values(-night)/colors.xml 的语义令牌并引用 R.color.*")
+
+            # —— 7. 浮层必须走统一封装（2026-11-07）——
+            # 只扫 :app 模块：ApDialog 在这个模块里，:tv 只依赖 :shared 够不到它
+            # （tv 侧唯一一处裸 builder 在 tv/ui/MainActivity.kt，见 docs/ui-overlay-rules.md）。
+            if rel.startswith("android/app/src/") and rel not in OVERLAY_WHITELIST:
+                for rx, what, how in (
+                    (COMPOSE_DIALOG, "androidx.compose.ui.window.Dialog",
+                     "ApComponents.DialogCard"),
+                    (VIEW_DIALOG, "AlertDialog.Builder", "ApDialog.builder"),
+                ):
+                    for m in rx.finditer(code):
+                        line = code[: m.start()].count("\n") + 1
+                        problems.append(
+                            f"{rel}:{line}: 裸用 `{what}`（浮层未走统一封装）—— 请改用 {how}，"
+                            f"分层选型见 docs/ui-overlay-rules.md")
 
             # —— 引用可解析（只查 ui 包外的文件）——
             pkg = re.search(r"^package\s+([\w.]+)", code, re.M)
