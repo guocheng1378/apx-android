@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-7 v4+v5+v6（AOSP 系统栏 + 挖孔语义 + dpi 跟手平滑 + 编辑控件降级 +
-状态页环境自检布局 + PC 面板悬停小字 + 低栏收起态透明悬浮）。
+"""repo-edit：批 U-7/v4-v7（AOSP 系统栏 + 挖孔语义 + dpi 平滑 + 控件降级 + 状态页自检行 +
+PC 悬停小字 + 低栏透明悬浮 + 全界面长文本精简与颜色表达）。
 
 v3 修正（run #89 错误日志定位）：
   1. SUB 子页目录常量写错分隔符（com.allperiph 点号 → com/allperiph 斜杠），
@@ -15,19 +15,22 @@ v4（成宇 2026-11-07 凌晨截图「你自己看看」）：
 v5（成宇 2026-11-07「我的软件没有要改的吗」深审——按组件选型口诀补悬停小字）：
   5. 6 处关闭类图标按钮补 title（悬停小字=Tooltip）：App.tsx 更新×、代输 Dock×、
      文件面板/设置/日志导出/代输 4 个 Modal 头×（后 4 处同时补 aria-label）。
-     锚均经本地 raw 文件 grep 实证 count=1。口诀其余五条已对照通过：Toast 队列 ✓、
-     Notice 顶部常驻 ✓、Modal 只留真阻断 ✓、删除两段式确认 ✓、Drawer 例外
-     （分页就地编辑）✓，无需改动。bot 已落地 ea9e4d3。
+     bot 已落地 ea9e4d3。口诀其余五条对照通过：Toast 队列 ✓、Notice 顶部常驻 ✓、
+     Modal 只留真阻断 ✓、删除两段式确认 ✓、Drawer 例外（分页就地编辑）✓。
 v6（成宇 2026-11-07「低栏缩回否应该是透明悬浮的而不是强占界面面积」选方案4）：
-  6. ApShell bottomGap/topGap 由固定值（竖 88 / 横顶 96 / 横底 24）改为跟随
-     barCollapsed 的 animateDpAsState：收起成球一律收到 8dp，内容回涨与球缩共用
-     barFx 同口径弹簧（DampingRatioLowBouncy + StiffnessMedium）；展开恢复原值。
-     键盘页横屏 40dp 特判不动（球与胶囊同角位、下沿同为 ~58dp，仍需避让修饰键排）。
-     页面侧分工已核（StatusPage:94 bottom = bottomGap + insets.bottom）：手势条避让走
-     insets.bottom，bottomGap 纯给低栏让位 → 收到 8dp 安全。
-  7. 收起态 48dp 球实心 surfaceContainer → 半透明渐变玻璃（alpha .66→.46）+ 1dp 高光
-     描边（暗底/亮底两套 alpha，与展开胶囊同质感，shader-free 老机器同款）——球浮在
-     内容上、内容可透出，不再是压着界面的实心圆。新增 foundation.border 导入。
+  6. ApShell bottomGap/topGap 固定值 → 跟随 barCollapsed 的 animateDpAsState：
+     收起收到 8dp，与 barFx 同口径弹簧；键盘页横屏 40dp 特判不动。bot 已落地 25c7cf4b。
+  7. 收起态 48dp 球实心 surfaceContainer → 半透明渐变玻璃 + 1dp 高光描边。
+v7（成宇 2026-11-07「各个界面的长文本还是太多了，能删的删，能用颜色代替的用颜色」）：
+  8. strings.xml 21 条界面长文案精简：删冗余括号说明（位置/路径/自明操作）、Toast 收到
+     ~25 字内、提示复句改「·」分隔短句。**key 一律不动**（引用零断裂）；含 %1$s 的
+     ui_filepanel_where 保留占位符、删第二行自明操作（按钮上就写着）。每条锚经本地
+     grep 实证 count=1。accessibility_desc（系统无障碍页描述）与 ui_help_*（帮助页
+     本体即文档）本轮不改。
+  9. 颜色代替文字 2 处：StatusPage USB 提示 —— 2.0 慢档改 module_state_pending 琥珀
+     警示、3.0 保持灰；ApTouchpadSurface 手势提示 —— 服务未开/没出口改
+     module_state_error 红色阻断警示、正常说明保持灰。全部走既有 R.color 令牌
+     （明暗两套齐全），不引硬编码色；两处锚均经本地 grep -A 验证相邻且唯一。
 其余 U-7 锚已在 run #89/#90/#91 验证通过（已落地，自动 skip）。
 """
 import os
@@ -479,6 +482,144 @@ EDITS += [
             "                                ),\n"
             "                                shape = androidx.compose.foundation.shape.CircleShape,\n"
             "                            )"
+        ),
+    },
+]
+
+# ———————— v7/U8：全界面长文本精简 + 颜色代替文字（成宇 2026-11-07） ————————
+STR = "android/app/src/main/res/values/strings.xml"
+TPS = "android/app/src/main/java/com/allperiph/ui/compose/ApTouchpadSurface.kt"
+
+
+def _str(key, old, new):
+    return {
+        "id": "U8-str " + key,
+        "file": STR,
+        "kind": "replace",
+        "anchor": '<string name="' + key + '">' + old + '</string>',
+        "new": '<string name="' + key + '">' + new + '</string>',
+    }
+
+
+EDITS += [
+    _str(
+        "hint_usb2",
+        "当前是 USB 2.0 的速度（慢档）。换一根 USB 3.0 数据线和 3.0 接口会明显更跟手。",
+        "USB 2.0 慢档 · 换 3.0 线与接口更跟手",
+    ),
+    _str(
+        "controlled_enable_hint",
+        "被控模式已打开：请到系统「无障碍」里启用「全能外设」，并允许「显示在其他应用上层」，手机发来的操作才能真正作用到本机（没授权时只能看到一个跟着动的光标）。",
+        "已开被控模式：请到「无障碍」启用本应用并允许悬浮窗",
+    ),
+    _str(
+        "ui_gesture_shield_toast_no_root",
+        "没有 root，遮蔽未生效：请手动关掉系统三指手势（设置 → 更多设置 → 快捷手势 → 截屏）",
+        "无 root：请在系统设置手动关闭三指截屏手势",
+    ),
+    _str(
+        "ui_home_quick_hint",
+        "长按底部悬浮栏即可随时唤出这一排（竖屏底部居中、横屏在右上角）",
+        "长按底部悬浮栏唤出这一排",
+    ),
+    _str(
+        "ui_touchpad_hint_service_off",
+        "服务未启动：手势发不出去。先到「状态」页打开启动开关。",
+        "服务未启动 · 先到「状态」页打开开关",
+    ),
+    _str(
+        "ui_touchpad_hint_no_uplink",
+        "没有出口：手势发不出去。先到「状态 → 受控与出口」选受控设备，或接上 USB / 蓝牙。",
+        "没有出口 · 先选受控设备，或接 USB / 蓝牙",
+    ),
+    _str(
+        "ui_filepanel_text_file_no_local",
+        "还没有收到文件。对方（电脑 / 电视 / 另一台手机）在「文件传输」里选这台手机，就能把文件发过来。",
+        "还没有收到文件 · 对方在「文件传输」选这台手机即可发送",
+    ),
+    _str(
+        "ui_ball_fn_clipboard_hint",
+        "本机复制文字会自动发到受控设备。此处可手动补发当前剪贴板内容。",
+        "复制文字自动发送到受控设备 · 也可手动补发",
+    ),
+    _str(
+        "ui_ball_fn_clipboard_nolink",
+        "没有受控设备：先到「状态 → 受控与出口」选一台",
+        "无受控设备 · 先到「状态 → 受控与出口」选一台",
+    ),
+    _str(
+        "ui_set_orient_lock_sum",
+        "把界面钉在当前朝向；锁定后不再随重力自动切页，关闭后横持手机自动切到键盘页",
+        "钉在当前朝向，不再随重力切页",
+    ),
+    _str(
+        "ui_set_auto_swap_sum",
+        "关闭时页面不再随重力自动切换（默认关）；版式朝向由系统旋转锁定决定",
+        "关闭后页面不随重力自动切换（默认关）",
+    ),
+    _str(
+        "ui_set_value_kb_apply_when",
+        "重进键盘页或重开触控板后生效（自定义布局在触控板键盘面板内编辑）",
+        "重进键盘页或触控板后生效",
+    ),
+    _str("ui_pick_device_button", "选择受控设备（连上之后触摸板 / 键盘才发得出去）", "选择受控设备"),
+    _str(
+        "ui_pick_device_scanning",
+        "正在搜索局域网设备…（对端的控制服务要开着；1~2 秒内会陆续出现）",
+        "搜索局域网设备…（需对端服务已开）",
+    ),
+    _str("ui_ball_items_title", "悬浮球菜单项（勾选后扇形菜单立即按此重建）", "悬浮球菜单项"),
+    _str(
+        "ui_ball_item_add_hint",
+        "点一下加进扇形菜单（排在末尾，长按可往上挪）",
+        "点按加入菜单 · 长按拖动排序",
+    ),
+    _str("ui_ball_panel_pad_sum", "占屏高百分比；展开后拖面板顶部的把手也能改", "占屏高百分比 · 拖面板顶部把手可调"),
+    _str("ui_ball_panel_kb_sum", "占屏高百分比；横屏键位多，建议不低于 60%", "占屏高百分比 · 横屏建议 ≥ 60%"),
+    _str("ui_ball_menu_size_sum", "球展开后那一圈的项直径与半径；紧凑更省屏，大档更好点", "球展开后各项直径与半径 · 紧凑更省屏"),
+    _str("ui_set_bg_anim_sum", "背景极缓慢地缩放/漂移；纯色底叠一层柔和光晕。关闭后完全静止", "背景缓慢漂移叠柔光 · 关闭后静止"),
+    _str(
+        "ui_filepanel_where",
+        "收到的文件保存在：%1$s\n点「转发」发到目标设备；点「删除」移除本机文件。",
+        "收到的文件：%1$s",
+    ),
+    {
+        "id": "U8-色-USB慢档",
+        "file": ST,
+        "kind": "replace",
+        "anchor": (
+            "                    else ctx.getString(R.string.hint_usb2),\n"
+            "                    fontSize = 12.sp,\n"
+            "                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,"
+        ),
+        "new": (
+            "                    else ctx.getString(R.string.hint_usb2),\n"
+            "                    fontSize = 12.sp,\n"
+            "                    // 颜色代替长句（成宇 2026-11-07「能用颜色代替的用颜色」）：\n"
+            "                    // 慢档 = 琥珀警示色，3.0 正常保持灰 —— 不读字也能分清快慢。\n"
+            "                    color = if (state.rooted) MiuixTheme.colorScheme.onSurfaceVariantSummary\n"
+            "                    else colorResource(R.color.module_state_pending),"
+        ),
+    },
+    {
+        "id": "U8-色-触控板警示",
+        "file": TPS,
+        "kind": "replace",
+        "anchor": (
+            "                text = shown,\n"
+            "                fontSize = 12.sp,\n"
+            "                textAlign = TextAlign.Center,\n"
+            "                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,"
+        ),
+        "new": (
+            "                text = shown,\n"
+            "                fontSize = 12.sp,\n"
+            "                textAlign = TextAlign.Center,\n"
+            "                // 颜色代替长句（成宇 2026-11-07）：服务没开 / 没出口 = 红色\n"
+            "                // 阻断警示，正常手势说明保持灰 —— 不读字也能分辨能不能用。\n"
+            "                color = if (serviceOff || noExit)\n"
+            "                    androidx.compose.ui.res.colorResource(R.color.module_state_error)\n"
+            "                else MiuixTheme.colorScheme.onSurfaceVariantSummary,"
         ),
     },
 ]
