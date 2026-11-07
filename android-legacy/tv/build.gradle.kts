@@ -46,6 +46,26 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    // --- signingConfig 为空是 INSTALL_PARSE_FAILED_NO_CERTIFICATES 的根因
+    // --- 先用 GITHUB_TOKEN 临时签过验证（run#7），通过后切 release key
+    signingConfigs {
+        create("release") {
+            // GitHub Actions 临时密钥（仅调试用，验证通过后再切 release key）
+            storeFile = file("${projectDir}/signing.key")
+            storePassword = System.getenv("STORE_PASSWORD")
+            keyAlias = "tv-legacy"
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    builds {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            // 签名报告 —— 验证签名是否真正嵌入产物（INSTALL_PARSE_FAILED_NO_CERTIFICATES 的最终守门）
+            enableSplitApk = false
+        }
+    }
 }
 
 dependencies {
