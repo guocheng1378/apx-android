@@ -177,14 +177,17 @@ object KeyPref {
     const val RGB_OFF = 0
     const val RGB_BREATH = 1
     const val RGB_WAVE = 2
+    /** 按下扩散（成宇 2026-11-08「灯是是按下扩散」）：真键盘 Reactive，按哪儿从哪儿扩散 */
+    const val RGB_TOUCH = 3
 
-    const val RGB_COUNT = 3
+    const val RGB_COUNT = 4
 
     /** 三档的**显示文案**（顺序 = 档位下标）；理由同 [keycapStyleLabels]。 */
     fun rgbLabels(ctx: Context): List<String> = listOf(
         ctx.getString(R.string.ui_keyrgb_off),
         ctx.getString(R.string.ui_keyrgb_breath),
         ctx.getString(R.string.ui_keyrgb_wave),
+        ctx.getString(R.string.ui_keyrgb_touch),
     )
 
     fun rgbIndex(ctx: Context): Int =

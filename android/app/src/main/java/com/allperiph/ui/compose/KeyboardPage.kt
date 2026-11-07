@@ -1,5 +1,6 @@
 package com.allperiph.ui.compose
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
@@ -108,6 +109,23 @@ private val KB_TABS = listOf(
  * （[Modifier.drawBehind]），60fps 的灯效动画只触发重绘，不会让整副键盘逐帧重组
  * （84 颗键每帧重组在中端机上必卡）；关档时 phase 为 null，所有灯效分支短路，零开销。
  */
+/** 按下扩散（成宇 2026-11-08「灯是是按下扩散」）：真键盘 Reactive ——
+ * 平时键不亮，按下的键心抛一圈光向外跑，扫过哪里亮哪里（含字符）。
+ * 纯状态容器：UI 线程写，KeyBox.touchLight 按 SystemClock 读，随相位逐帧重绘。
+ */
+private object TouchFx {
+    class Wave(val x: Float, val y: Float, val t0: Long, val hue: Float)
+    val waves = ArrayDeque<Wave>()
+    var seq = 0
+    const val LIFE_MS = 800L
+    const val SPEED_PX = 1500f
+    const val BAND_PX = 170f
+    fun add(x: Float, y: Float) {
+        waves += Wave(x, y, android.os.SystemClock.uptimeMillis(), (seq++ * 57f) % 360f)
+        while (waves.size > 6) waves.removeFirst()
+    }
+}
+
 internal class RgbSpec(val mode: Int, val phase: State<Float>?)
 
 /** 键盘树内的灯效上下文；没有 Provider 的调用方拿到关档默认值（等于没加这个功能） */
@@ -620,20 +638,57 @@ private fun KeyBox(
     // 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，
     // TouchpadPage 同款用法），左缘像素即可，窗口相对偏移不影响错相。
     var rgbX by remember { mutableIntStateOf(0) }
+    // 按下扩散档还要键心（中心点）：TouchFx.add 的原点 + 涟漪距离的基准
+    var rgbC by remember { mutableStateOf(Offset.Zero) }
     val km =
-        if (rgbOn && rgb.mode == KeyPref.RGB_WAVE) {
-            modifier.onGloballyPositioned { rgbX = it.boundsInWindow().left.toInt() }
+        if (rgbOn &&
+            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)
+        ) {
+            modifier.onGloballyPositioned {
+                val b = it.boundsInWindow()
+                rgbX = b.left.toInt()
+                rgbC = b.center
+            }
         } else {
             modifier
         }
-    /** 当前键灯色（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：
-     *  照真键盘发光结构画（每键 LED + 导光柱 + 透光键帽）——灯不铺满键面，而是
-     *  键缝泛光 → 黑键帽（0xFF0C0C0C）→ 键帽亮边，字符用灯色「透光」（见下 fg）。
-     *  · 波浪 = 满饱和 LED 彩虹（s0.97 / v0.95），按横坐标错相匀速跑；
-     *  · 呼吸 = 亮度正弦呼吸（v 0.05↔0.95，4s 一明灭）+ 色相 48s 慢漂一轮彩虹。
-     *  vScale 供机械底座复用（0.42 = 同色压暗，光从轴座底下漏出来）。
+    /** 当前键灯色（b26 按下扩散 + b27 修冻结 —— 成宇 2026-11-08）：
+     *  RGB_TOUCH = 真键盘 Reactive：平时键面正常不发光，按下从键心抛亮带向外扫
+     *  （SPEED_PX/BAND_PX/LIFE_MS），扫过处泛光 + 黑键帽 + 亮边、字符点亮；
+     *  呼吸 / 波浪沿用 b25 真键盘渲染；vScale 供机械底座复用（0.42 = 同色压暗）。
      */
+    fun touchLight(): Color {
+        val now = android.os.SystemClock.uptimeMillis()
+        var best = 0f
+        var hue = 0f
+        for (w in TouchFx.waves) {
+            val age = now - w.t0
+            if (age > TouchFx.LIFE_MS) continue
+            val r = age / 1000f * TouchFx.SPEED_PX
+            val dx = rgbC.x - w.x
+            val dy = rgbC.y - w.y
+            val d = kotlin.math.sqrt(dx * dx + dy * dy)
+            val i =
+                (1f - kotlin.math.abs(d - r) / TouchFx.BAND_PX) *
+                    (1f - age.toFloat() / TouchFx.LIFE_MS.toFloat())
+            if (i > best) {
+                best = i
+                hue = w.hue
+            }
+        }
+        if (best <= 0f) return Color.Transparent
+        return hsvColor(hue, 0.97f, 0.06f + 0.89f * best.coerceAtMost(1f))
+    }
     fun rgbFace(vScale: Float): Color {
+        if (rgb.mode == KeyPref.RGB_TOUCH) {
+            val l = touchLight()
+            if (l.alpha <= 0f) return Color.Transparent
+            return l.copy(
+                red = l.red * vScale,
+                green = l.green * vScale,
+                blue = l.blue * vScale,
+            )
+        }
         val p = rgb.phase?.value ?: 0f
         val breathe = rgb.mode != KeyPref.RGB_WAVE
         // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮
@@ -643,27 +698,48 @@ private fun KeyBox(
         val v = if (breathe) 0.05f + 0.90f * env else 0.95f
         return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))
     }
+    // 黑键帽走语义令牌（check_appearance 判据6：ui/ 下禁止字面色值）
+    val rgbCap = Color(host.context.getColor(R.color.keycap_rgb_black))
     // 键面：相位在 drawBehind 里读，动画只触发重绘不重组；灯效关 → 原样 background。
     val faceMod: Modifier =
         if (rgbOn) {
             Modifier.drawBehind {
-                val light = rgbFace(1f)
-                val inset = 3.dp.toPx()
-                val tl = Offset(inset, inset)
-                val cap = Size(size.width - inset * 2, size.height - inset * 2)
-                drawRect(color = light)
-                drawRect(color = Color(0xFF0C0C0C), topLeft = tl, size = cap)
-                drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+                if (rgb.mode == KeyPref.RGB_TOUCH) {
+                    val tick = rgb.phase?.value ?: 0f // 订阅相位 → 逐帧重绘，涟漪推进
+                    drawRect(color = bg)
+                    val l = touchLight()
+                    if (l.alpha > 0f) {
+                        val inset = 3.dp.toPx()
+                        val tl = Offset(inset, inset)
+                        val cap = Size(size.width - inset * 2, size.height - inset * 2)
+                        drawRect(color = l)
+                        drawRect(color = rgbCap, topLeft = tl, size = cap)
+                        drawRect(color = l, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+                    }
+                } else {
+                    val light = rgbFace(1f)
+                    val inset = 3.dp.toPx()
+                    val tl = Offset(inset, inset)
+                    val cap = Size(size.width - inset * 2, size.height - inset * 2)
+                    drawRect(color = light)
+                    drawRect(color = rgbCap, topLeft = tl, size = cap)
+                    drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+                }
             }
         } else {
             Modifier.background(bg)
         }
     // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、
-    // 随波浪换色）；sticky 点亮的修饰键仍走白字（功能反馈优先级最高）。
+    // 随波浪换色、随按下扩散亮起）；sticky 点亮的修饰键仍走白字（反馈优先级最高）。
+    fun touchFg(): Color {
+        val tick = rgb.phase?.value ?: 0f // 订阅相位 → 每帧重组；不订阅会冻在按下那一帧
+        val l = touchLight()
+        return if (l.alpha > 0f) l else MiuixTheme.colorScheme.onSurface
+    }
     val fg =
         when {
             active -> Color.White
-            rgbOn -> rgbFace(1f)
+            rgbOn -> if (rgb.mode == KeyPref.RGB_TOUCH) touchFg() else rgbFace(1f)
             else -> MiuixTheme.colorScheme.onSurface
         }
     val accent = MiuixTheme.colorScheme.primary
@@ -671,6 +747,10 @@ private fun KeyBox(
     val pressed by interaction.collectIsPressedAsState()
     val fxValues = rememberKeyFx(pressed, fx)
     val fxMod = Modifier.keyFx(fxValues, accent)
+    // 按下扩散：按下的那一刻把键心交给 TouchFx（只在 RGB_TOUCH 档注册涟漪）
+    LaunchedEffect(pressed) {
+        if (pressed && rgbOn && rgb.mode == KeyPref.RGB_TOUCH) TouchFx.add(rgbC.x, rgbC.y)
+    }
     if (keycap == KeyPref.KEYCAP_GLASS) {
         // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(

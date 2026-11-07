@@ -139,4 +139,5 @@
     <color name="module_state_pending">#FFA34A08</color>
     <color name="module_state_error">#FFB4235A</color>
     <color name="module_state_idle">#FF5B6470</color>
+    <color name="keycap_rgb_black">#FF0C0C0C</color>
 </resources>

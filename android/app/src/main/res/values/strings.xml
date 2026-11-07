@@ -93,6 +93,7 @@
     <string name="ui_keyrgb_off">关闭</string>
     <string name="ui_keyrgb_breath">呼吸</string>
     <string name="ui_keyrgb_wave">波浪</string>
+    <string name="ui_keyrgb_touch">按下扩散</string>
     <string name="ui_touchpad_text_controlled">被控</string>
     <string name="ui_touchpad_text_remote">遥控</string>
     <string name="ui_touchpad_text_file">文件</string>
