@@ -377,7 +377,10 @@ fun StatusPage(
                     text = if (state.rooted) ctx.getString(R.string.hint_usb_ok)
                     else ctx.getString(R.string.hint_usb2),
                     fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    // 颜色代替长句（成宇 2026-11-07「能用颜色代替的用颜色」）：
+                    // 慢档 = 琥珀警示色，3.0 正常保持灰 —— 不读字也能分清快慢。
+                    color = if (state.rooted) MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    else colorResource(R.color.module_state_pending),
                     modifier = Modifier.padding(16.dp),
                 )
             }

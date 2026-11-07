@@ -170,7 +170,11 @@ fun ApTouchpadSurface(
                 text = shown,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                // 颜色代替长句（成宇 2026-11-07）：服务没开 / 没出口 = 红色
+                // 阻断警示，正常手势说明保持灰 —— 不读字也能分辨能不能用。
+                color = if (serviceOff || noExit)
+                    androidx.compose.ui.res.colorResource(R.color.module_state_error)
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 8.dp, start = 16.dp, end = 16.dp),

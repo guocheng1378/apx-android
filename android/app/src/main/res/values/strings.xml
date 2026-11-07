@@ -41,12 +41,12 @@
     <string name="card_link">连接状态</string>
 
     <string name="label_usb_speed">USB 连接速度</string>
-    <string name="hint_usb2">当前是 USB 2.0 的速度（慢档）。换一根 USB 3.0 数据线和 3.0 接口会明显更跟手。</string>
+    <string name="hint_usb2">USB 2.0 慢档 · 换 3.0 线与接口更跟手</string>
     <string name="hint_usb_ok">USB 3.0 高速已就绪。</string>
     <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
 
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
-    <string name="controlled_enable_hint">被控模式已打开：请到系统「无障碍」里启用「全能外设」，并允许「显示在其他应用上层」，手机发来的操作才能真正作用到本机（没授权时只能看到一个跟着动的光标）。</string>
+    <string name="controlled_enable_hint">已开被控模式：请到「无障碍」启用本应用并允许悬浮窗</string>
 
     <string name="ui_common_exit">退出</string>
     <string name="ui_common_cancel">取消</string>
@@ -166,7 +166,7 @@
     <string name="ui_remote_pick_device">选择设备</string>
     <string name="ui_filepanel_text_file">文件传输</string>
     <string name="ui_filepanel_text_file_forward">收到的文件（点一行转发给目标）</string>
-    <string name="ui_filepanel_text_file_no_local">还没有收到文件。对方（电脑 / 电视 / 另一台手机）在「文件传输」里选这台手机，就能把文件发过来。</string>
+    <string name="ui_filepanel_text_file_no_local">还没有收到文件 · 对方在「文件传输」选这台手机即可发送</string>
     <string name="ui_filepanel_text_forward">  转发</string>
     <string name="ui_filepanel_toast_device_no_first">还没有可发目标：先连一台设备，或等发现到设备</string>
     <string name="ui_filepanel_toast_only">只有一个可发目标：%1$s</string>
@@ -208,11 +208,11 @@
     <!-- v223.29 悬浮球新增两个「就地完成」扇项：剪贴板同步 \/ 副屏投屏 -->
     <string name="ui_ball_fn_clipboard">剪贴板</string>
     <string name="ui_ball_fn_clipboard_title">剪贴板同步</string>
-    <string name="ui_ball_fn_clipboard_hint">本机复制文字会自动发到受控设备。此处可手动补发当前剪贴板内容。</string>
+    <string name="ui_ball_fn_clipboard_hint">复制文字自动发送到受控设备 · 也可手动补发</string>
     <string name="ui_ball_fn_clipboard_send">发送当前剪贴板</string>
     <string name="ui_ball_fn_clipboard_copied">已发送（%1$d 字符）</string>
     <string name="ui_ball_fn_clipboard_empty">剪贴板没有文字</string>
-    <string name="ui_ball_fn_clipboard_nolink">没有受控设备：先到「状态 → 受控与出口」选一台</string>
+    <string name="ui_ball_fn_clipboard_nolink">无受控设备 · 先到「状态 → 受控与出口」选一台</string>
     <string name="ui_ball_fn_clipboard_now">当前剪贴板：%1$s</string>
     <string name="ui_ball_fn_screen">副屏</string>
     <string name="ui_ball_fn_camera">摄像头</string>
@@ -275,7 +275,7 @@
     <string name="ui_filepanel_delete_msg">确定删除「%1$s」？删除后无法恢复。</string>
     <string name="ui_filepanel_deleted">已删除 %1$s</string>
     <string name="ui_filepanel_delete_failed">删除失败：%1$s</string>
-    <string name="ui_filepanel_where">收到的文件保存在：%1$s\n点「转发」发到目标设备；点「删除」移除本机文件。</string>
+    <string name="ui_filepanel_where">收到的文件：%1$s</string>
     <string name="ui_filepanel_sending_detail">发送中 %1$d%% · %2$s</string>
     <string name="ui_filepanel_sending">发送中 %1$d%%</string>
 
@@ -299,7 +299,7 @@
     <string name="ui_remote_toast_no_exit">没有可用出口：插 USB 线、配蓝牙 HID，或先选受控设备</string>
     <string name="ui_touchpad_send_progress">发送 %1$d%%</string>
 
-    <string name="ui_gesture_shield_toast_no_root">没有 root，遮蔽未生效：请手动关掉系统三指手势（设置 → 更多设置 → 快捷手势 → 截屏）</string>
+    <string name="ui_gesture_shield_toast_no_root">无 root：请在系统设置手动关闭三指截屏手势</string>
     <string name="ui_help_gesture_shield">三指手势遮蔽：开 = 进触控板期间用 root 临时关掉系统的三指下滑截屏与三指长按区域截屏，退出即还原；无 root 时请手动在系统设置里关闭。</string>
     <!-- 帮助页：开关与日志说明 / 遥控键位（从各分组搬来的长文） -->
     <string name="ui_help_title_switch">开关与日志</string>
@@ -314,7 +314,7 @@
     <string name="ui_home_section_transport">传输通道</string>
     <string name="ui_home_section_modules">模块</string>
     <string name="ui_home_label_env">环境自检</string>
-    <string name="ui_ball_items_title">悬浮球菜单项（勾选后扇形菜单立即按此重建）</string>
+    <string name="ui_ball_items_title">悬浮球菜单项</string>
     <string name="ui_ball_item_quit_summary">菜单最后一项：一键停止外设服务</string>
     <!-- v223.29.4 悬浮球顺序改长按调序（成宇 2026-11-04「长按可以上下排」）：
          短按关掉一项、长按调序，所以「第 N 位」与四个移动动作都要有文案。
@@ -323,7 +323,7 @@
     <string name="ui_ball_item_keep_one">至少保留一项，否则扇形菜单没有可点项</string>
     <string name="ui_ball_items_more">未加入菜单的功能</string>
     <string name="ui_ball_items_more_count">还有 %1$d 项可加</string>
-    <string name="ui_ball_item_add_hint">点一下加进扇形菜单（排在末尾，长按可往上挪）</string>
+    <string name="ui_ball_item_add_hint">点按加入菜单 · 长按拖动排序</string>
     <string name="ui_ball_move_up">上移一位</string>
     <string name="ui_ball_move_top">置顶</string>
     <string name="ui_ball_move_down">下移一位</string>
@@ -373,7 +373,7 @@
     <string name="ui_set_bg_preset">预设底色</string>
     <string name="ui_set_bg_follow_theme">跟随主题</string>
     <string name="ui_set_bg_anim">动态背景</string>
-    <string name="ui_set_bg_anim_sum">背景极缓慢地缩放/漂移；纯色底叠一层柔和光晕。关闭后完全静止</string>
+    <string name="ui_set_bg_anim_sum">背景缓慢漂移叠柔光 · 关闭后静止</string>
     <string name="ui_set_bg_scope">生效范围</string>
     <string name="ui_set_bg_scope_value">主壳四页 + 触控板 / 遥控器自绘页（相册图不做动态）</string>
     <!-- 日志弹窗「复制全部」（成宇 2026-11-04「日志要加复制」） -->
@@ -385,7 +385,7 @@
     <string name="ui_set_sec_keyboard_look">键盘外观</string>
     <string name="ui_set_label_keycap_density">键帽密度</string>
     <string name="ui_set_label_apply_when">生效时机</string>
-    <string name="ui_set_value_kb_apply_when">重进键盘页或重开触控板后生效（自定义布局在触控板键盘面板内编辑）</string>
+    <string name="ui_set_value_kb_apply_when">重进键盘页或触控板后生效</string>
     <string name="ui_set_sec_audio_dir">音频方向</string>
     <string name="ui_set_label_usb_mic">USB 音频 · 麦克风（手机 → 电脑）</string>
     <string name="ui_set_sum_usb_mic">走 UAC2 声卡；运行中立即生效，否则下次连接生效</string>
@@ -404,7 +404,7 @@
          设置页开关随 page_settings.xml 在 401e080 删除、restoreOrientLock 随旧 MainActivity
          在 c6734c8 删除。文案沿用旧页口径（旧 lay_settings_text_orient_lock 已于 0ca1798 清理）。 -->
     <string name="ui_set_orient_lock_title">锁定屏幕方向</string>
-    <string name="ui_set_orient_lock_sum">把界面钉在当前朝向；锁定后不再随重力自动切页，关闭后横持手机自动切到键盘页</string>
+    <string name="ui_set_orient_lock_sum">钉在当前朝向，不再随重力切页</string>
     <!-- v223.27（2026-11-02 审查条 1.6）：旧触控板页那排入口在主壳没有原位落点，
          首页补一排「快捷入口」。文案尽量复用既有词条（手柄 / 遥控器 / 编辑快捷键），
          只新增旧版没有、也无人复用的三条。 -->
@@ -418,7 +418,7 @@
     <string name="ui_home_quick_clip">发送剪贴板</string>
     <string name="ui_home_quick_screen">副屏</string>
     <string name="ui_home_quick_camera">摄像头</string>
-    <string name="ui_home_quick_hint">长按底部悬浮栏即可随时唤出这一排（竖屏底部居中、横屏在右上角）</string>
+    <string name="ui_home_quick_hint">长按底部悬浮栏唤出这一排</string>
     <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
     <string name="ui_set_btn_camera">摄像头（手机画面回传本机）</string>
     <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
@@ -447,18 +447,18 @@
     <string name="ui_theme_preset_bouncy">弹跳趣味</string>
     <string name="ui_theme_preset_bouncy_desc">暮紫 · 机械键帽 · 弹跳 · 强震动 · 点击音</string>
     <string name="ui_set_auto_swap_title">横持自动切到键盘页</string>
-    <string name="ui_set_auto_swap_sum">关闭时页面不再随重力自动切换（默认关）；版式朝向由系统旋转锁定决定</string>
+    <string name="ui_set_auto_swap_sum">关闭后页面不随重力自动切换（默认关）</string>
     <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
     <string name="ui_pick_device_controlled">外设模式（本机被控）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>
-    <string name="ui_pick_device_scanning">正在搜索局域网设备…（对端的控制服务要开着；1~2 秒内会陆续出现）</string>
-    <string name="ui_pick_device_button">选择受控设备（连上之后触摸板 / 键盘才发得出去）</string>
+    <string name="ui_pick_device_scanning">搜索局域网设备…（需对端服务已开）</string>
+    <string name="ui_pick_device_button">选择受控设备</string>
     <string name="ui_set_label_current_control">当前控制</string>
     <string name="ui_set_label_current_control_none">未连接（点下面「选择受控设备」）</string>
     <string name="ui_set_btn_disconnect_control">断开当前控制</string>
     <string name="ui_set_toast_disconnected">已断开</string>
-    <string name="ui_touchpad_hint_service_off">服务未启动：手势发不出去。先到「状态」页打开启动开关。</string>
-    <string name="ui_touchpad_hint_no_uplink">没有出口：手势发不出去。先到「状态 → 受控与出口」选受控设备，或接上 USB / 蓝牙。</string>
+    <string name="ui_touchpad_hint_service_off">服务未启动 · 先到「状态」页打开开关</string>
+    <string name="ui_touchpad_hint_no_uplink">没有出口 · 先选受控设备，或接 USB / 蓝牙</string>
     <!-- v223.28 「当前控制」整体上移状态页（成宇 2026-11-02「本应该在状态页的内容却在设置页」） -->
     <string name="ui_home_section_control">受控与出口</string>
     <string name="ui_home_label_uplink">当前出口</string>
@@ -506,13 +506,13 @@
     <string name="ui_form_auto_now">自动（当前：%1$s）</string>
     <!-- v223.29.9 悬浮面板高度（成宇「悬浮窗出来的窗口应该可以调节大小」） -->
     <string name="ui_ball_panel_pad">悬浮触控板高度</string>
-    <string name="ui_ball_panel_pad_sum">占屏高百分比；展开后拖面板顶部的把手也能改</string>
+    <string name="ui_ball_panel_pad_sum">占屏高百分比 · 拖面板顶部把手可调</string>
     <string name="ui_ball_panel_kb">悬浮键盘高度</string>
-    <string name="ui_ball_panel_kb_sum">占屏高百分比；横屏键位多，建议不低于 60%</string>
+    <string name="ui_ball_panel_kb_sum">占屏高百分比 · 横屏建议 ≥ 60%</string>
     <string name="ui_ball_panel_pct">%1$d%%</string>
     <!-- 2026-11-07 悬浮球扇形菜单大小（成宇「悬浮球弹出的窗口要能调节大小」） -->
     <string name="ui_ball_menu_size">菜单大小</string>
-    <string name="ui_ball_menu_size_sum">球展开后那一圈的项直径与半径；紧凑更省屏，大档更好点</string>
+    <string name="ui_ball_menu_size_sum">球展开后各项直径与半径 · 紧凑更省屏</string>
     <string name="ui_ball_menu_size_compact">紧凑</string>
     <string name="ui_ball_menu_size_normal">标准</string>
     <string name="ui_ball_menu_size_large">大</string>
