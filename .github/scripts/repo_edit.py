@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-7 v4（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
-编辑控件降级，成宇 2026-11-07 深化反馈）。
+"""repo-edit：批 U-7 v4+v5（AOSP 系统栏 + 挖孔语义 + dpi 跟手平滑 + 编辑控件降级 +
+状态页环境自检布局 + PC 面板悬停小字补全）。
 
 v3 修正（run #89 错误日志定位）：
   1. SUB 子页目录常量写错分隔符（com.allperiph 点号 → com/allperiph 斜杠），
@@ -9,11 +9,16 @@ v3 修正（run #89 错误日志定位）：
      v2 锚按 24/28 写导致 count=0。应用/删除/新建三个按钮 v2 已过验证，不动。
   3. 成功时清理上次遗留的 docs/edit_error.log，失败时照旧落盘全部错误。
 v4（成宇 2026-11-07 凌晨截图「你自己看看」）：
-  4. StatusPage 环境自检行 ValueRow → ItemRow(summary)：长诊断详情（root · USB
-     速度 · 白名单…）在右值位只分到 46% 宽、两行省略会吃掉尾巴；老包上更是把
-     左标题挤成竖排（U-6 宽度上限已防挤压）。改挂 title 下方全宽 summary（3 行），
-     标题独立成行、诊断信息一字不丢。锚经本地 grep 实证 count=1。
-其余锚均已在 run #89/#90 验证通过（已落地）。
+  4. StatusPage 环境自检行 ValueRow → ItemRow(summary)：长诊断详情在右值位只分到
+     46% 宽、两行省略吃尾巴，老包上更是把左标题挤成竖排。改挂 title 下方全宽
+     summary（3 行）。run #91 已落地（90516c6f）。
+v5（成宇 2026-11-07「我的软件没有要改的吗」深审——按组件选型口诀补悬停小字）：
+  5. 6 处关闭类图标按钮补 title（悬停小字=Tooltip）：App.tsx 更新×、代输 Dock×、
+     文件面板/设置/日志导出/代输 4 个 Modal 头×（后 4 处同时补 aria-label）。
+     锚均经本地 raw 文件 grep 实证 count=1。口诀其余五条已对照通过：Toast 队列 ✓、
+     Notice 顶部常驻 ✓、Modal 只留真阻断 ✓、删除两段式确认 ✓、Drawer 例外
+     （分页就地编辑）✓，无需改动。
+其余 U-7 锚已在 run #89/#90/#91 验证通过（已落地，自动 skip）。
 """
 import os
 import sys
@@ -24,6 +29,12 @@ COMP = "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt"
 SET = "android/app/src/main/java/com/allperiph/ui/compose/SettingsPage.kt"
 ST = "android/app/src/main/java/com/allperiph/ui/compose/StatusPage.kt"
 SUB = "android/app/src/main/java/com/allperiph"
+WAPP = "pc/web/src/App.tsx"
+WDOCK = "pc/web/src/components/RemoteInputDock.tsx"
+WPANEL = "pc/web/src/components/FilePanelModal.tsx"
+WSETM = "pc/web/src/components/SettingsModal.tsx"
+WLOGM = "pc/web/src/components/LogExportModal.tsx"
+WRMTM = "pc/web/src/components/RemoteInputModal.tsx"
 ERRLOG = "docs/edit_error.log"
 
 SUB_PAGES = [
@@ -329,6 +340,49 @@ EDITS += [
             "                )"
         ),
     },
+    # ———————— PC 面板 Tooltip 补全（v5：组件选型口诀深审） ————————
+    {
+        "id": "U7-tip-更新×",
+        "file": WAPP,
+        "kind": "replace",
+        "anchor": 'aria-label="忽略更新"',
+        "new": 'aria-label="忽略更新" title="忽略更新"',
+    },
+    {
+        "id": "U7-tip-代输Dock×",
+        "file": WDOCK,
+        "kind": "replace",
+        "anchor": '<button className="icon-btn" onClick={onClose} aria-label="关闭">',
+        "new": '<button className="icon-btn" onClick={onClose} aria-label="关闭" title="关闭">',
+    },
+    {
+        "id": "U7-tip-文件面板×",
+        "file": WPANEL,
+        "kind": "replace",
+        "anchor": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>',
+        "new": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>',
+    },
+    {
+        "id": "U7-tip-设置Modal×",
+        "file": WSETM,
+        "kind": "replace",
+        "anchor": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>',
+        "new": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>',
+    },
+    {
+        "id": "U7-tip-日志导出×",
+        "file": WLOGM,
+        "kind": "replace",
+        "anchor": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>',
+        "new": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>',
+    },
+    {
+        "id": "U7-tip-代输Modal×",
+        "file": WRMTM,
+        "kind": "replace",
+        "anchor": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>',
+        "new": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>',
+    },
 ]
 
 
@@ -374,7 +428,6 @@ def main() -> int:
         print("ERRORS:\n" + body)
         return 0
 
-    # 成功：清掉上一轮遗留的错误日志，保持仓库干净。
     try:
         os.remove(ERRLOG)
     except OSError:
