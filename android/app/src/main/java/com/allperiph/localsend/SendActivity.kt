@@ -26,7 +26,7 @@ import com.allperiph.R
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
-import com.allperiph.ui.miuix.hideSystemBars
+import com.allperiph.ui.miuix.applyEdgeToEdge
 
 /**
  * LocalSend 发送页（MVP2 · issue#45）：列出 60s 内 announce 过的设备（每 2s 刷新）→
@@ -56,7 +56,7 @@ class SendActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
-        hideSystemBars()
+        applyEdgeToEdge()
         title = "发送到设备"
         setContentView(
             ComposeView(this).apply {

@@ -38,7 +38,7 @@ import com.allperiph.ui.OrientLock
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.MiuixTokens
-import com.allperiph.ui.miuix.hideSystemBars
+import com.allperiph.ui.miuix.applyEdgeToEdge
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import com.allperiph.R
@@ -140,7 +140,12 @@ class ApShellActivity : ComponentActivity() {
             // 这一层只管主壳四页；弹窗是独立组合，在 ApComponents.DialogCard 里
             // 自己再供一次 —— 两处都读 UiScalePref.current，拖滑条即刻全端生效。
             val __base = androidx.compose.ui.platform.LocalDensity.current
-            val __scale = com.allperiph.ui.UiScalePref.current.floatValue
+            // 平滑过渡（成宇 2026-11-07「dpi 变一下 UI 跳动一下」）：缩放改 150ms
+            // 缓动到位，密度不再一帧硬切 —— 整树跟一条曲线重排，跳变消失。
+            val __scale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = com.allperiph.ui.UiScalePref.current.floatValue,
+                animationSpec = androidx.compose.animation.core.tween(150),
+            )
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalDensity provides
                     androidx.compose.ui.unit.Density(__base.density * __scale, __base.fontScale),
@@ -179,16 +184,12 @@ class ApShellActivity : ComponentActivity() {
         // 竖屏维持原样：底栏在底部居中，88dp 是「底栏自身高度 + 一点呼吸」。
         val bottomGap = if (landscape) 24.dp else 88.dp
         val topGap = if (landscape) 96.dp else 0.dp
-        // 状态栏整块屏蔽（成宇 2026-11-02「所有页屏蔽状态栏」）：applyImmersive 里
-        // statusBars 也一并 hide 了，所以这里**不用再按边算顶部留白** —— 内容直接画到
-        // 屏幕最上沿。此前竖屏垫 insets.top（且 v223.23 前那个值恒为 0），横竖屏各说各话，
-        // 顶栏标题才会压在系统时间那一行上。
-        // 顶栏整块去除后侧向留白也由各页自己按 insets.left/right 处理，这里不再介入。
-        // 2026-11-07（成宇「优化回避屏幕大圆角和摄像头挖孔，避免遮挡」）：上一段旧
-        // 注释里「不按边算顶部留白」说的是**系统栏**（仍成立，状态栏照旧隐藏）；本行
-        // 只按挖孔/大圆角让位 —— 顶部压着摄像头孔时标题与卡片不再画进孔里。横屏
-        // 孔在左右侧，走 ApAdaptive 的 padCutout 与页内 insets.left/right，这里恒≈0。
-        val topPad = com.allperiph.ui.miuix.rememberApInsets().holeTop
+        // 2026-11-07 二轮（成宇「按安卓 aosp 规范适配，不是直接隐藏状态栏和小白条」
+        // 「圆角和挖孔优化不是直接上部分不显示内容」）：系统栏改为显示
+        // （applyEdgeToEdge），顶部按**含状态栏**的 top 垫 —— 竖屏内容从状态栏下
+        // 开始（状态栏高度已天然盖住孔区）；横屏状态栏 inset 落在侧边、top≈0 不变；
+        // 圆角不再参与垫边（四角由系统 UI 避让，垫半径会把顶部内容整块推走）。
+        val topPad = com.allperiph.ui.miuix.rememberApInsets().top
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop。
@@ -837,7 +838,7 @@ class ApShellActivity : ComponentActivity() {
             layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        hideSystemBars()
+        applyEdgeToEdge()
     }
 }
 

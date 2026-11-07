@@ -49,20 +49,23 @@ data class ApInsets(
     val left: Dp get() = maxOf(bars.left, cutout.left)
     val right: Dp get() = maxOf(bars.right, cutout.right)
 
-    // —— 挖孔/大圆角回避（2026-11-07）——
-    // 语义：**不含系统栏**。状态栏是 hideSystemBars 刻意隐藏的（内容本来就画到
-    // 最上沿），这几项只算「孔 + 圆角」，不会把 v223.22 修掉的那条系统栏空档带回来。
-    val holeTop: Dp get() = maxOf(cutout.top, rounded.top)
-    val holeBottom: Dp get() = maxOf(cutout.bottom, rounded.bottom)
-    val holeLeft: Dp get() = maxOf(cutout.left, rounded.left)
-    val holeRight: Dp get() = maxOf(cutout.right, rounded.right)
+    // —— 挖孔回避（2026-11-07 二轮，成宇「圆角和挖孔优化不是直接上部分不显示内容」）——
+    // 语义：只算孔，**不算圆角**。圆角半径是屏幕四角的弧，系统 UI 自己会避让；
+    // 把它垫进 top 会把顶部内容整块推走（真机表现即「上部分不显示内容」）。
+    // 系统栏显示后，状态栏高度已天然盖住孔区，这里只作弹窗等窗口的兑底。
+    val holeTop: Dp get() = cutout.top
+    val holeBottom: Dp get() = cutout.bottom
+    val holeLeft: Dp get() = cutout.left
+    val holeRight: Dp get() = cutout.right
 
     /** 输入法抬起时的底部留白（键盘页用；无 IME 时等于系统栏） */
     val bottomWithIme: Dp get() = maxOf(bars.bottom, imeBottom)
 }
 
 /**
- * 全屏：隐藏状态栏与导航栏（成宇 2026-11-02「所有页屏蔽状态栏」）。
+ * edge-to-edge（成宇 2026-11-07「按安卓 aosp 规范适配，而不是直接隐藏状态栏和
+ * 手势小白条」）：系统栏显示且透明，内容经 [rememberApInsets] 自行垫边。
+ * 2026-11-02「所有页屏蔽状态栏」的隐藏口径已按新需求反转；函数随之更名。
  *
  * 为什么做成 Activity 扩展而不是每页各写一遍：这套三件（setDecorFitsSystemWindows(false)
  * + insetsController + hide）在 Hub 页与各子页必须**同一口径**，抄第二遍迟早漏一处，
@@ -72,14 +75,15 @@ data class ApInsets(
  * （Android 15/16 PhoneWindow.getInsetsController() 读未赋值的 mDecor，v223.20 首启
  * 闪退就是这么来的），所以必须放进 decorView.post 里跑。
  */
-fun android.app.Activity.hideSystemBars() {
+fun android.app.Activity.applyEdgeToEdge() {
     window.setDecorFitsSystemWindows(false)
     window.decorView.post {
         val c = window.insetsController ?: return@post
+        // AOSP 规范（成宇 2026-11-07）：系统栏**显示**且透明，内容经 WindowInsets
+        // 自行垫边；BEHAVIOR_DEFAULT = 系统默认（下滑临时呼出）。
         c.systemBarsBehavior =
-            android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        c.hide(android.view.WindowInsets.Type.statusBars())
-        c.hide(android.view.WindowInsets.Type.navigationBars())
+            android.view.WindowInsetsController.BEHAVIOR_DEFAULT
+        c.show(android.view.WindowInsets.Type.systemBars())
     }
 }
 

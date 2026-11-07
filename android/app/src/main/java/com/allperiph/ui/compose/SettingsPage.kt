@@ -974,6 +974,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
             // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ui_scale)) {
+                // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局
+                // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按
+                // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层
+                // 已改 animate 150ms 平滑，不再跳变）。
+                val __sd = LocalDensity.current
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalDensity provides
+                        androidx.compose.ui.unit.Density(
+                            __sd.density / com.allperiph.ui.UiScalePref.current.floatValue,
+                            __sd.fontScale,
+                        ),
+                ) {
                 SliderPreference(
                     value = com.allperiph.ui.UiScalePref.current.floatValue,
                     onValueChange = { com.allperiph.ui.UiScalePref.set(ctx, it) },
@@ -982,6 +994,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
                     steps = 0,
                 )
+                }
             }
 
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme)) {
@@ -1028,7 +1041,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     }
                     customs.forEachIndexed { index, t ->
                         ApComponents.ValueRow(title = "${index + 1}. ${t.name}", value = t.desc)
-                        ApComponents.ActionButton(
+                        ApComponents.NarrowButton(
                             text = "应用「${t.name}」",
                             onClick = {
                                 HotkeyStore.applyTemplate(ctx, t)
@@ -1037,7 +1050,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             },
                         )
                         if (index > 0) {
-                            ApComponents.ActionButton(
+                            ApComponents.NarrowButton(
                                 text = "「${t.name}」上移",
                                 onClick = {
                                     val l = customs.toMutableList()
@@ -1048,7 +1061,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 },
                             )
                         }
-                        ApComponents.ActionButton(
+                        ApComponents.NarrowButton(
                             text = "删除「${t.name}」",
                             onClick = {
                                 val l = customs.toMutableList()
@@ -1058,7 +1071,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             },
                         )
                     }
-                    ApComponents.ActionButton(
+                    ApComponents.NarrowButton(
                         text = "从内置模板新建一份可改的",
                         onClick = {
                             val used = customs.map { it.name }.toSet()

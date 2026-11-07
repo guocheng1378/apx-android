@@ -359,12 +359,14 @@ object ApComponents {
             // __ins 读弹窗自己窗口的 insets（挖孔/圆角若与弹窗相交就垫进内容留白）。
             val __ins = rememberApInsets()
             val __d = androidx.compose.ui.platform.LocalDensity.current
+            // 平滑过渡（成宇 2026-11-07）：与主壳同一口径，缩放 150ms 缓动不跳变。
+            val __s by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = com.allperiph.ui.UiScalePref.current.floatValue,
+                animationSpec = androidx.compose.animation.core.tween(150),
+            )
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalDensity provides
-                    androidx.compose.ui.unit.Density(
-                        __d.density * com.allperiph.ui.UiScalePref.current.floatValue,
-                        __d.fontScale,
-                    ),
+                    androidx.compose.ui.unit.Density(__d.density * __s, __d.fontScale),
             ) {
             // 入场动效（2026-11-07）：0.94 → 1 缩放 + 淡入。规格取 ApMotion，设置页
             // 「动效」关掉时 springSpec 退化成 0ms tween，直接落终态（不是变快，是不动）。

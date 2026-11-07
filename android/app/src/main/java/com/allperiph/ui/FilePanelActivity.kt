@@ -41,7 +41,7 @@ import com.allperiph.wireless.TvDiscovery
 import top.yukonga.miuix.kmp.basic.Text
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-import com.allperiph.ui.miuix.hideSystemBars
+import com.allperiph.ui.miuix.applyEdgeToEdge
 
 /**
  * 手机端「文件面板」(v1)：**看得到收到的文件，也能发出去**。
@@ -89,7 +89,7 @@ class FilePanelActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
-        hideSystemBars()
+        applyEdgeToEdge()
         setContentView(
             ComposeView(this).apply {
                 setContent {

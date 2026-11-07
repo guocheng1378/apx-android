@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
-import com.allperiph.ui.miuix.hideSystemBars
+import com.allperiph.ui.miuix.applyEdgeToEdge
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -62,7 +62,7 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hideSystemBars()
+        applyEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // 迁 Compose（ThemePref 下线的一步；外观总控已拆成 ApPalette / ApSkin）：画面本体仍是 TextureView，
         // 用 AndroidView 互操作包进来 —— 解码链路、SurfaceTextureListener、触摸桥
