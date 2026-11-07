@@ -1,0 +1,119 @@
+name: RGB Fix
+
+# b24——灯效对齐真键盘（成宇 2026-11-08「和真实键盘不一样啊，这循环闪不行，还有颜色也不对」）：
+# ① 呼吸档此前 = 4s 整圈匀速转色 + 恒定中亮度，观感即「循环闪」；改为相位 48s 一轮彩虹、
+#    亮度按正弦包络 4s 一明灭（KeyBox.rgbFace），暗处亮起已是新色。
+# ② 颜色发闷：饱和 0.78→0.94、明度 0.62→0.86（LED 级）；玻璃 tint / 机械侧壁同步走新配色
+#    （侧壁 vScale=0.42 同色压暗）。
+# 一次性工作流：四段精确替换 + hueOf/0.78f 残留断言，全过才提交 push（push 触发 Build 验证编译）。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: apply b24 rgb rework
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+          text = open(P, encoding="utf-8").read()
+          fails = []
+
+          def rep(old, new, tag, count=1):
+              global text
+              n = text.count(old)
+              if n != count:
+                  fails.append(tag + ": count=" + str(n) + " expect=" + str(count))
+                  return
+              text = text.replace(old, new, count)
+
+          OLD_A = (
+          '    /** 当前键色相：呼吸 = 与相位同相（整副键盘一起变）；波浪 = 相位 + 横坐标推相 */\n'
+          '    fun hueOf(): Float {\n'
+          '        val p = rgb.phase?.value ?: 0f\n'
+          '        return if (rgb.mode == KeyPref.RGB_WAVE) (p + rgbX * 0.6f) % 360f else p\n'
+          '    }\n'
+          '    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。\n'
+          '    // 饱和 0.78 / 明度 0.62：白字在全色相上都压得住（明度拉到 1 时黄底白字会糊）。\n'
+          '    val faceMod: Modifier =\n'
+          '        if (rgbOn) {\n'
+          '            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.62f)) }\n'
+          '        } else {\n'
+          '            Modifier.background(bg)\n'
+          '        }\n'
+          )
+          NEW_A = (
+          '    /** 当前键色（成宇 2026-11-08「和真实键盘不一样，这循环闪不行，还有颜色也不对」）：\n'
+          '     *  对齐真键盘两档口径 ——\n'
+          '     *  · 波浪 = 满饱和 LED 彩虹（s0.94 / v0.86），按横坐标错相匀速跑；\n'
+          '     *  · 呼吸 = 亮度正弦呼吸（v 0.06↔0.86，4s 一明灭）+ 色相 48s 慢漂一轮彩虹，\n'
+          '     *    每次从暗处亮起已是新色 —— 不再是 4s 整圈快转的「循环闪」。\n'
+          '     *  vScale 供机械底座复用（0.42 = 同色压暗，侧壁不再是一块死灰）。\n'
+          '     */\n'
+          '    fun rgbFace(vScale: Float): Color {\n'
+          '        val p = rgb.phase?.value ?: 0f\n'
+          '        val breathe = rgb.mode != KeyPref.RGB_WAVE\n'
+          '        // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮\n'
+          '        val env =\n'
+          '            if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f\n'
+          '        val h = if (breathe) p else p + rgbX * 0.6f\n'
+          '        val v = if (breathe) 0.06f + 0.80f * env else 0.86f\n'
+          '        return hsvColor(h, 0.94f, (v * vScale).coerceAtLeast(0f))\n'
+          '    }\n'
+          '    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。\n'
+          '    val faceMod: Modifier =\n'
+          '        if (rgbOn) {\n'
+          '            Modifier.drawBehind { drawRect(rgbFace(1f)) }\n'
+          '        } else {\n'
+          '            Modifier.background(bg)\n'
+          '        }\n'
+          )
+          rep(OLD_A, NEW_A, "A hueOf→rgbFace")
+          rep(
+              "            tint = tint ?: if (rgbOn) hsvColor(hueOf(), 0.78f, 0.62f) else null,",
+              "            tint = tint ?: if (rgbOn) rgbFace(1f) else null,",
+              "B glass tint",
+          )
+          rep(
+              "            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.38f)) }",
+              "            Modifier.drawBehind { drawRect(rgbFace(0.42f)) }",
+              "C mechanical side",
+          )
+          OLD_D = (
+          '        // 波浪要能看出「跑」，6s 一圈；呼吸是整体慢明慢灭的调子，4s 一圈\n'
+          '        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 4_000\n'
+          )
+          NEW_D = (
+          '        // 波浪 6s 一圈能看出「跑」；呼吸相位放慢到 48s 一轮彩虹 ——\n'
+          '        // KeyBox.rgbFace 从同一条相位取亮度包络（每 30° = 一次 4s 明灭，共 12 次）\n'
+          '        // 与色相慢漂，相位连续不回绕、换色不跳（成宇 b24「循环闪不行」）。\n'
+          '        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 48_000\n'
+          )
+          rep(OLD_D, NEW_D, "D breathe duration 48s")
+          if "hueOf" in text:
+              fails.append("leftover hueOf reference")
+          if "0.78f" in text:
+              fails.append("leftover 0.78f")
+          if fails:
+              print("ERRORS:\n" + "\n".join(fails))
+              sys.exit(1)
+          open(P, "w", encoding="utf-8").write(text)
+          print("OK: rgb rework applied")
+          PY
+      - name: commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "repo-edit[bot]"
+          git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "no changes"; exit 0; }
+          git commit -m "feat: b24 — 灯效对齐真键盘：呼吸改 48s 相位+正弦明灭（根治循环快闪），波浪/呼吸饱和明度拉到 LED 级（成宇 2026-11-08）"
+          git push
