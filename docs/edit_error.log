@@ -1,0 +1,4 @@
+U8-str ui_filepanel_where: anchor count=0 expect=1 file=android/app/src/main/res/values/strings.xml
+---anchor---
+<string name="ui_filepanel_where">收到的文件保存在：%1$s
+点「转发」发到目标设备；点「删除」移除本机文件。</string>
