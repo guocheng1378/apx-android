@@ -28,7 +28,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.BoxWithConstraints
 import android.content.res.Configuration
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.Dp
@@ -41,6 +40,8 @@ import com.allperiph.shared.event.EventBus
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import androidx.compose.ui.res.colorResource
+import com.allperiph.R
 
 /**
  * 全屏游戏手柄（v1.x 起，v223.25 起只剩壳）：双虚拟摇杆 + 常用按键，经 [GamepadController]
@@ -88,7 +89,7 @@ internal fun LandscapePanel(content: @Composable () -> Unit) {
         content()
         return
     }
-    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color(0xFF14161B))) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(colorResource(R.color.overlay_scrim))) {
         val landWidth = maxHeight
         val landHeight = maxWidth
         Box(
@@ -140,7 +141,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF14161B))) {
+    Box(modifier = Modifier.fillMaxSize().background(colorResource(R.color.overlay_scrim))) {
         // 出口状态 + 指引（顶部居中；左右各让 100dp 避开 L1 / R1，也避开左上角 ✕）
         Column(
             modifier = Modifier
@@ -151,14 +152,14 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             Text(
                 text = statusLine,
                 fontSize = 12.sp,
-                color = if (statusOk) Color(0xFF8BD450) else Color(0xFFFFB44C),
+                color = if (statusOk) colorResource(R.color.overlay_pad_ok) else colorResource(R.color.overlay_pad_warn),
                 modifier = Modifier.fillMaxWidth(),
             )
             if (adviceLine.isNotEmpty()) {
                 Text(
                     text = adviceLine,
                     fontSize = 10.5.sp,
-                    color = Color(0xFFB9BDC7),
+                    color = colorResource(R.color.overlay_pad_text_dim),
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                 )
             }
@@ -243,12 +244,12 @@ private fun Pad(
         modifier = Modifier
             .size(size)
             .background(
-                color = if (pressed) Color(0x66FFFFFF) else Color(0x2EFFFFFF),
+                color = if (pressed) colorResource(R.color.overlay_pad_key_pressed) else colorResource(R.color.overlay_pad_key_idle),
                 shape = CircleShape,
             )
             .border(
                 width = if (pressed) 2.dp else 1.dp,
-                color = if (pressed) Color(0xDDFFFFFF) else Color(0x66FFFFFF),
+                color = if (pressed) colorResource(R.color.overlay_pad_stroke_pressed) else colorResource(R.color.overlay_pad_stroke_idle),
                 shape = CircleShape,
             )
             .pointerInput(bit, onDown) {
@@ -267,7 +268,7 @@ private fun Pad(
         Text(
             text = label,
             fontSize = if (label.length > 2) 13.sp else 17.sp,
-            color = Color(0xFFEAEAEA),
+            color = colorResource(R.color.overlay_pad_text),
         )
     }
 }

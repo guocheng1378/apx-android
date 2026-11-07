@@ -50,4 +50,27 @@
     <color name="ball_glass_top">#CC26262A</color>
     <color name="ball_glass_bottom">#8C1C1C1E</color>
     <color name="ball_glass_hi">#40FFFFFF</color>
+
+    <!-- 浮层语义色（深色）：与 values/colors.xml 同名覆盖 -->
+    <color name="overlay_accent">#FF5E8FFF</color>
+    <color name="overlay_on_accent">#FF0B0D12</color>
+    <color name="overlay_muted">#FF9AA1AC</color>
+    <color name="overlay_danger">#FFF97066</color>
+
+    <!-- 手柄页固定深色：与 values 同值（刻意不翻转，见 values/colors.xml 注释） -->
+    <color name="overlay_scrim">#FF14161B</color>
+    <color name="overlay_pad_text">#FFEAEAEA</color>
+    <color name="overlay_pad_text_dim">#FFB9BDC7</color>
+    <color name="overlay_pad_ok">#FF8BD450</color>
+    <color name="overlay_pad_warn">#FFFFB44C</color>
+    <color name="overlay_pad_key_pressed">#66FFFFFF</color>
+    <color name="overlay_pad_key_idle">#2EFFFFFF</color>
+    <color name="overlay_pad_stroke_pressed">#DDFFFFFF</color>
+    <color name="overlay_pad_stroke_idle">#66FFFFFF</color>
+
+    <!-- 模块状态色（深色）：与 values 同名覆盖 -->
+    <color name="module_state_running">#FF3DDC97</color>
+    <color name="module_state_pending">#FFFFB454</color>
+    <color name="module_state_error">#FFFF7AA8</color>
+    <color name="module_state_idle">#FFA8B0BC</color>
 </resources>
