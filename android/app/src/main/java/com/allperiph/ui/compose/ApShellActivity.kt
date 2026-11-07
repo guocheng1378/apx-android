@@ -74,6 +74,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
 
 /**
@@ -182,8 +183,9 @@ class ApShellActivity : ComponentActivity() {
         // 给它预留的空档也得跟着从底部搬到顶部 —— 否则页面顶部内容被低栏压住、
         // 底部却还空着 96dp（那 96dp 本来就是为底部居中的低栏留的）。
         // 竖屏维持原样：底栏在底部居中，88dp 是「底栏自身高度 + 一点呼吸」。
-        val bottomGap = if (landscape) 24.dp else 88.dp
-        val topGap = if (landscape) 96.dp else 0.dp
+        // 方案4（成宇 2026-11-07「低栏缩回应是透明悬浮，不该强占界面面积」）：
+        // 让位量不再固定，在下方 barCollapsed 声明处按收/展状态动画 —— 收起成球时
+        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套弹簧；展开恢复原值。
         // 2026-11-07 二轮（成宇「按安卓 aosp 规范适配，不是直接隐藏状态栏和小白条」
         // 「圆角和挖孔优化不是直接上部分不显示内容」）：系统栏改为显示
         // （applyEdgeToEdge），顶部按**含状态栏**的 top 垫 —— 竖屏内容从状态栏下
@@ -227,6 +229,27 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
+        // 方案4：让位量跟收/展联动（弹簧与 barFx 同口径 LowBouncy+Medium，球缩与
+        // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位
+        // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
+        // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。
+        // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。
+        val bottomGap by androidx.compose.animation.core.animateDpAsState(
+            targetValue = if (barCollapsed) 8.dp else if (landscape) 24.dp else 88.dp,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            ),
+            label = "bottomGap",
+        )
+        val topGap by androidx.compose.animation.core.animateDpAsState(
+            targetValue = if (landscape) (if (barCollapsed) 8.dp else 96.dp) else 0.dp,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            ),
+            label = "topGap",
+        )
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
         // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
         //
@@ -660,7 +683,27 @@ class ApShellActivity : ComponentActivity() {
                             )
                             .size(48.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(MiuixTheme.colorScheme.surfaceContainer)
+                            // 方案4·玻璃化：实心 surfaceContainer → 半透明渐变玻璃 +
+                            // 1dp 高光描边（与展开胶囊同一套质感，shader-free 老机器同款）——
+                            // 收起后球浮在内容上、内容可透出，不再是压着界面的实心圆。
+                            .background(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    listOf(
+                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
+                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
+                                    ),
+                                ),
+                            )
+                            .border(
+                                width = 1.dp,
+                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (navDark) 0.16f else 0.52f),
+                                        Color.White.copy(alpha = if (navDark) 0.05f else 0.14f),
+                                    ),
+                                ),
+                                shape = androidx.compose.foundation.shape.CircleShape,
+                            )
                             .clickable { barCollapsed = false },
                         contentAlignment = Alignment.Center,
                     ) {
