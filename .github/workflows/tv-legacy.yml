@@ -4,7 +4,8 @@ name: TV Legacy (Android 4.3)
 # AGP 7.4.2 + Gradle 7.5.1 + JDK 11 + compileSdk 33 + minSdk 18。
 # UI 用 PR #64 迁移前的 Views 快照（a769548），:shared 用主仓当前源码（协议与 PC 端一致）。
 # 调试期只手动触发（不挂 push，避免绿之前把 master 状态打红）；绿了再考虑挂 master/PR。
-# 不装 android-actions/setup-android：ubuntu runner 预装 SDK 与 licenses，该 action 反而3 秒就挂（run #1 根因）。
+# 不装 android-actions/setup-android：runner 预装 SDK/licenses，该 action 在 run #1 3 秒挂（根因）。
+# run #2 起：构建日志经 FAILURE 段转 ::error:: 注解 —— annotations API 直读错误，绕开 logs API 需登录的限制。
 
 on:
   workflow_dispatch:
@@ -33,7 +34,29 @@ jobs:
           gradle-version: 7.5.1
 
       - name: Build TV legacy (minSdk 18)
-        run: cd android-legacy && gradle :tv:assembleRelease --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          cd android-legacy
+          gradle :tv:assembleRelease --stacktrace --no-daemon 2>&1 | tee "$RUNNER_TEMP/legacy-build.log"
+
+      - name: Surface build errors (annotations)
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/legacy-build.log"
+          echo "=== FAILURE 段（gradle 标准错误出口）==="
+          if grep -q '^FAILURE: ' "$log"; then
+            awk '/^FAILURE: /{f=1} f{print; n++} n>=60{exit}' "$log" | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+          else
+            # 配置期/脚本编译错没有 FAILURE: 兕底抓 e: / What went wrong / Caused by
+            grep -E '^(e: |What went wrong|Caused by|> Task .* FAILED)' "$log" | head -60 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+          fi
+          # 尾部 40 行总是打到 step output（查兕底都没抓到时的现场）
+          echo "--- last 40 lines ---"
+          tail -40 "$log"
 
       - uses: actions/upload-artifact@v4
         with:
