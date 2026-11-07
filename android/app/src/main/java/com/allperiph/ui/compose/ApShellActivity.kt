@@ -473,7 +473,7 @@ class ApShellActivity : ComponentActivity() {
                         // 留出 14dp 呼吸；40 - 24 = 16dp 的代价摊到 6 行键位，每行只少 2.7dp，
                         // 仍在 48dp 命中下限之上（横屏 400dp 高时每行约 48dp）。
                         2 -> ApKeyboardPage(
-                            topBar = if (landscape) 40.dp else topGap,
+                            topBar = if (landscape) 24.dp else topGap,
                             bottomGap = bottomGap,
                         )
                         else -> SettingsPage(
