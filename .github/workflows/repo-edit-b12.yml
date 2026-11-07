@@ -1,0 +1,55 @@
+name: repo-edit-b12
+
+# 批 12 电视蓝牙兜底：独立锚点编辑（不动共享 repo_edit.py —— 那份正被
+# U-7/v3-v8 批次占用）。脚本 .github/scripts/repo_edit_b12.py 两阶段校验，
+# 全过才写盘；写完提交并显式再点一次 Build（GITHUB_TOKEN 推送不触发其它工作流）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_message:
+        description: "提交信息"
+        required: true
+        default: "feat: 电视蓝牙兜底（配对引导 + UNCATEGORIZED 放宽 + 文档）"
+
+jobs:
+  edit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: apply edits
+        run: |
+          set +e
+          OUT=$(python3 .github/scripts/repo_edit_b12.py 2>&1)
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "$OUT"
+            MSG=$(echo "$OUT" | tr '\n' '|' | cut -c1-800)
+            echo "::error::apply edits failed rc=$RC :: $MSG"
+            exit 1
+          fi
+          echo "$OUT"
+      - name: commit and push
+        id: commit
+        env:
+          COMMIT_MSG: ${{ inputs.commit_message }}
+        run: |
+          git config user.name "repo-edit[bot]"
+          git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "$COMMIT_MSG"
+          git push
+          echo "pushed=1" >> "$GITHUB_OUTPUT"
+      - name: trigger Build workflow
+        if: steps.commit.outputs.pushed == '1'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build.yml --ref master
