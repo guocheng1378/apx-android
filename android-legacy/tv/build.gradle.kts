@@ -1,5 +1,6 @@
 // TV Legacy 主模块 —— UI 来自 PR #64 迁移前的 Views 快照（a769548）。
-// 源码零拷贝：legacy-snapshot/ 由 materialize.sh（本地）或 CI 第二 checkout（actions/checkout path=）物化，
+// 源码零拷贝：legacy-snapshot/ 由 materialize.sh（本地）或 CI 第二 checkout/ git archive（本仓 workflow）物化到
+// android-legacy/legacy-snapshot/ —— 注意：file() 相对本模块目录（android-legacy/tv/），所以是 ../legacy-snapshot。
 // 内容 = git archive a769548 android/tv —— 迁移前的纯 Views 时代，无 Compose/Miuix import。
 //
 // minSdk = 18（Android 4.3）是本链存在的唯一理由；targetSdk 33 只影响运行时行为开关，
@@ -9,7 +10,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val snap = file("legacy-snapshot/android/tv")
+val snap = file("../legacy-snapshot/android/tv")
 
 android {
     namespace = "com.allperiph.tv"
