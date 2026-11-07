@@ -1,11 +1,11 @@
 name: RGB Fix
 
-# b25——真键盘渲染（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：
-# 研究结论（太平洋科技 / CSDN / iCUE / GMMK 资料）：真键盘 = 每键 LED + 导光柱 + 双色注塑透光键帽，
-# 灯不铺满键面——黑键帽 + 字符透光 + 键帽亮边 + 键缝泛光；PWM 256 级混色，呼吸 0.5~5s，波浪带方向/速度。
-# b25 实现：KeyBox faceMod 改四层（泛光底 → 黑键帽 0xFF0C0C0C → 亮边 Stroke），fg 字符改用当前键灯色
-# （字符透光），灯色拉到 s0.97/v0.95；呼吸/波浪相位机制沿用 b24（48s 彩虹轮转 + 正弦明灭）。
-# 一次性工作流：精确替换 + 断言，全过才提交 push（push 触发 Build 验证编译）。
+# b26——按下扩散（成宇 2026-11-08「灯是是按下扩散」）：
+# 新增第 4 档 RGB_TOUCH（真键盘 Reactive/Touch）：平时键面保持普通样式不发光，
+# 按下那一刻从键心抛一圈亮带向外扩散（1500px/s、带宽 170px、800ms 衰减），
+# 扫过处：键缝泛光 + 黑键帽 + 亮边 + 字符点亮；随相位逐帧重绘，波及最多 6 圈并发。
+# 联动改动：KeyPref 加 RGB_TOUCH=3 / RGB_COUNT=4 + ui_keyrgb_touch 资源（芯片 %RGB_COUNT 自动吃到）。
+# 一次性工作流：三文件精确替换 + 断言，全过才提交 push。
 
 on:
   workflow_dispatch:
@@ -18,25 +18,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b25 real-keyboard rendering
+      - name: apply b26 touch ripple
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import sys
-          P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
-          text = open(P, encoding="utf-8").read()
           fails = []
 
-          def rep(old, new, tag, count=1):
-              global text
+          def rep(text, old, new, tag, count=1):
               n = text.count(old)
               if n != count:
                   fails.append(tag + ": count=" + str(n) + " expect=" + str(count))
-                  return
-              text = text.replace(old, new, count)
+                  return text
+              return text.replace(old, new, count)
 
-          # 0) 必要 import（已存在则跳过）
+          # —— KeyboardPage.kt ——
+          P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+          text = open(P, encoding="utf-8").read()
+
           for imp in (
+              "import androidx.compose.runtime.LaunchedEffect",
+              "import androidx.compose.runtime.mutableStateOf",
               "import androidx.compose.ui.geometry.Offset",
               "import androidx.compose.ui.geometry.Size",
               "import androidx.compose.ui.graphics.drawscope.Stroke",
@@ -48,33 +50,61 @@ jobs:
                   else:
                       text = text.replace(anchor, anchor + imp + "\n", 1)
 
-          OLD_F = (
-          '    /** 当前键色（成宇 2026-11-08「和真实键盘不一样，这循环闪不行，还有颜色也不对」）：\n'
-          '     *  对齐真键盘两档口径 ——\n'
-          '     *  · 波浪 = 满饱和 LED 彩虹（s0.94 / v0.86），按横坐标错相匀速跑；\n'
-          '     *  · 呼吸 = 亮度正弦呼吸（v 0.06↔0.86，4s 一明灭）+ 色相 48s 慢漂一轮彩虹，\n'
-          '     *    每次从暗处亮起已是新色 —— 不再是 4s 整圈快转的「循环闪」。\n'
-          '     *  vScale 供机械底座复用（0.42 = 同色压暗，侧壁不再是一块死灰）。\n'
-          '     */\n'
-          '    fun rgbFace(vScale: Float): Color {\n'
-          '        val p = rgb.phase?.value ?: 0f\n'
-          '        val breathe = rgb.mode != KeyPref.RGB_WAVE\n'
-          '        // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮\n'
-          '        val env =\n'
-          '            if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f\n'
-          '        val h = if (breathe) p else p + rgbX * 0.6f\n'
-          '        val v = if (breathe) 0.06f + 0.80f * env else 0.86f\n'
-          '        return hsvColor(h, 0.94f, (v * vScale).coerceAtLeast(0f))\n'
+          # E1 TouchFx 对象插在 RgbSpec 前
+          OLD_E1 = "internal class RgbSpec(val mode: Int, val phase: State<Float>?)"
+          NEW_E1 = (
+          '/** 按下扩散（成宇 2026-11-08「灯是是按下扩散」）：真键盘 Reactive ——\n'
+          ' * 平时键不亮，按下的键心抛一圈光向外跑，扫过哪里亮哪里（含字符）。\n'
+          ' * 纯状态容器：UI 线程写，KeyBox.rgbFace 按 SystemClock 读，随相位逐帧重绘。\n'
+          ' */\n'
+          'private object TouchFx {\n'
+          '    class Wave(val x: Float, val y: Float, val t0: Long, val hue: Float)\n'
+          '    val waves = ArrayDeque<Wave>()\n'
+          '    var seq = 0\n'
+          '    const val LIFE_MS = 800L\n'
+          '    const val SPEED_PX = 1500f\n'
+          '    const val BAND_PX = 170f\n'
+          '    fun add(x: Float, y: Float) {\n'
+          '        waves += Wave(x, y, android.os.SystemClock.uptimeMillis(), (seq++ * 57f) % 360f)\n'
+          '        while (waves.size > 6) waves.removeFirst()\n'
           '    }\n'
-          '    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。\n'
-          '    val faceMod: Modifier =\n'
-          '        if (rgbOn) {\n'
-          '            Modifier.drawBehind { drawRect(rgbFace(1f)) }\n'
+          '}\n'
+          '\n'
+          'internal class RgbSpec(val mode: Int, val phase: State<Float>?)'
+          )
+          text = rep(text, OLD_E1, NEW_E1, "E1 TouchFx")
+
+          # E2 km 块：加键心 rgbC + touch 档挂监听
+          OLD_E2 = (
+          '    var rgbX by remember { mutableIntStateOf(0) }\n'
+          '    val km =\n'
+          '        if (rgbOn && rgb.mode == KeyPref.RGB_WAVE) {\n'
+          '            modifier.onGloballyPositioned { rgbX = it.boundsInWindow().left.toInt() }\n'
           '        } else {\n'
-          '            Modifier.background(bg)\n'
+          '            modifier\n'
           '        }\n'
           )
-          NEW_F = (
+          NEW_E2 = (
+          '    var rgbX by remember { mutableIntStateOf(0) }\n'
+          '    // 按下扩散档还要键心（中心点）：TouchFx.add 的原点 + 涟漪距离的基准\n'
+          '    var rgbC by remember { mutableStateOf(Offset.Zero) }\n'
+          '    val km =\n'
+          '        if (rgbOn &&\n'
+          '            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)\n'
+          '        ) {\n'
+          '            modifier.onGloballyPositioned {\n'
+          '                val b = it.boundsInWindow()\n'
+          '                rgbX = b.left.toInt()\n'
+          '                rgbC = b.center\n'
+          '            }\n'
+          '        } else {\n'
+          '            modifier\n'
+          '        }\n'
+          )
+          text = rep(text, OLD_E2, NEW_E2, "E2 km+rgbC")
+
+          # E3 rgbFace+faceMod：touchLight + touch-aware rgbFace + touch 分支
+          OLD_F = (
           '    /** 当前键灯色（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：\n'
           '     *  照真键盘发光结构画（每键 LED + 导光柱 + 透光键帽）——灯不铺满键面，而是\n'
           '     *  键缝泛光 → 黑键帽（0xFF0C0C0C）→ 键帽亮边，字符用灯色「透光」（见下 fg）。\n'
@@ -108,11 +138,87 @@ jobs:
           '            Modifier.background(bg)\n'
           '        }\n'
           )
-          rep(OLD_F, NEW_F, "F rgbFace+faceMod")
-          OLD_G = (
-          '    val fg = if (active || rgbOn) Color.White else MiuixTheme.colorScheme.onSurface\n'
+          NEW_F = (
+          '    /** 当前键灯色（b26 加「按下扩散」—— 成宇 2026-11-08「灯是是按下扩散」）：\n'
+          '     *  RGB_TOUCH 档照真键盘 Reactive：平时键面正常不发光，按下那一刻从键心抛\n'
+          '     *  一圈亮带（SPEED_PX 扩散 / BAND_PX 带宽 / LIFE_MS 衰减），扫过处泛光 +\n'
+          '     *  黑键帽 + 亮边、字符点亮；没扫到的键保持普通键面（字可读、可正常打字）。\n'
+          '     *  呼吸 / 波浪沿用 b25 真键盘渲染；vScale 供机械底座复用（0.42 = 同色压暗）。\n'
+          '     */\n'
+          '    fun touchLight(): Color {\n'
+          '        val now = android.os.SystemClock.uptimeMillis()\n'
+          '        var best = 0f\n'
+          '        var hue = 0f\n'
+          '        for (w in TouchFx.waves) {\n'
+          '            val age = now - w.t0\n'
+          '            if (age > TouchFx.LIFE_MS) continue\n'
+          '            val r = age / 1000f * TouchFx.SPEED_PX\n'
+          '            val dx = rgbC.x - w.x\n'
+          '            val dy = rgbC.y - w.y\n'
+          '            val d = kotlin.math.sqrt(dx * dx + dy * dy)\n'
+          '            val i =\n'
+          '                (1f - kotlin.math.abs(d - r) / TouchFx.BAND_PX) *\n'
+          '                    (1f - age.toFloat() / TouchFx.LIFE_MS.toFloat())\n'
+          '            if (i > best) {\n'
+          '                best = i\n'
+          '                hue = w.hue\n'
+          '            }\n'
+          '        }\n'
+          '        if (best <= 0f) return Color.Transparent\n'
+          '        return hsvColor(hue, 0.97f, 0.06f + 0.89f * best.coerceAtMost(1f))\n'
+          '    }\n'
+          '    fun rgbFace(vScale: Float): Color {\n'
+          '        if (rgb.mode == KeyPref.RGB_TOUCH) {\n'
+          '            val l = touchLight()\n'
+          '            if (l.alpha <= 0f) return Color.Transparent\n'
+          '            return l.copy(\n'
+          '                red = l.red * vScale,\n'
+          '                green = l.green * vScale,\n'
+          '                blue = l.blue * vScale,\n'
+          '            )\n'
+          '        }\n'
+          '        val p = rgb.phase?.value ?: 0f\n'
+          '        val breathe = rgb.mode != KeyPref.RGB_WAVE\n'
+          '        // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮\n'
+          '        val env =\n'
+          '            if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f\n'
+          '        val h = if (breathe) p else p + rgbX * 0.6f\n'
+          '        val v = if (breathe) 0.05f + 0.90f * env else 0.95f\n'
+          '        return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))\n'
+          '    }\n'
+          '    // 键面：相位在 drawBehind 里读，动画只触发重绘不重组；灯效关 → 原样 background。\n'
+          '    val faceMod: Modifier =\n'
+          '        if (rgbOn) {\n'
+          '            Modifier.drawBehind {\n'
+          '                if (rgb.mode == KeyPref.RGB_TOUCH) {\n'
+          '                    drawRect(color = bg) // 按下扩散档平时保持普通键面\n'
+          '                    val l = touchLight()\n'
+          '                    if (l.alpha > 0f) {\n'
+          '                        val inset = 3.dp.toPx()\n'
+          '                        val tl = Offset(inset, inset)\n'
+          '                        val cap = Size(size.width - inset * 2, size.height - inset * 2)\n'
+          '                        drawRect(color = l)\n'
+          '                        drawRect(color = Color(0xFF0C0C0C), topLeft = tl, size = cap)\n'
+          '                        drawRect(color = l, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n'
+          '                    }\n'
+          '                } else {\n'
+          '                    val light = rgbFace(1f)\n'
+          '                    val inset = 3.dp.toPx()\n'
+          '                    val tl = Offset(inset, inset)\n'
+          '                    val cap = Size(size.width - inset * 2, size.height - inset * 2)\n'
+          '                    drawRect(color = light)\n'
+          '                    drawRect(color = Color(0xFF0C0C0C), topLeft = tl, size = cap)\n'
+          '                    drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n'
+          '                }\n'
+          '            }\n'
+          '        } else {\n'
+          '            Modifier.background(bg)\n'
+          '        }\n'
           )
-          NEW_G = (
+          text = rep(text, OLD_F, NEW_F, "E3 rgbFace+faceMod")
+
+          # E4 fg 字符透光补 touch 分支
+          OLD_G = (
           '    // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、\n'
           '    // 随波浪换色）；sticky 点亮的修饰键仍走白字（功能反馈优先级最高）。\n'
           '    val fg =\n'
@@ -122,18 +228,94 @@ jobs:
           '            else -> MiuixTheme.colorScheme.onSurface\n'
           '        }\n'
           )
-          rep(OLD_G, NEW_G, "G fg 字符透光")
-          if "Modifier.drawBehind { drawRect(rgbFace(1f)) }" in text:
-              fails.append("leftover solid color face")
-          if "Color.White else MiuixTheme" in text:
-              fails.append("leftover old fg")
-          if "0xFF0C0C0C" not in text:
-              fails.append("black keycap missing")
+          NEW_G = (
+          '    // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、\n'
+          '    // 随波浪换色、随按下扩散亮起）；sticky 点亮的修饰键仍走白字（反馈优先级最高）。\n'
+          '    fun touchFg(): Color {\n'
+          '        val l = touchLight()\n'
+          '        return if (l.alpha > 0f) l else MiuixTheme.colorScheme.onSurface\n'
+          '    }\n'
+          '    val fg =\n'
+          '        when {\n'
+          '            active -> Color.White\n'
+          '            rgbOn -> if (rgb.mode == KeyPref.RGB_TOUCH) touchFg() else rgbFace(1f)\n'
+          '            else -> MiuixTheme.colorScheme.onSurface\n'
+          '        }\n'
+          )
+          text = rep(text, OLD_G, NEW_G, "E4 fg touch")
+
+          # E5 按下涟漪注册（pressed 变 true 那刻）
+          OLD_E5 = "    val fxMod = Modifier.keyFx(fxValues, accent)"
+          NEW_E5 = (
+          "    val fxMod = Modifier.keyFx(fxValues, accent)\n"
+          "    // 按下扩散：按下的那一刻把键心交给 TouchFx（只在 RGB_TOUCH 档注册涟漪）\n"
+          "    LaunchedEffect(pressed) {\n"
+          "        if (pressed && rgbOn && rgb.mode == KeyPref.RGB_TOUCH) TouchFx.add(rgbC.x, rgbC.y)\n"
+          "    }"
+          )
+          text = rep(text, OLD_E5, NEW_E5, "E5 ripple hook")
+
+          if "TouchFx" not in text:
+              fails.append("TouchFx missing")
+          if text.count("RGB_TOUCH") < 3:
+              fails.append("RGB_TOUCH refs=" + str(text.count("RGB_TOUCH")))
+          if "（见下 fg）。" in text:
+              fails.append("old b25 kdoc leftover")
+          open(P, "w", encoding="utf-8").write(text) if not fails else None
+
+          # —— KeyPref.kt ——
+          P2 = "android/app/src/main/java/com/allperiph/ui/KeyPref.kt"
+          t2 = open(P2, encoding="utf-8").read()
+          OLD_K1 = (
+          '    const val RGB_WAVE = 2\n'
+          '\n'
+          '    const val RGB_COUNT = 3\n'
+          )
+          NEW_K1 = (
+          '    const val RGB_WAVE = 2\n'
+          '    /** 按下扩散（成宇 2026-11-08「灯是是按下扩散」）：真键盘 Reactive，按哪儿从哪儿扩散 */\n'
+          '    const val RGB_TOUCH = 3\n'
+          '\n'
+          '    const val RGB_COUNT = 4\n'
+          )
+          t2 = rep(t2, OLD_K1, NEW_K1, "K1 RGB_TOUCH const")
+          OLD_K2 = (
+          '    fun rgbLabels(ctx: Context): List = listOf(\n'
+          '        ctx.getString(R.string.ui_keyrgb_off),\n'
+          '        ctx.getString(R.string.ui_keyrgb_breath),\n'
+          '        ctx.getString(R.string.ui_keyrgb_wave),\n'
+          '    )\n'
+          )
+          NEW_K2 = (
+          '    fun rgbLabels(ctx: Context): List = listOf(\n'
+          '        ctx.getString(R.string.ui_keyrgb_off),\n'
+          '        ctx.getString(R.string.ui_keyrgb_breath),\n'
+          '        ctx.getString(R.string.ui_keyrgb_wave),\n'
+          '        ctx.getString(R.string.ui_keyrgb_touch),\n'
+          '    )\n'
+          )
+          t2 = rep(t2, OLD_K2, NEW_K2, "K2 rgbLabels")
+          if "RGB_COUNT = 4" not in t2:
+              fails.append("RGB_COUNT not bumped")
+          open(P2, "w", encoding="utf-8").write(t2) if not fails else None
+
+          # —— strings.xml ——
+          P3 = "android/app/src/main/res/values/strings.xml"
+          t3 = open(P3, encoding="utf-8").read()
+          OLD_S = '    <string name="ui_keyrgb_wave">波浪</string>'
+          NEW_S = (
+          '    <string name="ui_keyrgb_wave">波浪</string>\n'
+          '    <string name="ui_keyrgb_touch">按下扩散</string>'
+          )
+          t3 = rep(t3, OLD_S, NEW_S, "S ui_keyrgb_touch")
+          if "ui_keyrgb_touch" not in t3:
+              fails.append("ui_keyrgb_touch missing")
+          open(P3, "w", encoding="utf-8").write(t3) if not fails else None
+
           if fails:
               print("ERRORS:\n" + "\n".join(fails))
               sys.exit(1)
-          open(P, "w", encoding="utf-8").write(text)
-          print("OK: b25 real-keyboard rendering applied")
+          print("OK: b26 touch ripple applied")
           PY
       - name: commit and push
         run: |
@@ -142,5 +324,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "feat: b25 — 真键盘渲染：键缝泛光+黑键帽+亮边+字符透光（成宇「是要真的」，按透光键帽发光结构复刻）"
+          git commit -m "feat: b26 — RGB 按下扩散第 4 档（Touch/Reactive）：键心抛光圈向外扫，扫过处泛光+黑键帽+亮边+字符透光（成宇「灯是是按下扩散」）"
           git push
