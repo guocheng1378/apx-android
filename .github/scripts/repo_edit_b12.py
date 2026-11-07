@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b15 内容（复用已验证通道：repo-edit-b12.yml）。
+"""repo_edit_b12.py —— b16 内容（复用已验证通道：repo-edit-b12.yml）。
 
-b15（2026-11-08）语音输入改道（用户指出 b14 方向错误）：「应该走手机的麦，
-手机是输入端；PC/TV 本来就让手机输入，语音再唤起对端助手会重复」——
-  · b14 让对端收 0x0203 唤起对端语音助手 = 用对端的麦，与对端自己的语音入口重复；
-  · 协议早有现成通道：INPUT_REQUEST/INPUT_TEXT/DONE（0x25/26/27，远程输入体系）
-    + TvControllerClient.sendInputText 封装（现成）+ INPUT_FLAG_COMMIT=整段粘贴；
-  · b15：遥控页语音键不再发 HID bit9，改道 系统语音识别（手机的麦）→
-    INPUT_TEXT(COMMIT) → 对端焦点框。RemoteActivity : Activity 标准
-    startActivityForResult 干净无占用（已 grep 实证）。
-b14 协议层（描述符 0x0203 / kBitVoice / TvInjector 231）保留为能力储备，UI 解绑
-后无人发 bit9，对端不会被重复唤起；断 Wi-Fi 时语音如实提示不可用（文本通道依赖 9511）。
-两阶段写盘：全部锚点 count=1 才落盘。
+b16（2026-11-08）键盘布局两处用户反馈：「上面没有半角符号，回车键的位置也不对」。根因（源码实证）：
+  1. KeyPref 只有 DIGIT_ROW[1-0-=] + 3 字母行 + FN_ROW，整套无半角符号排；
+  2. FN_ROW = [Esc Tab Space Enter ⌫ Del]，Enter 卡在第 4 位（不在右端）；
+  3. **只加键位会「按了没反应」**：usageOf 对 !@#$ 等上档符号返回 0，tap(0) 静默忽略
+     （HID Keyboard Page 无上档符号独立 usage，它们是 Shift+底键组合）——
+     所以本批同时给 HidKeys 补 tapLabel(label)：上档符号走 send(sticky|SHIFT, 底键)
+     60ms 释放（与 tap 同时序），其余透传 usageByLabel→tap；
+  4. 调用点 6 处全部换 tapLabel：KeyboardPage（快捷/游戏/自定义 3 处）+ 操控面
+     TouchpadActivity 3 处 —— letterRows 是两边共用数据源（改一处两边变），
+     漏掉操控面就会出现「主屏键盘有符号、触控板页符号键点不动」的半成品。
+     TouchpadActivity 678 行注释「letterRows 含符号行」正是历史证据：符号行本来就是
+     设计内的，后来从行表里丢了。
+改动：KeyPref（符号排 + Enter 归右端 + 行数注释）、HidKeys（SHIFTED 表 + tapLabel）、
+KeyboardPage×3、TouchpadActivity×3。行表 5 行→6 行（+修饰排=7 weight 行），
+KeyBox heightIn(min=48dp) 保底可点；横屏超高观感待真机（如实不吹）。
+中文棘轮 643 不动（新增全部为符号/英文 label/注释）。两阶段写盘：10 锚全中才落盘。
 """
 import difflib
 import os
@@ -19,76 +24,112 @@ import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
-RA = "android/app/src/main/java/com/allperiph/ui/RemoteActivity.kt"
-STR = "android/app/src/main/res/values/strings.xml"
+KP = "android/app/src/main/java/com/allperiph/ui/KeyPref.kt"
+HK = "android/app/src/main/java/com/allperiph/hid/HidKeys.kt"
+KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+TP = "android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt"
 
 EDITS = [
-    (RA, [
-        ('''import android.os.Looper
-import android.util.AttributeSet''',
-         '''import android.os.Looper
-import android.speech.RecognizerIntent
-import android.util.AttributeSet''', 1),
-        ('''import com.allperiph.hid.HidMouse
-import com.allperiph.shared.ui.ApKit''',
-         '''import com.allperiph.hid.HidMouse
-import com.allperiph.shared.proto.ApxFrame
-import com.allperiph.shared.ui.ApKit''', 1),
-        ('''            getString(R.string.ui_remote_item_voice) to { media(HotkeyController.BIT_VOICE) },''',
-         '''            getString(R.string.ui_remote_item_voice) to { startVoiceInput() },''', 1),
-        ('''    /** 多媒体键：按下 + 60ms 释放（被控端按位图边沿识别，见 HotkeyController） */
-    private fun media(bit: Int) {
-        HotkeyController.press(bit)
-        handler.postDelayed({ HotkeyController.release(bit) }, 60)
-    }''',
-         '''    /** 多媒体键：按下 + 60ms 释放（被控端按位图边沿识别，见 HotkeyController） */
-    private fun media(bit: Int) {
-        HotkeyController.press(bit)
-        handler.postDelayed({ HotkeyController.release(bit) }, 60)
-    }
-
-    /** b15 语音输入：走手机的麦（手机是输入端）——识别结果经 9511 INPUT_TEXT(COMMIT)
-     *  粘进对端焦点框。不发 HID bit9（0x0203 唤起的是对端助手、用对端的麦，会与对端
-     *  自己的语音入口重复）。依赖 Wi-Fi 控制链；断链或无识别服务时如实提示。 */
-    private fun startVoiceInput() {
-        if (ControlTarget.controlClient == null) {
-            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
-            return
-        }
-        runCatching {
-            startActivityForResult(
-                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ui_remote_item_voice))
-                },
-                REQ_VOICE_INPUT,
-            )
-        }.onFailure {
-            Toast.makeText(this, getString(R.string.ui_remote_voice_unavailable), Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_VOICE_INPUT || resultCode != RESULT_OK) return
-        val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
-        if (text.isEmpty()) return
-        val c = ControlTarget.controlClient
-        if (c == null) {
-            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
-            return
-        }
-        c.sendInputText(text, ApxFrame.INPUT_FLAG_COMMIT)
-    }''', 1),
-        ('''        private const val KEY_CURSOR_OVERLAY = "cursor_overlay"''',
-         '''        private const val KEY_CURSOR_OVERLAY = "cursor_overlay"
-        // b15：语音识别 onActivityResult 请求码（仅本类内部使用）
-        private const val REQ_VOICE_INPUT = 0x56''', 1),
+    # —— 1. KeyPref：KDoc 行数口径
+    (KP, [
+        ('''     * 当前排列方案下的**完整键盘**行表（数字行 + 3 行字母 + 功能行，共 5 行）。
+     * 数字行与功能行三套共用，只换字母行的顺序。''',
+         '''     * 当前排列方案下的**完整键盘**行表（符号排 + 数字行 + 3 行字母 + 功能行，共 6 行；
+     * b16 补半角符号排 —— 用户报「上面没有半角符号」）。
+     * 数字行与功能行三套共用，只换字母行的顺序。''', 1),
+        # —— 2/3. SYMBOL_ROW 新增 + FN_ROW 的 Enter 归右端（两行连体锚一次改）
+        ('''    private val DIGIT_ROW = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=")
+    private val FN_ROW = listOf("Esc", "Tab", "Space", "Enter", "⌫", "Del")''',
+         '''    // b16 半角符号排：上档符号无独立 HID usage，发送走 HidKeys.tapLabel（Shift+底键组合）
+    private val SYMBOL_ROW = listOf("!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "_", "+")
+    private val DIGIT_ROW = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=")
+    // b16：Enter 归右端（用户报「回车键的位置也不对」，从第 4 位移到行末）
+    private val FN_ROW = listOf("Esc", "Tab", "Space", "⌫", "Del", "Enter")''', 1),
+        ('''        return listOf(DIGIT_ROW) + letters + listOf(FN_ROW)''',
+         '''        return listOf(SYMBOL_ROW, DIGIT_ROW) + letters + listOf(FN_ROW)''', 1),
     ]),
-    (STR, [
-        ('''    <string name="ui_remote_item_voice">语音</string>''',
-         '''    <string name="ui_remote_item_voice">语音</string>
-    <string name="ui_remote_voice_unavailable">语音识别不可用</string>''', 1),
+    # —— 4. HidKeys：SHIFTED 表 + tapLabel（插在 usageOf 的 KDoc 前）
+    (HK, [
+        ('''    /** 键面标签 → Keyboard Page (0x07) usage code；未识别返回 0 */
+    fun usageOf(label: String): Int = when (label) {''',
+         '''    /** 上档符号 → (修饰位, 底键 usage)：US 布局 Shift+数字/-/= 的标准产出（b16） */
+    private val SHIFTED: Map<String, Pair<Int, Int>> = mapOf(
+        "!" to (MOD_SHIFT to 0x1E), "@" to (MOD_SHIFT to 0x1F), "#" to (MOD_SHIFT to 0x20),
+        "$" to (MOD_SHIFT to 0x21), "%" to (MOD_SHIFT to 0x22), "^" to (MOD_SHIFT to 0x23),
+        "&" to (MOD_SHIFT to 0x24), "*" to (MOD_SHIFT to 0x25), "(" to (MOD_SHIFT to 0x26),
+        ")" to (MOD_SHIFT to 0x27), "_" to (MOD_SHIFT to 0x2D), "+" to (MOD_SHIFT to 0x2E),
+    )
+
+    /**
+     * 键面 label 发送入口（b16）：上档符号按 Shift+底键组合发送，其余透传
+     * [usageByLabel] → [tap]。行表里的符号键必须走本函数 —— usageOf 对上档符号
+     * 返回 0，直接 tap 会被静默忽略（「加了符号键没反应」的坑）。时序与 [tap] 同款：
+     * 60ms 自动全释放、发完清 sticky（sticky Shift 与本表 Shift 叠加无害）。
+     */
+    fun tapLabel(label: String): Int {
+        SHIFTED[label]?.let { (mod, usage) ->
+            handler.removeCallbacks(releaseTask)
+            send(sticky or mod, intArrayOf(usage))
+            handler.postDelayed(releaseTask, 60)
+            val used = sticky
+            sticky = 0
+            return used
+        }
+        return tap(usageByLabel(label))
+    }
+
+    /** 键面标签 → Keyboard Page (0x07) usage code；未识别返回 0 */
+    fun usageOf(label: String): Int = when (label) {''', 1),
+    ]),
+    # —— 5/6/7. KeyboardPage 三处调用点 → tapLabel
+    (KB, [
+        ('''                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
+                        HidKeys.tap(HidKeys.usageByLabel(label))
+                        sticky = 0 // tap 自动清 sticky，同步燄灭修饰键（与操控面 refreshMods 同口径）''',
+         '''                    KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
+                        HidKeys.tapLabel(label)
+                        sticky = 0 // tap 自动清 sticky，同步燄灭修饰键（与操控面 refreshMods 同口径）''', 1),
+        ('''                        KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
+                            HidKeys.tap(HidKeys.usageByLabel(text))
+                            sticky = 0
+                        }''',
+         '''                        KeyBox(text, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
+                            HidKeys.tapLabel(text)
+                            sticky = 0
+                        }''', 1),
+        ('''                            HidKeys.tap(HidKeys.usageByLabel(label))
+                        }
+                    }
+                }
+            }
+        ApComponents.ActionButton(''',
+         '''                            HidKeys.tapLabel(label)
+                        }
+                    }
+                }
+            }
+        ApComponents.ActionButton(''', 1),
+    ]),
+    # —— 8/9/10. TouchpadActivity 三处 → tapLabel（否则操控面符号键点不动）
+    (TP, [
+        ('''                    HidKeys.tap(HidKeys.usageByLabel(text)) // letterRows 含符号行，按 label 反查更全''',
+         '''                    HidKeys.tapLabel(text) // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）''', 1),
+        ('''                        HidKeys.toggleSticky(bit)
+                    } else {
+                        HidKeys.tap(HidKeys.usageByLabel(text))
+                    }''',
+         '''                        HidKeys.toggleSticky(bit)
+                    } else {
+                        HidKeys.tapLabel(text)
+                    }''', 1),
+        ('''                val b = keyCap(text, false) {
+                    HidKeys.tap(HidKeys.usageByLabel(text))
+                    refreshMods()
+                }''',
+         '''                val b = keyCap(text, false) {
+                    HidKeys.tapLabel(text)
+                    refreshMods()
+                }''', 1),
     ]),
 ]
 
