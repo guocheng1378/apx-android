@@ -108,9 +108,9 @@ object KeyLayouts {
      */
     val FULL: List<List<Key>> = listOf(
         listOf(
-            Key("Esc", ESC), Key("F1", fn(1)), Key("F2", fn(2)), Key("F3", fn(3)), Key("F4", fn(4)),
-            Key("F5", fn(5)), Key("F6", fn(6)), Key("F7", fn(7)), Key("F8", fn(8)), Key("F9", fn(9)),
-            Key("F10", fn(10)), Key("F11", fn(11)), Key("F12", fn(12)),
+            Key("Esc", ESC), Key("F1\n静音", fn(1)), Key("F2\n音量-", fn(2)), Key("F3\n音量+", fn(3)), Key("F4\n亮度-", fn(4)),
+            Key("F5\n亮度+", fn(5)), Key("F6\n截屏", fn(6)), Key("F7\n后退", fn(7)), Key("F8\n前进", fn(8)), Key("F9\n刷新", fn(9)),
+            Key("F10\n全屏", fn(10)), Key("F11\n桌面", fn(11)), Key("F12\n锁屏", fn(12)),
         ),
         listOf(
             Key("`~", 0x35), Key("1!", d(1)), Key("2@", d(2)), Key("3#", d(3)), Key("4$", d(4)),

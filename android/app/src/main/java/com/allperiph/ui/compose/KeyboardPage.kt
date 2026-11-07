@@ -368,15 +368,28 @@ private fun KeyGridLayout(
     keycap: Int,
     fx: Int,
 ) {
+    // b21「按了没长亮」：sticky 本地镜像驱动修饰键高亮（与 GameLayout 同口径：toggle 后 flip、tap 普通键清零）
+    var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         rows.forEach { row ->
             Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
                 row.forEach { k ->
-                    KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, keycap, fx) {
+                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                    KeyBox(
+                        k.label,
+                        Modifier.weight(k.weight).fillMaxHeight(),
+                        dens, keycap, fx,
+                        active = bit != null && sticky and bit != 0,
+                    ) {
                         // b17：FULL 的 Shift/Ctrl/Alt 是修饰词 → 转 sticky（裸 usage 无意义）；
                         // NUMPAD/GRID9/ARROWS/FN 无修饰词 label，行为不变
-                        val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
-                        if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
+                        if (bit != null) {
+                            HidKeys.toggleSticky(bit)
+                            sticky = flipSticky(sticky, bit)
+                        } else {
+                            HidKeys.tap(k.usage)
+                            sticky = 0
+                        }
                     }
                 }
             }
