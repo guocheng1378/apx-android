@@ -23,6 +23,7 @@ object KeyPref {
     private const val KEY_CUSTOM = "custom_rows"
     private const val KEY_KEYCAP_STYLE = "keycap_style"
     private const val KEY_EFFECT = "fx"
+    private const val KEY_RGB = "rgb"
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
@@ -161,6 +162,36 @@ object KeyPref {
 
     fun setEffect(ctx: Context, i: Int) {
         prefs(ctx).edit().putInt(KEY_EFFECT, i.coerceIn(0, EFFECT_COUNT - 1)).apply()
+    }
+
+    // —————————————————————————— RGB 灯效 ——————————————————————————
+
+    /**
+     * RGB 灯效档位（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）。
+     *
+     * 与「键帽材质」「按键特效」正交的第三档外观：材质决定键帽长什么样、
+     * 特效决定按下去画什么，灯效决定**键帽底色自己动不动**：
+     * 呼吸 = 整副键盘同色相慢变；波浪 = 按键位横坐标错相 + 时间推进（列状彩虹流动）。
+     * 默认关闭 —— 关着时不起动画，零额外开销。
+     */
+    const val RGB_OFF = 0
+    const val RGB_BREATH = 1
+    const val RGB_WAVE = 2
+
+    const val RGB_COUNT = 3
+
+    /** 三档的**显示文案**（顺序 = 档位下标）；理由同 [keycapStyleLabels]。 */
+    fun rgbLabels(ctx: Context): List<String> = listOf(
+        ctx.getString(R.string.ui_keyrgb_off),
+        ctx.getString(R.string.ui_keyrgb_breath),
+        ctx.getString(R.string.ui_keyrgb_wave),
+    )
+
+    fun rgbIndex(ctx: Context): Int =
+        prefs(ctx).getInt(KEY_RGB, RGB_OFF).coerceIn(0, RGB_COUNT - 1)
+
+    fun setRgb(ctx: Context, i: Int) {
+        prefs(ctx).edit().putInt(KEY_RGB, i.coerceIn(0, RGB_COUNT - 1)).apply()
     }
 
     // —————————————————————————— 自定义布局 ——————————————————————————
