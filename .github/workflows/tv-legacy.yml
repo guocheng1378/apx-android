@@ -8,10 +8,8 @@ name: TV Legacy (Android 4.3)
 # run #2 起：构建日志经 FAILURE 段转 ::error:: 注解 —— annotations API 直读错误，绕开 logs API 需登录的限制。
 # run #5 起：绿了把 APK 强推到 legacy-artifacts 分支 —— raw.githubusercontent.com 匿名可拉。
 # run #6 起：本机链路大包体（732KB）超时/CANCEL，APK 额外切 64KB 分片（part_NN）+ sha256，分片拉取后本地 cat 重组。
-# run #7 起：APK 必须签名（INSTALL_PARSE_FAILED_NO_CERTIFICATES，裸 APK 无法安装）——
-#   CI 用 setup-java 自动生成的 keystore（~/.android/debug.keystore）签 release；
-#   本地调试需放 signing.key + 环境变量 STORE_PASSWORD/KEY_PASSWORD。
-# run #8 起：signingConfig 指向不存在的 signing.key 导致编译挂——改用自动生成的 keystore。
+# run #9 起：构建前用 keytool 生成 $HOME/legacy-release.jks 签 release ——
+#   INSTALL_PARSE_FAILED_NO_CERTIFICATES（裸 APK 无法安装）；keystore 指向/DSL 错误是 run#7/8 连挂根因（见 build.gradle.kts 注释）。
 
 on:
   workflow_dispatch:
@@ -37,6 +35,14 @@ jobs:
         with:
           distribution: temurin
           java-version: 11
+
+      - name: Generate release keystore (keytool from JDK 11)
+        run: |
+          keytool -genkeypair -keystore "$HOME/legacy-release.jks" \
+            -storepass android -keypass android \
+            -alias tv-legacy -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=TV Legacy, O=APX, C=CN"
+          ls -la "$HOME/legacy-release.jks"
 
       - uses: gradle/actions/setup-gradle@v3
         with:
