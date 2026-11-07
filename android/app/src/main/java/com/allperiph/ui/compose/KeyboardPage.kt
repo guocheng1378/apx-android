@@ -1,5 +1,9 @@
 package com.allperiph.ui.compose
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -20,16 +24,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
@@ -87,6 +96,22 @@ private val KB_TABS = listOf(
     R.string.ui_kb_tab_fn, R.string.ui_kb_tab_custom,
 )
 
+/**
+ * RGB 灯效规格：档位（[KeyPref.RGB_*]）+ 动画相位（0..360°，关档时 phase 为 null）。
+ *
+ * 相位以 `State` 形式下发而不是算好的颜色 —— 键帽在**绘制阶段**读 `.value`
+ * （[Modifier.drawBehind]），60fps 的灯效动画只触发重绘，不会让整副键盘逐帧重组
+ * （84 颗键每帧重组在中端机上必卡）；关档时 phase 为 null，所有灯效分支短路，零开销。
+ */
+internal class RgbSpec(val mode: Int, val phase: State<Float>?)
+
+/** 键盘树内的灯效上下文；没有 Provider 的调用方拿到关档默认值（等于没加这个功能） */
+private val LocalRgb = staticCompositionLocalOf { RgbSpec(KeyPref.RGB_OFF, null) }
+
+/** HSV → Color（Compose 没有内置 hsv 构造，走 android.graphics.Color.HSVToColor） */
+private fun hsvColor(h: Float, s: Float, v: Float): Color =
+    Color(android.graphics.Color.HSVToColor(floatArrayOf(((h % 360f) + 360f) % 360f, s, v)))
+
 /** sticky 修饰位的当前快照（HidKeys 全局状态 Compose 感知不到，本地镜像驱动高亮） */
 private fun stickySnapshot(): Int =
     HidKeys.MOD_LABELS.fold(0) { acc, (_, bit) ->
@@ -118,65 +143,87 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     // 按键特效档（成宇 2026-11-03「键盘的特效做几个」）：涟漪 / 高光 / 弹跳三档 + 关闭。
     // 与材质正交（材质决定键帽长什么样，特效决定按下去画什么），实现收在 KeyFx.kt 一处。
     val fx = KeyPref.effectIndex(ctx)
+    // RGB 灯效档（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）：与材质 / 特效正交的第三档外观。
+    // 只在这里起一条 InfiniteTransition，相位 State 经 [LocalRgb] 下发给键帽；
+    // 关档（默认）连 transition 都不建（if 分支不进），不跑任何动画。
+    val rgbMode = KeyPref.rgbIndex(ctx)
+    val rgbSpec = if (rgbMode == KeyPref.RGB_OFF) {
+        RgbSpec(rgbMode, null)
+    } else {
+        // 波浪要能看出「跑」，6s 一圈；呼吸是整体慢明慢灭的调子，4s 一圈
+        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 4_000
+        val t = rememberInfiniteTransition(label = "rgbPhase")
+        RgbSpec(
+            rgbMode,
+            t.animateFloat(
+                0f,
+                360f,
+                animationSpec = infiniteRepeatable(tween(duration, easing = LinearEasing)),
+                label = "rgbPhaseValue",
+            ),
+        )
+    }
     var tab by remember { mutableIntStateOf(0) }
     // 自定义行表要在编辑弹窗保存后刷新
     var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
 
-    Column(
-        modifier = Modifier.fillMaxSize()
-            .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp + bottomGap),
-    ) {
-        // —— 关闭行：只在悬浮球面板形态画（主屏键盘页 onClose = null，一个按钮都不占位）——
-        if (onClose != null) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                ApComponents.NarrowButton(
-                    text = ctx.getString(R.string.ui_kb_close),
-                    onClick = { onClose.invoke() },
-                )
-            }
-        }
-
-        // —— 第 1 行：页签（与操控面 kbTabs 同名同序）——
-        // 2026-11-04 改走 [ApComponents.TabChip]：此前用 `Pill + apKeyFeel + apPress` 自己拼
-        // 选中态，而 Kit 里的 TabChip 正是为「有选中态的芯片」造的（selected → 主色胶囊底 +
-        // SemiBold 字重）。一并修掉两个问题：
-        //  ① `Pill` 只有 `padding(10,4)`，**没有 44dp 命中下限** —— 页签是手指目标，
-        //    在 400dp 宽的手机上偏小（TabChip 有 heightIn(min = 44.dp)）；
-        //  ② 手拼那套与 TabChip 并存 = 又一份重复实现，改选中态样式会只改一边。
-        // 震动 / 音效仍由本处负责：TabChip 内部只有 clickable（无 Feedback），
-        // 所以 onClick 里补一次 [Feedback.release] —— 与原 apPress(downFeel = true)
-        // 等价（按下震、点击出声，两件事分开），不叠成一次点击震两下。
-        Row(
-            modifier = Modifier.fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+    CompositionLocalProvider(LocalRgb provides rgbSpec) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+                .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp + bottomGap),
         ) {
-            KB_TABS.forEachIndexed { i, res ->
-                ApComponents.TabChip(
-                    text = ctx.getString(res),
-                    selected = tab == i,
-                    onClick = {
-                        Feedback.release(host)
-                        tab = i
-                    },
-                    fx = fx,
-                )
+            // —— 关闭行：只在悬浮球面板形态画（主屏键盘页 onClose = null，一个按钮都不占位）——
+            if (onClose != null) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    ApComponents.NarrowButton(
+                        text = ctx.getString(R.string.ui_kb_close),
+                        onClick = { onClose.invoke() },
+                    )
+                }
             }
-        }
 
-        // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            when (tab) {
-                0 -> QuickLayout(dens, keycap, fx)
-                1 -> RemoteLayout()
-                2 -> GameLayout(dens, keycap, fx)
-                3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
-                4 -> KeyGridLayout(KeyLayouts.GRID9, dens, keycap, fx)
-                5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, keycap, fx)
-                6 -> KeyGridLayout(KeyLayouts.FN, dens, keycap, fx)
-                else -> CustomLayout(customRows, dens, keycap, fx) {
-                    customRows = KeyPref.customRows(ctx)
+            // —— 第 1 行：页签（与操控面 kbTabs 同名同序）——
+            // 2026-11-04 改走 [ApComponents.TabChip]：此前用 `Pill + apKeyFeel + apPress` 自己拼
+            // 选中态，而 Kit 里的 TabChip 正是为「有选中态的芯片」造的（selected → 主色胶囊底 +
+            // SemiBold 字重）。一并修掉两个问题：
+            //  ① `Pill` 只有 `padding(10,4)`，**没有 44dp 命中下限** —— 页签是手指目标，
+            //    在 400dp 宽的手机上偏小（TabChip 有 heightIn(min = 44.dp)）；
+            //  ② 手拼那套与 TabChip 并存 = 又一份重复实现，改选中态样式会只改一边。
+            // 震动 / 音效仍由本处负责：TabChip 内部只有 clickable（无 Feedback），
+            // 所以 onClick 里补一次 [Feedback.release] —— 与原 apPress(downFeel = true)
+            // 等价（按下震、点击出声，两件事分开），不叠成一次点击震两下。
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                KB_TABS.forEachIndexed { i, res ->
+                    ApComponents.TabChip(
+                        text = ctx.getString(res),
+                        selected = tab == i,
+                        onClick = {
+                            Feedback.release(host)
+                            tab = i
+                        },
+                        fx = fx,
+                    )
+                }
+            }
+
+            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    0 -> QuickLayout(dens, keycap, fx)
+                    1 -> RemoteLayout()
+                    2 -> GameLayout(dens, keycap, fx)
+                    3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
+                    4 -> KeyGridLayout(KeyLayouts.GRID9, dens, keycap, fx)
+                    5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, keycap, fx)
+                    6 -> KeyGridLayout(KeyLayouts.FN, dens, keycap, fx)
+                    else -> CustomLayout(customRows, dens, keycap, fx) {
+                        customRows = KeyPref.customRows(ctx)
+                    }
                 }
             }
         }
@@ -539,7 +586,36 @@ private fun KeyBox(
     // 宽松档仍按 1.12 放大（49.3dp）。
     val h = (44f * dens.keyScale).coerceAtLeast(48f).dp
     val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
-    val fg = if (active) Color.White else MiuixTheme.colorScheme.onSurface
+    // —— RGB 灯效（成宇 2026-11-08）——
+    // active（sticky 点亮）优先级最高：修饰键状态是功能反馈，不能被灯效盖掉。
+    // 相位只在下面 drawBehind / 玻璃 tint 的取值点被读，读的时机决定只重绘还是重组
+    //（绘制阶段读 → 重绘；玻璃档 tint 是组合期参数 → 该档逐帧重组，84 键里只有
+    // 玻璃档这一支付这个代价，平面 / 机械走 draw 阶段零重组）。
+    val rgb = LocalRgb.current
+    val rgbOn = rgb.phase != null && rgb.mode != KeyPref.RGB_OFF && !active
+    // 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，
+    // 呼吸档全键盘同色不需要位置。
+    var rgbX by remember { mutableIntStateOf(0) }
+    val km =
+        if (rgbOn && rgb.mode == KeyPref.RGB_WAVE) {
+            modifier.onGloballyPositioned { rgbX = it.positionInRoot().x }
+        } else {
+            modifier
+        }
+    /** 当前键色相：呼吸 = 与相位同相（整副键盘一起变）；波浪 = 相位 + 横坐标推相 */
+    fun hueOf(): Float {
+        val p = rgb.phase?.value ?: 0f
+        return if (rgb.mode == KeyPref.RGB_WAVE) (p + rgbX * 0.6f) % 360f else p
+    }
+    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。
+    // 饱和 0.78 / 明度 0.62：白字在全色相上都压得住（明度拉到 1 时黄底白字会糊）。
+    val faceMod: Modifier =
+        if (rgbOn) {
+            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.62f)) }
+        } else {
+            Modifier.background(bg)
+        }
+    val fg = if (active || rgbOn) Color.White else MiuixTheme.colorScheme.onSurface
     val accent = MiuixTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -549,12 +625,12 @@ private fun KeyBox(
         // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
         ApComponents.GlassKeycap(
             // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
-            modifier = modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
+            modifier = km.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
             shape = shape,
             label = label,
             textSize = dens.textSize.sp,
             fg = fg,
-            tint = tint,
+            tint = tint ?: if (rgbOn) hsvColor(hueOf(), 0.78f, 0.62f) else null,
             interaction = interaction,
             onClick = press,
             fxMod = fxMod,
@@ -563,11 +639,11 @@ private fun KeyBox(
     }
     if (keycap != KeyPref.KEYCAP_MECHANICAL) {
         Box(
-            modifier = modifier
+            modifier = km
                 .padding(horizontal = dens.gapDp.dp)
                 .heightIn(min = h)
                 .clip(shape)
-                .background(bg)
+                .then(faceMod)
                 // ★ 同上：不把 interactionSource 传进来，[rememberKeyFx] 就收不到按压事件，
                 // 特效永远不画。这是「键盘动效没有」的真正原因。
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
@@ -578,15 +654,22 @@ private fun KeyBox(
         return
     }
     val side = lerp(bg, Color.Black, 0.35f)
-    Box(modifier.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
-        Box(Modifier.matchParentSize().clip(shape).background(side))
+    // 机械底座同色系压暗（灯效下 side 也跟着走色相，否则侧壁是一块死灰）
+    val sideMod: Modifier =
+        if (rgbOn) {
+            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.38f)) }
+        } else {
+            Modifier.background(side)
+        }
+    Box(km.padding(horizontal = dens.gapDp.dp).heightIn(min = h)) {
+        Box(Modifier.matchParentSize().clip(shape).then(sideMod))
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .padding(bottom = 3.dp)
                 .offset(y = if (pressed) 2.dp else 0.dp)
                 .clip(shape)
-                .background(bg)
+                .then(faceMod)
                 .clickable(interactionSource = interaction, indication = null, onClick = press)
                 .apKeyFeel()
                 .then(fxMod),
