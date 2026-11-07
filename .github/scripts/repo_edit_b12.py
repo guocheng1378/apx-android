@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b17fix（复用 repo-edit-b12.yml 通道）。
-
-b17（e7abc734）编译失败修复：KeyLayouts.kt 122 区两条错 ——
-  122:40 Unresolved 'plus' on receiver of type 'KeyLayouts.Key'
-  122:9  Unresolved 'listOf' on receiver of type 'String'
-两条错指向同一根因：119-121（Caps 拼接链）某处引号/括号未闭合，把 122 行吞进
-字符串，导致 122 的 listOf 被当 String 后缀、listOf(Key(...)) 参数位出现 Key + ...。
-
-修法（根除嫌疑，不留跨行拼接）：
-  1. FULL 四条 `listOf(...) + map + listOf(...)` 跨行拼接链全部改**纯手写单个
-     listOf**（字母 usage 手写常量表，A0x04..Z0x1D 连续已核对）——消灭 map/+ 解析链。
-  2. `Key("'\"", 0x34)` 的 label 改 unicode 转义 `"\u0027\u0022"`（值仍为 '"'）——
-     消灭单/双引号视觉混淆层（121 行头号嫌疑）。
-  3. 数字行 / Ctrl 行（纯 listOf，编译已过）原样保留不动。
-weight 合计不变（Tab/Caps/Shift 行仍 15u）。KeyboardPage / TouchpadActivity 未报错，
-本批只动 KeyLayouts.kt 一文件。
-"""
+"""repo_edit_b12.py —— b17fix2（复用 repo-edit-b12.yml 通道，修正 9d0f81e 版）。"""
 import difflib
 import os
 import sys
@@ -23,7 +7,8 @@ import sys
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 KL = "android/app/src/main/java/com/allperiph/ui/KeyLayouts.kt"
 
-OLD_FULL = '''    val FULL: List<List<Key>> = listOf(
+# raw 三引号：保留反斜杠（\" 、\\| 、\u0027 等在 Python 层不再被吃一层）
+OLD_FULL = r'''    val FULL: List<List<Key>> = listOf(
         listOf(Key("Esc", ESC)) + (1..12).map { Key("F$it", fn(it)) },
         listOf(
             Key("`~", 0x35), Key("1!", d(1)), Key("2@", d(2)), Key("3#", d(3)), Key("4$", d(4)),
@@ -45,7 +30,7 @@ OLD_FULL = '''    val FULL: List<List<Key>> = listOf(
         ),
     )'''
 
-NEW_FULL = '''    val FULL: List<List<Key>> = listOf(
+NEW_FULL = r'''    val FULL: List<List<Key>> = listOf(
         listOf(
             Key("Esc", ESC), Key("F1", fn(1)), Key("F2", fn(2)), Key("F3", fn(3)), Key("F4", fn(4)),
             Key("F5", fn(5)), Key("F6", fn(6)), Key("F7", fn(7)), Key("F8", fn(8)), Key("F9", fn(9)),
