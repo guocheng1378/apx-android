@@ -194,7 +194,8 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）
-        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        // b19「ctrl 那一排不要了，下面有」：横屏不画 sticky 修饰排（FULL 底排自带 Ctrl/Alt/Shift），竖屏保留
+        if (!wide) Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
             HidKeys.MOD_LABELS.forEach { (text, bit) ->
                 ModKey(
                     label = text,
