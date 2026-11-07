@@ -325,6 +325,7 @@ class RemoteActivity : Activity() {
             getString(R.string.ui_common_back) to { HidKeys.tap(U_ESC) },
             getString(R.string.ui_remote_item_home) to { HidKeys.tap(U_HOME) },
             getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
+            getString(R.string.ui_remote_item_voice) to { media(HotkeyController.BIT_VOICE) },
         ),
         arrayOf(
             getString(R.string.ui_touchpad_label_volume) to { media(HotkeyController.BIT_VOLUME_DOWN) },

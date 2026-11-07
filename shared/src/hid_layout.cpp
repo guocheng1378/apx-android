@@ -263,6 +263,7 @@ uint16_t consumerKeyBitUsage(uint8_t bit) {
         case kBitNextTrack:  return kUsageScanNextTrack;
         case kBitZoomIn:     return kUsageZoomIn;    // v1.7c
         case kBitZoomOut:    return kUsageZoomOut;   // v1.7c
+        case kBitVoice:      return kUsageVoiceCommand;  // b14
         default:             return 0;
     }
 }

@@ -11,6 +11,7 @@ import com.allperiph.core.Uplink
  *
  * 位定义与 `shared/include/apx/hid_layout.h` 的 ConsumerKeyBit 严格一致：
  *   bit0=音量+ bit1=音量- bit2=静音 bit3=电源 bit4=播放/暂停 bit5=上一曲 bit6=下一曲
+ *   bit9=语音（b14，0x0203 Voice Command；bit7/8 为 zoom 已占用，见 hid_layout.h）
  *
  * 发送语义：**按下与释放均发全量位图**，PC 按位比对得边沿事件（v1.2 usage 位图协议）。
  * 路径择优**只有一处**：`Uplink.resolve`（无线目标 → USB HID Report 4 → 蓝牙 Consumer TLC → 无出口）。
@@ -25,6 +26,7 @@ object HotkeyController {
     const val BIT_PLAY_PAUSE = 4
     const val BIT_PREV_TRACK = 5
     const val BIT_NEXT_TRACK = 6
+    const val BIT_VOICE = 9        // b14：Consumer 0x0203 Voice Command
 
     @Volatile
     private var bitmap = 0

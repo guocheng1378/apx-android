@@ -176,7 +176,12 @@ void buildTlcConsumer(Builder& b) {
     b.usage(kUsagePlayPause); b.input(kDataVar);
     b.usage(kUsageScanPrevTrack); b.input(kDataVar);
     b.usage(kUsageScanNextTrack); b.input(kDataVar);
-    b.padBits(9); b.padBytes(1);
+    // b14 语音键：bit9 = Voice Command(0x0203)。bit7/8（zoom）维持 padding —— v1.7c
+    // 起 zoom 只走 9511 受控端翻译，不进 HID 描述符（勿动）。报告总长 16bit+1B 不变。
+    b.padBits(2);
+    b.usage(kUsageVoiceCommand); b.input(kDataVar);
+    b.padBits(6);
+    b.padBytes(1);
     b.endCollection();
 }
 
@@ -389,7 +394,12 @@ void buildBtTlcConsumer(Builder& b) {
     b.usage(kUsagePlayPause); b.input(kDataVar);
     b.usage(kUsageScanPrevTrack); b.input(kDataVar);
     b.usage(kUsageScanNextTrack); b.input(kDataVar);
-    b.padBits(9); b.padBytes(1);
+    // b14 语音键：bit9 = Voice Command(0x0203)。bit7/8（zoom）维持 padding —— v1.7c
+    // 起 zoom 只走 9511 受控端翻译，不进 HID 描述符（勿动）。报告总长 16bit+1B 不变。
+    b.padBits(2);
+    b.usage(kUsageVoiceCommand); b.input(kDataVar);
+    b.padBits(6);
+    b.padBytes(1);
     b.endCollection();
 }
 

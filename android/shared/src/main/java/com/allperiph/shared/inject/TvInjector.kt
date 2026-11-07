@@ -584,6 +584,13 @@ object TvInjector {
         if (bitmap and (1 shl 4) != 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
         if (bitmap and (1 shl 5) != 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
         if (bitmap and (1 shl 6) != 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+        // b14 语音键（bit9 → KEYCODE_VOICE_ASSIST 231）：对端（TV/手机）按系统默认路由
+        // 拉起语音助手。与 bit3 电源同款：置位帧发一次 down+up（释放帧位清零不触发）。
+        // 注入需 evdev/root 通道；无障碍无 231 分支会走 else 打日志（如实降级不装死）。
+        if (bitmap and (1 shl 9) != 0) {
+            key(KeyEvent.KEYCODE_VOICE_ASSIST, true)
+            key(KeyEvent.KEYCODE_VOICE_ASSIST, false)
+        }
     }
 
     private fun sendMediaKey(code: Int) {

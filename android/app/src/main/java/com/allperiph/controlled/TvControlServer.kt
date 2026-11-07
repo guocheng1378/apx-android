@@ -561,6 +561,6 @@ class TvControlServer(
             val digits = "1234567890"
             for (i in digits.indices) put(0x1E + i, 0 to digits[i])
         }
-        private val CONSUMER_MAP: Map<Int, Int> = mapOf(0 to 24, 1 to 25, 2 to 164, 3 to 26, 4 to 85, 5 to 88, 6 to 87)
+        private val CONSUMER_MAP: Map<Int, Int> = mapOf(0 to 24, 1 to 25, 2 to 164, 3 to 26, 4 to 85, 5 to 88, 6 to 87, 9 to 231)
     }
 }

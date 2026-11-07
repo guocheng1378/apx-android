@@ -145,6 +145,7 @@ enum : uint16_t {
     kUsageScanNextTrack   = 0x00B5,
     kUsageZoomIn          = 0x0227,
     kUsageZoomOut         = 0x0228,
+    kUsageVoiceCommand    = 0x0203,  // b14 语音键（HID Consumer Page 标准 usage）
 };
 
 // ---- 报告描述符 -----------------------------------------------------------

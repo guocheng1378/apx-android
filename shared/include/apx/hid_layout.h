@@ -207,6 +207,7 @@ enum ConsumerKeyBit : uint8_t {
     kBitNextTrack  = 6,  // 0x0C:0xB5
     kBitZoomIn     = 7,  // 0x0C:0x0227（v1.7c 捏合放大）
     kBitZoomOut    = 8,  // 0x0C:0x0228（v1.7c 捏合缩小）
+    kBitVoice      = 9,  // 0x0C:0x0203（b14 语音键，进 HID 描述符）
 };
 
 // §2.7 Report ID 5 —— Vendor 控制 OUT（PC -> 手机）
