@@ -196,9 +196,10 @@ class BtHidDevice(private val appContext: Context) : Module {
     }
 
     /**
-     * 向「已配对的电脑 / 电视」自动补一次 HID 连接（注册成功后、蓝牙重新打开后各调一次）。
+     * 向「已配对的电脑 / 电视 / 手机」自动补一次 HID 连接（注册成功后、蓝牙重新打开后各调一次）。
      *
-     * 只认 majorDeviceClass = COMPUTER 或 AUDIO_VIDEO：不往耳机 / 车机 / 另一部手机上乱连。
+     * 认 COMPUTER / AUDIO_VIDEO / UNCATEGORIZED / PHONE（b13 起 PHONE 纳入：手机互控的
+     * 断 Wi-Fi 输入兜底）；不往耳机 / 车机上连 —— 连错设备只是一条被拒日志。
      * 失败不重试 —— 主机可能正忙、可能已删过设备；下一次注册或开关蓝牙会再试。
      * 系统若仍显示成「手机」，说明那台主机的配对记录是在 App 注册 HID **之前**建立的，
      * 主机缓存了旧的设备类型：需要在主机端删掉本机再重新配对（App 侧改不了别人的缓存）。
@@ -210,13 +211,16 @@ class BtHidDevice(private val appContext: Context) : Module {
             val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull() ?: -1
             // 2026-11-08 电视兜底：电视 / 盒子不少上报 UNCATEGORIZED（major 查不到类），
             // 一并纳入 —— connect 到非 HID 主机被拒只是无害的一条日志，换盒子的配对回连。
-            // 手机（PHONE major）仍排除：手机被控走 9511 + 无障碍，不是 HID 主机。
+            // 2026-11-08 手机控手机（b13）：PHONE 类同样纳入 —— Android 手机的系统级 HID
+            // 主机能力与 TV 同源，被控机亮屏解锁即可收键鼠。锁屏会吞输入，那是能力边界
+            // 不是代码障碍；9511 协议通道仍是手机互控正道，蓝牙只作断 Wi-Fi 的输入兜底。
             major == BluetoothClass.Device.Major.COMPUTER ||
                 major == BluetoothClass.Device.Major.AUDIO_VIDEO ||
-                major == BluetoothClass.Device.Major.UNCATEGORIZED
+                major == BluetoothClass.Device.Major.UNCATEGORIZED ||
+                major == BluetoothClass.Device.Major.PHONE
         }
         if (hosts.isEmpty()) {
-            Log.i(TAG, "没有已配对的电脑/电视主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")
+            Log.i(TAG, "没有已配对的电脑 / 电视 / 手机主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")
             return
         }
         for (h in hosts) {
@@ -285,7 +289,7 @@ class BtHidDevice(private val appContext: Context) : Module {
     }
 
     override fun statusText(): String = when (state) {
-        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待电脑 / 电视配对）"
+        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待电脑 / 电视 / 手机配对）"
         ModuleState.STARTING -> "蓝牙 HID 启动中"
         ModuleState.DEGRADED -> "蓝牙 HID 权限不足"
         ModuleState.ERROR -> "蓝牙 HID 错误：无蓝牙适配器"

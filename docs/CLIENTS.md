@@ -14,7 +14,7 @@
 | 💻 Windows | `AllPeriph-vXXX-Setup.exe`（安装包）/ `AllPeriph-vXXX-portable.zip`（便携） | **主控 + 被控** | `apxhost` 常驻宿主（设备发现 / 连接 / 媒体泵 / 自检）、`apxdesktop` 桌面壳、`web/` 控制面板（state / act / query / 事件四通道）、虚拟副屏（IddCx 驱动）、麦克风桥与系统音频、文件发送、**9511 受控端**（被手机反控）、ViGEm 虚拟 X360 手柄（可选） | exe **未做代码签名**：SmartScreen 会拦（更多信息 → 仍要运行）；WebView2 Runtime 缺失时静默安装 |
 | 🍎 macOS (arm64，测试版) | `AllPeriph-vXXX-macos-arm64.zip` + `AllPeriph.app` | **主控**（含 9511 受控端） | `apxdesktop` 桌面壳 / `apxhost panel` 浏览器面板、媒体通道 9502 跨平台、麦克风 CoreAudio AudioQueue、音箱 CoreAudio Process Tap（需 macOS 14.2+ 与「系统音频录制」授权）、文件接收、开机自启 | **副屏不支持**（虚拟显示器仅 Windows）；USB 有线 / 全局热键不可用；浏览器面板不能发本机文件；ad-hoc 签名未公证，首次打开需放行；DRM 音频可能采为静音（系统侧行为） |
 | 🌐 Web 控制面板 | 随包 `web/`（`?host=1` 由 `apxhost panel` / `apxdesktop` 起本地服务） | **控制面** | 媒体 / 文件 / 事件四通道，前端 `bridge.ts` 三态传输（webview / http / mock），Windows 与 macOS 同构 | 仅监听 `127.0.0.1`；macOS 的唯一面板入口；无系统文件对话框 → 不能发送本机文件 |
-| 📱 ↔ 📱 另一台手机 | 同 `app.apk`，9511 互控 | **互控** | 两台手机双向实时控制 + 文件互传 | 同一局域网，双方都要在线 |
+| 📱 ↔ 📱 另一台手机 | 同 `app.apk`，9511 互控 | **互控** | 两台手机双向实时控制 + 文件互传 | 同一局域网，双方都要在线；断 Wi-Fi 时键鼠可蓝牙兜底（b13，被控机需亮屏解锁） |
 
 > `vXXX` 为发版版本号，产物在 [Releases](../../releases)；所有 APK 自签，不能上架 Google Play。
 
@@ -26,7 +26,7 @@
 |------|------|---------|------|
 | **USB 有线** | 手机 ⇄ 电脑（仅 Windows） | ❌ 需 root | 性能最高且手机同时充电；USB 枚举为键盘 / 鼠标 / 声卡（HID + UAC2 + FunctionFS 副屏）；旁路通道见 `apx_jni` / `gadget/` |
 | **Wi-Fi** | 手机 ⇄ 电脑 / 手机 / TV | ✅ | 9511 控制面 · 9502 媒体（副屏视频 + 触控 + 音频）· 9501 UDP 发现信标（`APX1PH`/`APX1PC`/`APX1TV`）· 9512 文件 |
-| **蓝牙** | 手机 → 电脑 / 电视（HID） | ✅ | `BtHidDevice` 蓝牙 HID；电视 / 盒子配对后可作**输入回落出口**（键鼠经系统级 HID 注入，入口见状态页「蓝牙配对引导」）；文件 / 剪贴板等协议功能仍需 Wi-Fi；另有 v217 起的**物理蓝牙键盘 → 电脑转发桥**（手机连的实体键盘打字直发电脑）；真机配对实测见 REALDEVICE-NOTES §9 |
+| **蓝牙** | 手机 → 电脑 / 电视 / 另一台手机（HID） | ✅ | `BtHidDevice` 蓝牙 HID；电视 / 盒子 / 被控手机配对后可作**输入回落出口**（键鼠经系统级 HID 注入，入口见状态页「蓝牙配对引导」；被控手机须亮屏解锁，锁屏会吞输入）；文件 / 剪贴板等协议功能仍需 Wi-Fi；另有 v217 起的**物理蓝牙键盘 → 电脑转发桥**（手机连的实体键盘打字直发电脑）；真机配对实测见 REALDEVICE-NOTES §9 |
 
 ---
 

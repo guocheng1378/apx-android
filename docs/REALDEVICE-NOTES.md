@@ -302,3 +302,8 @@ NONE，判据唯一）；native 蓝牙描述符四 TLC + Report ID 声明齐（v
    重连 Wi-Fi 后应在 2s 内自动切回 9511。记录电视型号与其 BluetoothClass major
    （`dumpsys bluetooth_manager`）—— `connectBondedHost` 已放宽到 UNCATEGORIZED
    （2026-11-08），但盒子实际上报类别未经实测确认。
+10. **手机配对与回落**（2026-11-08 b13 新增）：两台手机互配（PHONE 类已纳入
+    `connectBondedHost`），被控手机亮屏解锁，断开 Wi-Fi 后主控触控板 / 键盘应经蓝牙
+    进被控机系统输入；锁屏状态记录行为（预期被吞 —— 能力边界）。9511 重连后 2s 内
+    应自动切回 Wi-Fi。记录被控机 BluetoothClass major（`dumpsys bluetooth_manager`）
+    确认上报为 PHONE（0x0200）。
