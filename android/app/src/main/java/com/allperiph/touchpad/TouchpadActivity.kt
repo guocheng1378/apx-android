@@ -670,7 +670,7 @@ class TouchpadActivity : Activity() {
             })
         }
         col.addView(modRow, LinearLayout.LayoutParams(-1, 0, 1f))
-        if (resources.configuration.orientation == android.content.Configuration.ORIENTATION_LANDSCAPE) {
+        if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
             // b17 方案 C：横屏按现实真键盘排（15u 行制变宽）；weight 6f 对齐竖屏 6 行比例
             col.addView(keyGrid(com.allperiph.ui.KeyLayouts.FULL), LinearLayout.LayoutParams(-1, 0, 6f))
             return col

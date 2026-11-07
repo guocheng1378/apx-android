@@ -190,7 +190,7 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val rows = KeyPref.letterRows(ctx)
     // b17 方案 C：横屏切真键盘（15u 行制），竖屏保持 letterRows 紧凑排
     val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
-        android.content.Configuration.ORIENTATION_LANDSCAPE
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）
