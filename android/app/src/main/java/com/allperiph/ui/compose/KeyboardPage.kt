@@ -153,8 +153,10 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     val rgbSpec = if (rgbMode == KeyPref.RGB_OFF) {
         RgbSpec(rgbMode, null)
     } else {
-        // 波浪要能看出「跑」，6s 一圈；呼吸是整体慢明慢灭的调子，4s 一圈
-        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 4_000
+        // 波浪 6s 一圈能看出「跑」；呼吸相位放慢到 48s 一轮彩虹 ——
+        // KeyBox.rgbFace 从同一条相位取亮度包络（每 30° = 一次 4s 明灭，共 12 次）
+        // 与色相慢漂，相位连续不回绕、换色不跳（成宇 b24「循环闪不行」）。
+        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 48_000
         val t = rememberInfiniteTransition(label = "rgbPhase")
         RgbSpec(
             rgbMode,
@@ -621,16 +623,27 @@ private fun KeyBox(
         } else {
             modifier
         }
-    /** 当前键色相：呼吸 = 与相位同相（整副键盘一起变）；波浪 = 相位 + 横坐标推相 */
-    fun hueOf(): Float {
+    /** 当前键色（成宇 2026-11-08「和真实键盘不一样，这循环闪不行，还有颜色也不对」）：
+     *  对齐真键盘两档口径 ——
+     *  · 波浪 = 满饱和 LED 彩虹（s0.94 / v0.86），按横坐标错相匀速跑；
+     *  · 呼吸 = 亮度正弦呼吸（v 0.06↔0.86，4s 一明灭）+ 色相 48s 慢漂一轮彩虹，
+     *    每次从暗处亮起已是新色 —— 不再是 4s 整圈快转的「循环闪」。
+     *  vScale 供机械底座复用（0.42 = 同色压暗，侧壁不再是一块死灰）。
+     */
+    fun rgbFace(vScale: Float): Color {
         val p = rgb.phase?.value ?: 0f
-        return if (rgb.mode == KeyPref.RGB_WAVE) (p + rgbX * 0.6f) % 360f else p
+        val breathe = rgb.mode != KeyPref.RGB_WAVE
+        // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮
+        val env =
+            if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f
+        val h = if (breathe) p else p + rgbX * 0.6f
+        val v = if (breathe) 0.06f + 0.80f * env else 0.86f
+        return hsvColor(h, 0.94f, (v * vScale).coerceAtLeast(0f))
     }
     // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。
-    // 饱和 0.78 / 明度 0.62：白字在全色相上都压得住（明度拉到 1 时黄底白字会糊）。
     val faceMod: Modifier =
         if (rgbOn) {
-            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.62f)) }
+            Modifier.drawBehind { drawRect(rgbFace(1f)) }
         } else {
             Modifier.background(bg)
         }
@@ -649,7 +662,7 @@ private fun KeyBox(
             label = label,
             textSize = dens.textSize.sp,
             fg = fg,
-            tint = tint ?: if (rgbOn) hsvColor(hueOf(), 0.78f, 0.62f) else null,
+            tint = tint ?: if (rgbOn) rgbFace(1f) else null,
             interaction = interaction,
             onClick = press,
             fxMod = fxMod,
@@ -676,7 +689,7 @@ private fun KeyBox(
     // 机械底座同色系压暗（灯效下 side 也跟着走色相，否则侧壁是一块死灰）
     val sideMod: Modifier =
         if (rgbOn) {
-            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.38f)) }
+            Modifier.drawBehind { drawRect(rgbFace(0.42f)) }
         } else {
             Modifier.background(side)
         }
