@@ -146,7 +146,8 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     // RGB 灯效档（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）：与材质 / 特效正交的第三档外观。
     // 只在这里起一条 InfiniteTransition，相位 State 经 [LocalRgb] 下发给键帽；
     // 关档（默认）连 transition 都不建（if 分支不进），不跑任何动画。
-    val rgbMode = KeyPref.rgbIndex(ctx)
+    // 存成 state 而不是 val：页签行尾的灯效芯片就地循环档位，改完当场重组灯效分支。
+    var rgbMode by remember { mutableIntStateOf(KeyPref.rgbIndex(ctx)) }
     val rgbSpec = if (rgbMode == KeyPref.RGB_OFF) {
         RgbSpec(rgbMode, null)
     } else {
@@ -209,6 +210,21 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                         fx = fx,
                     )
                 }
+                // 灯效快切（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）：点一下循环
+                // 关闭 → 呼吸 → 波浪，选中态 = 开灯；与设置项同一份 KeyPref.rgbIndex，
+                // 就地改当场生效（灯效分支随 rgbMode 重组，不用重进键盘页）。
+                // 芯片文案走资源拼接（ui_set_label_rgb + rgbLabels），不加 Kotlin 中文字面量。
+                ApComponents.TabChip(
+                    text = ctx.getString(R.string.ui_set_label_rgb) + " · " +
+                        KeyPref.rgbLabels(ctx).getOrElse(rgbMode) { "" },
+                    selected = rgbMode != KeyPref.RGB_OFF,
+                    onClick = {
+                        Feedback.release(host)
+                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT
+                        KeyPref.setRgb(ctx, rgbMode)
+                    },
+                    fx = fx,
+                )
             }
 
             // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
