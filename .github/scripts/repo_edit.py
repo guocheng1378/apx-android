@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-7 v4+v5（AOSP 系统栏 + 挖孔语义 + dpi 跟手平滑 + 编辑控件降级 +
-状态页环境自检布局 + PC 面板悬停小字补全）。
+"""repo-edit：批 U-7 v4+v5+v6（AOSP 系统栏 + 挖孔语义 + dpi 跟手平滑 + 编辑控件降级 +
+状态页环境自检布局 + PC 面板悬停小字 + 低栏收起态透明悬浮）。
 
 v3 修正（run #89 错误日志定位）：
   1. SUB 子页目录常量写错分隔符（com.allperiph 点号 → com/allperiph 斜杠），
      7 子页 open 全部 ENOENT；真实路径经 contents API 实证为斜杠。
   2. SettingsPage「上移」按钮在 if (index > 0) 块内，缩进深一层（28/32 空格），
-     v2 锚按 24/28 写导致 count=0。应用/删除/新建三个按钮 v2 已过验证，不动。
+     v2 锚按 24/28 写导致 count=0；应用/删除/新建三个按钮 v2 已过验证，不动。
   3. 成功时清理上次遗留的 docs/edit_error.log，失败时照旧落盘全部错误。
 v4（成宇 2026-11-07 凌晨截图「你自己看看」）：
   4. StatusPage 环境自检行 ValueRow → ItemRow(summary)：长诊断详情在右值位只分到
@@ -17,7 +17,17 @@ v5（成宇 2026-11-07「我的软件没有要改的吗」深审——按组件�
      文件面板/设置/日志导出/代输 4 个 Modal 头×（后 4 处同时补 aria-label）。
      锚均经本地 raw 文件 grep 实证 count=1。口诀其余五条已对照通过：Toast 队列 ✓、
      Notice 顶部常驻 ✓、Modal 只留真阻断 ✓、删除两段式确认 ✓、Drawer 例外
-     （分页就地编辑）✓，无需改动。
+     （分页就地编辑）✓，无需改动。bot 已落地 ea9e4d3。
+v6（成宇 2026-11-07「低栏缩回否应该是透明悬浮的而不是强占界面面积」选方案4）：
+  6. ApShell bottomGap/topGap 由固定值（竖 88 / 横顶 96 / 横底 24）改为跟随
+     barCollapsed 的 animateDpAsState：收起成球一律收到 8dp，内容回涨与球缩共用
+     barFx 同口径弹簧（DampingRatioLowBouncy + StiffnessMedium）；展开恢复原值。
+     键盘页横屏 40dp 特判不动（球与胶囊同角位、下沿同为 ~58dp，仍需避让修饰键排）。
+     页面侧分工已核（StatusPage:94 bottom = bottomGap + insets.bottom）：手势条避让走
+     insets.bottom，bottomGap 纯给低栏让位 → 收到 8dp 安全。
+  7. 收起态 48dp 球实心 surfaceContainer → 半透明渐变玻璃（alpha .66→.46）+ 1dp 高光
+     描边（暗底/亮底两套 alpha，与展开胶囊同质感，shader-free 老机器同款）——球浮在
+     内容上、内容可透出，不再是压着界面的实心圆。新增 foundation.border 导入。
 其余 U-7 锚已在 run #89/#90/#91 验证通过（已落地，自动 skip）。
 """
 import os
@@ -382,6 +392,94 @@ EDITS += [
         "kind": "replace",
         "anchor": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>',
         "new": '<button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>',
+    },
+]
+
+# ———————— v6：低栏收起态透明悬浮（方案4 = 动态让位 + 玻璃球） ————————
+EDITS += [
+    {
+        "id": "U6-0 import border",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": "import androidx.compose.animation.core.tween",
+        "new": "import androidx.compose.animation.core.tween\nimport androidx.compose.foundation.border",
+    },
+    {
+        "id": "U6-1 固定让位改动态",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": (
+            "        val bottomGap = if (landscape) 24.dp else 88.dp\n"
+            "        val topGap = if (landscape) 96.dp else 0.dp"
+        ),
+        "new": (
+            "        // 方案4（成宇 2026-11-07「低栏缩回应是透明悬浮，不该强占界面面积」）：\n"
+            "        // 让位量不再固定，在下方 barCollapsed 声明处按收/展状态动画 —— 收起成球时\n"
+            "        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套弹簧；展开恢复原值。"
+        ),
+    },
+    {
+        "id": "U6-2 动态让位计算",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": "        var barCollapsed by remember { mutableStateOf(false) }",
+        "new": (
+            "        var barCollapsed by remember { mutableStateOf(false) }\n"
+            "        // 方案4：让位量跟收/展联动（弹簧与 barFx 同口径 LowBouncy+Medium，球缩与\n"
+            "        // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位\n"
+            "        // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管\n"
+            "        // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。\n"
+            "        // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。\n"
+            "        val bottomGap by androidx.compose.animation.core.animateDpAsState(\n"
+            "            targetValue = if (barCollapsed) 8.dp else if (landscape) 24.dp else 88.dp,\n"
+            "            animationSpec = androidx.compose.animation.core.spring(\n"
+            "                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,\n"
+            "                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,\n"
+            "            ),\n"
+            "            label = \"bottomGap\",\n"
+            "        )\n"
+            "        val topGap by androidx.compose.animation.core.animateDpAsState(\n"
+            "            targetValue = if (landscape) (if (barCollapsed) 8.dp else 96.dp) else 0.dp,\n"
+            "            animationSpec = androidx.compose.animation.core.spring(\n"
+            "                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,\n"
+            "                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,\n"
+            "            ),\n"
+            "            label = \"topGap\",\n"
+            "        )"
+        ),
+    },
+    {
+        "id": "U6-3 玻璃球",
+        "file": SHELL,
+        "kind": "replace",
+        "anchor": (
+            "                            .clip(androidx.compose.foundation.shape.CircleShape)\n"
+            "                            .background(MiuixTheme.colorScheme.surfaceContainer)"
+        ),
+        "new": (
+            "                            .clip(androidx.compose.foundation.shape.CircleShape)\n"
+            "                            // 方案4·玻璃化：实心 surfaceContainer → 半透明渐变玻璃 +\n"
+            "                            // 1dp 高光描边（与展开胶囊同一套质感，shader-free 老机器同款）——\n"
+            "                            // 收起后球浮在内容上、内容可透出，不再是压着界面的实心圆。\n"
+            "                            .background(\n"
+            "                                androidx.compose.ui.graphics.Brush.verticalGradient(\n"
+            "                                    listOf(\n"
+            "                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),\n"
+            "                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),\n"
+            "                                    ),\n"
+            "                                ),\n"
+            "                            )\n"
+            "                            .border(\n"
+            "                                width = 1.dp,\n"
+            "                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(\n"
+            "                                    listOf(\n"
+            "                                        Color.White.copy(alpha = if (navDark) 0.16f else 0.52f),\n"
+            "                                        Color.White.copy(alpha = if (navDark) 0.05f else 0.14f),\n"
+            "                                    ),\n"
+            "                                ),\n"
+            "                                shape = androidx.compose.foundation.shape.CircleShape,\n"
+            "                            )"
+        ),
     },
 ]
 
