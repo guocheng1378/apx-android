@@ -1,6 +1,7 @@
 package com.allperiph.ui.compose
 
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -38,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -610,11 +612,12 @@ private fun KeyBox(
     val rgb = LocalRgb.current
     val rgbOn = rgb.phase != null && rgb.mode != KeyPref.RGB_OFF && !active
     // 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，
-    // 呼吸档全键盘同色不需要位置。
+    // 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，
+    // TouchpadPage 同款用法），左缘像素即可，窗口相对偏移不影响错相。
     var rgbX by remember { mutableIntStateOf(0) }
     val km =
         if (rgbOn && rgb.mode == KeyPref.RGB_WAVE) {
-            modifier.onGloballyPositioned { rgbX = it.positionInRoot().x }
+            modifier.onGloballyPositioned { rgbX = it.boundsInWindow().left.toInt() }
         } else {
             modifier
         }
