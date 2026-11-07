@@ -240,7 +240,7 @@ export default function App() {
                   className="icon-btn"
                   style={{ width: 24, height: 24 }}
                   onClick={() => setUpdate(null)}
-                  aria-label="忽略更新"
+                  aria-label="忽略更新" title="忽略更新"
                 >
                   <IconX size={13} />
                 </button>

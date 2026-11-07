@@ -18,7 +18,7 @@ export const RemoteInputModal: React.FC<Props> = ({ open, hint, onClose, onSend 
       <div className="card card-inner w-[420px] animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <span className="section-title">远程输入</span>
-          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>
+          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>
         </div>
         {hint && <div className="caption-text text-on-variant mb-2">{hint}</div>}
         <textarea

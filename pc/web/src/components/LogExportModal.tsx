@@ -144,7 +144,7 @@ export const LogExportModal: React.FC<Props> = ({ open, onClose }) => {
       <div className="card card-inner w-[520px] animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <span className="section-title">日志导出</span>
-          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>
+          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>
         </div>
 
         <div className="data-text text-on-tertiary mb-3 break-all">源目录：{logDir || '—'}</div>

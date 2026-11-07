@@ -138,7 +138,7 @@ export const FilePanelModal: React.FC<{ open: boolean; onClose: () => void }> = 
       <div className="card card-inner w-[480px] max-h-[72vh] flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <span className="section-title">文件传输</span>
-          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose}>✕</button>
+          <button className="text-on-tertiary hover:text-on-surface text-[18px] leading-none" onClick={onClose} title="关闭" aria-label="关闭">✕</button>
         </div>
 
         {browserMode ? (

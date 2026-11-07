@@ -46,7 +46,7 @@ export const RemoteInputDock: React.FC<Props> = ({ hint, onClose, onSend }) => {
           </span>
           <span className="row-sub dim truncate-1">{hint || '对端输入框已获焦，输入后回车发送'}</span>
         </span>
-        <button className="icon-btn" onClick={onClose} aria-label="关闭">
+        <button className="icon-btn" onClick={onClose} aria-label="关闭" title="关闭">
           <IconX size={16} />
         </button>
       </div>
