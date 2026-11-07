@@ -731,6 +731,7 @@ private fun KeyBox(
         }
     // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、
     // 随波浪换色、随按下扩散亮起）；sticky 点亮的修饰键仍走白字（反馈优先级最高）。
+    @Composable
     fun touchFg(): Color {
         val tick = rgb.phase?.value ?: 0f // 订阅相位 → 每帧重组；不订阅会冻在按下那一帧
         val l = touchLight()
