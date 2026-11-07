@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""repo-edit：批 U-7（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
+"""repo-edit：批 U-7 v3（AOSP 系统栏规范 + 挖孔圆角语义修正 + dpi 滑条跟手/平滑 +
 编辑控件降级，成宇 2026-11-07 深化反馈）。
 
-v2：run #88 失败后重写。全部 30 个锚已逐一对 master 原文 grep 实证 count=1；
-本版将 fail-fast 改为错误收集 —— 任一锚异常时把全部错误写入 docs/edit_error.log
-并 exit 0（让 workflow 提交该日志），不再静默失败；全部正常时才应用编辑。
+v3 修正（run #89 错误日志定位）：
+  1. SUB 子页目录常量写错分隔符（com.allperiph 点号 → com/allperiph 斜杠），
+     7 子页 open 全部 ENOENT；真实路径经 contents API 实证为斜杠。
+  2. SettingsPage「上移」按钮在 if (index > 0) 块内，缩进深一层（28/32 空格），
+     v2 锚按 24/28 写导致 count=0。应用/删除/新建三个按钮 v2 已过验证，不动。
+  3. 成功时清理上次遗留的 docs/edit_error.log，失败时照旧落盘全部错误。
+其余锚均已在 run #89 本地 grep 实证 + CI 计数验证通过。
 """
+import os
 import sys
 
 INSETS = "android/app/src/main/java/com/allperiph/ui/miuix/ApInsets.kt"
 SHELL = "android/app/src/main/java/com/allperiph/ui/compose/ApShellActivity.kt"
 COMP = "android/app/src/main/java/com/allperiph/ui/miuix/ApComponents.kt"
 SET = "android/app/src/main/java/com/allperiph/ui/compose/SettingsPage.kt"
-SUB = "android/app/src/main/java/com.allperiph"
+SUB = "android/app/src/main/java/com/allperiph"
 ERRLOG = "docs/edit_error.log"
 
 SUB_PAGES = [
@@ -279,8 +284,8 @@ EDITS += [
         "id": "U7-按钮：上移",
         "file": SET,
         "kind": "replace",
-        "anchor": "                        ApComponents.ActionButton(\n                            text = \"「${t.name}」上移\",",
-        "new": "                        ApComponents.NarrowButton(\n                            text = \"「${t.name}」上移\",",
+        "anchor": "                            ApComponents.ActionButton(\n                                text = \"「${t.name}」上移\",",
+        "new": "                            ApComponents.NarrowButton(\n                                text = \"「${t.name}」上移\",",
     },
     {
         "id": "U7-按钮：删除",
@@ -332,8 +337,6 @@ def main() -> int:
         pending[path] = text
 
     if errors:
-        # 失败不静默（run #88 拿不到日志的教训）：全部错误落盘并 exit 0，
-        # 让 workflow 把 docs/edit_error.log 提交上来，下轮直接读文件定位。
         body = "\n\n".join(errors)
         try:
             with open(ERRLOG, "w", encoding="utf-8") as f:
@@ -342,6 +345,12 @@ def main() -> int:
             print("write errlog failed: " + str(ex))
         print("ERRORS:\n" + body)
         return 0
+
+    # 成功：清掉上一轮遗留的错误日志，保持仓库干净。
+    try:
+        os.remove(ERRLOG)
+    except OSError:
+        pass
 
     if not pending:
         print("no changes")
