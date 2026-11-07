@@ -4,6 +4,7 @@ name: TV Legacy (Android 4.3)
 # AGP 7.4.2 + Gradle 7.5.1 + JDK 11 + compileSdk 33 + minSdk 18。
 # UI 用 PR #64 迁移前的 Views 快照（a769548），:shared 用主仓当前源码（协议与 PC 端一致）。
 # 调试期只手动触发（不挂 push，避免绿之前把 master 状态打红）；绿了再考虑挂 master/PR。
+# 不装 android-actions/setup-android：ubuntu runner 预装 SDK 与 licenses，该 action 反而3 秒就挂（run #1 根因）。
 
 on:
   workflow_dispatch:
@@ -26,8 +27,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 11
-
-      - uses: android-actions/setup-android@v3
 
       - uses: gradle/actions/setup-gradle@v3
         with:
