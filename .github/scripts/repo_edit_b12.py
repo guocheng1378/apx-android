@@ -1,34 +1,19 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b17fix2（复用 repo-edit-b12.yml 通道，修正 9d0f81e 版）。"""
+"""repo_edit_b12.py —— b17fix3（区间切除法，不用逐字节锚）。
+
+b17fix2 的整块锚 count 失败（多层转义下逐字节比对脆弱）。本版改用定位切除：
+  start = text.find("    val FULL: List<List<Key>> = listOf(")   # 全文件唯一
+  end   = text.find("\n    )", start) + len("\n    )")            # FULL 闭括号（内部缩进均 >=8）
+  new   = text[:start] + NEW_FULL + text[end:]
+零逐字节比对，转义层怎么吃都不影响定位。失败模式只剩「标记不存在」，打印即知。"""
 import difflib
 import os
 import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 KL = "android/app/src/main/java/com/allperiph/ui/KeyLayouts.kt"
-
-# raw 三引号：保留反斜杠（\" 、\\| 、\u0027 等在 Python 层不再被吃一层）
-OLD_FULL = r'''    val FULL: List<List<Key>> = listOf(
-        listOf(Key("Esc", ESC)) + (1..12).map { Key("F$it", fn(it)) },
-        listOf(
-            Key("`~", 0x35), Key("1!", d(1)), Key("2@", d(2)), Key("3#", d(3)), Key("4$", d(4)),
-            Key("5%", d(5)), Key("6^", d(6)), Key("7&", d(7)), Key("8*", d(8)), Key("9(", d(9)),
-            Key("0)", d(0)), Key("-_", 0x2D), Key("=+", 0x2E), Key("⌫", BACKSPACE, 2f),
-        ),
-        listOf(Key("Tab", TAB, 1.5f)) +
-            "QWERTYUIOP".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key("[{", 0x2F), Key("]}", 0x30), Key("\\|", 0x31, 1.5f)),
-        listOf(Key("Caps", 0x39, 1.75f)) +
-            "ASDFGHJKL".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key(";:", 0x33), Key("'\"", 0x34), Key("⏎", ENTER, 2.25f)),
-        listOf(Key("Shift", 0, 2.25f)) +
-            "ZXCVBNM".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key(",<", 0x36), Key(".>", 0x37), Key("/?", 0x38), Key("Shift", 0, 2.75f)),
-        listOf(
-            Key("Ctrl", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 9f),
-            Key("Alt", 0, 1.5f), Key("Ctrl", 0, 1.5f),
-        ),
-    )'''
+MARK = "    val FULL: List<List<Key>> = listOf("
+ENDMARK = "\n    )"
 
 NEW_FULL = r'''    val FULL: List<List<Key>> = listOf(
         listOf(
@@ -62,47 +47,35 @@ NEW_FULL = r'''    val FULL: List<List<Key>> = listOf(
         ),
     )'''
 
-EDITS = [(KL, [(OLD_FULL, NEW_FULL, 1)])]
-
 
 def main():
-    plan = []
-    failed = False
-    for rel, reps in EDITS:
-        full = os.path.join(ROOT, rel)
-        if not os.path.exists(full):
-            print("MISSING_FILE " + rel)
-            failed = True
-            continue
-        with open(full, "r", encoding="utf-8") as f:
-            text = f.read()
-        new = text
-        for old, repl, want in reps:
-            got = new.count(old)
-            if got != want:
-                print("ANCHOR_FAIL " + rel + " count=" + str(got) + " want=" + str(want))
-                print("  old[0:120]=" + old[:120].replace("\n", "\\n"))
-                failed = True
-            else:
-                new = new.replace(old, repl)
-        if new != text:
-            plan.append((rel, text, new))
-    if failed:
-        print("VALIDATE_FAILED: 有锚点未命中，不写盘。")
+    full = os.path.join(ROOT, KL)
+    if not os.path.exists(full):
+        print("MISSING_FILE " + KL)
         return 1
-    if not plan:
-        print("NO_CHANGES: 所有编辑的期望文本均已存在。")
+    with open(full, "r", encoding="utf-8") as f:
+        text = f.read()
+    start = text.find(MARK)
+    if start < 0:
+        print("MARK_FAIL: val FULL not found")
+        return 1
+    tail = text.find(ENDMARK, start)
+    if tail < 0:
+        print("END_FAIL: FULL closing ')' not found")
+        return 1
+    end = tail + len(ENDMARK)
+    old_seg = text[start:end]
+    if old_seg == NEW_FULL:
+        print("NO_CHANGES: FULL already in target form.")
         return 0
-    for rel, text, new in plan:
-        full = os.path.join(ROOT, rel)
-        with open(full, "w", encoding="utf-8") as f:
-            f.write(new)
-        print("WROTE " + rel)
-        diff = "".join(difflib.unified_diff(
-            text.splitlines(keepends=True), new.splitlines(keepends=True),
-            fromfile="a/" + rel, tofile="b/" + rel, n=3))
-        print(diff)
-    print("OK: wrote " + str(len(plan)) + " file(s)")
+    new = text[:start] + NEW_FULL + text[end:]
+    with open(full, "w", encoding="utf-8") as f:
+        f.write(new)
+    print("WROTE " + KL)
+    print("".join(difflib.unified_diff(
+        text.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile="a/" + KL, tofile="b/" + KL, n=3)))
+    print("OK: wrote 1 file(s)")
     return 0
 
 
