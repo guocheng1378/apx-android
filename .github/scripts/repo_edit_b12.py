@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b17fix4（修 Build #1383 的两处 Configuration 未定义）。
+"""repo_edit_b12.py —— b18（键盘页上移，2026-11-08「键盘页可以再往上走走」）。
 
-b17 两处横屏判断包名写错：`android.content.Configuration` 不存在，
-Orientation 常量在 `android.content.res.Configuration`（res 子包）下：
-  KeyboardPage.kt   QuickLayout  wide 定义处
-  TouchpadActivity  quickKeyboard 横屏分支处
-修法：`android.content.Configuration.` -> `android.content.res.Configuration.`（纯 ASCII 锚）。"""
+ApShellActivity 横屏 ApKeyboardPage 顶部让位 40 -> 24dp（注释里 40-24 论证过的安全值）：
+修饰键排顶 = 24 + 30（页签）= 54dp，与低栏下沿 56dp 叠 2dp（低栏透明悬浮，可穿）；
+省出的 16dp 摊给键位区，每行 +2.7dp。竖屏 topGap 不动（真实顶栏让位）。"""
 import difflib
 import os
 import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
-BAD = "android.content.Configuration.ORIENTATION_LANDSCAPE"
-GOOD = "android.content.res.Configuration.ORIENTATION_LANDSCAPE"
+SHELL = "android/app/src/main/java/com/allperiph/ui/compose/ApShellActivity.kt"
 
-EDITS = [
-    ("android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt", [(BAD, GOOD, 1)]),
-    ("android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt", [(BAD, GOOD, 1)]),
-]
+EDITS = [(SHELL, [(
+    "topBar = if (landscape) 40.dp else topGap,",
+    "topBar = if (landscape) 24.dp else topGap,",
+    1,
+)])]
 
 
 def main():
