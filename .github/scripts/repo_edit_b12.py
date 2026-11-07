@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b13 内容（复用 b12 通道：脚本与工作流 repo-edit-b12.yml
-已验证可跑，b13 不另建工作流；本文件按仓内惯例按批次整体替换 EDITS）。
+"""repo_edit_b12.py —— b14 内容（复用已验证通道：repo-edit-b12.yml）。
 
-b13（2026-11-08）手机控手机蓝牙兜底：b12 电视版落地且 Build #1368 全绿后，
-用户指出手机同样有蓝牙开关——复核确认与电视同一条机制（Android 手机系统级
-HID 主机能力与 TV 同源），b13 补齐：
-  1. connectBondedHost 纳入 PHONE 类（b12 写死排除的反转；注释同步改，
-     原注释“不往另一部手机上乱连”已与代码矛盾）；
-  2. statusText / hosts 日志 / KDoc → “电脑 / 电视 / 手机”（字面量计数不变，
-     中文棘轮 643 不动）；
-  3. 配对引导 title/body 加手机步骤 + 亮屏解锁能力边界（XML 不计数）；
-  4. CLIENTS.md 蓝牙行与手机互控行；REALDEVICE §9 补第 10 条手机配对实测。
-能力边界不变：蓝牙只承载输入回落，协议功能（剪贴板/文件/浮层）仍需 Wi-Fi；
-锁屏会吞 HID 输入，被控手机需亮屏解锁。
-两阶段写盘：全部锚点 count=1 才落盘，任一失败整批不写（b12 run#1 已实战验证）。
+b14（2026-11-08）语音键：用户要「蓝牙控制带语音键」。链路复核结论：
+  · Consumer 位图 9511 帧是 u16，任意位随时可带，缺的只是**各端对 bit9 的认领**；
+  · bit7/8 已被 zoom（v1.7c）占用，语音用 bit9；
+  · **描述符两处**（USB buildTlcConsumer / BT buildBtTlcConsumer）目前 bit7..15 全是
+    padding —— zoom 从不进 HID 描述符（只走 9511 受控翻译），语音要进描述符才
+    能被对端 HID 栈识别，故 padBits(9) 切成 padBits(2)+usage+padBits(6)，报告
+    总长 16bit+1B 不变（非 breaking）；
+  · 受控端唯一落点 = TvInjector.consumer（shared ControlServer 的重复注入圈已删），
+    TV/手机被控一份改动两端生效；TvControlServer（legacy）的 CONSUMER_MAP 界面
+    分发同步补 9→231 保持一致；
+  · UI：遥控页功能行（返回/Home/菜单）加第 4 键「语音」——addRow 等权重自适应，
+    4 键安全；label 走 strings.xml（中文棘轮 643 不动）。
+能力边界：语音键只是「唤起」，音频采集走对端本机；PC 受控端无对应 VK 忽略 bit9；
+被控端注入需 evdev/root 通道（无障碍无 231 分支，如实打日志）。
+两阶段写盘：全部锚点 count 命中才落盘（含 hid_descriptor.cpp 双处 want=2）。
 """
 import difflib
 import os
@@ -21,68 +23,100 @@ import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 
+DH = "shared/include/apx/hid_descriptor.h"
+LH = "shared/include/apx/hid_layout.h"
+LC = "shared/src/hid_layout.cpp"
+DC = "shared/src/hid_descriptor.cpp"
+HK = "android/app/src/main/java/com/allperiph/ui/HotkeyController.kt"
+TI = "android/shared/src/main/java/com/allperiph/shared/inject/TvInjector.kt"
+TCS = "android/app/src/main/java/com/allperiph/controlled/TvControlServer.kt"
+RA = "android/app/src/main/java/com/allperiph/ui/RemoteActivity.kt"
 STR = "android/app/src/main/res/values/strings.xml"
-BT = "android/app/src/main/java/com/allperiph/bt/BtHidDevice.kt"
-CL = "docs/CLIENTS.md"
-RD = "docs/REALDEVICE-NOTES.md"
 
 EDITS = [
-    # —— 1. BtHidDevice：状态文案 / 过滤反转 / KDoc / 空列表日志（4 锚点）
-    (BT, [
-        ('''        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待电脑 / 电视配对）"''',
-         '''        ModuleState.RUNNING -> if (isConnected) "蓝牙 HID 已连接（鼠标/键盘/多媒体/手柄）" else "蓝牙 HID 已注册（待电脑 / 电视 / 手机配对）"''', 1),
-        ('''            // 2026-11-08 电视兜底：电视 / 盒子不少上报 UNCATEGORIZED（major 查不到类），
-            // 一并纳入 —— connect 到非 HID 主机被拒只是无害的一条日志，换盒子的配对回连。
-            // 手机（PHONE major）仍排除：手机被控走 9511 + 无障碍，不是 HID 主机。
-            major == BluetoothClass.Device.Major.COMPUTER ||
-                major == BluetoothClass.Device.Major.AUDIO_VIDEO ||
-                major == BluetoothClass.Device.Major.UNCATEGORIZED
-        }''',
-         '''            // 2026-11-08 电视兜底：电视 / 盒子不少上报 UNCATEGORIZED（major 查不到类），
-            // 一并纳入 —— connect 到非 HID 主机被拒只是无害的一条日志，换盒子的配对回连。
-            // 2026-11-08 手机控手机（b13）：PHONE 类同样纳入 —— Android 手机的系统级 HID
-            // 主机能力与 TV 同源，被控机亮屏解锁即可收键鼠。锁屏会吞输入，那是能力边界
-            // 不是代码障碍；9511 协议通道仍是手机互控正道，蓝牙只作断 Wi-Fi 的输入兜底。
-            major == BluetoothClass.Device.Major.COMPUTER ||
-                major == BluetoothClass.Device.Major.AUDIO_VIDEO ||
-                major == BluetoothClass.Device.Major.UNCATEGORIZED ||
-                major == BluetoothClass.Device.Major.PHONE
-        }''', 1),
-        ('''     * 向「已配对的电脑 / 电视」自动补一次 HID 连接（注册成功后、蓝牙重新打开后各调一次）。''',
-         '''     * 向「已配对的电脑 / 电视 / 手机」自动补一次 HID 连接（注册成功后、蓝牙重新打开后各调一次）。''', 1),
-        ('''     * 只认 majorDeviceClass = COMPUTER 或 AUDIO_VIDEO：不往耳机 / 车机 / 另一部手机上乱连。''',
-         '''     * 认 COMPUTER / AUDIO_VIDEO / UNCATEGORIZED / PHONE（b13 起 PHONE 纳入：手机互控的
-     * 断 Wi-Fi 输入兜底）；不往耳机 / 车机上连 —— 连错设备只是一条被拒日志。''', 1),
-        ('''            Log.i(TAG, "没有已配对的电脑/电视主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")''',
-         '''            Log.i(TAG, "没有已配对的电脑 / 电视 / 手机主机；若主机只显示「手机」，说明旧配对早于 HID 注册，需删掉重配")''', 1),
+    # —— 1. hid_descriptor.h：Consumer Usage 枚举 + Voice Command
+    (DH, [
+        ('''    kUsageZoomIn          = 0x0227,
+    kUsageZoomOut         = 0x0228,
+};''',
+         '''    kUsageZoomIn          = 0x0227,
+    kUsageZoomOut         = 0x0228,
+    kUsageVoiceCommand    = 0x0203,  // b14 语音键（HID Consumer Page 标准 usage）
+};''', 1),
     ]),
-    # —— 2. strings.xml：引导 title/body 加手机步骤与亮屏边界（3 锚点，XML 不计数）
+    # —— 2. hid_layout.h：位图枚举 + kBitVoice = 9
+    (LH, [
+        ('''    kBitZoomIn     = 7,  // 0x0C:0x0227（v1.7c 捏合放大）
+    kBitZoomOut    = 8,  // 0x0C:0x0228（v1.7c 捏合缩小）
+};''',
+         '''    kBitZoomIn     = 7,  // 0x0C:0x0227（v1.7c 捏合放大）
+    kBitZoomOut    = 8,  // 0x0C:0x0228（v1.7c 捏合缩小）
+    kBitVoice      = 9,  // 0x0C:0x0203（b14 语音键，进 HID 描述符）
+};''', 1),
+    ]),
+    # —— 3. hid_layout.cpp：位→usage 单点映射
+    (LC, [
+        ('''        case kBitZoomIn:     return kUsageZoomIn;    // v1.7c
+        case kBitZoomOut:    return kUsageZoomOut;   // v1.7c
+        default:             return 0;''',
+         '''        case kBitZoomIn:     return kUsageZoomIn;    // v1.7c
+        case kBitZoomOut:    return kUsageZoomOut;   // v1.7c
+        case kBitVoice:      return kUsageVoiceCommand;  // b14
+        default:             return 0;''', 1),
+    ]),
+    # —— 4. hid_descriptor.cpp：USB / BT 两处 Consumer TLC 同改（want=2）
+    (DC, [
+        ('''    b.usage(kUsageScanNextTrack); b.input(kDataVar);
+    b.padBits(9); b.padBytes(1);''',
+         '''    b.usage(kUsageScanNextTrack); b.input(kDataVar);
+    // b14 语音键：bit9 = Voice Command(0x0203)。bit7/8（zoom）维持 padding —— v1.7c
+    // 起 zoom 只走 9511 受控端翻译，不进 HID 描述符（勿动）。报告总长 16bit+1B 不变。
+    b.padBits(2);
+    b.usage(kUsageVoiceCommand); b.input(kDataVar);
+    b.padBits(6);
+    b.padBytes(1);''', 2),
+    ]),
+    # —— 5. HotkeyController：BIT_VOICE + KDoc 位定义
+    (HK, [
+        (''' *   bit0=音量+ bit1=音量- bit2=静音 bit3=电源 bit4=播放/暂停 bit5=上一曲 bit6=下一曲''',
+         ''' *   bit0=音量+ bit1=音量- bit2=静音 bit3=电源 bit4=播放/暂停 bit5=上一曲 bit6=下一曲
+ *   bit9=语音（b14，0x0203 Voice Command；bit7/8 为 zoom 已占用，见 hid_layout.h）''', 1),
+        ('''    const val BIT_NEXT_TRACK = 6''',
+         '''    const val BIT_NEXT_TRACK = 6
+    const val BIT_VOICE = 9        // b14：Consumer 0x0203 Voice Command''', 1),
+    ]),
+    # —— 6. TvInjector.consumer：bit9 → KEYCODE_VOICE_ASSIST（TV/手机被控共用）
+    (TI, [
+        ('''        if (bitmap and (1 shl 6) != 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+    }''',
+         '''        if (bitmap and (1 shl 6) != 0) sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+        // b14 语音键（bit9 → KEYCODE_VOICE_ASSIST 231）：对端（TV/手机）按系统默认路由
+        // 拉起语音助手。与 bit3 电源同款：置位帧发一次 down+up（释放帧位清零不触发）。
+        // 注入需 evdev/root 通道；无障碍无 231 分支会走 else 打日志（如实降级不装死）。
+        if (bitmap and (1 shl 9) != 0) {
+            key(KeyEvent.KEYCODE_VOICE_ASSIST, true)
+            key(KeyEvent.KEYCODE_VOICE_ASSIST, false)
+        }
+    }''', 1),
+    ]),
+    # —— 7. TvControlServer（legacy）：界面分发表同步
+    (TCS, [
+        ('''        private val CONSUMER_MAP: Map<Int, Int> = mapOf(0 to 24, 1 to 25, 2 to 164, 3 to 26, 4 to 85, 5 to 88, 6 to 87)''',
+         '''        private val CONSUMER_MAP: Map<Int, Int> = mapOf(0 to 24, 1 to 25, 2 to 164, 3 to 26, 4 to 85, 5 to 88, 6 to 87, 9 to 231)''', 1),
+    ]),
+    # —— 8. RemoteActivity：功能行加语音键（返回/Home/菜单/语音）
+    (RA, [
+        ('''            getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
+        ),''',
+         '''            getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
+            getString(R.string.ui_remote_item_voice) to { media(HotkeyController.BIT_VOICE) },
+        ),''', 1),
+    ]),
+    # —— 9. strings.xml：语音键 label（XML 不计中文棘轮）
     (STR, [
-        ('''    <string name="ui_bt_pair_title">蓝牙配对电脑 / 电视</string>''',
-         '''    <string name="ui_bt_pair_title">蓝牙配对电脑 / 电视 / 手机</string>''', 1),
-        ('''1. 对端进入配对：电脑「设置 → 蓝牙」；电视 / 盒子「设置 → 蓝牙与外设 → 添加外设」。''',
-         '''1. 对端进入配对：电脑「设置 → 蓝牙」；电视 / 盒子「设置 → 蓝牙与外设 → 添加外设」；手机「设置 → 蓝牙 → 配对新设备」。''', 1),
-        ('''3. 配对后本机自动回连。''',
-         '''3. 配对后本机自动回连。被控手机需亮屏解锁（锁屏会吞掉 HID 输入）。''', 1),
-    ]),
-    # —— 3. CLIENTS.md：蓝牙链路行 + 手机互控行（2 锚点）
-    (CL, [
-        ('''| **蓝牙** | 手机 → 电脑 / 电视（HID） | ✅ | `BtHidDevice` 蓝牙 HID；电视 / 盒子配对后可作**输入回落出口**（键鼠经系统级 HID 注入，入口见状态页「蓝牙配对引导」）；文件 / 剪贴板等协议功能仍需 Wi-Fi；另有 v217 起的**物理蓝牙键盘 → 电脑转发桥**（手机连的实体键盘打字直发电脑）；真机配对实测见 REALDEVICE-NOTES §9 |''',
-         '''| **蓝牙** | 手机 → 电脑 / 电视 / 另一台手机（HID） | ✅ | `BtHidDevice` 蓝牙 HID；电视 / 盒子 / 被控手机配对后可作**输入回落出口**（键鼠经系统级 HID 注入，入口见状态页「蓝牙配对引导」；被控手机须亮屏解锁，锁屏会吞输入）；文件 / 剪贴板等协议功能仍需 Wi-Fi；另有 v217 起的**物理蓝牙键盘 → 电脑转发桥**（手机连的实体键盘打字直发电脑）；真机配对实测见 REALDEVICE-NOTES §9 |''', 1),
-        ('''| 📱 ↔ 📱 另一台手机 | 同 `app.apk`，9511 互控 | **互控** | 两台手机双向实时控制 + 文件互传 | 同一局域网，双方都要在线 |''',
-         '''| 📱 ↔ 📱 另一台手机 | 同 `app.apk`，9511 互控 | **互控** | 两台手机双向实时控制 + 文件互传 | 同一局域网，双方都要在线；断 Wi-Fi 时键鼠可蓝牙兜底（b13，被控机需亮屏解锁） |''', 1),
-    ]),
-    # —— 4. REALDEVICE §9：补第 10 条手机配对实测（1 锚点；第二行 3 空格缩进——v2 教训）
-    (RD, [
-        ('''   （`dumpsys bluetooth_manager`）—— `connectBondedHost` 已放宽到 UNCATEGORIZED
-   （2026-11-08），但盒子实际上报类别未经实测确认。''',
-         '''   （`dumpsys bluetooth_manager`）—— `connectBondedHost` 已放宽到 UNCATEGORIZED
-   （2026-11-08），但盒子实际上报类别未经实测确认。
-10. **手机配对与回落**（2026-11-08 b13 新增）：两台手机互配（PHONE 类已纳入
-    `connectBondedHost`），被控手机亮屏解锁，断开 Wi-Fi 后主控触控板 / 键盘应经蓝牙
-    进被控机系统输入；锁屏状态记录行为（预期被吞 —— 能力边界）。9511 重连后 2s 内
-    应自动切回 Wi-Fi。记录被控机 BluetoothClass major（`dumpsys bluetooth_manager`）
-    确认上报为 PHONE（0x0200）。''', 1),
+        ('''    <string name="ui_remote_item_menu">菜单</string>''',
+         '''    <string name="ui_remote_item_menu">菜单</string>
+    <string name="ui_remote_item_voice">语音</string>''', 1),
     ]),
 ]
 
