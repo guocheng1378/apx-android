@@ -748,7 +748,7 @@ class TouchpadActivity : Activity() {
             Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
             .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
@@ -765,7 +765,7 @@ class TouchpadActivity : Activity() {
         val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
             if (ok) "✓  $name" else "✗  $name\n      → $how"
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
             .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
             .setPositiveButton(getString(R.string.ui_common_close), null)
@@ -1358,7 +1358,7 @@ class TouchpadActivity : Activity() {
         // 全屏时返回键先退出全屏（这里连确认框都不该弹：用户只是想回到控制面）
         if (fullscreen) { setFullscreen(false); return }
         if (backDialog?.isShowing == true) return
-        backDialog = AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        backDialog = com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
             .setMessage(getString(R.string.ui_touchpad_dialog_home))
             .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
@@ -1436,7 +1436,7 @@ class TouchpadActivity : Activity() {
         val tvs = TvDiscovery.list()
         tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
         items.add(getString(R.string.ui_main_item_input_manual))
-        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_main_dialog_device_pick))
             .setItems(items.toTypedArray()) { _, which ->
                 when {
@@ -1461,7 +1461,7 @@ class TouchpadActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_touchpad_dialog_input))
             .setView(edit)
             .setPositiveButton(getString(R.string.ui_common_connect)) { _, _ ->

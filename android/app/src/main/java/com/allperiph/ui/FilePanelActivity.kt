@@ -1,7 +1,6 @@
 package com.allperiph.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -27,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
@@ -42,6 +40,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import androidx.compose.ui.res.colorResource
 
 /**
  * 手机端「文件面板」(v1)：**看得到收到的文件，也能发出去**。
@@ -102,7 +101,7 @@ class FilePanelActivity : ComponentActivity() {
                             Text(
                                 text = targetLine,
                                 fontSize = 13.sp,
-                                color = Color(0xFF3482FF),
+                                color = colorResource(R.color.overlay_accent),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 8.dp, bottom = 4.dp)
@@ -117,13 +116,13 @@ class FilePanelActivity : ComponentActivity() {
                             Text(
                                 text = getString(R.string.ui_filepanel_where, recvPath),
                                 fontSize = 11.sp,
-                                color = Color(0xFF6B7280),
+                                color = colorResource(R.color.overlay_muted),
                             )
                             if (files.isEmpty()) {
                                 Text(
                                     text = getString(R.string.ui_filepanel_text_file_no_local),
                                     fontSize = 13.sp,
-                                    color = Color(0xFF6B7280),
+                                    color = colorResource(R.color.overlay_muted),
                                     modifier = Modifier.padding(top = 8.dp),
                                 )
                             } else {
@@ -136,7 +135,7 @@ class FilePanelActivity : ComponentActivity() {
                                     .fillMaxWidth()
                                     .padding(top = 8.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF3482FF))
+                                    .background(colorResource(R.color.overlay_accent))
                                     .clickable { pickFromSystem() }
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 contentAlignment = Alignment.Center,
@@ -145,14 +144,14 @@ class FilePanelActivity : ComponentActivity() {
                                 Text(
                                     text = getString(R.string.ui_filepanel_send_pick),
                                     fontSize = 14.sp,
-                                    color = Color.White,
+                                    color = colorResource(R.color.overlay_on_accent),
                                 )
                             }
                             if (statusText.isNotEmpty()) {
                                 Text(
                                     text = statusText,
                                     fontSize = 12.sp,
-                                    color = if (statusWarn) Color(0xFFD32F2F) else Color(0xFF6B7280),
+                                    color = if (statusWarn) colorResource(R.color.overlay_danger) else colorResource(R.color.overlay_muted),
                                     modifier = Modifier.padding(top = 6.dp),
                                 )
                             }
@@ -187,14 +186,14 @@ class FilePanelActivity : ComponentActivity() {
                 fontSize = 14.sp,
                 modifier = Modifier.weight(1f),
             )
-            Text(text = sizeText(f.length()), fontSize = 12.sp, color = Color(0xFF6B7280))
+            Text(text = sizeText(f.length()), fontSize = 12.sp, color = colorResource(R.color.overlay_muted))
             Spacer(Modifier.width(10.dp))
-            Text(text = getString(R.string.ui_filepanel_text_forward), fontSize = 14.sp, color = Color(0xFF3482FF))
+            Text(text = getString(R.string.ui_filepanel_text_forward), fontSize = 14.sp, color = colorResource(R.color.overlay_accent))
             // 行内「删除」：子视图可点击会先消费触摸事件，不会误触发整行的转发
             Text(
                 text = getString(R.string.ui_common_delete),
                 fontSize = 14.sp,
-                color = Color(0xFFD32F2F),
+                color = colorResource(R.color.overlay_danger),
                 modifier = Modifier
                     .padding(start = 14.dp)
                     .clickable { confirmDelete(f) },
@@ -208,7 +207,7 @@ class FilePanelActivity : ComponentActivity() {
      * 对话框不该是它最后一个依赖点。
      */
     private fun confirmDelete(f: File) {
-        AlertDialog.Builder(this)
+        ApDialog.builder(this)
             .setTitle(getString(R.string.ui_filepanel_delete_title))
             .setMessage(getString(R.string.ui_filepanel_delete_msg, f.name))
             .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->

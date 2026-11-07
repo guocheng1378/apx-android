@@ -103,4 +103,40 @@
     <color name="ball_glass_top">#CCFFFFFF</color>
     <color name="ball_glass_bottom">#8CFFFFFF</color>
     <color name="ball_glass_hi">#59FFFFFF</color>
+
+    <!--
+      浮层语义色（2026-11-07「写死色值收编」）：FilePanel / Gamepad / StatusPage 此前在
+      Kotlin 里直接写 `Color(0x…)`，换肤与深浅色都不跟。现在一律走这里，values-night 给深色取值。
+      判红规则见 scripts/check_appearance.py 第 6 条；分层选型见 docs/ui-overlay-rules.md。
+    -->
+    <color name="overlay_accent">#FF3482FF</color>
+    <color name="overlay_on_accent">#FFFFFFFF</color>
+    <color name="overlay_muted">#FF6B7280</color>
+    <color name="overlay_danger">#FFD32F2F</color>
+
+    <!--
+      手柄页（GamepadActivity）刻意固定深色：整页是一块全屏手柄面，跟着浅色主题翻白会
+      让按键与摇杆失去对比。values-night 与 values 取同值 —— 这不是漏改，见
+      docs/ui-overlay-rules.md「仓库特例」。要改成跟随主题，只需删掉 values-night 里
+      对应那几行。
+    -->
+    <color name="overlay_scrim">#FF14161B</color>
+    <color name="overlay_pad_text">#FFEAEAEA</color>
+    <color name="overlay_pad_text_dim">#FFB9BDC7</color>
+    <color name="overlay_pad_ok">#FF8BD450</color>
+    <color name="overlay_pad_warn">#FFFFB44C</color>
+    <color name="overlay_pad_key_pressed">#66FFFFFF</color>
+    <color name="overlay_pad_key_idle">#2EFFFFFF</color>
+    <color name="overlay_pad_stroke_pressed">#DDFFFFFF</color>
+    <color name="overlay_pad_stroke_idle">#66FFFFFF</color>
+
+    <!--
+      模块状态色（StatusPage）：浅色取值，深色在 values-night 覆盖。
+      以「卡片底色 + 同色 14% 胶囊底」为最坏情形取值，六个组合全部 ≥4.5:1（表见
+      StatusPage.stateColor 的 KDoc）。改色值时请连那张表一起改。
+    -->
+    <color name="module_state_running">#FF00734D</color>
+    <color name="module_state_pending">#FFA34A08</color>
+    <color name="module_state_error">#FFB4235A</color>
+    <color name="module_state_idle">#FF5B6470</color>
 </resources>

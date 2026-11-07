@@ -40,6 +40,7 @@ import android.widget.Toast
 import com.allperiph.controlled.ControlledService
 import com.allperiph.core.Uplink
 import com.allperiph.wireless.ControlTarget
+import androidx.compose.ui.res.colorResource
 
 /**
  * 状态页（**第一个完成 Compose + Miuix 迁移的屏**）。
@@ -79,7 +80,6 @@ fun StatusPage(
     // 模块行的子开关要自己在这一秒内跟上，而不是等用户重进页面。
     val state = remember(tick) { snapshot(ctx) }
     // 语义状态色明暗各一套（审查条 2.5）：判据与 ApMiuixTheme 同一入口，不各自读 configuration
-    val dark = com.allperiph.ui.miuix.apIsDark()
 
     Column(
         modifier = Modifier
@@ -271,7 +271,7 @@ fun StatusPage(
                                 // 数据层资源化）：数据类不再写死中文，由 UI 层解析成字串。
                                 ApComponents.Pill(
                                     text = ctx.getString(row.stateRes),
-                                    color = stateColor(row.state, dark),
+                                    color = stateColor(row.state),
                                 )
                                 // 成宇 2026-11-03「状态页给个开关不能控制子开关，
                                 // 总开关关了应该隐藏下面的子开关」：没在跑时这一行只留状态点。
@@ -486,23 +486,16 @@ private class StatusVm(
  * 括号里的比值是「文字色 vs 14% 同色胶囊底」的对比度（胶囊底压在卡片上，比纯卡片底更亮/更暗，
  * 所以按它算而不是按纯底算）。改色值时请连这张表一起改。
  */
-private fun stateColor(s: ModuleState, dark: Boolean): Color = if (dark) {
+@androidx.compose.runtime.Composable
+private fun stateColor(s: ModuleState): Color = colorResource(
     when (s) {
-        ModuleState.RUNNING -> Color(0xFF3DDC97)
-        ModuleState.STARTING, ModuleState.STOPPING -> Color(0xFFFFB454)
-        ModuleState.DEGRADED -> Color(0xFFFFB454)
-        ModuleState.ERROR -> Color(0xFFFF7AA8)
-        else -> Color(0xFFA8B0BC)
-    }
-} else {
-    when (s) {
-        ModuleState.RUNNING -> Color(0xFF00734D)
-        ModuleState.STARTING, ModuleState.STOPPING -> Color(0xFFA34A08)
-        ModuleState.DEGRADED -> Color(0xFFA34A08)
-        ModuleState.ERROR -> Color(0xFFB4235A)
-        else -> Color(0xFF5B6470)
-    }
-}
+        ModuleState.RUNNING -> R.color.module_state_running
+        ModuleState.STARTING, ModuleState.STOPPING -> R.color.module_state_pending
+        ModuleState.DEGRADED -> R.color.module_state_pending
+        ModuleState.ERROR -> R.color.module_state_error
+        else -> R.color.module_state_idle
+    },
+)
 
 /** 现读一份界面快照（主线程，全部是内存/偏好读取，不碰 IO） */
 private fun snapshot(ctx: Context): StatusVm {
