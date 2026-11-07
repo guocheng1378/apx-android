@@ -1,29 +1,77 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b20（2026-11-08「win键呢」）。
+"""repo_edit_b12.py —— b21（2026-11-08「标常见的，按了没长亮」）。
 
-b19 删顶部修饰排把 Win 唯一入口带走了。FULL 底排补回两个 Win，15u 重排：
-Ctrl1.5 Win1.5 Alt1.5 Space6 Alt1.5 Win1.5 Ctrl1.5 = 15u。
-label=\"Win\" 属 MOD_LABELS → KeyGridLayout 转 toggleSticky（与 Ctrl/Alt 同路径）。"""
+A) KeyLayouts.FULL 行0 F1..F12 加常见功能标（label = \"F1\\n静音\" 两行渲染，
+   点击仍发 fn(n)；Kotlin 层 \\n 转义由 raw 三引号保真写入）。
+B) KeyGridLayout 补 sticky 高亮（按了没长亮）：
+   - 函数头加 sticky 本地镜像（stickySnapshot 初值，与 GameLayout 同口径）；
+   - KeyBox 调用加命名参数 active = bit != null && sticky and bit != 0；
+   - lambda 内 toggle 后 flipSticky、tap 普通键后清零燄灭。
+   KeyBox 参数顺序硬约定：onClick 压轴，active 只能命名参数（CI 踩过）。"""
 import difflib
 import os
 import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
 KL = "android/app/src/main/java/com/allperiph/ui/KeyLayouts.kt"
+KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
 
-OLD = '''        listOf(
-            Key("Ctrl", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 9f),
-            Key("Alt", 0, 1.5f), Key("Ctrl", 0, 1.5f),
-        ),
-    )'''
+F_OLD = '''        listOf(
+            Key("Esc", ESC), Key("F1", fn(1)), Key("F2", fn(2)), Key("F3", fn(3)), Key("F4", fn(4)),
+            Key("F5", fn(5)), Key("F6", fn(6)), Key("F7", fn(7)), Key("F8", fn(8)), Key("F9", fn(9)),
+            Key("F10", fn(10)), Key("F11", fn(11)), Key("F12", fn(12)),
+        ),'''
 
-NEW = '''        listOf(
-            Key("Ctrl", 0, 1.5f), Key("Win", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 6f),
-            Key("Alt", 0, 1.5f), Key("Win", 0, 1.5f), Key("Ctrl", 0, 1.5f),
-        ),
-    )'''
+# raw：保留字面 \\n（Kotlin 字符串转义换行），Python 层不吞
+F_NEW = r'''        listOf(
+            Key("Esc", ESC), Key("F1\n静音", fn(1)), Key("F2\n音量-", fn(2)), Key("F3\n音量+", fn(3)), Key("F4\n亮度-", fn(4)),
+            Key("F5\n亮度+", fn(5)), Key("F6\n截屏", fn(6)), Key("F7\n后退", fn(7)), Key("F8\n前进", fn(8)), Key("F9\n刷新", fn(9)),
+            Key("F10\n全屏", fn(10)), Key("F11\n桌面", fn(11)), Key("F12\n锁屏", fn(12)),
+        ),'''
 
-EDITS = [(KL, [(OLD, NEW, 1)])]
+A_OLD = '''private fun KeyGridLayout(
+    rows: List<List<KeyLayouts.Key>>,
+    dens: KeyPref.Density,
+    keycap: Int,
+    fx: Int,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {'''
+
+A_NEW = '''private fun KeyGridLayout(
+    rows: List<List<KeyLayouts.Key>>,
+    dens: KeyPref.Density,
+    keycap: Int,
+    fx: Int,
+) {
+    // b21「按了没长亮」：sticky 本地镜像驱动修饰键高亮（与 GameLayout 同口径：toggle 后 flip、tap 普通键清零）
+    var sticky by remember { mutableIntStateOf(stickySnapshot()) }
+    Column(modifier = Modifier.fillMaxSize()) {'''
+
+B1_OLD = '''                    KeyBox(k.label, Modifier.weight(k.weight).fillMaxHeight(), dens, keycap, fx) {'''
+
+B1_NEW = '''                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                    KeyBox(
+                        k.label,
+                        Modifier.weight(k.weight).fillMaxHeight(),
+                        dens, keycap, fx,
+                        active = bit != null && sticky and bit != 0,
+                    ) {'''
+
+B2_OLD = '''                        val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                        if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)'''
+
+B2_NEW = '''                        if (bit != null) {
+                            HidKeys.toggleSticky(bit)
+                            sticky = flipSticky(sticky, bit)
+                        } else {
+                            HidKeys.tap(k.usage)
+                            sticky = 0
+                        }'''
+
+EDITS = [
+    (KL, [(F_OLD, F_NEW, 1)]),
+    (KB, [(A_OLD, A_NEW, 1), (B1_OLD, B1_NEW, 1), (B2_OLD, B2_NEW, 1)]),
+]
 
 
 def main():
@@ -42,6 +90,7 @@ def main():
             got = new.count(old)
             if got != want:
                 print("ANCHOR_FAIL " + rel + " count=" + str(got) + " want=" + str(want))
+                print("  old[0:100]=" + old[:100].replace("\n", "\\n"))
                 failed = True
             else:
                 new = new.replace(old, repl)
