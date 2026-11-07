@@ -1,50 +1,29 @@
 #!/usr/bin/env python3
-"""repo_edit_b12.py —— b19（2026-11-08「ctrl 那一排不要了，下面有」）。
+"""repo_edit_b12.py —— b20（2026-11-08「win键呢」）。
 
-QuickLayout 顶部 sticky 修饰排（Ctrl/Alt/Shift/Win）横屏不画：FULL 底排自带
-Ctrl/Alt/Shift（KeyGridLayout 已把修饰 label 转 toggleSticky，功能不变）。
-竖屏 letterRows 保留原修饰排（竖屏无 FULL）。锚为纯 ASCII 结构行，count=1。"""
+b19 删顶部修饰排把 Win 唯一入口带走了。FULL 底排补回两个 Win，15u 重排：
+Ctrl1.5 Win1.5 Alt1.5 Space6 Alt1.5 Win1.5 Ctrl1.5 = 15u。
+label=\"Win\" 属 MOD_LABELS → KeyGridLayout 转 toggleSticky（与 Ctrl/Alt 同路径）。"""
 import difflib
 import os
 import sys
 
 ROOT = os.environ.get("GITHUB_WORKSPACE", os.getcwd())
-KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+KL = "android/app/src/main/java/com/allperiph/ui/KeyLayouts.kt"
 
-OLD = '''        Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            HidKeys.MOD_LABELS.forEach { (text, bit) ->
-                ModKey(
-                    label = text,
-                    active = sticky and bit != 0,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    dens = dens,
-                    keycap = keycap,
-                    fx = fx,
-                ) {
-                    HidKeys.toggleSticky(bit)
-                    sticky = flipSticky(sticky, bit)
-                }
-            }
-        }'''
+OLD = '''        listOf(
+            Key("Ctrl", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 9f),
+            Key("Alt", 0, 1.5f), Key("Ctrl", 0, 1.5f),
+        ),
+    )'''
 
-NEW = '''        // b19「ctrl 那一排不要了，下面有」：横屏不画 sticky 修饰排（FULL 底排自带 Ctrl/Alt/Shift），竖屏保留
-        if (!wide) Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            HidKeys.MOD_LABELS.forEach { (text, bit) ->
-                ModKey(
-                    label = text,
-                    active = sticky and bit != 0,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    dens = dens,
-                    keycap = keycap,
-                    fx = fx,
-                ) {
-                    HidKeys.toggleSticky(bit)
-                    sticky = flipSticky(sticky, bit)
-                }
-            }
-        }'''
+NEW = '''        listOf(
+            Key("Ctrl", 0, 1.5f), Key("Win", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 6f),
+            Key("Alt", 0, 1.5f), Key("Win", 0, 1.5f), Key("Ctrl", 0, 1.5f),
+        ),
+    )'''
 
-EDITS = [(KB, [(OLD, NEW, 1)])]
+EDITS = [(KL, [(OLD, NEW, 1)])]
 
 
 def main():
