@@ -1,10 +1,8 @@
 name: RGB Fix
 
-# b28——b26+b27 合并重发（成宇 2026-11-08「这是坏的」排查链）：
-# 根实：run#3(b26) apply 失败、run#4(b27) 锚点打在不存在的 b26 状态上（提交链证实 master = b25）。
-# 本版：锚点全部改锚 b25 实况（ed69a0ea diff 核对过字节）；内容 = 按下扩散第 4 档（b26）
-#       + 黑键帽语义令牌 + Touch 档相位订阅（b27）；失败时把诊断写进 docs/edit_error.log
-#       并由 always 步骤提交，下轮直接读日志不再盲猜。
+# b29——b28 唯一修复：K2 锚点 List → List<String>（HTML 剥离污染了 jsdelivr 抓取，
+# <String> 被当标签吃掉；run#3/run#5 均死于此行）。其余与 b28 相同：
+# 按下扩散第4档（b26）+ 黑键帽令牌（b27）+ Touch 相位订阅，锚定 b25 实况，失败自动提交诊断日志。
 
 on:
   workflow_dispatch:
@@ -17,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b28
+      - name: apply b29
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -281,14 +279,14 @@ jobs:
               )
               t2 = rep(t2, OLD_K1, NEW_K1, "K1 RGB_TOUCH")
               OLD_K2 = (
-              '    fun rgbLabels(ctx: Context): List = listOf(\n'
+              '    fun rgbLabels(ctx: Context): List<String> = listOf(\n'
               '        ctx.getString(R.string.ui_keyrgb_off),\n'
               '        ctx.getString(R.string.ui_keyrgb_breath),\n'
               '        ctx.getString(R.string.ui_keyrgb_wave),\n'
               '    )\n'
               )
               NEW_K2 = (
-              '    fun rgbLabels(ctx: Context): List = listOf(\n'
+              '    fun rgbLabels(ctx: Context): List<String> = listOf(\n'
               '        ctx.getString(R.string.ui_keyrgb_off),\n'
               '        ctx.getString(R.string.ui_keyrgb_breath),\n'
               '        ctx.getString(R.string.ui_keyrgb_wave),\n'
@@ -346,7 +344,7 @@ jobs:
               sys.exit(1)
           if os.path.exists(LOG):
               os.remove(LOG)
-          print("OK: b28 applied (touch ripple + token + phase subscription)")
+          print("OK: b29 applied")
           PY
       - name: commit and push
         run: |
@@ -355,7 +353,7 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "feat: b28 — 按下扩散第4档 + 黑键帽令牌 + Touch 相位订阅（b26+b27 合并，锚定 b25 实况）"
+          git commit -m "feat: b29 — 按下扩散第4档 + 黑键帽令牌 + Touch 相位订阅（修 K2 锚点 List<String>）"
           git push
       - name: commit error log
         if: always()
@@ -365,5 +363,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b28 诊断日志"
+          git commit -m "chore: b29 诊断日志"
           git push
