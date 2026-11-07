@@ -308,9 +308,13 @@ fun StatusPage(
                     title = ctx.getString(R.string.label_usb_speed),
                     value = state.linkLabel,
                 )
-                ApComponents.ValueRow(
+                // 2026-11-07（成宇发截图「你自己看看」）：环境自检是长诊断详情
+                // （root · USB 速度 · 白名单…），放 ValueRow 右值位只有 46% 宽、
+                // 两行省略会吃掉尾巴；老包上更是把左标题挤成竖排。改挂 title 下方
+                // 全宽 summary（maxLines 3），标题独立成行、诊断信息一字不丢。
+                ApComponents.ItemRow(
                     title = ctx.getString(R.string.ui_home_label_env),
-                    value = state.envSummary,
+                    summary = state.envSummary,
                 )
                 ApComponents.ValueRow(
                     title = ctx.getString(R.string.ui_home_env_root),
