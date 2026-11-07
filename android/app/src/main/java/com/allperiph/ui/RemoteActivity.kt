@@ -558,7 +558,7 @@ class RemoteActivity : Activity() {
             Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
-        AlertDialog.Builder(this, com.allperiph.ui.ApPalette.dialogStyle())
+        ApDialog.builder(this)
             .setTitle(getString(R.string.ui_remote_dialog_device, label))
             .setMessage(getString(R.string.ui_remote_dialog_no_only_need, label))
             .setPositiveButton(label) { _, _ ->
