@@ -1,0 +1,43 @@
+name: TV Legacy (Android 4.3)
+
+# Android 4.3 (API 18) 兼容链 —— 与主链 AGP 9 完全隔离：
+# AGP 7.4.2 + Gradle 7.5.1 + JDK 11 + compileSdk 33 + minSdk 18。
+# UI 用 PR #64 迁移前的 Views 快照（a769548），:shared 用主仓当前源码（协议与 PC 端一致）。
+# 调试期只手动触发（不挂 push，避免绿之前把 master 状态打红）；绿了再考虑挂 master/PR。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git archive 需要历史对象
+
+      - name: Materialize legacy snapshot (PR #64 parent = Views 时代)
+        run: |
+          mkdir -p android-legacy/legacy-snapshot
+          git archive a769548437a1794bf5b3329904faddd50a654f20 android/tv | tar -x -C android-legacy/legacy-snapshot
+          find android-legacy/legacy-snapshot -type f | wc -l
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 7.5.1
+
+      - name: Build TV legacy (minSdk 18)
+        run: cd android-legacy && gradle :tv:assembleRelease --stacktrace --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tv-legacy43-apk
+          path: android-legacy/tv/build/outputs/apk/release/*.apk
+          if-no-files-found: error
