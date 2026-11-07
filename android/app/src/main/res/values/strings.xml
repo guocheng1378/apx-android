@@ -155,6 +155,7 @@
     <string name="ui_remote_item_home">主页</string>
     <string name="ui_remote_item_menu">菜单</string>
     <string name="ui_remote_item_voice">语音</string>
+    <string name="ui_remote_voice_unavailable">语音识别不可用</string>
     <string name="ui_remote_item_volume">音量 ＋</string>
     <string name="ui_remote_item_play">播放</string>
     <string name="ui_remote_toast_device_connect_not">还没连上设备</string>

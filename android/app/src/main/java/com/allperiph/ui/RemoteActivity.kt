@@ -8,6 +8,7 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognizerIntent
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.View
@@ -18,6 +19,7 @@ import android.widget.Toast
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
+import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.ui.ApKit
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.ui.miuix.applyEdgeToEdge
@@ -325,7 +327,7 @@ class RemoteActivity : Activity() {
             getString(R.string.ui_common_back) to { HidKeys.tap(U_ESC) },
             getString(R.string.ui_remote_item_home) to { HidKeys.tap(U_HOME) },
             getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
-            getString(R.string.ui_remote_item_voice) to { media(HotkeyController.BIT_VOICE) },
+            getString(R.string.ui_remote_item_voice) to { startVoiceInput() },
         ),
         arrayOf(
             getString(R.string.ui_touchpad_label_volume) to { media(HotkeyController.BIT_VOLUME_DOWN) },
@@ -552,6 +554,40 @@ class RemoteActivity : Activity() {
         handler.postDelayed({ HotkeyController.release(bit) }, 60)
     }
 
+    /** b15 语音输入：走手机的麦（手机是输入端）——识别结果经 9511 INPUT_TEXT(COMMIT)
+     *  粘进对端焦点框。不发 HID bit9（0x0203 唤起的是对端助手、用对端的麦，会与对端
+     *  自己的语音入口重复）。依赖 Wi-Fi 控制链；断链或无识别服务时如实提示。 */
+    private fun startVoiceInput() {
+        if (ControlTarget.controlClient == null) {
+            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
+            return
+        }
+        runCatching {
+            startActivityForResult(
+                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ui_remote_item_voice))
+                },
+                REQ_VOICE_INPUT,
+            )
+        }.onFailure {
+            Toast.makeText(this, getString(R.string.ui_remote_voice_unavailable), Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_VOICE_INPUT || resultCode != RESULT_OK) return
+        val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+        if (text.isEmpty()) return
+        val c = ControlTarget.controlClient
+        if (c == null) {
+            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
+            return
+        }
+        c.sendInputText(text, ApxFrame.INPUT_FLAG_COMMIT)
+    }
+
     /** 关机 / 重启：会直接关掉被控设备，必须确认（与键盘页同一套语义） */
     private fun confirmPower(action: Int, label: String) {
         val c = ControlTarget.controlClient
@@ -596,6 +632,8 @@ class RemoteActivity : Activity() {
         // 光标浮层开关偏好（0x32）：关掉的状态跨会话记住
         private const val PREF = "apx_remote"
         private const val KEY_CURSOR_OVERLAY = "cursor_overlay"
+        // b15：语音识别 onActivityResult 请求码（仅本类内部使用）
+        private const val REQ_VOICE_INPUT = 0x56
 
         // HID usage（page 0x07）—— 与「TV 遥控」快捷键套一致，被控端 HID_MAP 负责翻译
         const val U_UP = 0x52
