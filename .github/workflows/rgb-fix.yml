@@ -1,11 +1,11 @@
 name: RGB Fix
 
-# b24——灯效对齐真键盘（成宇 2026-11-08「和真实键盘不一样啊，这循环闪不行，还有颜色也不对」）：
-# ① 呼吸档此前 = 4s 整圈匀速转色 + 恒定中亮度，观感即「循环闪」；改为相位 48s 一轮彩虹、
-#    亮度按正弦包络 4s 一明灭（KeyBox.rgbFace），暗处亮起已是新色。
-# ② 颜色发闷：饱和 0.78→0.94、明度 0.62→0.86（LED 级）；玻璃 tint / 机械侧壁同步走新配色
-#    （侧壁 vScale=0.42 同色压暗）。
-# 一次性工作流：四段精确替换 + hueOf/0.78f 残留断言，全过才提交 push（push 触发 Build 验证编译）。
+# b25——真键盘渲染（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：
+# 研究结论（太平洋科技 / CSDN / iCUE / GMMK 资料）：真键盘 = 每键 LED + 导光柱 + 双色注塑透光键帽，
+# 灯不铺满键面——黑键帽 + 字符透光 + 键帽亮边 + 键缝泛光；PWM 256 级混色，呼吸 0.5~5s，波浪带方向/速度。
+# b25 实现：KeyBox faceMod 改四层（泛光底 → 黑键帽 0xFF0C0C0C → 亮边 Stroke），fg 字符改用当前键灯色
+# （字符透光），灯色拉到 s0.97/v0.95；呼吸/波浪相位机制沿用 b24（48s 彩虹轮转 + 正弦明灭）。
+# 一次性工作流：精确替换 + 断言，全过才提交 push（push 触发 Build 验证编译）。
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b24 rgb rework
+      - name: apply b25 real-keyboard rendering
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -35,22 +35,20 @@ jobs:
                   return
               text = text.replace(old, new, count)
 
-          OLD_A = (
-          '    /** 当前键色相：呼吸 = 与相位同相（整副键盘一起变）；波浪 = 相位 + 横坐标推相 */\n'
-          '    fun hueOf(): Float {\n'
-          '        val p = rgb.phase?.value ?: 0f\n'
-          '        return if (rgb.mode == KeyPref.RGB_WAVE) (p + rgbX * 0.6f) % 360f else p\n'
-          '    }\n'
-          '    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。\n'
-          '    // 饱和 0.78 / 明度 0.62：白字在全色相上都压得住（明度拉到 1 时黄底白字会糊）。\n'
-          '    val faceMod: Modifier =\n'
-          '        if (rgbOn) {\n'
-          '            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.62f)) }\n'
-          '        } else {\n'
-          '            Modifier.background(bg)\n'
-          '        }\n'
-          )
-          NEW_A = (
+          # 0) 必要 import（已存在则跳过）
+          for imp in (
+              "import androidx.compose.ui.geometry.Offset",
+              "import androidx.compose.ui.geometry.Size",
+              "import androidx.compose.ui.graphics.drawscope.Stroke",
+          ):
+              if imp not in text:
+                  anchor = "package com.allperiph.ui.compose\n\n"
+                  if text.count(anchor) != 1:
+                      fails.append("package anchor count=" + str(text.count(anchor)))
+                  else:
+                      text = text.replace(anchor, anchor + imp + "\n", 1)
+
+          OLD_F = (
           '    /** 当前键色（成宇 2026-11-08「和真实键盘不一样，这循环闪不行，还有颜色也不对」）：\n'
           '     *  对齐真键盘两档口径 ——\n'
           '     *  · 波浪 = 满饱和 LED 彩虹（s0.94 / v0.86），按横坐标错相匀速跑；\n'
@@ -76,37 +74,66 @@ jobs:
           '            Modifier.background(bg)\n'
           '        }\n'
           )
-          rep(OLD_A, NEW_A, "A hueOf→rgbFace")
-          rep(
-              "            tint = tint ?: if (rgbOn) hsvColor(hueOf(), 0.78f, 0.62f) else null,",
-              "            tint = tint ?: if (rgbOn) rgbFace(1f) else null,",
-              "B glass tint",
+          NEW_F = (
+          '    /** 当前键灯色（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：\n'
+          '     *  照真键盘发光结构画（每键 LED + 导光柱 + 透光键帽）——灯不铺满键面，而是\n'
+          '     *  键缝泛光 → 黑键帽（0xFF0C0C0C）→ 键帽亮边，字符用灯色「透光」（见下 fg）。\n'
+          '     *  · 波浪 = 满饱和 LED 彩虹（s0.97 / v0.95），按横坐标错相匀速跑；\n'
+          '     *  · 呼吸 = 亮度正弦呼吸（v 0.05↔0.95，4s 一明灭）+ 色相 48s 慢漂一轮彩虹。\n'
+          '     *  vScale 供机械底座复用（0.42 = 同色压暗，光从轴座底下漏出来）。\n'
+          '     */\n'
+          '    fun rgbFace(vScale: Float): Color {\n'
+          '        val p = rgb.phase?.value ?: 0f\n'
+          '        val breathe = rgb.mode != KeyPref.RGB_WAVE\n'
+          '        // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮\n'
+          '        val env =\n'
+          '            if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f\n'
+          '        val h = if (breathe) p else p + rgbX * 0.6f\n'
+          '        val v = if (breathe) 0.05f + 0.90f * env else 0.95f\n'
+          '        return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))\n'
+          '    }\n'
+          '    // 键面：相位在 drawBehind 里读，动画只触发重绘不重组；灯效关 → 原样 background。\n'
+          '    val faceMod: Modifier =\n'
+          '        if (rgbOn) {\n'
+          '            Modifier.drawBehind {\n'
+          '                val light = rgbFace(1f)\n'
+          '                val inset = 3.dp.toPx()\n'
+          '                val tl = Offset(inset, inset)\n'
+          '                val cap = Size(size.width - inset * 2, size.height - inset * 2)\n'
+          '                drawRect(color = light)\n'
+          '                drawRect(color = Color(0xFF0C0C0C), topLeft = tl, size = cap)\n'
+          '                drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n'
+          '            }\n'
+          '        } else {\n'
+          '            Modifier.background(bg)\n'
+          '        }\n'
           )
-          rep(
-              "            Modifier.drawBehind { drawRect(hsvColor(hueOf(), 0.78f, 0.38f)) }",
-              "            Modifier.drawBehind { drawRect(rgbFace(0.42f)) }",
-              "C mechanical side",
+          rep(OLD_F, NEW_F, "F rgbFace+faceMod")
+          OLD_G = (
+          '    val fg = if (active || rgbOn) Color.White else MiuixTheme.colorScheme.onSurface\n'
           )
-          OLD_D = (
-          '        // 波浪要能看出「跑」，6s 一圈；呼吸是整体慢明慢灭的调子，4s 一圈\n'
-          '        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 4_000\n'
+          NEW_G = (
+          '    // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、\n'
+          '    // 随波浪换色）；sticky 点亮的修饰键仍走白字（功能反馈优先级最高）。\n'
+          '    val fg =\n'
+          '        when {\n'
+          '            active -> Color.White\n'
+          '            rgbOn -> rgbFace(1f)\n'
+          '            else -> MiuixTheme.colorScheme.onSurface\n'
+          '        }\n'
           )
-          NEW_D = (
-          '        // 波浪 6s 一圈能看出「跑」；呼吸相位放慢到 48s 一轮彩虹 ——\n'
-          '        // KeyBox.rgbFace 从同一条相位取亮度包络（每 30° = 一次 4s 明灭，共 12 次）\n'
-          '        // 与色相慢漂，相位连续不回绕、换色不跳（成宇 b24「循环闪不行」）。\n'
-          '        val duration = if (rgbMode == KeyPref.RGB_WAVE) 6_000 else 48_000\n'
-          )
-          rep(OLD_D, NEW_D, "D breathe duration 48s")
-          if "hueOf" in text:
-              fails.append("leftover hueOf reference")
-          if "0.78f" in text:
-              fails.append("leftover 0.78f")
+          rep(OLD_G, NEW_G, "G fg 字符透光")
+          if "Modifier.drawBehind { drawRect(rgbFace(1f)) }" in text:
+              fails.append("leftover solid color face")
+          if "Color.White else MiuixTheme" in text:
+              fails.append("leftover old fg")
+          if "0xFF0C0C0C" not in text:
+              fails.append("black keycap missing")
           if fails:
               print("ERRORS:\n" + "\n".join(fails))
               sys.exit(1)
           open(P, "w", encoding="utf-8").write(text)
-          print("OK: rgb rework applied")
+          print("OK: b25 real-keyboard rendering applied")
           PY
       - name: commit and push
         run: |
@@ -115,5 +142,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "feat: b24 — 灯效对齐真键盘：呼吸改 48s 相位+正弦明灭（根治循环快闪），波浪/呼吸饱和明度拉到 LED 级（成宇 2026-11-08）"
+          git commit -m "feat: b25 — 真键盘渲染：键缝泛光+黑键帽+亮边+字符透光（成宇「是要真的」，按透光键帽发光结构复刻）"
           git push
