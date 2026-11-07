@@ -107,21 +107,31 @@ object KeyLayouts {
      * 行0（Esc+F1..F12）行内 13 等分 —— 真键盘 F 区本与主区分组，不强求 15u 对齐。
      */
     val FULL: List<List<Key>> = listOf(
-        listOf(Key("Esc", ESC)) + (1..12).map { Key("F$it", fn(it)) },
+        listOf(
+            Key("Esc", ESC), Key("F1", fn(1)), Key("F2", fn(2)), Key("F3", fn(3)), Key("F4", fn(4)),
+            Key("F5", fn(5)), Key("F6", fn(6)), Key("F7", fn(7)), Key("F8", fn(8)), Key("F9", fn(9)),
+            Key("F10", fn(10)), Key("F11", fn(11)), Key("F12", fn(12)),
+        ),
         listOf(
             Key("`~", 0x35), Key("1!", d(1)), Key("2@", d(2)), Key("3#", d(3)), Key("4$", d(4)),
             Key("5%", d(5)), Key("6^", d(6)), Key("7&", d(7)), Key("8*", d(8)), Key("9(", d(9)),
             Key("0)", d(0)), Key("-_", 0x2D), Key("=+", 0x2E), Key("⌫", BACKSPACE, 2f),
         ),
-        listOf(Key("Tab", TAB, 1.5f)) +
-            "QWERTYUIOP".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key("[{", 0x2F), Key("]}", 0x30), Key("\|", 0x31, 1.5f)),
-        listOf(Key("Caps", 0x39, 1.75f)) +
-            "ASDFGHJKL".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key(";:", 0x33), Key("'"", 0x34), Key("⏎", ENTER, 2.25f)),
-        listOf(Key("Shift", 0, 2.25f)) +
-            "ZXCVBNM".map { Key(it.toString(), 0x04 + (it - 'A')) } +
-            listOf(Key(",<", 0x36), Key(".>", 0x37), Key("/?", 0x38), Key("Shift", 0, 2.75f)),
+        listOf(
+            Key("Tab", TAB, 1.5f), Key("Q", 0x14), Key("W", 0x1A), Key("E", 0x08), Key("R", 0x15),
+            Key("T", 0x17), Key("Y", 0x1C), Key("U", 0x18), Key("I", 0x0C), Key("O", 0x12),
+            Key("P", 0x13), Key("[{", 0x2F), Key("]}", 0x30), Key("\\|", 0x31, 1.5f),
+        ),
+        listOf(
+            Key("Caps", 0x39, 1.75f), Key("A", 0x04), Key("S", 0x16), Key("D", 0x07),
+            Key("F", 0x09), Key("G", 0x0A), Key("H", 0x0B), Key("J", 0x0D), Key("K", 0x0E),
+            Key("L", 0x0F), Key(";:", 0x33), Key("\u0027\u0022", 0x34), Key("⏎", ENTER, 2.25f),
+        ),
+        listOf(
+            Key("Shift", 0, 2.25f), Key("Z", 0x1D), Key("X", 0x1B), Key("C", 0x06),
+            Key("V", 0x19), Key("B", 0x05), Key("N", 0x11), Key("M", 0x10),
+            Key(",<", 0x36), Key(".>", 0x37), Key("/?", 0x38), Key("Shift", 0, 2.75f),
+        ),
         listOf(
             Key("Ctrl", 0, 1.5f), Key("Alt", 0, 1.5f), Key("Space", SPACE, 9f),
             Key("Alt", 0, 1.5f), Key("Ctrl", 0, 1.5f),
