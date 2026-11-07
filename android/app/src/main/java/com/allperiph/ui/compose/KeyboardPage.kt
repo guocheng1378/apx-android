@@ -1,5 +1,8 @@
 package com.allperiph.ui.compose
 
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -623,12 +626,12 @@ private fun KeyBox(
         } else {
             modifier
         }
-    /** 当前键色（成宇 2026-11-08「和真实键盘不一样，这循环闪不行，还有颜色也不对」）：
-     *  对齐真键盘两档口径 ——
-     *  · 波浪 = 满饱和 LED 彩虹（s0.94 / v0.86），按横坐标错相匀速跑；
-     *  · 呼吸 = 亮度正弦呼吸（v 0.06↔0.86，4s 一明灭）+ 色相 48s 慢漂一轮彩虹，
-     *    每次从暗处亮起已是新色 —— 不再是 4s 整圈快转的「循环闪」。
-     *  vScale 供机械底座复用（0.42 = 同色压暗，侧壁不再是一块死灰）。
+    /** 当前键灯色（成宇 2026-11-08「不是要这种，是要真的，你看看真实的键盘怎么做到的」）：
+     *  照真键盘发光结构画（每键 LED + 导光柱 + 透光键帽）——灯不铺满键面，而是
+     *  键缝泛光 → 黑键帽（0xFF0C0C0C）→ 键帽亮边，字符用灯色「透光」（见下 fg）。
+     *  · 波浪 = 满饱和 LED 彩虹（s0.97 / v0.95），按横坐标错相匀速跑；
+     *  · 呼吸 = 亮度正弦呼吸（v 0.05↔0.95，4s 一明灭）+ 色相 48s 慢漂一轮彩虹。
+     *  vScale 供机械底座复用（0.42 = 同色压暗，光从轴座底下漏出来）。
      */
     fun rgbFace(vScale: Float): Color {
         val p = rgb.phase?.value ?: 0f
@@ -637,17 +640,32 @@ private fun KeyBox(
         val env =
             if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f
         val h = if (breathe) p else p + rgbX * 0.6f
-        val v = if (breathe) 0.06f + 0.80f * env else 0.86f
-        return hsvColor(h, 0.94f, (v * vScale).coerceAtLeast(0f))
+        val v = if (breathe) 0.05f + 0.90f * env else 0.95f
+        return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))
     }
-    // 键面底色：开灯效 → drawBehind（相位在绘制阶段读，动画只触发重绘）；关着 → 原样 background。
+    // 键面：相位在 drawBehind 里读，动画只触发重绘不重组；灯效关 → 原样 background。
     val faceMod: Modifier =
         if (rgbOn) {
-            Modifier.drawBehind { drawRect(rgbFace(1f)) }
+            Modifier.drawBehind {
+                val light = rgbFace(1f)
+                val inset = 3.dp.toPx()
+                val tl = Offset(inset, inset)
+                val cap = Size(size.width - inset * 2, size.height - inset * 2)
+                drawRect(color = light)
+                drawRect(color = Color(0xFF0C0C0C), topLeft = tl, size = cap)
+                drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+            }
         } else {
             Modifier.background(bg)
         }
-    val fg = if (active || rgbOn) Color.White else MiuixTheme.colorScheme.onSurface
+    // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、
+    // 随波浪换色）；sticky 点亮的修饰键仍走白字（功能反馈优先级最高）。
+    val fg =
+        when {
+            active -> Color.White
+            rgbOn -> rgbFace(1f)
+            else -> MiuixTheme.colorScheme.onSurface
+        }
     val accent = MiuixTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
