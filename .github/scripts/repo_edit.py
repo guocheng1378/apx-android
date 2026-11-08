@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""repo-edit：互传「已收到却报发送超时」三修 + 进度事件。
+"""repo-edit：互传超时修复 —— E1/E2 重跑版。
 
-  E1 sender register 10s→30s（慢机首包误报）
-  E2 sender prepare 10s→30s（对端确认框场景）
-  E3 upload 读响应首超不判死 → 再宽限 30s 重读一次（根治 204 晚到误报）
-  E4 web_panel localsend.send 接上 sender 已有的 ProgressCallback，每 10% 推
-     on-localsend-progress 事件（与 file.send 同口径）
-  E5 Transfer.tsx 订阅该事件：互传发送显示百分比进度
-
-锚点均做过全文唯一命中检查；幂等（new 已在文中则 skip）。
+run #97 教训：同一文件多条 EDITS 必须**累积替换**（pending 里拿上次结果继续改），
+否则每条都从原文重算、后写覆盖前写，sender 只落了最后一条 E3。本版修成累积式，
+全部 5 条重列（已落的自动 skip，幂等）。本次目标：E1 register 30s + E2 prepare 30s。
 """
 import os
 import sys
@@ -116,23 +111,26 @@ def main() -> int:
     pending = {}
     for e in EDITS:
         path = e["file"]
-        try:
-            with open(path, encoding="utf-8") as f:
-                text = f.read()
-        except OSError as ex:
-            errors.append("open failed " + path + ": " + str(ex))
-            continue
-        if e["new"] in text:
+        base = pending.get(path)
+        if base is None:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    base = f.read()
+            except OSError as ex:
+                errors.append("open failed " + path + ": " + str(ex))
+                continue
+        if e["new"] in base:
             print("already applied, skip: " + e["id"])
             continue
-        n = text.count(e["anchor"])
+        n = base.count(e["anchor"])
         if n != 1:
             errors.append(
                 e["id"] + ": anchor count=" + str(n) + " expect=1 file=" + path
                 + "\n---anchor---\n" + e["anchor"][:200]
             )
             continue
-        pending[path] = text.replace(e["anchor"], e["new"], 1)
+        # 累积替换：同文件后一条基于前一条的结果继续改（run #97 覆盖 bug 的修正）
+        pending[path] = base.replace(e["anchor"], e["new"], 1)
 
     if errors:
         body = "\n\n".join(errors)
