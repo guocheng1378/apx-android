@@ -512,7 +512,7 @@ class RemoteInputActivity : ComponentActivity() {
         }
         if (nonGoogle == null) {
             // 只有 Google 语音：国内网络不可达 —— 如实提示，不静默拉起
-            android.app.AlertDialog.Builder(this)
+            com.allperiph.ui.ApDialog.builder(this)
                 .setTitle("语音输入")
                 .setMessage("这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n" +
                     "推荐直接点输入法键盘上的语音键口述 —— 文字会进输入框并自动发到电脑。\n\n" +

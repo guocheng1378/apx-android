@@ -1,7 +1,6 @@
 package com.allperiph.ui
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -581,7 +580,7 @@ class RemoteActivity : Activity() {
                 return
             }
             // 只有 Google 语音（国内网络不可达）：不再静默拉起 —— 如实说明，主推输入法语音
-            AlertDialog.Builder(this)
+            ApDialog.builder(this)
                 .setTitle(getString(R.string.ui_remote_item_voice))
                 .setMessage("这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n" +
                     "推荐直接用输入法上的语音键口述，文字会自动发到对端；仍要打开 Google 语音也可以。")

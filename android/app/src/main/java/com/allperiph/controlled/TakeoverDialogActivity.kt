@@ -1,8 +1,8 @@
 package com.allperiph.controlled
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.os.Bundle
+import com.allperiph.ui.ApDialog
 
 /**
  * 多设备接入确认弹窗（v223.33）——「两台设备连接时要弹窗点确定，不然打架」。
@@ -25,7 +25,7 @@ class TakeoverDialogActivity : Activity() {
             // 裁决已被消费（超时兜底先到）或服务已销毁 —— 无事可做
             finish(); return
         }
-        AlertDialog.Builder(this)
+        ApDialog.builder(this)
             .setTitle("有设备请求连接")
             .setMessage(
                 "当前连接：$curPeer\n\n新设备：$newPeer\n\n" +
