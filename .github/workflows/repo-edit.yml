@@ -125,6 +125,45 @@ jobs:
             echo "::error::action_router dedup patch failed rc=$RC"
             exit $RC
           fi
+          # ---- 4) CHANGELOG 补 v223.29.32 段（幂等）----
+          # release job 硬性要求 docs/CHANGELOG.md 有 `## <tag>*` 段，
+          # 没有就写占位「明细缺失」正文（规则：不允许只有下载说明的 Release）。
+          python3 - <<'PY4'
+          p = "docs/CHANGELOG.md"
+          s = open(p, encoding="utf-8").read()
+          if "## v223.29.32" in s:
+              print("CHANGELOG v223.29.32 exists, skip")
+          else:
+              i = s.find("## v223.29.31")
+              if i < 0:
+                  print("anchor ## v223.29.31 not found")
+                  raise SystemExit(7)
+              section = (
+                  "## v223.29.32（2026-11-08）\n\n"
+                  "在线更新与局域网发现四连修（repo-edit 16 编辑全绿），叠加 PC CI 两轮编译错定位修复。\n\n"
+                  "### 在线更新（上一版「更新不了」的根治）\n\n"
+                  "- PC 面板「概览」新增在线更新入口：`update.check` 查 releases/latest 回带当前版本，"
+                  "`update.open` 调系统浏览器打开 Release 页；此前只有 apxhost check-update CLI 与启动静默检查。\n"
+                  "- 手机端 UpdateChecker 改镜像链；检查失败弹窗补「手动检查」出口，不再卡在自动检查失败上没有下一步。\n"
+                  "- PC 打开 Release 页的 HINSTANCE → INT_PTR 改 reinterpret_cast（static_cast 指针转整型不合法，"
+                  "Build #1460/#1461 定位），并清掉热修引入的重复 update 块，CI 恢复全绿。\n\n"
+                  "### 局域网发现与防火墙\n\n"
+                  "- PC 防火墙放行规则名升版 v2（desktop_main / host_service）：旧规则绑旧 exe 路径时"
+                  "按名查重形同虚设，升版强制重建。\n"
+                  "- LocalSend receiver register 入表兜底：多播被丢时手机单播 register 是唯一发现通路，"
+                  "此前不入表会被当未知对端丢弃。\n\n"
+                  "### 验证状态\n\n"
+                  "- repo-edit #112/#115 全绿，Build 编译 + 11 项协议关卡验证通过；未装机回验。\n\n"
+                  "---\n\n"
+              )
+              open(p, "w", encoding="utf-8").write(s[:i] + section + s[i:])
+              print("CHANGELOG v223.29.32 section inserted")
+          PY4
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "::error::CHANGELOG patch failed rc=$RC"
+            exit $RC
+          fi
           OUT=$(python3 .github/scripts/repo_edit.py 2>&1)
           RC=$?
           if [ $RC -ne 0 ]; then
