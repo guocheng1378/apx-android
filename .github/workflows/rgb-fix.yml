@@ -1,11 +1,9 @@
 name: RGB Fix
 
-# b33——修用户反馈两个视觉问题（键盘页 KeyBox 灯效）：
-#   1) 「有时看不见键盘了」：呼吸暗谷 v=0.05（每 4s 一次），黑键帽+黑描边+黑字
-#      叠在深色页底上整块消失 → 暗谷地板抬到 0.30；
-#   2) 「rgb 没有渐变」：呼吸档全键盘同色（h=p）纯平色闪 → 呼吸也按横坐标错相成彩虹
-#      （0.35°/px），并给键内加底亮顶暗的导光渐变描边。
-# 改动面：仅 android/app/.../KeyboardPage.kt 四处（import / 注释+km 条件 / rgbFace / drawBehind）。
+# b33v2——修用户反馈两个视觉问题（键盘页 KeyBox 灯效），同 b33，仅修 comment 锚：
+#   1) 「有时看不见键盘了」：呼吸暗谷 v=0.05（每 4s 一次）→ 地板抬到 0.30；
+#   2) 「rgb 没有渐变」：呼吸档全键盘同色 → 按横坐标错相成彩虹 + 键内导光渐变。
+# v2 教训：双行 comment 锚丢了文件里的 4 空格缩进（count=0），改为两条带缩进的单行锚。
 # 编辑完自动触发 Build 验编译（workflow_dispatch 是 GITHUB_TOKEN 递归限制的例外）。
 
 on:
@@ -20,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b33
+      - name: apply b33v2
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -36,16 +34,19 @@ jobs:
                   return
               n = text.count(old)
               if n != 1:
-                  fails.append(tag + " anchor count=" + str(n))
+                  fails.append(tag + " anchor count=" + str(n) + " expect=" + old[:40])
                   return
               text = text.replace(old, new, 1)
           try:
               rep("import",
                   "import androidx.compose.ui.graphics.Color",
                   "import androidx.compose.ui.graphics.Brush\nimport androidx.compose.ui.graphics.Color")
-              rep("comment",
-                  "// 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，\n// 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，",
-                  "// 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相\n// （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，")
+              rep("comment1",
+                  "    // 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，",
+                  "    // 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相")
+              rep("comment2",
+                  "    // 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，",
+                  "    // （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，")
               rep("km-cond",
                   "        if (rgbOn &&\n            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)\n        ) {",
                   "        if (rgbOn) {")
@@ -63,7 +64,7 @@ jobs:
                   open(P, "w", encoding="utf-8").write(text)
                   if os.path.exists(LOG):
                       os.remove(LOG)
-                  print("OK: b33 applied")
+                  print("OK: b33v2 applied")
           except Exception:
               fails.append("EXCEPTION:\n" + traceback.format_exc())
           if fails:
@@ -97,5 +98,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b33 诊断日志"
+          git commit -m "chore: b33v2 诊断日志"
           git push
