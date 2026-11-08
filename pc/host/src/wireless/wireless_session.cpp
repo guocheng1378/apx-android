@@ -405,14 +405,14 @@ bool isSelfAddress(uint32_t saddrNetOrder) {
             if (WSAIoctl(s, SIO_GET_INTERFACE_LIST, nullptr, 0, infos, sizeof(infos),
                          &bytes, nullptr, nullptr) == 0) {
                 const size_t cnt = bytes / sizeof(INTERFACE_INFO);
-                // SOCKET_ADDRESS 里是 `lpSockaddr` + 长度，没有 `Address.in` 这种成员
-                // （那是 IP_ADAPTER_ADDRESSES 的写法）。这里按 sockaddr_in 解引用，
-                // 顺手用 sin_family 挡掉非 IPv4 的条目。
+                // INTERFACE_INFO::iiAddress 是 Windows 的 sockaddr_gen 联合体：
+                //   union { struct sockaddr Address; struct sockaddr_in AddressIn;
+                //           struct sockaddr_in6 AddressIn6; };
+                // 取 IPv4 地址要读 AddressIn（Address 只是通用 sockaddr，没有 sin_addr），
+                // 先用 sa_family 挡掉 IPv6 条目。
                 for (size_t i = 0; i < cnt && n < 32; ++i) {
-                    const auto* sa = reinterpret_cast<const sockaddr_in*>(
-                        infos[i].iiAddress.lpSockaddr);
-                    if (sa != nullptr && sa->sin_family == AF_INET)
-                        addrs[n++] = sa->sin_addr.s_addr;
+                    if (infos[i].iiAddress.Address.sa_family == AF_INET)
+                        addrs[n++] = infos[i].iiAddress.AddressIn.sin_addr.s_addr;
                 }
             }
             closesocket(s);
