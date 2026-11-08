@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.boundsInWindow
@@ -102,15 +103,6 @@ private val KB_TABS = listOf(
     R.string.ui_kb_tab_fn, R.string.ui_kb_tab_custom,
 )
 
-/**
- * RGB 灯效规格：档位（[KeyPref.RGB_*]）+ 动画相位（0..360°，关档时 phase 为 null）。
- *
- * 相位以 `State` 形式下发而不是算好的颜色 —— 键帽**底色**在绘制阶段读 .value
- * （[Modifier.drawBehind]），那部分只触发重绘、不重组；但**字符色**（KeyBox 的 fg、
- * 玻璃档 tint）在组合期取相位，开灯时键帽仍会逐帧重组 —— 这是皮肤审查 #3 记录的
- * 现状（字符跟灯变色躲不开重组；要彻底消掉需把字色也改成绘制阶段画，另开一轮）。
- * 关档时 phase 为 null，所有灯效分支短路，零开销。
- */
 /** 按下扩散（成宇 2026-11-08「灯是是按下扩散」）：真键盘 Reactive，
  * 平时键不亮，按下的键心抛一圈光向外跑，扫过哪里亮哪里（含字符）。
  * 纯状态容器：UI 线程写，KeyBox.touchLight 按 SystemClock 读，随相位逐帧重绘。
@@ -128,6 +120,15 @@ private object TouchFx {
     }
 }
 
+/**
+ * RGB 灯效规格：档位（[KeyPref.RGB_*]）+ 动画相位（0..360°，关档时 phase 为 null）。
+ *
+ * 相位以 `State` 形式下发而不是算好的颜色 —— 键帽**底色**在绘制阶段读 .value
+ * （[Modifier.drawBehind]），那部分只触发重绘、不重组；但**字符色**（KeyBox 的 fg、
+ * 玻璃档 tint）在组合期取相位，开灯时键帽仍会逐帧重组 —— 这是皮肤审查 #3 记录的
+ * 现状（字符跟灯变色躲不开重组；要彻底消掉需把字色也改成绘制阶段画，另开一轮）。
+ * 关档时 phase 为 null，所有灯效分支短路，零开销。
+ */
 internal class RgbSpec(val mode: Int, val phase: State<Float>?)
 
 /** 键盘树内的灯效上下文；没有 Provider 的调用方拿到关档默认值（等于没加这个功能） */
@@ -828,13 +829,13 @@ private fun KeyBox(
                         drawRect(color = l, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
                     }
                 } else {
-                    drawRect(color = rgbFace(1f))
+                    // b33 键内渐变：导光面底亮顶暗 + 黑键帽内胆 + 同色渐变描边
+                    val light = rgbFace(1f)
+                    val grad = Brush.verticalGradient(0f to light, 1f to light.copy(alpha = 0.45f))
                     val inset = 3.dp.toPx()
                     val tl = Offset(inset, inset)
                     val cap = Size(size.width - inset * 2, size.height - inset * 2)
-                    // b33 键内渐变：导光面底亮顶暗 + 同色渐变描边（真键盘导光板观感）
-                    val light = rgbFace(1f)
-                    val grad = Brush.verticalGradient(0f to light, 1f to light.copy(alpha = 0.45f))
+                    drawRect(brush = grad)
                     drawRect(color = rgbCap, topLeft = tl, size = cap)
                     drawRect(brush = grad, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
                 }
