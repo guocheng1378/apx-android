@@ -260,10 +260,9 @@ bool vigemInitOnce() {
     const unsigned long long aerr = v.vigemTargetAdd(v.client, v.target);
     if (aerr != kVigemOk) {
         std::fprintf(stderr, "[AllPeriph] ViGEm 接入目标失败（0x%llx），手柄走键盘降级\n", aerr);
-        v.vigemTargetX360Free_target:
         v.vigemTargetFree(v.target);
-        v.target = nullptr;
         v.vigemFree(v.client);
+        v.target = nullptr;
         v.client = nullptr;
         return false;
     }
@@ -290,7 +289,7 @@ bool vigemSend(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) {
         0x0000,  // 7  R2 → 下方模拟扳机
         0x0020,  // 8  SELECT → BACK
         0x0010,  // 9  START
-        0x0000,  // 10 C（协议位，XInput 无）
+        0x0000,  // 10 C（协议位，XInput 无对应）
         0x0000,  // 11 Z（同上）
         0x0400,  // 12 MODE → GUIDE
         0x0040,  // 13 THUMBL → LEFT_THUMB

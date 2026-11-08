@@ -119,6 +119,10 @@ WirelessSession::WirelessSession() {
             // 把整段快照发来，这里按已注入计数退格清场再重打，一次对账归零。
             // 此前 0x04 未实现、整段被当追加注入（所以历史注释禁发 COMMIT）——现在禁令解除。
             while (g_injectedLen > 0) { apxpc::wireless::injectSpecialKey(0, 0x08); --g_injectedLen; }
+            // v223.29.33：退格排空后稍候再注入 —— 目标窗口消化上百个 VK_BACK 需要时间，
+            // 紧接着的粘贴/键入抢在前面会与残留退格交错，表现为重打的字被吃掉一半（发
+            // 送拍「先全删再粘」的乱感有一半来自这里）。
+            std::this_thread::sleep_for(std::chrono::milliseconds(80));
         }
         if (!apxpc::wireless::injectSystemText(text)) {
             APX_LOGW("远程输入文本注入失败（{} 字节）", static_cast<unsigned>(text.size()));
@@ -168,10 +172,10 @@ void WirelessSession::stop() {
     beaconRun_.store(false);
     client_.disconnect();
     // ★ 顺序不能反：worker 线程内部也会 join / 重建 beaconThread_（Idle、Manual、Auto
-    //   三个分支都有），若这里先 join(beacon)，就会与 worker **并发 join 同一个
-    //   std::thread**（未定义行为，实践中表现为退出时偶发 terminate / 卡死）；而 worker
-    //   重建时对仍 joinable 的 thread 赋值同样会 terminate。现在只 join worker（由它收
-    //   beacon），这里仅兜底，避免 beaconThread_ 析构时仍 joinable 触发 terminate。
+    // 三个分支都有），若这里先 join(beacon)，就会与 worker **并发 join 同一个
+    // std::thread**（未定义行为，实践中表现为退出时偶发 terminate / 卡死）；而 worker
+    // 重建时对仍 joinable 的 thread 赋值同样会 terminate。现在只 join worker（由它收
+    // beacon），这里仅兜底，避免 beaconThread_ 析构时仍 joinable 触发 terminate。
     if (worker_.joinable()) worker_.join();
     if (beaconThread_.joinable()) beaconThread_.join();
 }
@@ -402,7 +406,7 @@ bool isSelfAddress(uint32_t saddrNetOrder) {
                          &bytes, nullptr, nullptr) == 0) {
                 const size_t cnt = bytes / sizeof(INTERFACE_INFO);
                 for (size_t i = 0; i < cnt && n < 32; ++i)
-                    addrs[n++] = infos[i].iiAddress.AddressIn.sin_addr.s_addr;
+                    addrs[n++] = infos[i].iiAddress.Address.in.sin_addr.s_addr;
             }
             closesocket(s);
         }
@@ -422,16 +426,15 @@ void WirelessSession::beaconLoop() {
 #else
     int b = socket(AF_INET, SOCK_DGRAM, 0);
     if (b < 0) return;
-    int br = 1;
-    setsockopt(b, SOL_SOCKET, SO_BROADCAST, &br, sizeof(br));
+    int br = 1; setsockopt(b, SOL_SOCKET, SO_BROADCAST, &br, sizeof(br));
     int reuse = 1;
     setsockopt(b, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 #endif
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(kBeaconPort);
-    if (bind(b, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+    addr.sin_addr.s_addr = INADDR_ANY;
+    if (::bind(b, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
 #if defined(_WIN32)
         closesocket(b);
 #else
@@ -452,7 +455,7 @@ void WirelessSession::beaconLoop() {
     timeval rcvTo{};
     rcvTo.tv_sec = 0;
     rcvTo.tv_usec = 200 * 1000;
-    setsockopt(b, SOL_SOCKET, SO_RCVTIMEO, &rcvTo, sizeof(rcvTo));
+    setsockopt(b, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rcvTo), sizeof(rcvTo));
 #endif
     char buf[1024];
     while (beaconRun_.load()) {
@@ -463,18 +466,16 @@ void WirelessSession::beaconLoop() {
         socklen_t fromLen = sizeof(from);
 #endif
         const int n = recvfrom(b, buf, sizeof(buf) - 1, 0,
-                                reinterpret_cast<sockaddr*>(&from), &fromLen);
+                               reinterpret_cast<sockaddr*>(&from), &fromLen);
         if (n <= 0) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue; }
         buf[n] = '\0';
         std::string hostIp;
 #if defined(_WIN32)
         char ipStr[INET_ADDRSTRLEN];
-        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr)))
-            hostIp = ipStr;
+        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr))) hostIp = ipStr;
 #else
         char ipStr[INET_ADDRSTRLEN];
-        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr)))
-            hostIp = ipStr;
+        if (inet_ntop(AF_INET, &from.sin_addr, ipStr, sizeof(ipStr))) hostIp = ipStr;
 #endif
         uint16_t bport = 0;
         std::string dummy;
