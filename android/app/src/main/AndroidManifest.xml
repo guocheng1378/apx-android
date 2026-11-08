@@ -336,6 +336,20 @@
             android:documentLaunchMode="always" />
 
         <!--
+          ⑪之二 多设备接入确认（v223.33）：两台及以上设备连入被控服务时，
+          ControlServer 不再静默接管（旧行为：第二台顶掉第一台，两边自动重连
+          互相踢 = "两台设备打架"），拉起本页弹窗，用户点「确定」才切换。
+          透明主题只为承载系统弹窗；singleTop 防并发接入时叠多层。
+        -->
+        <activity
+            android:name=".controlled.TakeoverDialogActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
           ⑫ 连接状态通知点击 → RemoteInputActivity
           v196 起改为由ControlledService 直接发 RemoteInputActivity 的 PendingIntent，
           原 .controlled.ConnectNotificationReceiver 这个类**并不存在**（注册是悬空的），
@@ -363,7 +377,7 @@
 
           为什么不复用上面那条 KeepAliveReceiver：那条链路的 cancel 语义绑在「用户主动关掉
           被控服务」上，一旦复用，用户关掉被控就会顺带把悬浮球的自检也停掉 —— 而这两件事
-          彼此无关（球可以开着、被控关着）。所以单独一份，只认「用户意愿位」这一个开关。
+          彼此无关（球可以开着，被控关着）。所以单独一份，只认「用户意愿位」这一个开关。
 
           为什么必须落成清单里的显式组件：闹钟的杀手锏就是「进程被杀后系统重新拉起一个全新
           进程来投递广播」，新进程里没有任何自己的代码跑过 —— 只有清单注册的接收者能被唤起。
