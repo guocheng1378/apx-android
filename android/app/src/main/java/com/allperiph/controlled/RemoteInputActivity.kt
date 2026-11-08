@@ -29,7 +29,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -203,6 +210,8 @@ class RemoteInputActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End,
                         ) {
+                            ActionPill("语音", neutral) { startVoiceInput() }
+                            Spacer(Modifier.width(12.dp))
                             ActionPill(getString(R.string.ui_common_cancel), neutral) { cancelAndFinish() }
                             Spacer(Modifier.width(12.dp))
                             ActionPill(getString(R.string.ui_common_send), accent) { sendCurrent() }
@@ -311,6 +320,7 @@ class RemoteInputActivity : ComponentActivity() {
                         val moved = kotlin.math.hypot((e.x - tpLastX).toDouble(), (e.y - tpLastY).toDouble()) < dp(12f)
                         if (!tpDrag && !cancelled && moved && dur < 300) {
                             mouseFrame(0x01, 0, 0); mouseFrame(0x00, 0, 0)   // 轻点 = 左键点击
+                            com.allperiph.ui.Feedback.haptic(v)               // #5 轻点给震感
                         } else {
                             mouseFrame(0x00, 0, 0)                            // 抬起/取消 = 松开左键
                         }
@@ -324,15 +334,35 @@ class RemoteInputActivity : ComponentActivity() {
         return touchpad
     }
 
-    /** 编辑键排的一个键 */
+    /** 编辑键排的一个键（#6 按住 400ms 起每 55ms 连发、抬手吞尾；#5 按下即震） */
     @Composable
     private fun KeyButton(label: String, onClick: () -> Unit) {
+        var repeatFired by remember { mutableStateOf(false) }
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        LaunchedEffect(pressed) {
+            if (pressed) {
+                kotlinx.coroutines.delay(400)
+                while (true) {
+                    repeatFired = true
+                    onClick()
+                    kotlinx.coroutines.delay(55)
+                }
+            }
+        }
+        val host = androidx.compose.ui.platform.LocalView.current
         Box(
             modifier = Modifier
                 .padding(end = 6.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_field)))
-                .clickable { onClick() }
+                .clickable(
+                    interactionSource = interaction,
+                    indication = androidx.compose.ui.platform.LocalIndication.current,
+                ) {
+                    if (repeatFired) { repeatFired = false }
+                    else { com.allperiph.ui.Feedback.tap(host); onClick() }
+                }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
             Text(
@@ -343,14 +373,15 @@ class RemoteInputActivity : ComponentActivity() {
         }
     }
 
-    /** 底部按钮（取消 / 发送） */
+    /** 底部按钮（取消 / 发送）（#5 按下即震） */
     @Composable
     private fun ActionPill(label: String, bg: Int, onClick: () -> Unit) {
+        val host = androidx.compose.ui.platform.LocalView.current
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(androidx.compose.ui.graphics.Color(bg))
-                .clickable { onClick() }
+                .clickable { com.allperiph.ui.Feedback.tap(host); onClick() }
                 .padding(horizontal = 24.dp, vertical = 10.dp),
         ) {
             Text(
@@ -393,6 +424,29 @@ class RemoteInputActivity : ComponentActivity() {
         suppressInputWatcher = false
         editText?.requestFocus()             // 焦点回到输入框，键盘保持弹出
         Toast.makeText(this, getString(R.string.ui_remoteinput_sent), Toast.LENGTH_SHORT).show()
+    }
+
+    /** #4 语音输入：系统语音识别 → 文字 append 进输入框（自动走 TextWatcher 增量上屏/对账链） */
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 726 && resultCode == RESULT_OK) {
+            val text = data?.getStringArrayListExtra(android.speech.SpeechRecognizer.EXTRA_RESULTS)
+                ?.firstOrNull() ?: return
+            editText?.append(text)
+        }
+    }
+
+    private fun startVoiceInput() {
+        val intent = Intent(android.speech.SpeechRecognizer.ACTION_RECOGNIZE_SPEECH)
+            .putExtra(android.speech.SpeechRecognizer.EXTRA_LANGUAGE_MODEL,
+                android.speech.SpeechRecognizer.LANGUAGE_MODEL_FREE_FORM)
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(intent, 726)
+        } catch (e: Exception) {
+            Toast.makeText(this, "系统语音识别不可用", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onDestroy() {

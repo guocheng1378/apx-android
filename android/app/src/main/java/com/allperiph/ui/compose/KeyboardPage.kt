@@ -841,7 +841,12 @@ private fun KeyBox(
     // 档位仍由设置页的 ApFeel 控制（关 / 轻 / 标准 / 强，音效 关 / 点击 / 键盘 / 机械轴）。
     val host = LocalView.current
     // 震动在按下那一刻由 [apKeyFeel] 给过了，这里只出声（见 Feedback.release 的说明）
-    val press: () -> Unit = { Feedback.release(host); onClick() }
+    // #6 长按连发（用户 2026-11-08「长按按键的连发功能所有键盘都没有吗」）：
+    // 连发开火后抬手那次自然 onClick 吞掉 —— 否则长按结尾会多发一下（与操控面同语义）。
+    var repeatFired by remember { mutableStateOf(false) }
+    val press: () -> Unit = {
+        if (repeatFired) { repeatFired = false } else { Feedback.release(host); onClick() }
+    }
     val shape = RoundedCornerShape(dens.cornerDp.dp)
     // 审查条 2.2：基础高度 44dp × 倍率（0.92/1.0/1.12）→ 40.5/44/49.3dp，两档低于 48dp
     // 触摸基线。这里只抬「下限」不动倍率的语义：紧凑档靠字号与间隙变紧，不再压缩命中区；
@@ -1075,6 +1080,18 @@ private fun KeyBox(
     // 按下扩散：按下的那一刻把键心交给 TouchFx（只在 RGB_TOUCH 档注册涟漪）
     LaunchedEffect(pressed) {
         if (pressed && rgbOn && rgb.mode == KeyPref.RGB_TOUCH) TouchFx.add(rgbC.x, rgbC.y)
+    }
+    // —— #6 长按连发：按住 400ms 起、每 55ms 一拍重发，松手即停；连发只送键不出声
+    //（声/震在按下那一下已给）。修饰键走 ModKey、遥控走 MediaTile，均不连发。
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            kotlinx.coroutines.delay(400)
+            while (true) {
+                repeatFired = true
+                onClick()
+                kotlinx.coroutines.delay(55)
+            }
+        }
     }
     if (keycap == KeyPref.KEYCAP_GLASS) {
         // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）。
