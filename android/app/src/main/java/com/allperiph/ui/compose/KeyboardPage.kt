@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.boundsInWindow
@@ -634,16 +635,14 @@ private fun KeyBox(
     // 玻璃档这一支付这个代价，平面 / 机械走 draw 阶段零重组）。
     val rgb = LocalRgb.current
     val rgbOn = rgb.phase != null && rgb.mode != KeyPref.RGB_OFF && !active
-    // 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，
-    // 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，
+    // 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相
+    // （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，
     // TouchpadPage 同款用法），左缘像素即可，窗口相对偏移不影响错相。
     var rgbX by remember { mutableIntStateOf(0) }
     // 按下扩散档还要键心（中心点）：TouchFx.add 的原点 + 涟漪距离的基准
     var rgbC by remember { mutableStateOf(Offset.Zero) }
     val km =
-        if (rgbOn &&
-            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)
-        ) {
+        if (rgbOn) {
             modifier.onGloballyPositioned {
                 val b = it.boundsInWindow()
                 rgbX = b.left.toInt()
@@ -694,8 +693,10 @@ private fun KeyBox(
         // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮
         val env =
             if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(p * 12.0))).toFloat() else 1f
-        val h = if (breathe) p else p + rgbX * 0.6f
-        val v = if (breathe) 0.05f + 0.90f * env else 0.95f
+        // b33：呼吸暗谷从 0.05 抬到 0.30——暗谷里黑键帽/描边/字全灭，整副键盘消失
+        // （「有时看不见键盘了」）；呼吸档按横坐标错相成彩虹随呼吸明灭（修「没有渐变」）。
+        val h = p + rgbX * (if (breathe) 0.35f else 0.6f)
+        val v = if (breathe) 0.30f + 0.65f * env else 0.95f
         return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))
     }
     // 黑键帽走语义令牌（check_appearance 判据6：ui/ 下禁止字面色值）
@@ -721,9 +722,11 @@ private fun KeyBox(
                     val inset = 3.dp.toPx()
                     val tl = Offset(inset, inset)
                     val cap = Size(size.width - inset * 2, size.height - inset * 2)
-                    drawRect(color = light)
+                    // b33 键内渐变：导光面底亮顶暗 + 同色渐变描边（真键盘导光板观感）
+                    val grad = Brush.verticalGradient(0f to light, 1f to light.copy(alpha = 0.45f))
+                    drawRect(brush = grad)
                     drawRect(color = rgbCap, topLeft = tl, size = cap)
-                    drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+                    drawRect(brush = grad, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
                 }
             }
         } else {
