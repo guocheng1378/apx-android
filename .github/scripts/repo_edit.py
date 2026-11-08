@@ -1,60 +1,112 @@
 #!/usr/bin/env python3
-"""repo-edit：v223.29.30 发版一次性编辑 —— 在 docs/CHANGELOG.md 顶部插入本版明细段。
+"""repo-edit：互传「已收到却报发送超时」三修 + 进度事件。
 
-发版门禁（docs/RELEASE.md 第 2 步）：Release 正文顶部的「改了什么」由 build.yml 的
-Extract changelog 步骤从 CHANGELOG 对应版本段提取 —— 没写那段，CI 打 error 并降级
-为占位正文。CHANGELOG ~89KB 不适合整文件回传，故走本锚点编辑（唯一命中才写盘）。
+  E1 sender register 10s→30s（慢机首包误报）
+  E2 sender prepare 10s→30s（对端确认框场景）
+  E3 upload 读响应首超不判死 → 再宽限 30s 重读一次（根治 204 晚到误报）
+  E4 web_panel localsend.send 接上 sender 已有的 ProgressCallback，每 10% 推
+     on-localsend-progress 事件（与 file.send 同口径）
+  E5 Transfer.tsx 订阅该事件：互传发送显示百分比进度
 
-锚点：当前顶部第一个版本段标题 `## v223.29.29（2026-11-08）`（全文唯一），
-新段插到它前面。幂等：new 已在文中则自动 skip。
-（本文件历史上承载批 N/U-7 系列锚点，均已落地；git log 可查。）
+锚点均做过全文唯一命中检查；幂等（new 已在文中则 skip）。
 """
 import os
 import sys
 
-CHANGELOG = "docs/CHANGELOG.md"
 ERRLOG = "docs/edit_error.log"
-
-ANCHOR = "## v223.29.29（2026-11-08）"
-
-SECTION = (
-    "## v223.29.30（2026-11-08）\n"
-    "\n"
-    "键盘灯效「皮肤审查」五条收口，Build #1431 全绿（android + pc + 11 项协议关卡）。\n"
-    "\n"
-    "### 灯效结构（审查 #1 / #5）\n"
-    "\n"
-    "- 玻璃键帽「透明底隐形键」根治：灯效整条移出 tint 通道，GlassKeycap 拆出 faceMod（灯面在绘制期落到玻璃高光之下）与 labelMod（字色在绘制期染色）两个参数，透明 tint 这类坑从结构上封死。\n"
-    "- 遥控页图块接入灯效：呼吸 / 波浪 / 按下扩散三档与键帽同款亮灯；灯效公式抽成键帽与图块共用的单一真源（rgbFaceAt / touchLightAt），遥控页不再是灯效死角。\n"
-    "\n"
-    "### 手感（审查 #2）\n"
-    "\n"
-    "- 键盘页页签补回按下震动与音效（Feedback.tap）：此前只有选中态、按下去毫无反馈，是全页手感最弱的可点面。\n"
-    "\n"
-    "### 性能架构（审查 #3，本轮主力）\n"
-    "\n"
-    "- 字色移出组合期：Text 只画静态基色，灯色由 graphicsLayer 的 colorFilter 在绘制阶段按字形 alpha 染色 —— 开灯时 84 颗键只重绘、不再逐帧重组，兑现 RgbSpec 一直承诺的「只重绘不重组」。\n"
-    "- 机械侧壁涟漪不再借重组带动（drawBehind 自己订阅相位 tick），遥控图块同口径（9 个图块开灯也不重组）；顺带修掉侧壁扩散档空闲画透明的同族 bug。\n"
-    "\n"
-    "### 文档更正（审查 #4）\n"
-    "\n"
-    "- KeyPref 六档 / 四档、KeyFx 关闭档无水波兜底等过期注释与实现对齐。\n"
-    "\n"
-    "### 验证状态\n"
-    "\n"
-    "- 仅 CI 编译 + 关卡验证，**未装机回验**：灯效观感与开灯帧率改善待真机确认。\n"
-    "\n"
-    "---\n"
-    "\n"
-)
 
 EDITS = [
     {
-        "id": "REL-v223.29.30 CHANGELOG 顶插",
-        "file": CHANGELOG,
+        "id": "E1 register 30s",
+        "file": "pc/host/src/localsend/local_send_sender.cpp",
         "kind": "replace",
-        "anchor": ANCHOR,
-        "new": SECTION + ANCHOR,
+        "anchor": "    reg.body = &regBody;",
+        "new": (
+            "    reg.body = &regBody;\n"
+            "    // 10s 默认值在慢机（息屏首包 / 高负载）上过紧 —— register 超时误报在这里拦过一次\n"
+            "    reg.timeoutMs = 30'000;"
+        ),
+    },
+    {
+        "id": "E2 prepare 30s",
+        "file": "pc/host/src/localsend/local_send_sender.cpp",
+        "kind": "replace",
+        "anchor": "    prep.body = &prepBody;",
+        "new": (
+            "    prep.body = &prepBody;\n"
+            "    // 同 register：对端可能弹「是否接收」等人工点，10s 必超 —— 放宽到 30s\n"
+            "    prep.timeoutMs = 30'000;"
+        ),
+    },
+    {
+        "id": "E3 upload 响应宽限重读",
+        "file": "pc/host/src/localsend/local_send_sender.cpp",
+        "kind": "replace",
+        "anchor": (
+            "    bool bodyDone = false;\n"
+            "    char buf[16 * 1024];\n"
+            "    while (!bodyDone) {\n"
+            "        const int rd = waitReadable(s, req.timeoutMs);\n"
+            "        if (rd == 0) { resp.error = \"等待响应超时\"; break; }"
+        ),
+        "new": (
+            "    bool bodyDone = false;\n"
+            "    bool graceUsed = false;\n"
+            "    char buf[16 * 1024];\n"
+            "    while (!bodyDone) {\n"
+            "        int rd = waitReadable(s, req.timeoutMs);\n"
+            "        if (rd == 0 && req.stream && !graceUsed) {\n"
+            "            // upload 的字节已全部写出：对端要收全才落盘回 204，慢机 / 息屏会晚到 ——\n"
+            "            // 首超不判死，再宽限 30s 重读一次（根治「手机已完整收到、PC 报等待响应超时」）\n"
+            "            graceUsed = true;\n"
+            "            rd = waitReadable(s, 30'000);\n"
+            "        }\n"
+            "        if (rd == 0) { resp.error = \"等待响应超时\"; break; }"
+        ),
+    },
+    {
+        "id": "E4 web_panel 进度事件",
+        "file": "pc/host/src/ui/web_panel.cpp",
+        "kind": "replace",
+        "anchor": "            const auto res = tx.send(target, self, files);",
+        "new": """            // 进度节流：sender 的 onWrite 每 64KB 一拍，直接转事件会淹没面板消息泵 ——
+            // 与 file.send 同口径：每 10% 推一拍（postEvent 线程安全，发送线程可调）
+            int lastPct = -1;
+            const auto onProgress = [p, &lastPct](const apxpc::localsend::SendProgress& pr) {
+                const int pct = pr.grandTotal > 0
+                    ? static_cast<int>(pr.totalBytes * 100 / pr.grandTotal) : 100;
+                if (pct >= 100 || pct - lastPct >= 10) {
+                    lastPct = pct;
+                    Json d = Json::makeObject();
+                    d["percent"] = pct;
+                    d["fileName"] = pr.fileName;
+                    d["filesDone"] = static_cast<double>(pr.filesDone);
+                    d["filesTotal"] = static_cast<double>(pr.filesTotal);
+                    d["bytes"] = static_cast<double>(pr.totalBytes);
+                    d["total"] = static_cast<double>(pr.grandTotal);
+                    postEvent(p, std::string("on-localsend-progress"), d);
+                }
+                return true;
+            };
+            const auto res = tx.send(target, self, files, onProgress);""",
+    },
+    {
+        "id": "E5 Transfer 订阅进度",
+        "file": "pc/web/src/pages/Transfer.tsx",
+        "kind": "replace",
+        "anchor": "      bridge.onEvent('on-file-received', (evt: any) => {",
+        "new": """      // 宿主每 10% 推一拍（web_panel.cpp localsend.send 分支节流）：大文件互传
+      // 从「正在发送…」干等变成带百分比 —— 也是区分「在传」与「卡死」的唯一信号
+      bridge.onEvent('on-localsend-progress', (evt: any) => {
+        const d = evt?.data || {};
+        if (typeof d.percent !== 'number') return;
+        const nm = d.fileName ? fileNameOf(String(d.fileName)) : '';
+        setLsStatus(
+          `正在发送${nm ? ` ${nm}` : ''} · ${d.percent}%` +
+            (d.filesTotal > 1 ? ` · ${d.filesDone + 1}/${d.filesTotal}` : ''),
+        );
+      }),
+      bridge.onEvent('on-file-received', (evt: any) => {""",
     },
 ]
 
