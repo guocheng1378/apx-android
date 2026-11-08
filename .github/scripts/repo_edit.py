@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""repo-edit：Build #1455 编译修复（6 错全在 RemoteInputActivity）。
+"""repo-edit：Build #1455 编译修复 v2（v1 因 F2 注释嵌套引号转义少层→python 语法错秒挂；
+本版注释不嵌英文双引号；三锚已在 c4d38b1b 实测全中）。
 
-  F1 indication=androidx.compose.ui.platform.LocalIndication 解析不到 → 改 null
-     （键盘页 KeyBox 同款惯例：视觉自绘/按下震补偿；RIN 只有轻量按下反馈）
-  F2/F3 android.speech.SpeechRecognizer 的 4 个静态字段在本编译环境解析不到
-     （ACTION_RECOGNIZE_SPEECH / EXTRA_LANGUAGE_MODEL / LANGUAGE_MODEL_FREE_FORM /
-      EXTRA_RESULTS + 连锁 putExtra）→ 改公开字面量，值与 SpeechRecognizer/AOSP
-     源码逐字一致，协议常量稳定；顺带彻底去掉对 SpeechRecognizer 类的符号依赖。
+  F1 indication LocalIndication 解析不到 → null（键盘页 KeyBox 同款惯例）
+  F2/F3 SpeechRecognizer 4 静态字段 + 连锁 putExtra → 公开字面量（与 AOSP 逐字一致）
 """
 import os
 import sys
@@ -24,11 +21,9 @@ EDITS = [
     {
         "id": "F2 EXTRA_RESULTS 字面量",
         "file": RIN,
-        "anchor": (
-            "            val text = data?.getStringArrayListExtra(android.speech.SpeechRecognizer.EXTRA_RESULTS)"
-        ),
+        "anchor": "            val text = data?.getStringArrayListExtra(android.speech.SpeechRecognizer.EXTRA_RESULTS)",
         "new": (
-            "            // 字面量 = SpeechRecognizer.EXTRA_RESULTS（"android.speech.extra.RESULTS"）——\n"
+            "            // 字面量值即 SpeechRecognizer.EXTRA_RESULTS（android.speech.extra.RESULTS）——\n"
             "            // 本编译环境解析不到 SpeechRecognizer 静态字段，公开协议常量直接用字面值\n"
             "            val text = data?.getStringArrayListExtra(\"android.speech.extra.RESULTS\")"
         ),
@@ -42,9 +37,9 @@ EDITS = [
             "                android.speech.SpeechRecognizer.LANGUAGE_MODEL_FREE_FORM)"
         ),
         "new": (
-            "        // 字面量与 SpeechRecognizer 源码逐字一致（ACTION_RECOGNIZE_SPEECH /\n"
-            "        // EXTRA_LANGUAGE_MODEL / LANGUAGE_MODEL_FREE_FORM）—— 本编译环境解析不到\n"
-            "        // 该类静态字段，公开协议常量直接用字面值，零符号依赖。\n"
+            "        // 字面量与 SpeechRecognizer 源码逐字一致（ACTION / EXTRA_LANGUAGE_MODEL /\n"
+            "        // LANGUAGE_MODEL_FREE_FORM）—— 本编译环境解析不到该类静态字段，\n"
+            "        // 公开协议常量直接用字面值，零符号依赖。\n"
             "        val intent = Intent(\"android.speech.action.RECOGNIZE_SPEECH\")\n"
             "            .putExtra(\"android.speech.extra.LANGUAGE_MODEL\", \"free_form\")"
         ),
