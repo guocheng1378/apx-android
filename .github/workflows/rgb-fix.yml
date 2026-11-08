@@ -1,75 +1,69 @@
 name: RGB Fix
 
-# b32v2——CHANGELOG 插入 v223.29.29 段（发版正文的真源）：
-# build.yml 的 release job 从 docs/CHANGELOG.md 里截 `## <tag>` 段当 Release 正文，
-# 没有该段会降级成「明细缺失」占位。锚点取文件里第一个 "\n## v"（第一节位置），
-# 幂等：已插入则不写盘。成功后删 b31 留下的 docs/edit_error.log。
-# 注意：多行文案必须写成逐行字符串列表——三引号原文直接放在 run: | 块里会顶到
-# 行首（0 缩进）把 YAML literal block 截断，整个工作流解析失败（b32v1 教训）。
+# b33——修用户反馈两个视觉问题（键盘页 KeyBox 灯效）：
+#   1) 「有时看不见键盘了」：呼吸暗谷 v=0.05（每 4s 一次），黑键帽+黑描边+黑字
+#      叠在深色页底上整块消失 → 暗谷地板抬到 0.30；
+#   2) 「rgb 没有渐变」：呼吸档全键盘同色（h=p）纯平色闪 → 呼吸也按横坐标错相成彩虹
+#      （0.35°/px），并给键内加底亮顶暗的导光渐变描边。
+# 改动面：仅 android/app/.../KeyboardPage.kt 四处（import / 注释+km 条件 / rgbFace / drawBehind）。
+# 编辑完自动触发 Build 验编译（workflow_dispatch 是 GITHUB_TOKEN 递归限制的例外）。
 
 on:
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   edit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b32
+      - name: apply b33
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import os, sys, traceback
           LOG = "docs/edit_error.log"
           fails = []
-          P = "docs/CHANGELOG.md"
-          TAG = "## v223.29.29（2026-11-08）"
-          LINES = [
-              "## v223.29.29（2026-11-08）",
-              "",
-              "键盘 RGB 灯效批次 b24–b30 收口（成宇「是要真的」连续反馈），Build #1414 全绿。",
-              "",
-              "### 灯效对齐真键盘（b24）",
-              "",
-              "- 呼吸模式改 48s 相位 + 正弦明灭：根治旧版循环末尾的快闪；波浪/呼吸的饱和与明度拉到 LED 级配色，不再发灰。",
-              "",
-              "### 真键盘渲染（b25）",
-              "",
-              "- KeyBox 按透光键帽发光结构复刻：键缝泛光 + 黑键帽 + 亮边 + 字符透光，键盘从平面色块变成一把有灯的真键盘。",
-              "",
-              "### 按下扩散第 4 档 + Touch 相位修复（b26/b27/b29）",
-              "",
-              "- 按下扩散新增 Reactive 涟漪档：按下处向外扩散的圆环涟漪，四档齐全（关闭/呼吸/波浪/按下）。",
-              "- Touch 档相位改即时订阅：切档立即生效；KeyBox 字面色值全部走主题令牌，换肤/莫奈/深色下灯效跟随，不再有死色。",
-              "",
-              "### 修复与 CI",
-              "",
-              "- `touchFg` 补 `@Composable`（b30）：清掉 `compileReleaseKotlin` 仅剩 2 处编译错，Build 恢复全绿（#1414）。",
-              "- RGB Fix 机器人 b24–b31：锚点实况校验 + 自诊断日志（docs/edit_error.log），编辑失败定位到行；新增 Fix Release Notes 工作流补全占位正文。",
-              "",
-              "---",
-          ]
-          SECTION = "\n".join(LINES)
+          P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+          text = open(P, encoding="utf-8").read()
+          def rep(tag, old, new):
+              global text
+              if new in text and old not in text:
+                  print("SKIP " + tag)
+                  return
+              n = text.count(old)
+              if n != 1:
+                  fails.append(tag + " anchor count=" + str(n))
+                  return
+              text = text.replace(old, new, 1)
           try:
-              text = open(P, encoding="utf-8").read()
-              if TAG in text:
-                  print("OK: section already present, skip")
-                  sys.exit(0)
-              idx = text.find("\n## v")
-              if idx < 0:
-                  fails.append("anchor \\n## v not found")
-              else:
-                  text = text[: idx + 1] + SECTION + "\n" + text[idx + 1 :]
-                  if TAG not in text:
-                      fails.append("insert verification failed")
-                  else:
-                      open(P, "w", encoding="utf-8").write(text)
-                      if os.path.exists(LOG):
-                          os.remove(LOG)
-                      print("OK: inserted v223.29.29 section")
+              rep("import",
+                  "import androidx.compose.ui.graphics.Color",
+                  "import androidx.compose.ui.graphics.Brush\nimport androidx.compose.ui.graphics.Color")
+              rep("comment",
+                  "// 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，\n// 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，",
+                  "// 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相\n// （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，")
+              rep("km-cond",
+                  "        if (rgbOn &&\n            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)\n        ) {",
+                  "        if (rgbOn) {")
+              rep("rgbFace",
+                  "        val h = if (breathe) p else p + rgbX * 0.6f\n        val v = if (breathe) 0.05f + 0.90f * env else 0.95f",
+                  "        // b33：呼吸暗谷从 0.05 抬到 0.30——暗谷里黑键帽/描边/字全灭，整副键盘消失\n        // （「有时看不见键盘了」）；呼吸档按横坐标错相成彩虹随呼吸明灭（修「没有渐变」）。\n        val h = p + rgbX * (if (breathe) 0.35f else 0.6f)\n        val v = if (breathe) 0.30f + 0.65f * env else 0.95f")
+              rep("gradient",
+                  "                } else {\n                    val light = rgbFace(1f)\n                    val inset = 3.dp.toPx()\n                    val tl = Offset(inset, inset)\n                    val cap = Size(size.width - inset * 2, size.height - inset * 2)\n                    drawRect(color = light)\n                    drawRect(color = rgbCap, topLeft = tl, size = cap)\n                    drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n                }",
+                  "                } else {\n                    val light = rgbFace(1f)\n                    val inset = 3.dp.toPx()\n                    val tl = Offset(inset, inset)\n                    val cap = Size(size.width - inset * 2, size.height - inset * 2)\n                    // b33 键内渐变：导光面底亮顶暗 + 同色渐变描边（真键盘导光板观感）\n                    val grad = Brush.verticalGradient(0f to light, 1f to light.copy(alpha = 0.45f))\n                    drawRect(brush = grad)\n                    drawRect(color = rgbCap, topLeft = tl, size = cap)\n                    drawRect(brush = grad, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n                }")
+              if "0.05f + 0.90f" in text:
+                  fails.append("old breath floor still present")
+              if "verticalGradient" not in text:
+                  fails.append("gradient missing")
+              if not fails:
+                  open(P, "w", encoding="utf-8").write(text)
+                  if os.path.exists(LOG):
+                      os.remove(LOG)
+                  print("OK: b33 applied")
           except Exception:
               fails.append("EXCEPTION:\n" + traceback.format_exc())
           if fails:
@@ -86,8 +80,15 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "docs: CHANGELOG 补 v223.29.29 段（发版正文，灯效批次 b24–b30）"
+          git commit -m "fix: b33 — 灯效修「无渐变/看不见键盘」：呼吸彩虹错相 + 暗谷 0.30 地板 + 键内导光渐变"
           git push
+      - name: trigger build
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/build.yml/dispatches \
+            -d '{"ref":"master"}' && echo "build dispatched"
       - name: commit error log
         if: always()
         run: |
@@ -96,5 +97,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b32 诊断日志"
+          git commit -m "chore: b33 诊断日志"
           git push
