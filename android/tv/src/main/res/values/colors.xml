@@ -1,36 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   TV 端色板：**手机端色板的暗色变体**（三端统一视觉语言）。
-  主色与手机端、PC 端同为 HyperOS 蓝 #3482FF —— TV 只是把「表面」换成暗档，
-  不是另起一套配色。
+  主色与手机端、PC 端同为 #3482FF —— TV 只是把「表面」换成暗档，不是另起一套配色。
 
-  旧取值是 GitHub Dark 一族（#0B0F14 / #58A6FF / #1F6FEB / #3FB950）：
-  它跟「手机当外设」这件事毫无关系，用户看到的像另一个产品，已全部替换。
+  2026-11-09 界面稿「06 电视 / 08 质感层」：暗色不用阴影堆叠，改三级亮度：
+  底 #15181E / 卡 #1E232B / 内嵌 #141920，边框白色 8%；焦点态 3dp 主色外描边 + 背景 #20242D。
 
   与 app 端 res/values/colors.xml 的对应关系：
     bg / card / field / stroke       ← md_background / md_surface / md_surface_variant / card_stroke（暗档）
     text / text_dim / text_weak      ← md_on_background / md_on_surface_variant / miuix_text_tertiary（暗档）
-    accent / accent_soft             ← md_primary 的暗底提亮版 / md_primary_container（暗档）
+    accent / accent_soft             ← md_primary / md_primary_container（暗档）
     ok / warn / error / idle         ← state_* 的暗底提亮版
+    focus_bg                         ← 界面稿焦点态背景 #20242D（新增）
 
   Kotlin 侧一律经 TvUi.Pal 取色，本文件之外不应再出现 hex。
 -->
 <resources>
-    <!-- 表面层级：底 → 卡片 → 输入区/浮层 -->
-    <color name="tv_bg">#FF16181D</color>
-    <color name="tv_card">#FF1F2228</color>
+    <!-- 表面三级亮度：底 → 卡片 → 内嵌/浮层 -->
+    <color name="tv_bg">#FF15181E</color>
+    <color name="tv_card">#FF1E232B</color>
     <color name="tv_card_focus">#FF3482FF</color>
-    <color name="tv_field">#FF272B33</color>
-    <color name="tv_stroke">#FF2E333B</color>
+    <color name="tv_field">#FF141920</color>
+    <!-- 边缘：白色 8%（与手机端 card_stroke 同值） -->
+    <color name="tv_stroke">#FF14FFFFFF</color>
+    <!-- 焦点态背景（界面稿 06：焦点环 3dp 主色 + 背景 #20242D） -->
+    <color name="tv_focus_bg">#FF20242D</color>
 
     <!-- 文字：正文 / 次要 / 三级 -->
-    <color name="tv_text">#FFF2F3F5</color>
-    <color name="tv_text_dim">#FF9BA1AA</color>
+    <color name="tv_text">#FFF7F8F8</color>
+    <color name="tv_text_dim">#FF8A8F98</color>
     <color name="tv_text_weak">#FF6E747C</color>
 
-    <!-- 强调与语义色 -->
-    <color name="tv_accent">#FF5B9CFF</color>
-    <color name="tv_accent_soft">#FF1E3A66</color>
+    <!-- 强调与语义色（accent = 全局主色 #3482FF，不再用提亮变体） -->
+    <color name="tv_accent">#FF3482FF</color>
+    <color name="tv_accent_soft">#FF142745</color>
     <color name="tv_ok">#FF34D399</color>
     <color name="tv_warn">#FFFBBF24</color>
     <color name="tv_error">#FFF87171</color>
