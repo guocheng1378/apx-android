@@ -1,5 +1,10 @@
 package com.allperiph.tv.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
 import com.allperiph.tv.R
+import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
 import java.io.File
 
@@ -46,11 +53,13 @@ data class TvHomeState(
  * 五个动作 → 遥控器怎么用 → 收到的文件 → 输入提示。
  *
  * ## 电视端的两条硬要求
- *  · **焦点必须一眼可见**：旧实现用 `TvUi.focusBg` 在选中时换底+描边；这里用
- *    `onFocusChanged` + 描边色切换达到同一目的。DPAD 上/下/左/右要能走通，
+ *  · **焦点必须一眼可见**：焦点态 = 3dp 主色外描边 + 背景 [TvUi.Pal.focusBg]（#20242D），
+ *    150ms 淡切（界面稿 06）。DPAD 上/下/左/右要能走通，
  *    所以每个动作卡片都是 `focusable()` + `clickable()`；
  *  · **远距离可读**：字号沿用 [TvUi.Type] 的梯度（DISPLAY/TITLE/BODY/CAPTION），
  *    不因为换成 Compose 就把字缩小。
+ *
+ * 2026-11-09 界面稿补充：对端操作实时提示（信息条）5 秒后自动收起，200ms 淡出。
  *
  * 未迁移：RemoteInputOverlay（仍是 View 浮层，画在 ComposeView 之上）、TvOverlay 光标。
  */
@@ -65,6 +74,15 @@ fun TvHome(
     onToggleService: () -> Unit,
 ) {
     val pad = 20.dp
+    // 信息条：新提示出现后 5 秒自动收起（界面稿 06 建议值），淡入淡出 200ms。
+    var liveVisible by remember(state.live) { mutableStateOf(state.live.isNotBlank()) }
+    LaunchedEffect(state.live) {
+        liveVisible = state.live.isNotBlank()
+        if (liveVisible) {
+            delay(5_000)
+            liveVisible = false
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -106,7 +124,11 @@ fun TvHome(
             color = Color(TvUi.Pal.text),
             fontWeight = FontWeight.Bold,
         )
-        if (state.live.isNotBlank()) {
+        AnimatedVisibility(
+            visible = state.live.isNotBlank() && liveVisible,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(200)),
+        ) {
             Text(
                 text = state.live,
                 fontSize = TvUi.Type.CAPTION.sp,
@@ -114,7 +136,7 @@ fun TvHome(
             )
         }
 
-        // —— 动作：DPAD 可聚焦，焦点换底 + 描边 ——
+        // —— 动作：DPAD 可聚焦，焦点换底 + 主色描边（150ms 淡切，界面稿 06）——
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             TvAction(s(ctx, R.string.tv_action_files), onFiles)
             TvAction(s(ctx, R.string.tv_action_screen), onScreen)
@@ -166,24 +188,33 @@ fun TvHome(
 private fun TvAction(text: String, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(TvUi.Radius.CARD.dp)
+    // 焦点三态（背景 / 环 / 文字）都 150ms 淡切；背景用暗档 #20242D，不再整块变蓝。
+    val bg by animateColorAsState(
+        targetValue = Color(if (focused) TvUi.Pal.focusBg else TvUi.Pal.card),
+        animationSpec = tween(150),
+        label = "focusBg",
+    )
+    val ring by animateColorAsState(
+        targetValue = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
+        animationSpec = tween(150),
+        label = "focusRing",
+    )
+    val fg by animateColorAsState(
+        targetValue = Color(if (focused) TvUi.Pal.text else TvUi.Pal.textDim),
+        animationSpec = tween(150),
+        label = "focusFg",
+    )
     Text(
         text = text,
         fontSize = TvUi.Type.ACTION.sp,
-        color = Color(if (focused) TvUi.Pal.text else TvUi.Pal.textDim),
+        color = fg,
         fontWeight = if (focused) FontWeight.Bold else FontWeight.Normal,
         modifier = Modifier
             .onFocusChanged { focused = it.isFocused }
             .focusable()
             .clickable { onClick() }
-            .background(
-                color = Color(if (focused) TvUi.Pal.cardFocus else TvUi.Pal.card),
-                shape = shape,
-            )
-            .border(
-                width = 3.dp,
-                color = if (focused) Color(TvUi.Pal.accent) else Color.Transparent,
-                shape = shape,
-            )
+            .background(color = bg, shape = shape)
+            .border(width = 3.dp, color = ring, shape = shape)
             .defaultMinSize(minWidth = IntrinsicWidthMin)
             .padding(horizontal = 18.dp, vertical = 12.dp),
     )
