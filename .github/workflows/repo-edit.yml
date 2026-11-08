@@ -3,8 +3,10 @@ name: repo-edit
 # 大文件锚点替换编辑器：MainActivity.kt（~111KB）等无法整文件回传时，
 # 把小而精确的改动交给 Actions 云端执行。编辑内容在 .github/scripts/repo_edit.py，
 # 每个锚点断言唯一命中，不匹配则本步骤失败 → 不产生提交。
-# 注意：本文件里的热修补丁都是幂等的（原文在则改，已是改后态则跳过）——
-# git add -A 会把补丁后的脚本提交进仓库，非幂等补丁会在下一次 run 秒挂（实测 #113）。
+# 热修补丁规则（血泪教训，实测 #113/#114）：
+#   1) 必须幂等：git add -A 会把补丁后的文件提交进仓库，非幂等补丁下轮秒挂；
+#   2) 改了被编辑文件的内容，必须同步改 repo_edit.py 里对应的 anchor/new ——
+#      否则脚本的 `new in base` 幂等判断失效，会再插一份（#114 就是这么重复插的）。
 
 on:
   workflow_dispatch:
@@ -27,7 +29,7 @@ jobs:
       - name: apply edits
         run: |
           set +e
-          # ---- F16 锚点热修（幂等）----
+          # ---- 1) F16 锚点热修（幂等）----
           # 使用说明里防火墙那段是纯文本、无 ** 加粗，脚本内锚停在旧加粗版 → count=0。
           python3 - <<'PY'
           p = ".github/scripts/repo_edit.py"
@@ -57,29 +59,70 @@ jobs:
             echo "::error::F16 anchor patch failed rc=$RC"
             exit $RC
           fi
-          # ---- action_router.cpp reinterpret_cast 热修（幂等）----
-          # Build #1460 失败：update.open 分支 static_cast<INT_PTR>(::ShellExecuteA(...))，
-          # ShellExecuteA 返回 HINSTANCE（指针），C++ 不允许 static_cast 指针→整型 → C2440 + C2737 连锁。
+          # ---- 2) F12 的 new 同步 reinterpret_cast（幂等）----
+          # Build #1460/#1461：ShellExecuteA 返回 HINSTANCE（指针），
+          # static_cast 指针→整型不合法 → C2440 + C2737。脚本里 F12 的 new
+          # 必须与文件最终态一致，否则 `new in base` 判未应用 → 重复插入（#114 根因）。
           python3 - <<'PY2'
-          p = "pc/host/src/api/action_router.cpp"
+          p = ".github/scripts/repo_edit.py"
           s = open(p, encoding="utf-8").read()
-          olds = "const bool did = static_cast<INT_PTR>(::ShellExecuteA("
-          news = "const bool did = reinterpret_cast<INT_PTR>(::ShellExecuteA("
-          if olds in s:
-              if s.count(olds) != 1:
-                  print("action_router patch ambiguous count=%d" % s.count(olds))
-                  raise SystemExit(3)
-              open(p, "w", encoding="utf-8").write(s.replace(olds, news, 1))
-              print("action_router.cpp reinterpret_cast patched")
-          elif news not in s:
-              print("action_router patch miss: neither old nor new form found")
-              raise SystemExit(3)
+          old = "static_cast<INT_PTR>(::ShellExecuteA"
+          new = "reinterpret_cast<INT_PTR>(::ShellExecuteA"
+          n = s.count(old)
+          if n == 1:
+              open(p, "w", encoding="utf-8").write(s.replace(old, new, 1))
+              print("F12 new -> reinterpret_cast")
+          elif n == 0 and new in s:
+              print("F12 already reinterpret, skip")
           else:
-              print("action_router.cpp already patched, skip")
+              print("F12 patch ambiguous n=%d" % n)
+              raise SystemExit(5)
           PY2
           RC=$?
           if [ $RC -ne 0 ]; then
-            echo "::error::action_router patch failed rc=$RC"
+            echo "::error::F12 reinterpret patch failed rc=$RC"
+            exit $RC
+          fi
+          # ---- 3) action_router.cpp 去重 + reinterpret（幂等）----
+          # #114 热修先改了文件、脚本 new 判未应用又插了一份 → 现在两份 update 块。
+          # 保留第一份（已是 reinterpret），删掉后面重复的，再兕底改掉残留 static_cast。
+          python3 - <<'PY3'
+          p = "pc/host/src/api/action_router.cpp"
+          s = open(p, encoding="utf-8").read()
+          M = "    // ---- 在线更新（v223.29.32）"
+          D = "    // ---- 诊断 ----"
+          c = s.count(M)
+          changed = False
+          if c >= 2:
+              i2 = s.find(M, s.find(M) + len(M))
+              e2 = s.find(D, i2)
+              if e2 < 0:
+                  print("diag marker not found after duplicate block")
+                  raise SystemExit(6)
+              s = s[:i2] + s[e2:]
+              changed = True
+              print("removed duplicate update block (count=%d)" % c)
+          elif c != 1:
+              print("update block count=%d expect=1" % c)
+              raise SystemExit(6)
+          olds = "static_cast<INT_PTR>(::ShellExecuteA"
+          news = "reinterpret_cast<INT_PTR>(::ShellExecuteA"
+          n = s.count(olds)
+          if n == 1:
+              s = s.replace(olds, news, 1)
+              changed = True
+              print("action_router static->reinterpret")
+          elif n > 1:
+              print("ambiguous static_cast n=%d" % n)
+              raise SystemExit(6)
+          if changed:
+              open(p, "w", encoding="utf-8").write(s)
+          else:
+              print("action_router already clean, skip")
+          PY3
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "::error::action_router dedup patch failed rc=$RC"
             exit $RC
           fi
           OUT=$(python3 .github/scripts/repo_edit.py 2>&1)
