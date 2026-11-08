@@ -185,7 +185,7 @@ class ApShellActivity : ComponentActivity() {
         // 竖屏维持原样：底栏在底部居中，88dp 是「底栏自身高度 + 一点呼吸」。
         // 方案4（成宇 2026-11-07「低栏缩回应是透明悬浮，不该强占界面面积」）：
         // 让位量不再固定，在下方 barCollapsed 声明处按收/展状态动画 —— 收起成球时
-        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套弹簧；展开恢复原值。
+        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套进入曲线（界面稿禁弹簧）；展开恢复原值。
         // 2026-11-07 二轮（成宇「按安卓 aosp 规范适配，不是直接隐藏状态栏和小白条」
         // 「圆角和挖孔优化不是直接上部分不显示内容」）：系统栏改为显示
         // （applyEdgeToEdge），顶部按**含状态栏**的 top 垫 —— 竖屏内容从状态栏下
@@ -229,24 +229,29 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
-        // 方案4：让位量跟收/展联动（弹簧与 barFx 同口径 LowBouncy+Medium，球缩与
+        // 方案4：让位量跟收/展联动（动效走 ApMotion 进入曲线 200ms，与 barFx 同步，球缩与
         // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位
         // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
         // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。
         // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。
         val bottomGap by androidx.compose.animation.core.animateDpAsState(
             targetValue = if (barCollapsed) 8.dp else if (landscape) 24.dp else 88.dp,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            // 界面稿 08 质感层：禁弹簧（原 LowBouncy 会回弹），进入曲线 200ms，
+            // 设置页「动效」关掉时 durationMs = 0ms（直接落位）。
+            animationSpec = androidx.compose.animation.core.tween(
+                durationMillis =
+                    com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 200),
+                easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
             ),
             label = "bottomGap",
         )
         val topGap by androidx.compose.animation.core.animateDpAsState(
             targetValue = if (landscape) (if (barCollapsed) 8.dp else 96.dp) else 0.dp,
-            animationSpec = androidx.compose.animation.core.spring(
-                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+            // 同 bottomGap：进入曲线 200ms、无回弹（界面稿 08）。
+            animationSpec = androidx.compose.animation.core.tween(
+                durationMillis =
+                    com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 200),
+                easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
             ),
             label = "topGap",
         )
@@ -417,7 +422,8 @@ class ApShellActivity : ComponentActivity() {
                 // 页切换动效（2026-11-07）：此前 `when(page)` 是硬切 —— 四页之间跳变
                 // 没有任何过渡，观感上像换了个应用。这里只给**新页**做一次 12dp 上浮 + 淡入
                 // （不做交叉淡出：两页同时在场会让触控板/键盘页的手势订阅短暂翻倍）。
-                // 时长走 ApMotion.durationMs，设置页「动效」关掉时是 0ms（直接落位）。
+                // 时长走 ApMotion.durationMs，设置页「动效」关掉时是 0ms（直接落位）；
+                // 200ms（界面稿：时长只用 150/180/200，原 190 归档）。
                 val pageIn = remember { Animatable(1f) }
                 androidx.compose.runtime.LaunchedEffect(page) {
                     pageIn.snapTo(0f)
@@ -425,8 +431,9 @@ class ApShellActivity : ComponentActivity() {
                         targetValue = 1f,
                         animationSpec = tween(
                             durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(
-                                this@ApShellActivity, 190,
+                                this@ApShellActivity, 200,
                             ),
+                            easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
                         ),
                     )
                 }
@@ -584,7 +591,8 @@ class ApShellActivity : ComponentActivity() {
             // 「横屏时设置页分组不能切换了」，真机 input tap 复现：页签能点、分组点不动）。
             // 限到 440dp 后触摸判定跟胶囊走，横屏左列、竖屏底栏两侧的内容恢复可点。
             // 低栏收/展动效（2026-11-07）：收起成球 / 展开成胶囊此前是一帧硬切 ——
-            // 这是屏幕上唯一的常驻控件，跳变最扎眼。给一次弹簧缩放 + 淡入。
+            // 这是屏幕上唯一的常驻控件，跳变最扎眼。给一次缩放淡入
+            // （ApMotion 进入曲线，界面稿 08 禁弹簧 —— springSpec 已改为无回弹 tween）。
             val barFx = remember { Animatable(1f) }
             androidx.compose.runtime.LaunchedEffect(barCollapsed) {
                 barFx.snapTo(0.84f)
@@ -707,7 +715,7 @@ class ApShellActivity : ComponentActivity() {
                             .clickable { barCollapsed = false },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = "\u2261", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+                        Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
                     }
                 } else {
                 // （else 分支内容沿用原缩进：收/展只切低栏 Box 的内容，不动布局结构）
