@@ -1,4 +1,4 @@
-package com.allperiph.ui.miuix
+package com.allperiph.ui.miuiu
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -294,7 +294,8 @@ object ApComponents {
         // 成宇 2026-11-04「触摸板好几处都要有特效和震动」：芯片此前只有 clickable，
         // 按下去一点视觉反馈都没有。这里补上按键特效（档位由调用方读偏好后传下来，
         // 默认 FX_NONE 不给设置页页签凭空加手感）；震动仍归调用方的 onClick
-        // ——触控板页的 chip 已经在 onClick 里 ApMotion.tap，这里再接一次就是双震。
+        // ——触控板页的 chip 在 onClick 里 ApMotion.tap、键盘页页签在 onClick 里
+        // Feedback.tap，这里再接一次就是双震。
         val chipInteraction = remember { MutableInteractionSource() }
         val chipPressed by chipInteraction.collectIsPressedAsState()
         val chipFx = rememberKeyFx(chipPressed, fx)
@@ -328,7 +329,7 @@ object ApComponents {
      * 弹窗外壳：`Dialog` + 限高卡片 + 内边距，**所有弹窗内容的统一容器**。
      *
      * 走的还是 [Card]（同一份圆角与底色），只多给一个「最多占屏高多少」的上限 ——
-     * 弹窗内容一长就顶出屏外是 issue#52 第 2 条的老毛病，限高交给这里做，
+     * 弹窗内容一长就顶到屏外是 issue#52 第 2 条的老毛病，限高交给这里做，
      * 调用方不必各自回忆 0.62 / 0.82 / 0.92 哪个对。
      *
      * @param heightRatio 内容区最多占屏高的比例；默认 0.62（照竖屏算：800dp 屏 →
@@ -524,7 +525,10 @@ object ApComponents {
      * 两处各写一份「玻璃键帽」必然分叉（本仓在 `KeyBox` / `ModKey` / 键帽材质上已经踩过
      * 三次），所以玻璃这一档只在这里实现一次，两边按同一个形状参数调用。
      *
-     * @param tint 非空时用该色作为玻璃的染色（修饰键点亮态）；null = 中性玻璃
+     * @param tint 非空且**非透明**时用该色作为玻璃的染色（修饰键点亮态 / 灯效键色）；
+     *   null，或透明（RGB 扩散档空闲时键帽传 `Transparent` 表示「此刻无光」），
+     *   都按中性玻璃处理 —— 否则底色被顶成透明、文字被强制成白（`tint != null` 分支），
+     *   浅色主题下整颗键帽连字符一起隐形（皮肤交互审查 #1，真机可复现）。
      * @param fxMod 调用方算好的按键特效 Modifier（[com.allperiph.ui.compose.keyFx]），
      *   画在键帽内容之上、玻璃高光之下 —— 特效是「按下去的额外反馈」，不该盖掉高光
      */
@@ -548,12 +552,15 @@ object ApComponents {
         val topAlpha = if (dark) 0.10f else 0.55f
         val bottomAlpha = if (dark) 0.04f else 0.28f
         val strokeAlpha = if (dark) 0.22f else 0.70f
-        val base = tint ?: MiuixTheme.colorScheme.surfaceContainer
+        // 透明 tint 必须当 null（皮肤交互审查 #1）：KeyBox.rgbFace 在 RGB 扩散档
+        // 空闲时返回 Transparent，若直接 ?: 兜底，base 会被透明顶掉、白字也会跟着触发。
+        val tinted = tint?.takeIf { it.alpha > 0.004f }
+        val base = tinted ?: MiuixTheme.colorScheme.surfaceContainer
         // 玻璃底：竖向渐变的半透明白（上亮下淡），叠在键帽自己的底色上
         val glass = Brush.verticalGradient(
             listOf(Color.White.copy(alpha = topAlpha), Color.White.copy(alpha = bottomAlpha)),
         )
-        // 按下：整块再泛白一层（不位移 —— 下沉是机械档的语义，两档要能一眼分开）
+        // 按下：整块再泛白一层（不位移 —— 下沉是机械档的语义，两档必须能一眼分开）
         val pressedWash = Brush.verticalGradient(
             listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.14f)),
         )
@@ -581,7 +588,7 @@ object ApComponents {
             Text(
                 text = label,
                 fontSize = textSize,
-                color = if (tint != null) Color.White else fg,
+                color = if (tinted != null) Color.White else fg,
                 textAlign = TextAlign.Center,
             )
         }
