@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
-"""repo-edit：#6 长按连发 v2（run 13e40dc9 失败重跑：E3/E4 改 KeyButtonImpl 真签名锚点 +
-""""
+"""repo-edit：#6 长按连发 v3（文件级验证：先拉 master 原文再替换，锚点以实测文件为准）。
+
+  E1 连发组件 ApxRepeat（TouchpadActivity 抽离——已落，本次只补遥控键盘）
+  E2 遥控键盘媒体键走组件（RemoteKeyboard，404 → 以 master 实测为准）
+  E3 编辑键排长按连发（RemoteInputActivity，文件级）
+  E4 键盘页编辑键排长按连发（KeyboardPage，文件级）
+  E5 音量键注释归属（KeyboardPage）
+  E6 触控板注释归属（TouchpadActivity）
+  E7 遥控键盘注释归属（RemoteKeyboard）
+
+文件级 = 先 read 原文 → 找唯一锚 → 替换 → write，避免 run #97/104 的覆盖/失配。
+"""
 import os
 import sys
 
@@ -52,92 +62,85 @@ fun ApxRepeat() {
 }
 '''
 
-EDITS = [
-    {
-        "id": "E1 连发组件抽离（带接收器类）",
-        "file": "android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt",
-        "kind": "replace",
-        "anchor": "    private var repeatOn = false\n    private var repeatFired = false\n    val tick = object : Runnable {",
-        "new": "// ApxRepeat 组件——长按连发（issue #52 建议 7）：400ms 起 55ms 一拍，松开吞尾点击\nApxRepeat() {
+RE_KB_ANCHOR = '''    private fun onMediaKeyDown(key: Int) {
+        if (repeatOn) return
+        repeatOn = true
+        volumeDown()
+        val handler = Handler(Looper.getMainLooper())
+        handler.postDelayed({
+            if (repeatOn) {
+                volumeDown()
+                handler.postDelayed(it, 150)
+            }
+        }, 150)
+    }'''
+
+RE_KB_NEW = RE_KB_ANCHOR + '''
+
+    @Suppress("UnusedReceiverParameter")
+    private fun ApxRepeatTick() {
+        if (!repeatOn) return
+        repeatFired = true
+        volumeDown()
+        handler.postDelayed(this, 150)
+    }
+
     private var repeatOn = false
     private var repeatFired = false
     private var tick: Runnable? = null
+'''
 
-    @Suppress("UnusedReceiverParameter")
-    private fun tick() {
-        if (!repeatOn) return
-        repeatFired = true
-        onClick()
-        android.os.Handler(Looper.getMainLooper()).postDelayed(this, 55L)
-    }
-
-    override fun onClick() {
-        super.onClick()
-        if (repeatFired) { repeatFired = false; return }
-        repeatOn = true
-        repeatFired = false
-        tick?.let { android.os.Handler(Looper.getMainLooper()).postDelayed(it, 400L) }
-    }
-
-    fun repeat(onClick: () -> Unit) {
-        tick?.let {
-            android.os.Handler(Looper.getMainLooper()).removeCallbacks(it)
-            tick = null
-        }
-        repeatOn = false
-        repeatFired = false
-        tick = object : Runnable {
-            override fun run() {
-                if (!repeatOn) return
-                repeatFired = true
-                onClick()
-                android.os.Handler(Looper.getMainLooper()).postDelayed(this, 55L)
-            }
-        }
-        android.os.Handler(Looper.getMainLooper()).postDelayed(tick!!, 400L)
-    }
-}
-
-    private var repeatOn = false\n    private var repeatFired = false\n    val tick = object : Runnable {"
-    },
+EDITS = [
     {
-        "id": "E2 遥控键盘走组件",
+        "id": "E1 遥控键盘 ApxRepeat 组件",
         "file": "android/app/src/main/java/com/allperiph/remoteinput/RemoteKeyboard.kt",
         "kind": "replace",
-        "anchor": "    private fun onMediaKeyDown(key: Int) {\n        if (repeatOn) return\n        repeatOn = true\n        volumeDown()\n        val handler = Handler(Looper.getMainLooper())\n        handler.postDelayed({\n            if (repeatOn) {\n                volumeDown()\n                handler.postDelayed(it, 150)\n            }\n        }, 150)\n    }",
-        "new": "    private fun onMediaKeyDown(key: Int) {\n        if (repeatOn) return\n        repeatOn = true\n        volumeDown()\n        val handler = Handler(Looper.getMainLooper())\n        handler.postDelayed({\n            if (repeatOn) {\n                volumeDown()\n                handler.postDelayed(it, 150)\n            }\n        }, 150)\n    }\n\n    @Suppress("UnusedReceiverParameter")\n    private fun ApxRepeatTick() {\n        if (!repeatOn) return\n        repeatFired = true\n        volumeDown()\n        handler.postDelayed(this, 150)\n    }\n\n    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n"""
-        + "\n" + COMP + "\n" + "\n" + "    @Suppress(\"UnusedReceiverParameter\")\n    private fun ApxRepeatTick() {\n        if (!repeatOn) return\n        repeatFired = true\n        volumeDown()\n        handler.postDelayed(this, 150)\n    }\n" + "\n" + "    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n"
+        "anchor": RE_KB_ANCHOR,
+        "new": RE_KB_ANCHOR + COMP + '''
+
+    @Suppress("UnusedReceiverParameter")
+    private fun ApxRepeatTick() {
+        if (!repeatOn) return
+        repeatFired = true
+        volumeDown()
+        handler.postDelayed(this, 150)
+    }
+
+    private var repeatOn = false
+    private var repeatFired = false
+    private var tick: Runnable? = null
+''',
     },
     {
-        "id": "E3 编辑键排长按连发",
-        "file": "android/app/src/main/java/com/allperiph/controlled/RemoteInputActivity.kt",
-        "kind": "replace",
-        "anchor": "                    onClick = onClick\n                },\n        )\n    }\n\n    private fun KeyButtonImpl(...) {",
-        "new": "                    onClick = onClick\n                },\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    private fun startRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n        repeatFired = false\n        tick = object : Runnable {\n            override fun run() {\n                if (!repeatOn) return\n                repeatFired = true\n                sendSpecial(mk.first, mk.second)\n                handler.postDelayed(this, 55L)\n            }\n        }\n        handler.postDelayed(tick!!, 400L)\n    }\n\n    private fun stopRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n    }\n\n    private fun KeyButtonImpl(...) {"
-    },
-    {
-        "id": "E4 键盘页编辑键排长按连发",
+        "id": "E2 KeyboardPage KeyButtonLong",
         "file": "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt",
         "kind": "replace",
-        "anchor": "                    onClick = onClick\n                },\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）",
-        "new": "                    onClick = onClick\n                },\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）"
+        "anchor": "                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）",
+        "new": "                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）"
     },
     {
-        "id": "E5 音量键注释归属",
+        "id": "E3 RemoteInputActivity KeyButtonLong",
+        "file": "android/app/src/main/java/com/allperiph/controlled/RemoteInputActivity.kt",
+        "kind": "replace",
+        "anchor": "                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    private fun KeyButtonImpl(...) {",
+        "new": "                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    private fun startRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n        repeatFired = false\n        tick = object : Runnable {\n            override fun run() {\n                if (!repeatOn) return\n                repeatFired = true\n                sendSpecial(mk.first, mk.second)\n                handler.postDelayed(this, 55L)\n            }\n        }\n        handler.postDelayed(tick!!, 400L)\n    }\n\n    private fun stopRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n    }\n\n    private fun KeyButtonImpl(...) {"
+    },
+    {
+        "id": "E4 KeyboardPage 注释归属",
         "file": "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt",
         "kind": "replace",
         "anchor": "        // 按住连发（PC 按位图边沿计数，须反复 按下→释放） -- 音量键长按连发",
         "new": "        // 按住连发（PC 按位图边沿计数，须反复 按下→释放） -- 音量键长按连发（E5 不动）"
     },
     {
-        "id": "E6 触控板注释归属",
+        "id": "E5 触控板注释归属",
         "file": "android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt",
         "kind": "replace",
         "anchor": "        // ---- 长按连发（issue #52 建议 7）----",
         "new": "        // ---- 长按连发（issue #52 建议 7）：已抽成 ApxRepeat 组件（E1）----"
     },
     {
-        "id": "E7 遥控键盘注释归属",
+        "id": "E6 遥控键盘注释归属",
         "file": "android/app/src/main/java/com/allperiph/remoteinput/RemoteKeyboard.kt",
         "kind": "replace",
         "anchor": "    // ---- 长按连发（issue #52 建议 7）----",
@@ -151,14 +154,12 @@ def main() -> int:
     pending = {}
     for e in EDITS:
         path = e["file"]
-        base = pending.get(path)
-        if base is None:
-            try:
-                with open(path, encoding="utf-8") as f:
-                    base = f.read()
-            except OSError as ex:
-                errors.append("open failed " + path + ": " + str(ex))
-                continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                base = f.read()
+        except OSError as ex:
+            errors.append("open failed " + path + ": " + str(ex))
+            continue
         if e["new"] in base:
             print("already applied, skip: " + e["id"])
             continue
