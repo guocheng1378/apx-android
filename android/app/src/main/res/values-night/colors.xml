@@ -3,6 +3,9 @@
   MIUIX / HyperOS 深色取值（v1.16）。
   与 values/colors.xml 同名同义 —— 主题方案切到「深色」或系统进入夜间时，
   下面这些值自动覆盖，布局 / 样式 / drawable 一律不用改。
+
+  2026-11-09 界面稿「08 质感层」：暗色不用阴影堆叠，改 3 级亮度：
+  底 #15181E / 卡 #1E232B / 内嵌 #141920，边框白色 8%（#14FFFFFF）。
 -->
 <resources>
     <color name="md_primary">#FF5E6AD2</color>
@@ -12,18 +15,21 @@
 
     <color name="md_error_container">#FF4A1A16</color>
 
-    <color name="md_background">#FF010102</color>
+    <!-- 表面三级亮度（质感层）：底 #15181E / 卡 #1E232B / 内嵌 #141920 -->
+    <color name="md_background">#FF15181E</color>
     <color name="md_on_background">#FFF7F8F8</color>
-    <color name="md_surface">#FF0F1011</color>
+    <color name="md_surface">#FF1E232B</color>
     <color name="md_on_surface">#FFF7F8F8</color>
-    <color name="md_surface_variant">#FF141516</color>
+    <color name="md_surface_variant">#FF141920</color>
     <color name="md_on_surface_variant">#FF8A8F98</color>
-    <color name="md_outline">#FF23252A</color>
+    <!-- 暗色边缘：白色 8%（不再用阴影，靠亮度差分层） -->
+    <color name="md_outline">#14FFFFFF</color>
 
     <color name="state_error">#FFF97066</color>
     <color name="state_idle">#FF7C848C</color>
 
-    <color name="card_stroke">#FF2C2C2E</color>
+    <color name="card_stroke">#14FFFFFF</color>
+    <color name="card_stroke_spread">#09FFFFFF</color>
     <color name="nav_pill_shine">#3DFFFFFF</color>
     <color name="miuix_bg">@color/md_background</color>
     <color name="miuix_card">@color/md_surface</color>
@@ -57,8 +63,8 @@
     <color name="overlay_muted">#FF9AA1AC</color>
     <color name="overlay_danger">#FFF97066</color>
 
-    <!-- 手柄页固定深色：与 values 同值（刻意不翻转，见 values/colors.xml 注释） -->
-    <color name="overlay_scrim">#FF14161B</color>
+    <!-- 手柄页固定深色：与 values 同值（刻意不翻转，见 values/colors.xml 注释）；底色对齐质感层 #15181E -->
+    <color name="overlay_scrim">#FF15181E</color>
     <color name="overlay_pad_text">#FFEAEAEA</color>
     <color name="overlay_pad_text_dim">#FFB9BDC7</color>
     <color name="overlay_pad_ok">#FF8BD450</color>
