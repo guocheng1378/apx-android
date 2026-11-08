@@ -276,7 +276,7 @@ class RemoteActivity : Activity() {
 
     /**
      * 强制正方形的容器 —— 圆环的关键。
-     * 普通 FrameLayout 会把子视图撑满父容器（宽 ≠ 高 → 椭圆），
+     * 普通 FrameLayout 会把子视图撑满容器（宽 ≠ 高 → 椭圆），
      * 这里 `onMeasure` 取 min(宽,高) 保证是正圆；顺带把中心 OK 按直径比例放大。
      */
     private class DialLayout @JvmOverloads constructor(
@@ -556,20 +556,51 @@ class RemoteActivity : Activity() {
 
     /** b15 语音输入：走手机的麦（手机是输入端）——识别结果经 9511 INPUT_TEXT(COMMIT)
      *  粘进对端焦点框。不发 HID bit9（0x0203 唤起的是对端助手、用对端的麦，会与对端
-     *  自己的语音入口重复）。依赖 Wi-Fi 控制链；断链或无识别服务时如实提示。 */
+     *  自己的语音入口重复）。依赖 Wi-Fi 控制链；断链或无识别服务时如实提示。
+     *  v223.29.33：先挑识别器再拉起 —— 国内只有 Google 语音（网络不可达）时不再静默
+     *  拉起，如实说明并主推输入法语音；有非 Google 识别器时显式 setPackage 防落回 Google。 */
     private fun startVoiceInput() {
         if (ControlTarget.controlClient == null) {
             Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
         }
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ui_remote_item_voice))
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "zh-CN")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+        }
+        val handlers = packageManager.queryIntentActivities(
+            intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        val nonGoogle = handlers.firstOrNull {
+            !(it.activityInfo?.packageName ?: "").startsWith("com.google.android")
+        }
+        if (nonGoogle == null) {
+            if (handlers.isEmpty()) {
+                Toast.makeText(this, getString(R.string.ui_remote_voice_unavailable), Toast.LENGTH_SHORT).show()
+                return
+            }
+            // 只有 Google 语音（国内网络不可达）：不再静默拉起 —— 如实说明，主推输入法语音
+            AlertDialog.Builder(this)
+                .setTitle(getString(R.string.ui_remote_item_voice))
+                .setMessage("这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n" +
+                    "推荐直接用输入法上的语音键口述，文字会自动发到对端；仍要打开 Google 语音也可以。")
+                .setNegativeButton("仍打开") { _, _ -> launchVoice(intent, pickPkg(handlers)) }
+                .setPositiveButton(getString(R.string.ui_common_cancel), null)
+                .show()
+            return
+        }
+        launchVoice(intent, nonGoogle.activityInfo.packageName)
+    }
+
+    /** 非 Google 缺省时退回第一个可用识别器的包名（显式 setPackage 防歧义解析落回 Google） */
+    private fun pickPkg(handlers: List<android.content.pm.ResolveInfo>): String =
+        handlers.firstOrNull()?.activityInfo?.packageName ?: ""
+
+    private fun launchVoice(intent: Intent, pkg: String) {
+        if (pkg.isNotEmpty()) intent.setPackage(pkg)
         runCatching {
-            startActivityForResult(
-                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, getString(R.string.ui_remote_item_voice))
-                },
-                REQ_VOICE_INPUT,
-            )
+            startActivityForResult(intent, REQ_VOICE_INPUT)
         }.onFailure {
             Toast.makeText(this, getString(R.string.ui_remote_voice_unavailable), Toast.LENGTH_SHORT).show()
         }

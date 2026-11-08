@@ -59,6 +59,11 @@ class RemoteInputActivity : ComponentActivity() {
     private var suppressInputWatcher = false
     /** 增量发送失败的节流提示（2.5s 一条，别刷屏） */
     private var lastFailHintAt = 0L
+    /** v223.29.33：与对端已对齐的文本镜像 —— 增量 diff 的基准。每帧只发对端真正缺的
+     *  差量：旧实现按 (start,before,count) 直接取 substring，IME 组合期的整段 replace
+     *  （拼音串→词）会把已发过的前缀再发一遍、或只发退格丢掉新增，是「打的字和电脑上
+     *  照不齐 / 越打越乱」的根源（v223.29.31 的 0x04 对账只在「发送」拍自愈，中间态照样漂）。 */
+    private var lastSent = ""
     private var sourceDevice: String = ""
     private var hintText: String = ""
 
@@ -80,12 +85,16 @@ class RemoteInputActivity : ComponentActivity() {
     private val pendingFrames = ArrayDeque<Pair<String, Int>>()
 
     private fun sendTextReliable(text: String, flags: Int): Boolean {
+        // v223.29.33：旧实现「重推积压失败」时直接 return false —— 当前帧没有入队，
+        // 链路抖动的瞬间这帧就永久丢了（镜像与对端从此对不上）。现在无论卡在重推
+        // 还是本次发送，当前帧都排到队尾：积压与新帧统一保序，恢复即补齐。
+        var flushed = true
         while (pendingFrames.isNotEmpty()) {
             val (t, f) = pendingFrames.first()
-            if (!sendText(t, f)) return false
+            if (!sendText(t, f)) { flushed = false; break }
             pendingFrames.removeFirst()
         }
-        if (sendText(text, flags)) return true
+        if (flushed && sendText(text, flags)) return true
         pendingFrames.addLast(text to flags)
         return false
     }
@@ -151,7 +160,7 @@ class RemoteInputActivity : ComponentActivity() {
     /**
      * 迁 Compose（`ThemePref` 下线的最后一步；外观总控已拆成 ApPalette / ApSkin）：外壳、标题行、编辑键排、底部按钮
      * 换成 Compose；**输入框与内嵌触控板用 `AndroidView` 互操作保留** —— 前者是
-     * `EditText` + `TextWatcher` 逐字增量上屏 + 平台 IME（文字到对端的唯一通道），
+     * `EditText` + `TextWatcher` 增量 diff 上屏 + 平台 IME（文字到对端的唯一通道），
      * 后者是每帧起帧节流、±127 分帧、长按 400ms 进拖拽的原始触摸逻辑，
      * 搬进 Compose 属于拿「能不能打出字 / 光标动不动」换一致性。
      */
@@ -222,7 +231,7 @@ class RemoteInputActivity : ComponentActivity() {
         }
     }
 
-    /** 输入框本体（互操作保留）：逐字增量上屏、删字退格、失焦提示都还在这里 */
+    /** 输入框本体（互操作保留）：增量 diff 上屏、删字退格、失焦提示都还在这里 */
     private fun buildInput(): View {
         val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
         val input = EditText(this).apply {
@@ -236,25 +245,41 @@ class RemoteInputActivity : ComponentActivity() {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                     if (suppressInputWatcher) return
-                    val text = s?.toString() ?: return
-                    if (count > before && start + count <= text.length) {
-                        // 逐字增量上屏：这是文字到对端的**唯一**通道 ——
-                        // 发送按钮不再整段重发（COMMIT=整段再粘一遍，两种帧都注入就是
-                        // 用户报的“发送后文字重复两次”）。所以失败必须当场提示，不能悄悄丢字。
-                        // sendText 通道助手现在能真实反映发没发出去（客户端通道 ready=false
-                        // 时同样返回 false，不再只判“被控服务在不在”）。
-                        val ok = sendTextReliable(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
-                        if (!ok) {
-                            val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastFailHintAt > 2500) {
-                                lastFailHintAt = now
-                                Toast.makeText(this@RemoteInputActivity,
-                                    "没发出去 —— 连接断了？恢复后会自动补发",
-                                    Toast.LENGTH_LONG).show()
-                            }
+                    val cur = s?.toString() ?: return
+                    if (cur == lastSent) return
+                    // v223.29.33：与对端镜像 [lastSent] 做公共前缀/后缀 diff —— 每帧只发
+                    // 对端真正缺的差量。旧实现按 (start,before,count) 直接取 substring：
+                    // IME 组合期的整段 replace（拼音串→词）会重复发前缀或只发退格丢新增，
+                    // 是「打的字和电脑上照不齐 / 越打越乱」的根源。发送按钮的 0x04 对账只在
+                    // 发送拍自愈，中间态照样漂 —— 现在从源头保证两端一致。
+                    var p = 0
+                    val minLen = minOf(cur.length, lastSent.length)
+                    while (p < minLen && cur[p] == lastSent[p]) p++
+                    var suf = 0
+                    while (suf < minLen - p &&
+                        cur[cur.length - 1 - suf] == lastSent[lastSent.length - 1 - suf]) suf++
+                    val oldMid = lastSent.substring(p, lastSent.length - suf)
+                    val newMid = cur.substring(p, cur.length - suf)
+                    var ok = true
+                    if (oldMid.isNotEmpty()) {
+                        // 对端每帧退格删一个**码点**（PC 侧 g_injectedLen 按 utf8Chars 计数）
+                        val n = oldMid.codePointCount(0, oldMid.length)
+                        repeat(n) {
+                            if (!sendTextReliable("", ApxFrame.INPUT_FLAG_BACKSPACE)) ok = false
                         }
-                    } else if (count < before) {
-                        sendTextReliable("", ApxFrame.INPUT_FLAG_BACKSPACE)
+                    }
+                    if (newMid.isNotEmpty() &&
+                        !sendTextReliable(newMid, ApxFrame.INPUT_FLAG_INCREMENTAL)) ok = false
+                    lastSent = cur
+                    if (!ok) {
+                        // 失败必提示不能悄悄丢字（帧已入队，恢复后自动补发）
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (now - lastFailHintAt > 2500) {
+                            lastFailHintAt = now
+                            Toast.makeText(this@RemoteInputActivity,
+                                "没发出去 —— 连接断了？恢复后会自动补发",
+                                Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
                 override fun afterTextChanged(s: Editable?) {}
@@ -265,7 +290,7 @@ class RemoteInputActivity : ComponentActivity() {
     }
 
     /** 内嵌触控板（互操作保留）：滑动=光标、轻点=左键、长按 550ms 左键拖拽；
-     *  #3 接通用逻辑：双指点按=右键、双指长按 550ms=右键拖拽（与 touchpad.kt 同口径）。 */
+     *  #3 接通用逻辑：双指点按=右键、双指长按 550ms 右键拖拽（与 touchpad.kt 同口径）。 */
     private fun buildTouchpad(): View {
         val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
         var lastTouchLogAt = 0L
@@ -318,8 +343,7 @@ class RemoteInputActivity : ComponentActivity() {
                     } else false
                 android.view.MotionEvent.ACTION_POINTER_UP ->
                     if (tpSecond) {
-                        tpSecond = false
-                        v.removeCallbacks(rightDragArm)
+                        tpSecond = false; v.removeCallbacks(rightDragArm)
                         val dur = android.os.SystemClock.uptimeMillis() - tpSecondAt
                         if (!tpRightDrag) {
                             if (dur < 300) {   // 双指点按 = 右键单击（短按未拖成）
@@ -424,18 +448,20 @@ class RemoteInputActivity : ComponentActivity() {
         }
     }
 
-    /** 取消：按剩余字数逐个发退格再 finish（0x08 三端接收侧是空实现，光发它等于白点） */
+    /** 取消：按**对端镜像**的码点数逐个退格再 finish（0x08 三端接收侧是空实现，光发它等于白点） */
     private fun cancelAndFinish() {
-        val n = editText?.text?.length ?: 0
+        // 删的是对端真正有的字（镜像 = 对端状态）；镜像同步清零
+        val n = lastSent.codePointCount(0, lastSent.length)
         repeat(n) { sendText("", ApxFrame.INPUT_FLAG_BACKSPACE) }
         // 0x08 仍照发：语义保留，将来三端若实现「整段撤销」，这一帧就是信号
         sendText("", ApxFrame.INPUT_FLAG_CANCEL)
+        lastSent = ""
         finish()
     }
 
     /**
-     * 发送：只发 DONE 帧 + 清空输入框接着打下一句，**绝不发 COMMIT 整段帧**
-     *（打字时 TextWatcher 已逐字上屏，再粘一遍就是用户报的“文字重复两次”）。
+     * 发送：0x04 全量对账（整段替换，PC 端退格清场重打）+ DONE 帧 + 清空输入框接着打下一句。
+     * 打字时 TextWatcher 已按 diff 上屏，对账只是把「可能漂了的中间态」在这一拍拉齐。
      */
     private fun sendCurrent() {
         val t = editText?.text?.toString() ?: ""
@@ -455,28 +481,52 @@ class RemoteInputActivity : ComponentActivity() {
         editText?.setText("")
         suppressInputWatcher = false
         editText?.requestFocus()             // 焦点回到输入框，键盘保持弹出
+        lastSent = ""                        // 镜像归零：对端已落定上一句，下一句从零对齐
         Toast.makeText(this, getString(R.string.ui_remoteinput_sent), Toast.LENGTH_SHORT).show()
     }
 
-    /** #4 语音输入：系统语音识别 → 文字 append 进输入框（自动走 TextWatcher 增量上屏/对账链） */
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 726 && resultCode == RESULT_OK) {
-            // 字面量值即 SpeechRecognizer.EXTRA_RESULTS（android.speech.extra.RESULTS）——
-            // 本编译环境解析不到 SpeechRecognizer 静态字段，公开协议常量直接用字面值
-            val text = data?.getStringArrayListExtra("android.speech.extra.RESULTS")
-                ?.firstOrNull() ?: return
-            editText?.append(text)
+    /** #4 语音输入：系统语音识别 → 文字 append 进输入框（自动走 TextWatcher 增量上屏/对账链）。
+     *  v223.29.33：**先挑识别器再拉起** —— 国内 ROM 只有 Google 语音（网络不可达），旧实现
+     *  静默 startActivityForResult 必然落到它。现在优先非 Google 的识别活动（显式 setPackage
+     *  防落回 Google）；只有 Google 时如实说明并主推输入法语音（输入法口述的文字同样进
+     *  输入框、自动上屏到电脑），用户仍可显式选择打开。 */
+    private fun startVoiceInput() {
+        // 字面量与 SpeechRecognizer 源码逐字一致（ACTION / LANGUAGE_MODEL /
+        // LANGUAGE_MODEL_FREE_FORM / LANGUAGE_PREFERENCE / LANGUAGE）——
+        // 本编译环境解析不到该类静态字段，公开协议常量直接用字面值，零符号依赖。
+        val intent = Intent("android.speech.action.RECOGNIZE_SPEECH").apply {
+            putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form")
+            putExtra("android.speech.extra.LANGUAGE_PREFERENCE", "zh-CN")
+            putExtra("android.speech.extra.LANGUAGE", "zh-CN")
         }
+        val handlers = packageManager.queryIntentActivities(
+            intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+        val nonGoogle = handlers.firstOrNull {
+            !(it.activityInfo?.packageName ?: "").startsWith("com.google.android")
+        }
+        val pick = nonGoogle ?: handlers.firstOrNull()
+        if (pick == null) {
+            Toast.makeText(this, "系统语音识别不可用 —— 用输入法上的语音键说也行",
+                Toast.LENGTH_LONG).show()
+            return
+        }
+        if (nonGoogle == null) {
+            // 只有 Google 语音：国内网络不可达 —— 如实提示，不静默拉起
+            android.app.AlertDialog.Builder(this)
+                .setTitle("语音输入")
+                .setMessage("这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n" +
+                    "推荐直接点输入法键盘上的语音键口述 —— 文字会进输入框并自动发到电脑。\n\n" +
+                    "仍要打开 Google 语音也可以（有网络代理时可用）。")
+                .setNegativeButton("仍打开") { _, _ -> launchVoice(intent, pick.activityInfo.packageName) }
+                .setPositiveButton("知道了", null)
+                .show()
+            return
+        }
+        launchVoice(intent, pick.activityInfo.packageName)
     }
 
-    private fun startVoiceInput() {
-        // 字面量与 SpeechRecognizer 源码逐字一致（ACTION / EXTRA_LANGUAGE_MODEL /
-        // LANGUAGE_MODEL_FREE_FORM）—— 本编译环境解析不到该类静态字段，
-        // 公开协议常量直接用字面值，零符号依赖。
-        val intent = Intent("android.speech.action.RECOGNIZE_SPEECH")
-            .putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form")
+    private fun launchVoice(intent: Intent, pkg: String) {
+        intent.setPackage(pkg)
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, 726)
