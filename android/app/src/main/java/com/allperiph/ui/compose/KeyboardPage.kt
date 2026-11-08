@@ -41,8 +41,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -123,10 +126,12 @@ private object TouchFx {
 /**
  * RGB 灯效规格：档位（[KeyPref.RGB_*]）+ 动画相位（0..360°，关档时 phase 为 null）。
  *
- * 相位以 `State` 形式下发而不是算好的颜色 —— 键帽**底色**在绘制阶段读 .value
- * （[Modifier.drawBehind]），那部分只触发重绘、不重组；但**字符色**（KeyBox 的 fg、
- * 玻璃档 tint）在组合期取相位，开灯时键帽仍会逐帧重组 —— 这是皮肤审查 #3 记录的
- * 现状（字符跟灯变色躲不开重组；要彻底消掉需把字色也改成绘制阶段画，另开一轮）。
+ * 相位以 `State` 形式下发而不是算好的颜色 —— 消费侧**全部走绘制阶段**：
+ *   · 键帽底色 → `Modifier.drawBehind` 读 .value（只重绘）；
+ *   · 字符色   → Text 的 `Modifier.graphicsLayer { colorFilter }` 读 .value（只重绘字层）。
+ * 组合期只读 phase **引用**与 mode，不订阅 .value —— 开灯时整副键盘**不逐帧重组**
+ * （皮肤审查 #3 已修：此前字色与玻璃 tint 在组合期取相位，84 键每帧重组，
+ * 与本文档原先的「只重绘不重组」承诺相违）。
  * 关档时 phase 为 null，所有灯效分支短路，零开销。
  */
 internal class RgbSpec(val mode: Int, val phase: State<Float>?)
@@ -166,7 +171,7 @@ private fun rgbFaceAt(mode: Int, phase: Float?, x: Float, vScale: Float = 1f): C
 /**
  * 扩散档（RGB_TOUCH）在坐标 [c]（窗口坐标）处的波光颜色；没有光带扫过 →
  * [Color.Transparent]。键帽（本键中心）与遥控图块共用同一份 [TouchFx] 遍历。
- * 不读相位 —— 调用方要自己在绘制/组合阶段读 `phase.value` 拿逐帧刷新。
+ * 不读相位 —— 调用方（绘制/字层）要自己读 `phase.value` 拿逐帧刷新。
  */
 private fun touchLightAt(c: Offset): Color {
     val now = android.os.SystemClock.uptimeMillis()
@@ -604,8 +609,9 @@ private fun CustomLayout(
  *
  * 灯效（皮肤审查 #5「RGB 开着，遥控页一个灯不亮」）：开灯时图块与键帽同款亮灯 ——
  * 呼吸 / 波浪走 [rgbFaceAt] 同一条公式按横坐标错相；扩散档平时熄灭、点击时从图块
- * 自己抛一圈 [TouchFx] 涟漪（键帽那侧也能被扫到，公式共用 [touchLightAt]）。
- * 字色在组合期跟灯（与键帽 fg 同口径），黑键帽内胆托字保证全色相可读。
+ * 自己抛一圈 [TouchFx] 涟漪。灯面与字色**都在绘制阶段取值**（drawBehind +
+ * graphicsLayer colorFilter，审查 #3 同口径）：组合期只读 phase 引用与 mode，
+ * 9 个图块开灯时不逐帧重组。
  */
 @Composable
 private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
@@ -618,14 +624,25 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
     val rgbCap = Color(ctx.getColor(R.color.keycap_rgb_black))
     var rgbX by remember { mutableIntStateOf(0) }
     var rgbC by remember { mutableStateOf(Offset.Zero) }
-    // 组合期取灯色：相位 State 在此被读 → 逐帧重组（字色要跟灯；图块只有 9 个，量小）
-    val light: Color? =
+    /** 当前图块灯色；**只允许在绘制阶段（drawBehind / graphicsLayer 块）调用** */
+    fun tileLight(): Color? {
+        if (!rgbOn) return null
+        @Suppress("UNUSED_EXPRESSION")
+        val tick = rgb.phase?.value ?: 0f // 订阅相位 → 触发重绘（扩散档的波光也靠它逐帧推）
+        if (rgb.mode == KeyPref.RGB_TOUCH) {
+            return touchLightAt(rgbC).takeIf { it.alpha > 0f }
+        }
+        return rgbFaceAt(rgb.mode, rgb.phase?.value ?: 0f, rgbX.toFloat())
+    }
+    // 字色层（审查 #3）：组合期只给静态 Modifier，灯色由 colorFilter 在绘制期按字形染色
+    val tileLabelMod: Modifier =
         if (!rgbOn) {
-            null
-        } else if (rgb.mode == KeyPref.RGB_TOUCH) {
-            touchLightAt(rgbC).takeIf { it.alpha > 0f }
+            Modifier
         } else {
-            rgbFaceAt(rgb.mode, rgb.phase?.value ?: 0f, rgbX.toFloat())
+            Modifier.graphicsLayer {
+                val l = tileLight()
+                colorFilter = l?.let { ColorFilter.tint(it, BlendMode.SrcIn) }
+            }
         }
     // 键面：开灯 → drawBehind 画「灯色外圈 + 黑键帽内胆 + 同色描边」（与键帽同观感）；
     // 关着 / 扩散档空闲 → 原 surfaceContainer。
@@ -638,7 +655,7 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
                     rgbC = b.center
                 }
                 .drawBehind {
-                    val l = light
+                    val l = tileLight()
                     if (l != null) {
                         val inset = 3.dp.toPx()
                         val tl = Offset(inset, inset)
@@ -672,11 +689,12 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
             ),
         contentAlignment = Alignment.Center,
     ) {
-        if (light != null) {
-            Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center, color = light)
-        } else {
-            Text(text = label, fontSize = 16.sp, textAlign = TextAlign.Center)
-        }
+        Text(
+            text = label,
+            modifier = tileLabelMod,
+            fontSize = 16.sp,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -763,9 +781,10 @@ private fun KeyBox(
     val bg = if (active) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer
     // —— RGB 灯效（成宇 2026-11-08）——
     // active（sticky 点亮）优先级最高：修饰键状态是功能反馈，不能被灯效盖掉。
-    // 相位两处被读：绘制阶段（drawBehind → 只重绘）与组合期字符色（fg / 玻璃 tint
-    // → 逐帧重组）。开灯时字符要跟灯变色，所以**全部键帽**每帧都重组 —— 这是皮肤
-    // 审查 #3 记录的现状（不是只有玻璃档）；要消掉得把字色也挪进绘制阶段，另开一轮。
+    // 相位**只在绘制阶段**被读（faceMod/sideMod 的 drawBehind + labelMod 的
+    // graphicsLayer colorFilter）—— 组合期只读 phase 引用与 mode、不订阅 .value，
+    // 开灯时键帽只重绘、不逐帧重组（皮肤审查 #3 已修：此前字色与玻璃 tint
+    // 在组合期取相位，84 键每帧重组）。
     val rgb = LocalRgb.current
     // b34 材质动效相位（draw 阶段读 .value → 只重绘不重组）
     val matPhase = LocalMatPhase.current
@@ -795,6 +814,8 @@ private fun KeyBox(
      *  （SPEED_PX/BAND_PX/LIFE_MS），扫过处泛光 + 黑键帽 + 亮边、字符点亮；
      *  呼吸 / 波浪沿用 b25 真键盘渲染；公式本体在文件级 [touchLightAt] / [rgbFaceAt]，
      *  遥控图块（审查 #5）共用 —— 别再往这里加第二份公式。
+     *  **只允许在绘制阶段调用**（drawBehind / graphicsLayer 块内），组合期调它会重新
+     *  订阅相位、把审查 #3 修掉的逐帧重组又带回来。
      */
     fun touchLight(): Color = touchLightAt(rgbC)
     fun rgbFace(vScale: Float): Color {
@@ -946,19 +967,36 @@ private fun KeyBox(
         } else {
             Modifier.background(bg)
         }
-    // 字符透光：真键盘字符是双色注塑透光的——灯效下字符直接用当前键灯色（随呼吸明灭、
-    // 随波浪换色、随按下扩散亮起）；sticky 点亮的修饰键仍走白字（反馈优先级最高）。
-    @Composable
-    fun touchFg(): Color {
-        val tick = rgb.phase?.value ?: 0f // 订阅相位 → 每帧重组；不订阅会冻在按下那一帧
-        val l = touchLight()
-        return if (l.alpha > 0f) l else MiuixTheme.colorScheme.onSurface
-    }
+    // 字符透光（审查 #3 修复）：真键盘字符是双色注塑透光的——灯效下字符要跟灯色，
+    // 但**组合期不再取相位**。做法：Text 用静态色 [fg]，灯色由 [labelMod] 的
+    // graphicsLayer.colorFilter 在绘制期整层换色（SrcIn = 按字形 alpha 染色，底不变）——
+    // 相位 State 只让字层重绘，键帽组合不重组（84 键不再每帧重组）。
     val fg =
-        when {
-            active -> Color.White
-            rgbOn -> if (rgb.mode == KeyPref.RGB_TOUCH) touchFg() else rgbFace(1f)
-            else -> MiuixTheme.colorScheme.onSurface
+        if (active) {
+            Color.White
+        } else {
+            MiuixTheme.colorScheme.onSurface
+        }
+    /** 字色层：绘制期算灯色 → colorFilter 染字；没灯（关档 / 扩散档空闲）→ 不染走 [fg] 原色 */
+    val labelMod: Modifier =
+        if (!rgbOn) {
+            Modifier
+        } else {
+            Modifier.graphicsLayer {
+                @Suppress("UNUSED_EXPRESSION")
+                val tick = rgb.phase?.value ?: 0f // 订阅相位 → 字层逐帧重绘（扩散档的波光推进靠它）
+                val l = if (rgb.mode == KeyPref.RGB_TOUCH) touchLight() else rgbFace(1f)
+                colorFilter =
+                    if (l.alpha > 0f) {
+                        // 玻璃档整面铺光、字恒白（无黑内胆衬托）；有黑内胆的档位字随灯色
+                        ColorFilter.tint(
+                            if (keycap == KeyPref.KEYCAP_GLASS) Color.White else l,
+                            BlendMode.SrcIn,
+                        )
+                    } else {
+                        null
+                    }
+            }
         }
     val accent = MiuixTheme.colorScheme.primary
     val interaction = remember { MutableInteractionSource() }
@@ -970,7 +1008,20 @@ private fun KeyBox(
         if (pressed && rgbOn && rgb.mode == KeyPref.RGB_TOUCH) TouchFx.add(rgbC.x, rgbC.y)
     }
     if (keycap == KeyPref.KEYCAP_GLASS) {
-        // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）
+        // 液态玻璃键帽：半透明 + 高光描边（成宇 2026-11-03「键盘再加一组液态玻璃按键的皮肤」）。
+        // 玻璃档的灯面（审查 #3）：整面铺光、不画黑内胆（玻璃的字恒白衬在光面上），
+        // 绘制期取值；空闲（扩散档没波）什么都不画，露出 surfaceContainer 底。
+        val glassFaceMod: Modifier =
+            if (rgbOn) {
+                Modifier.drawBehind {
+                    @Suppress("UNUSED_EXPRESSION")
+                    val tick = rgb.phase?.value ?: 0f
+                    val l = if (rgb.mode == KeyPref.RGB_TOUCH) touchLight() else rgbFace(1f)
+                    if (l.alpha > 0f) drawRect(color = l)
+                }
+            } else {
+                Modifier
+            }
         ApComponents.GlassKeycap(
             // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
             modifier = km.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
@@ -978,12 +1029,14 @@ private fun KeyBox(
             label = label,
             textSize = dens.textSize.sp,
             fg = fg,
-            // 扩散档空闲时 rgbFace 是 Transparent —— GlassKeycap 侧按「透明 = 无染色」
-            // 处理（审查 #1 修复点），这里照旧透传即可
-            tint = tint ?: if (rgbOn) rgbFace(1f) else null,
+            // 只喂 active 的染色（primary）；灯效走 faceMod/labelMod（绘制期），
+            // 不再把 rgbFace 塞进 tint —— 审查 #1 的透明坑 + #3 的组合期取值都出在这条路
+            tint = tint,
             interaction = interaction,
             onClick = press,
             fxMod = fxMod,
+            faceMod = glassFaceMod,
+            labelMod = labelMod,
         )
         return
     }
@@ -1000,7 +1053,7 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
+        ) { Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg) }
         return
     }
     val side = lerp(bg, Color.Black, 0.35f)
@@ -1035,6 +1088,6 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, fontSize = dens.textSize.sp, color = fg) }
+        ) { Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg) }
     }
 }
