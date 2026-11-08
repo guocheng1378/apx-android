@@ -1,10 +1,17 @@
 name: RGB Fix
 
-# b33v2——修用户反馈两个视觉问题（键盘页 KeyBox 灯效），同 b33，仅修 comment 锚：
-#   1) 「有时看不见键盘了」：呼吸暗谷 v=0.05（每 4s 一次）→ 地板抬到 0.30；
-#   2) 「rgb 没有渐变」：呼吸档全键盘同色 → 按横坐标错相成彩虹 + 键内导光渐变。
-# v2 教训：双行 comment 锚丢了文件里的 4 空格缩进（count=0），改为两条带缩进的单行锚。
-# 编辑完自动触发 Build 验编译（workflow_dispatch 是 GITHUB_TOKEN 递归限制的例外）。
+# b34——键帽材质新增三档（成宇 2026-11-08「键盘材质还能加几种…亚克力，水晶，木质…动态感要做好」）：
+#   · KeyPref：KEYCAP_STYLE_COUNT 3→6 + KEYCAP_ACRYLIC/CRYSTAL/WOOD 常量 + 三档 labels
+#   · strings.xml：ui_keycap_acrylic/crystal/wood 三条选项文案（走资源，不顶中文棘轮）
+#   · KeyboardPage：
+#       LocalMatPhase —— 一条 6s 循环相位，只在选中这三档时起 transition（零额外开销）
+#       km 错相追踪扩展到材质三档（流光/星芒带按横坐标错相）
+#       faceMod 新增材质分支（draw 阶段读相位，只重绘不重组）：
+#         亚克力 = 磨砂透光 + 流光带缓扫 + 顶缘玻璃光泽；
+#         水晶 = 暗玻棱面 + 双星芒游动（xOff 错相）+ 棱彩流边；
+#         木质 = 7 层直纹木纹 + 缎面反光带缓扫 + 底缘受光。
+#       全部色值走 hsvColor()/Color.White 计算，不写字面量（check_appearance 判据6）。
+# 编辑完自动触发 Build（workflow_dispatch 是 GITHUB_TOKEN 递归限制的例外）。
 
 on:
   workflow_dispatch:
@@ -18,53 +25,192 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b33v2
+      - name: apply b34
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import os, sys, traceback
           LOG = "docs/edit_error.log"
           fails = []
-          P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
-          text = open(P, encoding="utf-8").read()
-          def rep(tag, old, new):
-              global text
+          def load(p):
+              return open(p, encoding="utf-8").read()
+          def rep(text, tag, old, new):
               if new in text and old not in text:
                   print("SKIP " + tag)
-                  return
+                  return text
               n = text.count(old)
               if n != 1:
-                  fails.append(tag + " anchor count=" + str(n) + " expect=" + old[:40])
-                  return
-              text = text.replace(old, new, 1)
+                  fails.append(tag + " anchor count=" + str(n) + " expect=" + old[:50])
+                  return text
+              return text.replace(old, new, 1)
           try:
-              rep("import",
-                  "import androidx.compose.ui.graphics.Color",
-                  "import androidx.compose.ui.graphics.Brush\nimport androidx.compose.ui.graphics.Color")
-              rep("comment1",
-                  "    // 波浪档按**横坐标**错相（列状彩虹）：落位时记一次 x；只在波浪档挂监听，",
-                  "    // 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相")
-              rep("comment2",
-                  "    // 呼吸档全键盘同色不需要位置。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，",
-                  "    // （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，")
-              rep("km-cond",
-                  "        if (rgbOn &&\n            (rgb.mode == KeyPref.RGB_WAVE || rgb.mode == KeyPref.RGB_TOUCH)\n        ) {",
-                  "        if (rgbOn) {")
-              rep("rgbFace",
-                  "        val h = if (breathe) p else p + rgbX * 0.6f\n        val v = if (breathe) 0.05f + 0.90f * env else 0.95f",
-                  "        // b33：呼吸暗谷从 0.05 抬到 0.30——暗谷里黑键帽/描边/字全灭，整副键盘消失\n        // （「有时看不见键盘了」）；呼吸档按横坐标错相成彩虹随呼吸明灭（修「没有渐变」）。\n        val h = p + rgbX * (if (breathe) 0.35f else 0.6f)\n        val v = if (breathe) 0.30f + 0.65f * env else 0.95f")
-              rep("gradient",
-                  "                } else {\n                    val light = rgbFace(1f)\n                    val inset = 3.dp.toPx()\n                    val tl = Offset(inset, inset)\n                    val cap = Size(size.width - inset * 2, size.height - inset * 2)\n                    drawRect(color = light)\n                    drawRect(color = rgbCap, topLeft = tl, size = cap)\n                    drawRect(color = light, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n                }",
-                  "                } else {\n                    val light = rgbFace(1f)\n                    val inset = 3.dp.toPx()\n                    val tl = Offset(inset, inset)\n                    val cap = Size(size.width - inset * 2, size.height - inset * 2)\n                    // b33 键内渐变：导光面底亮顶暗 + 同色渐变描边（真键盘导光板观感）\n                    val grad = Brush.verticalGradient(0f to light, 1f to light.copy(alpha = 0.45f))\n                    drawRect(brush = grad)\n                    drawRect(color = rgbCap, topLeft = tl, size = cap)\n                    drawRect(brush = grad, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))\n                }")
-              if "0.05f + 0.90f" in text:
-                  fails.append("old breath floor still present")
-              if "verticalGradient" not in text:
-                  fails.append("gradient missing")
+              # ——— KeyPref.kt ———
+              P1 = "android/app/src/main/java/com/allperiph/ui/KeyPref.kt"
+              t1 = load(P1)
+              t1 = rep(t1, "kp-count",
+                  "    /**\n     * 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动；\n     * 液态玻璃 = 半透明玻璃键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）。\n     */\n    const val KEYCAP_STYLE_COUNT = 3",
+                  "    /**\n     * 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动；\n     * 液态玻璃 = 半透明玻璃键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）；\n     * 亚克力 = 磨砂透光 + 流光带缓扫；水晶 = 暗玻棱面 + 双星芒游动 + 棱彩流边；\n     * 木质 = 直纹木纹 + 缎面反光缓扫（b34，成宇 2026-11-08「材质再加几种，动态感要做好」）。\n     */\n    const val KEYCAP_STYLE_COUNT = 6")
+              t1 = rep(t1, "kp-labels",
+                  "        ctx.getString(R.string.ui_keycap_glass),\n    )",
+                  "        ctx.getString(R.string.ui_keycap_glass),\n        ctx.getString(R.string.ui_keycap_acrylic),\n        ctx.getString(R.string.ui_keycap_crystal),\n        ctx.getString(R.string.ui_keycap_wood),\n    )")
+              t1 = rep(t1, "kp-const",
+                  "    const val KEYCAP_GLASS = 2",
+                  "    const val KEYCAP_GLASS = 2\n    const val KEYCAP_ACRYLIC = 3\n    const val KEYCAP_CRYSTAL = 4\n    const val KEYCAP_WOOD = 5")
+              if "KEYCAP_STYLE_COUNT = 6" not in t1:
+                  fails.append("kp-count not applied")
+              if "KEYCAP_WOOD = 5" not in t1:
+                  fails.append("kp-const not applied")
+              if "ui_keycap_acrylic" not in t1:
+                  fails.append("kp-labels not applied")
+              # ——— strings.xml ———
+              P2 = "android/app/src/main/res/values/strings.xml"
+              t2 = load(P2)
+              t2 = rep(t2, "str",
+                  "    <string name=\"ui_keycap_glass\">液态玻璃</string>",
+                  "    <string name=\"ui_keycap_glass\">液态玻璃</string>\n    <string name=\"ui_keycap_acrylic\">亚克力</string>\n    <string name=\"ui_keycap_crystal\">水晶</string>\n    <string name=\"ui_keycap_wood\">木质</string>")
+              if "ui_keycap_wood" not in t2:
+                  fails.append("str not applied")
+              # ——— KeyboardPage.kt ———
+              P3 = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+              t3 = load(P3)
+              t3 = rep(t3, "kp-local",
+                  "private val LocalRgb = staticCompositionLocalOf { RgbSpec(KeyPref.RGB_OFF, null) }",
+                  "private val LocalRgb = staticCompositionLocalOf { RgbSpec(KeyPref.RGB_OFF, null) }\n    // b34 材质动效相位（0..360°，6s 一圈）：亚克力流光 / 水晶星芒 / 木质缎面共用一条节奏；\n    // 只在选中这三档时于 KeyboardPage 起 transition，其余时候下发静态 0f（零开销）。\n    private val LocalMatPhase = staticCompositionLocalOf { mutableStateOf(0f) }")
+              t3 = rep(t3, "kp-phase",
+                  "    var tab by remember { mutableIntStateOf(0) }",
+                  "    // b34 材质动效相位：亚克力 / 水晶 / 木质三档要「活」的质感 —— 流光带、星芒游动、\n    // 缎面反光都从这条 6s 循环相位取节奏。只在这三档才起 transition（其余材质零开销），\n    // 与灯效那条互不干扰（灯效关着材质照样动）。\n    val matPhase: State<Float> =\n        if (keycap == KeyPref.KEYCAP_ACRYLIC || keycap == KeyPref.KEYCAP_CRYSTAL || keycap == KeyPref.KEYCAP_WOOD) {\n            rememberInfiniteTransition(label = \"matPhase\").animateFloat(\n                0f,\n                360f,\n                animationSpec = infiniteRepeatable(tween(6_000, easing = LinearEasing)),\n                label = \"matPhaseValue\",\n            )\n        } else {\n            remember { mutableStateOf(0f) }\n        }\n    var tab by remember { mutableIntStateOf(0) }")
+              t3 = rep(t3, "kp-provide",
+                  "    CompositionLocalProvider(LocalRgb provides rgbSpec) {",
+                  "    CompositionLocalProvider(LocalRgb provides rgbSpec, LocalMatPhase provides matPhase) {")
+              t3 = rep(t3, "kp-read",
+                  "    val rgb = LocalRgb.current",
+                  "    val rgb = LocalRgb.current\n    // b34 材质动效相位（draw 阶段读 .value → 只重绘不重组）\n    val matPhase = LocalMatPhase.current")
+              t3 = rep(t3, "kp-km",
+                  "    val km =\n        if (rgbOn) {",
+                  "    val km =\n        if (rgbOn ||\n            keycap == KeyPref.KEYCAP_ACRYLIC ||\n            keycap == KeyPref.KEYCAP_CRYSTAL ||\n            keycap == KeyPref.KEYCAP_WOOD\n        ) {")
+              face_new = (
+                  "        } else if (\n            keycap == KeyPref.KEYCAP_ACRYLIC ||\n                keycap == KeyPref.KEYCAP_CRYSTAL ||\n                keycap == KeyPref.KEYCAP_WOOD\n        ) {\n"
+                  "            // b34 材质动态质感：亚克力流光带 / 水晶双星芒 + 棱彩流边 / 木质缎面反光，\n"
+                  "            // 全部从 LocalMatPhase 那条 6s 相位取节奏，xOff 错相让相邻键不齐刷刷；\n"
+                  "            // 相位在 draw 阶段读 → 只重绘不重组（与灯效同一套路）。\n"
+                  "            Modifier.drawBehind {\n"
+                  "                val mp = matPhase.value\n"
+                  "                val xo = rgbX.toFloat()\n"
+                  "                val bw = size.width\n"
+                  "                val bh = size.height\n"
+                  "                when (keycap) {\n"
+                  "                    KeyPref.KEYCAP_ACRYLIC -> {\n"
+                  "                        drawRect(color = bg)\n"
+                  "                        drawRect(color = Color.White, alpha = 0.07f)\n"
+                  "                        val bandW = bh * 1.3f\n"
+                  "                        val bx = (((mp + xo * 0.4f) % 360f) / 360f) * (bw + bandW * 2f) - bandW\n"
+                  "                        drawRect(\n"
+                  "                            brush = Brush.horizontalGradient(\n"
+                  "                                0f to Color.Transparent,\n"
+                  "                                0.5f to Color.White.copy(alpha = 0.16f),\n"
+                  "                                1f to Color.Transparent,\n"
+                  "                                startX = bx,\n"
+                  "                                endX = bx + bandW,\n"
+                  "                            ),\n"
+                  "                        )\n"
+                  "                        drawRect(\n"
+                  "                            brush = Brush.verticalGradient(\n"
+                  "                                0f to Color.White.copy(alpha = 0.10f),\n"
+                  "                                0.45f to Color.Transparent,\n"
+                  "                            ),\n"
+                  "                        )\n"
+                  "                        drawRect(color = Color.White, alpha = 0.20f, style = Stroke(1.dp.toPx()))\n"
+                  "                    }\n"
+                  "                    KeyPref.KEYCAP_CRYSTAL -> {\n"
+                  "                        drawRect(color = hsvColor(232f, 0.05f, 0.13f))\n"
+                  "                        drawLine(\n"
+                  "                            Color.White.copy(alpha = 0.10f),\n"
+                  "                            Offset(0f, bh * 0.30f),\n"
+                  "                            Offset(bw, bh * 0.05f),\n"
+                  "                            strokeWidth = 1f,\n"
+                  "                        )\n"
+                  "                        drawLine(\n"
+                  "                            Color.White.copy(alpha = 0.10f),\n"
+                  "                            Offset(0f, bh * 0.72f),\n"
+                  "                            Offset(bw, bh * 0.95f),\n"
+                  "                            strokeWidth = 1f,\n"
+                  "                        )\n"
+                  "                        drawRect(\n"
+                  "                            color = hsvColor((mp * 0.6f + xo * 0.35f) % 360f, 0.85f, 1f),\n"
+                  "                            alpha = 0.42f,\n"
+                  "                            style = Stroke(1.2.dp.toPx()),\n"
+                  "                        )\n"
+                  "                        val r = minOf(bw, bh) * 0.24f\n"
+                  "                        val a1 = Math.toRadians((mp + xo * 0.5f).toDouble())\n"
+                  "                        val c1 = Offset(bw / 2f + (kotlin.math.cos(a1) * r).toFloat(), bh / 2f + (kotlin.math.sin(a1) * r).toFloat())\n"
+                  "                        val a2 = Math.toRadians((mp + xo * 0.5f + 180.0))\n"
+                  "                        val c2 = Offset(bw / 2f + (kotlin.math.cos(a2) * r).toFloat(), bh / 2f + (kotlin.math.sin(a2) * r).toFloat())\n"
+                  "                        val gl = 0.30f + 0.45f * kotlin.math.abs(kotlin.math.sin(Math.toRadians(mp * 2.0))).toFloat()\n"
+                  "                        val arm = bh * 0.14f\n"
+                  "                        drawLine(Color.White.copy(alpha = gl), Offset(c1.x - arm, c1.y), Offset(c1.x + arm, c1.y), strokeWidth = 1.4f)\n"
+                  "                        drawLine(Color.White.copy(alpha = gl), Offset(c1.x, c1.y - arm), Offset(c1.x, c1.y + arm), strokeWidth = 1.4f)\n"
+                  "                        drawCircle(Color.White.copy(alpha = gl), radius = 1.6.dp.toPx(), center = c1)\n"
+                  "                        drawLine(Color.White.copy(alpha = gl * 0.8f), Offset(c2.x - arm, c2.y), Offset(c2.x + arm, c2.y), strokeWidth = 1.2f)\n"
+                  "                        drawLine(Color.White.copy(alpha = gl * 0.8f), Offset(c2.x, c2.y - arm), Offset(c2.x, c2.y + arm), strokeWidth = 1.2f)\n"
+                  "                        drawCircle(hsvColor(mp, 0.9f, 1f), radius = 1.8.dp.toPx(), alpha = 0.55f, center = c2)\n"
+                  "                    }\n"
+                  "                    else -> {\n"
+                  "                        drawRect(color = hsvColor(26f, 0.52f, 0.38f))\n"
+                  "                        drawRect(\n"
+                  "                            brush = Brush.verticalGradient(\n"
+                  "                                0f to hsvColor(25f, 0.56f, 0.32f),\n"
+                  "                                0.16f to hsvColor(27f, 0.50f, 0.44f),\n"
+                  "                                0.33f to hsvColor(25f, 0.58f, 0.30f),\n"
+                  "                                0.5f to hsvColor(28f, 0.48f, 0.46f),\n"
+                  "                                0.66f to hsvColor(25f, 0.56f, 0.31f),\n"
+                  "                                0.83f to hsvColor(27f, 0.52f, 0.43f),\n"
+                  "                                1f to hsvColor(25f, 0.57f, 0.33f),\n"
+                  "                            ),\n"
+                  "                        )\n"
+                  "                        val sw = bw * 0.7f\n"
+                  "                        val sx = (((mp * 0.7f + xo * 0.3f) % 360f) / 360f) * (bw + sw * 2f) - sw\n"
+                  "                        drawRect(\n"
+                  "                            brush = Brush.horizontalGradient(\n"
+                  "                                0f to Color.Transparent,\n"
+                  "                                0.5f to Color.White.copy(alpha = 0.11f),\n"
+                  "                                1f to Color.Transparent,\n"
+                  "                                startX = sx,\n"
+                  "                                endX = sx + sw,\n"
+                  "                            ),\n"
+                  "                        )\n"
+                  "                        drawRect(\n"
+                  "                            brush = Brush.verticalGradient(\n"
+                  "                                0.75f to Color.Transparent,\n"
+                  "                                1f to Color.White.copy(alpha = 0.07f),\n"
+                  "                            ),\n"
+                  "                        )\n"
+                  "                        drawRect(color = hsvColor(25f, 0.6f, 0.26f), alpha = 0.9f, style = Stroke(1.dp.toPx()))\n"
+                  "                    }\n"
+                  "                }\n"
+                  "            }\n"
+                  "        } else {\n"
+                  "            Modifier.background(bg)\n"
+                  "        }"
+              )
+              t3 = rep(t3, "kp-face",
+                  "        } else {\n            Modifier.background(bg)\n        }",
+                  face_new)
+              for tag, cond, msg in [
+                  ("face-mat", "KEYCAP_ACRYLIC -> {" in t3, "material face not applied"),
+                  ("phase-read", "val matPhase = LocalMatPhase.current" in t3, "matPhase read missing"),
+                  ("provide", "LocalMatPhase provides matPhase" in t3, "provider missing"),
+                  ("km-geom", "keycap == KeyPref.KEYCAP_WOOD\n        ) {" in t3, "km material cond missing"),
+                  ("old-face", "Modifier.background(bg)\n        }" in t3, "flat face fallback missing"),
+              ]:
+                  if not cond:
+                      fails.append(msg)
               if not fails:
-                  open(P, "w", encoding="utf-8").write(text)
+                  open(P1, "w", encoding="utf-8").write(t1)
+                  open(P2, "w", encoding="utf-8").write(t2)
+                  open(P3, "w", encoding="utf-8").write(t3)
                   if os.path.exists(LOG):
                       os.remove(LOG)
-                  print("OK: b33v2 applied")
+                  print("OK: b34 applied (KeyPref + strings + KeyboardPage)")
           except Exception:
               fails.append("EXCEPTION:\n" + traceback.format_exc())
           if fails:
@@ -81,7 +227,7 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "fix: b33 — 灯效修「无渐变/看不见键盘」：呼吸彩虹错相 + 暗谷 0.30 地板 + 键内导光渐变"
+          git commit -m "feat: b34 — 键帽材质新增亚克力/水晶/木质三档（流光带/星芒/缎面动态质感，6s 相位驱动）"
           git push
       - name: trigger build
         run: |
@@ -98,5 +244,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b33v2 诊断日志"
+          git commit -m "chore: b34 诊断日志"
           git push
