@@ -134,6 +134,16 @@ private object TouchFx {
  * 与本文档原先的「只重绘不重组」承诺相违）。
  * 关档时 phase 为 null，所有灯效分支短路，零开销。
  */
+/**
+ * 灯效调色（用户 2026-11-08「灯效太黑了，能改成调节颜色」）：色相偏移 0..359° +
+ * 亮度增益 40..160%。全局单例 —— **只允许在绘制阶段读**（rgbFaceAt / touchLightAt
+ * 内部）：调色 chip 按下触发的是键帽重绘，不是 84 键重组，与皮肤审查 #3 同一条红线。
+ */
+internal object RgbTune {
+    var hueShift by mutableIntStateOf(0)
+    var bright by mutableIntStateOf(100)
+}
+
 internal class RgbSpec(val mode: Int, val phase: State<Float>?)
 
 /** 键盘树内的灯效上下文；没有 Provider 的调用方拿到关档默认值（等于没加这个功能） */
@@ -162,9 +172,11 @@ private fun rgbFaceAt(mode: Int, phase: Float?, x: Float, vScale: Float = 1f): C
     val breathe = mode != KeyPref.RGB_WAVE
     // 呼吸亮度包络：相位每走 30° 一个 4s 明灭（p=0 灭、p=15 亮）；波浪恒亮
     val env = if (breathe) (0.5 - 0.5 * Math.cos(Math.toRadians(phase * 12.0))).toFloat() else 1f
-    // b33：呼吸暗谷 0.30 起（全灭会整副键盘消失）；呼吸档按横坐标错相成彩虹
-    val h = phase + x * (if (breathe) 0.35f else 0.6f)
-    val v = if (breathe) 0.30f + 0.65f * env else 0.95f
+    // b33：呼吸暗谷曾 0.30（成宇 2026-11-08「灯效太黑了」→ 提到 0.45 起步）；
+    // 呼吸档按横坐标错相成彩虹。h/v 再叠调色（RgbTune：色相偏移 + 亮度增益，
+    // 调色 chip 写、这里在绘制阶段读 —— 只重绘不重组）。
+    val h = phase + x * (if (breathe) 0.35f else 0.6f) + RgbTune.hueShift
+    val v = (if (breathe) 0.45f + 0.50f * env else 0.95f) * (RgbTune.bright / 100f)
     return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))
 }
 
@@ -193,7 +205,9 @@ private fun touchLightAt(c: Offset): Color {
         }
     }
     if (best <= 0f) return Color.Transparent
-    return hsvColor(hue, 0.97f, 0.06f + 0.89f * best.coerceAtMost(1f))
+    // 扩散波光同样吃调色（色相偏移 + 亮度增益，绘制期读 —— 与键面同口径）
+    val vv = (0.06f + 0.89f * best.coerceAtMost(1f)) * (RgbTune.bright / 100f)
+    return hsvColor(hue + RgbTune.hueShift, 0.97f, vv.coerceIn(0f, 1f))
 }
 
 /** sticky 修饰位的当前快照（HidKeys 全局状态 Compose 感知不到，本地镜像驱动高亮） */
@@ -232,6 +246,9 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     // 关档（默认）连 transition 都不建（if 分支不进），不跑任何动画。
     // 存成 state 而不是 val：页签行尾的灯效芯片就地循环档位，改完当场重组灯效分支。
     var rgbMode by remember { mutableIntStateOf(KeyPref.rgbIndex(ctx)) }
+    // 调色：组合期一次性从持久层灌入（此后 RgbTune 只被绘制阶段读）；面板开关
+    remember { RgbTune.hueShift = KeyPref.rgbHue(ctx); RgbTune.bright = KeyPref.rgbBright(ctx) }
+    var tuneOpen by remember { mutableStateOf(false) }
     val rgbSpec = if (rgbMode == KeyPref.RGB_OFF) {
         RgbSpec(rgbMode, null)
     } else {
@@ -326,6 +343,58 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                     },
                     fx = fx,
                 )
+                // 调色入口（灯效开着才给；点开 = 展开下方色相/亮度面板）
+                if (rgbMode != KeyPref.RGB_OFF) {
+                    ApComponents.TabChip(
+                        text = "调色",
+                        selected = tuneOpen,
+                        onClick = {
+                            Feedback.tap(host)
+                            tuneOpen = !tuneOpen
+                        },
+                        fx = fx,
+                    )
+                }
+            }
+
+            // —— 调色面板：色相名直选 + 亮度三档（灯效开着且点了「调色」才展开；横滑防溢出）
+            if (tuneOpen && rgbMode != KeyPref.RGB_OFF) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(
+                        "原" to 0, "红" to 340, "橙" to 30, "黄" to 55,
+                        "绿" to 140, "青" to 190, "蓝" to 240, "紫" to 285,
+                    ).forEach { (label, hue) ->
+                        ApComponents.TabChip(
+                            text = label,
+                            selected = RgbTune.hueShift == hue,
+                            onClick = {
+                                Feedback.tap(host)
+                                RgbTune.hueShift = hue
+                                KeyPref.setRgbHue(ctx, hue)
+                            },
+                            fx = fx,
+                        )
+                    }
+                    Spacer(Modifier.padding(horizontal = 4.dp))
+                    listOf("暗" to 60, "中" to 100, "亮" to 140).forEach { (label, b) ->
+                        ApComponents.TabChip(
+                            text = label,
+                            selected = RgbTune.bright == b,
+                            onClick = {
+                                Feedback.tap(host)
+                                RgbTune.bright = b
+                                KeyPref.setRgbBright(ctx, b)
+                            },
+                            fx = fx,
+                        )
+                    }
+                }
             }
 
             // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——

@@ -213,6 +213,23 @@ object KeyPref {
         prefs(ctx).edit().putInt(KEY_RGB, i.coerceIn(0, RGB_COUNT - 1)).apply()
     }
 
+    // ———————————————— 灯效调色（色相 + 亮度） ————————————————
+    // 用户 2026-11-08「灯效太黑了，能改成调节颜色吗」：色相偏移 0..359°、亮度增益 40..160%。
+
+    fun rgbHue(ctx: Context): Int =
+        prefs(ctx).getInt("rgb_hue", 0).coerceIn(0, 359)
+
+    fun setRgbHue(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("rgb_hue", v.coerceIn(0, 359)).apply()
+    }
+
+    fun rgbBright(ctx: Context): Int =
+        prefs(ctx).getInt("rgb_bright", 100).coerceIn(40, 160)
+
+    fun setRgbBright(ctx: Context, v: Int) {
+        prefs(ctx).edit().putInt("rgb_bright", v.coerceIn(40, 160)).apply()
+    }
+
     // —————————————————————————— 自定义布局 ——————————————————————————
 
     /**
