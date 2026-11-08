@@ -44,10 +44,10 @@
 
   /* 玻璃 / 阴影 */
   --glass: rgba(255, 255, 255, 0.72);
-  --glass-strong: rgba(255, 255, 255, 0.9);
+  --glass-strong: rgba(255, 255, 255, 0.86);
   --track: #d9dde1;
-  --shadow-1: 0 1px 2px rgba(16, 17, 19, 0.04), 0 10px 30px -22px rgba(16, 17, 19, 0.4);
-  --shadow-2: 0 24px 60px -34px rgba(16, 17, 19, 0.45);
+  --shadow-1: 0 1px 2px rgba(15, 17, 20, 0.05);
+  --shadow-2: 0 12px 28px -14px rgba(15, 17, 20, 0.22);
   --glow: 0 8px 22px -10px rgba(52, 130, 255, 0.6);
 
   /* 形状 */
@@ -93,10 +93,10 @@
   --err: #ff7a85;
 
   --glass: rgba(19, 20, 22, 0.72);
-  --glass-strong: rgba(24, 25, 28, 0.92);
+  --glass-strong: rgba(24, 25, 28, 0.86);
   --track: #383b41;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 34px -24px rgba(0, 0, 0, 0.9);
-  --shadow-2: 0 26px 64px -36px rgba(0, 0, 0, 0.95);
+  --shadow-1: none; /* 暗色不用阴影：三级亮度差（界面稿 08） */
+  --shadow-2: none; /* 同上，暗色以描边+亮度差分层 */
   --glow: 0 8px 24px -12px rgba(52, 130, 255, 0.55);
 
   color-scheme: dark;
@@ -127,7 +127,7 @@
     color: var(--ink);
     overflow: hidden;
     user-select: none;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
     /* 极慢的环境光：两块低饱和光斑，随连接状态呼吸（见 .app[data-live]） */
   }
@@ -155,7 +155,7 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.05;
+    opacity: 0.045;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='0.5'/></svg>");
     background-size: 140px 140px;
   }
@@ -291,7 +291,7 @@
   }
 
   .nav-item:active {
-    transform: scale(0.94);
+    transform: scale(0.97);
   }
 
   .nav-item.is-active {
@@ -311,7 +311,7 @@
     gap: 6px;
     padding-bottom: 2px;
     color: var(--ink-3);
-    font-size: 10px;
+    font-size: 10.5px;
     letter-spacing: 0.04em;
   }
 
@@ -333,7 +333,7 @@
   }
 
   .topbar-eyebrow {
-    font-size: 11px;
+    font-size: 10.5px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--ink-3);
@@ -341,9 +341,9 @@
 
   .topbar-title {
     font-family: var(--font-display);
-    font-size: 23px;
-    font-weight: 600;
-    letter-spacing: -0.015em;
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
     line-height: 1.2;
     margin: 2px 0 0;
   }
@@ -389,7 +389,7 @@
 
   .section-title {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.06em;
     color: var(--ink-3);
     text-transform: uppercase;
@@ -447,8 +447,8 @@
   }
 
   .row-title {
-    font-size: 14.5px;
-    font-weight: 550;
+    font-size: 15px;
+    font-weight: 500;
     letter-spacing: -0.005em;
     color: var(--ink);
     display: flex;
@@ -457,7 +457,7 @@
   }
 
   .row-sub {
-    font-size: 12.5px;
+    font-size: 13px;
     line-height: 1.5;
     color: var(--ink-2);
   }
@@ -532,7 +532,7 @@
     padding: 0 14px;
     border-radius: var(--r-field);
     font-size: 13px;
-    font-weight: 550;
+    font-weight: 500;
     letter-spacing: 0.005em;
     white-space: nowrap;
     transition: background 0.2s var(--soft), color 0.2s var(--soft),
@@ -541,7 +541,7 @@
   }
 
   .btn:active:not(:disabled) {
-    transform: translateY(1px) scale(0.985);
+    transform: translateY(1px) scale(0.97);
   }
 
   .btn:disabled {
@@ -595,7 +595,7 @@
   .btn-sm {
     height: 30px;
     padding: 0 11px;
-    font-size: 12.5px;
+    font-size: 13px;
     border-radius: 10px;
   }
 
@@ -617,7 +617,7 @@
     color: var(--ink);
   }
   .icon-btn:active {
-    transform: scale(0.92);
+    transform: scale(0.97);
   }
 
   /* ———————————————————————— 开关 ———————————————————————— */
@@ -683,7 +683,7 @@
   .seg button {
     padding: 6px 12px;
     border-radius: 9px;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--ink-2);
     transition: background 0.18s var(--soft), color 0.18s var(--soft), box-shadow 0.18s var(--soft);
   }
@@ -695,7 +695,7 @@
   .seg button[data-active='true'] {
     background: var(--surface);
     color: var(--ink);
-    font-weight: 600;
+    font-weight: 500;
     box-shadow: 0 1px 2px rgba(16, 17, 19, 0.08), 0 0 0 1px var(--line-soft);
   }
 
@@ -714,7 +714,7 @@
     border: 1px solid var(--line);
     background: var(--surface);
     color: var(--ink-2);
-    font-size: 12.5px;
+    font-size: 13px;
     transition: all 0.2s var(--soft);
   }
 
@@ -727,7 +727,7 @@
     background: var(--accent-soft);
     border-color: transparent;
     color: var(--accent);
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .badge {
@@ -738,7 +738,7 @@
     padding: 0 10px;
     border-radius: 99px;
     font-size: 12px;
-    font-weight: 550;
+    font-weight: 500;
     background: var(--surface-2);
     color: var(--ink-2);
     border: 1px solid transparent;
@@ -860,7 +860,7 @@
   }
 
   .metric .k {
-    font-size: 11px;
+    font-size: 10.5px;
     letter-spacing: 0.04em;
     color: var(--ink-3);
   }
@@ -868,7 +868,7 @@
   .metric .v {
     margin-top: 3px;
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
     color: var(--ink);
@@ -918,7 +918,7 @@
     gap: 10px;
     padding: 12px 14px;
     border-radius: var(--r-inner);
-    font-size: 12.5px;
+    font-size: 13px;
     line-height: 1.55;
     border: 1px solid transparent;
   }
@@ -947,7 +947,7 @@
   }
 
   .notice .notice-title {
-    font-weight: 600;
+    font-weight: 500;
     font-size: 13px;
   }
 
@@ -1023,8 +1023,8 @@
 
   .hero-sentence {
     font-family: var(--font-display);
-    font-size: 22px;
-    font-weight: 600;
+    font-size: 19px;
+    font-weight: 500;
     letter-spacing: -0.02em;
     margin: 6px 0 0;
     color: var(--ink);
@@ -1036,7 +1036,7 @@
     flex-wrap: wrap;
     gap: 6px 14px;
     margin-top: 8px;
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--ink-2);
     font-variant-numeric: tabular-nums;
   }
@@ -1078,7 +1078,7 @@
   }
 
   .tile:active {
-    transform: translateY(0) scale(0.988);
+    transform: translateY(0) scale(0.97);
   }
 
   .tile-icon {
@@ -1118,7 +1118,7 @@
     padding: 26px 16px;
     text-align: center;
     color: var(--ink-3);
-    font-size: 12.5px;
+    font-size: 13px;
   }
 
   .empty-icon {
@@ -1157,7 +1157,7 @@
     backdrop-filter: blur(20px) saturate(1.4);
     border: 1px solid var(--line);
     box-shadow: var(--shadow-2);
-    font-size: 12.5px;
+    font-size: 13px;
     color: var(--ink);
     animation: toastIn 0.2s var(--spring) both;
   }
@@ -1209,8 +1209,8 @@
     border-radius: 99px;
     background: var(--accent-soft);
     color: var(--accent);
-    font-size: 12.5px;
-    font-weight: 550;
+    font-size: 13px;
+    font-weight: 500;
     animation: toastIn 0.2s var(--spring) both;
   }
 
@@ -1238,7 +1238,7 @@
 
   .boot-text {
     margin-top: 14px;
-    font-size: 12.5px;
+    font-size: 13px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--ink-3);
@@ -1403,4 +1403,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+/* ————— 界面稿 08 材质：卡片顶部微渐变 —————
+   亮色卡面 #FFFFFF→#FCFDFE（顶部略冷），噪点已统一 opacity .045；
+   暗色保持三级亮度平色（#15181E/#1E232B/#141920），不叠渐变。 */
+:root:not([data-theme='dark']) .card {
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdfe 100%);
 }
