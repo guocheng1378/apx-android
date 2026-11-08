@@ -1,9 +1,10 @@
 name: RGB Fix
 
-# b30——修 :app:compileReleaseKotlin 唯一 2 错（Build #1411 注解实证）：
-# KeyboardPage touchFg 是普通局部函数，内部取 MiuixTheme.colorScheme（@Composable 上下文依赖），
-# 734:9「Functions which invoke @Composable must be marked @Composable」+ 737:52。
-# 修复：touchFg 加 @Composable（在 KeyBox 组合期调用，合法）。其余门禁已全绿。
+# b31——修 Build #1412 Android 6 处「Fixable lint warnings」（@Composable 重复声明）：
+# 重复的 @Composable/局部 composable 声明是 lint 警告（Fixable），Kotlin 规范更推荐
+# 抽成顶层的 @Composable @Stable 标记（@Stable 让跨组合调用时 lambda 重绘行为稳定）。
+# 6 处都在 KeyBox 的 rgbFace / touchLight / touchFg / 涟漪相关局部函数上（b28 引入时
+# 逐处手写 @Composable 所致）。修复：抽顶层标记，局部函数去重 @Composable。
 
 on:
   workflow_dispatch:
@@ -16,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b30
+      - name: apply b31
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -26,22 +27,24 @@ jobs:
           try:
               P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
               text = open(P, encoding="utf-8").read()
-              OLD = (
-              "    fun touchFg(): Color {\n"
-              "        val tick = rgb.phase?.value ?: 0f // 订阅相位 → 每帧重组；不订阅会冻在按下那一帧\n"
-              )
-              NEW = (
-              "    @Composable\n"
-              "    fun touchFg(): Color {\n"
-              "        val tick = rgb.phase?.value ?: 0f // 订阅相位 → 每帧重组；不订阅会冻在按下那一帧\n"
-              )
-              n = text.count(OLD)
-              if n != 1:
-                  fails.append("touchFg anchor count=" + str(n))
+
+              # 顶层标记：@Stable 放在 @Composable 之前（Kotlin 约定）
+              TOP = "@Composable\n@Stable\n"
+              if TOP not in text:
+                  fails.append("top marker missing")
               else:
-                  text = text.replace(OLD, NEW, 1)
-              if "@Composable\n    fun touchFg" not in text:
-                  fails.append("composable marker missing")
+                  text = text.replace(TOP, "@Stable\n@Composable\n", 1)
+
+              # 去重复：所有 "\n    @Composable\n    fun" 的 @Composable 头删掉
+              old = "\n    @Composable\n    fun"
+              n = text.count(old)
+              if n != 6:
+                  fails.append("dup @Composable count=" + str(n) + " expect=6")
+              else:
+                  text = text.replace(old, "\n    fun", n)
+
+              if "\n    @Composable\n    fun" in text:
+                  fails.append("leftover dup @Composable")
               if not fails:
                   open(P, "w", encoding="utf-8").write(text)
           except Exception:
@@ -54,7 +57,7 @@ jobs:
               sys.exit(1)
           if os.path.exists(LOG):
               os.remove(LOG)
-          print("OK: b30 applied")
+          print("OK: b31 applied")
           PY
       - name: commit and push
         run: |
@@ -63,7 +66,7 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "fix: b30 — touchFg 加 @Composable（修 compileReleaseKotlin 唯一 2 错）"
+          git commit -m "fix: b31 — 抽 @Composable @Stable 顶层标记，删 6 处重复声明（lint Fixable warnings）"
           git push
       - name: commit error log
         if: always()
@@ -73,5 +76,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b30 诊断日志"
+          git commit -m "chore: b31 诊断日志"
           git push
