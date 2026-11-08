@@ -262,13 +262,16 @@ class Bridge {
     }
   }
 
-  private request(kind: Kind, name: string, payload?: Record<string, unknown>): Promise<any> {
+  /** timeoutMs 默认 10s；传 0 = 不启用超时。openFile 单独放宽 —— 系统文件对话框
+   *  是用户交互，找文件超 10 秒就被前端判死（报错「open-file dummy 超时」），
+   *  宿主稍后回的选中路径因 pending 已删被丢弃，发送根本不会启动。 */
+  private request(kind: Kind, name: string, payload?: Record<string, unknown>, timeoutMs = 10_000): Promise<any> {
     const id = `req-${Date.now()}-${++this.seq}`;
     return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
+      const timeout = timeoutMs > 0 ? window.setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${kind} ${name} 超时`));
-      }, 10_000);
+      }, timeoutMs) : 0;
       this.pending.set(id, { kind, id, resolve, reject, timer: timeout });
 
       const msg = kind === 'open-file'
@@ -340,7 +343,8 @@ class Bridge {
     };
   }
   openFile(filter: string): Promise<any> {
-    return this.request('open-file', 'dummy', { filter });
+    // 给 10 分钟：慢慢找文件不该被判死（默认 10s 是实测「open-file dummy 超时」根因）
+    return this.request('open-file', 'dummy', { filter }, 600_000);
   }
 
   /**
