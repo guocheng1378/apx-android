@@ -647,11 +647,13 @@ bool startLocalSend(const HostBundle& b) {
             d["via"] = std::string("localsend");
             postEvent(p, std::string("on-localsend-received"), d);
         });
+    // APX_LOG* 用 fmt 的 {} 占位（不是 printf 的 %u/%s）：这里写成 %u 会让日志里原样印出
+    // 「端口 %u」，端口号根本看不到 —— 排互传问题时最需要的恰好是这一行。
     if (ok)
-        APX_LOGI("互传接收端已启动：端口 %u",
+        APX_LOGI("互传接收端已启动：端口 {}",
                  static_cast<unsigned>(b.localSend->listenPort()));
     else
-        APX_LOGW("互传接收端启动失败：%s", b.localSend->lastError().c_str());
+        APX_LOGW("互传接收端启动失败：{}", b.localSend->lastError().c_str());
     return ok;
 }
 

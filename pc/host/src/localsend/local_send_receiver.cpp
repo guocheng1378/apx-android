@@ -583,9 +583,18 @@ struct LocalSendReceiver::Impl {
         if (const apxpc::net::Json* nested = j.find("info"); nested && nested->isObject()) info = nested;
         const std::string proto = jsonStr(*info, "protocol", "http");
         if (proto != "http") return;
+        // register body 的 port 是官方 RegisterDto 字段，但对端不一定带：自家 Android 客户端
+        // 在 v223.29.32 之前只发 deviceInfo（无 port），部分第三方精简实现同样省略。以前这里
+        // 直接 return —— register 被静默丢弃、设备入不了表、日志里连一行线索都没有，症状就是
+        // 「手机端明明打了 register，PC 的附近设备还是空的」。缺字段时回落到 LocalSend 默认
+        // 端口，并在入表日志里注明来源，别再把同类问题藏起来。
         const apxpc::net::Json* p = info->find("port");
-        const int port = (p && p->isNumber()) ? p->asInt(0) : 0;
-        if (port <= 0 || port > 65535) return;
+        int port = (p && p->isNumber()) ? p->asInt(0) : 0;
+        bool portFallback = false;
+        if (port <= 0 || port > 65535) {
+            port = kDefaultPort;
+            portFallback = true;
+        }
         char ipStr[INET_ADDRSTRLEN] = {0};
         sockaddr_in peer{};
 #if defined(_WIN32)
@@ -613,8 +622,9 @@ struct LocalSendReceiver::Impl {
             devices[key] = d;
         }
         if (isNew) {
-            APX_LOGI("LocalSend register 入表：{}（{}:{}）", d.alias.c_str(), d.ip.c_str(),
-                     static_cast<int>(d.port));
+            APX_LOGI("LocalSend register 入表：{}（{}:{}）{}", d.alias.c_str(), d.ip.c_str(),
+                     static_cast<int>(d.port),
+                     portFallback ? "［body 无 port，按默认端口］" : "");
             if (onDevice) onDevice(d);
         }
     }

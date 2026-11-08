@@ -565,10 +565,15 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                     ApComponents.SwitchRow(
                         title = "LocalSend 互传",
-                        summary = if (localSendWanted && !localSend) {
-                            ctx.getString(R.string.ui_set_sum_localsend_stale)
-                        } else {
-                            "开启后在局域网内接收文件"
+                        summary = when {
+                            localSendWanted && !localSend ->
+                                ctx.getString(R.string.ui_set_sum_localsend_stale)
+                            // 服务在前台、HTTP 也正常，但发现通道（UDP）没起来时，PC 面板的
+                            // 「附近设备」会一直是空的 —— 这里必须说出来，否则用户只会觉得
+                            // 「开关明明开着却用不了」（v223.29.32 现场就是这个状态）。
+                            localSend && !com.allperiph.localsend.LocalSendService.discoveryUp ->
+                                "发现通道未就绪（电脑可能看不到这台设备）：关掉再打开一次即可重建"
+                            else -> "开启后在局域网内接收文件"
                         },
                         checked = localSend,
                         onCheckedChange = { on ->

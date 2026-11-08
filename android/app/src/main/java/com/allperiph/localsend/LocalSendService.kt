@@ -16,13 +16,17 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.MediaStore
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.io.OutputStream
 import java.net.DatagramPacket
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
+import java.net.NetworkInterface
 import java.net.URL
 import java.net.URLConnection
 import java.util.UUID
@@ -43,6 +47,7 @@ class LocalSendService : Service() {
         const val ACTION_STOP = "com.allperiph.localsend.STOP"
         private const val CHAN_ID = "localsend_rx"
         private const val NOTIFY_FGS = 0x105E
+        private const val TAG = "ApxLocalSend"
         private const val ANNOUNCE_PERIOD_MS = 30_000L
         private const val REGISTER_DEDUP_MS = 30_000L
         /**
@@ -54,6 +59,22 @@ class LocalSendService : Service() {
          */
         @Volatile
         var isRunning: Boolean = false
+            private set
+
+        /**
+         * 发现通道（UDP 多播/广播）此刻是否真的可用。
+         *
+         * 必须和 [isRunning] 分开：服务在前台、HTTP 53317 在听、收文件也正常，但发现线程
+         * 可能已经死了 —— v223.29.32 现场就是这台机器 40 分钟没往 PC 发过一条 announce，
+         * 面板「附近设备」永远空，开关却显示「开」。
+         */
+        @Volatile
+        var discoveryUp: Boolean = false
+            private set
+
+        /** 本机 HTTP 监听端口（53317 被占时回退 53318/53319），register 自报用 */
+        @Volatile
+        var httpPort: Int = LocalSendProtocol.HTTP_PORT
             private set
 
         fun start(context: Context) = context.startForegroundService(Intent(context, LocalSendService::class.java).setAction(ACTION_START))
@@ -70,6 +91,9 @@ class LocalSendService : Service() {
     }
 
     private var multicast: MulticastSocket? = null
+    /** announce 目标地址：多播组 + 受限广播 + 网段广播（建 socket 时按实际网卡算出来） */
+    @Volatile private var announceTargets: List<InetAddress> = emptyList()
+    private var discoveryThread: Thread? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var httpServer: LocalSendHttpServer? = null
     private var httpListenPort = LocalSendProtocol.HTTP_PORT
@@ -124,38 +148,158 @@ class LocalSendService : Service() {
                 val s = LocalSendHttpServer(port, handler)
                 s.start()
                 httpServer = s; httpListenPort = port
+                httpPort = port
                 break
             } catch (_: Throwable) { httpServer = null }
         }
 
-        Thread {
+        startDiscovery()
+    }
+
+    private fun startDiscovery() {
+        val alive = discoveryThread?.isAlive == true
+        if (alive) return
+        discoveryThread = Thread({ discoveryLoop() }, "LocalSend-Discovery").apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    /**
+     * 发现主循环。
+     *
+     * **外层 while 是自愈的关键**：旧实现把整个 socket 生命周期塞进一个 try，`receive()`
+     * 抛一次就永久退出，异常还被 `catch (_: Throwable) {}` 吞掉 —— 表现就是「开关开着、
+     * 53317 在听、收文件也正常，但附近设备永远是空的」。现在任何异常都记日志、关旧 socket、
+     * 退避后重建并重新加入多播组（Wi-Fi 重连、网卡切换后自动恢复）。
+     */
+    private fun discoveryLoop() {
+        var failures = 0
+        while (running) {
+            var ms: MulticastSocket? = null
             try {
-                val ms = MulticastSocket(LocalSendProtocol.MULTICAST_PORT)
-                ms.timeToLive = 1
-                ms.reuseAddress = true
-                ms.joinGroup(InetSocketAddress(LocalSendProtocol.MULTICAST_GROUP, LocalSendProtocol.MULTICAST_PORT), null)
+                ms = openDiscoverySocket()
                 multicast = ms
+                discoveryUp = true
+                failures = 0
+                Log.i(TAG, "发现通道就绪 bind=${ms.localSocketAddress} group=${LocalSendProtocol.MULTICAST_GROUP} targets=${announceTargets.map { it.hostAddress }}")
                 longArrayOf(100, 500, 2000).forEach { d -> mainHandler.postDelayed({ sendAnnounce() }, d) }
+                mainHandler.removeCallbacks(announceRunnable)
                 mainHandler.postDelayed(announceRunnable, ANNOUNCE_PERIOD_MS)
                 val buf = ByteArray(64 * 1024)
                 while (running) {
                     val packet = DatagramPacket(buf, buf.size)
                     ms.receive(packet)
-                    val text = String(packet.data, 0, packet.length, Charsets.UTF_8)
+                    if (packet.length <= 0) continue
                     val ip = packet.address?.hostAddress ?: continue
-                    onAnnounce(text, ip)
+                    // 单条报文解析失败不能带走整条通道（旧实现就是被这里带走的）
+                    try {
+                        onAnnounce(String(packet.data, 0, packet.length, Charsets.UTF_8), ip)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "处理 announce 失败（来自 $ip）", t)
+                    }
                 }
-            } catch (_: Throwable) {}
-        }.apply { isDaemon = true; start() }
+            } catch (t: Throwable) {
+                if (!running) break
+                failures++
+                discoveryUp = false
+                multicast = null
+                Log.w(TAG, "发现通道中断（第 $failures 次），准备重建", t)
+                mainHandler.removeCallbacks(announceRunnable)
+                val backoff = minOf(30_000L, 2_000L * failures)
+                try { Thread.sleep(backoff) } catch (_: InterruptedException) { break }
+            } finally {
+                try { ms?.close() } catch (_: Throwable) {}
+            }
+        }
+        discoveryUp = false
+    }
+
+    /**
+     * 显式绑 IPv4 的发现 socket。
+     *
+     * 旧写法 `MulticastSocket(port)` 跟随平台默认地址族绑定（这台 Android 17 上落到
+     * `[::]:53317`），随后 `joinGroup(..., null)` 又让内核自己挑网卡：多网络（Wi-Fi + 蜂窝）
+     * 或默认网卡变化后，「加入组播的网卡」与「发 announce 的出口网卡」可能不是同一张，
+     * announce 就再也发不出去。这里把三件事钉死：IPv4 通配绑定、指定网卡、TTL=1。
+     */
+    private fun openDiscoverySocket(): MulticastSocket {
+        val ms = MulticastSocket(null)
+        ms.reuseAddress = true
+        ms.bind(InetSocketAddress(InetAddress.getByName("0.0.0.0"), LocalSendProtocol.MULTICAST_PORT))
+        ms.timeToLive = 1
+        // 广播目标需要 SO_BROADCAST，否则 sendto(255.255.255.255) 直接 EACCES
+        try { ms.broadcast = true } catch (t: Throwable) { Log.w(TAG, "开启广播发送失败", t) }
+        val group = InetAddress.getByName(LocalSendProtocol.MULTICAST_GROUP)
+        val nif = preferredMulticastInterface()
+        if (nif != null) {
+            try { ms.networkInterface = nif } catch (t: Throwable) { Log.w(TAG, "设置组播网卡失败", t) }
+            ms.joinGroup(InetSocketAddress(group, LocalSendProtocol.MULTICAST_PORT), nif)
+            Log.i(TAG, "加入多播组 ${LocalSendProtocol.MULTICAST_GROUP} on ${nif.name}")
+        } else {
+            ms.joinGroup(group)
+            Log.w(TAG, "没有可用 IPv4 网卡，多播组按内核默认接口加入")
+        }
+        announceTargets = buildAnnounceTargets(nif, group)
+        return ms
+    }
+
+    /** 优先带 IPv4 的 Wi-Fi 网卡；否则任一带 IPv4 的非回环物理网卡 */
+    private fun preferredMulticastInterface(): NetworkInterface? {
+        val candidates = ArrayList<NetworkInterface>()
+        try {
+            for (nif in NetworkInterface.getNetworkInterfaces()) {
+                if (!nif.isUp || nif.isLoopback) continue
+                if (!nif.inetAddresses.toList().any { it is Inet4Address }) continue
+                candidates.add(nif)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "枚举网卡失败", t)
+        }
+        if (candidates.isEmpty()) return null
+        return candidates.firstOrNull { it.name.startsWith("wlan") }
+            ?: candidates.firstOrNull { !it.isVirtual }
+            ?: candidates.first()
+    }
+
+    /**
+     * announce 目标：多播组 + 受限广播 255.255.255.255 + 网段广播。
+     *
+     * 多播是官方通道，但家用路由器/AP 常对 224.0.0.167 做 IGMP snooping 而不带 querier，
+     * 无线↔有线方向会被静默丢掉；广播在同一个广播域里更稳，两边都发成本几乎为零。
+     */
+    private fun buildAnnounceTargets(nif: NetworkInterface?, group: InetAddress): List<InetAddress> {
+        val out = ArrayList<InetAddress>()
+        out.add(group)
+        try {
+            val limited = InetAddress.getByName("255.255.255.255")
+            if (out.none { it.hostAddress == limited.hostAddress }) out.add(limited)
+        } catch (t: Throwable) {
+            Log.w(TAG, "取受限广播地址失败", t)
+        }
+        try {
+            nif?.interfaceAddresses?.forEach { ia ->
+                val b = ia.broadcast
+                if (b is Inet4Address && out.none { it.hostAddress == b.hostAddress }) out.add(b)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "取网段广播地址失败", t)
+        }
+        return out
     }
 
     private fun teardown() {
         running = false
         isRunning = false
+        discoveryUp = false
+        httpPort = LocalSendProtocol.HTTP_PORT
         mainHandler.removeCallbacksAndMessages(null)
+        try { discoveryThread?.interrupt() } catch (_: Throwable) {}
+        discoveryThread = null
         try { multicast?.leaveGroup(InetSocketAddress(LocalSendProtocol.MULTICAST_GROUP, LocalSendProtocol.MULTICAST_PORT), null) } catch (_: Throwable) {}
         try { multicast?.close() } catch (_: Throwable) {}
         multicast = null
+        announceTargets = emptyList()
         try { httpServer?.stop() } catch (_: Throwable) {}
         httpServer = null
         try { if (multicastLock?.isHeld == true) multicastLock?.release() } catch (_: Throwable) {}
@@ -165,11 +309,31 @@ class LocalSendService : Service() {
 
     private fun sendAnnounce() {
         val ms = multicast ?: return
-        try {
-            val payload = LocalSendProtocol.announce(alias, deviceType, true, httpListenPort).toString().toByteArray(Charsets.UTF_8)
-            val packet = DatagramPacket(payload, payload.size, InetSocketAddress(LocalSendProtocol.MULTICAST_GROUP, LocalSendProtocol.MULTICAST_PORT))
-            ms.send(packet)
-        } catch (_: Throwable) {}
+        val payload = try {
+            LocalSendProtocol.announce(alias, deviceType, true, httpListenPort).toString().toByteArray(Charsets.UTF_8)
+        } catch (t: Throwable) {
+            Log.w(TAG, "构造 announce 失败", t)
+            return
+        }
+        val targets = announceTargets.ifEmpty {
+            listOfNotNull(runCatching { InetAddress.getByName(LocalSendProtocol.MULTICAST_GROUP) }.getOrNull())
+        }
+        var sent = 0
+        for (addr in targets) {
+            try {
+                ms.send(DatagramPacket(payload, payload.size, addr, LocalSendProtocol.MULTICAST_PORT))
+                sent++
+            } catch (t: Throwable) {
+                Log.w(TAG, "announce → ${addr.hostAddress} 失败", t)
+            }
+        }
+        if (sent == 0) {
+            // 一个目标都发不出去 = 发现通道实际已废：标记出来（设置页据此提示），
+            // 并关掉 socket 让主循环走重建分支自愈。
+            discoveryUp = false
+            Log.w(TAG, "announce 全部目标发送失败，重建发现通道")
+            try { ms.close() } catch (_: Throwable) {}
+        }
     }
 
     private fun onAnnounce(text: String, ip: String) {
@@ -194,10 +358,16 @@ class LocalSendService : Service() {
                 conn.requestMethod = "POST"
                 conn.connectTimeout = 3000; conn.readTimeout = 3000; conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(handler.deviceInfo().toString().toByteArray(Charsets.UTF_8)) }
-                conn.responseCode
+                // register body 必须带 port / protocol：对端（PC 接收端）靠这两个字段把本机
+                // 记进「附近设备」，缺 port 会被静默丢弃 —— 多播被路由器挡掉时这是唯一的发现通路。
+                val body = LocalSendProtocol.register(alias, deviceType, true, httpListenPort)
+                conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
                 conn.disconnect()
-            } catch (_: Throwable) {}
+                Log.i(TAG, "register → $ip:$port HTTP $code")
+            } catch (t: Throwable) {
+                Log.w(TAG, "register → $ip:$port 失败", t)
+            }
         }.apply { isDaemon = true; start() }
     }
 

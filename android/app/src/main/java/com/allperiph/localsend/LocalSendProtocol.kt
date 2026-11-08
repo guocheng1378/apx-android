@@ -41,4 +41,16 @@ object LocalSendProtocol {
             .put("port", port)
             .put("protocol", "http")
             .put("announce", true)
+
+    /**
+     * POST register 请求体：官方 dto_v2 的 RegisterDto = selfInfo + port + protocol。
+     *
+     * 旧实现这里直接发 `deviceInfo()`，没有 port —— 对端按协议取不到端口就把这次 register
+     * 丢掉（PC 接收端以前是静默 return），「多播被路由器挡了还能靠单播 register 兜底」
+     * 这条路等于从来没通。
+     */
+    fun register(alias: String, deviceType: String, download: Boolean, port: Int): JSONObject =
+        deviceInfo(alias, deviceType, download)
+            .put("port", port)
+            .put("protocol", "http")
 }

@@ -121,7 +121,10 @@ class SendActivity : ComponentActivity() {
             Toast.makeText(this, getString(R.string.ui_localsend_none), Toast.LENGTH_SHORT).show(); return
         }
         val deviceType = if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
-        val selfInfo = LocalSendProtocol.deviceInfo(android.os.Build.MODEL, deviceType, true)
+        // register 请求体要带 port/protocol，对端才认得出本机的 HTTP 端口（原来只发 deviceInfo）
+        val selfInfo = LocalSendProtocol.register(
+            android.os.Build.MODEL, deviceType, true, LocalSendService.httpPort,
+        )
         Toast.makeText(this, getString(R.string.ui_localsend_sending, items.size, target.alias), Toast.LENGTH_SHORT).show()
         val pendingTmp = tmpFiles.toList()
         Thread {
