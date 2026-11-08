@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""repo-edit：互传超时修复 —— E1/E2 重跑版。
+"""repo-edit：修「open-file dummy 超时」—— 系统文件对话框被 bridge 10s 硬超时误杀。
 
-run #97 教训：同一文件多条 EDITS 必须**累积替换**（pending 里拿上次结果继续改），
-否则每条都从原文重算、后写覆盖前写，sender 只落了最后一条 E3。本版修成累积式，
-全部 5 条重列（已落的自动 skip，幂等）。本次目标：E1 register 30s + E2 prepare 30s。
+根因（实测报错 + 日志 14:59:53 open-file 后无 send 坐实）：
+  bridge.request() 对所有请求统一 10s 超时；openFile 是用户交互（找文件多久都正常），
+  超 10s 前端 reject「open-file dummy 超时」→ pending 删除 → 宿主稍后回的选中路径被
+  丢弃 → sendTo 不执行，发送根本没开始。
+
+修法：request 加可选 timeoutMs（默认仍 10s；0=不启用），openFile 传 600_000（10 分钟）。
+锚点唯一命中；同文件两条**累积替换**（run #97 覆盖 bug 已修）；幂等。
 """
 import os
 import sys
@@ -12,96 +16,38 @@ ERRLOG = "docs/edit_error.log"
 
 EDITS = [
     {
-        "id": "E1 register 30s",
-        "file": "pc/host/src/localsend/local_send_sender.cpp",
+        "id": "E6 request 支持自定义超时",
+        "file": "pc/web/src/api/bridge.ts",
         "kind": "replace",
-        "anchor": "    reg.body = &regBody;",
-        "new": (
-            "    reg.body = &regBody;\n"
-            "    // 10s 默认值在慢机（息屏首包 / 高负载）上过紧 —— register 超时误报在这里拦过一次\n"
-            "    reg.timeoutMs = 30'000;"
-        ),
+        "anchor": """  private request(kind: Kind, name: string, payload?: Record<string, unknown>): Promise<any> {
+    const id = `req-${Date.now()}-${++this.seq}`;
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${kind} ${name} 超时`));
+      }, 10_000);""",
+        "new": """  /** timeoutMs 默认 10s；传 0 = 不启用超时。openFile 单独放宽 —— 系统文件对话框
+   *  是用户交互，找文件超 10 秒就被前端判死（报错「open-file dummy 超时」），
+   *  宿主稍后回的选中路径因 pending 已删被丢弃，发送根本不会启动。 */
+  private request(kind: Kind, name: string, payload?: Record<string, unknown>, timeoutMs = 10_000): Promise<any> {
+    const id = `req-${Date.now()}-${++this.seq}`;
+    return new Promise((resolve, reject) => {
+      const timeout = timeoutMs > 0 ? window.setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${kind} ${name} 超时`));
+      }, timeoutMs) : 0;""",
     },
     {
-        "id": "E2 prepare 30s",
-        "file": "pc/host/src/localsend/local_send_sender.cpp",
+        "id": "E7 openFile 10 分钟",
+        "file": "pc/web/src/api/bridge.ts",
         "kind": "replace",
-        "anchor": "    prep.body = &prepBody;",
-        "new": (
-            "    prep.body = &prepBody;\n"
-            "    // 同 register：对端可能弹「是否接收」等人工点，10s 必超 —— 放宽到 30s\n"
-            "    prep.timeoutMs = 30'000;"
-        ),
-    },
-    {
-        "id": "E3 upload 响应宽限重读",
-        "file": "pc/host/src/localsend/local_send_sender.cpp",
-        "kind": "replace",
-        "anchor": (
-            "    bool bodyDone = false;\n"
-            "    char buf[16 * 1024];\n"
-            "    while (!bodyDone) {\n"
-            "        const int rd = waitReadable(s, req.timeoutMs);\n"
-            "        if (rd == 0) { resp.error = \"等待响应超时\"; break; }"
-        ),
-        "new": (
-            "    bool bodyDone = false;\n"
-            "    bool graceUsed = false;\n"
-            "    char buf[16 * 1024];\n"
-            "    while (!bodyDone) {\n"
-            "        int rd = waitReadable(s, req.timeoutMs);\n"
-            "        if (rd == 0 && req.stream && !graceUsed) {\n"
-            "            // upload 的字节已全部写出：对端要收全才落盘回 204，慢机 / 息屏会晚到 ——\n"
-            "            // 首超不判死，再宽限 30s 重读一次（根治「手机已完整收到、PC 报等待响应超时」）\n"
-            "            graceUsed = true;\n"
-            "            rd = waitReadable(s, 30'000);\n"
-            "        }\n"
-            "        if (rd == 0) { resp.error = \"等待响应超时\"; break; }"
-        ),
-    },
-    {
-        "id": "E4 web_panel 进度事件",
-        "file": "pc/host/src/ui/web_panel.cpp",
-        "kind": "replace",
-        "anchor": "            const auto res = tx.send(target, self, files);",
-        "new": """            // 进度节流：sender 的 onWrite 每 64KB 一拍，直接转事件会淹没面板消息泵 ——
-            // 与 file.send 同口径：每 10% 推一拍（postEvent 线程安全，发送线程可调）
-            int lastPct = -1;
-            const auto onProgress = [p, &lastPct](const apxpc::localsend::SendProgress& pr) {
-                const int pct = pr.grandTotal > 0
-                    ? static_cast<int>(pr.totalBytes * 100 / pr.grandTotal) : 100;
-                if (pct >= 100 || pct - lastPct >= 10) {
-                    lastPct = pct;
-                    Json d = Json::makeObject();
-                    d["percent"] = pct;
-                    d["fileName"] = pr.fileName;
-                    d["filesDone"] = static_cast<double>(pr.filesDone);
-                    d["filesTotal"] = static_cast<double>(pr.filesTotal);
-                    d["bytes"] = static_cast<double>(pr.totalBytes);
-                    d["total"] = static_cast<double>(pr.grandTotal);
-                    postEvent(p, std::string("on-localsend-progress"), d);
-                }
-                return true;
-            };
-            const auto res = tx.send(target, self, files, onProgress);""",
-    },
-    {
-        "id": "E5 Transfer 订阅进度",
-        "file": "pc/web/src/pages/Transfer.tsx",
-        "kind": "replace",
-        "anchor": "      bridge.onEvent('on-file-received', (evt: any) => {",
-        "new": """      // 宿主每 10% 推一拍（web_panel.cpp localsend.send 分支节流）：大文件互传
-      // 从「正在发送…」干等变成带百分比 —— 也是区分「在传」与「卡死」的唯一信号
-      bridge.onEvent('on-localsend-progress', (evt: any) => {
-        const d = evt?.data || {};
-        if (typeof d.percent !== 'number') return;
-        const nm = d.fileName ? fileNameOf(String(d.fileName)) : '';
-        setLsStatus(
-          `正在发送${nm ? ` ${nm}` : ''} · ${d.percent}%` +
-            (d.filesTotal > 1 ? ` · ${d.filesDone + 1}/${d.filesTotal}` : ''),
-        );
-      }),
-      bridge.onEvent('on-file-received', (evt: any) => {""",
+        "anchor": """  openFile(filter: string): Promise<any> {
+    return this.request('open-file', 'dummy', { filter });
+  }""",
+        "new": """  openFile(filter: string): Promise<any> {
+    // 给 10 分钟：慢慢找文件不该被判死（默认 10s 是实测「open-file dummy 超时」根因）
+    return this.request('open-file', 'dummy', { filter }, 600_000);
+  }""",
     },
 ]
 
@@ -129,7 +75,7 @@ def main() -> int:
                 + "\n---anchor---\n" + e["anchor"][:200]
             )
             continue
-        # 累积替换：同文件后一条基于前一条的结果继续改（run #97 覆盖 bug 的修正）
+        # 累积替换：同文件后一条基于前一条的结果继续改
         pending[path] = base.replace(e["anchor"], e["new"], 1)
 
     if errors:
