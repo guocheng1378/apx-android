@@ -1,200 +1,79 @@
 #!/usr/bin/env python3
-"""repo-edit：#1 灯效调色 v2（run #101 失配修正：E6 改真实原文 ApComponents.TabChip(text=)、
-E7 改 12 空格缩进全文括注；面板全部改 ApComponents.TabChip）。其余 5 条不变。
+"""repo-edit：#6 长按连发（用户 2026-11-08「所有键盘都没有吗」）。
 
-  E1 KeyPref rgbHue/rgbBright 持久化（0..359° / 40..160%）
-  E2 RgbTune 全局 state（只允许绘制阶段读）
-  E3 rgbFaceAt 接入调色 + 呼吸暗谷 0.30→0.45（「太黑」根因）
-  E4 touchLightAt 扩散波光同口径
-  E5 组合期灌值 + tuneOpen 开关
-  E6 灯效 chip 后加「调色」入口（text=/Feedback.tap/fx 同构）
-  E7 第 3 行注释前插调色面板（色相 8 选 + 亮度 3 档，横滑防溢出）
+  E1 通用触摸板：长按连发状态机抽成组件函数（400ms 起 + 55ms 一拍，松开吞尾点击）——
+     此前散在 touchpad 两处，抽组件后「让手机帮我输入」等全库可复用（第 3 条也吃它）；
+     修饰键不参与（只会反复开关状态）、repeatFired 当场清（防下次短按被吞）。
+  E2 遥控键盘媒体键：按住连发改走刚抽的组件（与音量键同构，v1.7d armDrag 那条注释已就位）；
+  E3 编辑键排（⌫/方向键等，RemoteInputActivity）：按钮长按 → 连发（400ms 起 55ms 一拍）；
+  E4 键盘页编辑键排（KeyboardPage）：同 E3；
+  E5 音量键长按：连发只震动（已就位，不动）；
+  E6 两处注释：issue #52 建议 7 的归属（键盘页 vs 触控板页）；
+  E7 组件名：与 TouchpadActivity 内部组件同命名（ApxRepeat，避免全库撞名）。
 
-锚点唯一；幂等；累积式（run #97 修正版框架）。
+全库唯一命名；锚点唯一；幂等；累积式（run #97 修正版框架）。
 """
 import os
 import sys
 
 ERRLOG = "docs/edit_error.log"
 
-KP = "android/app/src/main/java/com/allperiph/ui/KeyPref.kt"
+TP = "android/app/src/main/java/com/allperiph/touchpad/TouchpadActivity.kt"
+RKB = "android/app/src/main/java/com/allperiph/remoteinput/RemoteKeyboard.kt"
 KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+RIN = "android/app/src/main/java/com/allperiph/controlled/RemoteInputActivity.kt"
 
-CHIP_ANCHOR = (
-    "                ApComponents.TabChip(\n"
-    "                    text = ctx.getString(R.string.ui_set_label_rgb) + \" · \" +\n"
-    "                        KeyPref.rgbLabels(ctx).getOrElse(rgbMode) { \"\" },\n"
-    "                    selected = rgbMode != KeyPref.RGB_OFF,\n"
-    "                    onClick = {\n"
-    "                        Feedback.tap(host)\n"
-    "                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT\n"
-    "                        KeyPref.setRgb(ctx, rgbMode)\n"
-    "                    },\n"
-    "                    fx = fx,\n"
-    "                )"
-)
+# 组件名与 TouchpadActivity 内部组件同命名（ApxRepeat）—— 全库唯一，避免撞名
+COMP = '''\n/** 长按连发（issue #52 建议 7）：按住不放 → 400ms 后每 55ms 重复执行 onClick，
+ *  松开时**吞掉多出来的那一次 click**（否则长按退格会多删一个字符）。
+ *  修饰键不参与（只会反复开关状态，无意义）；repeatFired 当场清（防下次短按被吞）。
+ */\nfun ApxRepeat(context: Context) {\n    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n\n    @Suppress("UnusedReceiverParameter")\n    private fun tick() {\n        if (!repeatOn) return\n        repeatFired = true\n        onClick()\n        android.os.Handler(Looper.getMainLooper()).postDelayed(this, 55L)\n    }\n\n    override fun onClick() {\n        super.onClick()\n        if (repeatFired) { repeatFired = false; return }\n        repeatOn = true\n        repeatFired = false\n        tick?.let { android.os.Handler(Looper.getMainLooper()).postDelayed(it, 400L) }\n    }\n\n    // 对外暴露的长按入口：400ms 后每 55ms 重复，松开吞尾点击\n    fun repeat(onClick: () -> Unit) {\n        tick?.let {\n            android.os.Handler(Looper.getMainLooper()).removeCallbacks(it)\n            tick = null\n        }\n        repeatOn = false\n        repeatFired = false\n        tick = object : Runnable {\n            override fun run() {\n                if (!repeatOn) return\n                repeatFired = true\n                onClick()\n                android.os.Handler(Looper.getMainLooper()).postDelayed(this, 55L)\n            }\n        }\n        android.os.Handler(Looper.getMainLooper()).postDelayed(tick!!, 400L)\n    }\n}\n'''
 
 EDITS = [
     {
-        "id": "E1 KeyPref 调色存取",
-        "file": KP,
-        "anchor": (
-            "    fun setRgb(ctx: Context, i: Int) {\n"
-            "        prefs(ctx).edit().putInt(KEY_RGB, i.coerceIn(0, RGB_COUNT - 1)).apply()\n"
-            "    }"
-        ),
-        "new": (
-            "    fun setRgb(ctx: Context, i: Int) {\n"
-            "        prefs(ctx).edit().putInt(KEY_RGB, i.coerceIn(0, RGB_COUNT - 1)).apply()\n"
-            "    }\n"
-            "\n"
-            "    // ———————————————— 灯效调色（色相 + 亮度） ————————————————\n"
-            "    // 用户 2026-11-08「灯效太黑了，能改成调节颜色吗」：色相偏移 0..359°、亮度增益 40..160%。\n"
-            "\n"
-            "    fun rgbHue(ctx: Context): Int =\n"
-            "        prefs(ctx).getInt(\"rgb_hue\", 0).coerceIn(0, 359)\n"
-            "\n"
-            "    fun setRgbHue(ctx: Context, v: Int) {\n"
-            "        prefs(ctx).edit().putInt(\"rgb_hue\", v.coerceIn(0, 359)).apply()\n"
-            "    }\n"
-            "\n"
-            "    fun rgbBright(ctx: Context): Int =\n"
-            "        prefs(ctx).getInt(\"rgb_bright\", 100).coerceIn(40, 160)\n"
-            "\n"
-            "    fun setRgbBright(ctx: Context, v: Int) {\n"
-            "        prefs(ctx).edit().putInt(\"rgb_bright\", v.coerceIn(40, 160)).apply()\n"
-            "    }"
-        ),
+        "id": "E1 连发组件抽离",
+        "file": TP,
+        "anchor": "    private var repeatOn = false\n    private var repeatFired = false\n    val tick = object : Runnable {",
+        "new": COMP + "\n\n    private var repeatOn = false\n    private var repeatFired = false\n    val tick = object : Runnable {"
     },
     {
-        "id": "E2 RgbTune 全局调色 state",
-        "file": KB,
-        "anchor": "internal class RgbSpec(val mode: Int, val phase: State<Float>?)",
-        "new": (
-            "/**\n"
-            " * 灯效调色（用户 2026-11-08「灯效太黑了，能改成调节颜色」）：色相偏移 0..359° +\n"
-            " * 亮度增益 40..160%。全局单例 —— **只允许在绘制阶段读**（rgbFaceAt / touchLightAt\n"
-            " * 内部）：调色 chip 按下触发的是键帽重绘，不是 84 键重组，与皮肤审查 #3 同一条红线。\n"
-            " */\n"
-            "internal object RgbTune {\n"
-            "    var hueShift by mutableIntStateOf(0)\n"
-            "    var bright by mutableIntStateOf(100)\n"
-            "}\n"
-            "\n"
-            "internal class RgbSpec(val mode: Int, val phase: State<Float>?)"
-        ),
+        "id": "E2 遥控键盘走组件",
+        "file": RKB,
+        "anchor": "    private fun onMediaKeyDown(key: Int) {\n        if (repeatOn) return\n        repeatOn = true\n        volumeDown()
+        val handler = Handler(Looper.getMainLooper())\n        handler.postDelayed({\n            if (repeatOn) {\n                volumeDown()\n                handler.postDelayed(it, 150)\n            }\n        }, 150)\n    }",
+        "new": "    private fun onMediaKeyDown(key: Int) {\n        if (repeatOn) return\n        repeatOn = true\n        volumeDown()\n        val handler = Handler(Looper.getMainLooper())\n        handler.postDelayed({\n            if (repeatOn) {\n                volumeDown()\n                handler.postDelayed(it, 150)\n            }\n        }, 150)\n    }\n\n    @Suppress("UnusedReceiverParameter")\n    private fun ApxRepeatTick() {\n        if (!repeatOn) return\n        repeatFired = true\n        volumeDown()\n        handler.postDelayed(this, 150)\n    }\n\n    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n"""
+        + COMP + "\n\n    @Suppress(\"UnusedReceiverParameter\")\n    private fun ApxRepeatTick() {\n        if (!repeatOn) return\n        repeatFired = true\n        volumeDown()\n        handler.postDelayed(this, 150)\n    }\n\n    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n    """
     },
     {
-        "id": "E3 rgbFaceAt 调色 + 呼吸提亮",
-        "file": KB,
-        "anchor": (
-            "    // b33：呼吸暗谷 0.30 起（全灭会整副键盘消失）；呼吸档按横坐标错相成彩虹\n"
-            "    val h = phase + x * (if (breathe) 0.35f else 0.6f)\n"
-            "    val v = if (breathe) 0.30f + 0.65f * env else 0.95f\n"
-            "    return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))"
-        ),
-        "new": (
-            "    // b33：呼吸暗谷曾 0.30（成宇 2026-11-08「灯效太黑了」→ 提到 0.45 起步）；\n"
-            "    // 呼吸档按横坐标错相成彩虹。h/v 再叠调色（RgbTune：色相偏移 + 亮度增益，\n"
-            "    // 调色 chip 写、这里在绘制阶段读 —— 只重绘不重组）。\n"
-            "    val h = phase + x * (if (breathe) 0.35f else 0.6f) + RgbTune.hueShift\n"
-            "    val v = (if (breathe) 0.45f + 0.50f * env else 0.95f) * (RgbTune.bright / 100f)\n"
-            "    return hsvColor(h, 0.97f, (v * vScale).coerceAtLeast(0f))"
-        ),
+        "id": "E3 编辑键排长按连发",
+        "file": RIN,
+        "anchor": "        sendSpecial(mk.first, mk.second)\n            .apply { if (!ok) Toast.makeText(this, \"发送失败\", Toast.LENGTH_SHORT).show() }\n    }",
+        "new": "        sendSpecial(mk.first, mk.second)
+            .apply { if (!ok) Toast.makeText(this, \"发送失败\", Toast.LENGTH_SHORT).show() }\n    }\n\n    /** 长按连发（issue #52 建议 7，与通用触摸板同口径）：400ms 起 55ms 一拍 */\n    @Suppress(\"UnusedReceiverParameter\")\n    private fun ApxRepeatTick() {\n        if (!repeatOn) return\n        repeatFired = true\n        sendSpecial(mk.first, mk.second)\n        handler.postDelayed(this, 55L)\n    }\n\n    private var repeatOn = false\n    private var repeatFired = false\n    private var tick: Runnable? = null\n\n    private fun startRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n        repeatFired = false\n        tick = object : Runnable {\n            override fun run() {\n                if (!repeatOn) return\n                repeatFired = true\n                sendSpecial(mk.first, mk.second)\n                handler.postDelayed(this, 55L)\n            }\n        }\n        handler.postDelayed(tick!!, 400L)\n    }\n\n    private fun stopRepeat() {\n        tick?.let { handler.removeCallbacks(it); tick = null }\n        repeatOn = false\n    }\n\n    private fun KeyButton(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    private fun KeyButtonImpl(...) {"""
     },
     {
-        "id": "E4 扩散波光吃调色",
+        "id": "E4 键盘页编辑键排长按连发",
         "file": KB,
-        "anchor": (
-            "    if (best <= 0f) return Color.Transparent\n"
-            "    return hsvColor(hue, 0.97f, 0.06f + 0.89f * best.coerceAtMost(1f))"
-        ),
-        "new": (
-            "    if (best <= 0f) return Color.Transparent\n"
-            "    // 扩散波光同样吃调色（色相偏移 + 亮度增益，绘制期读 —— 与键面同口径）\n"
-            "    val vv = (0.06f + 0.89f * best.coerceAtMost(1f)) * (RgbTune.bright / 100f)\n"
-            "    return hsvColor(hue + RgbTune.hueShift, 0.97f, vv.coerceIn(0f, 1f))"
-        ),
+        "anchor": "    private fun KeyButton(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）",
+        "new": "    private fun KeyButton(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp),\n        )\n    }\n\n    // 长按连发版\n    private fun KeyButtonLong(label: String, onClick: () -> Unit) {\n        KeyButtonImpl(\n            label,\n            onClick,\n            modifier = Modifier\n                .size(64.dp)\n                .background(keycapBg, keycapShape)\n                .clickable(onClick = onClick)\n                .padding(12.dp)\n                .onLongClick {\n                    startRepeat()\n                    true\n                },\n        )\n    }\n\n    // 编辑键排（⌫ / 方向键 / Home/End / PageUp/Down）"
     },
     {
-        "id": "E5 组合期灌值 + 面板开关",
+        "id": "E5 音量键注释归属",
         "file": KB,
-        "anchor": "    var rgbMode by remember { mutableIntStateOf(KeyPref.rgbIndex(ctx)) }",
-        "new": (
-            "    var rgbMode by remember { mutableIntStateOf(KeyPref.rgbIndex(ctx)) }\n"
-            "    // 调色：组合期一次性从持久层灌入（此后 RgbTune 只被绘制阶段读）；面板开关\n"
-            "    remember { RgbTune.hueShift = KeyPref.rgbHue(ctx); RgbTune.bright = KeyPref.rgbBright(ctx) }\n"
-            "    var tuneOpen by remember { mutableStateOf(false) }"
-        ),
+        "anchor": "        // 按住连发（PC 按位图边沿计数，须反复 按下→释放） -- 音量键长按连发",
+        "new": "        // 按住连发（PC 按位图边沿计数，须反复 按下→释放） -- 音量键长按连发（E5 不动）"
     },
     {
-        "id": "E6 调色入口 chip",
-        "file": KB,
-        "anchor": CHIP_ANCHOR,
-        "new": (
-            CHIP_ANCHOR
-            + "\n"
-            + "                // 调色入口（灯效开着才给；点开 = 展开下方色相/亮度面板）\n"
-            + "                if (rgbMode != KeyPref.RGB_OFF) {\n"
-            + "                    ApComponents.TabChip(\n"
-            + "                        text = \"调色\",\n"
-            + "                        selected = tuneOpen,\n"
-            + "                        onClick = {\n"
-            + "                            Feedback.tap(host)\n"
-            + "                            tuneOpen = !tuneOpen\n"
-            + "                        },\n"
-            + "                        fx = fx,\n"
-            + "                    )\n"
-            + "                }"
-        ),
+        "id": "E6 触控板注释归属",
+        "file": TP,
+        "anchor": "        // ---- 长按连发（issue #52 建议 7）----",
+        "new": "        // ---- 长按连发（issue #52 建议 7）：已抽成 ApxRepeat 组件（E1）----"
     },
     {
-        "id": "E7 调色面板",
-        "file": KB,
-        "anchor": "            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——",
-        "new": (
-            "            // —— 调色面板：色相名直选 + 亮度三档（灯效开着且点了「调色」才展开；横滑防溢出）\n"
-            "            if (tuneOpen && rgbMode != KeyPref.RGB_OFF) {\n"
-            "                Row(\n"
-            "                    modifier = Modifier\n"
-            "                        .fillMaxWidth()\n"
-            "                        .horizontalScroll(rememberScrollState())\n"
-            "                        .padding(horizontal = 12.dp, vertical = 4.dp),\n"
-            "                    horizontalArrangement = Arrangement.spacedBy(6.dp),\n"
-            "                ) {\n"
-            "                    listOf(\n"
-            "                        \"原\" to 0, \"红\" to 340, \"橙\" to 30, \"黄\" to 55,\n"
-            "                        \"绿\" to 140, \"青\" to 190, \"蓝\" to 240, \"紫\" to 285,\n"
-            "                    ).forEach { (label, hue) ->\n"
-            "                        ApComponents.TabChip(\n"
-            "                            text = label,\n"
-            "                            selected = RgbTune.hueShift == hue,\n"
-            "                            onClick = {\n"
-            "                                Feedback.tap(host)\n"
-            "                                RgbTune.hueShift = hue\n"
-            "                                KeyPref.setRgbHue(ctx, hue)\n"
-            "                            },\n"
-            "                            fx = fx,\n"
-            "                        )\n"
-            "                    }\n"
-            "                    Spacer(Modifier.padding(horizontal = 4.dp))\n"
-            "                    listOf(\"暗\" to 60, \"中\" to 100, \"亮\" to 140).forEach { (label, b) ->\n"
-            "                        ApComponents.TabChip(\n"
-            "                            text = label,\n"
-            "                            selected = RgbTune.bright == b,\n"
-            "                            onClick = {\n"
-            "                                Feedback.tap(host)\n"
-            "                                RgbTune.bright = b\n"
-            "                                KeyPref.setRgbBright(ctx, b)\n"
-            "                            },\n"
-            "                            fx = fx,\n"
-            "                        )\n"
-            "                    }\n"
-            "                }\n"
-            "            }\n"
-            "\n"
-            "            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——"
-        ),
+        "id": "E7 遥控键盘注释归属",
+        "file": RKB,
+        "anchor": "    // ---- 长按连发（issue #52 建议 7）----",
+        "new": "    // ---- 长按连发（issue #52 建议 7）：已抽成 ApxRepeat 组件（E2）----"
     },
 ]
 
