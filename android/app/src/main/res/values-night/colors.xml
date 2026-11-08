@@ -8,10 +8,11 @@
   底 #15181E / 卡 #1E232B / 内嵌 #141920，边框白色 8%（#14FFFFFF）。
 -->
 <resources>
-    <color name="md_primary">#FF5E6AD2</color>
+    <!-- 强调色与亮色同值 #3482FF，按下态取稿子里的 accent2 #5B9BFF -->
+    <color name="md_primary">#FF3482FF</color>
     <color name="md_on_primary">#FFFFFFFF</color>
-    <color name="md_primary_container">#FF1D2040</color>
-    <color name="md_primary_pressed">#FF828FFF</color>
+    <color name="md_primary_container">#FF142745</color>
+    <color name="md_primary_pressed">#FF5B9BFF</color>
 
     <color name="md_error_container">#FF4A1A16</color>
 
