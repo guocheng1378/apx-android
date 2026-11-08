@@ -50,6 +50,27 @@ jobs:
             echo "::error::F16 anchor patch failed rc=$RC"
             exit $RC
           fi
+          # Build #1460 失败修：action_router.cpp update.open 分支
+          # `static_cast<INT_PTR>(::ShellExecuteA(...))` —— ShellExecuteA 返回
+          # HINSTANCE（指针），C++ 不允许 static_cast 指针→整型 → C2440 + C2737 连锁。
+          # 改 reinterpret_cast，同一热修步骤免整文件回传。
+          python3 - <<'PY2'
+          p = "pc/host/src/api/action_router.cpp"
+          s = open(p, encoding="utf-8").read()
+          old = "const bool did = static_cast<INT_PTR>(::ShellExecuteA("
+          new = "const bool did = reinterpret_cast<INT_PTR>(::ShellExecuteA("
+          n = s.count(old)
+          if n != 1:
+              print("action_router patch miss count=%d" % n)
+              raise SystemExit(3)
+          open(p, "w", encoding="utf-8").write(s.replace(old, new))
+          print("action_router.cpp reinterpret_cast patched")
+          PY2
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "::error::action_router patch failed rc=$RC"
+            exit $RC
+          fi
           OUT=$(python3 .github/scripts/repo_edit.py 2>&1)
           RC=$?
           if [ $RC -ne 0 ]; then
