@@ -63,6 +63,16 @@ class ControlServer(
     /** 握手后鉴权回调：返回 false 拒绝该 IP（TV 用；手机端不设即只靠令牌鉴权） */
     @Volatile var onAuthorizePeer: ((String) -> Boolean)? = null
 
+    /**
+     * 多控制端并发接入裁决（v223.33，手机端接）：已有设备在线时**另一台**设备握手通过
+     * 要接管，不再静默顶掉旧连接 —— 旧实现直接踢，于是两台设备都自动重连就互相接管
+     * 来回踢，注入乱跳 = 用户报的「两台设备打架」。改为回调上层弹窗，**用户点确定才切换**；
+     * 15s 未裁决或弹窗没拉起来，兜底拒绝新连接（保住当前会话）。
+     * 不设回调的端（TV）维持旧行为：直接接管。
+     * 参数：(新设备 peerText, 当前设备 peerText, 裁决回调 true=切到新设备)
+     */
+    @Volatile var onConcurrentPeer: ((String, String, (Boolean) -> Unit) -> Unit)? = null
+
     @Volatile private var suspended = false
 
     /**
@@ -110,6 +120,12 @@ class ControlServer(
     // D-1 诊断：静默丢帧计数（magic/payloadLen/CRC 三类，每 50 次记一条）
     private var frameDrops = 0
 
+    // ---- v223.33 多设备接入裁决状态（均在 activateLock 内读写）----
+    /** 待用户裁决的新连接（一次只裁一个，后续并发直接拒） */
+    private var pendingSock: Socket? = null
+    /** 被拒过的设备 IP：再次接入静默拒绝，不重复弹窗（防两台重连风暴刷弹窗）；无人在线时清空 */
+    private val rejectedIps = HashSet<String>()
+
     private val injectThread = android.os.HandlerThread("apx-inject").apply { start() }
     private val injectHandler = Handler(injectThread.looper)
 
@@ -136,6 +152,7 @@ class ControlServer(
         runCatching { client?.close() }; runCatching { server?.close() }
         server = null; client = null; out = null; peerText = ""; ready = false
         acceptThread = null; readerThread = null; writerThread = null
+        synchronized(activateLock) { pendingSock = null; rejectedIps.clear() }
     }
 
     fun statusText(): String = if (ready) "已连接 $peerText" else "监听 $port · 等待对端连入"
@@ -180,6 +197,10 @@ class ControlServer(
      * 旧连接再握手，失败的探连也能打断正在工作的会话。现在握手 / 令牌 / onAuthorizePeer
      * 三关全过才动旧连接；[activateLock] 让并发握手串行收口，防止 client 与 out 被
      * 交叉写成「读写两条连接」。
+     *
+     * v223.33（多设备打架）：已有会话且接入方 IP 不同 → **不再静默接管**，挂起待裁决
+     * 回调 [onConcurrentPeer]（上层弹窗，用户点确定才切换）；同 IP 重连（原设备断线
+     * 重连的僵连接）与未接裁决回调的端（TV）仍走直接接管。
      */
     private fun activate(sock: Socket) {
         synchronized(activateLock) {
@@ -187,16 +208,72 @@ class ControlServer(
             val ip = sock.inetAddress?.hostAddress ?: ""
             if (onAuthorizePeer?.invoke(ip) == false) { Log.w("控制面", "拒绝未授权设备 $ip"); runCatching { sock.close() }; return }
             val prev = client
-            if (prev != null && prev !== sock) { Log.w("控制面", "新连接接管，顶掉旧连接 $peerText"); runCatching { prev.close() } }
-            client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
-            synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
-            synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
-            Log.i("控制面", "对端已连入：$peerText")
-            mainHandler.post { endpoint.onPeerStateChanged(true, peerText); onPeerChanged?.invoke(true, peerText) }
-            runCatching { sock.soTimeout = READ_TIMEOUT_MS }
-            readerThread = Thread({ readerLoop(sock) }, "apxctl-reader").apply { isDaemon = true; start() }
-            writerThread = Thread({ writerLoop(sock) }, "apxctl-writer").apply { isDaemon = true; start() }
+            val prevOpen = prev != null && prev !== sock && !prev.isClosed
+            if (prevOpen && ip != prev?.inetAddress?.hostAddress) {
+                // —— 另一台设备接入：弹窗点确定才行，不打架 ——
+                if (pendingSock != null) {
+                    Log.w("控制面", "已有连接等待用户裁决，新连接直接拒绝 ${peerTextOf(sock)}")
+                    runCatching { sock.close() }; return
+                }
+                if (rejectedIps.contains(ip)) {
+                    Log.i("控制面", "已被拒绝过的设备再次接入，静默拒绝（不再弹窗）$ip")
+                    runCatching { sock.close() }; return
+                }
+                val cb = onConcurrentPeer
+                if (cb != null) {
+                    pendingSock = sock
+                    val cur = peerText
+                    Log.i("控制面", "两台设备并发接入：${peerTextOf(sock)} 请求接管当前 $cur —— 等用户裁决")
+                    mainHandler.post {
+                        cb(peerTextOf(sock), cur) { ok -> decideTakeover(sock, ok) }
+                        // 兜底：弹窗没拉起来 / 用户没操作 —— 15s 后默认拒绝，保住当前会话
+                        mainHandler.postDelayed({ decideTakeover(sock, false) }, TAKEOVER_DECIDE_MS)
+                    }
+                    return
+                }
+                // 上层没接裁决回调（TV 端）：维持旧行为，直接接管
+                Log.w("控制面", "新连接接管，顶掉旧连接 $peerText")
+            } else if (prevOpen) {
+                Log.w("控制面", "新连接接管，顶掉旧连接 $peerText")
+            }
+            if (prevOpen) runCatching { prev!!.close() }
+            doActivate(sock)
         }
+    }
+
+    /** 用户在弹窗上做出选择（或超时兜底）。pendingSock 一次性消费，重复调用无副作用。 */
+    private fun decideTakeover(sock: Socket, ok: Boolean) {
+        synchronized(activateLock) {
+            if (pendingSock !== sock) return   // 已被裁决过（用户点击与 15s 兜底的竞争）
+            pendingSock = null
+            if (!ok) {
+                sock.inetAddress?.hostAddress?.let { rejectedIps.add(it) }
+                runCatching { sock.close() }
+                Log.i("控制面", "新设备未获确认，已拒绝 ${peerTextOf(sock)}")
+                return
+            }
+            if (!running.get() || sock.isClosed) { runCatching { sock.close() }; return }
+            val prev = client
+            if (prev != null && prev !== sock && !prev.isClosed) {
+                // 用户已选新设备：旧设备记入拒绝名单，防止它自动重连再弹一轮（打架循环）
+                prev.inetAddress?.hostAddress?.let { rejectedIps.add(it) }
+                Log.w("控制面", "用户确认切换：顶掉旧连接 $peerText")
+                runCatching { prev.close() }
+            }
+            doActivate(sock)
+        }
+    }
+
+    /** 实际接管（调用方必须已持有 [activateLock]）：换连接、重置状态、起读写线程 */
+    private fun doActivate(sock: Socket) {
+        client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
+        synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+        synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
+        Log.i("控制面", "对端已连入：$peerText")
+        mainHandler.post { endpoint.onPeerStateChanged(true, peerText); onPeerChanged?.invoke(true, peerText) }
+        runCatching { sock.soTimeout = READ_TIMEOUT_MS }
+        readerThread = Thread({ readerLoop(sock) }, "apxctl-reader").apply { isDaemon = true; start() }
+        writerThread = Thread({ writerLoop(sock) }, "apxctl-writer").apply { isDaemon = true; start() }
     }
 
     private fun readerLoop(sock: Socket) {
@@ -235,6 +312,8 @@ class ControlServer(
     private fun teardown(sock: Socket) {
         if (client === sock) {
             ready = false; client = null; out = null; peerText = ""; outQueue.clear()
+            // 无人在线：重置接入裁决记忆 —— 下次两台再连时重新给用户选一次
+            synchronized(activateLock) { rejectedIps.clear() }
             mainHandler.post { endpoint.onPeerStateChanged(false, ""); onPeerChanged?.invoke(false, "") }
             runCatching { injectHandler.post { releaseAllInputs() } }
         }
@@ -330,7 +409,7 @@ class ControlServer(
         // 双指点按/右键菜单全部失效。现在 bit1 按下沿→光标处按下，抬起沿按时长/位移
         // 判「长按（右键）或拖拽」；bit0 左键沿用 pressDown/pressUp。
         val needRightDown = (buttons and 2) != 0 && (prev and 2) == 0
-        val needRightUp = (buttons and 2) == 0 && (prev and 2) == 1
+        val needRightUp = (buttons and 2) == 0 && (prev and 2) != 0
         // 中键 bit2：被控端 ControlEndpoint 没有中键注入语义，维持忽略但不再静默 —— 记一条日志便于排查
         if (buttons and 4 != 0 && prev and 4 == 0) Log.w("控制面", "收到中键按下（bit2），被控端暂无中键注入通道，忽略")
         synchronized(keysLock) { lastButtons = buttons }
@@ -542,6 +621,8 @@ class ControlServer(
         private const val WRITER_IDLE_MS = 200L
         private const val READ_TIMEOUT_MS = 3_000
         private const val MAX_RX_BUF = 8 * 1024 * 1024
+        /** v223.33：多设备接入弹窗的裁决超时 —— 15s 未点确定默认拒绝新连接，保住当前会话 */
+        private const val TAKEOVER_DECIDE_MS = 15_000L
         /** P0-3：右键按住阈值 —— 抬起沿据此判「长按（右键菜单）」，需 ≥ TvInjector.finishStroke 的 500ms */
         private const val RIGHT_HOLD_MS = 550L
         /** P0-3：右键按住期间位移超过该像素数 → 判拖拽，立即抬起走 swipe */

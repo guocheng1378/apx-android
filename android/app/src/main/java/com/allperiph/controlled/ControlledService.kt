@@ -42,9 +42,7 @@ class ControlledService : Service() {
         override fun key(keyCode: Int, down: Boolean) {
             TvInputDispatcher.key(keyCode, down); TvInjector.key(keyCode, down)
         }
-        override fun text(ch: Char) {
-            TvInputDispatcher.text(ch); TvInjector.text(ch)
-        }
+        override fun text(ch: Char) { TvInputDispatcher.text(ch); TvInjector.text(ch) }
         override fun pressDown() = TvInjector.pressDown()
         override fun pressUp() = TvInjector.pressUp()
         override fun scroll(wheel: Int) = TvInjector.scroll(wheel)
@@ -98,6 +96,24 @@ class ControlledService : Service() {
                 // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
                 // 自行 finish。回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
                 EventBus.post(CameraPushRequestEvent(on))
+            }
+        }
+        // v223.33（两台设备打架）：另一台设备要接管会话 —— 不再静默顶掉，
+        // 拉起确认弹窗要用户点「确定」才切换（拉起失败/后台被拦 → 拒绝新设备，
+        // ControlServer 侧还有 15s 未裁决默认拒绝的双保险，当前会话不会被误踢）。
+        server?.onConcurrentPeer = { newPeer, curPeer, decide ->
+            pendingTakeoverDecide = decide
+            runCatching {
+                val i = Intent(this, TakeoverDialogActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(TakeoverDialogActivity.EXTRA_NEW_PEER, newPeer)
+                    putExtra(TakeoverDialogActivity.EXTRA_CUR_PEER, curPeer)
+                }
+                startActivity(i)
+            }.onFailure {
+                Log.w(TAG, "接管确认弹窗启动失败（${it.message}），拒绝新设备 $newPeer")
+                pendingTakeoverDecide = null
+                runCatching { decide(false) }
             }
         }
         // 注册远程输入回调：收到 REQUEST_INPUT 时弹出 RemoteInputActivity
@@ -177,6 +193,9 @@ class ControlledService : Service() {
 
     override fun onDestroy() {
         running = false; Companion.server = null
+        // 待裁决的接入选择随服务销毁作废：先回调拒绝（释放挂起的握手线程），再清引用
+        pendingTakeoverDecide?.let { runCatching { it(false) } }
+        pendingTakeoverDecide = null
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
         clipListenerRegistered = false   // v184：服务重建时重新注册
@@ -224,6 +243,11 @@ class ControlledService : Service() {
         private const val KEY_ENABLED = "enabled"
         @Volatile var running: Boolean = false; private set
         @Volatile var server: ControlServer? = null; internal set
+        /**
+         * 待消费的多设备接入裁决（v223.33）：ControlServer 回调 → 拉起 TakeoverDialogActivity
+         * → 用户点确定/取消后由该页消费清空。服务销毁时兜底按拒绝处理。
+         */
+        @Volatile var pendingTakeoverDecide: ((Boolean) -> Unit)? = null
         override fun enabled(c: Context): Boolean = c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
         override fun start(c: Context) {
             running = true; c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
