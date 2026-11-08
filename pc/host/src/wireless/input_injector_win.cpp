@@ -2,3 +2,647 @@
 // Windows 输入注入 + 剪贴板监听（9511 受控端）
 // 免驱：全部走 SendInput / Win32 剪贴板 API（与 wireless_link.cpp 同源思路）。
 // ============================================================================
+#include "apxpc/wireless/ctrl9511.hpp"
+// 手柄免驱降级的算术：与 macOS 同一份（边沿/死区/缩放/滚轮限速），用例在 host 跑。
+#include "apxpc/wireless/gamepad_fallback.hpp"
+// v184：触摸注入与 9502 媒体会话路径共用同一套「按推流屏映射」实现
+#include "apxpc/media/touch_inject.hpp"
+
+#if defined(_WIN32)
+
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <mutex>
+#include <atomic>
+#include <cstdio>
+
+namespace apxpc::wireless {
+namespace {
+
+/// 写系统剪贴板（UTF-8 → CF_UNICODETEXT）。
+/// v1.34：原先这段逻辑只在 WinInjector::setClipboard 里，于是「受控端收到 0x20」能写进去，
+/// 而「控制端收到 0x21」无处可写（只能 printf）。抽出来给两边共用，故放在文件最前。
+bool writeClipboardUtf8(const std::string& text) {
+    if (!::OpenClipboard(nullptr)) return false;
+    ::EmptyClipboard();
+    bool ok = false;
+    const int wn = static_cast<int>(text.size()) + 1;
+    HGLOBAL h = ::GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wn) * sizeof(wchar_t));
+    if (h) {
+        auto* p = static_cast<wchar_t*>(::GlobalLock(h));
+        if (p) {
+            ::MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, p, wn);
+            ::GlobalUnlock(h);
+            ::SetClipboardData(CF_UNICODETEXT, h);
+            ok = true;
+        }
+    }
+    ::CloseClipboard();
+    return ok;
+}
+
+/// 读系统剪贴板（CF_UNICODETEXT → UTF-8）。失败 / 空剪贴板返回空串。
+/// 与 [writeClipboardUtf8] 配对：一个写、一个读，剪贴板监听与主动发送共用同一份实现。
+std::string readClipboardUtf8() {
+    std::wstring w;
+    if (!::OpenClipboard(nullptr)) return {};
+    HANDLE h = ::GetClipboardData(CF_UNICODETEXT);
+    if (h) {
+        const auto* p = static_cast<const wchar_t*>(::GlobalLock(h));
+        if (p) { w = p; ::GlobalUnlock(h); }
+    }
+    ::CloseClipboard();
+    if (w.empty()) return {};
+    const int n = ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return {};
+    // fix: 先按 n（含 null terminator）分配，转换后再 resize 掉末尾的 '\0'
+    std::string s(static_cast<size_t>(n), '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, s.data(), n, nullptr, nullptr);
+    s.resize(static_cast<size_t>(n) - 1);
+    return s;
+}
+
+int usageToVk(uint8_t u) {
+    if (u >= 0x04 && u <= 0x1D) return 'A' + (u - 0x04);
+    if (u >= 0x1E && u <= 0x26) return '1' + (u - 0x1E);
+    if (u >= 0x3A && u <= 0x45) return VK_F1 + (u - 0x3A);
+    if (u >= 0x59 && u <= 0x61) return VK_NUMPAD1 + (u - 0x59);
+    switch (u) {
+        case 0x27: return '0';
+        case 0x28: return VK_RETURN;
+        case 0x29: return VK_ESCAPE;
+        case 0x2A: return VK_BACK;
+        case 0x2B: return VK_TAB;
+        case 0x2C: return VK_SPACE;
+        case 0x2D: return VK_OEM_MINUS;
+        case 0x2E: return VK_OEM_PLUS;
+        case 0x2F: return VK_OEM_4;
+        case 0x30: return VK_OEM_6;
+        case 0x31: return VK_OEM_5;
+        case 0x32: return 0;
+        case 0x33: return VK_OEM_1;
+        case 0x34: return VK_OEM_7;
+        case 0x35: return VK_OEM_3;
+        case 0x36: return VK_OEM_COMMA;
+        case 0x37: return VK_OEM_PERIOD;
+        case 0x38: return VK_OEM_2;
+        case 0x39: return VK_CAPITAL;
+        // —— 以下这批原先整段缺失，落 default → 0 被 SendInput 静默丢弃 ——
+        // 用户按遥控器「菜单」/「截图」在电脑上毫无反应，日志里也一片干净。
+        case 0x46: return VK_SNAPSHOT;        // PrtSc
+        case 0x47: return VK_SCROLL;          // ScrLk
+        case 0x48: return VK_PAUSE;           // Pause/Break
+        case 0x65: return VK_APPS;            // 「菜单」= Application/Menu 键（HID usage 0x65）
+        case 0x66: return VK_SLEEP;           // 键盘 Power（软电源：锁屏/待机）
+        case 0x64: return VK_OEM_102;         // 非美键盘 \|（ISO 102 键）
+        case 0x67: return VK_OEM_NEC_EQUAL;   // 小键盘 =
+        // 小键盘 1–9（0x59–0x61）由函数开头的范围分支 VK_NUMPAD1 + offset 统一处理。
+        // 0x5A 是**小键盘 2**、不是 Clear：这里曾写 case 0x5A: VK_OEM_CLEAR，
+        // 既够不着（被上面的范围分支先拦下）又语义错，已删。
+        case 0x49: return VK_INSERT;
+        case 0x4A: return VK_HOME;
+        case 0x4B: return VK_PRIOR;
+        case 0x4C: return VK_DELETE;
+        case 0x4D: return VK_END;
+        case 0x4E: return VK_NEXT;
+        case 0x4F: return VK_RIGHT;
+        case 0x50: return VK_LEFT;
+        case 0x51: return VK_DOWN;
+        case 0x52: return VK_UP;
+        case 0x53: return VK_NUMLOCK;
+        case 0x54: return VK_DIVIDE;
+        case 0x55: return VK_MULTIPLY;
+        case 0x56: return VK_SUBTRACT;
+        case 0x57: return VK_ADD;
+        case 0x58: return VK_RETURN;
+        case 0x62: return VK_NUMPAD0;
+        case 0x63: return VK_DECIMAL;
+        default: return 0;
+    }
+}
+int modBitToVk(int bit) {
+    switch (bit) {
+        case 0: return VK_LCONTROL; case 1: return VK_LSHIFT;
+        case 2: return VK_LMENU; case 3: return VK_LWIN;
+        case 4: return VK_RCONTROL; case 5: return VK_RSHIFT;
+        case 6: return VK_RMENU; case 7: return VK_RWIN;
+        default: return 0;
+    }
+}
+bool isExtendedVk(int vk) {
+    switch (vk) {
+        case VK_RCONTROL: case VK_RMENU: case VK_INSERT: case VK_DELETE:
+        case VK_HOME: case VK_END: case VK_PRIOR: case VK_NEXT:
+        case VK_LEFT: case VK_RIGHT: case VK_UP: case VK_DOWN:
+        case VK_NUMLOCK: case VK_DIVIDE: case VK_LWIN: case VK_RWIN: case VK_APPS:
+            return true;
+        default: return false;
+    }
+}
+bool sendVk(int vk, bool down) {
+    if (vk == 0) return false;
+    INPUT in{};
+    in.type = INPUT_KEYBOARD;
+    in.ki.wVk = static_cast<WORD>(vk);
+    in.ki.dwFlags = (down ? 0 : KEYEVENTF_KEYUP) | (isExtendedVk(vk) ? KEYEVENTF_EXTENDEDKEY : 0);
+    return ::SendInput(1, &in, sizeof(INPUT)) == 1;
+}
+int consumerBitToVk(uint8_t bit) {
+    switch (bit) {
+        case 0: return VK_VOLUME_UP; case 1: return VK_VOLUME_DOWN;
+        case 2: return VK_VOLUME_MUTE; case 4: return VK_MEDIA_PLAY_PAUSE;
+        case 5: return VK_MEDIA_PREV_TRACK; case 6: return VK_MEDIA_NEXT_TRACK;
+        default: return 0;
+    }
+}
+
+/// 手柄位（与手机端 GAMEPAD_KEYCODES 位序一致：A B X Y L1 R1 L2 R2 SELECT START C Z MODE THUMBL THUMBR）
+/// → 键盘等价键。PC 无法注入真手柄（见 injectGamepad 注释），这是可用的降级映射。
+static const WORD kGamepadVk[16] = {
+    VK_RETURN,   // 0  A
+    VK_ESCAPE,   // 1  B
+    'E',         // 2  X
+    'Q',         // 3  Y
+    '1',         // 4  L1
+    '2',         // 5  R1
+    '3',         // 6  L2
+    '4',         // 7  R2
+    VK_TAB,      // 8  SELECT
+    VK_SPACE,    // 9  START
+    'R',         // 10 C
+    'F',         // 11 Z
+    VK_MENU,     // 12 MODE
+    VK_LSHIFT,   // 13 THUMBL
+    VK_LCONTROL, // 14 THUMBR
+    0,           // 15 未使用
+};
+
+// ---- ViGEmBus 真手柄（可选，运行时探测）—— ROADMAP §2.2「阶段二 借力第三方」-----
+// SendInput 没有手柄概念；装了 ViGEmBus 驱动 + ViGEmClient.dll 的机器上，
+// 这里虚拟出 X360 手柄，游戏/Steam 原生识别。没装则探测一次即静默走键盘降级，
+// 链接期零依赖（GetProcAddress 动态加载）。
+// ABI 依据：nefarius/ViGEmClient include/ViGEm/Client.h（VIGEM_API 默认调用约定，
+// x64 下 Windows 仅一种 ABI）；VIGEM_ERROR_NONE = 0x20000000。
+struct XusbReport {           // 与 XUSB_REPORT 布局逐字节一致（xinput.h 公开 ABI）
+    uint16_t wButtons;
+    uint8_t  bLeftTrigger;
+    uint8_t  bRightTrigger;
+    int16_t  sThumbLX;
+    int16_t  sThumbLY;
+    int16_t  sThumbRX;
+    int16_t  sThumbRY;
+};
+
+struct VigemApi {
+    HMODULE mod = nullptr;
+    void* (*vigemAlloc)() = nullptr;
+    unsigned long long (*vigemConnect)(void*) = nullptr;
+    void* (*vigemTargetX360Alloc)() = nullptr;
+    unsigned long long (*vigemTargetAdd)(void*, void*) = nullptr;
+    unsigned long long (*vigemTargetX360Update)(void*, void*, XusbReport) = nullptr;
+    unsigned long long (*vigemTargetRemove)(void*, void*) = nullptr;
+    void (*vigemTargetFree)(void*) = nullptr;
+    void (*vigemFree)(void*) = nullptr;
+    void* client = nullptr;
+    void* target = nullptr;
+    bool active = false;      // ViGEm 可用且目标已接入
+    bool tried = false;       // 首帧手柄时才探测一次
+};
+
+inline VigemApi& vigem() { static VigemApi v; return v; }
+
+constexpr unsigned long long kVigemOk = 0x20000000ULL;  // VIGEM_ERROR_NONE
+
+// 探测并初始化：ViGEmClient.dll + ViGEmBus 驱动齐全才 active。
+// 任一步失败都精确清理已获取的句柄，tried 置位后不再重试。
+bool vigemInitOnce() {
+    VigemApi& v = vigem();
+    if (v.tried) return v.active;
+    v.tried = true;
+    v.mod = ::LoadLibraryW(L"ViGEmClient.dll");
+    if (!v.mod) return false;  // 未装（常见），静默
+    auto sym = [&](const char* n) { return reinterpret_cast<void*>(::GetProcAddress(v.mod, n)); };
+    v.vigemAlloc = reinterpret_cast<void* (*)()>(sym("vigem_alloc"));
+    v.vigemConnect = reinterpret_cast<unsigned long long (*)(void*)>(sym("vigem_connect"));
+    v.vigemTargetX360Alloc = reinterpret_cast<void* (*)()>(sym("vigem_target_x360_alloc"));
+    v.vigemTargetAdd = reinterpret_cast<unsigned long long (*)(void*, void*)>(sym("vigem_target_add"));
+    v.vigemTargetX360Update = reinterpret_cast<unsigned long long (*)(void*, void*, XusbReport)>(
+        sym("vigem_target_x360_update"));
+    v.vigemTargetRemove = reinterpret_cast<unsigned long long (*)(void*, void*)>(sym("vigem_target_remove"));
+    v.vigemTargetFree = reinterpret_cast<void (*)(void*)>(sym("vigem_target_free"));
+    v.vigemFree = reinterpret_cast<void (*)(void*)>(sym("vigem_free"));
+    if (!v.vigemAlloc || !v.vigemConnect || !v.vigemTargetX360Alloc || !v.vigemTargetAdd ||
+        !v.vigemTargetX360Update || !v.vigemTargetRemove || !v.vigemTargetFree || !v.vigemFree) {
+        std::fprintf(stderr, "[AllPeriph] ViGEmClient.dll 导出不完整，手柄走键盘降级\n");
+        ::FreeLibrary(v.mod);
+        v.mod = nullptr;
+        return false;
+    }
+    v.client = v.vigemAlloc();
+    if (!v.client) return false;
+    const unsigned long long cerr = v.vigemConnect(v.client);
+    if (cerr != kVigemOk) {
+        std::fprintf(stderr, "[AllPeriph] ViGEm 连接总线失败（0x%llx），手柄走键盘降级——"
+                             "安装 ViGEmBus 驱动后自动启用真手柄\n", cerr);
+        v.vigemFree(v.client);
+        v.client = nullptr;
+        return false;
+    }
+    v.target = v.vigemTargetX360Alloc();
+    if (!v.target) {
+        v.vigemFree(v.client);
+        v.client = nullptr;
+        return false;
+    }
+    const unsigned long long aerr = v.vigemTargetAdd(v.client, v.target);
+    if (aerr != kVigemOk) {
+        std::fprintf(stderr, "[AllPeriph] ViGEm 接入目标失败（0x%llx），手柄走键盘降级\n", aerr);
+        v.vigemTargetX360Free_target:
+        v.vigemTargetFree(v.target);
+        v.target = nullptr;
+        v.vigemFree(v.client);
+        v.client = nullptr;
+        return false;
+    }
+    v.active = true;
+    std::fprintf(stderr, "[AllPeriph] ViGEmBus 就绪：手柄将以虚拟 X360 设备注入游戏\n");
+    return true;
+}
+
+// 送一帧完整 X360 报告。true = 已由 ViGEm 处理（不再走键盘降级，
+// 避免两套注入互相打架）；false = 不可用/本次失败（失败自动切回降级）。
+bool vigemSend(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) {
+    if (!vigemInitOnce()) return false;
+    VigemApi& v = vigem();
+    if (!v.active) return false;
+    // 手机位序 → XUSB 位图；L2/R2 协议里是按钮位，XInput 无"扳机按钮"，映射为满按模拟扳机。
+    static const WORD kXusbBit[16] = {
+        0x1000,  // 0  A
+        0x2000,  // 1  B
+        0x4000,  // 2  X
+        0x8000,  // 3  Y
+        0x0100,  // 4  L1 → LEFT_SHOULDER
+        0x0200,  // 5  R1 → RIGHT_SHOULDER
+        0x0000,  // 6  L2 → 下方模拟扳机
+        0x0000,  // 7  R2 → 下方模拟扳机
+        0x0020,  // 8  SELECT → BACK
+        0x0010,  // 9  START
+        0x0000,  // 10 C（协议位，XInput 无）
+        0x0000,  // 11 Z（同上）
+        0x0400,  // 12 MODE → GUIDE
+        0x0040,  // 13 THUMBL → LEFT_THUMB
+        0x0080,  // 14 THUMBR → RIGHT_THUMB
+        0x0000,  // 15 未使用
+    };
+    XusbReport rep{};
+    WORD w = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (buttons & static_cast<uint16_t>(1u << i)) w |= kXusbBit[i];
+    }
+    rep.wButtons = w;
+    if (buttons & (1u << 6)) rep.bLeftTrigger = 255;
+    if (buttons & (1u << 7)) rep.bRightTrigger = 255;
+    // 轴：i8 → i16（×256 铺满量程）；Android 摇杆 Y 下为正、XInput 上为正 → Y 取反。
+    // 先按 int 算再夹紧，防 -128×256 溢出 i16。
+    auto scale = [](int v, bool invert) -> int16_t {
+        int s = (invert ? -v : v) * 256;
+        if (s > 32767) s = 32767;
+        if (s < -32768) s = -32768;
+        return static_cast<int16_t>(s);
+    };
+    rep.sThumbLX = scale(x, false);
+    rep.sThumbLY = scale(y, true);
+    rep.sThumbRX = scale(rx, false);
+    rep.sThumbRY = scale(ry, true);
+    const unsigned long long err = v.vigemTargetX360Update(v.client, v.target, rep);
+    if (err == kVigemOk) return true;
+    std::fprintf(stderr, "[AllPeriph] ViGEm 更新失败（0x%llx），本帧起切回键盘降级\n", err);
+    v.active = false;
+    return false;
+}
+
+class WinInjector : public InputInjector {
+public:
+    void injectMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel, int8_t pan = 0) override {
+        std::vector<INPUT> in;
+        if (dx != 0 || dy != 0) {
+            INPUT m{}; m.type = INPUT_MOUSE; m.mi.dwFlags = MOUSEEVENTF_MOVE;
+            m.mi.dx = dx; m.mi.dy = dy; in.push_back(m);
+        }
+        if (wheel != 0) {
+            INPUT w{}; w.type = INPUT_MOUSE; w.mi.dwFlags = MOUSEEVENTF_WHEEL;
+            w.mi.mouseData = static_cast<DWORD>(static_cast<int>(wheel) * WHEEL_DELTA); in.push_back(w);
+        }
+        if (pan != 0) {
+            // 横向滚动：MOUSEEVENTF_HWHEEL（Vista 起）。右滚为正，与 0x01 帧第 6 字节同号。
+            INPUT h{}; h.type = INPUT_MOUSE; h.mi.dwFlags = MOUSEEVENTF_HWHEEL;
+            h.mi.mouseData = static_cast<DWORD>(static_cast<int>(pan) * WHEEL_DELTA); in.push_back(h);
+        }
+        const struct { uint8_t bit; DWORD down; DWORD up; } table[] = {
+            {0x01, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP},
+            {0x02, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP},
+            {0x04, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP},
+        };
+        for (const auto& t : table) {
+            const bool was = (mouseButtons_ & t.bit) != 0;
+            const bool now = (buttons & t.bit) != 0;
+            if (was == now) continue;
+            INPUT b{}; b.type = INPUT_MOUSE; b.mi.dwFlags = now ? t.down : t.up; in.push_back(b);
+        }
+        mouseButtons_ = buttons;
+        if (!in.empty()) ::SendInput(static_cast<UINT>(in.size()), in.data(), sizeof(INPUT));
+    }
+
+    void injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) override {
+        // v184：9511 控制面（手机副屏触摸走这里）与 9502 媒体会话曾是**两套**注入实现，
+        // 而 9511 这套是旧版：把 0..65535 直接当「主屏绝对坐标」注入，
+        // 扩展屏模式下触摸区整体错位到 1 号屏（真机复现：归一化 (32767,32767)
+        // 落到主屏正中 (959,539)）。现统一复用 apxpc::media::injectTouchFrame ——
+        // 它按「推流实际抓取的那块屏」映射（DDA 侧精确供给矩形，回退第一个非主屏）。
+        // 注意：injectTouchFrame 的 body 不含 cmd 字节（[action,buttons,xLo,xHi,yLo,yHi,...]），
+        // 与 9502 的 kStreamTouch 负载逐字节一致。
+        uint8_t body[9] = {
+            action, buttons,
+            static_cast<uint8_t>(x & 0xFF), static_cast<uint8_t>((x >> 8) & 0xFF),
+            static_cast<uint8_t>(y & 0xFF), static_cast<uint8_t>((y >> 8) & 0xFF),
+            0, 0, 0
+        };
+        apxpc::media::injectTouchFrame(body, sizeof(body));
+    }
+
+    void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count) override {
+        const size_t n = count > 6 ? 6 : count;
+        for (int bit = 0; bit < 8; ++bit) {
+            const uint8_t mask = static_cast<uint8_t>(1u << bit);
+            const bool was = (kbMod_ & mask) != 0, now = (mod & mask) != 0;
+            if (was != now) sendVk(modBitToVk(bit), now);
+        }
+        for (uint8_t i = 0; i < 6; ++i) {
+            const uint8_t k = kbKeys_[i]; if (k == 0) continue;
+            bool still = false;
+            for (size_t j = 0; j < n; ++j) if (keys[j] == k) { still = true; break; }
+            if (!still) sendVk(usageToVk(k), false);
+        }
+        for (size_t j = 0; j < n; ++j) {
+            const uint8_t k = keys[j]; if (k == 0) continue;
+            bool existed = false;
+            for (uint8_t i = 0; i < 6; ++i) if (kbKeys_[i] == k) { existed = true; break; }
+            if (!existed) sendVk(usageToVk(k), true);
+        }
+        kbMod_ = mod;
+        for (uint8_t i = 0; i < 6; ++i) kbKeys_[i] = (i < n) ? keys[i] : 0;
+    }
+
+    void injectConsumer(uint16_t bitmap) override {
+        const uint16_t pressed = static_cast<uint16_t>(bitmap & ~consumerBm_);
+        const uint16_t released = static_cast<uint16_t>(consumerBm_ & ~bitmap);
+        for (uint8_t bit = 0; bit < 8; ++bit) {
+            const uint16_t m = static_cast<uint16_t>(1u << bit);
+            if (pressed & m) sendVk(consumerBitToVk(bit), true);
+            if (released & m) sendVk(consumerBitToVk(bit), false);
+        }
+        consumerBm_ = bitmap;
+    }
+
+    void setClipboard(const std::string& text) override { writeClipboardUtf8(text); }
+
+    /**
+     * 手柄（网络帧 0x07）。
+     *
+     * Windows 的 `SendInput` **没有**游戏手柄/摇杆概念，免驱架构下变不出真手柄
+     * （那需要 ViGEmBus 之类的虚拟 HID 驱动，属第三方，不在本仓库零依赖范围内）。
+     * 但"什么都不做"等于功能不存在 —— 这里做**键盘降级**，多数 PC 游戏与软件都能接受：
+     *   按钮 → 键盘等价键（A→Enter、B→Esc、L1/R1→1/2 …，见 kGamepadVk）
+     *   左摇杆 → 鼠标相对移动（复用 injectMouse，死区 12，位移按 1/4 缩放）
+     *   右摇杆 → 滚轮 / 水平滚轮（v184 起）：免驱下没有"视角"通道，滚动是最贴合的降级 ——
+     *   翻网页/列表/菜单时推一下就能滚，比原来直接丢弃有用得多。
+     */
+    void injectGamepad(uint16_t buttons, int8_t x, int8_t y, int8_t rx, int8_t ry) override {
+        // 真手柄路径（ViGEmBus 可用时）：整帧 X360 报告后直接返回 ——
+        // 不同时跑键盘/鼠标/滚轮降级，两套注入互相打架。
+        if (vigemSend(buttons, x, y, rx, ry)) {
+            gpButtons_ = buttons;
+            return;
+        }
+        // 边沿 / 死区 / 缩放 / 限速一律取自 gamepad_fallback.hpp（与 macOS 同一份算术，
+        // 由 gamepad_fallback_test 在 CI 里钉住）—— 三端各写一遍是这类降级最容易漂的地方。
+        const GamepadEdges e = gamepadEdges(gpButtons_, buttons);
+        const uint16_t pressed = e.pressed;
+        const uint16_t released = e.released;
+        for (uint8_t bit = 0; bit < static_cast<uint8_t>(kGamepadButtonCount); ++bit) {
+            const WORD vk = kGamepadVk[bit];
+            if (vk == 0) continue;
+            const uint16_t m = static_cast<uint16_t>(1u << bit);
+            if (pressed & m) sendVk(vk, true);
+            if (released & m) sendVk(vk, false);
+        }
+        gpButtons_ = buttons;
+
+        // 左摇杆 → 鼠标相对移动（死区 12，位移按 1/4 缩放）
+        if (gamepadStickActive(x) || gamepadStickActive(y)) {
+            injectMouse(mouseButtons_, gamepadStickToMouse(x), gamepadStickToMouse(y), 0);
+        }
+        // v184：右摇杆 → 滚轮（垂直）/ 水平滚轮（水平）。免驱架构下 Windows 没有"视角"
+        // 通道，滚动是直觉上最贴合的降级（翻页/翻列表）。摇杆帧率可达几十 Hz，
+        // 滚轮限速到 20Hz，否则会疯狂滚动。
+        if (gamepadStickActive(rx) || gamepadStickActive(ry)) {
+            const DWORD nowMs = ::GetTickCount();
+            if (gamepadWheelAllowed(static_cast<uint64_t>(lastWheelMs_),
+                                    static_cast<uint64_t>(nowMs))) {
+                lastWheelMs_ = nowMs;
+                std::vector<INPUT> ev;
+                ev.reserve(2);
+                if (gamepadStickActive(ry)) {
+                    INPUT w{}; w.type = INPUT_MOUSE; w.mi.dwFlags = MOUSEEVENTF_WHEEL;
+                    // 摇杆前推（负 ry）→ 内容上滚（正向滚轮）
+                    w.mi.mouseData = static_cast<DWORD>(-gamepadStickStep(ry) * WHEEL_DELTA);
+                    ev.push_back(w);
+                }
+                if (gamepadStickActive(rx)) {
+                    INPUT h{}; h.type = INPUT_MOUSE; h.mi.dwFlags = MOUSEEVENTF_HWHEEL;
+                    h.mi.mouseData = static_cast<DWORD>(gamepadStickStep(rx) * WHEEL_DELTA);
+                    ev.push_back(h);
+                }
+                if (!ev.empty()) ::SendInput(static_cast<UINT>(ev.size()), ev.data(), sizeof(INPUT));
+            }
+        }
+
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            // 本文件不引日志头（与其它注入路径一致），用 stderr 直接输出
+            std::fprintf(stderr, "[AllPeriph] 手柄经网络接入：未检测到 ViGEmBus 驱动或 ViGEmClient.dll，"
+                                 "本帧起降级为「按钮→键盘 + 左摇杆→鼠标 + 右摇杆→滚动」；"
+                                 "安装 ViGEmBus 驱动（ViGEmClient.dll 已随安装包/便携包分发）后重启面板即启用真手柄\n");
+        }
+    }
+
+    uint8_t mouseButtons_ = 0;
+    uint16_t gpButtons_ = 0;   ///< 手柄按钮上一帧位图（降级注入要算边沿）
+    DWORD lastWheelMs_ = 0;    ///< v184：右摇杆滚轮的限速时间戳
+    uint16_t consumerBm_ = 0;
+    uint8_t kbMod_ = 0;
+    uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};
+};
+
+// v184：剪贴板回传抑制窗口。injectSystemText 的"写入→Ctrl+V→还原"会让
+// ClipboardWatcher 触发两次，每次都经 0x21 回传对端、对端再写剪贴板 ——
+// 用户剪贴板在多个值之间乱跳。注入期间设置抑制窗口，watcher 静默。
+std::atomic<ULONGLONG> g_clipSuppressUntilMs{0};
+void clipSuppressFor(DWORD ms) { g_clipSuppressUntilMs.store(GetTickCount64() + ms); }
+bool clipSuppressed() { return GetTickCount64() < g_clipSuppressUntilMs.load(); }
+
+// 剪贴板轮询监听：每 500ms 比对一次 Unicode 文本，变化则回调。
+class WinClipboardWatcher : public ClipboardWatcher {
+public:
+    explicit WinClipboardWatcher(std::function<void(const std::string&)> cb) : cb_(std::move(cb)) {}
+    bool start() override {
+        running_ = true;
+        thread_ = std::thread([this] {
+            std::string last;
+            while (running_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                std::string cur = readClipboardUtf8();
+                if (!cur.empty() && cur != last) {
+                    last = cur;
+                    // v184：注入窗口内的变化静默吸收（last 已更新，抑制期后不会补发）
+                    if (!clipSuppressed()) cb_(cur);
+                }
+            }
+        });
+        return true;
+    }
+    void stop() override { running_ = false; if (thread_.joinable()) thread_.join(); }
+private:
+    std::function<void(const std::string&)> cb_;
+    std::atomic<bool> running_{false};
+    std::thread thread_;
+};
+
+}  // namespace
+
+std::unique_ptr<InputInjector> createPlatformInjector() { return std::make_unique<WinInjector>(); }
+
+/* Windows 的 SendInput 不需要单独的「辅助功能」授权（UIPI 只挡更高完整性级别的窗口，
+   挡不住全局注入），所以恒 true —— 与 macOS 的 TCC 门槛不同，这里不要凭习惯返回 false。 */
+bool platformInputTrusted() { return true; }
+bool requestPlatformInputTrust() { return true; }
+// 无 TCC 门槛：文案字段恒为旧名，打开设置/身份判断都是 no-op（跨平台契约占位）。
+std::string inputTrustSettingsLabel() { return "辅助功能"; }
+bool openPlatformInputSettings() { return false; }
+bool runningFromAppBundle() { return false; }
+std::unique_ptr<ClipboardWatcher> createPlatformClipboardWatcher(
+    std::function<void(const std::string&)> cb) {
+    return std::make_unique<WinClipboardWatcher>(std::move(cb));
+}
+bool setSystemClipboard(const std::string& text) {
+    clipSuppressFor(600);   // v184：程序性写入不回传（防 0x21→写→watcher→0x21 回环）
+    return writeClipboardUtf8(text);
+}
+std::string readSystemClipboard() { return readClipboardUtf8(); }
+namespace { void sendSpecialKeyImpl(uint8_t mod, uint8_t vk); }
+bool injectSpecialKey(uint8_t mod, uint8_t vk) { sendSpecialKeyImpl(mod, vk); return true; }
+
+namespace {
+
+/// UTF-8 → UTF-16（SendInput 的 KEYEVENTF_UNICODE 要 UTF-16 码元）
+std::wstring toWide(const std::string& s) {
+    if (s.empty()) return {};
+    const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (n <= 1) return {};
+    // fix: 先按 n（含 null terminator）分配，转换后再 resize 掉末尾的 '\0'
+    std::wstring w(static_cast<size_t>(n), L'\0');
+    ::MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), n);
+    w.resize(static_cast<size_t>(n) - 1);
+    return w;
+}
+
+void sendCtrlV() {
+    INPUT in[4] = {};
+    auto fill = [&](size_t i, WORD vk, bool up) {
+        in[i].type = INPUT_KEYBOARD;
+        in[i].ki.wVk = vk;
+        in[i].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0u;
+    };
+    fill(0, VK_CONTROL, false);
+    fill(1, 'V', false);
+    fill(2, 'V', true);
+    fill(3, VK_CONTROL, true);
+    ::SendInput(4, in, sizeof(INPUT));
+}
+
+// v184：特殊键/组合键注入实现（0x28 帧）。mod 位图：1=Ctrl 2=Shift 4=Alt。
+// 公开导出版 injectSpecialKey 在匿名 namespace 外（供 wireless_session 调用）。
+void sendSpecialKeyImpl(uint8_t mod, uint8_t vk) {
+    INPUT in[5] = {};
+    size_t n = 0;
+    auto key = [&](WORD v, bool up) {
+        in[n].type = INPUT_KEYBOARD;
+        in[n].ki.wVk = v;
+        in[n].ki.dwFlags = up ? KEYEVENTF_KEYUP : 0u;
+        ++n;
+    };
+    if (mod & 1) key(VK_CONTROL, false);
+    if (mod & 2) key(VK_SHIFT, false);
+    if (mod & 4) key(VK_MENU, false);
+    key(vk, false);
+    key(vk, true);
+    if (mod & 4) key(VK_MENU, true);
+    if (mod & 2) key(VK_SHIFT, true);
+    if (mod & 1) key(VK_CONTROL, true);
+    ::SendInput(static_cast<UINT>(n), in, sizeof(INPUT));
+}
+
+/// 文本是否需要走剪贴板：**只有**换行/制表或较长文本（>64 字节）才粘。
+/// v223.29.33：删掉「非 ASCII 一律粘」—— 那是错怪了 KEYEVENTF_UNICODE：它不走
+/// 输入法组合，是 WM_CHAR 直投（与下面短文本键入同一条路），中文逐字键入本就可靠。
+/// 每个拼音词都「写剪贴板→Ctrl+V→还原」是用户报的「打字像在复制粘贴、慢应用还会
+/// 粘出旧剪贴板」的根因：短中文改直打，粘贴只剩长文本/多行这两类本来就该粘的场景。
+bool needsPaste(const std::string& s) {
+    if (s.size() > 64) return true;
+    for (unsigned char c : s) if (c == '\n' || c == '\r' || c == '\t') return true;
+    return false;
+}
+
+}  // namespace
+
+bool injectSystemText(const std::string& text) {
+    if (text.empty()) return false;
+    if (!needsPaste(text)) {
+        // 短文本（ASCII / 中文 / 无换行）：逐字符 KEYEVENTF_UNICODE 直打，完全不碰剪贴板
+        const std::wstring w = toWide(text);
+        for (wchar_t ch : w) {
+            INPUT in[2] = {};
+            in[0].type = INPUT_KEYBOARD;
+            in[0].ki.wScan = static_cast<WORD>(ch);
+            in[0].ki.dwFlags = KEYEVENTF_UNICODE;
+            in[1] = in[0];
+            in[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            ::SendInput(2, in, sizeof(INPUT));
+        }
+        return true;
+    }
+    // 多行 / 长文本：剪贴板 + Ctrl+V 保真，用完把用户原来的剪贴板还回去。
+    // 不还原的话，用户复制的东西会被我们悄悄覆盖 —— 这种"顺手毁掉剪贴板"的行为最招骂。
+    const std::string backup = readClipboardUtf8();
+    // ★ 抑制窗口必须覆盖「写入 → Ctrl+V → 还原」全程：这段会两次改写剪贴板，而
+    //   ClipboardWatcher 每 500ms 轮询一次，不抑制的话中间态会经 0x21 回传给对端，
+    //   对端剪贴板被刷成一串乱值（setSystemClipboard 早就有这层保护，这条路径漏了）。
+    clipSuppressFor(1500);
+    if (!writeClipboardUtf8(text)) return false;
+    sendCtrlV();
+    // 等目标窗口真的完成粘贴再还原：立即还原会粘回旧内容。
+    // v223.29.33：150ms 对慢应用（Electron / RDP / 重页面）不够 —— Ctrl+V 还没被
+    // 消费就还原，粘出去的是「用户自己的旧剪贴板」，正是报障里「直接往上粘剪贴板
+    // 里的东西」的另一半根因。放宽到 300ms（粘贴路径只剩长文本/多行，延迟可接受）。
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    if (!backup.empty()) writeClipboardUtf8(backup);
+    return true;
+}
+
+}  // namespace apxpc::wireless
+
+#endif  // _WIN32
