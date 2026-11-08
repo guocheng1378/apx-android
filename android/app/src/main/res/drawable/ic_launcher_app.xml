@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 应用图标（issue#166）：HyperOS 蓝渐变底 + 手机挖指针负形，设计说明见 <vector> 内注释。 -->
+<!-- 应用图标（issue#166）：accent #3482FF 渐变底 + 手机挖指针负形，设计说明见 <vector> 内注释。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="48dp"
@@ -7,10 +7,11 @@
     android:viewportWidth="48"
     android:viewportHeight="48">
     <!--
-      设计说明（成宇 2026-11-07 · issue#166「app 图标也需要统一风格，重新设计」）：
+      设计说明（成宇 2026-11-07 · issue#166「app 图标也需要统一风格，重新设计」；
+      2026-11-09 界面稿改色：主色由 HyperOS 蓝 #5E6AD2 统一为 accent #3482FF，渐变同源跟随）：
       旧图是 Material 紫 #6750A4 占位（原注释自认「仅矢量占位，正式版替换」），
-      与全 App 的 HyperOS 蓝（md_primary #5E6AD2）是两套语言。新图：
-      · 底 = 主色渐变 #7A83EC → #5E6AD2 → 按下态 #4B55B8（色板同源，不引新色）；
+      与全 App 的主色（md_primary #3482FF）是两套语言。新图：
+      · 底 = 主色渐变 #5B9BFF → #3482FF → 按下态 #2E72E0（色板同源，不引新色）；
       · 形 = 白色手机内挖指针箭头负形 ——「手机即 PC 的指针/外设」；
       · 语义沿用原「手机 → PC」抽象，去掉焊死的 USB 方块，48dp 缩略也认得出；
       · 满版圆角底（r=11）：圆形/圆角遮罩启动器下底色铺满，图形全部落在中心
@@ -26,16 +27,16 @@
             <gradient android:type="linear"
                 android:startX="24" android:startY="0"
                 android:endX="24" android:endY="48"
-                android:startColor="#FF7A83EC"
-                android:endColor="#FF4B55B8" />
+                android:startColor="#FF5B9BFF"
+                android:endColor="#FF2E72E0" />
         </aapt:attr>
     </path>
     <!-- 手机（白色圆角，x13..35 / y6..42） -->
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M18,6 h12 a5,5 0 0 1 5,5 v26 a5,5 0 0 1 -5,5 h-12 a5,5 0 0 1 -5,-5 v-26 a5,5 0 0 1 5,-5 z" />
-    <!-- 指针箭头负形（主色按下态 #4B55B8，bbox x19..30 / y14..33.8，四边距 ≥5dp） -->
+    <!-- 指针箭头负形（主色按下态 #2E72E0，bbox x19..30 / y14..33.8，四边距 ≥5dp） -->
     <path
-        android:fillColor="#FF4B55B8"
+        android:fillColor="#FF2E72E0"
         android:pathData="M19,14 L19,33 L22.8,29.2 L25,33.8 L27.6,32.7 L25.4,28.4 L30,28.4 Z" />
 </vector>
