@@ -21,6 +21,9 @@ import com.allperiph.tv.R
  *
  * 另外电视是**远距离观看 + 遥控器操作**：字号再额外放大一档，焦点必须一眼可见
  * （[focusBg] 给出「默认/聚焦」两态背景，DPAD 移动时能看出落在了哪一项）。
+ *
+ * 2026-11-09 界面稿「06 电视 / 08 质感层」：焦点态 = 3dp 主色外描边 + 背景 [Pal.focusBg]
+ * （#20242D，150ms 淡切）；暗色表面用三级亮度差，不用阴影；圆角外 16 内 8。
  */
 object TvUi {
 
@@ -62,11 +65,17 @@ object TvUi {
         return maxOf(dp(ctx, 24f), (shortSide * 0.035f).toInt())
     }
 
-    /** 可聚焦控件的两态背景：默认色 / 聚焦色（聚焦加白描边 + 提亮，远距离也看得清） */
+    /** 可聚焦控件的两态背景：默认色 / 聚焦色（聚焦加描边 + 换底，远距离也看得清） */
     fun focusBg(normal: Int, focused: Int, radiusPx: Int, strokePx: Int): Drawable {
-        // 形状经 :shared 的 ApKit（与手机端同一份实现），这里只负责 TV 的两态语义
+        // 形状经 :shared 的 ApKit（与手机端同一份实现），这里只负责 TV 的两态语义；
+        // 聚焦描边走主色（界面稿：3dp 主色环，不再用白描边）。
         val a = ApKit.rect(normal, radiusPx.toFloat())
-        val b = ApKit.shape(focused, radiusPx.toFloat(), strokeColor = Color.WHITE, strokePx = strokePx)
+        val b = ApKit.shape(
+            focused,
+            radiusPx.toFloat(),
+            strokeColor = android.graphics.Color.argb(0xFF, 0x34, 0x82, 0xFF),
+            strokePx = strokePx,
+        )
         return StateListDrawable().apply {
             addState(intArrayOf(android.R.attr.state_focused), b)
             addState(intArrayOf(android.R.attr.state_pressed), b)
@@ -85,19 +94,18 @@ object TvUi {
     // ————————————————————————— 字号 / 圆角档位 —————————————————————————
 
     /**
-     * 字号档位（三端统一视觉语言）。
+     * 字号档位（三端统一视觉语言；2026-11-09 界面稿字阶 27/19/17/15/13/12）。
      *
-     * 取值与手机端 `APText*` 系列同比例（20 / 15 / 14 / 12），只是 TV 要坐远看，
-     * 每一档再乘 [TEXT_BOOST]。以前各 Activity 直接写 `17f` / `15f` / `13f` / `12f`，
+     * 每一档再乘 [TEXT_BOOST]（远距离观看）。以前各 Activity 直接写 `17f` / `15f` / `13f` / `12f`，
      * 同一层级在不同页面会差一两号 —— 现在只认这里的名字。
      */
     object Type {
-        /** 屏幕主标题 / 最需要一眼看到的那句话 */
-        const val DISPLAY = 24f
+        /** 屏幕主标题 / 最需要一眼看到的那句话（字阶第 1 档） */
+        const val DISPLAY = 27f
         /** 小节标题 / 主要状态 */
         const val TITLE = 17f
         /** 卡片按钮上的动作文字 */
-        const val ACTION = 16f
+        const val ACTION = 15f
         /** 正文 */
         const val BODY = 15f
         /** 次要说明 */
@@ -106,12 +114,12 @@ object TvUi {
         const val MICRO = 12f
     }
 
-    /** 圆角档位（与手机 18dp、PC 18px 保持一致）。 */
+    /** 圆角档位（界面稿同心圆角：外 16 内 8）。 */
     object Radius {
         /** 卡片 / 面板 */
-        const val CARD = 18f
+        const val CARD = 16f
         /** 卡片内部的小控件 */
-        const val CONTROL = 12f
+        const val CONTROL = 8f
     }
 
     // ————————————————————————— 色板 —————————————————————————
@@ -120,7 +128,7 @@ object TvUi {
      * 色板：**取值全部来自 `res/values/colors.xml`**，此处不再出现 hex。
      *
      * 该色板是**手机端色板的暗色变体**（主色同为 #3482FF）：TV 只是把表面换成暗档，
-     * 不是另一套配色。旧取值（GitHub Dark 一族 #0B0F14 / #58A6FF）已废弃。
+     * 不是另一套配色。2026-11-09 界面稿起表面为三级亮度：底 #15181E / 卡 #1E232B / 内嵌 #141920。
      *
      * 之所以用「一次性绑定的可变 Pal」而不是每个色都传 Context：TV 的 UI 全是代码自绘，
      * 调用点遍布 View 构造 lambda，逐个传 Context 会把接口污染得很碎。
@@ -129,16 +137,18 @@ object TvUi {
      */
     object Pal {
         // 默认值保持与 colors.xml 同值，保证「未 bind 也能正常显示」
-        var bg: Int = 0xFF16181D.toInt(); private set
-        var card: Int = 0xFF1F2228.toInt(); private set
+        var bg: Int = 0xFF15181E.toInt(); private set
+        var card: Int = 0xFF1E232B.toInt(); private set
         var cardFocus: Int = 0xFF3482FF.toInt(); private set
-        var field: Int = 0xFF272B33.toInt(); private set
-        var stroke: Int = 0xFF2E333B.toInt(); private set
-        var text: Int = 0xFFF2F3F5.toInt(); private set
-        var textDim: Int = 0xFF9BA1AA.toInt(); private set
+        var field: Int = 0xFF141920.toInt(); private set
+        var stroke: Int = 0x14FFFFFF.toInt(); private set
+        /** 焦点态背景（界面稿 06：焦点环 + 背景 #20242D） */
+        var focusBg: Int = 0xFF20242D.toInt(); private set
+        var text: Int = 0xFFF7F8F8.toInt(); private set
+        var textDim: Int = 0xFF8A8F98.toInt(); private set
         var textWeak: Int = 0xFF6E747C.toInt(); private set
-        var accent: Int = 0xFF5B9CFF.toInt(); private set
-        var accentSoft: Int = 0xFF1E3A66.toInt(); private set
+        var accent: Int = 0xFF3482FF.toInt(); private set
+        var accentSoft: Int = 0xFF142745.toInt(); private set
         var ok: Int = 0xFF34D399.toInt(); private set
         var warn: Int = 0xFFFBBF24.toInt(); private set
         var error: Int = 0xFFF87171.toInt(); private set
@@ -152,6 +162,7 @@ object TvUi {
             cardFocus = ctx.getColor(R.color.tv_card_focus)
             field = ctx.getColor(R.color.tv_field)
             stroke = ctx.getColor(R.color.tv_stroke)
+            focusBg = ctx.getColor(R.color.tv_focus_bg)
             text = ctx.getColor(R.color.tv_text)
             textDim = ctx.getColor(R.color.tv_text_dim)
             textWeak = ctx.getColor(R.color.tv_text_weak)
