@@ -1,4 +1,4 @@
-package com.allperiph.ui.miuix
+package com.allperiph.ui.miuiu
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -525,12 +525,15 @@ object ApComponents {
      * 两处各写一份「玻璃键帽」必然分叉（本仓在 `KeyBox` / `ModKey` / 键帽材质上已经踩过
      * 三次），所以玻璃这一档只在这里实现一次，两边按同一个形状参数调用。
      *
-     * @param tint 非空且**非透明**时用该色作为玻璃的染色（修饰键点亮态 / 灯效键色）；
-     *   null，或透明（RGB 扩散档空闲时键帽传 `Transparent` 表示「此刻无光」），
-     *   都按中性玻璃处理 —— 否则底色被顶成透明、文字被强制成白（`tint != null` 分支），
-     *   浅色主题下整颗键帽连字符一起隐形（皮肤交互审查 #1，真机可复现）。
+     * @param tint 非空时用该色作为玻璃的染色（修饰键点亮态）；null = 中性玻璃。
+     *   灯效**不再走这里** —— 那是 faceMod/labelMod 的绘制期职责（见下两参），
+     *   以前把 rgbFace 的 Transparent 塞进 tint 才会踩「透明底隐形键」的坑（审查 #1）。
      * @param fxMod 调用方算好的按键特效 Modifier（[com.allperiph.ui.compose.keyFx]），
      *   画在键帽内容之上、玻璃高光之下 —— 特效是「按下去的额外反馈」，不该盖掉高光
+     * @param faceMod 灯效键面（KeyBox 的 drawBehind）：画在玻璃高光**之下** ——
+     *   灯色先落底、玻璃渐变与描边再叠上去，玻璃质感保留
+     * @param labelMod 字色层：`graphicsLayer { colorFilter }` 在**绘制期**给字上灯色，
+     *   组合期不读相位（皮肤审查 #3；实现见 KeyBox.labelMod）
      */
     @Composable
     fun GlassKeycap(
@@ -543,6 +546,8 @@ object ApComponents {
         interaction: MutableInteractionSource,
         onClick: () -> Unit,
         fxMod: Modifier = Modifier,
+        faceMod: Modifier = Modifier,
+        labelMod: Modifier = Modifier,
     ) {
         val pressed by interaction.collectIsPressedAsState()
         // 玻璃的明暗取主题「表面」色的亮度来判：深色主题下白玻璃要更淡，
@@ -552,10 +557,7 @@ object ApComponents {
         val topAlpha = if (dark) 0.10f else 0.55f
         val bottomAlpha = if (dark) 0.04f else 0.28f
         val strokeAlpha = if (dark) 0.22f else 0.70f
-        // 透明 tint 必须当 null（皮肤交互审查 #1）：KeyBox.rgbFace 在 RGB 扩散档
-        // 空闲时返回 Transparent，若直接 ?: 兜底，base 会被透明顶掉、白字也会跟着触发。
-        val tinted = tint?.takeIf { it.alpha > 0.004f }
-        val base = tinted ?: MiuixTheme.colorScheme.surfaceContainer
+        val base = tint ?: MiuixTheme.colorScheme.surfaceContainer
         // 玻璃底：竖向渐变的半透明白（上亮下淡），叠在键帽自己的底色上
         val glass = Brush.verticalGradient(
             listOf(Color.White.copy(alpha = topAlpha), Color.White.copy(alpha = bottomAlpha)),
@@ -568,6 +570,7 @@ object ApComponents {
             modifier = modifier
                 .clip(shape)
                 .background(base)
+                .then(faceMod)
                 .background(glass)
                 .border(
                     width = 1.dp,
@@ -587,8 +590,9 @@ object ApComponents {
         ) {
             Text(
                 text = label,
+                modifier = labelMod,
                 fontSize = textSize,
-                color = if (tinted != null) Color.White else fg,
+                color = if (tint != null) Color.White else fg,
                 textAlign = TextAlign.Center,
             )
         }
