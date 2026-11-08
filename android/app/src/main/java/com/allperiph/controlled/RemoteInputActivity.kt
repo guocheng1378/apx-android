@@ -264,7 +264,8 @@ class RemoteInputActivity : ComponentActivity() {
         return input
     }
 
-    /** 内嵌触控板（互操作保留）：滑动=移动光标、轻点=左键、长按 400ms 进拖拽 */
+    /** 内嵌触控板（互操作保留）：滑动=光标、轻点=左键、长按 550ms 左键拖拽；
+     *  #3 接通用逻辑：双指点按=右键、双指长按 550ms=右键拖拽（与 touchpad.kt 同口径）。 */
     private fun buildTouchpad(): View {
         val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
         var lastTouchLogAt = 0L
@@ -293,28 +294,59 @@ class RemoteInputActivity : ComponentActivity() {
         val dragArm = Runnable {
             if (tpDown && !tpDrag) { tpDrag = true; mouseFrame(0x01, 0, 0) }
         }
+        // #3（用户 2026-11-08「触摸板没用通用触摸板的逻辑」）：与通用 touchpad.kt 同口径 ——
+        // 双指落下 550ms 锁定右键拖拽（rightDragTask）；期间随手指拖，帧按钮位 0x02。
+        var tpSecond = false; var tpSecondAt = 0L; var tpRightDrag = false
+        val rightDragArm = Runnable {
+            if (tpSecond && !tpRightDrag) { tpRightDrag = true; mouseFrame(0x02, 0, 0) }
+        }
         touchpad.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 android.view.MotionEvent.ACTION_DOWN -> {
                     tpDown = true; tpDrag = false; tpDownAt = android.os.SystemClock.uptimeMillis()
                     tpLastX = e.x; tpLastY = e.y
-                    v.removeCallbacks(dragArm); v.postDelayed(dragArm, 400)
+                    v.removeCallbacks(dragArm); v.postDelayed(dragArm, 550)   // #3 对齐通用 550ms
                     true
                 }
+                android.view.MotionEvent.ACTION_POINTER_DOWN ->
+                    // #3 第二指落下：双指长按 550ms = 右键拖拽（通用 rightDragTask 同口径）
+                    if (e.pointerCount == 2) {
+                        tpSecond = true; tpSecondAt = android.os.SystemClock.uptimeMillis()
+                        v.removeCallbacks(dragArm); tpDrag = false
+                        v.postDelayed(rightDragArm, 550)
+                        true
+                    } else false
+                android.view.MotionEvent.ACTION_POINTER_UP ->
+                    if (tpSecond) {
+                        tpSecond = false
+                        v.removeCallbacks(rightDragArm)
+                        val dur = android.os.SystemClock.uptimeMillis() - tpSecondAt
+                        if (!tpRightDrag) {
+                            if (dur < 300) {   // 双指点按 = 右键单击（短按未拖成）
+                                mouseFrame(0x02, 0, 0); mouseFrame(0x00, 0, 0)
+                                com.allperiph.ui.Feedback.haptic(v)
+                            }
+                        } else {
+                            mouseFrame(0x00, 0, 0)   // 右键拖拽结束：松开右键
+                            tpRightDrag = false
+                        }
+                        tpLastX = e.x; tpLastY = e.y   // 单指继续：基点归位防跳变
+                        true
+                    } else false
                 android.view.MotionEvent.ACTION_MOVE -> if (tpDown) {
                     var dx = (e.x - tpLastX).toInt(); var dy = (e.y - tpLastY).toInt()
                     tpLastX = e.x; tpLastY = e.y
                     // 位移限幅 ±127（i8 帧格式），大幅移动分帧发
                     while (dx != 0 || dy != 0) {
                         val sx = dx.coerceIn(-127, 127); val sy = dy.coerceIn(-127, 127)
-                        mouseFrame(if (tpDrag) 0x01 else 0x00, sx, sy)
+                        mouseFrame(when { tpRightDrag -> 0x02; tpDrag -> 0x01; else -> 0x00 }, sx, sy)
                         dx -= sx; dy -= sy
                     }
                     true
                 } else false
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     val cancelled = e.actionMasked == android.view.MotionEvent.ACTION_CANCEL
-                    v.removeCallbacks(dragArm)
+                    v.removeCallbacks(dragArm); v.removeCallbacks(rightDragArm); tpSecond = false
                     if (tpDown) {
                         val dur = android.os.SystemClock.uptimeMillis() - tpDownAt
                         val moved = kotlin.math.hypot((e.x - tpLastX).toDouble(), (e.y - tpLastY).toDouble()) < dp(12f)
@@ -325,7 +357,7 @@ class RemoteInputActivity : ComponentActivity() {
                             mouseFrame(0x00, 0, 0)                            // 抬起/取消 = 松开左键
                         }
                     }
-                    tpDown = false; tpDrag = false
+                    tpDown = false; tpDrag = false; tpRightDrag = false
                     true
                 }
                 else -> false
