@@ -12,12 +12,12 @@
         暗色不用阴影，改三级亮度差（见 values-night）。
     -->
 
-    <!-- 主色：HyperOS 蓝 -->
-    <color name="md_primary">#FF5E6AD2</color>
+    <!-- 主色：accent #3482FF（2026-11-09 界面稿全局强调色，取代旧 HyperOS 蓝 #5E6AD2） -->
+    <color name="md_primary">#FF3482FF</color>
     <color name="md_on_primary">#FFFFFFFF</color>
-    <color name="md_primary_container">#FFEDEFFB</color>
-    <!-- 主按钮按下态：比 md_primary 更深一档（bg_btn_pressed 的 pressed 分支持它） -->
-    <color name="md_primary_pressed">#FF4B55B8</color>
+    <color name="md_primary_container">#FFE8F1FF</color>
+    <!-- 主按钮按下态：比 md_primary 更深一档（bg_btn_primary 的 pressed 分支持它） -->
+    <color name="md_primary_pressed">#FF2E72E0</color>
 
     <color name="md_error_container">#FFFDECEA</color>
 
