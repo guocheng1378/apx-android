@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import com.allperiph.ui.Feedback
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
 import com.allperiph.ui.miuix.rememberApInsets
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -56,6 +58,10 @@ import androidx.compose.ui.res.colorResource
  *
  * 数据刷新走 1s 轮询（与旧 [com.allperiph.ui.MainActivity] 的 ticker 同频）：模块状态来自后台线程，
  * EventBus 只覆盖部分事件，轮询是最稳的一条。
+ *
+ * 2026-11-09 界面稿 03/04：页边距分档 —— <520dp 保持 16（手机不变）；520–599dp 平板
+ * Compact 取 32（稿 03「边距 16→24，≥520dp 时 32」）；600–839dp Medium 取 24，且
+ * ≥720dp 内容限宽 680 居中（稿 04 原话「内容限宽 680 居中」）。
  */
 @Composable
 fun StatusPage(
@@ -67,6 +73,16 @@ fun StatusPage(
     // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动内容从栏下穿过。
 
     val insets = rememberApInsets()
+    // 界面稿 03/04 边距档位（2026-11-09）：按窗口实测宽度取，不读 configuration
+    // （同 TouchpadPage 的 v223.29.9 结论：configChanges 滞后一拍，读配置会错一拍）。
+    val adaptive = rememberApAdaptiveLayout()
+    val widthDp = adaptive.width.value
+    val hPad = when {
+        widthDp >= 600f -> 24.dp   // 04 Medium：边距 24dp（不再 16dp）
+        widthDp >= 520f -> 32.dp   // 03 Compact：≥520dp 时 32dp
+        else -> 16.dp              // 手机（01）：保持 16dp 不变
+    }
+    val limited = widthDp >= 720f  // 04：≥720dp 内容限宽 680 居中
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -81,13 +97,16 @@ fun StatusPage(
     val state = remember(tick) { snapshot(ctx) }
     // 语义状态色明暗各一套（审查条 2.5）：判据与 ApMiuixTheme 同一入口，不各自读 configuration
 
+    // Box 只为「限宽居中」而包（04）；不加任何高度/宽度约束，
+    // 子 Column 的 verticalScroll 约束传递与旧版完全一致。
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .then(if (limited) Modifier.widthIn(max = 680.dp) else Modifier.fillMaxWidth())
             .verticalScroll(rememberScrollState())
             .padding(
-                start = 16.dp + insets.left,
-                end = 16.dp + insets.right,
+                start = hPad + insets.left,
+                end = hPad + insets.right,
                 top = 8.dp + topBar,
                 // 同上：bottomGap 由主壳按横竖屏给定（竖屏 88dp / 横屏 24dp），
                 // 不再用 maxOf(..., 96.dp) 那个会把横屏值顶掉的地板。
@@ -461,6 +480,7 @@ fun StatusPage(
         }
         if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
     }
+    } // Box：限宽居中（界面稿 04，≥720dp）
 }
 
 // ————————————————————— 快照 —————————————————————
