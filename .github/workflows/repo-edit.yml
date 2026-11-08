@@ -25,6 +25,31 @@ jobs:
       - name: apply edits
         run: |
           set +e
+          # F16 锚点热修（run #111 失败原因）：使用说明里防火墙那段是纯文本、
+          # 无 ** 加粗，脚本内锚还停在旧加粗版 → count=0。锚与替换串都改成
+          # 按原文字段定位，替换后文本与该段行文一致。
+          python3 - <<'PY'
+          p = ".github/scripts/repo_edit.py"
+          s = open(p, encoding="utf-8").read()
+          pairs = [
+              ('"anchor": "**放行 9501/9502/9511/9512**"',
+               '"anchor": "（`AllPeriph apxdesktop ctrl`，放行 9501/9502/9511/9512；"'),
+              ('"new": "**放行 9501/9502/9511/9512 及互传 53317（program 级全端口规则；v223.29.32 起规则名升版 v2 强制重建）**"',
+               '"new": "（`AllPeriph apxdesktop ctrl v2`，放行 9501/9502/9511/9512 及互传 53317（program 级全端口规则；v223.29.32 起规则名升版 v2 强制重建）；"'),
+          ]
+          for a, b in pairs:
+              if a not in s:
+                  print("F16 patch miss: " + a[:60])
+                  raise SystemExit(2)
+              s = s.replace(a, b, 1)
+          open(p, "w", encoding="utf-8").write(s)
+          print("F16 anchor patched")
+          PY
+          RC=$?
+          if [ $RC -ne 0 ]; then
+            echo "::error::F16 anchor patch failed rc=$RC"
+            exit $RC
+          fi
           OUT=$(python3 .github/scripts/repo_edit.py 2>&1)
           RC=$?
           if [ $RC -ne 0 ]; then
