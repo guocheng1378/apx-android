@@ -100,9 +100,11 @@ object KeyPref {
 
     /**
      * 平面 = 现状（白底细描边）；机械 = 三层立体键帽 + 按压下沉 + 段落感震动；
-     * 液态玻璃 = 半透明玻璃键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）。
+     * 液态玻璃 = 半透明玻璃键帽 + 高光描边 + 按下泛白跟手（成宇 2026-11-03「液态玻璃按键的皮肤」）；
+     * 亚克力 = 磨砂透光 + 流光带缓扫；水晶 = 暗玻棱面 + 双星芒游动 + 棱彩流边；
+     * 木质 = 直纹木纹 + 缎面反光缓扫（b34，成宇 2026-11-08「材质再加几种，动态感要做好」）。
      */
-    const val KEYCAP_STYLE_COUNT = 3
+    const val KEYCAP_STYLE_COUNT = 6
 
     /**
      * 三档的**显示文案**（顺序 = 档位下标）。取资源而不是 Kotlin 字面量：
@@ -113,12 +115,18 @@ object KeyPref {
         ctx.getString(R.string.ui_keycap_flat),
         ctx.getString(R.string.ui_keycap_mechanical),
         ctx.getString(R.string.ui_keycap_glass),
+        ctx.getString(R.string.ui_keycap_acrylic),
+        ctx.getString(R.string.ui_keycap_crystal),
+        ctx.getString(R.string.ui_keycap_wood),
     )
 
     /** 档位常量：调用方按名字分支，别在渲染处散写 0/1/2（改标签顺序时不会静默错档） */
     const val KEYCAP_FLAT = 0
     const val KEYCAP_MECHANICAL = 1
     const val KEYCAP_GLASS = 2
+    const val KEYCAP_ACRYLIC = 3
+    const val KEYCAP_CRYSTAL = 4
+    const val KEYCAP_WOOD = 5
 
     fun keycapStyleIndex(ctx: Context): Int =
         prefs(ctx).getInt(KEY_KEYCAP_STYLE, 0).coerceIn(0, KEYCAP_STYLE_COUNT - 1)

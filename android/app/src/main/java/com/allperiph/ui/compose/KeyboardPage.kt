@@ -131,6 +131,9 @@ internal class RgbSpec(val mode: Int, val phase: State<Float>?)
 
 /** 键盘树内的灯效上下文；没有 Provider 的调用方拿到关档默认值（等于没加这个功能） */
 private val LocalRgb = staticCompositionLocalOf { RgbSpec(KeyPref.RGB_OFF, null) }
+    // b34 材质动效相位（0..360°，6s 一圈）：亚克力流光 / 水晶星芒 / 木质缎面共用一条节奏；
+    // 只在选中这三档时于 KeyboardPage 起 transition，其余时候下发静态 0f（零开销）。
+    private val LocalMatPhase = staticCompositionLocalOf { mutableStateOf(0f) }
 
 /** HSV → Color（Compose 没有内置 hsv 构造，走 android.graphics.Color.HSVToColor） */
 private fun hsvColor(h: Float, s: Float, v: Float): Color =
@@ -190,11 +193,25 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             ),
         )
     }
+    // b34 材质动效相位：亚克力 / 水晶 / 木质三档要「活」的质感 —— 流光带、星芒游动、
+    // 缎面反光都从这条 6s 循环相位取节奏。只在这三档才起 transition（其余材质零开销），
+    // 与灯效那条互不干扰（灯效关着材质照样动）。
+    val matPhase: State<Float> =
+        if (keycap == KeyPref.KEYCAP_ACRYLIC || keycap == KeyPref.KEYCAP_CRYSTAL || keycap == KeyPref.KEYCAP_WOOD) {
+            rememberInfiniteTransition(label = "matPhase").animateFloat(
+                0f,
+                360f,
+                animationSpec = infiniteRepeatable(tween(6_000, easing = LinearEasing)),
+                label = "matPhaseValue",
+            )
+        } else {
+            remember { mutableStateOf(0f) }
+        }
     var tab by remember { mutableIntStateOf(0) }
     // 自定义行表要在编辑弹窗保存后刷新
     var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
 
-    CompositionLocalProvider(LocalRgb provides rgbSpec) {
+    CompositionLocalProvider(LocalRgb provides rgbSpec, LocalMatPhase provides matPhase) {
         Column(
             modifier = Modifier.fillMaxSize()
                 .padding(start = 8.dp, end = 8.dp, top = 2.dp, bottom = 8.dp + bottomGap),
@@ -634,6 +651,8 @@ private fun KeyBox(
     //（绘制阶段读 → 重绘；玻璃档 tint 是组合期参数 → 该档逐帧重组，84 键里只有
     // 玻璃档这一支付这个代价，平面 / 机械走 draw 阶段零重组）。
     val rgb = LocalRgb.current
+    // b34 材质动效相位（draw 阶段读 .value → 只重绘不重组）
+    val matPhase = LocalMatPhase.current
     val rgbOn = rgb.phase != null && rgb.mode != KeyPref.RGB_OFF && !active
     // 按**横坐标**错相（列状彩虹）：落位时记一次 x；三档都挂监听——b33 起呼吸档也错相
     // （修「rgb 没有渐变」：不再全键盘同色）。取 boundsInWindow（本仓 Compose 版本无 positionInRoot，
@@ -642,7 +661,11 @@ private fun KeyBox(
     // 按下扩散档还要键心（中心点）：TouchFx.add 的原点 + 涟漪距离的基准
     var rgbC by remember { mutableStateOf(Offset.Zero) }
     val km =
-        if (rgbOn) {
+        if (rgbOn ||
+            keycap == KeyPref.KEYCAP_ACRYLIC ||
+            keycap == KeyPref.KEYCAP_CRYSTAL ||
+            keycap == KeyPref.KEYCAP_WOOD
+        ) {
             modifier.onGloballyPositioned {
                 val b = it.boundsInWindow()
                 rgbX = b.left.toInt()
@@ -727,6 +750,109 @@ private fun KeyBox(
                     drawRect(brush = grad)
                     drawRect(color = rgbCap, topLeft = tl, size = cap)
                     drawRect(brush = grad, topLeft = tl, size = cap, style = Stroke(2.dp.toPx()))
+                }
+            }
+        } else if (
+            keycap == KeyPref.KEYCAP_ACRYLIC ||
+                keycap == KeyPref.KEYCAP_CRYSTAL ||
+                keycap == KeyPref.KEYCAP_WOOD
+        ) {
+            // b34 材质动态质感：亚克力流光带 / 水晶双星芒 + 棱彩流边 / 木质缎面反光，
+            // 全部从 LocalMatPhase 那条 6s 相位取节奏，xOff 错相让相邻键不齐刷刷；
+            // 相位在 draw 阶段读 → 只重绘不重组（与灯效同一套路）。
+            Modifier.drawBehind {
+                val mp = matPhase.value
+                val xo = rgbX.toFloat()
+                val bw = size.width
+                val bh = size.height
+                when (keycap) {
+                    KeyPref.KEYCAP_ACRYLIC -> {
+                        drawRect(color = bg)
+                        drawRect(color = Color.White, alpha = 0.07f)
+                        val bandW = bh * 1.3f
+                        val bx = (((mp + xo * 0.4f) % 360f) / 360f) * (bw + bandW * 2f) - bandW
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                0f to Color.Transparent,
+                                0.5f to Color.White.copy(alpha = 0.16f),
+                                1f to Color.Transparent,
+                                startX = bx,
+                                endX = bx + bandW,
+                            ),
+                        )
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color.White.copy(alpha = 0.10f),
+                                0.45f to Color.Transparent,
+                            ),
+                        )
+                        drawRect(color = Color.White, alpha = 0.20f, style = Stroke(1.dp.toPx()))
+                    }
+                    KeyPref.KEYCAP_CRYSTAL -> {
+                        drawRect(color = hsvColor(232f, 0.05f, 0.13f))
+                        drawLine(
+                            Color.White.copy(alpha = 0.10f),
+                            Offset(0f, bh * 0.30f),
+                            Offset(bw, bh * 0.05f),
+                            strokeWidth = 1f,
+                        )
+                        drawLine(
+                            Color.White.copy(alpha = 0.10f),
+                            Offset(0f, bh * 0.72f),
+                            Offset(bw, bh * 0.95f),
+                            strokeWidth = 1f,
+                        )
+                        drawRect(
+                            color = hsvColor((mp * 0.6f + xo * 0.35f) % 360f, 0.85f, 1f),
+                            alpha = 0.42f,
+                            style = Stroke(1.2.dp.toPx()),
+                        )
+                        val r = minOf(bw, bh) * 0.24f
+                        val a1 = Math.toRadians((mp + xo * 0.5f).toDouble())
+                        val c1 = Offset(bw / 2f + (kotlin.math.cos(a1) * r).toFloat(), bh / 2f + (kotlin.math.sin(a1) * r).toFloat())
+                        val a2 = Math.toRadians((mp + xo * 0.5f + 180.0))
+                        val c2 = Offset(bw / 2f + (kotlin.math.cos(a2) * r).toFloat(), bh / 2f + (kotlin.math.sin(a2) * r).toFloat())
+                        val gl = 0.30f + 0.45f * kotlin.math.abs(kotlin.math.sin(Math.toRadians(mp * 2.0))).toFloat()
+                        val arm = bh * 0.14f
+                        drawLine(Color.White.copy(alpha = gl), Offset(c1.x - arm, c1.y), Offset(c1.x + arm, c1.y), strokeWidth = 1.4f)
+                        drawLine(Color.White.copy(alpha = gl), Offset(c1.x, c1.y - arm), Offset(c1.x, c1.y + arm), strokeWidth = 1.4f)
+                        drawCircle(Color.White.copy(alpha = gl), radius = 1.6.dp.toPx(), center = c1)
+                        drawLine(Color.White.copy(alpha = gl * 0.8f), Offset(c2.x - arm, c2.y), Offset(c2.x + arm, c2.y), strokeWidth = 1.2f)
+                        drawLine(Color.White.copy(alpha = gl * 0.8f), Offset(c2.x, c2.y - arm), Offset(c2.x, c2.y + arm), strokeWidth = 1.2f)
+                        drawCircle(hsvColor(mp, 0.9f, 1f), radius = 1.8.dp.toPx(), alpha = 0.55f, center = c2)
+                    }
+                    else -> {
+                        drawRect(color = hsvColor(26f, 0.52f, 0.38f))
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to hsvColor(25f, 0.56f, 0.32f),
+                                0.16f to hsvColor(27f, 0.50f, 0.44f),
+                                0.33f to hsvColor(25f, 0.58f, 0.30f),
+                                0.5f to hsvColor(28f, 0.48f, 0.46f),
+                                0.66f to hsvColor(25f, 0.56f, 0.31f),
+                                0.83f to hsvColor(27f, 0.52f, 0.43f),
+                                1f to hsvColor(25f, 0.57f, 0.33f),
+                            ),
+                        )
+                        val sw = bw * 0.7f
+                        val sx = (((mp * 0.7f + xo * 0.3f) % 360f) / 360f) * (bw + sw * 2f) - sw
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                0f to Color.Transparent,
+                                0.5f to Color.White.copy(alpha = 0.11f),
+                                1f to Color.Transparent,
+                                startX = sx,
+                                endX = sx + sw,
+                            ),
+                        )
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0.75f to Color.Transparent,
+                                1f to Color.White.copy(alpha = 0.07f),
+                            ),
+                        )
+                        drawRect(color = hsvColor(25f, 0.6f, 0.26f), alpha = 0.9f, style = Stroke(1.dp.toPx()))
+                    }
                 }
             }
         } else {

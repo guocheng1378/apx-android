@@ -83,6 +83,9 @@
     <string name="ui_keycap_flat">平面</string>
     <string name="ui_keycap_mechanical">机械</string>
     <string name="ui_keycap_glass">液态玻璃</string>
+    <string name="ui_keycap_acrylic">亚克力</string>
+    <string name="ui_keycap_crystal">水晶</string>
+    <string name="ui_keycap_wood">木质</string>
     <string name="ui_keyfx_none">关闭</string>
     <string name="ui_keyfx_ripple">涟漪</string>
     <string name="ui_keyfx_highlight">高光</string>
