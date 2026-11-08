@@ -62,9 +62,25 @@ class RemoteInputActivity : ComponentActivity() {
     private fun sendText(text: String, flags: Int): Boolean {
         if (viaClient) {
             val c = com.allperiph.wireless.ControlTarget.controlClient ?: return false
-            c.sendInputText(text, flags); return true
+            // 真实结果：此前恒 return true，写失败静默 —— 对端永久少这段字
+            return c.sendInputText(text, flags)
         }
-        return ControlledService.server?.let { it.sendInputText(text, flags); true } ?: false
+        return ControlledService.server?.sendInputText(text, flags) ?: false
+    }
+
+    /** 失败帧积压（保序）：单向增量链路丢一帧对端就永久漂移 —— 发送失败的帧先排队，
+     *  下一次发送前按序重推，通道一恢复就自动补齐（不再要用户「恢复后重新打」）。 */
+    private val pendingFrames = ArrayDeque<Pair<String, Int>>()
+
+    private fun sendTextReliable(text: String, flags: Int): Boolean {
+        while (pendingFrames.isNotEmpty()) {
+            val (t, f) = pendingFrames.first()
+            if (!sendText(t, f)) return false
+            pendingFrames.removeFirst()
+        }
+        if (sendText(text, flags)) return true
+        pendingFrames.addLast(text to flags)
+        return false
     }
 
     private fun sendDone(): Boolean {
@@ -218,18 +234,18 @@ class RemoteInputActivity : ComponentActivity() {
                         // 用户报的“发送后文字重复两次”）。所以失败必须当场提示，不能悄悄丢字。
                         // sendText 通道助手现在能真实反映发没发出去（客户端通道 ready=false
                         // 时同样返回 false，不再只判“被控服务在不在”）。
-                        val ok = sendText(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
+                        val ok = sendTextReliable(text.substring(start, start + count), ApxFrame.INPUT_FLAG_INCREMENTAL)
                         if (!ok) {
                             val now = android.os.SystemClock.uptimeMillis()
                             if (now - lastFailHintAt > 2500) {
                                 lastFailHintAt = now
                                 Toast.makeText(this@RemoteInputActivity,
-                                    "没发出去 —— 连接断了？恢复后这段要重新打",
+                                    "没发出去 —— 连接断了？恢复后会自动补发",
                                     Toast.LENGTH_LONG).show()
                             }
                         }
                     } else if (count < before) {
-                        sendText("", ApxFrame.INPUT_FLAG_BACKSPACE)
+                        sendTextReliable("", ApxFrame.INPUT_FLAG_BACKSPACE)
                     }
                 }
                 override fun afterTextChanged(s: Editable?) {}
@@ -362,6 +378,13 @@ class RemoteInputActivity : ComponentActivity() {
         val t = editText?.text?.toString() ?: ""
         if (t.isEmpty()) {
             Toast.makeText(this, getString(R.string.ui_remoteinput_need_text), Toast.LENGTH_SHORT).show()
+            return
+        }
+        // 全量对账（0x04=整段替换，PC 端退格清场重打）：增量丢帧在这一拍归零自愈。
+        // 对账发不出去就**不清空输入框** —— 字留在框里可重试，而不是凭空消失。
+        if (!sendTextReliable(t, ApxFrame.INPUT_FLAG_COMMIT)) {
+            Toast.makeText(this, "没发出去 —— 连接断了？这段还在框里，恢复后再点发送",
+                Toast.LENGTH_LONG).show()
             return
         }
         sendDone()

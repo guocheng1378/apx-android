@@ -89,6 +89,17 @@ const char* linkPhaseName(LinkPhase p) noexcept {
     }
 }
 
+namespace {
+// 远程输入注入净字符数：0x04 全量对账按它退格清场（只在 9511 reader 线程读写，无需锁）。
+// DONE(0x27)/CANCEL(0x08)/新会话(0x25) 清零 —— 上一句定格，遥控页 0x04 不受残留影响。
+size_t g_injectedLen = 0;
+size_t utf8Chars(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) if ((c & 0xC0) != 0x80) ++n;
+    return n;
+}
+}  // namespace
+
 WirelessSession::WirelessSession() {
     // 远程输入回传（0x26）：对端用户在手机/TV 上敲的字，就地注入**本机当前光标处**。
     // 回调跑在 9511 的 reader 线程；injectSystemText 内部是 SendInput / 剪贴板 + Ctrl+V，
@@ -98,16 +109,28 @@ WirelessSession::WirelessSession() {
         if (flags & 0x02) {   // INPUT_FLAG_BACKSPACE（ApxFrame.kt 定义，PC 侧无此常量）
             // 0x08 = Windows VK_BACK：协议两侧按同一 VK 码空间解释（见 input_injector_*）
             apxpc::wireless::injectSpecialKey(0, 0x08);
+            if (g_injectedLen > 0) --g_injectedLen;
             return;
         }
-        if (!apxpc::wireless::injectSystemText(text))
+        if (flags & 0x08) { g_injectedLen = 0; return; }   // CANCEL：会话作废，计数归零
+        if (flags & 0x04) {
+            // 0x04 = 全量对账（替换语义）：手机端 TextWatcher 逐字增量是纯单向流，
+            // 丢一帧对端永久漂移（用户报的「手机打的字和电脑上照不齐」）。手机发送时
+            // 把整段快照发来，这里按已注入计数退格清场再重打，一次对账归零。
+            // 此前 0x04 未实现、整段被当追加注入（所以历史注释禁发 COMMIT）——现在禁令解除。
+            while (g_injectedLen > 0) { apxpc::wireless::injectSpecialKey(0, 0x08); --g_injectedLen; }
+        }
+        if (!apxpc::wireless::injectSystemText(text)) {
             APX_LOGW("远程输入文本注入失败（{} 字节）", static_cast<unsigned>(text.size()));
+            return;   // 注入失败不计数 —— 下一拍 0x04 对账会重打这段
+        }
+        g_injectedLen += utf8Chars(text);
     };
     // v184：0x28 特殊键/组合键（手机编辑快捷键排：方向键/Home/End/Del/Ctrl+A…）
     client_.onSpecialKey = [](uint8_t mod, uint8_t vk) {
         apxpc::wireless::injectSpecialKey(mod, vk);
     };
-    client_.onRemoteInputDone = [] { APX_LOGI("远程输入完成"); };
+    client_.onRemoteInputDone = [] { g_injectedLen = 0; APX_LOGI("远程输入完成"); };
     // v184：反向剪贴板（0x21）—— 对端（手机 / TV）上复制的内容写进**本机剪贴板**。
     // 此前只有 CLI（apxhost ctrl-connect / ctrl-remote）挂了这条回调，
     // **桌面面板从不注册** —— 于是"在手机上复制、回 PC 粘贴"永远是空的，
@@ -125,6 +148,7 @@ WirelessSession::WirelessSession() {
     // 回调同样跑在 reader 线程，这里只做一次带锁转发；**建窗口必须由 UI 层自己 Post**
     // （跨线程 CreateWindow 会消息泵错乱）。
     client_.onRequestInput = [this](const std::string& hint) {
+        g_injectedLen = 0;   // 新会话开窗：清掉上一轮可能残留的注入计数（DONE 丢失时的保险）
         std::function<void(const std::string&)> cb;
         {
             std::lock_guard<std::mutex> lk(cbMu_);

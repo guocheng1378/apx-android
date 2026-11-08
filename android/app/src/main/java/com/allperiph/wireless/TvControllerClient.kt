@@ -290,9 +290,10 @@ class TvControllerClient(
         sendControl(ApxFrame.packRequestInput(hint, 0))
     }
 
-    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
+    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL): Boolean {
         // v-fix：同 requestInput —— 统一走 ApxFrame.packInputText，消除手写副本。
-        sendControl(ApxFrame.packInputText(flags, text))
+        // 返回真实结果（断线/队列拒收如实 false）—— RemoteInputActivity 据此入队重推。
+        return sendControl(ApxFrame.packInputText(flags, text))
     }
 
     fun sendInputDone() { sendControl(ApxFrame.packInputDone()) }

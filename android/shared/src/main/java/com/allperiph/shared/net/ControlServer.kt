@@ -496,10 +496,12 @@ class ControlServer(
         return sendControl(body)
     }
 
-    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL) {
+    fun sendInputText(text: String, flags: Int = ApxFrame.INPUT_FLAG_INCREMENTAL): Boolean {
         // v-fix：组帧去重 —— 手写 u16 长度段与 ApxFrame.packInputText 完全同构，
         // 收发两处各自维护一份就是隐患；统一走 packer（对齐线上布局与全部解析方）。
-        sendControl(ApxFrame.packInputText(flags, text))
+        // 返回真实发送结果：远程输入页据此失败入队重推 —— 此前丢弃返回值恒报成功，
+        // 写失败静默，对端就永久少这段字（「和电脑上照不齐」根因之一）。
+        return sendControl(ApxFrame.packInputText(flags, text))
     }
 
     fun sendInputDone() { sendControl(ApxFrame.packInputDone()) }
