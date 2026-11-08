@@ -1,4 +1,0 @@
-ERRORS:
-top marker missing
-dup @Composable count=1 expect=6
-leftover dup @Composable
