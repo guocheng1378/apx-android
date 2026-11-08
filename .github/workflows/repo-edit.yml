@@ -3,6 +3,8 @@ name: repo-edit
 # 大文件锚点替换编辑器：MainActivity.kt（~111KB）等无法整文件回传时，
 # 把小而精确的改动交给 Actions 云端执行。编辑内容在 .github/scripts/repo_edit.py，
 # 每个锚点断言唯一命中，不匹配则本步骤失败 → 不产生提交。
+# 注意：本文件里的热修补丁都是幂等的（原文在则改，已是改后态则跳过）——
+# git add -A 会把补丁后的脚本提交进仓库，非幂等补丁会在下一次 run 秒挂（实测 #113）。
 
 on:
   workflow_dispatch:
@@ -25,9 +27,8 @@ jobs:
       - name: apply edits
         run: |
           set +e
-          # F16 锚点热修（run #111 失败原因）：使用说明里防火墙那段是纯文本、
-          # 无 ** 加粗，脚本内锚还停在旧加粗版 → count=0。锚与替换串都改成
-          # 按原文字段定位，替换后文本与该段行文一致。
+          # ---- F16 锚点热修（幂等）----
+          # 使用说明里防火墙那段是纯文本、无 ** 加粗，脚本内锚停在旧加粗版 → count=0。
           python3 - <<'PY'
           p = ".github/scripts/repo_edit.py"
           s = open(p, encoding="utf-8").read()
@@ -37,34 +38,44 @@ jobs:
               ('"new": "**放行 9501/9502/9511/9512 及互传 53317（program 级全端口规则；v223.29.32 起规则名升版 v2 强制重建）**"',
                '"new": "（`AllPeriph apxdesktop ctrl v2`，放行 9501/9502/9511/9512 及互传 53317（program 级全端口规则；v223.29.32 起规则名升版 v2 强制重建）；"'),
           ]
+          changed = False
           for a, b in pairs:
-              if a not in s:
+              if a in s:
+                  s = s.replace(a, b, 1)
+                  changed = True
+              elif b not in s:
                   print("F16 patch miss: " + a[:60])
                   raise SystemExit(2)
-              s = s.replace(a, b, 1)
-          open(p, "w", encoding="utf-8").write(s)
-          print("F16 anchor patched")
+          if changed:
+              open(p, "w", encoding="utf-8").write(s)
+              print("F16 anchor patched")
+          else:
+              print("F16 anchor already patched, skip")
           PY
           RC=$?
           if [ $RC -ne 0 ]; then
             echo "::error::F16 anchor patch failed rc=$RC"
             exit $RC
           fi
-          # Build #1460 失败修：action_router.cpp update.open 分支
-          # `static_cast<INT_PTR>(::ShellExecuteA(...))` —— ShellExecuteA 返回
-          # HINSTANCE（指针），C++ 不允许 static_cast 指针→整型 → C2440 + C2737 连锁。
-          # 改 reinterpret_cast，同一热修步骤免整文件回传。
+          # ---- action_router.cpp reinterpret_cast 热修（幂等）----
+          # Build #1460 失败：update.open 分支 static_cast<INT_PTR>(::ShellExecuteA(...))，
+          # ShellExecuteA 返回 HINSTANCE（指针），C++ 不允许 static_cast 指针→整型 → C2440 + C2737 连锁。
           python3 - <<'PY2'
           p = "pc/host/src/api/action_router.cpp"
           s = open(p, encoding="utf-8").read()
-          old = "const bool did = static_cast<INT_PTR>(::ShellExecuteA("
-          new = "const bool did = reinterpret_cast<INT_PTR>(::ShellExecuteA("
-          n = s.count(old)
-          if n != 1:
-              print("action_router patch miss count=%d" % n)
+          olds = "const bool did = static_cast<INT_PTR>(::ShellExecuteA("
+          news = "const bool did = reinterpret_cast<INT_PTR>(::ShellExecuteA("
+          if olds in s:
+              if s.count(olds) != 1:
+                  print("action_router patch ambiguous count=%d" % s.count(olds))
+                  raise SystemExit(3)
+              open(p, "w", encoding="utf-8").write(s.replace(olds, news, 1))
+              print("action_router.cpp reinterpret_cast patched")
+          elif news not in s:
+              print("action_router patch miss: neither old nor new form found")
               raise SystemExit(3)
-          open(p, "w", encoding="utf-8").write(s.replace(old, new))
-          print("action_router.cpp reinterpret_cast patched")
+          else:
+              print("action_router.cpp already patched, skip")
           PY2
           RC=$?
           if [ $RC -ne 0 ]; then
