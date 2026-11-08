@@ -5,31 +5,40 @@
       全 App 只有这一套取值 —— 主页、操控面、对话框、副屏浮层都引用这里，
       Kotlin 侧的 MIUIX 令牌常量（TouchpadActivity 的 cAccent 等）与此保持同值。
       旧「深色科技风」色板已废弃（PC 控制面板的深色只留在 PC 端，手机端统一亮色）。
+
+      2026-11-09 界面稿「08 质感层」：
+        表面四级 = 背景 #EEF1F5 / 卡片 #FFFFFF / 内嵌面 #FAFBFD / 浮层（毛玻璃，见各浮层组件）；
+        边缘 = 1px 内描边 rgba(15,17,20,.07)（= #120F1114）+ 4px 同色外扩 .035；
+        暗色不用阴影，改三级亮度差（见 values-night）。
     -->
 
     <!-- 主色：HyperOS 蓝 -->
     <color name="md_primary">#FF5E6AD2</color>
     <color name="md_on_primary">#FFFFFFFF</color>
     <color name="md_primary_container">#FFEDEFFB</color>
-    <!-- 主按钮按下态：比 md_primary 更深一档（bg_btn_primary 的 pressed 分支持它） -->
+    <!-- 主按钮按下态：比 md_primary 更深一档（bg_btn_pressed 的 pressed 分支持它） -->
     <color name="md_primary_pressed">#FF4B55B8</color>
 
     <color name="md_error_container">#FFFDECEA</color>
 
-    <!-- 表面层级：#F2F3F5 底 + 纯白卡片 + 灰阶文字 -->
-    <color name="md_background">#FFF5F6F6</color>
+    <!-- 表面层级（质感层）：#EEF1F5 底 + 纯白卡片 + #FAFBFD 内嵌面 + 灰阶文字 -->
+    <color name="md_background">#FFEEF1F5</color>
     <color name="md_on_background">#FF101113</color>
     <color name="md_surface">#FFFFFFFF</color>
     <color name="md_on_surface">#FF101113</color>
-    <color name="md_surface_variant">#FFF6F7F7</color>
+    <!-- 内嵌面（质感层第四级）：卡片里的输入区 / 子块 / 文件行底 -->
+    <color name="md_surface_variant">#FFFAFBFD</color>
     <color name="md_on_surface_variant">#FF5C6066</color>
-    <color name="md_outline">#FFE3E5E8</color>
+    <!-- 卡片 / 壳 / 胶囊的 1px 内描边：rgba(15,17,20,.07) -->
+    <color name="md_outline">#120F1114</color>
 
     <color name="state_error">#FFF04438</color>
     <color name="state_idle">#FF98A2B3</color>
 
-    <!-- 卡片描边 -->
-    <color name="card_stroke">#FFEDEDED</color>
+    <!-- 卡片描边：与 md_outline 同值（1px 内描边 .07；4px 外扩 .035 由各卡的 outline 层叠画） -->
+    <color name="card_stroke">#120F1114</color>
+    <!-- 4px 同色外扩 rgba(15,17,20,.035)，给需要外扩的卡 / 胶囊用 -->
+    <color name="card_stroke_spread">#090F1114</color>
 
     <!--
       触控板页玻璃胶囊（v1.23）顶部的镜面高光；旧底栏的 nav_pill / nav_pill_stroke /
@@ -53,8 +62,7 @@
     <color name="miuix_danger">@color/state_error</color>
 
     <!--
-      桌面小组件（widget_all_periph）：**刻意固定深色**，不给 values-night 覆盖 ——
-      小组件贴在任意壁纸上，跟着系统主题翻转反而会出现深壁纸 + 深底、浅壁纸 + 白底
+      桌面小组件（widget_all_periph）：**刻意固定深色**，不给 values-night 覆盖 —— 小组件贴在任意壁纸上，跟着系统主题翻转反而会出现深壁纸 + 深底、浅壁纸 + 白底
       两头都不稳的情况。写进色板是为了不再散落字面量（值与原实现完全一致）。
     -->
     <color name="widget_bg">#FF1F2228</color>
