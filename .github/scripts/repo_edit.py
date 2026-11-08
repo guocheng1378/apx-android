@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""repo-edit：#1 灯效调色（用户 2026-11-08「灯效太黑了，能改成调节颜色吗」）。
+"""repo-edit：#1 灯效调色 v2（run #101 失配修正：E6 改真实原文 ApComponents.TabChip(text=)、
+E7 改 12 空格缩进全文括注；面板全部改 ApComponents.TabChip）。其余 5 条不变。
 
-  E1 KeyPref 新增 rgbHue/rgbBright 持久化（0..359° / 40..160%）
-  E2 RgbTune 全局 state（**只允许绘制阶段读** —— 滑条写、公式读，只重绘不重组）
+  E1 KeyPref rgbHue/rgbBright 持久化（0..359° / 40..160%）
+  E2 RgbTune 全局 state（只允许绘制阶段读）
   E3 rgbFaceAt 接入调色 + 呼吸暗谷 0.30→0.45（「太黑」根因）
-  E4 touchLightAt（扩散波光）同样吃调色
-  E5 组合期一次性灌入持久值 + tuneOpen 面板开关
-  E6 「调色」入口 chip + 色相/亮度面板（全 TabChip/horizontalScroll，零新 import）
+  E4 touchLightAt 扩散波光同口径
+  E5 组合期灌值 + tuneOpen 开关
+  E6 灯效 chip 后加「调色」入口（text=/Feedback.tap/fx 同构）
+  E7 第 3 行注释前插调色面板（色相 8 选 + 亮度 3 档，横滑防溢出）
 
-公式仍只此一份 —— 遥控图块自动同步；锚点唯一；幂等；累积式（run #97 修正版框架）。
+锚点唯一；幂等；累积式（run #97 修正版框架）。
 """
 import os
 import sys
@@ -17,6 +19,20 @@ ERRLOG = "docs/edit_error.log"
 
 KP = "android/app/src/main/java/com/allperiph/ui/KeyPref.kt"
 KB = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
+
+CHIP_ANCHOR = (
+    "                ApComponents.TabChip(\n"
+    "                    text = ctx.getString(R.string.ui_set_label_rgb) + \" · \" +\n"
+    "                        KeyPref.rgbLabels(ctx).getOrElse(rgbMode) { \"\" },\n"
+    "                    selected = rgbMode != KeyPref.RGB_OFF,\n"
+    "                    onClick = {\n"
+    "                        Feedback.tap(host)\n"
+    "                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT\n"
+    "                        KeyPref.setRgb(ctx, rgbMode)\n"
+    "                    },\n"
+    "                    fx = fx,\n"
+    "                )"
+)
 
 EDITS = [
     {
@@ -114,72 +130,70 @@ EDITS = [
     {
         "id": "E6 调色入口 chip",
         "file": KB,
-        "anchor": (
-            "                TabChip(\n"
-            "                    label = KeyPref.rgbLabels(ctx)[rgbMode],\n"
-            "                    selected = rgbMode != KeyPref.RGB_OFF,\n"
-            "                    onClick = {\n"
-            "                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT\n"
-            "                        KeyPref.setRgb(ctx, rgbMode)\n"
-            "                    },\n"
-            "                )"
-        ),
+        "anchor": CHIP_ANCHOR,
         "new": (
-            "                TabChip(\n"
-            "                    label = KeyPref.rgbLabels(ctx)[rgbMode],\n"
-            "                    selected = rgbMode != KeyPref.RGB_OFF,\n"
-            "                    onClick = {\n"
-            "                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT\n"
-            "                        KeyPref.setRgb(ctx, rgbMode)\n"
-            "                    },\n"
-            "                )\n"
-            "                // 调色入口（灯效开着才给；点开 = 展开下方色相/亮度面板）\n"
-            "                if (rgbMode != KeyPref.RGB_OFF) {\n"
-            "                    TabChip(label = \"调色\", selected = tuneOpen, onClick = { tuneOpen = !tuneOpen })\n"
-            "                }"
+            CHIP_ANCHOR
+            + "\n"
+            + "                // 调色入口（灯效开着才给；点开 = 展开下方色相/亮度面板）\n"
+            + "                if (rgbMode != KeyPref.RGB_OFF) {\n"
+            + "                    ApComponents.TabChip(\n"
+            + "                        text = \"调色\",\n"
+            + "                        selected = tuneOpen,\n"
+            + "                        onClick = {\n"
+            + "                            Feedback.tap(host)\n"
+            + "                            tuneOpen = !tuneOpen\n"
+            + "                        },\n"
+            + "                        fx = fx,\n"
+            + "                    )\n"
+            + "                }"
         ),
     },
     {
         "id": "E7 调色面板",
         "file": KB,
-        "anchor": "                // —— 第 3 行：当前页签键位",
+        "anchor": "            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——",
         "new": (
-            "                // —— 调色面板：色相名直选 + 亮度三档（全 TabChip，可横滑；写 RgbTune 即时生效）\n"
-            "                if (tuneOpen && rgbMode != KeyPref.RGB_OFF) {\n"
-            "                    Row(\n"
-            "                        Modifier\n"
-            "                            .fillMaxWidth()\n"
-            "                            .horizontalScroll(rememberScrollState())\n"
-            "                            .padding(horizontal = 10.dp, vertical = 6.dp),\n"
-            "                        horizontalArrangement = Arrangement.spacedBy(6.dp),\n"
-            "                    ) {\n"
-            "                        listOf(\n"
-            "                            \"原\" to 0, \"红\" to 340, \"橙\" to 30, \"黄\" to 55,\n"
-            "                            \"绿\" to 140, \"青\" to 190, \"蓝\" to 240, \"紫\" to 285,\n"
-            "                        ).forEach { (label, hue) ->\n"
-            "                            TabChip(\n"
-            "                                label = label,\n"
-            "                                selected = RgbTune.hueShift == hue,\n"
-            "                                onClick = {\n"
-            "                                    RgbTune.hueShift = hue\n"
-            "                                    KeyPref.setRgbHue(ctx, hue)\n"
-            "                                },\n"
-            "                            )\n"
-            "                        }\n"
-            "                        Spacer(Modifier.padding(horizontal = 4.dp))\n"
-            "                        listOf(\"暗\" to 60, \"中\" to 100, \"亮\" to 140).forEach { (label, b) ->\n"
-            "                            TabChip(\n"
-            "                                label = label,\n"
-            "                                selected = RgbTune.bright == b,\n"
-            "                                onClick = {\n"
-            "                                    RgbTune.bright = b\n"
-            "                                    KeyPref.setRgbBright(ctx, b)\n"
-            "                                },\n"
-            "                            )\n"
-            "                        }\n"
+            "            // —— 调色面板：色相名直选 + 亮度三档（灯效开着且点了「调色」才展开；横滑防溢出）\n"
+            "            if (tuneOpen && rgbMode != KeyPref.RGB_OFF) {\n"
+            "                Row(\n"
+            "                    modifier = Modifier\n"
+            "                        .fillMaxWidth()\n"
+            "                        .horizontalScroll(rememberScrollState())\n"
+            "                        .padding(horizontal = 12.dp, vertical = 4.dp),\n"
+            "                    horizontalArrangement = Arrangement.spacedBy(6.dp),\n"
+            "                ) {\n"
+            "                    listOf(\n"
+            "                        \"原\" to 0, \"红\" to 340, \"橙\" to 30, \"黄\" to 55,\n"
+            "                        \"绿\" to 140, \"青\" to 190, \"蓝\" to 240, \"紫\" to 285,\n"
+            "                    ).forEach { (label, hue) ->\n"
+            "                        ApComponents.TabChip(\n"
+            "                            text = label,\n"
+            "                            selected = RgbTune.hueShift == hue,\n"
+            "                            onClick = {\n"
+            "                                Feedback.tap(host)\n"
+            "                                RgbTune.hueShift = hue\n"
+            "                                KeyPref.setRgbHue(ctx, hue)\n"
+            "                            },\n"
+            "                            fx = fx,\n"
+            "                        )\n"
+            "                    }\n"
+            "                    Spacer(Modifier.padding(horizontal = 4.dp))\n"
+            "                    listOf(\"暗\" to 60, \"中\" to 100, \"亮\" to 140).forEach { (label, b) ->\n"
+            "                        ApComponents.TabChip(\n"
+            "                            text = label,\n"
+            "                            selected = RgbTune.bright == b,\n"
+            "                            onClick = {\n"
+            "                                Feedback.tap(host)\n"
+            "                                RgbTune.bright = b\n"
+            "                                KeyPref.setRgbBright(ctx, b)\n"
+            "                            },\n"
+            "                            fx = fx,\n"
+            "                        )\n"
             "                    }\n"
             "                }\n"
-            "                // —— 第 3 行：当前页签键位"
+            "            }\n"
+            "\n"
+            "            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——"
         ),
     },
 ]
