@@ -390,7 +390,7 @@ class RemoteInputActivity : ComponentActivity() {
                 .background(androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_field)))
                 .clickable(
                     interactionSource = interaction,
-                    indication = androidx.compose.ui.platform.LocalIndication.current,
+                    indication = null,   // 键盘页 KeyBox 同款（视觉自绘/按下震补偿；platform.LocalIndication 本编译环境解析不到）
                 ) {
                     if (repeatFired) { repeatFired = false }
                     else { com.allperiph.ui.Feedback.tap(host); onClick() }
@@ -463,16 +463,20 @@ class RemoteInputActivity : ComponentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 726 && resultCode == RESULT_OK) {
-            val text = data?.getStringArrayListExtra(android.speech.SpeechRecognizer.EXTRA_RESULTS)
+            // 字面量值即 SpeechRecognizer.EXTRA_RESULTS（android.speech.extra.RESULTS）——
+            // 本编译环境解析不到 SpeechRecognizer 静态字段，公开协议常量直接用字面值
+            val text = data?.getStringArrayListExtra("android.speech.extra.RESULTS")
                 ?.firstOrNull() ?: return
             editText?.append(text)
         }
     }
 
     private fun startVoiceInput() {
-        val intent = Intent(android.speech.SpeechRecognizer.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(android.speech.SpeechRecognizer.EXTRA_LANGUAGE_MODEL,
-                android.speech.SpeechRecognizer.LANGUAGE_MODEL_FREE_FORM)
+        // 字面量与 SpeechRecognizer 源码逐字一致（ACTION / EXTRA_LANGUAGE_MODEL /
+        // LANGUAGE_MODEL_FREE_FORM）—— 本编译环境解析不到该类静态字段，
+        // 公开协议常量直接用字面值，零符号依赖。
+        val intent = Intent("android.speech.action.RECOGNIZE_SPEECH")
+            .putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form")
         try {
             @Suppress("DEPRECATION")
             startActivityForResult(intent, 726)
