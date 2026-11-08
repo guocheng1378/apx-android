@@ -38,6 +38,8 @@ object UpdateChecker {
 
     /** 国内镜像前缀：直连 GitHub 不通的网络用它做 API 回退与安装包直链。 */
     private const val MIRROR = "https://gh-proxy.com/"
+    /** API 回退镜像链（按序试）：gh-proxy 单点挂掉曾把整条检查更新拖死，v223.29.32 改链式。 */
+    private val MIRRORS = listOf(MIRROR, "https://ghfast.top/", "https://ghproxy.net/")
     private const val API_MIRROR = MIRROR + API
     private const val RELEASE_DL = MIRROR + "https://github.com/guocheng1378/apx-android/releases/download"
 
@@ -75,12 +77,19 @@ object UpdateChecker {
         check(context, onResult)
     }
 
-    /** 直连优先；直连失败（超时/被拦/DNS）回退 gh-proxy.com 镜像，两边都失败才回 Failed。 */
+    /** 直连优先；失败按序回退镜像链，全失败才回 Failed（单镜像挂掉不再拖死整条检查）。 */
     private fun fetchLatest(): Result {
         val direct = fetchTag(API)
         if (direct !is Result.Failed) return direct
-        com.allperiph.shared.util.Log.w("UpdateChecker", "direct failed (${direct.why}), retry via mirror")
-        return fetchTag(API_MIRROR)
+        com.allperiph.shared.util.Log.w("UpdateChecker", "direct failed (${direct.why}), retry mirrors")
+        var last = direct
+        for (m in MIRRORS) {
+            val r = fetchTag(m + API)
+            if (r !is Result.Failed) return r
+            com.allperiph.shared.util.Log.w("UpdateChecker", "mirror failed ($m): ${r.why}")
+            last = r
+        }
+        return last
     }
 
     private fun fetchTag(api: String): Result = try {
@@ -152,6 +161,14 @@ object UpdateChecker {
             .setNegativeButton(context.getString(R.string.about_later), null)
             .show()
     }
+
+    /** 手动兕底出口（检查失败时给用户）：国内镜像前缀直开 Release 页。 */
+    fun openReleaseMirror(context: Context): Boolean =
+        openUrl(context, MIRROR + "https://github.com/guocheng1378/apx-android/releases/latest")
+
+    /** 手动兕底出口：GitHub 原 Release 页。 */
+    fun openReleasePage(context: Context): Boolean =
+        openUrl(context, "https://github.com/guocheng1378/apx-android/releases/latest")
 
     private fun openUrl(context: Context, url: String): Boolean =
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }

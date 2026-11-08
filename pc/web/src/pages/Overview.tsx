@@ -54,6 +54,34 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
 
   // 手动指定 IP：自动发现失败时的兜底（就地展开，不弹窗）
   const [manualOpen, setManualOpen] = React.useState(false);
+  // —— 在线更新（v223.29.32）：update.check 查 releases/latest；打开走后端
+  // update.open（WebView2 对 window.open 不一定理，后端代开最稳）。
+  const [upd, setUpd] = React.useState<{
+    checking?: boolean;
+    msg?: string;
+    newer?: string;
+    url?: string;
+  }>({});
+  const checkUpdate = async () => {
+    setUpd({ checking: true });
+    try {
+      const r: any = await bridge.act('update.check');
+      const d = r?.data ?? r;
+      if (d?.netOk === false || (d?.error && !d?.hasNewer)) {
+        setUpd({ msg: `检查失败：${d?.error || '网络不通'}` });
+      } else if (d?.hasNewer) {
+        setUpd({ newer: d.latestTag, url: d.url });
+      } else {
+        setUpd({ msg: `已是最新（${d?.current || '?'}）` });
+      }
+    } catch {
+      setUpd({ msg: '检查失败：面板未连接宿主' });
+    }
+  };
+  const openRelease = () => {
+    const url = upd.url || 'https://github.com/guocheng1378/apx-android/releases/latest';
+    bridge.act('update.open', { url }).catch(() => window.open(url, '_blank'));
+  };
   const [host, setHost] = React.useState('');
   const [port, setPort] = React.useState('9511');
   const manual = useAction();
@@ -458,6 +486,21 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
                       : '未知'}
               </Badge>
             }
+          />
+          {/* ————— 在线更新（v223.29.32）————— */}
+          <Row
+            title="检查更新"
+            sub={
+              upd.checking
+                ? '正在查询 GitHub releases…'
+                : upd.msg ||
+                  (upd.newer ? `发现新版本 ${upd.newer}，点击打开下载页` : '点击检查是否有新版本')
+            }
+            onClick={() => {
+              if (upd.checking) return;
+              if (upd.newer) openRelease();
+              else checkUpdate();
+            }}
           />
           {state.tray && (
             <Row

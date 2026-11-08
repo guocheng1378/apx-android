@@ -4,6 +4,29 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.29.32（2026-11-08）
+
+发现链路与更新通道四连修（触发线：电脑端发现不了手机 + 上一版在线更新不了 + PC 缺在线更新入口）。
+
+### 互传发现 · register 入表兕底
+
+- PC 接收端 POST /register 此前只回 200 不记设备；手机收到 PC announce 后本就会单播 register 应答，这条单播路径现在会把手机记进『附近设备』（60s 窗口 + onDevice 回调）—— 多播被路由器丢（Wi-Fi→有线方向）时的唯一发现通路就此打通。
+
+### 防火墙规则升版（53317）
+
+- 规则名升版 v2（AllPeriph apxdesktop ctrl v2 / AllPeriph apxhost ctrl v2）：旧名规则按名查重、绑旧 exe 路径即形同虚设 —— 升级换目录后 53317（互传 HTTP+多播）与 9501 入站被拦，症状正是『手机能连电脑、电脑发现不了手机』。换名强制所有升级机器首启重建。
+
+### 手机端在线更新修缮
+
+- 检查失败不再只吐一行『检查失败』：弹出『国内镜像打开 / GitHub 原页』两个手动出口（上一版『在线更新不了』的体验根因）。
+- API 回退由单镜像改镜像链（gh-proxy → ghfast.top → ghproxy.net）：单点挂掉不再拖死整条检查。
+
+### PC 面板在线更新（新增）
+
+- 概览页『本机』分组新增检查更新入口：update.check 查 GitHub releases/latest 与本机比对（与手机端同算法），发现新版一键 update.open 打开 Release 页（后端 ShellExecute 代开，WebView2 不理 window.open 的兕底）。
+
+---
+
 ## v223.29.31（2026-11-08）
 
 七条功能收口，各批 repo-edit run 全绿：#7 文字照不齐、#1 灯效调色、#6 长按连发、#4 语音输入、#5 按下即震、#3 触控板接通用逻辑；叠加本日更早落盘的发送超时三修（register/prepare 30s + upload 响应宽限重读 + 进度事件）与 open-file 10 分钟超时修复。仅 CI 编译验证，未装机回验。

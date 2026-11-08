@@ -47,7 +47,7 @@ std::string localHostName() {
 // —— 入站防火墙放行（仅 Windows）——
 // 手机连入本机 9511 是「入站」流量；本机网卡若为 Public(公用)网络，Windows 默认拦截入站，
 // 导致手机列表能看到本机却「连不上」。这里在首次启动、且尚未有规则时，提权(netsh runas)
-// 加一条放行 apxhost.exe 的入站规则（TCP 9511 + UDP 9501），免去手动配置。
+// 加一条放行 apxhost.exe 的入站规则（program 级全端口：9511/9502/9512 TCP、9501 与互传 53317 的 UDP 入站），免去手动配置。
 // 规则已存在则跳过；提权被拒仅告警、不阻断面板。
 #if defined(_WIN32)
 bool firewallRuleExists(const char* name) {
@@ -63,7 +63,8 @@ bool firewallRuleExists(const char* name) {
     return found;
 }
 void ensureCtrlFirewallRule() {
-    const char* ruleName = "AllPeriph apxhost ctrl";
+    // v223.29.32 规则名升版（同 desktop：路径老化按名查重失效 → 强制重建，口径同）
+    const char* ruleName = "AllPeriph apxhost ctrl v2";
     if (firewallRuleExists(ruleName)) return;
     char exePath[MAX_PATH] = {0};
     if (GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0) return;

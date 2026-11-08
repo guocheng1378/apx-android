@@ -572,6 +572,53 @@ struct LocalSendReceiver::Impl {
         }
     }
 
+    // 单播 register 入表：与 onAnnouncePacket 同一入表路径（60s 窗口、onDevice 回调）。
+    // body 是对端 selfInfo 顶层 JSON，或官方 {info:{...}} 包装，两种都吃。
+    void onRegisterFromPeer(Sock c, const std::string& body) {
+        if (body.empty()) return;
+        std::string err;
+        const apxpc::net::Json j = apxpc::net::Json::parse(body, &err);
+        if (!j.isObject()) return;
+        const apxpc::net::Json* info = &j;
+        if (const apxpc::net::Json* nested = j.find("info"); nested && nested->isObject()) info = nested;
+        const std::string proto = jsonStr(*info, "protocol", "http");
+        if (proto != "http") return;
+        const apxpc::net::Json* p = info->find("port");
+        const int port = (p && p->isNumber()) ? p->asInt(0) : 0;
+        if (port <= 0 || port > 65535) return;
+        char ipStr[INET_ADDRSTRLEN] = {0};
+        sockaddr_in peer{};
+#if defined(_WIN32)
+        int peerLen = sizeof(peer);
+#else
+        socklen_t peerLen = sizeof(peer);
+#endif
+        if (::getpeername(c, reinterpret_cast<sockaddr*>(&peer), &peerLen) != 0) return;
+        if (!::inet_ntop(AF_INET, &peer.sin_addr, ipStr, sizeof ipStr)) return;
+        const std::string peerIp(ipStr);
+        const std::string fp = jsonStr(*info, "fingerprint", peerIp);
+        const std::string key = fp.empty() ? peerIp : fp;
+        if (key == fingerprint) return;
+        Device d;
+        d.alias = jsonStr(*info, "alias", peerIp);
+        d.deviceType = jsonStr(*info, "deviceType", "phone");
+        d.fingerprint = key;
+        d.ip = peerIp;
+        d.port = static_cast<uint16_t>(port);
+        d.lastSeenMs = nowMs();
+        bool isNew = false;
+        {
+            std::lock_guard lk(mu);
+            isNew = devices.find(key) == devices.end();
+            devices[key] = d;
+        }
+        if (isNew) {
+            APX_LOGI("LocalSend register 入表：{}（{}:{}）", d.alias.c_str(), d.ip.c_str(),
+                     static_cast<int>(d.port));
+            if (onDevice) onDevice(d);
+        }
+    }
+
     void udpLoop() {
         if (udp == kBadSock) return;
         int ttl = 1;
@@ -868,7 +915,16 @@ struct LocalSendReceiver::Impl {
         if (method == "get" && path == kPathInfo) {
             respondJson(c, 200, deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint, version, true));
         } else if (method == "post" && path == kPathRegister) {
-            rd.discard(contentLength);
+            // v223.29.32 register 入表兕底（官方协议语义）：手机收到本机 announce 后会
+            // 单播 register 应答 —— 多播（Wi-Fi→有线）被路由器丢时，这是让『附近设备』
+            // 看到手机的唯一通路。此前只回 200 不记设备，列表对手机永远空着。
+            std::string regBody;
+            if (contentLength <= (64u << 10)) {
+                if (!rd.readInto(regBody, contentLength)) regBody.clear();
+            } else {
+                rd.discard(contentLength);
+            }
+            onRegisterFromPeer(c, regBody);
             respondJson(c, 200, deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint, version, true));
         } else if (method == "post" && path == kPathPrepare) {
             // 清单是 JSON，读到内存即可；顺带上限防止有人拿它当上传口

@@ -1346,9 +1346,20 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                     UpdateChecker.showUpdateDialog(ctx, r.tag, r.url)
                                     return@check
                                 }
+                                if (r is UpdateChecker.Result.Failed) {
+                                    // v223.29.32：失败不再只吐一行『检查失败』就结束（上一版
+                                    // 『在线更新不了』的体验根因）—— 弹出两个手动出口。
+                                    com.allperiph.ui.ApDialog.builder(ctx)
+                                        .setTitle("检查更新失败")
+                                        .setMessage("网络可能不通（GitHub 直连与镜像均失败）。可手动打开 Release 页下载安装包。")
+                                        .setPositiveButton("国内镜像打开") { _, _ -> UpdateChecker.openReleaseMirror(ctx) }
+                                        .setNeutralButton("GitHub 原页") { _, _ -> UpdateChecker.openReleasePage(ctx) }
+                                        .setNegativeButton("稍后", null)
+                                        .show()
+                                    return@check
+                                }
                                 val msg = when (r) {
                                     is UpdateChecker.Result.UpToDate -> "已是最新：${r.tag}"
-                                    is UpdateChecker.Result.Failed -> "检查失败"
                                     else -> ""
                                 }
                                 Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()

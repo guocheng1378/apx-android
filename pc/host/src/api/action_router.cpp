@@ -1,5 +1,12 @@
 #include "apxpc/api/action_router.hpp"
+#include "apxpc/app/update_check.hpp"  // update.check：查 releases/latest（同手机端算法）
+#include "apxpc/version.hpp"          // APXPC_VERSION_STRING：update.check 回带当前版本
 #include "apxpc/discovery/discovery.hpp"
+#if defined(_WIN32)
+#include <windows.h>
+#include <shellapi.h>  // update.open：ShellExecuteA 打开 Release 页（放 discovery 之后，避免 winsock 顺序问题）
+#endif
+#include <cstdlib>     // update.open（mac：system open）
 #include "apxpc/sensors/sensor_reader.hpp"
 #include "apxpc/log.hpp"
 
@@ -286,6 +293,39 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
     //（这两个配置只服务于 HTTP 端口与"启动即开浏览器"，已无消费者）
     if (name == "config.toggleAutostart") { cfg_.autostart = !cfg_.autostart; persist(); out["autostart"] = cfg_.autostart; return; }
     if (name == "config.setLogLevel") { if (auto* v = p.find("level")) { cfg_.logLevel = v->asString(); persist(); } out["level"] = cfg_.logLevel; return; }
+
+    // ---- 在线更新（v223.29.32）：概览页入口；此前只有 apxhost check-update CLI 与启动静默检查 ----
+    if (name == "update.check") {
+        const auto r = apxpc::app::checkForUpdate();
+        out["hasNewer"] = r.hasNewer;
+        out["latestTag"] = r.latestTag;
+        out["error"] = r.error;
+        out["netOk"] = r.ok;
+        out["current"] = APXPC_VERSION_STRING;
+        out["url"] = "https://github.com/guocheng1378/apx-android/releases/latest";
+        if (!r.ok) APX_LOGW("update.check 失败：{}", r.error.c_str());
+        return;
+    }
+    if (name == "update.open") {
+        const auto* u = p.find("url");
+        const std::string url = u ? u->asString() : std::string();
+        // 白名单：只允许本项目 Release 页（后端代开外链，WebView2 对 window.open 不一定理）
+        if (url.rfind("https://github.com/guocheng1378/apx-android/releases", 0) != 0) {
+            out = fail("只允许打开本项目的 Release 页");
+            return;
+        }
+#if defined(_WIN32)
+        const bool did = static_cast<INT_PTR>(::ShellExecuteA(nullptr, "open", url.c_str(),
+                                                              nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+#elif defined(__APPLE__)
+        const bool did = std::system(("open '" + url + "'").c_str()) == 0;
+#else
+        const bool did = false;
+#endif
+        out["ok"] = did;
+        if (!did) out["url"] = url;
+        return;
+    }
 
     // ---- 诊断 ----
     if (name == "diag.enumerate") { auto devs = discovery::enumerate(); deviceConnected_ = !devs.empty(); out["count"] = (double)devs.size(); return; }

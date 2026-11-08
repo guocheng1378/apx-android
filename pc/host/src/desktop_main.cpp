@@ -122,7 +122,10 @@ bool firewallRuleExists(const char* name) {
     return found;
 }
 void ensurePanelFirewallRule() {
-    const char* ruleName = "AllPeriph apxdesktop ctrl";
+    // v223.29.32 规则名升版：旧名规则按名查重、绑旧 exe 路径时形同虚设 —— 升级换目录
+// 后有规则却匹配不到当前进程，UDP 53317（互传多播）与 9501 入站全被拦，
+// 症状正是『手机能连电脑、电脑发现不了手机』。换名强制所有升级机器首启重建。
+    const char* ruleName = "AllPeriph apxdesktop ctrl v2";
     if (firewallRuleExists(ruleName)) return;
     char exePath[MAX_PATH] = {0};
     if (::GetModuleFileNameA(nullptr, exePath, MAX_PATH) == 0) return;
