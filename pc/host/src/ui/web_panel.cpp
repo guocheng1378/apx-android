@@ -949,7 +949,26 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         p->sendThread = std::thread([p, target, files] {
             apxpc::localsend::LocalSendSender tx;
             apxpc::localsend::SenderIdentity self;
-            const auto res = tx.send(target, self, files);
+            // 进度节流：sender 的 onWrite 每 64KB 一拍，直接转事件会淹没面板消息泵 ——
+            // 与 file.send 同口径：每 10% 推一拍（postEvent 线程安全，发送线程可调）
+            int lastPct = -1;
+            const auto onProgress = [p, &lastPct](const apxpc::localsend::SendProgress& pr) {
+                const int pct = pr.grandTotal > 0
+                    ? static_cast<int>(pr.totalBytes * 100 / pr.grandTotal) : 100;
+                if (pct >= 100 || pct - lastPct >= 10) {
+                    lastPct = pct;
+                    Json d = Json::makeObject();
+                    d["percent"] = pct;
+                    d["fileName"] = pr.fileName;
+                    d["filesDone"] = static_cast<double>(pr.filesDone);
+                    d["filesTotal"] = static_cast<double>(pr.filesTotal);
+                    d["bytes"] = static_cast<double>(pr.totalBytes);
+                    d["total"] = static_cast<double>(pr.grandTotal);
+                    postEvent(p, std::string("on-localsend-progress"), d);
+                }
+                return true;
+            };
+            const auto res = tx.send(target, self, files, onProgress);
             p->sendBusy.store(false);
             Json d = Json::makeObject();
             d["ok"] = res.ok;

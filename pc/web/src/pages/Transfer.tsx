@@ -96,6 +96,17 @@ export const Transfer: React.FC<Props> = ({ state }) => {
         setLsErr(d.ok ? '' : d.error || '发送失败');
         if (d.ok) setLsNote(`已发送 ${d.count} 个文件到 ${d.peerAlias || d.ip}`);
       }),
+      // 宿主每 10% 推一拍（web_panel.cpp localsend.send 分支节流）：大文件互传
+      // 从「正在发送…」干等变成带百分比 —— 也是区分「在传」与「卡死」的唯一信号
+      bridge.onEvent('on-localsend-progress', (evt: any) => {
+        const d = evt?.data || {};
+        if (typeof d.percent !== 'number') return;
+        const nm = d.fileName ? fileNameOf(String(d.fileName)) : '';
+        setLsStatus(
+          `正在发送${nm ? ` ${nm}` : ''} · ${d.percent}%` +
+            (d.filesTotal > 1 ? ` · ${d.filesDone + 1}/${d.filesTotal}` : ''),
+        );
+      }),
       bridge.onEvent('on-file-received', (evt: any) => {
         refreshFiles();
         setFileStatus(`已收到：${fileNameOf(evt.data?.path || '')}`);

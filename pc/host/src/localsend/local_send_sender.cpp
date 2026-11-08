@@ -283,9 +283,16 @@ HttpResponse httpDo(const HttpRequest& req) {
     size_t hdrEnd = std::string::npos;
     size_t contentLen = std::string::npos;
     bool bodyDone = false;
+    bool graceUsed = false;
     char buf[16 * 1024];
     while (!bodyDone) {
-        const int rd = waitReadable(s, req.timeoutMs);
+        int rd = waitReadable(s, req.timeoutMs);
+        if (rd == 0 && req.stream && !graceUsed) {
+            // upload 的字节已全部写出：对端要收全才落盘回 204，慢机 / 息屏会晚到 ——
+            // 首超不判死，再宽限 30s 重读一次（根治「手机已完整收到、PC 报等待响应超时」）
+            graceUsed = true;
+            rd = waitReadable(s, 30'000);
+        }
         if (rd == 0) { resp.error = "等待响应超时"; break; }
         if (rd < 0) { resp.error = "读取响应失败"; break; }
         const int r = ::recv(s, buf, static_cast<int>(sizeof buf), 0);
