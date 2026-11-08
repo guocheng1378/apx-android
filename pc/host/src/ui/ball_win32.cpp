@@ -4,8 +4,8 @@
 //   · 裁形用 SetWindowRgn(CreateEllipticRgn) 而非 per-pixel layered：圆球
 //     只需纯色填充，Region 裁边足够，且省掉 UpdateLayeredWindow 的 DIB
 //     生命周期管理（仓库里 file_panel/settings 也都是最朴素的 Win32 做法）。
-//   · 贴边动画 SetTimer 16ms 推进 + easeInOutQuad，时长 160ms，与 Android
-//     侧 dock 滑入动效同参数（v223.29.11 对齐观感）。
+//   · 贴边动画 SetTimer 16ms 推进 + easeInOutQuad，时长 200ms（2026-11-09
+//     界面稿质感层：时长只用 150/180/200，吸附归 200 档；原 160ms 退役）。
 //   · 拖动用 SetCapture + 屏幕坐标，跨显示器（含负坐标）天然正确。
 //
 // ⚠ 必须在第一个头文件（即第一个 windows.h）之前定义 UNICODE：
@@ -30,10 +30,15 @@ namespace {
 
 constexpr wchar_t kClass[]   = L"APXFloatingBall";
 constexpr int     kBallDip   = 44;    // 直径（DIP，96DPI 下 44px）
-constexpr int     kSnapMs    = 160;   // 贴边滑入时长（对齐 Android dock 动效）
+constexpr int     kSnapMs    = 200;   // 贴边滑入时长（界面稿时长档 150/180/200，吸附=200）
 constexpr int     kTickMs    = 16;    // 动画帧间隔
 constexpr UINT_PTR kTimerAnim = 1;
 constexpr int     kDragSlop  = 3;     // 位移超过 3px 才算拖动，否则算点击
+
+// 全局强调色 #3482FF（2026-11-09 界面稿统一 accent；原 #266BE5 退役）
+constexpr int kAccentR = 52;
+constexpr int kAccentG = 130;
+constexpr int kAccentB = 255;
 
 struct BallData {
     FloatingBall::OpenCb onOpen;
@@ -182,9 +187,9 @@ LRESULT CALLBACK wndProc(HWND w, UINT m, WPARAM wp, LPARAM lp) {
         ::GetClientRect(w, &rc);
         const int cw = rc.right - rc.left;
         const int ch = rc.bottom - rc.top;
-        HBRUSH br   = ::CreateSolidBrush(RGB(38, 107, 229));
+        HBRUSH br   = ::CreateSolidBrush(RGB(kAccentR, kAccentG, kAccentB));
         HBRUSH oldb = (HBRUSH)::SelectObject(hdc, br);
-        HPEN pen    = ::CreatePen(PS_SOLID, 0, RGB(38, 107, 229));
+        HPEN pen    = ::CreatePen(PS_SOLID, 0, RGB(kAccentR, kAccentG, kAccentB));
         HPEN oldp   = (HPEN)::SelectObject(hdc, pen);
         ::Ellipse(hdc, 0, 0, cw, ch);
         ::SelectObject(hdc, oldp);
