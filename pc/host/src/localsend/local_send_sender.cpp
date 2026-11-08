@@ -487,6 +487,8 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
     reg.port = target.port;
     reg.path = kPathRegister;
     reg.body = &regBody;
+    // 10s 默认值在慢机（息屏首包 / 高负载）上过紧 —— register 超时误报在这里拦过一次
+    reg.timeoutMs = 30'000;
     const HttpResponse regResp = httpDo(reg);
     if (!regResp.ok) {
         res.error = "连接对端失败：" + regResp.error;
@@ -543,6 +545,8 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
     prep.port = target.port;
     prep.path = kPathPrepare;
     prep.body = &prepBody;
+    // 同 register：对端可能弹「是否接收」等人工点，10s 必超 —— 放宽到 30s
+    prep.timeoutMs = 30'000;
     const HttpResponse prepResp = httpDo(prep);
     if (!prepResp.ok) {
         res.error = "prepare 失败：" + prepResp.error;
