@@ -1,10 +1,9 @@
 name: RGB Fix
 
-# b31——修 Build #1412 Android 6 处「Fixable lint warnings」（@Composable 重复声明）：
-# 重复的 @Composable/局部 composable 声明是 lint 警告（Fixable），Kotlin 规范更推荐
-# 抽成顶层的 @Composable @Stable 标记（@Stable 让跨组合调用时 lambda 重绘行为稳定）。
-# 6 处都在 KeyBox 的 rgbFace / touchLight / touchFg / 涟漪相关局部函数上（b28 引入时
-# 逐处手写 @Composable 所致）。修复：抽顶层标记，局部函数去重 @Composable。
+# b32——CHANGELOG 插入 v223.29.29 段（发版正文的真源）：
+# build.yml 的 release job 从 docs/CHANGELOG.md 里截 `## <tag>` 段当 Release 正文，
+# 没有该段会降级成「明细缺失」占位。锚点取文件里第一个 "\n## v"（第一节位置），
+# 幂等：已插入则不写盘。成功后删 b31 留下的 docs/edit_error.log。
 
 on:
   workflow_dispatch:
@@ -17,36 +16,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: apply b31
+      - name: apply b32
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import os, sys, traceback
           LOG = "docs/edit_error.log"
           fails = []
+          P = "docs/CHANGELOG.md"
+          TAG = "## v223.29.29（2026-11-08）"
+          SECTION = """## v223.29.29（2026-11-08）
+
+键盘 RGB 灯效批次 b24–b30 收口（成宇「是要真的」连续反馈），Build #1414 全绿。
+
+### 灯效对齐真键盘（b24）
+
+- 呼吸模式改 48s 相位 + 正弦明灭：根治旧版循环末尾的快闪；波浪/呼吸的饱和与明度拉到 LED 级配色，不再发灰。
+
+### 真键盘渲染（b25）
+
+- KeyBox 按透光键帽发光结构复刻：键缝泛光 + 黑键帽 + 亮边 + 字符透光，键盘从平面色块变成一把有灯的真键盘。
+
+### 按下扩散第 4 档 + Touch 相位修复（b26/b27/b29）
+
+- 按下扩散新增 Reactive 涟漪档：按下处向外扩散的圆环涟漪，四档齐全（关闭/呼吸/波浪/按下）。
+- Touch 档相位改即时订阅：切档立即生效；KeyBox 字面色值全部走主题令牌，换肤/莫奈/深色下灯效跟随，不再有死色。
+
+### 修复与 CI
+
+- `touchFg` 补 `@Composable`（b30）：清掉 `compileReleaseKotlin` 仅剩 2 处编译错，Build 恢复全绿（#1414）。
+- RGB Fix 机器人 b24–b31：锚点实况校验 + 自诊断日志（docs/edit_error.log），编辑失败定位到行；新增 Fix Release Notes 工作流补全占位正文。
+
+---
+"""
           try:
-              P = "android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt"
               text = open(P, encoding="utf-8").read()
-
-              # 顶层标记：@Stable 放在 @Composable 之前（Kotlin 约定）
-              TOP = "@Composable\n@Stable\n"
-              if TOP not in text:
-                  fails.append("top marker missing")
+              if TAG in text:
+                  print("OK: section already present, skip")
+                  sys.exit(0)
+              idx = text.find("\n## v")
+              if idx < 0:
+                  fails.append("anchor \\n## v not found")
               else:
-                  text = text.replace(TOP, "@Stable\n@Composable\n", 1)
-
-              # 去重复：所有 "\n    @Composable\n    fun" 的 @Composable 头删掉
-              old = "\n    @Composable\n    fun"
-              n = text.count(old)
-              if n != 6:
-                  fails.append("dup @Composable count=" + str(n) + " expect=6")
-              else:
-                  text = text.replace(old, "\n    fun", n)
-
-              if "\n    @Composable\n    fun" in text:
-                  fails.append("leftover dup @Composable")
-              if not fails:
-                  open(P, "w", encoding="utf-8").write(text)
+                  text = text[: idx + 1] + SECTION + "\n" + text[idx + 1 :]
+                  if TAG not in text:
+                      fails.append("insert verification failed")
+                  else:
+                      open(P, "w", encoding="utf-8").write(text)
+                      if os.path.exists(LOG):
+                          os.remove(LOG)
+                      print("OK: inserted v223.29.29 section")
           except Exception:
               fails.append("EXCEPTION:\n" + traceback.format_exc())
           if fails:
@@ -55,9 +74,6 @@ jobs:
               open(LOG, "w", encoding="utf-8").write(body)
               print(body)
               sys.exit(1)
-          if os.path.exists(LOG):
-              os.remove(LOG)
-          print("OK: b31 applied")
           PY
       - name: commit and push
         run: |
@@ -66,7 +82,7 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "fix: b31 — 抽 @Composable @Stable 顶层标记，删 6 处重复声明（lint Fixable warnings）"
+          git commit -m "docs: CHANGELOG 补 v223.29.29 段（发版正文，灯效批次 b24–b30）"
           git push
       - name: commit error log
         if: always()
@@ -76,5 +92,5 @@ jobs:
           git config user.email "106110000+repo-edit[bot]@users.noreply.github.com"
           git add docs/edit_error.log 2>/dev/null
           git diff --cached --quiet && exit 0
-          git commit -m "chore: b31 诊断日志"
+          git commit -m "chore: b32 诊断日志"
           git push
