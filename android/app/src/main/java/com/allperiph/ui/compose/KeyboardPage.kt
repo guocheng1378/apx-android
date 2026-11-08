@@ -133,7 +133,10 @@ internal class RgbSpec(val mode: Int, val phase: State<Float>?)
 private val LocalRgb = staticCompositionLocalOf { RgbSpec(KeyPref.RGB_OFF, null) }
     // b34 材质动效相位（0..360°，6s 一圈）：亚克力流光 / 水晶星芒 / 木质缎面共用一条节奏；
     // 只在选中这三档时于 KeyboardPage 起 transition，其余时候下发静态 0f（零开销）。
-    private val LocalMatPhase = staticCompositionLocalOf { mutableStateOf(0f) }
+    // 显式标 State<Float>：默认值 mutableStateOf(0f) 会把类型推成 MutableState<Float>，
+    // 而 provides 的 matPhase 是 State<Float>（animateFloat 返回的就是 State），
+    // 严格同型对不上 → Build #1422 ARGUMENT_TYPE_MISMATCH。读侧只 .value，无需可变。
+    private val LocalMatPhase = staticCompositionLocalOf<State<Float>> { mutableStateOf(0f) }
 
 /** HSV → Color（Compose 没有内置 hsv 构造，走 android.graphics.Color.HSVToColor） */
 private fun hsvColor(h: Float, s: Float, v: Float): Color =
