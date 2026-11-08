@@ -28,6 +28,7 @@ import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMotion
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.rememberApInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -78,6 +79,15 @@ import top.yukonga.miuix.kmp.basic.Text
  *    迁到本页，而是落到首页「快捷入口」卡（2026-11-02 审查条 1.6）：本页手势面要全屏，
  *    再叠一排按钮会把手势面压回去（v223.23 真机反馈「可操作区域太小」）。此前这段注释说
  *    「仍由旧主界面提供」，而旧主界面已在 `c6734c8` 删除 —— 注释与实现相反的漂移一并修掉。
+ *
+ * ## 2026-11-09 界面稿对位（02/04/05）
+ *  · 02 横屏：左右按**实际** WindowInsets.displayCutout 垫边（本稿 26dp 为示意，落地读实际值），
+ *    刘海侧内容不被切；手势面吃满剩余高度（不变）。
+ *  · 04 Medium（600–839dp）：侧列**固定 292dp**（稿内验收「侧列固定不按比例、主区随窗口增长」）；
+ *  · 05 Expanded（≥840dp）：右列固定 **268dp**，切入双栏 200ms（进入曲线）。
+ *  · 稿里 02 的「手势面:键盘 1.15:1 并排」与 04 的「左列状态/模块列表」属**建议方案**（稿内
+ *    自注「仓库只保证 twoPane=true」）——本页仍保持仓库架构（快捷键右列），未把键盘页
+ *    整块嵌进本页；采纳需要单独一轮改造 KeyboardPage 嵌入，先不冒这个编译风险。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -96,6 +106,7 @@ fun TouchpadPage(
     // 审查条 2.3：侧列此前固定 320dp，600dp 屏上手势面只剩 280dp（手机横屏正好落在
     // 640–720dp 这一段）。改成按宽度取比例并夹在 180–320dp：600dp → 228dp（手势面 372dp），
     // 842dp 以上才回到 320dp 的旧观感。
+    // （2026-11-09 界面稿 04/05 覆盖上述口径：分档改**固定宽度**，见 sideTarget。）
     // ★ v223.29.9：`wide` 与侧列宽度不再直接读 `LocalConfiguration`。
     // 旧写法 `screenWidthDp >= 600` 踩的正是 v223.29.8 刚从 [ApAdaptive] 里修掉的那个坑：
     // 本壳 Activity 声明了 `configChanges=orientation|screenSize`，旋转不重建，配置回写
@@ -103,12 +114,34 @@ fun TouchpadPage(
     // 读到的是 ~400dp），`wide` 判 false，快捷键网格照旧堆在手势面下方，用户看到的就是
     // 「触摸板页横屏没按横屏分」。改成与状态页 / 键盘页同一个入口
     // [rememberApAdaptiveLayout]（按窗口实测尺寸，与布局测量同源），判定不再滞后。
-    // 侧列比例也一并改按实测宽度，避免「判定已横屏、侧列还按竖屏宽度算」的第二处错位。
     val adaptive = rememberApAdaptiveLayout()
     val screenWidthDp = adaptive.width.value
     val wide = adaptive.twoPane
-    val sideWidth = (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
-    Row(modifier = Modifier.fillMaxSize()) {
+    // 侧列宽度（界面稿 04/05，2026-11-09）：分档**固定**，不再按窗口比例 ——
+    //   ≥840dp（Expanded）右列 268dp；600–839dp（Medium）侧列 292dp；
+    //   其余（<600，实际不会进 wide）保留旧比例兕底。
+    // 切入双栏 200ms 进入曲线（稿 04「切入双栏200ms」），动效开关关闭时 0ms 直接落位。
+    val sideTarget = when {
+        screenWidthDp >= 840f -> 268.dp
+        screenWidthDp >= 600f -> 292.dp
+        else -> (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
+    }
+    val sideWidth by androidx.compose.animation.core.animateDpAsState(
+        targetValue = sideTarget,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = ApMotion.durationMs(ctx, 200),
+            easing = ApMotion.EnterEasing,
+        ),
+        label = "sideWidth",
+    )
+    // 界面稿 02：左右按**实际** cutout 垫边（落地读实际值，不写死 26dp 示意值），
+    // 刘海侧内容不被切；竖屏无 cutout 时 insets 为 0，布局不变。
+    val insets = rememberApInsets()
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = insets.left, end = insets.right),
+    ) {
       Column(modifier = Modifier.weight(1f)) {
         // —— 手势面（与悬浮球浮窗面板**同一份**实现：ApTouchpadSurface）——
         // 手势识别 + 长按 550ms 拖拽/右键拖拽 + slop 门禁 + 光标绘制都在那个共用面里，
@@ -138,7 +171,7 @@ fun TouchpadPage(
  *
  * 成宇 2026-11-04「竖屏时触摸板的编辑快捷键改成长按按键编辑，可以自己左右拖动」：
  * 此前每块只能**轻点发送**，改一颗键得去最下面按「编辑快捷键」开管理列表、再逐行翻到「改」，
- * 排序更是只能靠列表里的 ↑↓。现在三件事都落在 chip 自己身上（与旧操控面 TouchpadActivity
+ * 排序更是只能用列表里的 ↑↓。现在三件事都落在 chip 自己身上（与旧操控面 TouchpadActivity
  * 的 HotkeyBoard 同一套语义，只是手势在 Compose 侧重实现）：
  *
  *   · **轻点** → 发送一次组合键，并累计使用次数（自动排序照旧）；
