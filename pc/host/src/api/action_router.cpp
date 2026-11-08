@@ -327,39 +327,6 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
         return;
     }
 
-    // ---- 在线更新（v223.29.32）：概览页入口；此前只有 apxhost check-update CLI 与启动静默检查 ----
-    if (name == "update.check") {
-        const auto r = apxpc::app::checkForUpdate();
-        out["hasNewer"] = r.hasNewer;
-        out["latestTag"] = r.latestTag;
-        out["error"] = r.error;
-        out["netOk"] = r.ok;
-        out["current"] = APXPC_VERSION_STRING;
-        out["url"] = "https://github.com/guocheng1378/apx-android/releases/latest";
-        if (!r.ok) APX_LOGW("update.check 失败：{}", r.error.c_str());
-        return;
-    }
-    if (name == "update.open") {
-        const auto* u = p.find("url");
-        const std::string url = u ? u->asString() : std::string();
-        // 白名单：只允许本项目 Release 页（后端代开外链，WebView2 对 window.open 不一定理）
-        if (url.rfind("https://github.com/guocheng1378/apx-android/releases", 0) != 0) {
-            out = fail("只允许打开本项目的 Release 页");
-            return;
-        }
-#if defined(_WIN32)
-        const bool did = static_cast<INT_PTR>(::ShellExecuteA(nullptr, "open", url.c_str(),
-                                                              nullptr, nullptr, SW_SHOWNORMAL)) > 32;
-#elif defined(__APPLE__)
-        const bool did = std::system(("open '" + url + "'").c_str()) == 0;
-#else
-        const bool did = false;
-#endif
-        out["ok"] = did;
-        if (!did) out["url"] = url;
-        return;
-    }
-
     // ---- 诊断 ----
     if (name == "diag.enumerate") { auto devs = discovery::enumerate(); deviceConnected_ = !devs.empty(); out["count"] = (double)devs.size(); return; }
     if (name == "diag.export") { out["note"] = "诊断包已生成（/api/q/diag.download）"; out["ready"] = true; return; }

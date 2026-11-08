@@ -276,7 +276,7 @@ EDITS = [
             "            return;\n"
             "        }\n"
             "#if defined(_WIN32)\n"
-            "        const bool did = static_cast<INT_PTR>(::ShellExecuteA(nullptr, \"open\", url.c_str(),\n"
+            "        const bool did = reinterpret_cast<INT_PTR>(::ShellExecuteA(nullptr, \"open\", url.c_str(),\n"
             "                                                              nullptr, nullptr, SW_SHOWNORMAL)) > 32;\n"
             "#elif defined(__APPLE__)\n"
             "        const bool did = std::system((\"open '\" + url + \"'\").c_str()) == 0;\n"
