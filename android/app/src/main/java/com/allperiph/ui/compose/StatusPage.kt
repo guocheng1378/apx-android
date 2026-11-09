@@ -180,7 +180,7 @@ fun StatusPage(
                     )
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_wifi_spk),
-                        summary = ctx.getString(R.string.ui_set_sum_usb_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
                         checked = wifiSpk,
                         onCheckedChange = { on ->
                             wifiSpk = on
