@@ -805,15 +805,6 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, okResp());
     }
 
-    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），复用摄像头收流链路 ——
-    if (name == "screenmirror.toggle") {
-        const bool on = !g_screenMirrorOn.load(std::memory_order_relaxed);
-        const bool sent = b.session && b.session->sendModuleToggle("screenmirror", on);
-        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发投屏开关"));
-        g_screenMirrorOn.store(on, std::memory_order_relaxed);
-        return postResponse(p, id, okResp());
-    }
-
     // —— 设置项 ——
     if (name == "config.setAdaptive" && b.cfg) {
         auto* v = payload.find("on");

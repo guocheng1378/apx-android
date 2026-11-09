@@ -82,6 +82,9 @@ using apxpc::net::Json;
 using apxpc::wireless::LinkPhase;
 using apxpc::wireless::SessionSnapshot;
 
+// 投屏到电脑：本面板的开关态自持（与 panel_http.cpp 的 g_screenMirrorOn 各自独立）
+static std::atomic<bool> g_screenMirrorOn{false};
+
 // ———————————————— COM 回调适配器（WebView2 SDK 没有 Callback<T> 模板） ————————————————
 // 每个 WebView2 回调接口的 Invoke 签名不同，需要各自实现。
 // 下面 3 个类共享 IUnknown 样板（宏展开），仅 Invoke 签名不同。
