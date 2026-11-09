@@ -10,11 +10,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: restore full file and apply short-side judgments
+      - name: restore KeyboardPage full text and apply short-side judgments
         run: |
           set -e
           P='android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt'
-          echo '--- current state (placeholder check) ---'
           wc -l "$P" || true
           git show '57a9003e2817f436820ee5fd87b4339082bcb922^:'"$P" > "$P"
           grep -q 'fun ApKeyboardPage' "$P"
@@ -27,17 +26,29 @@ jobs:
             -e 's|    val limited = widthDp >= 840f|    val limited = widthDp >= 840f \&\& shortSide >= 520f|' \
             "$P"
           test "$(grep -c shortSide "$P")" -eq 4
-          grep -n 'shortSide' "$P"
-          echo '--- patched ok ---'
-      - name: commit and tag
+      - name: fix StatusPage missing import and broken stateColor line
+        run: |
+          set -e
+          S='android/app/src/main/java/com/allperiph/ui/compose/StatusPage.kt'
+          if ! grep -q '^import com.allperiph.wireless.ControlTarget$' "$S"; then
+            grep -q '^import com.allperiph.controlled.ControlledService$' "$S"
+            sed -i 's|^import com.allperiph.controlled.ControlledService$|import com.allperiph.controlled.ControlledService\nimport com.allperiph.wireless.ControlTarget|' "$S"
+          fi
+          grep -q '^import com.allperiph.wireless.ControlTarget$' "$S"
+          sed -i '/^    val stateColor = remember(ctx) { stateColor }$/d' "$S"
+          if grep -q 'remember(ctx) { stateColor }' "$S"; then echo 'BAD LINE STILL PRESENT'; exit 1; fi
+          grep -q 'color = stateColor(row.state)' "$S"
+          echo '--- StatusPage patched ---'
+          grep -n 'ControlTarget' "$S" | head -5
+      - name: commit and retag
         run: |
           set -e
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          P='android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt'
-          git add "$P"
-          git commit -m 'fix(kb): 换回 KeyboardPage 全文并套短边判据（占位稿未替换导致编译失败）'
+          git add -A
+          git diff --cached --stat
+          git commit -m 'fix(status): 补 ControlTarget import + 删坏行 stateColor（v223.29.35 android 编译失败二次修）'
           git push origin HEAD:master
-          git tag v223.29.35
-          git push origin v223.29.35
-          echo 'TAGGED v223.29.35'
+          git tag -f v223.29.35
+          git push -f origin v223.29.35
+          echo 'TAGGED v223.29.35 (moved)'
