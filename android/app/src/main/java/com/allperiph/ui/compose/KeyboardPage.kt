@@ -453,8 +453,10 @@ private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val ctx = LocalContext.current
     val rows = KeyPref.letterRows(ctx)
     // b17 方案 C：横屏切真键盘（15u 行制），竖屏保持 letterRows 紧凑排
-    val wide = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
-        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // 横屏判定走窗口实测（v223.29.8 同源修法）：本壳 Activity 声明了 configChanges，
+    // 旋转不重建，`LocalConfiguration.orientation` 回写滞后一拍 —— 已经横着拿键盘
+    // 还停在竖屏排，FULL 真键盘就像「没了」。containerSize 与布局测量同源，永不滞后。
+    val wide = rememberApAdaptiveLayout().landscape
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）

@@ -6,6 +6,17 @@
 
 ## Unreleased
 
+**横屏真键盘找回（成宇 2026-11-10「横屏我设计的键盘布局怎么没有了」）**：
+
+- 根因：b17 方案 C 的横屏 FULL 真键盘在「建面板那一刻」就定型 —— 本壳 Activity 声明
+  `configChanges`（旋转不重建）后，两处横屏判定都跟不上旋转：
+  ① 操控面键盘页（`TouchpadActivity`）的面板在 `onCreate` 一次成型，旋转后从不重建，
+  横屏分支永远不再进入；② Compose 键盘页 `QuickLayout` 读 `LocalConfiguration.orientation`，
+  正是 v223.29.8 记录过的「回写滞后一拍」老坑（修了低栏、漏了键盘）。
+- 修法：操控面 `onConfigurationChanged` 就地重建键盘页（`modBtns` 随旧面板作废统一重登记，
+  保持当前页签，重建后补同步 sticky 高亮）；Compose `QuickLayout` 改读
+  `rememberApAdaptiveLayout().landscape`（窗口实测，与布局测量同源，永不滞后）。
+
 **HIG 落地批次二（画面页失败就地重试）**：
 
 - 触控板/TV 连接（`TouchpadActivity` 画面页动线）失败时，不再只有转瞬即逝的 toast：改为就地弹窗给出失败原因与「重试」按钮，一次点击按原地址原类型重连；文案与批次一设备选择器同一口径（HIG Agency：失败给可操作的出路）。

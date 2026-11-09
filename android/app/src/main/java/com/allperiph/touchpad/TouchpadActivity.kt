@@ -305,6 +305,21 @@ class TouchpadActivity : Activity() {
         showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // b17 方案 C 的横屏 FULL 真键盘在「建面板那一刻」就定型（quickKeyboard 读当时的
+        // orientation）；本壳 Activity 声明 configChanges（旋转不重建），面板不重建就永远
+        // 停在竖屏排 —— 用户看到的「横屏设计的键盘布局没了」。旋转时就地重建键盘页，
+        // 横竖屏互转都能拿到对应排布；页签回到默认的快捷键位（keyboardPage 本就如此）。
+        if (!::flipper.isInitialized || !::kbPager.isInitialized) return
+        modBtns.clear() // 修饰键按钮随旧面板作废，重建时统一重新登记，refreshMods 不得摸旧视图
+        val keep = flipper.displayedChild
+        flipper.removeViewAt(PAGE_KEYBOARD)
+        flipper.addView(keyboardPage(), PAGE_KEYBOARD)
+        flipper.displayedChild = keep
+        refreshMods() // 重排后的修饰键补同步 sticky 高亮（与 onCreate 后手动切换同一状态源）
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
