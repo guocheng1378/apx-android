@@ -226,7 +226,15 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         ) {
             // ———————————————— 外观 ————————————————
         if (cat == 0) {
-            ApComponents.Section(title = ctx.getString(R.string.ui_main_label_theme)) {
+            // ———————————————— 一键主题（第①层，成宇 2026-11-04「做成主题最好」） ————————————————
+            // 设置页「主题与外观」三层结构：①一键主题（明暗 / 取色 + 四套命名搭配）→
+            // ②常用微调（整机强调色 / 键帽材质 / 特效 / 动效 / 音效）→ ③进阶设置（默认
+            // 折叠：分模块皮肤 / 键帽密度 / 键位排列）。换「整体感觉」只看①，调细节去②，
+            // ①②满足不了的少数派需求进③翻。
+            // 明暗 / 取色从原「外观」段并入本段：它们本就是一键主题的一部分，单独占一段
+            // 既多一屏又割裂。四套命名搭配一键写进同一批偏好（ApThemePresets.apply 是
+            // 唯一写入口，不新造状态），套完仍可逐项微调，微调后这里显示「自定义」。
+            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec)) {
                 Column {
                     WindowDropdownPreference(
                         title = "主题明暗",
@@ -290,31 +298,75 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 }
             }
 
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_skin)) {
+            // ———————————————— 常用微调（第②层） ————————————————
+            // 「整机强调色」一次写 ApSkin.SCOPES 三处（与一键主题同一口径），绝大多数
+            // 换肤需求点这一个下拉就够；确有「触控板蓝、键盘紫」这类分模块需求的，
+            // 去第③层「进阶设置」逐个改。键帽材质 / 特效从「键盘外观」段上提，动效 /
+            // 音效从原「动效」段并入：调观感手感时都在这一层解决。
+            // KeyPref 偏好此前**只有实现、没有入口** —— setKeycapStyle / setDensity /
+            // setLayout 全仓零调用，用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的
+            // 一组入口，初值直接读 KeyPref 自己的 index（不另立一份状态，避免"界面显示
+            // A、实际渲染 B"）。key = 一键主题的 applyRev：套完整套主题后这些下拉要立刻
+            // 显示新档，否则界面写「机械键盘」而实际存的是「液态玻璃」（成宇 2026-11-04
+            // 这套需求的核心就是「整套一起变」，显示与存储必须同源）。
+            val lookRev = com.allperiph.ui.ApThemePresets.applyRev
+            var kbStyle by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
+            var kbDensity by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
+            var kbLayout by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
+            var kbFx by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.effectIndex(ctx)) }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_fine_tune)) {
                 Column {
-                    ApSkin.SCOPES.forEach { (scope, title) ->
-                        val current = ApSkin.current(ctx, scope)
-                        val names = ApSkin.PRESETS.map { it.name }
-                        val selected = ApSkin.PRESETS.indexOfFirst { it.id == current.id }
-                            .coerceAtLeast(0)
-                        WindowDropdownPreference(
-                            title = title,
-                            summary = if (ApSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
-                            items = names,
-                            selectedIndex = selected,
-                            onSelectedIndexChange = { i ->
-                                Feedback.haptic(ctx)
-                                ApSkin.set(ctx, scope, ApSkin.PRESETS[i].id)
-                                ApAccentSync.apply(ctx)
-                                onRecreate()
-                            },
-                        )
+                    val skinPicks = ApSkin.SCOPES.map { (_, scope) -> ApSkin.picked(ctx, scope) }
+                    val wholeSkinSelected = if (skinPicks.toSet().size == 1) {
+                        val unified = skinPicks.first()
+                        if (unified.isBlank()) ApSkin.PRESETS.size
+                        else ApSkin.PRESETS.indexOfFirst { it.id == unified }.coerceAtLeast(0)
+                    } else {
+                        ApSkin.PRESETS.size
                     }
-                }
-            }
-
-            ApComponents.Section(title = ctx.getString(R.string.ui_main_label_motion)) {
-                Column {
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_skin_whole),
+                        summary = when {
+                            skinPicks.all { it.isBlank() } -> ctx.getString(R.string.ui_set_skin_follow)
+                            skinPicks.toSet().size == 1 ->
+                                ApSkin.PRESETS.firstOrNull { it.id == skinPicks.first() }?.name
+                                    ?: ctx.getString(R.string.ui_set_skin_follow)
+                            else -> ctx.getString(R.string.ui_set_skin_mixed)
+                        },
+                        items = ApSkin.PRESETS.map { it.name } + ctx.getString(R.string.ui_set_skin_follow),
+                        selectedIndex = wholeSkinSelected,
+                        onSelectedIndexChange = { i ->
+                            Feedback.haptic(ctx)
+                            val id = if (i < ApSkin.PRESETS.size) ApSkin.PRESETS[i].id else null
+                            ApSkin.SCOPES.forEach { (scope, _) ->
+                                ApSkin.set(ctx, scope, id)
+                            }
+                            ApAccentSync.apply(ctx)
+                            onRecreate()
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_keycap_style),
+                        summary = com.allperiph.ui.KeyPref.keycapStyleLabels(ctx).getOrElse(kbStyle) { "" },
+                        items = com.allperiph.ui.KeyPref.keycapStyleLabels(ctx),
+                        selectedIndex = kbStyle,
+                        onSelectedIndexChange = { i ->
+                            kbStyle = i
+                            com.allperiph.ui.KeyPref.setKeycapStyle(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_label_keycap_effect),
+                        summary = com.allperiph.ui.KeyPref.effectLabels(ctx).getOrElse(kbFx) { "" },
+                        items = com.allperiph.ui.KeyPref.effectLabels(ctx),
+                        selectedIndex = kbFx,
+                        onSelectedIndexChange = { i ->
+                            kbFx = i
+                            com.allperiph.ui.KeyPref.setEffect(ctx, i)
+                            Feedback.haptic(ctx)
+                        },
+                    )
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_main_label_motion),
                         summary = ApTiming.MOTION_LABELS.getOrElse(motion) { "" },
@@ -336,9 +388,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             ApFeel.setSound(ctx, i)
                         },
                     )
-                    // 「震动」按成宇 2026-11-03「震动没有映射过来，映射到外设模式里了」搬到
+                    // 「震动」按成宇 2026-11-03「震动没有映射过来，映射到外设模式里了」留在
                     // 「快捷键与外设 → 通用」：音效是**出声**（外观体验），震动是**按键手感**
-                    // （手机怎么响应输入），与光标锁定 \/ 手势遮蔽同类。这里只留动效与音效。
+                    // （手机怎么响应输入），与光标锁定 \/ 手势遮蔽同类。本层只收动效与音效。
                 }
             }
 
@@ -403,69 +455,66 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
-            // 为什么需要这一段：KeyPref 的三个偏好（键帽材质 / 键帽密度 / 键位排列）此前
-            // **只有实现、没有入口** —— setKeycapStyle / setDensity / setLayout 全仓零调用，
-            // 用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的一组入口，初值直接读
-            // KeyPref 自己的 index（不另立一份状态，避免"界面显示 A、实际渲染 B"）。
-            // key = 一键主题的 applyRev：套完整套主题后这四个下拉要立刻显示新档，
-            // 否则界面写「机械键盘」而实际存的是「液态玻璃」（成宇 2026-11-04 这套需求
-            // 的核心就是「整套一起变」，显示与存储必须同源）。
-            val lookRev = com.allperiph.ui.ApThemePresets.applyRev
-            var kbStyle by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.keycapStyleIndex(ctx)) }
-            var kbDensity by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
-            var kbLayout by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
-            var kbFx by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.effectIndex(ctx)) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keyboard_look)) {
+            // ———————————————— 进阶设置（第③层，默认折叠） ————————————————
+            // 分模块皮肤 / 键帽密度 / 键位排列：①②两层覆盖不了的少数派需求。
+            // 默认收起 —— 日常换肤不该在七八个下拉里找入口，需要的人展开一次即可。
+            // 生效时机的如实说明保留在展开区内。
+            var advOpen by remember { mutableStateOf(false) }
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_advanced)) {
                 Column {
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_main_label_keycap_style),
-                        summary = com.allperiph.ui.KeyPref.keycapStyleLabels(ctx).getOrElse(kbStyle) { "" },
-                        items = com.allperiph.ui.KeyPref.keycapStyleLabels(ctx),
-                        selectedIndex = kbStyle,
-                        onSelectedIndexChange = { i ->
-                            kbStyle = i
-                            com.allperiph.ui.KeyPref.setKeycapStyle(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
+                    ApComponents.ActionButton(
+                        text = ctx.getString(
+                            if (advOpen) R.string.ui_set_adv_collapse else R.string.ui_set_adv_expand,
+                        ),
+                        onClick = { advOpen = !advOpen },
                     )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_set_label_keycap_density),
-                        summary = com.allperiph.ui.KeyPref.DENSITY_LABELS.getOrElse(kbDensity) { "" },
-                        items = com.allperiph.ui.KeyPref.DENSITY_LABELS,
-                        selectedIndex = kbDensity,
-                        onSelectedIndexChange = { i ->
-                            kbDensity = i
-                            com.allperiph.ui.KeyPref.setDensity(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_main_label_keyrow_arrange),
-                        summary = com.allperiph.ui.KeyPref.LAYOUT_LABELS.getOrElse(kbLayout) { "" },
-                        items = com.allperiph.ui.KeyPref.LAYOUT_LABELS,
-                        selectedIndex = kbLayout,
-                        onSelectedIndexChange = { i ->
-                            kbLayout = i
-                            com.allperiph.ui.KeyPref.setLayout(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_set_label_keycap_effect),
-                        summary = com.allperiph.ui.KeyPref.effectLabels(ctx).getOrElse(kbFx) { "" },
-                        items = com.allperiph.ui.KeyPref.effectLabels(ctx),
-                        selectedIndex = kbFx,
-                        onSelectedIndexChange = { i ->
-                            kbFx = i
-                            com.allperiph.ui.KeyPref.setEffect(ctx, i)
-                            Feedback.haptic(ctx)
-                        },
-                    )
-                    // 如实说明生效时机：这三项在触控板构建键盘面板时读取，改了当场不会重排
-                    ApComponents.ValueRow(
-                        title = ctx.getString(R.string.ui_set_label_apply_when),
-                        value = ctx.getString(R.string.ui_set_value_kb_apply_when),
-                    )
+                    if (advOpen) {
+                        ApSkin.SCOPES.forEach { (scope, title) ->
+                            val current = ApSkin.current(ctx, scope)
+                            val names = ApSkin.PRESETS.map { it.name }
+                            val selected = ApSkin.PRESETS.indexOfFirst { it.id == current.id }
+                                .coerceAtLeast(0)
+                            WindowDropdownPreference(
+                                title = title,
+                                summary = if (ApSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
+                                items = names,
+                                selectedIndex = selected,
+                                onSelectedIndexChange = { i ->
+                                    Feedback.haptic(ctx)
+                                    ApSkin.set(ctx, scope, ApSkin.PRESETS[i].id)
+                                    ApAccentSync.apply(ctx)
+                                    onRecreate()
+                                },
+                            )
+                        }
+                        WindowDropdownPreference(
+                            title = ctx.getString(R.string.ui_set_label_keycap_density),
+                            summary = com.allperiph.ui.KeyPref.DENSITY_LABELS.getOrElse(kbDensity) { "" },
+                            items = com.allperiph.ui.KeyPref.DENSITY_LABELS,
+                            selectedIndex = kbDensity,
+                            onSelectedIndexChange = { i ->
+                                kbDensity = i
+                                com.allperiph.ui.KeyPref.setDensity(ctx, i)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                        WindowDropdownPreference(
+                            title = ctx.getString(R.string.ui_main_label_keyrow_arrange),
+                            summary = com.allperiph.ui.KeyPref.LAYOUT_LABELS.getOrElse(kbLayout) { "" },
+                            items = com.allperiph.ui.KeyPref.LAYOUT_LABELS,
+                            selectedIndex = kbLayout,
+                            onSelectedIndexChange = { i ->
+                                kbLayout = i
+                                com.allperiph.ui.KeyPref.setLayout(ctx, i)
+                                Feedback.haptic(ctx)
+                            },
+                        )
+                        // 如实说明生效时机：这三项在触控板构建键盘面板时读取，改了当场不会重排
+                        ApComponents.ValueRow(
+                            title = ctx.getString(R.string.ui_set_label_apply_when),
+                            value = ctx.getString(R.string.ui_set_value_kb_apply_when),
+                        )
+                    }
                 }
             }
 

@@ -129,7 +129,6 @@
     <!-- ↑↑↑ 迁入结束 ↑↑↑ -->
 
     <string name="ui_main_text_file_send_done">文件已发送</string>
-    <string name="ui_main_label_theme">主题色</string>
     <string name="ui_main_label_color_source">取色方案</string>
     <string name="ui_main_item_touchpad">触控板</string>
     <string name="ui_touchpad_label_hotkey_edit_longpress">手势操控 · 常用快捷键长按可编辑</string>
@@ -370,7 +369,17 @@
     <string name="ui_kb_vol_up">音量⁺</string>
     <string name="ui_kb_mute">静音</string>
     <!-- 方向候选键（沿用 HidKeys 的箭头字形） -->
-    <string name="ui_set_sec_skin">皮肤</string>
+    <!-- v223.29.10 设置页「主题与外观」三层整合（成宇 2026-11-09「重新设计，好看高效不违和」）：
+         ①一键主题（明暗/取色/四套搭配）→ ②常用微调（整机强调色/键帽材质/特效/动效/音效）
+         → ③进阶设置（默认折叠：分模块皮肤/键帽密度/键位排列）。
+         原「外观」段并入一键主题，「皮肤」段拆成整机+分模块，故 ui_set_sec_skin 删除。 -->
+    <string name="ui_set_sec_fine_tune">常用微调</string>
+    <string name="ui_set_skin_whole">整机强调色</string>
+    <string name="ui_set_skin_follow">跟随主题</string>
+    <string name="ui_set_skin_mixed">各模块不同（进阶设置里分模块调）</string>
+    <string name="ui_set_sec_advanced">进阶设置</string>
+    <string name="ui_set_adv_expand">展开进阶设置（分模块皮肤 / 键帽密度 / 键位排列）</string>
+    <string name="ui_set_adv_collapse">收起进阶设置</string>
     <string name="ui_set_sec_general">通用</string>
     <string name="ui_set_sec_ball">悬浮栏</string>
     <string name="ui_set_sec_tpl">快捷键模板</string>
@@ -403,8 +412,8 @@
     <string name="ui_log_copied">已复制 %1$d 条日志</string>
     <string name="ui_log_nothing">该条件下没有日志</string>
     <string name="ui_set_sec_log">运行日志</string>
-    <!-- 2026-11-01 补回「有实现没入口」的那批功能，文案统一进资源（不写死在 Kotlin 里） -->
-    <string name="ui_set_sec_keyboard_look">键盘外观</string>
+    <!-- 2026-11-01 补回「有实现没入口」的那批功能，文案统一进资源（不写死在 Kotlin 里）；
+         v223.29.10 键盘外观段改为「进阶设置」，ui_set_sec_keyboard_look 删除 -->
     <string name="ui_set_label_keycap_density">键帽密度</string>
     <string name="ui_set_label_apply_when">生效时机</string>
     <string name="ui_set_value_kb_apply_when">重进键盘页或触控板后生效</string>
