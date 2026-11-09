@@ -12,6 +12,7 @@ import {
   IconDisplay,
   IconFileUp,
   IconMic,
+  IconMouse,
   IconPower,
   IconSound,
   IconTransfer,
@@ -122,7 +123,7 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
           next: false,
         }
       : {
-          label: s.phase === 4 ? '重新发现' : '开始发现手机',
+          label: s.phase === 4 ? '重新连接' : '连接手机',
           icon: <IconChevronRight size={16} />,
           next: true,
         };
@@ -212,7 +213,7 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
                       <span>媒体 {state.media.connected ? '已就绪' : '未连接'}</span>
                     </>
                   ) : (
-                    <span>手机与本机需在同一 Wi‑Fi；也可插 USB 线走有线通道</span>
+                    <span>手机与本机需在同一 Wi‑Fi；手机 App 打开「被控模式」，连接后即可用本机键鼠控制手机</span>
                   )}
                 </div>
               </div>
@@ -328,6 +329,51 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
       {/* ————— 接入方式 ————— */}
       <Section index={2} title="接入方式" note="手机上报的实时状态；真开关在手机端，这里只读">
         <div className="card rows">
+          <Row
+            lead={<IconMouse size={18} />}
+            leadTone="accent"
+            title="控制手机 · 电脑键鼠 → 手机"
+            sub={
+              s.phase === 3
+                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
+                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
+            }
+            trail={
+              <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
+                {s.phase === 3 ? '已连接' : '未连接'}
+              </Badge>
+            }
+          />
+          <Row
+            lead={<IconMouse size={18} />}
+            leadTone="accent"
+            title="控制手机 · 电脑键鼠 → 手机"
+            sub={
+              s.phase === 3
+                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
+                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
+            }
+            trail={
+              <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
+                {s.phase === 3 ? '已连接' : '未连接'}
+              </Badge>
+            }
+          />
+          <Row
+            lead={<IconMouse size={18} />}
+            leadTone="accent"
+            title="控制手机 · 电脑键鼠 → 手机"
+            sub={
+              s.phase === 3
+                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
+                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
+            }
+            trail={
+              <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
+                {s.phase === 3 ? '已连接' : '未连接'}
+              </Badge>
+            }
+          />
           <Row
             lead={<IconWifi size={18} />}
             leadTone="accent"
