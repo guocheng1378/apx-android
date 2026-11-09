@@ -1511,7 +1511,15 @@ class TouchpadActivity : Activity() {
                     ControlTarget.clear()
                     hotkeyBoard.exitTvMode()
                     updateDeviceChip()
-                    Toast.makeText(this, getString(R.string.ui_touchpad_toast_connect_failed, ip), Toast.LENGTH_SHORT).show()
+                    // HIG 落地批次二：失败给可操作的出路 —— 就地弹「重试」，一次点击原样重连，
+                    // 文案与设备选择器（批次一）同一口径；不用转瞬即逝的 toast 单独扛失败反馈。
+                    com.allperiph.ui.ApDialog.confirm(
+                        this,
+                        getString(R.string.ui_pick_device_connect_failed, ip),
+                        null,
+                        getString(R.string.ui_pick_device_retry),
+                        getString(R.string.ui_common_cancel),
+                    ) { connectTv(ip, port, name, type) }
                 }
             }
         }, "tv-connect").start()
