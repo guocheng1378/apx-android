@@ -50,7 +50,24 @@ class ControlledService : Service() {
         override fun touchUp(x: Float, y: Float) = TvInjector.touchUp(x, y)
         override fun consumer(bitmap: Int) = TvInjector.consumer(bitmap)
         override fun powerAction(action: Int) { TvInjector.powerAction(action) }
-        override fun clipboard(text: String) = TvInjector.clipboard(text)
+        override fun clipboard(text: String) {
+            TvInjector.clipboard(text)
+            // 收到对端 0x20：此前静默写入剪贴板，被控手机零反馈 —— 发送方无从知道
+            // 到底到没到（用户报障「剪贴板发送后，被控手机没有提示」）。这里补一条
+            // 带内容预览的 Toast，顺带充当「到达已确认」。
+            // 回调跑在 apx-inject 线程（ControlServer 的 actions 队列），Toast 必须切主线程。
+            if (text.isEmpty()) return
+            val oneLine = text.replace('\n', ' ').replace('\r', ' ')
+            val preview = oneLine.take(20)
+            val more = if (oneLine.length > 20) "…" else ""
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    applicationContext,
+                    "已收到剪贴板：$preview$more",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
         override fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) {
             TvInputDispatcher.onGamepad(buttons, x, y, rx, ry); TvInjector.gamepad(buttons, x, y, rx, ry)
         }
