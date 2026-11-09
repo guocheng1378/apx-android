@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
 import android.widget.Toast
 import com.allperiph.controlled.ControlledService
+import com.allperiph.wireless.ControlTarget
 import com.allperiph.core.Uplink
 import androidx.compose.ui.res.colorResource
 
@@ -90,7 +91,6 @@ fun StatusPage(
     }
 
     val state = remember(tick) { snapshot(ctx) }
-    val stateColor = remember(ctx) { stateColor }
 
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Column(
