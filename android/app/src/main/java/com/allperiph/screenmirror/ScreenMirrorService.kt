@@ -16,6 +16,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.Looper
 import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.WindowManager
@@ -92,6 +93,7 @@ class ScreenMirrorService : Service() {
             val manager = getSystemService(MediaProjectionManager::class.java)
                 ?: throw IllegalStateException("MediaProjectionManager 不可用")
             val mp = manager.getMediaProjection(resultCode, data)
+                ?: throw IllegalStateException("MediaProjection 获取失败")
             val cb = object : MediaProjection.Callback() {
                 override fun onStop() {
                     Log.w(TAG, "系统侧停止屏幕采集")

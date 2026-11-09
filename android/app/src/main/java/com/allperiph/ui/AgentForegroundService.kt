@@ -259,24 +259,6 @@ class AgentForegroundService : Service() {
         updateNotification()
     }
 
-    /**
-     * PC 面板开了投屏（0x10「screenmirror」on）：拉起屏幕采集授权页。
-     * off 不在此处理 —— 同一事件由采集服务自己订阅后停止。
-     * 与摄像头同口径：后台被拦记日志，通知「投屏」按钮兜底。
-     */
-    private fun onPcScreenMirrorToggle(on: Boolean) {
-        if (!on) return
-        runCatching {
-            startActivity(
-                Intent(this, com.allperiph.screenmirror.ScreenMirrorActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }.onFailure {
-            Log.w(TAG, "后台打开屏幕采集授权页被系统拦截：${it.message}（通知「投屏」按钮可用）")
-        }
-        updateNotification()
-    }
-
     private fun subscribeEvents() {
         disposables += EventBus.on<GadgetStateEvent>(mainHandler) {
             lastLink = it.linkSpeed
