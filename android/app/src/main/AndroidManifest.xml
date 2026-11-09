@@ -66,6 +66,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <!--
+      屏幕采集（投屏到电脑）：Android 14+ 要求 mediaProjection 类型前台服务
+      必须声明该权限，否则 startForeground 直接抛异常，采集起不来。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
+    <!--
       悬浮窗：被控模式（手机当被控端）显示对方光标落点，用的是 TYPE_APPLICATION_OVERLAY。
       ⚠️ v196 之前只有注释「SYSTEM_ALERT_WINDOW：Toast overlay（fallback 用）」，没有声明 ——
       TvOverlay 创建浮层抛 SecurityException 又被 try/catch 吞掉，结果是
@@ -446,6 +452,26 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
             android:excludeFromRecents="true" />
+
+        <!--
+          ⑮之三 投屏到电脑（屏幕采集）：授权页 + 前台采集服务。
+          采集页弹系统投屏授权，成功后起 mediaProjection 类型前台服务；
+          画面经 MediaOut.camera() 复用 streamId=6 上行，PC 预览窗与摄像头共用。
+          ⚠️ Android 14+：FOREGROUND_SERVICE_MEDIA_PROJECTION 权限未声明时
+          startForeground 直接抛异常，采集起不来。
+        -->
+        <activity
+            android:name=".screenmirror.ScreenMirrorActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.AllPeriph.Miuix"
+            android:excludeFromRecents="true" />
+
+        <service
+            android:name=".screenmirror.ScreenMirrorService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaProjection" />
 
         <!--
           ⑯ 启动引导页（v1.88）：⚠️ 已暂停注册 ——

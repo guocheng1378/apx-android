@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.IBinder
 import com.allperiph.R
 import com.allperiph.core.CameraPushRequestEvent
+import com.allperiph.core.ScreenMirrorRequestEvent
 import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.shared.accessibility.ApxAccessibilityService
 import com.allperiph.shared.event.EventBus
@@ -121,6 +122,9 @@ class ControlledService : Service() {
                 // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
                 // 自行 finish。回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
                 EventBus.post(CameraPushRequestEvent(on))
+            } else if (id == "screenmirror") {
+                // 投屏到电脑：开 → 拉起授权页；关 → 采集服务订阅同一事件自行停止。
+                EventBus.post(ScreenMirrorRequestEvent(on))
             }
         }
         // v223.33（两台设备打架）：另一台设备要接管会话 —— 不再静默顶掉，

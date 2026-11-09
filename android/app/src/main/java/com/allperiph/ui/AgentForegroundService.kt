@@ -13,6 +13,7 @@ import android.os.Looper
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.AgentStateEvent
 import com.allperiph.core.CameraPushRequestEvent
+import com.allperiph.core.ScreenMirrorRequestEvent
 import com.allperiph.shared.event.EventBus
 import com.allperiph.core.GadgetStateEvent
 import com.allperiph.core.LinkSpeed
@@ -137,6 +138,13 @@ class AgentForegroundService : Service() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // 投屏一键直达：PC 开投屏时后台被拦，靠它拉起屏幕采集授权页
+        val screenMirrorPi = PendingIntent.getActivity(
+            this, 5,
+            Intent(this, com.allperiph.screenmirror.ScreenMirrorActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         // 链路口径**必须与真实择路同源** —— 直接用 [Uplink.resolve]。
         // 原先这里自写一套「USB → 蓝牙 → Wi‑Fi」的顺序，与 TouchpadModule.dispatch 的
         // 「无线目标优先」**相反**：用户手机上选着 PC 目标时，通知说「USB 链路」而实际
@@ -188,6 +196,13 @@ class AgentForegroundService : Service() {
             .addAction(
                 Notification.Action.Builder(
                     R.drawable.ic_stat_peripheral,
+                    getString(R.string.notify_action_screenmirror),
+                    screenMirrorPi,
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    R.drawable.ic_stat_peripheral,
                     getString(R.string.notify_action_stop),
                     stopPi,
                 ).build()
@@ -226,6 +241,42 @@ class AgentForegroundService : Service() {
         updateNotification()
     }
 
+    /**
+     * PC 面板开了投屏（0x10「screenmirror」on）：拉起屏幕采集授权页。
+     * off 不在此处理 —— 同一事件由采集服务自己订阅后停止。
+     * 与摄像头同口径：后台被拦记日志，通知「投屏」按钮兜底。
+     */
+    private fun onPcScreenMirrorToggle(on: Boolean) {
+        if (!on) return
+        runCatching {
+            startActivity(
+                Intent(this, com.allperiph.screenmirror.ScreenMirrorActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            Log.w(TAG, "后台打开屏幕采集授权页被系统拦截：${it.message}（通知「投屏」按钮可用）")
+        }
+        updateNotification()
+    }
+
+    /**
+     * PC 面板开了投屏（0x10「screenmirror」on）：拉起屏幕采集授权页。
+     * off 不在此处理 —— 同一事件由采集服务自己订阅后停止。
+     * 与摄像头同口径：后台被拦记日志，通知「投屏」按钮兜底。
+     */
+    private fun onPcScreenMirrorToggle(on: Boolean) {
+        if (!on) return
+        runCatching {
+            startActivity(
+                Intent(this, com.allperiph.screenmirror.ScreenMirrorActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }.onFailure {
+            Log.w(TAG, "后台打开屏幕采集授权页被系统拦截：${it.message}（通知「投屏」按钮可用）")
+        }
+        updateNotification()
+    }
+
     private fun subscribeEvents() {
         disposables += EventBus.on<GadgetStateEvent>(mainHandler) {
             lastLink = it.linkSpeed
@@ -237,6 +288,7 @@ class AgentForegroundService : Service() {
         }
         disposables += EventBus.on<ScreenOpenRequestEvent>(mainHandler) { onPcOpenScreen() }
         disposables += EventBus.on<CameraPushRequestEvent>(mainHandler) { onPcCameraToggle(it.on) }
+        disposables += EventBus.on<ScreenMirrorRequestEvent>(mainHandler) { onPcScreenMirrorToggle(it.on) }
         // v1.12：ScreenStatusEvent 订阅随副屏功能移除
     }
 

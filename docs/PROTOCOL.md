@@ -448,7 +448,7 @@ PC `pc/host/src/media/media_session.cpp`。
 | 0 | `video` | PC → 手机 | 副屏画面：`[VideoExtHeader 20B][DirtyRect×N][码流]`，见 §3.1 |
 | 1 | `audio` | PC → 手机 | 音箱：PCM **s16le / 48000Hz / 立体声**（192 字节/ms，10ms 一片 = 1920B） |
 | 5 | `mic` | 手机 → PC | 麦克风：与 `audio` 同格式 |
-| 6 | `camera` | 手机 → PC | 摄像头：单帧 JPEG（不分片） |
+| 6 | `camera` | 手机 → PC | 摄像头：单帧 JPEG（不分片）；**投屏到电脑复用本流**（屏幕帧同为单帧 JPEG，Android 14+ 需 mediaProjection 前台服务，PC 预览窗共用） |
 | 2 / 4 | `touch` / `telemetry` | — | 预留未接入 |
 
 > 音频刻意分成 1（下行）与 5（上行）：音箱与麦克风方向相反，共用一个号会互相污染。

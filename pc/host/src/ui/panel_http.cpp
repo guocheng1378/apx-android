@@ -242,6 +242,9 @@ static std::atomic<bool> g_camOn{false};
 static std::atomic<uint32_t> g_camW{0}, g_camH{0};
 static std::atomic<int64_t> g_camLastMs{0};  // steady ms 时间戳（0 = 尚无帧）
 
+// 投屏到电脑：开关态在此自持（与 camera.toggle 同口径），画面走同一条 stream 6 收流链路
+static std::atomic<bool> g_screenMirrorOn{false};
+
 // JPEG SOF 段尺寸（手机侧只出 SOF0 基线；逐段扫到 SOF 即止，失败留 0）
 static bool jpegDims(const uint8_t* p, size_t n, int& w, int& h) {
     if (!p || n < 4 || p[0] != 0xFF || p[1] != 0xD8) return false;
@@ -334,6 +337,14 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         c["stale"] = cf > 0 && last > 0 && (nowMs - last) > 2500;
         c["error"] = "";
         out["camera"] = c;
+    }
+
+    // screenmirror（投屏到电脑）：开关态自持；画面帧复用 stream 6 收流，
+    // 计入 camera 块的 frames —— 前端不重复暴露独立帧数。
+    {
+        Json sm = Json::makeObject();
+        sm["on"] = g_screenMirrorOn.load(std::memory_order_relaxed);
+        out["screenmirror"] = sm;
     }
 
     // screen：本入口不挂 ScreenPush（见文件头边界说明）——**刻意不读 b.screenPush**，
@@ -783,6 +794,24 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
     }
     if (name == "camera.vcam") {
         return postResponse(p, id, failResp("macOS 不支持虚拟摄像头（camera_view 仅 Windows）"));
+    }
+
+    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），复用摄像头收流链路 ——
+    if (name == "screenmirror.toggle") {
+        const bool on = !g_screenMirrorOn.load(std::memory_order_relaxed);
+        const bool sent = b.session && b.session->sendModuleToggle("screenmirror", on);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发投屏开关"));
+        g_screenMirrorOn.store(on, std::memory_order_relaxed);
+        return postResponse(p, id, okResp());
+    }
+
+    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），复用摄像头收流链路 ——
+    if (name == "screenmirror.toggle") {
+        const bool on = !g_screenMirrorOn.load(std::memory_order_relaxed);
+        const bool sent = b.session && b.session->sendModuleToggle("screenmirror", on);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发投屏开关"));
+        g_screenMirrorOn.store(on, std::memory_order_relaxed);
+        return postResponse(p, id, okResp());
     }
 
     // —— 设置项 ——

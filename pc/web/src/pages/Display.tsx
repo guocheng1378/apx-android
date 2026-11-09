@@ -41,6 +41,11 @@ export const Display: React.FC<Props> = ({ state }) => {
   const camera = useToggle(preview, () => bridge.act('camera.toggle'));
   const vcam = useToggle(!!cam?.virtualCam, () => bridge.act('camera.vcam'));
 
+  // 投屏到电脑：0x10「screenmirror」开关态由宿主 buildState 下发（老宿主没有 → 可选）
+  const sm = state.screenmirror;
+  const mirrorOn = !!sm?.on;
+  const mirror = useToggle(mirrorOn, () => bridge.act('screenmirror.toggle'));
+
   const screenSub = running
     ? `正在投屏 · ${scr?.deviceName || (mode === 'mirror' ? '桌面镜像' : '扩展屏')}`
     : scr?.error
@@ -268,6 +273,56 @@ export const Display: React.FC<Props> = ({ state }) => {
                 {state.media.connected
                   ? '打开预览开关后，手机端会拉起摄像头采集页，画面经媒体通道回传本机。'
                   : '摄像头走媒体通道（9502）：先连上手机再开预览。'}
+              </Notice>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      <Section index={2} title="投屏到电脑" note="手机屏幕实时投到本机预览窗">
+        <div className="card">
+          <Row
+            lead={<IconDisplay size={19} />}
+            leadTone="accent"
+            title="手机屏幕"
+            sub={
+              mirrorOn
+                ? '正在采集手机屏幕'
+                : !state.media.connected
+                  ? '等待媒体连接'
+                  : '未开始 —— 打开右侧开关'
+            }
+            trail={
+              <>
+                {mirrorOn && <Badge tone="ok" live>投屏中</Badge>}
+                <Switch on={mirror.on} busy={mirror.busy} onChange={mirror.toggle} label="投屏到电脑" />
+              </>
+            }
+          />
+
+          {mirrorOn && (
+            <div style={{ padding: '0 16px 14px' }}>
+              <Metrics
+                items={[
+                  { k: '画面', v: cam?.width ? `${cam.width}×${cam.height}` : '—', dim: !cam?.width },
+                  { k: '已收帧', v: cam?.frames ?? 0, dim: !cam?.frames },
+                ]}
+              />
+            </div>
+          )}
+
+          {mirror.err && (
+            <div style={{ padding: '0 16px 14px' }}>
+              <Notice tone="err" icon={<IconAlert size={17} />} title="开关失败">
+                {mirror.err}
+              </Notice>
+            </div>
+          )}
+
+          {!mirrorOn && (
+            <div style={{ padding: '0 16px 14px' }}>
+              <Notice tone="info" icon={<IconInfo size={17} />}>
+                打开开关后，手机会弹出屏幕采集授权，同意后屏幕画面与摄像头走同一条通道回传本机预览窗。
               </Notice>
             </div>
           )}

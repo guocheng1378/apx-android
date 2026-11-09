@@ -38,6 +38,14 @@
     <string name="notify_action_screen">副屏</string>
     <string name="notify_action_camera">摄像头</string>
 
+    <!-- 投屏到电脑（屏幕采集）-->
+    <string name="notify_action_screenmirror">投屏</string>
+    <string name="sm_notify_title">屏幕投送中</string>
+    <string name="sm_notify_text">手机画面正在发送到电脑</string>
+    <string name="sm_start_wait">等待屏幕采集授权…</string>
+    <string name="sm_start_done">授权成功 — 投屏已启动，可以返回桌面</string>
+    <string name="sm_start_denied">未授权屏幕采集 — 投屏未启动</string>
+
     <string name="card_link">连接状态</string>
 
     <string name="label_usb_speed">USB 连接速度</string>

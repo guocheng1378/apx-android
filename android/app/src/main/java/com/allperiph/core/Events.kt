@@ -55,3 +55,11 @@ class ScreenOpenRequestEvent
  * on=false：推流页收到同一事件自行 finish（未开页时无人消费，无事发生）。
  */
 class CameraPushRequestEvent(val on: Boolean)
+
+/**
+ * PC 面板投屏开关（0x10 模块开关 id="screenmirror"）。
+ * on=true：AgentForegroundService 拉起屏幕采集授权页，授权后进入前台采集服务；
+ * on=false：采集服务收到同一事件自行停止（未运行时无人消费，无事发生）。
+ * 屏幕画面复用摄像头 JPEG 通道（STREAM_CAMERA，streamId=6），PC 预览窗共用。
+ */
+class ScreenMirrorRequestEvent(val on: Boolean)

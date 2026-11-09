@@ -4,6 +4,15 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## Unreleased
+
+**投屏到电脑**（手机屏幕 → PC 实时画面）：
+
+- 手机端新增 `screenmirror` 包：`ScreenMirrorActivity`（MediaProjection 授权，成功后拉起前台采集服务）+ `ScreenMirrorService`（mediaProjection 类型前台服务：VirtualDisplay + ImageReader RGBA → 等比缩放至宽 720 → JPEG q65 → ≈10fps 节流 → `MediaOut.camera` 复用 streamId=6 上行）。
+- Manifest 声明 `FOREGROUND_SERVICE_MEDIA_PROJECTION` 权限并注册新组件（Android 14+ 要求 mediaProjection 前台服务先于 getMediaProjection）。
+- PC 端与桌面壳新增 `screenmirror.toggle` action（与 camera.toggle 同口径：下发失败如实报错、不改开关态）；开投屏同步打开预览窗。
+- 网页面板画面页新增「投屏到电脑」卡片与开关；docs/PROTOCOL.md 注明屏幕采集复用 stream 6。
+
 ## v223.29.33（2026-11-08）
 
 互传（LocalSend）发现链路修复（触发线：手机端互传开关开着，电脑端「附近设备」永远是空的）。
