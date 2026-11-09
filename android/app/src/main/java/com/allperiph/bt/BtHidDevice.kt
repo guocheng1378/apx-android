@@ -39,6 +39,10 @@ class BtHidDevice(private val appContext: Context) : Module {
     @Volatile var isConnected = false
         private set
 
+    /** 最近一次失败原因（蓝牙诊断展示用），恢复正常后清空 */
+    @Volatile var lastError: String? = null
+        private set
+
     private var hidDevice: BluetoothHidDevice? = null
     private var registered = false
 
@@ -62,6 +66,7 @@ class BtHidDevice(private val appContext: Context) : Module {
                 BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
                     hidDevice = null; registered = false; isConnected = false
                     state = ModuleState.DEGRADED
+                    lastError = "蓝牙已关闭，打开后自动恢复"
                     Log.w(TAG, "蓝牙已关闭：HID 注册失效，待蓝牙开启后自动恢复")
                 }
             }
@@ -84,6 +89,7 @@ class BtHidDevice(private val appContext: Context) : Module {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
             this@BtHidDevice.registered = registered
             state = if (registered) ModuleState.RUNNING else ModuleState.IDLE
+            if (registered) lastError = null
             Log.i(TAG, "蓝牙 HID 注册状态=$registered")
             // 注册成功才有 SDP 可被主机发现；此时若本机已经配对过电脑 / 电视，主动发起一次
             // HID 连接 —— 见 connectBondedHost() 的注释（旧实现从来没人调 connect()）。
@@ -91,6 +97,7 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
             isConnected = state == BluetoothProfile.STATE_CONNECTED
+            if (isConnected) lastError = null
             Log.i(TAG, "蓝牙 HID 连接=${isConnected}")
         }
     }
@@ -104,16 +111,23 @@ class BtHidDevice(private val appContext: Context) : Module {
         state = ModuleState.STARTING
         if (!hasConnect()) {
             state = ModuleState.DEGRADED
+            lastError = "缺少蓝牙连接权限，授权后重启模块"
             Log.w(TAG, "缺少 BLUETOOTH_CONNECT 权限：蓝牙 HID 暂不可用，请在 UI 授权后重启模块")
             return
         }
         val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) { state = ModuleState.ERROR; Log.e(TAG, "无蓝牙适配器"); return }
+        if (adapter == null) {
+            state = ModuleState.ERROR
+            lastError = "本机没有蓝牙适配器"
+            Log.e(TAG, "无蓝牙适配器")
+            return
+        }
         listenAdapter()
         if (!adapter.isEnabled) {
             // 旧实现不看开关：蓝牙关着时 getProfileProxy 拿不到回调，模块永远停在 STARTING，
             // 界面看着「在启动」其实什么都没发生。现在如实降级，开关一打就自动接上。
             state = ModuleState.DEGRADED
+            lastError = "蓝牙未开启，打开后自动恢复"
             Log.w(TAG, "蓝牙未开启：请先打开蓝牙，HID 会在开启后自动注册")
             return
         }
@@ -180,6 +194,7 @@ class BtHidDevice(private val appContext: Context) : Module {
             hidDevice?.registerApp(smi, null, qos, { it.run() }, callback)
         }.onFailure {
             state = ModuleState.ERROR
+            lastError = "HID 注册失败：${it.message}"
             Log.e(TAG, "registerApp failed: ${it.message}")
         }
     }
@@ -227,7 +242,10 @@ class BtHidDevice(private val appContext: Context) : Module {
             val name = runCatching { h.name }.getOrNull() ?: h.address
             Log.i(TAG, "向已配对主机发起 HID 连接：$name")
             runCatching { hidDevice?.connect(h) }
-                .onFailure { Log.w(TAG, "HID 连接 $name 失败：${it.message}") }
+                .onFailure {
+                    lastError = "连接 $name 失败：${it.message}"
+                    Log.w(TAG, "HID 连接 $name 失败：${it.message}")
+                }
         }
     }
 
@@ -255,14 +273,20 @@ class BtHidDevice(private val appContext: Context) : Module {
             r[2 + i] = keys[i]
         }
         runCatching { hidDevice?.sendReport(null, 0x02, r) }
-            .onFailure { Log.w(TAG, "reportKeyboard failed: ${it.message}") }
+            .onFailure {
+                lastError = "发送失败：${it.message}"
+                Log.w(TAG, "reportKeyboard failed: ${it.message}")
+            }
     }
 
     fun reportConsumer(keyBitmap: Int) {
         if (!isConnected || !hasConnect()) return
         val r = byteArrayOf((keyBitmap and 0xFF).toByte(), ((keyBitmap shr 8) and 0xFF).toByte())
         runCatching { hidDevice?.sendReport(null, 0x03, r) }
-            .onFailure { Log.w(TAG, "reportConsumer failed: ${it.message}") }
+            .onFailure {
+                lastError = "发送失败：${it.message}"
+                Log.w(TAG, "reportConsumer failed: ${it.message}")
+            }
     }
 
     /**
@@ -285,7 +309,40 @@ class BtHidDevice(private val appContext: Context) : Module {
             ry.coerceIn(-127, 127).toByte(),
         )
         runCatching { hidDevice?.sendReport(null, 0x04, r) }
-            .onFailure { Log.w(TAG, "reportGamepad failed: ${it.message}") }
+            .onFailure {
+                lastError = "发送失败：${it.message}"
+                Log.w(TAG, "reportGamepad failed: ${it.message}")
+            }
+    }
+
+    /**
+     * 蓝牙诊断快照（只读）：状态页「蓝牙诊断」面板渲染与复制用。
+     * bondedDevices 需要 BLUETOOTH_CONNECT，缺权限或蓝牙未开时如实留空。
+     */
+    fun diagnostics(): BtDiag {
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        val adapterOn = adapter != null && adapter.isEnabled
+        val hosts: List<String> = if (adapter == null || !adapterOn || !hasConnect()) {
+            emptyList()
+        } else {
+            runCatching {
+                adapter.bondedDevices.filter { d ->
+                    val major = runCatching { d.bluetoothClass?.majorDeviceClass }.getOrNull() ?: -1
+                    major == BluetoothClass.Device.Major.COMPUTER ||
+                        major == BluetoothClass.Device.Major.AUDIO_VIDEO ||
+                        major == BluetoothClass.Device.Major.UNCATEGORIZED ||
+                        major == BluetoothClass.Device.Major.PHONE
+                }.map { runCatching { it.name }.getOrNull() ?: it.address }
+            }.getOrDefault(emptyList())
+        }
+        return BtDiag(
+            adapterOn = adapterOn,
+            registered = registered,
+            connected = isConnected,
+            moduleState = state,
+            hosts = hosts,
+            lastError = lastError,
+        )
     }
 
     override fun statusText(): String = when (state) {
@@ -303,6 +360,18 @@ class BtHidDevice(private val appContext: Context) : Module {
 
     companion object { private const val TAG = "BtHidDevice" }
 }
+
+/**
+ * 蓝牙诊断快照（只读）：状态页「蓝牙诊断」面板渲染与复制用。
+ */
+class BtDiag(
+    val adapterOn: Boolean,
+    val registered: Boolean,
+    val connected: Boolean,
+    val moduleState: ModuleState,
+    val hosts: List<String>,
+    val lastError: String?,
+)
 
 /**
  * 蓝牙 HID 描述符（fallback 版本）。
