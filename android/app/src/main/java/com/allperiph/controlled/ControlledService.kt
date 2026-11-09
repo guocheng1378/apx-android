@@ -43,8 +43,16 @@ class ControlledService : Service() {
             TvInputDispatcher.key(keyCode, down); TvInjector.key(keyCode, down)
         }
         override fun text(ch: Char) { TvInputDispatcher.text(ch); TvInjector.text(ch) }
-        override fun pressDown() = TvInjector.pressDown()
-        override fun pressUp() = TvInjector.pressUp()
+        override fun pressDown() {
+            // ④（双弹）：盖“远端刚按下”时间戳 —— 无障碍焦点事件在 800ms 窗口内
+            // 会判定为远端点击造成的获焦，自动收起本机输入法（见 ApxAccessibilityService）。
+            ApxAccessibilityService.lastRemotePressAtMs = android.os.SystemClock.uptimeMillis()
+            TvInjector.pressDown()
+        }
+        override fun pressUp() {
+            ApxAccessibilityService.lastRemotePressAtMs = android.os.SystemClock.uptimeMillis()
+            TvInjector.pressUp()
+        }
         override fun scroll(wheel: Int) = TvInjector.scroll(wheel)
         override fun touchDown(x: Float, y: Float) = TvInjector.touchDown(x, y)
         override fun touchUp(x: Float, y: Float) = TvInjector.touchUp(x, y)
@@ -151,7 +159,10 @@ class ControlledService : Service() {
             }
         }
         server?.onRemoteInputText = { text, flags -> injectRemoteText(text, flags) }
-        server?.onRemoteInputDone = { awaitingRemoteInput = false }
+        server?.onRemoteInputDone = {
+            awaitingRemoteInput = false
+            injectedLen = 0   // ⑤：上一句对账定格（与 PC 端 g_injectedLen 同款语义）
+        }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         FileReceiver.start(applicationContext)
         val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
@@ -188,22 +199,50 @@ class ControlledService : Service() {
     @Volatile private var awaitingRemoteInput = false
 
     /**
+     * ⑤（输入出两次）：本端**已注入**的码点数镜像 —— 与 PC 端 ControlServer 的
+     * g_injectedLen 同款语义。增量帧累加；0x04 COMMIT 按镜像退格清场再整段写；
+     * DONE/CANCEL 归零。回调全部经 ControlServer 的 mainHandler.post 串行投递到主线程，
+     * 单线程读写无需锁。
+     */
+    @Volatile private var injectedLen = 0
+
+    /**
      * 把对端敲的字落到本机当前聚焦的输入框（手机**请对端帮我输入**时的回传落地）。
      * 此前这里是空实现（注释写着"由 RemoteInputActivity 发送，这里不重复"）—— 那是
      * 手机**帮别人**输入的方向；本机**请别人**输入时收到的 0x26 必须注入，否则等于白喊。
      *
-     * 语义按 [com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_*]：增量=追加、退格=删一字。
-     * COMMIT(0x04) 与增量并存就是 340856f 修的「文字重复两次」，故不按追加处理。
+     * 语义按 [com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_*]：增量=追加、退格=删一字、
+     * 0x04=整段替换（镜像对账，否则增量+COMMIT 两路叠加 → 全文出现两遍）、
+     * 0x08=作废归零。
      */
     private fun injectRemoteText(text: String, flags: Int) {
         awaitingRemoteInput = false          // 字回来了，本轮请求结束
         val svc = com.allperiph.shared.accessibility.ApxAccessibilityService.instance
         if (svc == null) { Log.w(TAG, "远程输入没落地：无障碍服务未就绪"); return }
         when {
-            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_BACKSPACE != 0 -> svc.deleteChar()
-            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_CANCEL != 0 -> Unit
-            else -> if (text.isNotEmpty() && !svc.typeText(text) && !svc.paste(text)) {
-                Log.w(TAG, "远程输入注入失败（输入框没聚焦？）")
+            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_BACKSPACE != 0 -> {
+                if (svc.deleteChar()) injectedLen = (injectedLen - 1).coerceAtLeast(0)
+            }
+            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_CANCEL != 0 -> injectedLen = 0
+            flags and com.allperiph.shared.proto.ApxFrame.INPUT_FLAG_COMMIT != 0 -> {
+                // 0x04 = 整段替换：先按镜像退格清掉「我们注入过的」，再写整段。
+                // 旧实现把 COMMIT 当普通追加 —— 增量帧早已把同一段字送过来，
+                // typeText 又是 cur+text 整段拼 → 全文两遍（用户报的「输入会出两次」）。
+                while (injectedLen > 0 && svc.deleteChar()) injectedLen--
+                injectedLen = 0
+                if (text.isNotEmpty()) {
+                    if (svc.typeText(text) || svc.paste(text)) {
+                        injectedLen = text.codePointCount(0, text.length)
+                    } else Log.w(TAG, "远程输入 COMMIT 没落地（输入框没聚焦？）")
+                }
+            }
+            else -> {
+                if (text.isNotEmpty()) {
+                    // 增量：只把真正注入成功的部分记进镜像
+                    if (svc.typeText(text) || svc.paste(text)) {
+                        injectedLen += text.codePointCount(0, text.length)
+                    } else Log.w(TAG, "远程输入注入失败（输入框没聚焦？）")
+                }
             }
         }
     }

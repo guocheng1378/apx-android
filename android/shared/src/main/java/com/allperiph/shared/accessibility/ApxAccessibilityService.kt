@@ -49,6 +49,13 @@ class ApxAccessibilityService : AccessibilityService() {
                 val node = event.source ?: return
                 val className = node.className?.toString() ?: return
                 if (className.contains("EditText") || className.contains("AutoCompleteTextView")) {
+                    // ④（双弹）：这次获焦是**远端注入 tap** 造成的（控制端刚点进来）——
+                    // 打字在对端进行，本机自己的输入法不该再叠上来（用户报的“控制端弹
+                    // 输入界面、这边也弹输入法”）。时间戳由 ControlledService 在
+                    // pressDown/pressUp 盖章；本地点击不盖章，照常弹本机 IME。
+                    if (android.os.SystemClock.uptimeMillis() - lastRemotePressAtMs < REMOTE_TAP_HIDE_IME_MS) {
+                        node.performAction(AccessibilityNodeInfo.ACTION_HIDE_SOFT_INPUT)
+                    }
                     val hint = event.text?.toString() ?: node.contentDescription?.toString() ?: ""
                     Log.i("APX", "检测到输入框获焦: $hint")
                     onFocusDetected?.invoke(hint)
@@ -126,10 +133,16 @@ class ApxAccessibilityService : AccessibilityService() {
             val node = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
             val cur = node.text?.toString() ?: ""
             if (cur.isEmpty()) return false
+            // ⑥-4：按**码点**删 —— 旧实现 dropLast(1) 按 UTF-16 单位，emoji（代理对）
+            // 会删一半留乱码：对端按码点发退格，这边必须按码点退，两端才对得上。
+            val end = cur.length
+            val start = if (end >= 2 && Character.isLowSurrogate(cur[end - 1]) &&
+                Character.isHighSurrogate(cur[end - 2])
+            ) end - 2 else end - 1
             val args = Bundle().apply {
                 putCharSequence(
                     AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-                    cur.dropLast(1),
+                    cur.substring(0, start),
                 )
             }
             return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
@@ -206,6 +219,17 @@ class ApxAccessibilityService : AccessibilityService() {
          */
         @Volatile
         var remoteInputMode = false
+
+        /**
+         * ④（双弹）：远端注入 press 的时间戳 —— ControlledService 的 pressDown/pressUp 盖章，
+         * [REMOTE_TAP_HIDE_IME_MS] 窗口内的输入框获焦视为“控制端点进来的”，
+         * 收起本机输入法（只留对端的输入界面）。静态字段：焦点事件由系统随时重建的服务实例接收。
+         */
+        @Volatile
+        var lastRemotePressAtMs = 0L
+
+        /** 远端 tap 后判定“本次获焦由远端造成”的窗口（毫秒） */
+        const val REMOTE_TAP_HIDE_IME_MS = 800L
 
         fun isReady(): Boolean = instance != null
     }
