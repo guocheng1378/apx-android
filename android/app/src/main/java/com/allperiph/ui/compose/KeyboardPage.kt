@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -61,6 +62,8 @@ import com.allperiph.ui.Feedback
 import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.rememberApInsets
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -86,6 +89,12 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *    正是用户报的「快捷键发不对」；存量坏值由 [HidKeys.USAGE_REPAIRS] 在读取时修掉；
  * 2. 媒体键以**真实 Consumer usage** 落库，[HidKeys.combo] 统一路由到 HotkeyController
  *    位图（与操控面媒体键同一条链路）—— 否则 0xB2 会进键盘报告，对端认不出。
+ *
+ * 2026-11-09 界面稿 01/03/04（边距分档 + 限宽居中，与状态页 / 设置页同口径）：
+ * <520dp 保留本页既有 12dp（键盘吃满宽度，稿 01 的 16dp 是内容页边距）；
+ * 520–599dp → 24dp（稿 03）；≥600dp → 32dp（稿 01「16→24→32」）；
+ * ≥840dp 内容限宽 680dp 居中（稿 04，超宽平板键帽不被拉成巨块）；
+ * 左右另按实际 displayCutout 垫边（稿 02，横屏刘海侧按键不被遮）。
  */
 @Composable
 fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
@@ -94,9 +103,30 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
     // 「快捷键（长按可编辑）」那块组合键面板与模板行也整块拆掉 —— 模板/自定义编辑
     // 仍在设置页「快捷键与外设」里（同一份 HotkeyStore，能力没丢，只是不在键盘页占位）。
     // 页首只留 topBar 高度让开玻璃顶栏（顶栏本身也已无文字）。
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        Spacer(modifier = Modifier.height(topBar))
-        ApFullKeyboard(bottomGap = bottomGap)
+    // —— 界面稿边距分档（2026-11-09）：按窗口实测宽度取，不读 configuration ——
+    // 本壳 configChanges=orientation|screenSize，旋转不重建，配置回写滞后一拍
+    // （v223.29.9 结论，与 TouchpadPage / StatusPage 同口径）。
+    val adaptive = rememberApAdaptiveLayout()
+    val widthDp = adaptive.width.value
+    val hPad = when {
+        widthDp >= 600f -> 32.dp   // 04 Medium+：32dp（稿 01「16→24→32」）
+        widthDp >= 520f -> 24.dp   // 03 Compact：24dp
+        else -> 12.dp              // 手机：保留本页既有 12dp，不改（稿 01 只管内容页 16）
+    }
+    val limited = widthDp >= 840f  // 04：≥840dp 限宽 680 居中（与状态页/设置页同口径）
+    // 稿 02：左右按**实际** cutout 垫边（不写死 26dp 示意值），竖屏无 cutout 时为 0
+    val insets = rememberApInsets()
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(
+            // widthIn 在 fillMaxSize **外层**：先把 max 夹到 680，再填满夹后的约束；
+            // 反过来写 fillMaxSize().widthIn(max=680) 夹不住（min 已被 fillMaxSize 钉死）。
+            modifier = (if (limited) Modifier.widthIn(max = 680.dp) else Modifier)
+                .fillMaxSize()
+                .padding(start = hPad + insets.left, end = hPad + insets.right),
+        ) {
+            Spacer(modifier = Modifier.height(topBar))
+            ApFullKeyboard(bottomGap = bottomGap)
+        }
     }
 }
 /** 8 套页签：名称与顺序对齐操控面 `kbNames`（`TouchpadActivity`） */
