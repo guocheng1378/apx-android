@@ -16,12 +16,14 @@
 
     <color name="md_error_container">#FF4A1A16</color>
 
-    <!-- 表面三级亮度（质感层）：底 #15181E / 卡 #1E232B / 内嵌 #141920 -->
+    <!-- 表面三级亮度（质感层）：底 #15181E / 卡 #1E232B / 内嵌 #1A1F27 ——
+         内嵌面取值规则与亮色同构：亮度落在「底」和「卡」之间（亮色是 最浅卡>内嵌>底，
+         暗色是 卡>内嵌>底），旧值 #141920 比页面底还深，层级倒挂、和卡片糊在一起 -->
     <color name="md_background">#FF15181E</color>
     <color name="md_on_background">#FFF7F8F8</color>
     <color name="md_surface">#FF1E232B</color>
     <color name="md_on_surface">#FFF7F8F8</color>
-    <color name="md_surface_variant">#FF141920</color>
+    <color name="md_surface_variant">#FF1A1F27</color>
     <color name="md_on_surface_variant">#FF8A8F98</color>
     <!-- 暗色边缘：白色 8%（不再用阴影，靠亮度差分层） -->
     <color name="md_outline">#14FFFFFF</color>
@@ -35,7 +37,7 @@
     <color name="miuix_card">@color/md_surface</color>
     <color name="miuix_text">@color/md_on_background</color>
     <color name="miuix_text_secondary">@color/md_on_surface_variant</color>
-    <color name="miuix_text_tertiary">#FF6B7075</color>
+    <color name="miuix_text_tertiary">#FF7C848C</color>
     <color name="miuix_divider">@color/md_outline</color>
     <color name="miuix_stroke">@color/card_stroke</color>
     <color name="miuix_danger">@color/state_error</color>
@@ -76,6 +78,9 @@
 
     <!-- 模块状态色（深色）：与 values 同名覆盖 -->
     <color name="module_state_running">#FF3DDC97</color>
+    <!-- 键帽内胆（键盘页灯效）：亮色取近黑 #0C0C0C，夜色若同值会糊进页面底，
+         提亮到与夜色卡面同族的蓝灰，灯效描边才能衬出键帽轮廓 -->
+    <color name="keycap_rgb_black">#FF262C36</color>
     <color name="module_state_pending">#FFFFB454</color>
     <color name="module_state_error">#FFFF7AA8</color>
     <color name="module_state_idle">#FFA8B0BC</color>

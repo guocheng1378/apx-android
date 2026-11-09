@@ -1003,7 +1003,7 @@ private fun KeyBox(
                         drawRect(color = Color.White, alpha = 0.20f, style = Stroke(1.dp.toPx()))
                     }
                     KeyPref.KEYCAP_CRYSTAL -> {
-                        drawRect(color = hsvColor(232f, 0.05f, 0.13f))
+                        drawRect(color = hsvColor(232f, 0.05f, 0.28f))
                         drawLine(
                             Color.White.copy(alpha = 0.10f),
                             Offset(0f, bh * 0.30f),
