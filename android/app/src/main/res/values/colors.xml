@@ -37,8 +37,6 @@
 
     <!-- 卡片描边：与 md_outline 同值（1px 内描边 .07；4px 外扩 .035 由各卡的 outline 层叠画） -->
     <color name="card_stroke">#120F1114</color>
-    <!-- 4px 同色外扩 rgba(15,17,20,.035)，给需要外扩的卡 / 胶囊用 -->
-    <color name="card_stroke_spread">#090F1114</color>
 
     <!--
       触控板页玻璃胶囊（v1.23）顶部的镜面高光；旧底栏的 nav_pill / nav_pill_stroke /

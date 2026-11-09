@@ -22,7 +22,7 @@
     <color name="tv_card_focus">#FF3482FF</color>
     <color name="tv_field">#FF141920</color>
     <!-- 边缘：白色 8%（与手机端 card_stroke 同值） -->
-    <color name="tv_stroke">#FF14FFFFFF</color>
+    <color name="tv_stroke">#14FFFFFF</color>
     <!-- 焦点态背景（界面稿 06：焦点环 3dp 主色 + 背景 #20242D） -->
     <color name="tv_focus_bg">#FF20242D</color>
 
