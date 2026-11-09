@@ -1,0 +1,43 @@
+name: tmp-fix-kbpage
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: restore full file and apply short-side judgments
+        run: |
+          set -e
+          P='android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt'
+          echo '--- current state (placeholder check) ---'
+          wc -l "$P" || true
+          git show '57a9003e2817f436820ee5fd87b4339082bcb922^:'"$P" > "$P"
+          grep -q 'fun ApKeyboardPage' "$P"
+          grep -q 'import androidx.compose.foundation.layout.Box' "$P"
+          test "$(wc -l < "$P")" -gt 1000
+          sed -i \
+            -e 's|    val widthDp = adaptive.width.value|    val widthDp = adaptive.width.value\n    val shortSide = minOf(widthDp, adaptive.height.value)|' \
+            -e 's|        widthDp >= 600f -> 32.dp|        shortSide >= 600f -> 32.dp|' \
+            -e 's|        widthDp >= 520f -> 24.dp|        shortSide >= 520f -> 24.dp|' \
+            -e 's|    val limited = widthDp >= 840f|    val limited = widthDp >= 840f \&\& shortSide >= 520f|' \
+            "$P"
+          test "$(grep -c shortSide "$P")" -eq 4
+          grep -n 'shortSide' "$P"
+          echo '--- patched ok ---'
+      - name: commit and tag
+        run: |
+          set -e
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          P='android/app/src/main/java/com/allperiph/ui/compose/KeyboardPage.kt'
+          git add "$P"
+          git commit -m 'fix(kb): 换回 KeyboardPage 全文并套短边判据（占位稿未替换导致编译失败）'
+          git push origin HEAD:master
+          git tag v223.29.35
+          git push origin v223.29.35
+          echo 'TAGGED v223.29.35'
