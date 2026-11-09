@@ -6,12 +6,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Path
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputMethodManager
 import com.allperiph.shared.util.Log
 
 /**
@@ -54,13 +58,65 @@ class ApxAccessibilityService : AccessibilityService() {
                     // 输入界面、这边也弹输入法”）。时间戳由 ControlledService 在
                     // pressDown/pressUp 盖章；本地点击不盖章，照常弹本机 IME。
                     if (android.os.SystemClock.uptimeMillis() - lastRemotePressAtMs < REMOTE_TAP_HIDE_IME_MS) {
-                        node.performAction(AccessibilityNodeInfo.ACTION_HIDE_SOFT_INPUT)
+                        hideIme()
                     }
                     val hint = event.text?.toString() ?: node.contentDescription?.toString() ?: ""
                     Log.i("APX", "检测到输入框获焦: $hint")
                     onFocusDetected?.invoke(hint)
                 }
             }
+        }
+    }
+
+    /** 收起本机软键盘：无障碍服务自身无窗口，借一层临时无障碍浮层取 windowToken */
+    fun hideIme() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
+        val view = View(this)
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSPARENT,
+        )
+        try {
+            wm.addView(view, lp)
+            imm.hideSoftInputFromWindow(view.windowToken, 0)
+            view.postDelayed({
+                try {
+                    (view.parent as? WindowManager)?.removeView(view)
+                } catch (_: Exception) {
+                }
+            }, 500)
+        } catch (e: Exception) {
+            Log.w("APX", "收起输入法失败: $e")
+        }
+    }
+
+    /** 收起本机软键盘：无障碍服务自身无窗口，借一层临时无障碍浮层取 windowToken */
+    fun hideIme() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
+        val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
+        val view = View(this)
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSPARENT,
+        )
+        try {
+            wm.addView(view, lp)
+            imm.hideSoftInputFromWindow(view.windowToken, 0)
+            view.postDelayed({
+                try {
+                    (view.parent as? WindowManager)?.removeView(view)
+                } catch (_: Exception) {
+                }
+            }, 500)
+        } catch (e: Exception) {
+            Log.w("APX", "收起输入法失败: $e")
         }
     }
 

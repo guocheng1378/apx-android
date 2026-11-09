@@ -74,7 +74,6 @@
     -->
     <color name="remote_panel_bg">#FF1A1A2E</color>
     <color name="remote_panel_field">#FF2A2A3E</color>
-    <color name="remote_panel_accent">#FF3482FF</color>
     <color name="remote_panel_neutral">#FF666666</color>
     <color name="remote_panel_on">#FFFFFFFF</color>
     <color name="remote_panel_text_dim">#99FFFFFF</color>
