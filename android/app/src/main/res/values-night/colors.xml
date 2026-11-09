@@ -30,7 +30,6 @@
     <color name="state_idle">#FF7C848C</color>
 
     <color name="card_stroke">#14FFFFFF</color>
-    <color name="card_stroke_spread">#09FFFFFF</color>
     <color name="nav_pill_shine">#3DFFFFFF</color>
     <color name="miuix_bg">@color/md_background</color>
     <color name="miuix_card">@color/md_surface</color>
