@@ -107,15 +107,6 @@ class RemoteInputActivity : ComponentActivity() {
         return ControlledService.server?.let { it.sendInputDone(); true } ?: false
     }
 
-    private fun sendMouseFrame(buttons: Int, dx: Int, dy: Int): Boolean {
-        if (viaClient) {
-            val c = com.allperiph.wireless.ControlTarget.controlClient ?: return false
-            return c.mouse(buttons, dx, dy)
-        }
-        return ControlledService.server?.sendControl(
-            byteArrayOf(0x01.toByte(), buttons.toByte(), dx.toByte(), dy.toByte(), 0)) ?: false
-    }
-
     private fun sendSpecial(mod: Int, vk: Int): Boolean {
         if (!viaClient) {
             return ControlledService.server?.let { it.sendSpecialKey(mod, vk); true } ?: false
@@ -134,7 +125,13 @@ class RemoteInputActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyEdgeToEdge()
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        // ①主题跟色：强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文
+        // 叠加会丢）——这页此前只有注释没有实际调用，accent 也是写死的 remote_panel_accent，
+        // 切主题/莫奈/皮肤全都不动。
+        com.allperiph.ui.ApPalette.applyRuntimeTheme(this)
+        // ⑦触控并轨前置：把模块注册表建起来（与悬浮球 ensureTouchpadReady 同思路的第一步；
+        // 模块拉起与否尊重其状态/意愿位，不替用户开他明确关掉的外设）。
+        runCatching { com.allperiph.ui.AgentController.build(this) }
         // 本机正在替对端输入：此时本机的输入框获焦**不能**再反向请求对端，
         // 否则两边互相 0x25 来回弹输入法（remoteInputMode 此前是个零赋值的死标记）
         com.allperiph.shared.accessibility.ApxAccessibilityService.remoteInputMode = true
@@ -159,14 +156,16 @@ class RemoteInputActivity : ComponentActivity() {
 
     /**
      * 迁 Compose（`ThemePref` 下线的最后一步；外观总控已拆成 ApPalette / ApSkin）：外壳、标题行、编辑键排、底部按钮
-     * 换成 Compose；**输入框与内嵌触控板用 `AndroidView` 互操作保留** —— 前者是
-     * `EditText` + `TextWatcher` 增量 diff 上屏 + 平台 IME（文字到对端的唯一通道），
-     * 后者是每帧起帧节流、±127 分帧、长按 400ms 进拖拽的原始触摸逻辑，
-     * 搬进 Compose 属于拿「能不能打出字 / 光标动不动」换一致性。
+     * 换成 Compose；**输入框用 `AndroidView` 互操作保留** —— `EditText` + `TextWatcher`
+     * 增量 diff 上屏 + 平台 IME 是文字到对端的唯一通道，搬进 Compose 属于拿「能不能
+     * 打出字」换一致性。触控板不再手搞：⑦ 并轨到 [com.allperiph.ui.compose.ApTouchpadSurface]
+     *（与主壳触控板页/悬浮球**同一个手势面**），死区/阈值/双指语义不再各写一份。
      */
     private fun buildUi(): View {
         val bg = getColor(R.color.remote_panel_bg)
-        val accent = getColor(R.color.remote_panel_accent)
+        // ①主题跟色：accent 走 ApPalette（主题属性 + 莫奈叠加 + 模块皮肤三条来源一次全中）；
+        // 中性色（背景/面板/文字三级）按 ApPalette 自己的规则不参与运行时叠加，仍用 remote_panel_*。
+        val accent = com.allperiph.ui.ApPalette.primary(this)
         val dim = getColor(R.color.remote_panel_text_dim)
         val neutral = getColor(R.color.remote_panel_neutral)
         return ComposeView(this).apply {
@@ -208,12 +207,27 @@ class RemoteInputActivity : ComponentActivity() {
                                 KeyButton(label) { sendSpecial(mk.first, mk.second) }
                             }
                         }
-                        AndroidView(
-                            factory = { buildTouchpad() },
+                        // ⑦触控并轨：与主壳触控板页/悬浮球**同一个手势面**（ApTouchpadSurface =
+                        // 原始事件喂 TouchpadModule/GestureEngine + 550ms 长按/双指长按排程 + slop
+                        // 门禁 + 光标圈尾迹）。旧的手搓 OnTouchListener 已删 —— 即时位移/300ms 单击
+                        // 那套阈值与 GestureEngine 各说各话（用户报的“弹出的触控和主界面不一样”）。
+                        // 出口由 Uplink 择优：互控场景（viaClient）= 请求方，与文字回程同一链路；
+                        // 模块未跑时这里不静默吞事件 —— 面自带轮询提示（红字「服务未启动」）。
+                        com.allperiph.ui.compose.ApTouchpadSurface(
+                            onGesture = { ev -> touchpadModule()?.feed(ev) },
+                            onLongPressArmDrag = { touchpadModule()?.armDrag() },
+                            onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(top = 4.dp, bottom = 10.dp),
+                                .padding(top = 4.dp, bottom = 10.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    androidx.compose.ui.graphics.Color(
+                                        getColor(R.color.remote_panel_field)
+                                    )
+                                ),
+                            hint = getString(R.string.ui_remoteinput_touchpad),
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -230,6 +244,12 @@ class RemoteInputActivity : ComponentActivity() {
             }
         }
     }
+
+    /** ⑦：主壳同款取模块（与 ApShellActivity.touchpadModule 同一路径）；未注册时返回 null，
+     *  ApTouchpadSurface 会轮询到模块就位并给出红色「服务未启动」提示（不静默吞事件）。 */
+    private fun touchpadModule(): com.allperiph.touchpad.TouchpadModule? =
+        com.allperiph.ui.AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD)
+            as? com.allperiph.touchpad.TouchpadModule
 
     /** 输入框本体（互操作保留）：增量 diff 上屏、删字退格、失焦提示都还在这里 */
     private fun buildInput(): View {
@@ -249,9 +269,9 @@ class RemoteInputActivity : ComponentActivity() {
                     if (cur == lastSent) return
                     // v223.29.33：与对端镜像 [lastSent] 做公共前缀/后缀 diff —— 每帧只发
                     // 对端真正缺的差量。旧实现按 (start,before,count) 直接取 substring：
-                    // IME 组合期的整段 replace（拼音串→词）会重复发前缀或只发退格丢新增，
-                    // 是「打的字和电脑上照不齐 / 越打越乱」的根源。发送按钮的 0x04 对账只在
-                    // 发送拍自愈，中间态照样漂 —— 现在从源头保证两端一致。
+                    // IME 组合期的整段 replace 会重复发前缀或只发退格丢新增，是「打的字和
+                    // 电脑上照不齐 / 越打越乱」的根源。发送按钮的 0x04 对账只在发送拍自愈，
+                    // 中间态照样漂 —— 现在从源头保证两端一致。
                     var p = 0
                     val minLen = minOf(cur.length, lastSent.length)
                     while (p < minLen && cur[p] == lastSent[p]) p++
@@ -287,107 +307,6 @@ class RemoteInputActivity : ComponentActivity() {
         }
         editText = input
         return input
-    }
-
-    /** 内嵌触控板（互操作保留）：滑动=光标、轻点=左键、长按 550ms 左键拖拽；
-     *  #3 接通用逻辑：双指点按=右键、双指长按 550ms 右键拖拽（与 touchpad.kt 同口径）。 */
-    private fun buildTouchpad(): View {
-        val dp = { v: Float -> (v * resources.displayMetrics.density + 0.5f).toInt() }
-        var lastTouchLogAt = 0L
-        fun mouseFrame(buttons: Int, dx: Int, dy: Int) {
-            val now = android.os.SystemClock.uptimeMillis()
-            val ok = sendMouseFrame(buttons, dx, dy)
-            // 节流 500ms：现场诊断"触控板到底发没发帧 / 链路通不通"
-            if (now - lastTouchLogAt > 500) {
-                lastTouchLogAt = now
-                if (ok) Log.i("RemoteInput", "触控板已发鼠标帧 buttons=$buttons dx=$dx dy=$dy")
-                else Log.w("RemoteInput", "触控板发送失败（链路未就绪？）")
-            }
-        }
-        var tpDown = false; var tpDrag = false
-        var tpLastX = 0f; var tpLastY = 0f
-        var tpDownAt = 0L
-        val touchpad = android.widget.FrameLayout(this).apply {
-            setBackgroundColor(getColor(R.color.remote_panel_field))
-            addView(TextView(this@RemoteInputActivity).apply {
-                text = getString(R.string.ui_remoteinput_touchpad)
-                setTextColor(getColor(R.color.remote_panel_text_faint)); textSize = 12f
-                gravity = Gravity.CENTER
-            }, android.widget.FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
-            minimumHeight = dp(150f)
-        }
-        val dragArm = Runnable {
-            if (tpDown && !tpDrag) { tpDrag = true; mouseFrame(0x01, 0, 0) }
-        }
-        // #3（用户 2026-11-08「触摸板没用通用触摸板的逻辑」）：与通用 touchpad.kt 同口径 ——
-        // 双指落下 550ms 锁定右键拖拽（rightDragTask）；期间随手指拖，帧按钮位 0x02。
-        var tpSecond = false; var tpSecondAt = 0L; var tpRightDrag = false
-        val rightDragArm = Runnable {
-            if (tpSecond && !tpRightDrag) { tpRightDrag = true; mouseFrame(0x02, 0, 0) }
-        }
-        touchpad.setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    tpDown = true; tpDrag = false; tpDownAt = android.os.SystemClock.uptimeMillis()
-                    tpLastX = e.x; tpLastY = e.y
-                    v.removeCallbacks(dragArm); v.postDelayed(dragArm, 550)   // #3 对齐通用 550ms
-                    true
-                }
-                android.view.MotionEvent.ACTION_POINTER_DOWN ->
-                    // #3 第二指落下：双指长按 550ms = 右键拖拽（通用 rightDragTask 同口径）
-                    if (e.pointerCount == 2) {
-                        tpSecond = true; tpSecondAt = android.os.SystemClock.uptimeMillis()
-                        v.removeCallbacks(dragArm); tpDrag = false
-                        v.postDelayed(rightDragArm, 550)
-                        true
-                    } else false
-                android.view.MotionEvent.ACTION_POINTER_UP ->
-                    if (tpSecond) {
-                        tpSecond = false; v.removeCallbacks(rightDragArm)
-                        val dur = android.os.SystemClock.uptimeMillis() - tpSecondAt
-                        if (!tpRightDrag) {
-                            if (dur < 300) {   // 双指点按 = 右键单击（短按未拖成）
-                                mouseFrame(0x02, 0, 0); mouseFrame(0x00, 0, 0)
-                                com.allperiph.ui.Feedback.haptic(v)
-                            }
-                        } else {
-                            mouseFrame(0x00, 0, 0)   // 右键拖拽结束：松开右键
-                            tpRightDrag = false
-                        }
-                        tpLastX = e.x; tpLastY = e.y   // 单指继续：基点归位防跳变
-                        true
-                    } else false
-                android.view.MotionEvent.ACTION_MOVE -> if (tpDown) {
-                    var dx = (e.x - tpLastX).toInt(); var dy = (e.y - tpLastY).toInt()
-                    tpLastX = e.x; tpLastY = e.y
-                    // 位移限幅 ±127（i8 帧格式），大幅移动分帧发
-                    while (dx != 0 || dy != 0) {
-                        val sx = dx.coerceIn(-127, 127); val sy = dy.coerceIn(-127, 127)
-                        mouseFrame(when { tpRightDrag -> 0x02; tpDrag -> 0x01; else -> 0x00 }, sx, sy)
-                        dx -= sx; dy -= sy
-                    }
-                    true
-                } else false
-                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
-                    val cancelled = e.actionMasked == android.view.MotionEvent.ACTION_CANCEL
-                    v.removeCallbacks(dragArm); v.removeCallbacks(rightDragArm); tpSecond = false
-                    if (tpDown) {
-                        val dur = android.os.SystemClock.uptimeMillis() - tpDownAt
-                        val moved = kotlin.math.hypot((e.x - tpLastX).toDouble(), (e.y - tpLastY).toDouble()) < dp(12f)
-                        if (!tpDrag && !cancelled && moved && dur < 300) {
-                            mouseFrame(0x01, 0, 0); mouseFrame(0x00, 0, 0)   // 轻点 = 左键点击
-                            com.allperiph.ui.Feedback.haptic(v)               // #5 轻点给震感
-                        } else {
-                            mouseFrame(0x00, 0, 0)                            // 抬起/取消 = 松开左键
-                        }
-                    }
-                    tpDown = false; tpDrag = false; tpRightDrag = false
-                    true
-                }
-                else -> false
-            }
-        }
-        return touchpad
     }
 
     /** 编辑键排的一个键（#6 按住 400ms 起每 55ms 连发、抬手吞尾；#5 按下即震） */
@@ -550,7 +469,7 @@ class RemoteInputActivity : ComponentActivity() {
         /**
          * 回程通道：true = 请求经本机 9511 **客户端**链路进来（本机正在控制的目标设备，
          * TvControllerClient 收到 0x25 兜底启动时置位）；false = 经本机**被控服务**
-         * （正在控制本机的设备）。文字/编辑键/鼠标/DONE 按此分流，否则回复会发错方向。
+         * （正在控制本机的设备）。文字/编辑键/DONE 按此分流，否则回复会发错方向。
          */
         @Volatile
         var viaClient = false
