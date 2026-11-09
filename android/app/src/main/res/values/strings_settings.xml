@@ -1,20 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 设置页 · 主题与外观 / 字体 / 模块 / 发现通道（v223.29.x 从主壳整块上移，键名沿用代码里的引用） -->
+    <!-- 设置页 · 主题与外观 / 界面缩放 / 模块开关（键名沿用代码引用；主题走 ThemePref，缩放走 UiScalePref） -->
     <string name="ui_set_sec_appearance">主题与外观</string>
     <string name="ui_set_label_appearance">外观</string>
-    <string name="ui_set_label_theme">日间模式</string>
-    <string name="ui_set_sum_theme">点按循环：日间 → 夜间 → 自动</string>
-    <string name="ui_set_label_font_size">字体大小</string>
-    <string name="ui_set_sum_font_size">在下方按档位选择：小 / 中 / 大 / 超大</string>
+    <string name="ui_set_label_theme">主题模式</string>
+    <string name="ui_set_sum_theme">当前：%1$s · 点按循环切换</string>
+    <string name="ui_set_label_font_size">界面缩放</string>
     <string name="ui_set_font_size_of">%1$s</string>
     <string name="ui_set_font_size_small">小</string>
     <string name="ui_set_font_size_mid">中</string>
     <string name="ui_set_font_size_large">大</string>
     <string name="ui_set_font_size_huge">超大</string>
     <string name="ui_set_sec_modules">模块开关</string>
-    <string name="ui_set_sec_discovery">发现通道</string>
-    <string name="ui_set_label_discovery">发现服务</string>
-    <string name="ui_set_sum_discovery_not_ready">未就绪：局域网设备暂时发现不了本机，连上后点下方重新检测</string>
-    <string name="ui_set_btn_discovery_check">重新检测</string>
 </resources>

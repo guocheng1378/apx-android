@@ -60,11 +60,10 @@ import top.yukonga.miuix.kmp.basic.Text
  * 设置页（**第二个完成 Compose + Miuix 迁移的主屏**）。
  *
  * 对照旧实现 [com.allperiph.ui.SettingsActivity] + `page_settings.xml`，行为对齐如下：
- *  · 三档「主题与外观」：日间 / 夜间 / 自动，走 `ApPalette.themeMode`（与主壳 `ApShellActivity
- *    updateAppearance` 同一偏好）；
- *  · 字体大小：`ApFontSize`（v223.29.3 从主壳上移至此，此前设置里只有「主题与外观」没有字体）；
- *  · 模块开关（成宇 2026-11-03「模块开关挪到设置页」）：`AgentController.isEnabled/setEnabled`；
- *  · 「发现通道未就绪」提示：`discoveryUp / httpPort` 静态位（v223.29.33 新增）。
+ *  · 三档主题：跟随系统 / 浅色 / 深色，走 [ThemePref]（同包，偏好与主壳同文件 `apx_theme`）；
+ *  · 界面缩放：[UiScalePref]（0.80~1.25 乘数，主壳 setContent 乘进 LocalDensity；
+ *    滑条在主壳，这里给四档离散选中）；
+ *  · 模块开关（成宇 2026-11-03「模块开关挪到设置页」）：`AgentController.isEnabled/setEnabled`。
  *
  * 刷新：1s 轮询（与旧 SettingsActivity 的 ticker 同频）+ `LocalContext` 懒读（避免每帧拿 context）。
  *
@@ -101,9 +100,6 @@ fun SettingsPage(
         }
     }
 
-    // tick 只用来触发重组；实际值每次都现读。
-    val state = remember(tick) { snapshot(ctx) }
-
     // Box 只为「限宽居中」而包（04）；不加任何高度/宽度约束，
     // 子 Column 的 verticalScroll 约束传递与旧版完全一致。
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -124,8 +120,7 @@ fun SettingsPage(
         // —— 主题与外观（v223.29.3 字体上移，与传输开关同一批从主壳整块上移）——
         ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_appearance)) {
             Column {
-                // 成宇 2026-11-04「设置里字体大小没有地方改」：v223.29.3 字体从主壳上移至设置页，
-                // 「主题与外观」段从此同时管外观 + 字体两件事。
+                // 成宇 2026-11-04「设置里字体大小没有地方改」：缩放选中项从主壳上移至此。
                 var appearanceOpen by remember { mutableStateOf(true) }
                 ApComponents.FoldGroup(
                     title = ctx.getString(R.string.ui_set_label_appearance),
@@ -133,18 +128,24 @@ fun SettingsPage(
                     open = appearanceOpen,
                     onToggleOpen = { appearanceOpen = !appearanceOpen },
                 ) {
+                    // 三档循环：跟随系统 → 浅色 → 深色（ThemePref.AUTO/LIGHT/DARK，同包对象）
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_theme),
-                        summary = ctx.getString(R.string.ui_set_sum_theme),
-                        checked = ApPalette.themeMode(ctx) == 0,
+                        summary = ctx.getString(
+                            R.string.ui_set_sum_theme,
+                            ThemePref.LABELS[ThemePref.get(ctx)],
+                        ),
+                        checked = ThemePref.get(ctx) == ThemePref.DARK,
                         onCheckedChange = {
-                            // 0=日间 1=夜间 2=自动：三选一，上一档取反（与旧 SettingsActivity 同判据）
-                            val next = (ApPalette.themeMode(ctx) + 1) % 3
-                            ApPalette.setThemeMode(ctx, next)
+                            ThemePref.set(ctx, (ThemePref.get(ctx) + 1) % 3)
                             tick++
                         },
                     )
                 }
+                // 成宇 2026-11-07「或者做成可以无极自定义 dpi 缩放」：全仓唯一缩放源是
+                // [UiScalePref]（0.80~1.25 乘数，主壳 setContent 与弹窗各乘一次）。
+                // ApComponents 无滑条组件，这里给四档离散选中 —— 选中即写入，
+                // MIN/MAX 由 UiScalePref.set 自身 coerce 兜底，滑条读回同一状态。
                 var fontOpen by remember { mutableStateOf(true) }
                 ApComponents.FoldGroup(
                     title = ctx.getString(R.string.ui_set_label_font_size),
@@ -152,36 +153,25 @@ fun SettingsPage(
                     open = fontOpen,
                     onToggleOpen = { fontOpen = !fontOpen },
                 ) {
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_label_font_size),
-                        summary = ctx.getString(R.string.ui_set_sum_font_size),
-                        checked = false, // 字体是档位选择器，不用开关行；占位保留语义
-                        onCheckedChange = { },
-                    )
-                }
-                // 成宇 2026-11-04「字体大小有四个档位，设置里应该显示出来」：旧布局 item_size.xml
-                // 四档是「小 / 中 / 大 / 超大」单选条，迁 Compose 时用 `ApComponents.SwitchRow`
-                // 复现（三行加一枚「超大」兜底，凑四档）—— 数据层 `ApFontSize` 只有单个 int，
-                // 三处 `ApFontSize.of` 调用各拿一份，与旧布局的「选中项高亮 + 其余置灰」语义一致。
-                val fontSize = ApFontSize.of(ctx)
-                val sizes = listOf(12, 13, 14, 15)
-                sizes.forEachIndexed { i, size ->
-                    val isBig = i >= 3
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(
-                            R.string.ui_set_font_size_of,
-                            ctx.getString(listOf(R.string.ui_set_font_size_small, R.string.ui_set_font_size_mid, R.string.ui_set_font_size_large, R.string.ui_set_font_size_huge)[i]),
-                        ),
-                        summary = ctx.getString(
-                            R.string.ui_set_font_size_of,
-                            size.sp.toString(),
-                        ),
-                        checked = fontSize == size,
-                        onCheckedChange = { on ->
-                            if (on) ApFontSize.set(ctx, size)
-                            tick++
-                        },
-                    )
+                    val scale = UiScalePref.current.floatValue
+                    val scales = listOf(0.80f, 0.90f, 1.00f, 1.25f)
+                    scales.forEachIndexed { i, v ->
+                        ApComponents.SwitchRow(
+                            title = ctx.getString(
+                                R.string.ui_set_font_size_of,
+                                ctx.getString(listOf(R.string.ui_set_font_size_small, R.string.ui_set_font_size_mid, R.string.ui_set_font_size_large, R.string.ui_set_font_size_huge)[i]),
+                            ),
+                            summary = ctx.getString(
+                                R.string.ui_set_font_size_of,
+                                "%.2f×".format(v),
+                            ),
+                            checked = scale == v,
+                            onCheckedChange = { on ->
+                                if (on) UiScalePref.set(ctx, v)
+                                tick++
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -234,52 +224,8 @@ fun SettingsPage(
                 }
             }
         }
-
-        // —— 发现通道（v223.29.33 新增：discoveryUp / httpPort 静态位）——
-        if (!state.discoveryUp) {
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_discovery)) {
-                Column {
-                    ApComponents.ItemRow(
-                        title = ctx.getString(R.string.ui_set_label_discovery),
-                        summary = ctx.getString(R.string.ui_set_sum_discovery_not_ready),
-                        showDivider = true,
-                    )
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_btn_discovery_check),
-                        onClick = {
-                            runCatching { AgentController.refreshEnv(ctx) }
-                            tick++
-                        },
-                    )
-                }
-            }
-        }
     }
     } // Box：限宽居中（界面稿 04，≥840dp）
-}
-
-// ————————————————————— 快照 —————————————————————
-
-private class SettingsVm(
-    val themeMode: Int,
-    val fontSize: Int,
-    val discoveryUp: Boolean,
-    val httpPort: Int,
-)
-
-/** 现读一份界面快照（主线程，全部是内存/偏好读取，不碰 IO） */
-private fun snapshot(ctx: Context): SettingsVm {
-    val themeMode = ApPalette.themeMode(ctx)
-    val fontSize = ApFontSize.of(ctx)
-    val env: com.allperiph.core.EnvChecks.Env? = AgentController.env
-    return SettingsVm(
-        themeMode = themeMode,
-        fontSize = fontSize,
-        // 2026-11-08（成宇发截图）：发现通道未就绪是**静态位**，非动态检测 ——
-        // discoveryUp 为 false 时「发现通道未就绪」直接显示，不用等轮询。
-        discoveryUp = env?.discoveryUp == true,
-        httpPort = env?.httpPort ?: 0,
-    )
 }
 
 @androidx.compose.runtime.Composable
