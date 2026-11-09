@@ -58,9 +58,10 @@ import androidx.compose.ui.res.colorResource
  * 数据刷新走 1s 轮询（与旧 [com.allperiph.ui.MainActivity] 的 ticker 同频）：模块状态来自后台线程，
  * EventBus 只覆盖部分事件，轮询是最稳的一条。
  *
- * 2026-11-09 界面稿 03/04：页边距分档 —— <520dp 保持 16（手机不变）；520–599dp 平板
- * Compact 取 32（稿 03「边距 16→24，≥520dp 时 32」）；600–839dp Medium 取 24，且
- * ≥720dp 内容限宽 680 居中（稿 04 原话「内容限宽 680 居中」）。
+ * 2026-11-09 界面稿 03/04 + 差集 1（2026-11-09 下午）：页边距统一递进口径 ——
+ * <520dp 手机 16（稿 01）；520–599dp 24（稿 03 Compact）；≥600dp 32（稿 01「16→24→32」）；
+ * ≥720dp 且短边 ≥520 内容限宽 680 居中（稿 04）。上笔 a60f8413 的 message 声称统一为
+ * 32/24/16 但 content 实际抄旧了 24/32 反档 —— 本笔真正修正（与 SettingsPage 同口径）。
  */
 @Composable
 fun StatusPage(
@@ -75,9 +76,9 @@ fun StatusPage(
     // 界面稿 03/04 边距档位（2026-11-09）：按窗口实测宽度取，不读 configuration
     // （同 TouchpadPage 的 v223.29.9 结论：configChanges 滞后一拍，读配置会错一拍）。
     val hPad = when {
-        shortSide >= 600f -> 24.dp   // 04 Medium：边距 24dp
-        shortSide >= 520f -> 32.dp   // 03 Compact：≥520dp 时 32dp
-        else -> 16.dp                // 手机（01）：保持 16dp 不变
+        shortSide >= 600f -> 32.dp   // 01/04：真平板 600+ → 32dp（与 SettingsPage 同口径）
+        shortSide >= 520f -> 24.dp   // 03 Compact：520–599dp → 24dp（旧值 32 与稿子「16→24」矛盾，修正）
+        else -> 16.dp                // 01 手机：<520dp → 16dp
     }
     val limited = widthDp >= 720f && shortSide >= 520f   // 手机横屏短边 411 不触发限宽
     var tick by remember { mutableStateOf(0) }
