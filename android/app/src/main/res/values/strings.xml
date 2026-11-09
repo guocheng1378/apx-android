@@ -504,6 +504,8 @@
     <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
     <string name="ui_pick_device_controlled">外设模式（本机被控）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>
+    <string name="ui_pick_device_connect_failed">连不上 %1$s —— 确认电脑端已打开全能外设，且手机和电脑在同一网络</string>
+    <string name="ui_pick_device_retry">重试</string>
     <string name="ui_pick_device_scanning">搜索局域网设备…（需对端服务已开）</string>
     <string name="ui_pick_device_button">选择受控设备</string>
     <string name="ui_set_label_current_control">当前控制</string>

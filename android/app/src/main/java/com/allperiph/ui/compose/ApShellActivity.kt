@@ -1004,6 +1004,11 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
     val ctx = LocalContext.current
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
     var connecting by remember { mutableStateOf("") }
+    // 连接失败的就地重试（v223.29.37 HIG 落地批次一）：失败不再只有一句转瞬即逝的
+    // 提示 —— 选择器里保留失败卡片，附「重试」按钮，用户不用重新翻列表找刚才那台。
+    var lastFailed by remember {
+        mutableStateOf<com.allperiph.wireless.TvDiscovery.TvDevice?>(null)
+    }
     // 历史连接 + 外设模式状态（成宇 2026-11-04「历史链接设备一点就可链接，加入外设模式」）
     var recent by remember {
         mutableStateOf(emptyList<com.allperiph.ui.ConnectHistory.HistoryItem>())
@@ -1072,17 +1077,16 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
                 text = "${h.name}  ${h.host}",
                 onClick = {
                     connecting = h.host
-                    connectControlledDevice(
-                        ctx,
-                        com.allperiph.wireless.TvDiscovery.TvDevice(
-                            name = h.name,
-                            ip = h.host,
-                            port = h.port,
-                            lastSeen = h.lastConnected,
-                            type = h.type,
-                        ),
-                    ) { ok, _ ->
+                    val dev = com.allperiph.wireless.TvDiscovery.TvDevice(
+                        name = h.name,
+                        ip = h.host,
+                        port = h.port,
+                        lastSeen = h.lastConnected,
+                        type = h.type,
+                    )
+                    connectControlledDevice(ctx, dev) { ok, _ ->
                         connecting = ""
+                        lastFailed = if (ok) null else dev
                         if (ok) onDone()
                     }
                 },
@@ -1096,13 +1100,35 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
             modifier = Modifier.padding(vertical = 8.dp),
         )
     }
+    // 连接失败：内联提示 + 就地重试（提示与真实原因对齐，不弹打断式弹窗）
+    lastFailed?.let { failed ->
+        Text(
+            text = ctx.getString(R.string.ui_pick_device_connect_failed, failed.ip),
+            fontSize = 13.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_pick_device_retry) + " · " + failed.name,
+            onClick = {
+                connecting = failed.ip
+                lastFailed = null
+                connectControlledDevice(ctx, failed) { ok, _ ->
+                    connecting = ""
+                    lastFailed = if (ok) null else failed
+                    if (ok) onDone()
+                }
+            },
+        )
+    }
     devices.forEach { d ->
         ApComponents.ActionButton(
             text = "${d.name} ${d.typeLabel}  ${d.ip}",
             onClick = {
                 connecting = d.ip
-                connectControlledDevice(ctx, d) { ok, name ->
+                connectControlledDevice(ctx, d) { ok, _ ->
                     connecting = ""
+                    lastFailed = if (ok) null else d
                     if (ok) onDone()
                 }
             },

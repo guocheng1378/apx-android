@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+**HIG 落地批次一（连接失败可重试）**：
+
+- 设备选择器连接失败不再只有一句转瞬即逝的提示：选择器内联显示失败原因（确认电脑端已打开全能外设、同一网络），并附「重试 · 设备名」按钮就地重连 —— 最近连接与扫描列表两条动线都覆盖（HIG Agency：让用户从错误中恢复，不锁死在流程里）。
+
 **投屏到电脑**（手机屏幕 → PC 实时画面）：
 
 - 手机端新增 `screenmirror` 包：`ScreenMirrorActivity`（MediaProjection 授权，成功后拉起前台采集服务）+ `ScreenMirrorService`（mediaProjection 类型前台服务：VirtualDisplay + ImageReader RGBA → 等比缩放至宽 720 → JPEG q65 → ≈10fps 节流 → `MediaOut.camera` 复用 streamId=6 上行）。
