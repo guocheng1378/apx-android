@@ -85,33 +85,7 @@ class ApxAccessibilityService : AccessibilityService() {
             imm.hideSoftInputFromWindow(view.windowToken, 0)
             view.postDelayed({
                 try {
-                    (view.parent as? WindowManager)?.removeView(view)
-                } catch (_: Exception) {
-                }
-            }, 500)
-        } catch (e: Exception) {
-            Log.w("APX", "收起输入法失败: $e")
-        }
-    }
-
-    /** 收起本机软键盘：无障碍服务自身无窗口，借一层临时无障碍浮层取 windowToken */
-    fun hideIme() {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
-        val wm = getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
-        val view = View(this)
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSPARENT,
-        )
-        try {
-            wm.addView(view, lp)
-            imm.hideSoftInputFromWindow(view.windowToken, 0)
-            view.postDelayed({
-                try {
-                    (view.parent as? WindowManager)?.removeView(view)
+                    wm.removeView(view)
                 } catch (_: Exception) {
                 }
             }, 500)
