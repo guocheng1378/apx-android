@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -47,14 +48,12 @@ import com.allperiph.core.ModuleState
 import com.allperiph.core.Uplink
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
-import com.allperiph.hid.input.HidDevice
-import com.allperiph.ui.ApComponents
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
-import com.allperiph.ui.miuix.rememberMiuixColorScheme
-import com.allperiph.ui.miuix.theme.MiuixTheme
 import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 
 /**
@@ -90,7 +89,7 @@ fun SettingsPage(
     val hPad = when {
         widthDp >= 840f -> 32.dp   // 稿 04：≥840dp 保持 32 + 限宽 680 居中
         widthDp >= 600f -> 32.dp   // 04 Medium：边距 32dp（稿 01「16→24→32」，≥600 取 32）
-        widthDp >= 520f -> 24.dp   // 03 Compact：520–599dp 取 24dp
+        widthDp >= 520f -> 24.dp   // 03 Compact：24dp
         else -> 16.dp              // 01 手机：<520dp 保持 16dp 不变
     }
     val limited = widthDp >= 840f  // 04：≥840dp 内容限宽 680 居中（与状态页 ≥720 口径微调，稿 04 原话）
@@ -127,7 +126,13 @@ fun SettingsPage(
             Column {
                 // 成宇 2026-11-04「设置里字体大小没有地方改」：v223.29.3 字体从主壳上移至设置页，
                 // 「主题与外观」段从此同时管外观 + 字体两件事。
-                ApComponents.Group(title = ctx.getString(R.string.ui_set_label_appearance)) {
+                var appearanceOpen by remember { mutableStateOf(true) }
+                ApComponents.FoldGroup(
+                    title = ctx.getString(R.string.ui_set_label_appearance),
+                    countText = "",
+                    open = appearanceOpen,
+                    onToggleOpen = { appearanceOpen = !appearanceOpen },
+                ) {
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_theme),
                         summary = ctx.getString(R.string.ui_set_sum_theme),
@@ -140,7 +145,13 @@ fun SettingsPage(
                         },
                     )
                 }
-                ApComponents.Group(title = ctx.getString(R.string.ui_set_label_font_size)) {
+                var fontOpen by remember { mutableStateOf(true) }
+                ApComponents.FoldGroup(
+                    title = ctx.getString(R.string.ui_set_label_font_size),
+                    countText = "",
+                    open = fontOpen,
+                    onToggleOpen = { fontOpen = !fontOpen },
+                ) {
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_font_size),
                         summary = ctx.getString(R.string.ui_set_sum_font_size),
@@ -159,7 +170,7 @@ fun SettingsPage(
                     ApComponents.SwitchRow(
                         title = ctx.getString(
                             R.string.ui_set_font_size_of,
-                            ctx.getString(if (isBig) R.string.ui_set_font_size_huge else R.string.ui_set_font_size_large),
+                            ctx.getString(listOf(R.string.ui_set_font_size_small, R.string.ui_set_font_size_mid, R.string.ui_set_font_size_large, R.string.ui_set_font_size_huge)[i]),
                         ),
                         summary = ctx.getString(
                             R.string.ui_set_font_size_of,
