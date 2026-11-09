@@ -41,7 +41,6 @@ import androidx.compose.ui.Alignment
 import android.widget.Toast
 import com.allperiph.controlled.ControlledService
 import com.allperiph.core.Uplink
-import com.allperiph.wireless.ControlTarget
 import androidx.compose.ui.res.colorResource
 
 /**
@@ -69,20 +68,18 @@ fun StatusPage(
     topBar: Dp = 0.dp,
     bottomGap: Dp = 0.dp,
 ) {
-    // topBar/bottomGap：主壳顶栏（64dp 玻璃叠层）与浮动底栏的让位空档。
-    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动内容从栏下穿过。
-
     val insets = rememberApInsets()
-    // 界面稿 03/04 边距档位（2026-11-09）：按窗口实测宽度取，不读 configuration
-    // （同 TouchpadPage 的 v223.29.9 结论：configChanges 滞后一拍，读配置会错一拍）。
     val adaptive = rememberApAdaptiveLayout()
     val widthDp = adaptive.width.value
+    val shortSide = minOf(widthDp, adaptive.height.value)
+    // 界面稿 03/04 边距档位（2026-11-09）：按窗口实测宽度取，不读 configuration
+    // （同 TouchpadPage 的 v223.29.9 结论：configChanges 滞后一拍，读配置会错一拍）。
     val hPad = when {
-        widthDp >= 600f -> 24.dp   // 04 Medium：边距 24dp（不再 16dp）
-        widthDp >= 520f -> 32.dp   // 03 Compact：≥520dp 时 32dp
-        else -> 16.dp              // 手机（01）：保持 16dp 不变
+        shortSide >= 600f -> 24.dp   // 04 Medium：边距 24dp
+        shortSide >= 520f -> 32.dp   // 03 Compact：≥520dp 时 32dp
+        else -> 16.dp                // 手机（01）：保持 16dp 不变
     }
-    val limited = widthDp >= 720f  // 04：≥720dp 内容限宽 680 居中
+    val limited = widthDp >= 720f && shortSide >= 520f   // 手机横屏短边 411 不触发限宽
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -91,14 +88,9 @@ fun StatusPage(
         }
     }
 
-    // tick 只用来触发重组；实际值每次都现读（模块状态与 running 都是 volatile 字段）。
-    // 总闸去掉后 running 不再是入参，必须现读 —— 传输开关把服务拉起来后，
-    // 模块行的子开关要自己在这一秒内跟上，而不是等用户重进页面。
     val state = remember(tick) { snapshot(ctx) }
-    // 语义状态色明暗各一套（审查条 2.5）：判据与 ApMiuixTheme 同一入口，不各自读 configuration
+    val stateColor = remember(ctx) { stateColor }
 
-    // Box 只为「限宽居中」而包（04）；不加任何高度/宽度约束，
-    // 子 Column 的 verticalScroll 约束传递与旧版完全一致。
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Column(
         modifier = Modifier
@@ -108,34 +100,19 @@ fun StatusPage(
                 start = hPad + insets.left,
                 end = hPad + insets.right,
                 top = 8.dp + topBar,
-                // 同上：bottomGap 由主壳按横竖屏给定（竖屏 88dp / 横屏 24dp），
-                // 不再用 maxOf(..., 96.dp) 那个会把横屏值顶掉的地板。
                 bottom = bottomGap + insets.bottom,
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // —— 传输通道 ——
-        // ★ v223.29.9：此前的「运行状态」只读摘要块已整块移除（成宇 2026-11-05
-        // 「状态页顶部运行状态去除」）。那一块只是把 `overallLabel / overallDetail`
-        // 两行字摆出来，与下方三个传输开关表达的是同一件事 —— 开关的 `summary`
-        // 已经写明每一路的实时状态，顶部再复述一遍纯属占地。
-        // 沿革：更早版本这里是「启动 / 停止」总闸（成宇 2026-11-04 要求去掉，因为总闸
-        // 关着时三个传输开关拨了不生效，是假开关）；去掉总闸后剩下的只读摘要在
-        // v223.29.9 一并去掉。传输开关各自负责对应模块的启停与前台服务
-        // （见 [AgentController.applyTransportSwitch]）。
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_transport)) {
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
                     ApComponents.SwitchRow(
-                        // 2026-11-04 资源化：原 `transportLabel(t)` 直接返回中文（数据层写死文案），
-                        // 现在存资源 id、本层解析 —— 与 stateRes / labelRes 同一批口径。
                         title = ctx.getString(AgentController.transportRes(t)),
                         summary = state.transportSummary[t],
                         checked = state.transportOn[t] == true,
                         onCheckedChange = { on ->
                             Feedback.haptic(ctx)
-                            // 总闸去掉后，传输开关自己负责对应模块的启停与前台服务
-                            // （与悬浮球「连接模式」菜单同一个入口，逻辑收在 AgentController 一处）
                             AgentController.applyTransportSwitch(ctx, t, on)
                             tick++
                         },
@@ -143,12 +120,6 @@ fun StatusPage(
                 }
             }
         }
-        // —— 音频方向（v223.29.3 从设置页「工具与传输」整块上移）——
-        // 成宇 2026-11-04「把设置里的管麦克风和音响的也挪过来」：四个音频方向开关与三个
-        // 传输开关是同一层语义（都是「这一路要不要用」），分居设置页与状态页两处就是双源 ——
-        // 与上一轮「环境诊断」上移同一判据（链路信息属于运行时，就该在状态页）。
-        // 数据与热切换口径完全不变：仍走 com.allperiph.ui.AudioDirections
-        // （模块在跑就热切换、没跑就只落盘，下次连接生效）。
         var usbMic by remember { mutableStateOf(com.allperiph.audio.AudioModule.isMicOn(ctx)) }
         var usbSpk by remember { mutableStateOf(com.allperiph.audio.AudioModule.isSpeakerOn(ctx)) }
         var wifiMic by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isMicOn(ctx)) }
@@ -208,7 +179,7 @@ fun StatusPage(
                     )
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_wifi_spk),
-                        summary = ctx.getString(R.string.ui_set_sum_wifi_spk),
+                        summary = ctx.getString(R.string.ui_set_sum_usb_spk),
                         checked = wifiSpk,
                         onCheckedChange = { on ->
                             wifiSpk = on
@@ -219,15 +190,7 @@ fun StatusPage(
                 }
             }
         }
-
-
-        // —— 受控与出口（v223.28 从设置页「遥控与键盘」整体上移：成宇 2026-11-02
-        //    「本应该在状态页的内容却在设置页」——链路状态属于运行时信息，就该在状态页。
-        //    数据源：ControlTarget（当前控制谁）+ Uplink（唯一出口判据）+ ControlledService
-        //    （本机被控）。选择器弹的是与悬浮球面板同一份 ApDevicePickerBody，连接逻辑
-        //    仍只有 connectControlledDevice 一处）——
         var pickerOpen by remember { mutableStateOf(false) }
-        // 蓝牙配对引导弹窗（2026-11-08 电视蓝牙兜底）：入口在下方受控与出口区块
         var btGuideOpen by remember { mutableStateOf(false) }
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_control)) {
             Column {
@@ -247,10 +210,6 @@ fun StatusPage(
                     text = ctx.getString(R.string.ui_pick_device_button),
                     onClick = { pickerOpen = true },
                 )
-                // 蓝牙配对引导（2026-11-08 电视蓝牙兜底）：配对本身在系统设置完成
-                // （手机只注册 HID SDP，发现与配对由对端发起），此前没有任何一屏告诉
-                // 用户怎么配 —— 断 Wi-Fi 想回落蓝牙时无从下手。只补引导与能力边界，
-                // 择路/回落不动（Uplink.resolve 已结构性支持，本轮源码复核确认）。
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.ui_bt_pair_guide),
                     onClick = { btGuideOpen = true },
@@ -288,8 +247,6 @@ fun StatusPage(
                     }
                 }
                 if (pickerOpen) {
-                    // DialogCard 内部已包一层 androidx.compose.ui.window.Dialog，
-                    // 外面再套 Dialog = 「弹窗里再开一个窗口」（双层遮罩）。
                     ApComponents.DialogCard(onDismiss = { pickerOpen = false }) {
                         ApDevicePickerBody(onDone = { pickerOpen = false })
                     }
@@ -309,15 +266,8 @@ fun StatusPage(
                 }
             }
         }
-
-        // —— 模块状态 ——
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
             Column {
-                // 成宇 2026-11-02「第一页的开关，开了，为什么以前的子开关没了」：
-                // 旧布局 item_module_row.xml 每行是「名称 + 副标题 + 状态点 + Switch」，
-                // 迁 Compose 时只留下状态 Pill，每模块的启停开关整个丢了。
-                // 按旧布局补回：开关直接读写 AgentController.isEnabled / setModuleEnabled，
-                // 与「传输通道」段的开关同一份状态，不另造状态。
                 state.modules.forEach { row ->
                     ApComponents.ItemRow(
                         title = row.label,
@@ -328,18 +278,10 @@ fun StatusPage(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                // 状态词已在 [ModuleRowVm.stateRes] 存为资源 id（2026-11-04
-                                // 数据层资源化）：数据类不再写死中文，由 UI 层解析成字串。
                                 ApComponents.Pill(
                                     text = ctx.getString(row.stateRes),
                                     color = stateColor(row.state),
                                 )
-                                // 成宇 2026-11-03「状态页给个开关不能控制子开关，
-                                // 总开关关了应该隐藏下面的子开关」：没在跑时这一行只留状态点。
-                                // 这个「跑没跑」的判据在 v223.29.3 从主壳入参 [running] 换成
-                                // 现读的 [StatusVm.running] —— 总闸去掉后没有任何地方再持有它，
-                                // 页面必须自己现读（同一 1s tick 刷新）。
-                                // 子开关的启用态仍记在 AgentController 里，运行态一起来就按原样回显。
                                 if (state.running) {
                                     Switch(
                                         checked = row.enabled,
@@ -356,9 +298,6 @@ fun StatusPage(
                 }
             }
         }
-
-        // —— 链路诊断（v223.28 吸收设置页「环境诊断」整块：同一份 EnvChecks 数据
-        //    此前两页各显示一半，属于双源。现在环境明细与重新检测都在这里，设置页删掉）——
         ApComponents.Section(title = ctx.getString(R.string.card_link)) {
             Column {
                 ApComponents.ActionButton(
@@ -369,10 +308,6 @@ fun StatusPage(
                     title = ctx.getString(R.string.label_usb_speed),
                     value = state.linkLabel,
                 )
-                // 2026-11-07（成宇发截图「你自己看看」）：环境自检是长诊断详情
-                // （root · USB 速度 · 白名单…），放 ValueRow 右值位只有 46% 宽、
-                // 两行省略会吃掉尾巴；老包上更是把左标题挤成竖排。改挂 title 下方
-                // 全宽 summary（maxLines 3），标题独立成行、诊断信息一字不丢。
                 ApComponents.ItemRow(
                     title = ctx.getString(R.string.ui_home_label_env),
                     summary = state.envSummary,
@@ -390,10 +325,6 @@ fun StatusPage(
                     title = ctx.getString(R.string.ui_home_env_battery),
                     value = state.batteryLabel,
                 )
-                // 只读文字是这次迁移丢掉的一步：旧主界面有 btnBattery（ACTION_IGNORE_BATTERY_
-                // OPTIMIZATION），迁 Compose 后只剩「未忽略」四个字，用户知道有问题却没处点。
-                // 这里给一枚按钮进「电池优化」列表页；不用带包名的直接请求，那需要多一条
-                // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 权限（审查 v5 §9.3）。
                 if (!state.batteryWhitelisted) {
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.ui_set_btn_battery_whitelist),
@@ -410,8 +341,6 @@ fun StatusPage(
                     title = ctx.getString(R.string.ui_home_env_notify),
                     value = state.notifyLabel,
                 )
-                // 同一屏里无障碍那行本来就能跳（设置页 :651），通知权限却只有四个字，
-                // 不一致比整段缺失更像故障（审查 v5 §9.3）。
                 if (!state.notifyGranted) {
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.ui_set_btn_notify_settings),
@@ -438,17 +367,12 @@ fun StatusPage(
                     text = if (state.rooted) ctx.getString(R.string.hint_usb_ok)
                     else ctx.getString(R.string.hint_usb2),
                     fontSize = 12.sp,
-                    // 颜色代替长句（成宇 2026-11-07「能用颜色代替的用颜色」）：
-                    // 慢档 = 琥珀警示色，3.0 正常保持灰 —— 不读字也能分清快慢。
                     color = if (state.rooted) MiuixTheme.colorScheme.onSurfaceVariantSummary
                     else colorResource(R.color.module_state_pending),
                     modifier = Modifier.padding(16.dp),
                 )
             }
         }
-
-        // —— 帮助与说明（迁移到 Compose 时这块入口整个丢了：strings 里 ui_help_* 全套文案
-        //    仍在，代码里一处引用都没有。主页在这里补回「三步上手」摘要 + 完整说明入口）——
         var helpOpen by remember { mutableStateOf(false) }
         ApComponents.Section(title = ctx.getString(R.string.ui_main_cat_help)) {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -465,12 +389,6 @@ fun StatusPage(
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 6.dp),
                 )
-                // 2026-11-04 改走 ApComponents.ActionButton：此前裸用 miuix.basic.Button，
-                // **不带** ActionButton 内部那层 `Feedback.tap`（震动 + 音效），于是同一页上
-                // 这个按钮只震不响、其余按钮又震又响（手感不一致，编译器不报、样式也不算错）。
-                // 原 onClick 里的 Feedback.haptic(ctx) 一并删除 —— 留着会与 ActionButton
-                // 内置的 Feedback.tap 叠成一次点击震两下。Button 的 import 同时移除，
-                // scripts/check_ui_kit.py 的 BANNED 已把 Button 纳入拦裁范围。
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.ui_help_open_full),
                     onClick = { helpOpen = true },
@@ -483,23 +401,13 @@ fun StatusPage(
     } // Box：限宽居中（界面稿 04，≥720dp）
 }
 
-// ————————————————————— 快照 —————————————————————
-
 private class ModuleRowVm(
     val id: String,
     val label: String,
     val detail: String,
     val state: ModuleState,
-    /** 该模块当前是否启用（可信源是 AgentController.isEnabled，这里只是快照） */
     val enabled: Boolean = true,
 ) {
-    /**
-     * 状态词的**资源 id**（2026-11-04 数据层资源化）：此前这里是 7 个中文写死的 when ——
-     * UI 层早已全走 `ctx.getString`，只有这个数据类还在直接产出面向用户的文案，
-     * 属于「文案双源」的另一半（strings 一份、Kotlin 一份，改一边漏一边）。
-     * 存资源 id 而不是解析后的字串：`snapshot()` 是普通函数、拿不到文案上下文，
-     * 解析留给 UI 层（`ctx.getString(row.stateRes)`）。
-     */
     val stateRes: Int get() = when (state) {
         ModuleState.RUNNING -> R.string.ui_module_state_running
         ModuleState.STARTING -> R.string.ui_module_state_starting
@@ -512,7 +420,6 @@ private class ModuleRowVm(
 }
 
 private class StatusVm(
-    /** 现读的 Agent 运行态（总闸去掉后由传输开关驱动，见 [AgentController.applyTransportSwitch]） */
     val running: Boolean,
     val transportOn: Map<String, Boolean>,
     val transportSummary: Map<String, String>,
@@ -520,7 +427,6 @@ private class StatusVm(
     val linkLabel: String,
     val envSummary: String,
     val rooted: Boolean,
-    // v223.28 受控与出口 + 环境明细（吸收设置页「环境诊断」）
     val controlLabel: String,
     val controlling: Boolean,
     val uplinkLabel: String,
@@ -528,43 +434,10 @@ private class StatusVm(
     val udc: String,
     val batteryLabel: String,
     val notifyLabel: String,
-    /** 是否已加入电池优化白名单（true 才不需要提示去设置） */
     val batteryWhitelisted: Boolean,
-    /** 通知权限是否已授予 */
     val notifyGranted: Boolean,
 )
 
-/**
- * 模块状态色（明暗**各一套**）。
- *
- * 2026-11-02 审查条 2.5：此前只有一套十六进制值，按 WCAG 公式在页面底上估算，
- * 浅色下 运行中 2.84:1 / 降级 2.41:1 / 异常 3.65:1、深色下 已停止 3.48:1，都不到 4.5:1。
- * 现在语义色以「卡片底色 + 同色 14% 胶囊底」为最坏情形取值，六个组合全部 ≥4.5:1：
- *
- *  | 状态 | 浅色（卡片 #FFFFFF） | 深色（卡片 #1E232B，2026-11-09 界面稿） |
- *  |---|---|---|
- *  | 运行中 | #00734D → 4.80 | #3DDC97 → 6.62 |
- *  | 启动中/停止中/降级 | #A34A08 → 4.83 | #FFB454 → 6.66 |
- *  | 异常 | #B4235A → 5.02 | #FF7AA8 → 5.13 |
- *  | 已停止/未启动 | #5B6470 → 4.95 | #A8B0BC → 5.50 |
- *
- * 括号里的比值是「文字色 vs 14% 同色胶囊底」的对比度（胶囊底压在卡片上，比纯卡片底更亮/更暗，
- * 所以按它算而不是按纯底算）。改色值时请连这张表一起改。
- * （2026-11-09 界面稿把深色卡面从旧值 #0F1011 提亮到 #1E232B，深色四档按新卡面
- *  用 WCAG 相对亮度公式重算如上，仍全部 ≥4.5:1；浅色卡面 #FFFFFF 未动，浅色比值保持。）
- */
-@androidx.compose.runtime.Composable
-private fun stateColor(s: ModuleState): Color = colorResource(
-    when (s) {
-        ModuleState.RUNNING -> R.color.module_state_running
-        ModuleState.STARTING, ModuleState.STOPPING -> R.color.module_state_pending
-        ModuleState.DEGRADED -> R.color.module_state_pending
-        ModuleState.ERROR -> R.color.module_state_error
-        else -> R.color.module_state_idle
-    },
-)
-
-/** 现读一份界面快照（主线程，全部是内存/偏好读取，不碰 IO） */
 private fun snapshot(ctx: Context): StatusVm {
     val running = AgentController.running
     val env: EnvChecks.Env? = AgentController.env
@@ -574,25 +447,13 @@ private fun snapshot(ctx: Context): StatusVm {
     val transportSummary = AgentController.TRANSPORTS.associateWith { t ->
         val ids = AgentController.groupModules(t)
         val on = ids.count { AgentController.isEnabled(ctx, it) }
-        // 2026-11-04 资源化：此前这里拼 "N/M 个模块启用" —— 数据层写死文案，
-        // 改措辞要同时记得 Kotlin 与 strings 两处（双源）。percent 由 getString 格式化。
         ctx.getString(R.string.ui_home_transport_count, on, ids.size)
     }
-    // 审查条 1.8：此前按 runtime 是否存在过滤（`module(id) ?: return@mapNotNull null`），
-    // 而 runtime 只在用户点「开始」/前台服务启动时才 build —— 冷启动进状态页整段「模块状态」
-    // 是空卡片，也没法先关掉某个模块再启动。旧 StatusFragment 用静态列表渲染、不依赖 runtime，
-    // 这里回到同一口径：清单以 ORDER 为准，模块实例只是可选的状态来源。
     val modules = AgentController.ORDER.map { id ->
         val m = AgentController.module(id)
         ModuleRowVm(
             id = id,
-            // 2026-11-04 资源化（与 transportRes 同批）：原 `AgentController.label(id)`
-            // 返回写死的中文模块名且含词汇表禁词（Gadget/UAC2/HID/镜像），
-            // 现在存资源 id、快照持有 id、本层解析 —— 与 stateRes 完全同一模式。
             label = ctx.getString(AgentController.labelRes(id)),
-            // 2026-11-04 资源化 + 文案修正：原文是「未启动（点上方开始）」，但「开始」
-            // 总闸在 v223.29.3 已经删了 —— 提示指向一个不存在的按钮。改为指传输通道的开关
-            // （applyTransportSwitch 会把对应模块组拉起来），与当前页面结构一致。
             detail = if (m == null) ctx.getString(R.string.ui_home_module_idle_detail)
             else AgentController.detailOf(m),
             state = m?.state ?: ModuleState.IDLE,
@@ -600,7 +461,6 @@ private fun snapshot(ctx: Context): StatusVm {
         )
     }
     val link: LinkSpeed = AgentController.linkSpeed
-    // v223.28：当前控制 / 出口 / 本机被控（快照现读，随 1s 轮询刷新）
     val controlling = ControlTarget.isControlling()
     val uplinkLabel = if (!Uplink.observed) {
         ctx.getString(R.string.ui_home_uplink_pending)
@@ -618,7 +478,6 @@ private fun snapshot(ctx: Context): StatusVm {
         transportSummary = transportSummary,
         modules = modules,
         linkLabel = if (link == LinkSpeed.UNKNOWN) "--" else link.name,
-        // 2026-11-04 资源化：「未检测」占位不再写在快照里
         envSummary = env?.summary ?: ctx.getString(R.string.ui_home_env_not_checked),
         rooted = env?.rooted ?: false,
         controlLabel = if (controlling) ControlTarget.label
@@ -628,11 +487,6 @@ private fun snapshot(ctx: Context): StatusVm {
         controlledLabel = if (ControlledService.running) ctx.getString(R.string.ui_home_controlled_on)
         else ctx.getString(R.string.ui_home_controlled_off),
         udc = env?.udc ?: ctx.getString(R.string.ui_home_env_udc_none),
-        // EnvChecks.batteryOptimized == true 表示**没有**加白名单（它取的是
-        // !isIgnoringBatteryOptimizations，摘要里也写「没加入省电白名单」），所以
-        // 「已忽略（推荐）」要在它为 false 时显示。原来看反了：没加白名单时反而告诉
-        // 用户「已忽略（推荐）」，等于把该处理的事说成已处理（审查 v5 §9.3）。
-        // env 为 null（还没检测）时不给绿灯。
         batteryLabel = if (env != null && !env.batteryOptimized) ctx.getString(R.string.ui_home_env_battery_ok)
         else ctx.getString(R.string.ui_home_env_battery_no),
         notifyLabel = if (env?.notificationGranted == true) ctx.getString(R.string.ui_home_env_notify_ok)
@@ -641,3 +495,14 @@ private fun snapshot(ctx: Context): StatusVm {
         notifyGranted = env?.notificationGranted == true,
     )
 }
+
+@Composable
+private fun stateColor(s: ModuleState): Color = colorResource(
+    when (s) {
+        ModuleState.RUNNING -> R.color.module_state_running
+        ModuleState.STARTING, ModuleState.STOPPING -> R.color.module_state_pending
+        ModuleState.DEGRADED -> R.color.module_state_pending
+        ModuleState.ERROR -> R.color.module_state_error
+        else -> R.color.module_state_idle
+    },
+)
