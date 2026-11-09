@@ -26,7 +26,7 @@ jobs:
             -e 's|    val limited = widthDp >= 840f|    val limited = widthDp >= 840f \&\& shortSide >= 520f|' \
             "$P"
           test "$(grep -c shortSide "$P")" -eq 4
-      - name: fix StatusPage missing import and broken stateColor line
+      - name: fix StatusPage import, broken line and dead-resource copy-paste row
         run: |
           set -e
           S='android/app/src/main/java/com/allperiph/ui/compose/StatusPage.kt'
@@ -38,8 +38,12 @@ jobs:
           sed -i '/^    val stateColor = remember(ctx) { stateColor }$/d' "$S"
           if grep -q 'remember(ctx) { stateColor }' "$S"; then echo 'BAD LINE STILL PRESENT'; exit 1; fi
           grep -q 'color = stateColor(row.state)' "$S"
-          echo '--- StatusPage patched ---'
-          grep -n 'ControlTarget' "$S" | head -5
+          # 三修：wifi_spk 行的 summary 误抄成 usb_spk，导致 ui_set_sum_wifi_spk 死资源 FAIL
+          sed -i '/title = ctx.getString(R.string.ui_set_label_wifi_spk)/{n;s|R.string.ui_set_sum_usb_spk|R.string.ui_set_sum_wifi_spk|}' "$S"
+          test "$(grep -c 'ui_set_sum_wifi_spk' "$S")" -eq 1
+          test "$(grep -c 'ui_set_sum_usb_spk' "$S")" -eq 1
+          echo '--- StatusPage patched (3 fixes) ---'
+          grep -n -A1 'ui_set_label_wifi_spk' "$S"
       - name: commit and retag
         run: |
           set -e
@@ -47,7 +51,7 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git diff --cached --stat
-          git commit -m 'fix(status): 补 ControlTarget import + 删坏行 stateColor（v223.29.35 android 编译失败二次修）'
+          git commit -m 'fix(status): wifi_spk 行 summary 修正 ui_set_sum_wifi_spk（死资源检查 FAIL）'
           git push origin HEAD:master
           git tag -f v223.29.35
           git push -f origin v223.29.35
