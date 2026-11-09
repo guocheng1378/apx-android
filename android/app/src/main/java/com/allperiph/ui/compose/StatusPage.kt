@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.bt.BtDiag
 import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.ModuleId
