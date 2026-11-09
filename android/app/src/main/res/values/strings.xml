@@ -317,6 +317,20 @@
 配对一次即可。Wi-Fi 断开时键鼠自动回落蓝牙；文件 / 剪贴板等协议功能仍需 Wi-Fi。</string>
     <string name="ui_bt_pair_open_settings">打开系统蓝牙设置</string>
     <string name="ui_bt_pair_open_failed">无法打开蓝牙设置</string>
+    <string name="ui_bt_diag_entry">蓝牙诊断</string>
+    <string name="ui_bt_diag_title">蓝牙连接诊断</string>
+    <string name="ui_bt_diag_adapter_on">蓝牙开关：已开启</string>
+    <string name="ui_bt_diag_adapter_off">蓝牙开关：未开启（打开后自动恢复）</string>
+    <string name="ui_bt_diag_connected_yes">与主机连接：已连接</string>
+    <string name="ui_bt_diag_connected_no">与主机连接：未连接</string>
+    <string name="ui_bt_diag_registered_waiting">模块状态：已注册，等待回连</string>
+    <string name="ui_bt_diag_not_registered_yet">模块状态：尚未注册（服务未启动或正在启动）</string>
+    <string name="ui_bt_diag_hosts">已配对主机</string>
+    <string name="ui_bt_diag_hosts_none">没有发现已配对的电脑 / 电视，先到系统蓝牙设置配对</string>
+    <string name="ui_bt_diag_last_error">最近失败原因</string>
+    <string name="ui_bt_diag_no_error">暂无失败记录</string>
+    <string name="ui_bt_diag_copy">复制诊断信息</string>
+    <string name="ui_bt_diag_copied">诊断信息已复制</string>
     <string name="ui_remote_toast_no_exit">没有可用出口：插 USB 线、配蓝牙 HID，或先选受控设备</string>
     <string name="ui_touchpad_send_progress">发送 %1$d%%</string>
 

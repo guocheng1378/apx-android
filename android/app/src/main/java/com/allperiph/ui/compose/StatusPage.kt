@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.bt.BtHidDevice
 import com.allperiph.core.LinkSpeed
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
@@ -193,6 +194,7 @@ fun StatusPage(
         }
         var pickerOpen by remember { mutableStateOf(false) }
         var btGuideOpen by remember { mutableStateOf(false) }
+        var btDiagOpen by remember { mutableStateOf(false) }
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_control)) {
             Column {
                 ApComponents.ValueRow(
@@ -215,6 +217,15 @@ fun StatusPage(
                     text = ctx.getString(R.string.ui_bt_pair_guide),
                     onClick = { btGuideOpen = true },
                 )
+                ApComponents.ActionButton(
+                    text = ctx.getString(R.string.ui_bt_diag_entry),
+                    onClick = { btDiagOpen = true },
+                )
+                if (btDiagOpen) {
+                    ApComponents.DialogCard(onDismiss = { btDiagOpen = false }) {
+                        BtDiagPanel(ctx = ctx, tick = tick)
+                    }
+                }
                 if (btGuideOpen) {
                     ApComponents.DialogCard(onDismiss = { btGuideOpen = false }) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -507,3 +518,48 @@ private fun stateColor(s: ModuleState): Color = colorResource(
         else -> R.color.module_state_idle
     },
 )
+
+private fun diagLines(ctx: Context, d: BtDiag): List<String> = buildList {
+    add(ctx.getString(if (d.adapterOn) R.string.ui_bt_diag_adapter_on else R.string.ui_bt_diag_adapter_off))
+    add(ctx.getString(if (d.connected) R.string.ui_bt_diag_connected_yes else R.string.ui_bt_diag_connected_no))
+    add(ctx.getString(if (d.registered) R.string.ui_bt_diag_registered_waiting else R.string.ui_bt_diag_not_registered_yet))
+    add(ctx.getString(R.string.ui_bt_diag_hosts))
+    if (d.hosts.isEmpty()) {
+        add(ctx.getString(R.string.ui_bt_diag_hosts_none))
+    } else {
+        d.hosts.forEach { add("· $it") }
+    }
+    add(ctx.getString(R.string.ui_bt_diag_last_error))
+    add(d.lastError ?: ctx.getString(R.string.ui_bt_diag_no_error))
+}
+
+@Composable
+private fun BtDiagPanel(ctx: Context, tick: Int) {
+    val diag = remember(tick) {
+        (AgentController.module(ModuleId.BTHID) as? BtHidDevice)?.diagnostics()
+    }
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text(
+            text = ctx.getString(R.string.ui_bt_diag_title),
+            fontSize = 15.sp,
+        )
+        val lines = diag?.let { diagLines(ctx, it) } ?: emptyList()
+        lines.forEach { line ->
+            Text(
+                text = line,
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_bt_diag_copy),
+            onClick = {
+                val text = lines.joinToString("\n")
+                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                cm?.setPrimaryClip(android.content.ClipData.newPlainText("bt_diag", text))
+                Toast.makeText(ctx, R.string.ui_bt_diag_copied, Toast.LENGTH_SHORT).show()
+            },
+        )
+    }
+}
