@@ -77,21 +77,18 @@ fun SettingsPage(
     topBar: Dp = 0.dp,
     bottomGap: Dp = 0.dp,
 ) {
-    // topBar/bottomGap：主壳顶栏（64dp 玻璃叠层）与浮动底栏的让位空档。
-    // 由页面在滚动内容首尾自留，而不是主壳容器硬垫 —— 滚动内容从栏下穿过。
-
     val insets = rememberApInsets()
     val adaptive = rememberApAdaptiveLayout()
     val widthDp = adaptive.width.value
+    val shortSide = minOf(widthDp, adaptive.height.value)
     // 界面稿 01/04 边距档位（2026-11-09）：按窗口实测宽度取，不读 configuration
     // （同 TouchpadPage 的 v223.29.9 结论：configChanges 滞后一拍，读配置会错一拍）。
     val hPad = when {
-        widthDp >= 840f -> 32.dp   // 稿 04：≥840dp 保持 32 + 限宽 680 居中
-        widthDp >= 600f -> 32.dp   // 04 Medium：边距 32dp（稿 01「16→24→32」，≥600 取 32）
-        widthDp >= 520f -> 24.dp   // 03 Compact：24dp
-        else -> 16.dp              // 01 手机：<520dp 保持 16dp 不变
+        shortSide >= 600f -> 32.dp   // 稿 04：真平板 600+ 取 32 + 限宽 680 居中
+        shortSide >= 520f -> 24.dp   // 03 Compact：520–599dp 取 24dp
+        else -> 16.dp                // 01 手机：<520dp 保持 16dp 不变
     }
-    val limited = widthDp >= 840f  // 04：≥840dp 内容限宽 680 居中（与状态页 ≥720 口径微调，稿 04 原话）
+    val limited = widthDp >= 840f && shortSide >= 520f   // 手机永不限宽（手机横屏短边 411 走这里不触发）
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -100,8 +97,6 @@ fun SettingsPage(
         }
     }
 
-    // Box 只为「限宽居中」而包（04）；不加任何高度/宽度约束，
-    // 子 Column 的 verticalScroll 约束传递与旧版完全一致。
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Column(
         modifier = Modifier
@@ -111,16 +106,12 @@ fun SettingsPage(
                 start = hPad + insets.left,
                 end = hPad + insets.right,
                 top = 8.dp + topBar,
-                // 同上：bottomGap 由主壳按横竖屏给定（竖屏 88dp / 横屏 24dp），
-                // 不再用 maxOf(..., 96.dp) 那个会把横屏值顶掉的地板。
                 bottom = bottomGap + insets.bottom,
             ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // —— 主题与外观（v223.29.3 字体上移，与传输开关同一批从主壳整块上移）——
         ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_appearance)) {
             Column {
-                // 成宇 2026-11-04「设置里字体大小没有地方改」：缩放选中项从主壳上移至此。
                 var appearanceOpen by remember { mutableStateOf(true) }
                 ApComponents.FoldGroup(
                     title = ctx.getString(R.string.ui_set_label_appearance),
@@ -128,7 +119,6 @@ fun SettingsPage(
                     open = appearanceOpen,
                     onToggleOpen = { appearanceOpen = !appearanceOpen },
                 ) {
-                    // 三档循环：跟随系统 → 浅色 → 深色（ThemePref.AUTO/LIGHT/DARK，同包对象）
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_label_theme),
                         summary = ctx.getString(
@@ -142,10 +132,6 @@ fun SettingsPage(
                         },
                     )
                 }
-                // 成宇 2026-11-07「或者做成可以无极自定义 dpi 缩放」：全仓唯一缩放源是
-                // [UiScalePref]（0.80~1.25 乘数，主壳 setContent 与弹窗各乘一次）。
-                // ApComponents 无滑条组件，这里给四档离散选中 —— 选中即写入，
-                // MIN/MAX 由 UiScalePref.set 自身 coerce 兜底，滑条读回同一状态。
                 var fontOpen by remember { mutableStateOf(true) }
                 ApComponents.FoldGroup(
                     title = ctx.getString(R.string.ui_set_label_font_size),
@@ -175,9 +161,6 @@ fun SettingsPage(
                 }
             }
         }
-
-        // —— 模块开关（成宇 2026-11-03「模块开关挪到设置页」：旧主界面 item_module_row.xml 的开关
-        //    是模块启停的唯一入口，状态页只留状态点不接管启停 —— 一处开关、一处状态，不重复）——
         ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_modules)) {
             Column {
                 AgentController.ORDER.forEach { id ->
@@ -186,8 +169,6 @@ fun SettingsPage(
                     val detail = m?.let { AgentController.detailOf(it) } ?: "--"
                     val state = m?.state ?: ModuleState.IDLE
                     val enabled = AgentController.isEnabled(ctx, id)
-                    // 状态词已在 [ModuleRowVm.stateRes] 存为资源 id（2026-11-04 数据层资源化）：
-                    // 数据类不再写死中文，由 UI 层解析成字串。
                     val stateRes = when (state) {
                         ModuleState.RUNNING -> R.string.ui_module_state_running
                         ModuleState.STARTING -> R.string.ui_module_state_starting
