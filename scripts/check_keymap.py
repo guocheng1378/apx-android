@@ -9,12 +9,14 @@
 这三张表**没有编译器管**：漏一条 case 不会报错，只会落 default（win/lin 返回 0、
 mac 返回 -1）被静默丢弃。用户看到的是「按了没反应」，日志里一片干净——本轮就是
 这么漏掉 PrtSc / ScrLk / Pause / 菜单 / 键盘 Power / 小键盘 = / 小键盘 1–9，
-macOS 那边更是把小键盘整段错位了一格。所以这里做四件事：
-
+macOS 那边更是把小键盘整段错位了一格。所以这里做五件事：
   1. 覆盖率：遥控器/键盘会上报的 HID usage 全表，是否每端都有映射（或已登记豁免）；
   2. 重复 case：同一 usage 在同一张表里出现两次 → C++ 直接编译失败（本轮真踩到）；
   3. 死代码：被前面的范围分支提前拦下的 case，永远执行不到（往往还语义错）；
-  4. 小键盘锚点：macOS kVK 值逐键核对，防止再次整段错位。
+  4. 小键盘锚点：macOS kVK 值逐键核对，防止再次整段错位；
+  5. 四套一致性（issue#168 第 14 条）：安卓发送端（HidKeyMap.usageOf）出现的每个
+     usage 都必须在 REQUIRED 名单登记 —— 源头新增按键而 PC 三表/名单没跟上时，
+     这里第一时间红，而不是等用户反馈「按了没反应」。
 
 只做静态文本分析，不需要编译器。退出码非 0 = 有违规。
 """
@@ -213,6 +215,54 @@ if mac_cases is not None:
                 f"[mac] 小键盘 0x{usage:02X} 期望 kVK 0x{kvk:02X}，实际 0x{val:02X}"
                 f"（整段错位的典型症状）")
 
+# 6) 安卓发送端与 PC 三表的一致性（issue#168 第 14 条「四套适配」的回归网）。
+#
+# 四套映射 = 安卓发送（HidKeyMap.usageOf：keyCode → HID usage）+ PC 三端接收
+# （usageToVk / hidToLinuxKey / hidToMacKey）。上面 1–5 只盯 PC 三张表对 REQUIRED
+# 名单的覆盖；REQUIRED 名单是**手工维护**的 —— 安卓侧新增按键（usageOf 出现新
+# usage）而名单没跟上时，PC 三表可能照旧「全覆盖」却漏掉新键，用户看到的又是
+# 「按了没反应」。这里从源头反查：安卓会发出的每个 usage，都必须在名单里登记过。
+ANDROID_KEYMAP = ROOT / "android/app/src/main/java/com/allperiph/ui/HidKeyMap.kt"
+
+# usageOf 里的「范围分支」：in X..Y -> BASE + (kc - X)。跨度按安卓 KeyEvent 已知常量
+# 数清（A..Z=26、1..9=9、F1..F12=12、NUMPAD_1..9=9），不依赖具体键值。
+ANDROID_RANGES = {
+    "KEYCODE_A": 26, "KEYCODE_1": 9, "KEYCODE_F1": 12, "KEYCODE_NUMPAD_1": 9,
+}
+
+
+def android_emitted_usages():
+    """从 usageOf 的 when 主体解析安卓可能发出的 usage 集合；解析失败返回 None。"""
+    raw = ANDROID_KEYMAP.read_text(encoding="utf-8")
+    body = extract_fn(strip_comments(raw), "fun usageOf")
+    if body is None:
+        return None
+    usages = set()
+    # 显式字面量：-> 0xNN（含一条 -> 上多键的情况）
+    for m in re.finditer(r"->\s*0x([0-9A-Fa-f]{2})", body):
+        usages.add(int(m.group(1), 16))
+    # 范围分支：in KeyEvent.X..KeyEvent.Y -> 0xBASE + (kc - KeyEvent.X)
+    for m in re.finditer(r"in\s+KeyEvent\.(\w+)\.\.KeyEvent\.(\w+)\s*->\s*"
+                         r"0x([0-9A-Fa-f]{2})\s*\+", body):
+        base_name = m.group(1)
+        if base_name not in ANDROID_RANGES:
+            return None  # 未知范围不猜跨度，宁可本轮不查也不报假警
+        base = int(m.group(3), 16)
+        usages.update(base + i for i in range(ANDROID_RANGES[base_name]))
+    return usages
+
+
+android_usages = android_emitted_usages()
+if android_usages is None:
+    print("键映射关卡 WARN：安卓发送端解析失败（usageOf 结构变化），四套一致性本轮跳过")
+else:
+    unregistered = sorted(android_usages - set(REQUIRED))
+    if unregistered:
+        problems.append(
+            "[安卓→PC] 安卓发送端出现了名单外的 usage："
+            + "、".join(f"0x{u:02X}" for u in unregistered)
+            + " —— 请同步 REQUIRED 与 PC 三表（漏登记 = 新键在 PC 端静默丢弃）")
+
 if problems:
     print("键映射关卡 FAIL：")
     for p in problems:
@@ -221,4 +271,5 @@ if problems:
 
 print(f"键映射关卡 OK：win {len(win_cases)} / lin {len(lin_cases)} / mac {len(mac_cases)} 条映射，"
       f"必需 usage {len(REQUIRED)} 项全覆盖（豁免 {sum(len(v) for v in EXEMPT.values())} 项已登记理由），"
-      f"mac 小键盘 {len(MAC_KP_ANCHORS)} 键锚点一致。")
+      f"mac 小键盘 {len(MAC_KP_ANCHORS)} 键锚点一致，"
+      f"安卓发送端 {len(android_usages) if android_usages else 0} 个 usage 已全部登记。")
