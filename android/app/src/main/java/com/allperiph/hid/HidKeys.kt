@@ -208,7 +208,7 @@ object HidKeys {
             return
         }
         handler.removeCallbacks(releaseTask)
-        heldCombo = null // 普通发送取代"按住"状态
+        heldKeys = LinkedHashMap() // 普通发送取代「按住」状态（旧 heldCombo 单槽置 null 的逐键记账等价写法）
         send(c.mod, intArrayOf(c.usage))
         handler.postDelayed(releaseTask, 60)
     }

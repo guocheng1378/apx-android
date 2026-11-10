@@ -775,15 +775,17 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     var overlayGranted by remember {
                         mutableStateOf(android.provider.Settings.canDrawOverlays(ctx))
                     }
+                    // 生命周期宿主在组合期读一次（LocalLifecycleOwner.current 是 @Composable，
+                    // 不能写进 DisposableEffect 的 effect 块里 —— 那不是组合上下文）
+                    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
                     androidx.compose.runtime.DisposableEffect(ctx) {
                         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                                 overlayGranted = android.provider.Settings.canDrawOverlays(ctx)
                             }
                         }
-                        val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-                        owner.lifecycle.addObserver(observer)
-                        onDispose { owner.lifecycle.removeObserver(observer) }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                     }
                     ApComponents.ClickRow(
                         title = "悬浮窗权限",

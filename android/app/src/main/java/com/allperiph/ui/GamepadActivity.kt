@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -341,6 +342,7 @@ private fun Pad(
     size: Dp = 58.dp,
     slot: String? = null,
     configVersion: Int = 0,
+    onDown: (() -> Unit)? = null,
     onConfigure: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
@@ -380,7 +382,7 @@ private fun Pad(
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
-                            val mine = event.changes.firstOrNull { it.id == down.pointerId } ?: break
+                            val mine = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!mine.pressed) break
                             mine.consume()
                             if (!configured && onConfigure != null && slot != null &&

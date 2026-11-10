@@ -615,7 +615,7 @@ class FloatingBallService : Service() {
         val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         // issue#168 第 9 条：球面图标按设置页的选择来（布局里 src 是默认触控板，
         // 这里每次挂球都重设一次 —— 服务进程被回收重启后也能回到用户选的图标）。
-        setBallIcon(v.findViewById<ImageView>(R.id.ivBallIcon) ?: return, themed)
+        setBallIcon(v.findViewById<ImageView>(R.id.ivBallIcon) ?: return false, themed)
         runCatching { wm.addView(v, ballLayoutParams()) }.onFailure {
             Log.w(TAG, "addView 失败（悬浮窗权限被撤？）：${it.message}")
             ball = null
@@ -954,22 +954,20 @@ class FloatingBallService : Service() {
     private fun peekArcColor(): Int {
         if (peekArcColorCache != 0) return peekArcColorCache
         val sample: Float = runCatching {
-            val manager = android.app.WallpaperManager.getInstance(this)
-            val drawable = manager.wallpaper ?: return@runCatching 1f
-            val size = 32
-            val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(bmp)
-            drawable.setBounds(0, 0, size, size)
-            drawable.draw(canvas)
+            // 亮度采样走 WallpaperColors（API 27+，无需特殊权限）：旧写法用 getWallpaper() 取
+            // Drawable 逐像素采样，但该 API（连同 getDrawable()）在新 SDK（API 37 实测）已从
+            // android.jar 移除，且 Android 14+ 直读壁纸位图本就受限。主/次/第三三档颜色加权
+            // 平均精度虽不如逐像素，但本处只区分「壁纸整体偏亮 / 偏暗」，足够。
+            val colors = android.app.WallpaperManager.getInstance(this)
+                .getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM) ?: return@runCatching 1f
+            val parts = listOfNotNull(colors.primaryColor, colors.secondaryColor, colors.tertiaryColor)
             var lum = 0f
             var n = 0
-            for (y in 0 until size step 4) for (x in 0 until size step 4) {
-                val c = bmp.getPixel(x, y)
-                // Rec. 601 亮度：足够区分「壁纸整体偏亮 / 偏暗」
-                lum += (0.299f * ((c shr 16) and 0xFF) + 0.587f * ((c shr 8) and 0xFF) + 0.114f * (c and 0xFF)) / 255f
+            for (c in parts) {
+                // Rec. 601 亮度：足够区分「壁纸整体偏亮 / 偏暗」；Color 分量是 0..1 浮点
+                lum += 0.299f * c.red() + 0.587f * c.green() + 0.114f * c.blue()
                 n++
             }
-            bmp.recycle()
             if (n == 0) 1f else lum / n
         }.getOrDefault(1f)
         // 亮度高（浅色壁纸）用深弧，亮度低（深色壁纸）用浅弧；带一点透明度融入桌面
