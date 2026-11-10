@@ -97,7 +97,7 @@ R_USE = re.compile(
 #   "沿用传统回调（本机无 AndroidX）"，代码行尾注释被行内引号误计 1 处）+ PhoneFiles 根入口
 #   数据名（"内部存储"，经 0x45 协议返回的对端展示名，PC 端文案已走 web 文案层）。
 #   后续新文案仍应优先走 strings.xml。
-TEXT_BASELINE = 674
+TEXT_BASELINE = 658
 
 
 def strip_comments(text):

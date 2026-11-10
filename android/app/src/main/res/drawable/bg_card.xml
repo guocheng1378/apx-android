@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- miuix 卡片：16dp 圆角白卡 + 极浅描边（CardDefaults.CornerRadius=16dp；色值全部来自全局色板） -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/md_surface" />
-    <corners android:radius="16dp" />
-    <stroke android:width="1dp" android:color="@color/card_stroke" />
-</shape>

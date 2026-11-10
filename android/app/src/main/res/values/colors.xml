@@ -44,7 +44,6 @@
       触控板页玻璃胶囊（v1.23）顶部的镜面高光；旧底栏的 nav_pill / nav_pill_stroke /
       nav_pill_shade / nav_pill_halo 已随 View 底栏一起删除（现由 Compose 底栏自绘）。
     -->
-    <color name="nav_pill_shine">#59FFFFFF</color>
     <!--
       MIUIX 显式别名（v1.14 引入）：**一律改用 `@color/md_*` 引用**（v1.33）。
       此前是抄一遍同值字面量，等于给漂移留了两个可改点 —— 改 md_* 不会同步到 miuix_*，
@@ -57,7 +56,6 @@
     <color name="miuix_text_secondary">@color/md_on_surface_variant</color>
     <!-- 三级文字没有对应的 md_* 令牌（比 variant 更弱的一档），保持独立取值；
          旧值 #BDBDBD 在白卡上几乎读不清，压深到灰蓝族与 on_surface_variant 同族 -->
-    <color name="miuix_text_tertiary">#FF8F959D</color>
     <color name="miuix_divider">@color/md_outline</color>
     <color name="miuix_stroke">@color/card_stroke</color>
     <color name="miuix_danger">@color/state_error</color>
