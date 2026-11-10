@@ -67,15 +67,20 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
-import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 
 /**
  * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
@@ -233,6 +238,33 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
+        // —— 低栏拖动移位（issue#168 第 1 条追补，2026-11-11「拖动悬浮栏时自动缩小为球状，
+        // 支持按住移动位置」）——
+        // offset 相对低栏默认锚位（竖屏底部居中 / 横屏右上角），按方向各存一份（px）；
+        // 落盘在拖动结束那一刻写，旋转/重进后仍回到用户摆的位置。
+        // barDragging 供根 Box 的收/展滑动手势让路：父级 Initial pass 先于本层，
+        // 消费拦不住它，只能靠这个旗子让根手势在拖动期间闭嘴。
+        var barDragging by remember { mutableStateOf(false) }
+        val dockPrefs = remember { getSharedPreferences("apx_dock", MODE_PRIVATE) }
+        val dockMetrics = resources.displayMetrics
+        // 留 48dp 球径 + 24dp 边距的屏内钳制，防止球被拖出可视区；钳制按当前方向：
+        // 竖屏锚在底部居中（x 对称可挪、y 只能往上），横屏锚在右上（x 往左、y 往下）。
+        val dockHalf = 48f * dockMetrics.density
+        fun clampDockX(dx: Float, land: Boolean): Float {
+            val span = if (land) dockMetrics.widthPixels - dockHalf - 24f * dockMetrics.density
+                       else dockMetrics.widthPixels / 2f - dockHalf * 2f
+            return if (land) dx.coerceIn(-span, 0f) else dx.coerceIn(-span, span)
+        }
+        fun clampDockY(dy: Float, land: Boolean): Float {
+            val span = dockMetrics.heightPixels - dockHalf - 32f * dockMetrics.density
+            return if (land) dy.coerceIn(0f, span) else dy.coerceIn(-span, 0f)
+        }
+        var barOffsetX by remember(landscape) {
+            mutableFloatStateOf(dockPrefs.getFloat(if (landscape) "dock.ox.l" else "dock.ox.p", 0f))
+        }
+        var barOffsetY by remember(landscape) {
+            mutableFloatStateOf(dockPrefs.getFloat(if (landscape) "dock.oy.l" else "dock.oy.p", 0f))
+        }
         // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
         // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
         // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
@@ -404,6 +436,10 @@ class ApShellActivity : ComponentActivity() {
                                 val dy = c.position.y - sy
                                 val dx = c.position.x - sx
                                 if (ev.changes.count { it.pressed } == 1 &&
+                                    // 低栏拖动移位期间让路（issue#168 第 1 条追补）：父级 Initial
+                                    // pass 先于低栏自己的手势，消费拦不住它 —— 拖着低栏上下滑
+                                    // 不能同时触发整页收/展，否则球会一边跟手一边被抢收。
+                                    !barDragging &&
                                     kotlin.math.abs(dy) > 96f * density &&
                                     kotlin.math.abs(dy) > 2f * kotlin.math.abs(dx)
                                 ) {
@@ -619,6 +655,9 @@ class ApShellActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .align(barAlign)
+                    // 拖动移位（issue#168 第 1 条追补）：offset 相对默认锚位，按方向落盘；
+                    // offset 用 lambda 版逐帧读 px，拖动跟手不重算布局。
+                    .offset { IntOffset(barOffsetX.roundToInt(), barOffsetY.roundToInt()) }
                     // 横屏顶栏贴到屏幕上沿时，8dp 会落进大圆角/挖孔的弧内（真机横屏截图里
                     // 胶囊左上角被屏幕弧切掉一截）。这里叠上挖孔让位量 topPad。
                     .then(if (landscape) Modifier.padding(top = 8.dp + topPad) else Modifier)
@@ -630,49 +669,72 @@ class ApShellActivity : ComponentActivity() {
                         scaleY = v
                     }
                     .pointerInput(Unit) {
+                        // 低栏手势（2026-11-11 重写，issue#168 第 1 条追补）：
+                        //  · 按住不动 650ms → 长按弹快捷入口（原语义不变）；
+                        //  · 按住后移动超 slop → 拖动移位：立即收成球、球跟手，松手落位
+                        //    并按方向落盘（「拖动悬浮栏时自动缩小为球状，支持按住移动位置」）。
+                        // 两种手势都只认单指；事件全程在 Initial pass 观察与消费，
+                        // 页签的正常点击不受影响。
                         awaitEachGesture {
-                            // ⚠️ 必须走 Initial pass：低栏四个页签都是 clickable，事件在
-                            // Main pass 里会被页签先消费掉 —— 上一版把 detectTapGestures
-                            // 挂在父 Box 上走 Main pass，永远等不到未消费的 down，于是
-                            // 「长按悬浮低栏」在页签上完全没有反应（真机 2026-11-02）。
-                            // Initial pass 是父级先看：这里只观察、不抢先消费，
-                            // 正常点按依旧归页签；长按成立后才把剩余序列吃掉。
                             val down = awaitFirstDown(
                                 requireUnconsumed = false,
                                 pass = PointerEventPass.Initial,
                             )
                             val start = down.position
-                            // 650ms 内没等到「抬手 / 位移超 slop」→ 长按成立
-                            val released = withTimeoutOrNull(650L) {
-                                var lifted = false
-                                while (true) {
-                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                    // ⚠️ 长按只在**单指**下成立（成宇 2026-11-04「挡了两个按键
-                                    // 不能用」）：这根 pointerInput 挂在低栏外层 Box 上，且
-                                    // `requireUnconsumed = false` —— 横屏低栏的命中区正好贴着修饰键
-                                    // 排，键盘按键的按下它**也会收到**（不消费，键帽照常能按）。
-                                    // 于是两根手指同时按 Shift + Win 时，这里会误判成长按并在
-                                    // 650ms 后弹快捷入口，把按键序列打断。长按低栏的语义本来就是
-                                    // 「一个手指按住」，第二根手指落下即放弃。
-                                    if (ev.changes.count { it.pressed } > 1) { lifted = true; break }
-                                    val c = ev.changes.firstOrNull { it.id == down.id }
-                                        ?: ev.changes.firstOrNull()
-                                    if (c == null) continue
-                                    if (!c.pressed) { lifted = true; break }
-                                    if ((c.position - start).getDistance() >
-                                        viewConfiguration.touchSlop
-                                    ) { lifted = true; break }
+                            val startMs = System.currentTimeMillis()
+                            var longPressFired = false
+                            var handled = false
+                            while (!handled) {
+                                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                                // ⚠️ 长按/拖动只在**单指**下成立（成宇 2026-11-04「挡了两个按键
+                                // 不能用」）：这根 pointerInput 挂在低栏外层 Box 上，且
+                                // `requireUnconsumed = false` —— 横屏低栏的命中区正好贴着修饰键
+                                // 排，键盘按键的按下它**也会收到**（不消费，键帽照常能按）。
+                                // 两根手指同时按 Shift + Win 时这里会误判，第二根手指落下即放弃。
+                                if (ev.changes.count { it.pressed } > 1) break
+                                val c = ev.changes.firstOrNull { it.id == down.id }
+                                    ?: ev.changes.firstOrNull()
+                                if (c == null) continue
+                                if (!c.pressed) break
+                                if ((c.position - start).getDistance() >
+                                    viewConfiguration.touchSlop
+                                ) {
+                                    // —— 拖动移位：先收成球再跟手 ——
+                                    barDragging = true
+                                    barCollapsed = true
+                                    var last = c.position
+                                    while (true) {
+                                        val e2 = awaitPointerEvent(PointerEventPass.Initial)
+                                        e2.changes.forEach { it.consume() }
+                                        val c2 = e2.changes.firstOrNull { it.id == down.id }
+                                            ?: e2.changes.firstOrNull()
+                                        if (c2 == null) continue
+                                        if (!c2.pressed) break
+                                        val delta = c2.position - last
+                                        last = c2.position
+                                        barOffsetX = clampDockX(barOffsetX + delta.x, landscape)
+                                        barOffsetY = clampDockY(barOffsetY + delta.y, landscape)
+                                    }
+                                    // 松手落位：按当前方向写偏好，旋转/重进后位置不丢
+                                    dockPrefs.edit()
+                                        .putFloat(if (landscape) "dock.ox.l" else "dock.ox.p", barOffsetX)
+                                        .putFloat(if (landscape) "dock.oy.l" else "dock.oy.p", barOffsetY)
+                                        .apply()
+                                    barDragging = false
+                                    handled = true
+                                } else if (System.currentTimeMillis() - startMs >= 650L) {
+                                    // 长按成立：把剩余序列在 Initial pass 里标记消费，
+                                    // 页签的 clickable 在 Main pass 看到已消费就不会再当点击
+                                    longPressFired = true
+                                    while (true) {
+                                        val e2 = awaitPointerEvent(PointerEventPass.Initial)
+                                        e2.changes.forEach { it.consume() }
+                                        if (e2.changes.none { it.pressed }) break
+                                    }
+                                    handled = true
                                 }
-                                lifted
                             }
-                            if (released == null) {
-                                // 长按成立：把剩余序列在 Initial pass 里标记消费，
-                                // 页签的 clickable 在 Main pass 看到已消费就不会再当点击
-                                while (true) {
-                                    val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                    ev.changes.forEach { it.consume() }
-                                    if (ev.changes.none { it.pressed }) break
-                                }
+                            if (longPressFired) {
                                 // Shell() 里没有 LocalContext 的 `ctx`：这个函数有自己的
                                 // this@ApShellActivity（Activity 本身就是 Context），
                                 // 直接用它，别再引入一个可能为 null 的局部变量。
@@ -702,6 +764,10 @@ class ApShellActivity : ComponentActivity() {
                             )
                             .size(48.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
+                            // 收起球的可访问性描述（48dp 可点元素必须有描述，UI 规范硬规则）
+                            .semantics {
+                                contentDescription = getString(R.string.ui_dock_ball_desc)
+                            }
                             // 方案4·玻璃化：实心 surfaceContainer → 半透明渐变玻璃 +
                             // 1dp 高光描边（与展开胶囊同一套质感，shader-free 老机器同款）——
                             // 收起后球浮在内容上、内容可透出，不再是压着界面的实心圆。
