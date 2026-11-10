@@ -1456,9 +1456,10 @@ void startWebView2Env(Panel* p) {
                                 {
                                     // defaultDir 返回 UTF-8 窄串；filesystem 构造按当前
                                     // Windows 代码页解释会出错，先转宽串再建路径（与 1029
-                                    // 行 fs::path(utf8ToWide(...)) 同口径）。
+                                    // 行 fs::path(utf8ToWide(...)) 同口径 —— 那两处的
+                                    // namespace fs 别名只在各自块内，这里照写全名）。
                                     std::filesystem::path recvDir =
-                                        fs::path(utf8ToWide(apxpc::wireless::FileReceiver::defaultDir()));
+                                        std::filesystem::path(utf8ToWide(apxpc::wireless::FileReceiver::defaultDir()));
                                     std::error_code mkEc;
                                     std::filesystem::create_directories(recvDir, mkEc);
                                     wv3->SetVirtualHostNameToFolderMapping(
