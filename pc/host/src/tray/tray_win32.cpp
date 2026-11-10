@@ -36,6 +36,7 @@ const UINT IDM_INPUT = 1006;       // 「让手机帮我输入…」（请求对
 const UINT IDM_DIAGNOSE = 1007;    // 「连接诊断…」（一键自检，v184）
 const UINT IDM_EXPORT_DIAG = 1008; // 「导出诊断包…」（状态+环境+日志合成一个文件，v184）
 const UINT IDM_BALL = 1009;       // 「显示/隐藏悬浮球」（桌面端改成球为主界面后的入口）
+const UINT IDM_FIND_PHONE = 1010; // 「查找手机」（0x38 响铃，2026-11-11）
 
 // UTF-8 → UTF-16（托盘提示等文字走这里，别用逐字节加宽）
 std::wstring utf8ToWide(const std::string& s) {
@@ -76,6 +77,10 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 const bool vis = self2->ballVisibleFn_ ? self2->ballVisibleFn_() : false;
                 AppendMenu(m, MF_STRING, IDM_BALL, vis ? L"隐藏悬浮球" : L"显示悬浮球");
             }
+            // 查找手机（0x38）：手机静音也响（闹钟流），30s 自动停。菜单常驻 ——
+            // 没连手机时点了没反应（sendFindPhone 返回 false），不值得为此动态显隐。
+            if (self2 && self2->onFindPhone_)
+                AppendMenu(m, MF_STRING, IDM_FIND_PHONE, L"查找手机（手机响铃 30 秒）");
             AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);
@@ -100,6 +105,7 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         else if (id == IDM_DIAGNOSE && self && self->onDiagnose_) { self->onDiagnose_(); }
         else if (id == IDM_EXPORT_DIAG && self && self->onExportDiag_) { self->onExportDiag_(); }
         else if (id == IDM_BALL && self && self->onBallToggle_) { self->onBallToggle_(); }
+        else if (id == IDM_FIND_PHONE && self && self->onFindPhone_) { self->onFindPhone_(); }
         return 0;
     }
     if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }

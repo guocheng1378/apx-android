@@ -90,7 +90,10 @@ R_USE = re.compile(
 # 665 -> 668（通知同步 0x40/0x42，未发版）：设置页「键盘与无障碍」组新增开关标题/摘要、
 #   通知使用权入口、跳系统设置失败提示共 4 条 Kotlin 字面量（沿用本文件既有混用风格），
 #   本批按实测上调；后续新文案仍应优先走 strings.xml。
-TEXT_BASELINE = 668
+# 668 -> 671（查找手机 0x38，未发版）：FindPhoneRinger 的日志 TAG 与两条 stopInternal
+#   原因标记（"30s 到时"/"对端请求"）——诊断数据而非用户可见文案，进 strings.xml 没意义
+#   （与 HidMouse 错误文案同口径），本批按实测上调。
+TEXT_BASELINE = 671
 
 
 def strip_comments(text):

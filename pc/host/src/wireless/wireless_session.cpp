@@ -385,6 +385,12 @@ bool WirelessSession::sendModuleToggle(const std::string& id, bool on) {
     return client_.sendModuleToggle(id, on);
 }
 
+// 查找手机（0x38，2026-11-11，能力位 bit2）：转发给 9511 客户端（能力门控在其内部）。
+bool WirelessSession::sendFindPhone(uint8_t action) {
+    if (!client_.ready()) return false;
+    return client_.sendFindPhone(action);
+}
+
 bool WirelessSession::connected() const { return client_.ready(); }
 
 bool WirelessSession::requestInput(const std::string& hint) {

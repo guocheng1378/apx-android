@@ -203,6 +203,11 @@ public:
     /// 注册反向剪贴板回调：本机剪贴板变化时，自动回传给控制端。
     void setReverseClipboardEnabled(bool on) { reverseClipboard_ = on; }
 
+    /// 查找手机（0x38，2026-11-11，能力位 bit2）：让已连入的控制端手机响铃
+    /// （STREAM_ALARM 最大音量 + 亮屏，30s 自动停）。action：1=响铃 0=停，当前只有响铃一键。
+    /// 未连接时为 no-op（返回 false），调用方无需提示 —— 托盘菜单常驻，连着才有效。
+    bool sendFindPhone(uint8_t action);
+
     /// 远程输入回调：受控端收到手机发来的远程输入请求/文本/完成信号
     void setOnRequestInput(std::function<void(const std::string&)> cb) { onRequestInput_ = std::move(cb); }
     void setOnRemoteInputText(std::function<void(const std::string&, uint8_t)> cb) { onRemoteInputText_ = std::move(cb); }
@@ -290,6 +295,12 @@ public:
     /// 发送任意控制帧本体（含 cmd 字节）；用于扩展帧（如副屏 0x06 关键帧请求）。
     /// 受控端不识别的 cmd 会忽略，调用方无需关心。
     bool sendControl(const std::vector<uint8_t>& body);
+
+    /// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃找它
+    /// （STREAM_ALARM 最大音量 + 亮屏，30s 自动停）。action：1=响铃 0=停。
+    /// 未连接返回 false；对端报过 0x33 且不含 kCaps9511FindPhone 时同样跳过
+    /// （旧版手机对 0x38 静默忽略，这里提前挡一道省得空等）。
+    bool sendFindPhone(uint8_t action);
 
     /// 线程安全状态快照（计数 / RTT / 连接）
     Ctrl9511ClientStatus status() const;

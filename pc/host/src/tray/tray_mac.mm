@@ -272,6 +272,9 @@ bool TrayIcon::create(const std::string& tip) {
     if (onInput_) plan->items.emplace_back("让手机帮我输入…", onInput_);
     if (onDiagnose_) plan->items.emplace_back("连接诊断…", onDiagnose_);
     if (onExportDiag_) plan->items.emplace_back("导出诊断包…", onExportDiag_);
+    // 查找手机（0x38，2026-11-11）：手机静音也响（闹钟流），30s 自动停。
+    // 与 Win 同口径：菜单常驻，没连手机时点了没反应。
+    if (onFindPhone_) plan->items.emplace_back("查找手机（手机响铃 30 秒）", onFindPhone_);
     // 捕 onQuit_ 的**副本**，不捕 this：菜单由 NSStatusItem 持有，生命周期可能长过
     // TrayIcon 本身（析构 → quit() 摘图标是异步的），捕 this 就是野指针。
     auto quitFn = onQuit_;

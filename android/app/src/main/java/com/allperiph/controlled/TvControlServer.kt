@@ -45,6 +45,13 @@ class TvControlServer(
      */
     @Volatile var onModuleToggle: ((String, Boolean) -> Unit)? = null
 
+    /**
+     * 0x38 查找手机回调（2026-11-11，能力位 bit2）：控制端（另一台手机）让本机响铃。
+     * action：1=响铃 0=停，已在主线程（mainHandler.post 过）。与 :shared ControlServer
+     * 同一条协议的对齐实现；实际响铃落 app 模块 FindPhoneRinger，未设回调只留日志。
+     */
+    @Volatile var onFindPhone: ((Int) -> Unit)? = null
+
     @Volatile private var suspended = false
 
     /** PC 请求挂起被控：断开当前连接并拒绝新连接（监听保留，可随时恢复） */
@@ -304,6 +311,10 @@ class TvControlServer(
                             // 0x33 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节），
                             // 存进 [peerCaps]。元数据落 volatile，内联处理不入注入队列。
                             0x33 -> if (body.size >= 9) onCapsSync(body)
+                            // 0x38 查找手机（2026-11-11，能力位 bit2）：控制端让本机响铃。
+                            // 与 :shared ControlServer 同一条；实现落 FindPhoneRinger
+                            // （经 onFindPhone 回调注入，未注入只留日志）。
+                            0x38 -> if (body.size >= 2) actions.add { onFindPhoneFrame(body) }
                         }
                     }
                 }
@@ -397,6 +408,17 @@ class TvControlServer(
     private fun onPowerAction(body: ByteArray) {
         val action = body[1].toInt() and 0xFF
         Log.i("被控控制面", "电源动作请求：action=$action"); TvInjector.powerAction(action)
+    }
+
+    /**
+     * 收 0x38 查找手机（2026-11-11，能力位 bit2）：载荷 `[0x38][action]`，action 1=响铃
+     * 0=停。响铃实现由上层注入（[onFindPhone] → app 模块 FindPhoneRinger），未注入时
+     * 只留日志。与 :shared ControlServer.onFindPhoneFrame 同口径。
+     */
+    private fun onFindPhoneFrame(body: ByteArray) {
+        val action = body[1].toInt() and 0xFF
+        Log.i("被控控制面", "查找手机：action=$action")
+        mainHandler.post { onFindPhone?.invoke(action) }
     }
 
     private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)

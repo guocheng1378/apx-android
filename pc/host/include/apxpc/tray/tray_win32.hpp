@@ -60,6 +60,10 @@ public:
     // 未设置 onBallToggle_ 则菜单不出该项（mac 侧无球）。
     void setBallCallback(std::function<void()> cb) { onBallToggle_ = std::move(cb); }
     void setBallVisibleCallback(std::function<bool()> cb) { ballVisibleFn_ = std::move(cb); }
+    // 「查找手机」回调（0x38，2026-11-11，能力位 bit2）：托盘右键菜单里让手机响铃。
+    // 未设置则菜单不出该项。点击即发 1（响铃），手机端 30s 自动停 —— PC 不维护
+    // 「正在响」状态（手机可能已到时自停，PC 无法感知），所以不做切换式文案。
+    void setFindPhoneCallback(std::function<void()> cb) { onFindPhone_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 连接状态角标：true=未连接（图标亮红点），false=已连接（熄）。
@@ -104,6 +108,7 @@ public:
     std::function<void()> onExportDiag_;
     std::function<void()> onBallToggle_;    // 托盘「显示/隐藏悬浮球」
     std::function<bool()> ballVisibleFn_;   // 取当前可见态（菜单文案用）
+    std::function<void()> onFindPhone_;     // 托盘「查找手机」（0x38 响铃）
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;

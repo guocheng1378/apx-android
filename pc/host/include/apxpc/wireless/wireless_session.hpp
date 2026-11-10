@@ -97,6 +97,10 @@ public:
     /// 未连接返回 false，由调用方决定如何提示。
     bool sendModuleToggle(const std::string& id, bool on);
 
+    /// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃（30s 自动停）。
+    /// action：1=响铃 0=停，当前只有响铃一键。未连接返回 false（托盘菜单常驻，连着才有效）。
+    bool sendFindPhone(uint8_t action);
+
     /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
     bool connected() const;
 

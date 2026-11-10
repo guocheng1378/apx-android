@@ -113,6 +113,10 @@ class ControlledService : Service() {
         // ControlServer 只打日志忽略 —— PC 推流后手机停在主界面毫无反应，
         // 帧全部进了 Renderer.droppedNoSurface。
         server?.onOpenScreenRequest = { EventBus.post(ScreenOpenRequestEvent()) }
+        // 0x38 查找手机（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→ 本机响铃。
+        // 实现落 FindPhoneRinger（STREAM_ALARM 最大音量 + 亮屏，30s 自动停）；
+        // 回调已在主线程（ControlServer 侧 mainHandler.post），Ringer 内部再 post 一次也无害。
+        server?.onFindPhone = { action -> com.allperiph.findphone.FindPhoneRinger.handle(action) }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {

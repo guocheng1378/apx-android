@@ -95,6 +95,17 @@ object ApxFrame {
     /** 手机 → PC：消除一条通知（用户在手机上划掉/点开时回发，PC 端气泡随即过时）。 */
     const val CMD_NOTIFY_DISMISS = 0x42
 
+    // ———————————— 9511 查找手机（2026-11-11，能力位 bit2）————————————
+    /**
+     * PC → 手机：查找手机。发送方是 PC（托盘菜单/面板按钮），Kotlin 侧只收不发 ——
+     * 常量放这里是为了与 CMD_NOTIFY_* 一致的「协议命令号唯一真源」口径
+     * （`scripts/check_protocol.py` 扫描此文件的 CMD_* 当作发送侧登记）。
+     * 载荷 `[0x38][action]`：action 1=响铃（STREAM_ALARM 最大音量 + 亮屏，30s 自动停）、
+     * 0=停。接收方：手机 `ControlServer` / `TvControlServer` / `TvControllerClient` 三条
+     * 控制面收帧路径都落 `com.allperiph.findphone.FindPhoneRinger`（app 模块，见该文件）。
+     */
+    const val CMD_FIND_PHONE = 0x38
+
     /** 通知同步各字段的字节上限（u16 长度段的单字段上限是 65535，这里按气泡可读性收紧） */
     private const val NOTIFY_KEY_MAX = 512
     private const val NOTIFY_TITLE_MAX = 512

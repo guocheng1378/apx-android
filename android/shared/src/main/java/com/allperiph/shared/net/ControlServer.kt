@@ -65,6 +65,15 @@ class ControlServer(
     /** 0x05 开副屏请求回调（TV 用；手机端不设即忽略） */
     @Volatile var onOpenScreenRequest: (() -> Unit)? = null
 
+    /**
+     * 0x38 查找手机回调（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→ 控制面命令
+     * → 上层实现响铃。回调参数 action：1=响铃 0=停，已在 ControlServer 主线程（mainHandler
+     * post 过）。本模块取不到应用上下文，实际响铃在 app 模块
+     * `com.allperiph.findphone.FindPhoneRinger`（由 ControlledService 注入）；
+     * TV 端不设该回调即忽略 —— 查找手机只对手机有意义。
+     */
+    @Volatile var onFindPhone: ((Int) -> Unit)? = null
+
     @Volatile var onRemoteInputRequest: ((String, String) -> Unit)? = null
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
@@ -405,6 +414,11 @@ class ControlServer(
                             // 0x33 能力协商（2026-11-11）：对端连接后报能力位图（u64 小端 8 字节）。
                             // 只是元数据落 volatile，直接内联处理不入注入队列。
                             0x33 -> if (body.size >= 9) onCapsSync(body)
+                            // 0x38 查找手机（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→
+                            // 本机响铃（STREAM_ALARM 最大音量 + 亮屏，30s 自动停；action=0 停）。
+                            // 实现落 app 模块 FindPhoneRinger（经 onFindPhone 回调注入；
+                            // TV 不设回调即忽略）。
+                            0x38 -> if (body.size >= 2) actions.add { onFindPhoneFrame(body) }
                         }
                     }
                 }
@@ -494,6 +508,17 @@ class ControlServer(
     private fun onPowerAction(body: ByteArray) {
         val action = body[1].toInt() and 0xFF
         Log.i("控制面", "电源动作请求：action=$action"); endpoint.powerAction(action)
+    }
+
+    /**
+     * 收 0x38 查找手机（2026-11-11，能力位 bit2）：载荷 `[0x38][action]`，action 1=响铃
+     * 0=停。响铃实现由上层注入（[onFindPhone] → app 模块 FindPhoneRinger），未注入
+     * （TV 端）时只留日志 —— 查找手机只对手机有意义。
+     */
+    private fun onFindPhoneFrame(body: ByteArray) {
+        val action = body[1].toInt() and 0xFF
+        Log.i("控制面", "查找手机：action=$action")
+        mainHandler.post { onFindPhone?.invoke(action) }
     }
 
     private fun onOpenScreen() { Log.i("控制面", "收到开副屏请求"); onOpenScreenRequest?.invoke() }

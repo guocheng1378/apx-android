@@ -761,6 +761,17 @@ void Ctrl9511Server::stop() {
     impl_.reset();
 }
 
+// 查找手机（0x38，2026-11-11，能力位 bit2）：手机控 PC 的链路上，托盘反向让手机响铃。
+// 能力门控与服务端同口径：手机连入握手后报 0x33（存 peerCaps_）；报过且不含该位才跳过，
+// 没报（peerCaps_=0，旧版手机）时照发 —— 旧版对未知 cmd 静默忽略，行为无害。
+bool Ctrl9511Server::sendFindPhone(uint8_t action) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511FindPhone) == 0) return false;
+    impl_->sendCmd(0x38, &action, 1);
+    return true;
+}
+
 Ctrl9511ServerStatus Ctrl9511Server::status() const {
     if (!impl_) {
         // 受控端没在本进程跑（9511 被另一个实例占用）：其余字段保持默认，但注入权限是
@@ -1237,6 +1248,17 @@ bool Ctrl9511Client::sendInputDone() {
 bool Ctrl9511Client::sendControl(const std::vector<uint8_t>& body) {
     if (!impl_ || body.empty()) return false;
     impl_->sendCmd(body[0], body.data() + 1, body.size() - 1);
+    return true;
+}
+
+// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃。
+// 能力门控：手机没报过 0x33（peerCaps_=0，旧版对端）时不拦 —— 旧版对 0x38 静默忽略，
+// 行为无害；报过且不含该位才明确跳过（对端明确说了不支持，发了也是白响不响）。
+bool Ctrl9511Client::sendFindPhone(uint8_t action) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511FindPhone) == 0) return false;
+    impl_->sendCmd(0x38, &action, 1);
     return true;
 }
 

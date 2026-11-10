@@ -199,6 +199,13 @@ class TvControllerClient(
                     Log.i("TvCtrl", "对端能力：0x${java.lang.Long.toHexString(caps)}")
                 }
             }
+            // 0x38 查找手机（2026-11-11，能力位 bit2）：手机控 PC / TV 的链路上，PC 托盘
+            // 「查找手机」反向让本机响铃。直接落 FindPhoneRinger（app 模块内可见，无需回调
+            // 接线；与 0x25 的 callback+fallback 是历史口径不同，这里没有 UI 交互就不需要）。
+            // handle 内部切主线程，reader 线程直调安全。
+            0x38 -> {
+                if (body.size >= 2) com.allperiph.findphone.FindPhoneRinger.handle(body[1].toInt() and 0xFF)
+            }
         }
     }
 

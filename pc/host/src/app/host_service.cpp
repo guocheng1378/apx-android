@@ -183,6 +183,12 @@ int runService(const ServiceOptions& opt) {
             });
         // 消除（0x42）：气泡无法撤回，不接（reader 侧计数记账即可）
         ctrlSrv.setOnNotifyDismiss(nullptr);
+
+        // 查找手机接线（0x38，2026-11-11，能力位 bit2）：托盘菜单点击 → 让已连入的
+        // 控制端手机响铃（30s 自动停）。菜单常驻；未连接/对端不支持时 sendFindPhone
+        // 返回 false，点了没反应（与桌面壳同口径，不为此动态显隐菜单）。
+        apxpc::wireless::Ctrl9511Server* srvRaw = &ctrlSrv;
+        tray->setFindPhoneCallback([srvRaw] { if (srvRaw) srvRaw->sendFindPhone(1); });
     }
 
     // 开机自启

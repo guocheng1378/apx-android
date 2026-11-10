@@ -836,6 +836,19 @@ int runDesktopMain() {
 #endif
     }
 
+    // —— 查找手机接线（0x38，2026-11-11，能力位 bit2）——
+    // 托盘菜单点击 → 让手机响铃。两条链路择活发送：PC 控手机走 session（9511 客户端），
+    // 手机控 PC 走 ctrlSrv（9511 服务端）——与通知同步的接线范围同口径。菜单常驻，
+    // 未连接时 sendFindPhone 返回 false，点了没反应（不值得为此动态显隐菜单）。
+    {
+        apxpc::wireless::WirelessSession* sessionRaw = session.get();
+        tray->setFindPhoneCallback([sessionRaw, &ctrlSrv] {
+            // 先试 session（常规链路：PC 是控制端），没连或发送失败再试 ctrlSrv。
+            if (sessionRaw && sessionRaw->sendFindPhone(1)) return;
+            ctrlSrv.sendFindPhone(1);
+        });
+    }
+
     // 球扇形全局热键（M4-c(b)）：装配处注册。mac 的 Carbon 事件靠主线程 AppKit
     // 泵分发，必须在下方 tray->run() 之前注册。
     ballhotkey::start(cfg);
