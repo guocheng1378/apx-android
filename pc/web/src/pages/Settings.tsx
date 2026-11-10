@@ -177,7 +177,8 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
         </div>
       </Section>
 
-      {/* ————— 副屏参数 ————— */}
+      {/* ————— 副屏参数（issue#168 第 10 条：副屏只在 Windows 交付，非 Win 收起这两项）————— */}
+      {platform === 'windows' && (
       <Section index={2} title="副屏" note="这两项会写进配置文件并持久化">
         <div className="card rows">
           <Row
@@ -214,8 +215,10 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
           />
         </div>
       </Section>
+      )}
 
-      {/* ————— 悬浮球 ————— */}
+      {/* ————— 悬浮球（issue#168 第 10 条：桌面球只在 Windows 交付，非 Win 收起整节）————— */}
+      {platform === 'windows' && (
       <Section index={3} title="悬浮球" note="桌面常驻快捷入口（Windows）">
         <div className="card rows">
           <Row
@@ -259,6 +262,7 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
           )}
         </div>
       </Section>
+      )}
 
       {/* ————— 日志 ————— */}
       <Section index={4} title="日志">

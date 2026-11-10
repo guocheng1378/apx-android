@@ -34,7 +34,13 @@
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/hotkey/hotkey.hpp"
-#include "ball/ball_win32.hpp"   // 球 v2 共享 API：toggleBallFan（M4-c(b) 热键唤起）
+// 球 v2 共享 API：toggleBallFan（M4-c(b) 热键唤起）。
+// issue#168 第 10 条：悬浮球在 mac 端裁剪 —— 桌面球是 Win 交付面（ball_mac.mm 已随
+// 本条从构建摘除），mac 侧不再 include、也不再有 apxpc::ball 引用，避免把球壳符号
+// 拽回链接面（重蹈 #582 arm64 缺符号的覆查成本）。
+#if !defined(__APPLE__)
+#include "ball/ball_win32.hpp"
+#endif
 #include "apxpc/config/app_config.hpp"
 #include "apxpc/api/action_router.hpp"
 #include "apxpc/version.hpp"   // APXPC_VERSION_STRING：崩溃报告里要带版本号
@@ -68,7 +74,6 @@
 #include <string>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>   // _dyld_get_image_header：崩溃报告的 imageOffset 基准
-#include <dlfcn.h>          // 球扇形热键（mac）：dlopen Carbon 取 RegisterEventHotKey
 #endif
 #endif
 
@@ -561,12 +566,14 @@ void startFileLogging() {
 }
 #endif  // GUI 基础设施（Win：防火墙/VEH/文件日志；POSIX：terminate+信号取证/文件日志）
 
-// —————— 全局热键：切换球扇形（M4-c(b)，Win + mac 双端）——————
+// —————— 全局热键：切换球扇形（M4-c(b)，仅 Win）——————
 // 刻意不走 HotkeyManager：那套按 ActionId 分发（actionFromName 对未知名兜底成
-// screen.toggle，见 hotkey_manager.cpp），且 mac 侧 start() 直接返回「未实现」。
-// 这里各自注册一条独立热键，只做一件事：按下 → apxpc::ball::toggleBallFan()。
+// screen.toggle，见 hotkey_manager.cpp）。
+// 这里注册一条独立热键，只做一件事：按下 → apxpc::ball::toggleBallFan()。
 // 组合键取 config.json hotkeys["ball.fan"]（与仓库热键同款 mods/key 结构），
 // 缺省 Ctrl+Shift+Space（默认值注释见 app_config.cpp makeDefaults）。
+// issue#168 第 10 条：悬浮球在 mac 端裁剪 —— 桌面球整体是 Win 交付面，mac 的 Carbon
+// 热键分支连同 ball_mac.mm 一并摘除，mac 落到下方空桩（start 只读配置，不挂热键）。
 namespace ballhotkey {
 
 std::vector<std::string> g_mods = {"ctrl", "shift"};
@@ -657,73 +664,6 @@ void stop() {
         APX_LOGW("球扇形热键线程未按时退出（不阻塞收尾）");
     ::CloseHandle(g_thread);
     g_thread = nullptr;
-}
-
-#elif defined(__APPLE__)
-
-// mac 走 Carbon RegisterEventHotKey：不需要「辅助功能」授权（CGEventTap / NSEvent
-// 全局键盘监听才要），事件由主线程 AppKit 泵分发；符号 dlopen/dlsym 取，不改链接面。
-struct EventHotKeyID { unsigned int signature; unsigned int id; };
-using InstallHandler_t = int (*)(int (*)(void*, void*, void*), unsigned int,
-                                 const void*, void*, void**);
-using AppTarget_t = void* (*)();
-using RegisterHotKey_t = int (*)(unsigned int, unsigned int, EventHotKeyID,
-                                 void*, unsigned int, void**);
-using UnregisterHotKey_t = int (*)(void*, void*);
-
-void* g_lib = nullptr;
-void* g_hk = nullptr;
-void* g_handler = nullptr;
-
-int onBallHot(void*, void*, void*) {
-    apxpc::ball::toggleBallFan();
-    return 0;   // noErr
-}
-
-void start(const apxpc::config::AppConfig& cfg) {
-    if (g_lib) return;
-    loadBinding(cfg);
-    if (g_key != "space") {
-        APX_LOGW("球扇形热键：mac 侧暂只支持 key=space（当前 {}），未注册", g_key.c_str());
-        return;
-    }
-    g_lib = ::dlopen("/System/Library/Frameworks/Carbon.framework/Carbon", RTLD_LAZY);
-    if (!g_lib)
-        g_lib = ::dlopen("/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/HIToolbox", RTLD_LAZY);
-    if (!g_lib) { APX_LOGW("球扇形热键：Carbon 加载失败（{}）", ::dlerror()); return; }
-    auto install = reinterpret_cast<InstallHandler_t>(::dlsym(g_lib, "InstallApplicationEventHandler"));
-    auto target  = reinterpret_cast<AppTarget_t>(::dlsym(g_lib, "GetApplicationEventTarget"));
-    auto reg     = reinterpret_cast<RegisterHotKey_t>(::dlsym(g_lib, "RegisterEventHotKey"));
-    if (!install || !target || !reg) { APX_LOGW("球扇形热键：Carbon 符号缺失"); return; }
-
-    unsigned int mods = 0;
-    for (const auto& m : g_mods) {
-        if (m == "ctrl") mods |= 4096u;       // controlKey
-        else if (m == "shift") mods |= 512u;  // shiftKey
-        else if (m == "alt") mods |= 2048u;   // optionKey（mac 的 Alt）
-        else if (m == "win") mods |= 256u;    // cmdKey
-    }
-    const unsigned int spec[2] = {0x6B657962u /*'keyb' kEventClassKeyboard*/,
-                                  5u /*kEventHotKeyPressed*/};
-    if (install(&onBallHot, 1, spec, nullptr, &g_handler) != 0) {
-        APX_LOGW("球扇形热键：事件处理器安装失败");
-        return;
-    }
-    EventHotKeyID hid{0x41504631u /*'APF1'*/, 1u};
-    if (reg(49u /*kVK_Space*/, mods, hid, target(), 0u, &g_hk) != 0) {
-        APX_LOGW("球扇形热键注册失败（可能已被占用）: {}", comboText().c_str());
-        return;
-    }
-    APX_LOGI("球扇形热键已注册：{}（mac Carbon）", comboText().c_str());
-}
-
-void stop() {
-    if (!g_lib) return;
-    auto unreg  = reinterpret_cast<UnregisterHotKey_t>(::dlsym(g_lib, "UnregisterEventHotKey"));
-    auto target = reinterpret_cast<AppTarget_t>(::dlsym(g_lib, "GetApplicationEventTarget"));
-    if (g_hk && unreg && target) unreg(target(), g_hk);
-    g_hk = nullptr;
-    // lib 不 dlclose：退出期卸载无收益，留给进程结束回收
 }
 
 #else
@@ -967,7 +907,7 @@ int runDesktopMain() {
     session->stop();
     ctrlSrv.stop();
     hk->stop();
-    ballhotkey::stop();   // 球扇形热键收尾（Win：停线程+注销；mac：UnregisterEventHotKey）
+    ballhotkey::stop();   // 球扇形热键收尾（Win：停线程+注销；mac 已裁剪，空桩幂等）
     tray->quit();
     apxpc::config::saveConfig(cfgPath, cfg);
     return rc;

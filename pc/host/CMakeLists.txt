@@ -331,12 +331,11 @@ if(APPLE)
   # 托盘主机进 service 静态库 —— apxhost 与 apxdesktop 都链它，一处实现两处可用；
   # 同时 tray_win32.cpp 的「非 Windows 空桩」已按 __APPLE__ 排除，不会重复定义。
   list(APPEND APXPC_SERVICE_SRC "${APXPC_ROOT}/src/tray/tray_mac.mm")
-  # mac 球壳（M4-c(b) 的 src/ball/ball_mac.mm）此前从未挂进任何 target：desktop_main 的
-  # ballhotkey::onBallHot 引用 apxpc::ball::toggleBallFan()，mac arm64 链接即缺符号
-  # （#582：Undefined symbols for architecture arm64）。补挂进 service 静态库，与 tray 同口径：
-  # ball_win32.cpp 整文件 _WIN32 守卫（mac 空 TU，不会重复定义）；ball_mac.mm 无手动内存管理，
-  # ARC 已按 $<COMPILE_LANGUAGE:OBJCXX> 全开；AppKit/Foundation 已在下面链接。
-  list(APPEND APXPC_SERVICE_SRC "${APXPC_ROOT}/src/ball/ball_mac.mm")
+  # mac 球壳（M4-c(b) 的 src/ball/ball_mac.mm）**issue#168 第 10 条已裁剪**：悬浮球整体
+  # 是 Win 交付面，mac 的球壳与桌面主程序的球热键（desktop_main 的 Carbon 分支）同批摘除
+  # —— mac 侧不再有任何 apxpc::ball 引用点，ball_mac.mm 不进构建（文件保留不删，留待
+  # mac 球体验重新立项时复用）。registry.cpp/fx.cpp 是纯标准库、且有 ball_registry_test
+  # 盯着「清单 == 扇形」，跨平台继续编不碍事。
 endif()
 add_library(apxpc_service STATIC ${APXPC_SERVICE_SRC})
 target_link_libraries(apxpc_service PUBLIC apx_shared)
@@ -454,18 +453,24 @@ if(WIN32)
 endif()
 
 # ---------------------------------------------------------------- 目标：副屏推流
-set(APXDISP_BUILD_APP   OFF CACHE BOOL "" FORCE)
-set(APXDISP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-add_subdirectory("${APXPC_ROOT}/../display" "${CMAKE_BINARY_DIR}/apxdisp_in_host")
+# issue#168 第 10 条：副屏（本机桌面 → 手机推流 + 虚拟显示器）只在 Windows 交付
+# （desktop_main 的 ScreenPush 已按 _WIN32 声明；mac 面板的 screen.toggle 如实拒绝，
+#  mac 的副屏出路是面板里的 Sunshine 检测/指引）。apxdisp 与 apxpc_screen 在 mac 整体
+# 不进构建，省一轮无用编译；Win/Linux 行为不变。
+if(NOT APPLE)
+  set(APXDISP_BUILD_APP   OFF CACHE BOOL "" FORCE)
+  set(APXDISP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  add_subdirectory("${APXPC_ROOT}/../display" "${CMAKE_BINARY_DIR}/apxdisp_in_host")
 
-set(APXPC_SCREEN_SRC
-  "${APXPC_ROOT}/src/media/screen_push.cpp"
-)
-add_library(apxpc_screen STATIC ${APXPC_SCREEN_SRC})
-target_include_directories(apxpc_screen PUBLIC "${APXPC_ROOT}/include")
-target_link_libraries(apxpc_screen PUBLIC apxpc_media apxdisp_pipeline)
-if(WIN32)
-  target_link_libraries(apxpc_screen PUBLIC winmm)
+  set(APXPC_SCREEN_SRC
+    "${APXPC_ROOT}/src/media/screen_push.cpp"
+  )
+  add_library(apxpc_screen STATIC ${APXPC_SCREEN_SRC})
+  target_include_directories(apxpc_screen PUBLIC "${APXPC_ROOT}/include")
+  target_link_libraries(apxpc_screen PUBLIC apxpc_media apxdisp_pipeline)
+  if(WIN32)
+    target_link_libraries(apxpc_screen PUBLIC winmm)
+  endif()
 endif()
 
 # ---------------------------------------------------------------- 目标：apxhost 可执行文件

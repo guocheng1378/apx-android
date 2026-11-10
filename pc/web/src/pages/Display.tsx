@@ -1,5 +1,5 @@
 import React from 'react';
-import { HostState, bridge } from '../api/bridge';
+import { HostState, bridge, hostPlatform } from '../api/bridge';
 import { Badge, Metrics, Notice, Row, Section, Segmented, Switch } from '../ui/primitives';
 import { useToggle } from '../ui/hooks';
 import { IconAlert, IconCamera, IconDisplay, IconInfo } from '../ui/icons';
@@ -20,6 +20,11 @@ export const Display: React.FC<Props> = ({ state }) => {
   const scr = state.media.screen;
   const running = !!scr?.running;
   const cfg = state.config as Record<string, any>;
+
+  // issue#168 第 10 条：副屏只在 Windows 交付。非 Win 宿主（panel_http）不挂
+  // ScreenPush，screen.toggle 一律如实拒绝 —— 开关/模式/遥测都是「点了没反应」的死控件，
+  // mac/Linux 直接收起，只留本节末尾的 Sunshine 检测与指引。
+  const screenSupported = hostPlatform(state) === 'windows';
 
   /*
    * 投屏模式：扩展屏要 IddCx 虚拟显示器，桌面镜像直接抓主屏。
@@ -76,12 +81,15 @@ export const Display: React.FC<Props> = ({ state }) => {
             trail={
               <>
                 {running && <Badge tone="ok" live>运行中</Badge>}
-                <Switch on={screen.on} busy={screen.busy} onChange={screen.toggle} label="副屏投屏" />
+                {screenSupported && (
+                  <Switch on={screen.on} busy={screen.busy} onChange={screen.toggle} label="副屏投屏" />
+                )}
               </>
             }
           />
 
           {/* 模式要在开流时定：运行中禁止切换（点了只会误导），停止后即可改 */}
+          {screenSupported && (
           <div
             style={{
               display: 'flex',
@@ -111,7 +119,9 @@ export const Display: React.FC<Props> = ({ state }) => {
                   : '需要 IddCx 虚拟显示器，没有会如实报错'}
             </span>
           </div>
+          )}
 
+          {screenSupported && (
           <div style={{ padding: '0 16px 14px' }}>
             <Metrics
               items={[
@@ -134,6 +144,7 @@ export const Display: React.FC<Props> = ({ state }) => {
               ]}
             />
           </div>
+          )}
 
           {screen.err && (
             <div style={{ padding: '0 16px 14px' }}>
