@@ -1622,12 +1622,14 @@ void notifyAlbumPage(uint8_t err, uint32_t page,
     if (!p) return;   // 面板未就绪：分页是请求-应答式交互，静默丢（前端可重发请求）
     Json d = Json::makeObject();
     d["err"] = static_cast<int>(err);
-    d["page"] = page;
+    d["page"] = static_cast<long long>(page);   // uint32 同上：显式转 long long 避开重载二义
     Json arr = Json::makeArray();
     for (const auto& e : entries) {
         Json o = Json::makeObject();
-        o["id"] = e.id;
-        o["added"] = e.added;
+        // uint32/uint64 一律显式转 long long 再给 Json（int / int64_t / bool 三重重载
+        // 对无符号类型同为「标准转换」，不转就二义性编译红——MSVC/clang 都一样）。
+        o["id"] = static_cast<long long>(e.id);
+        o["added"] = static_cast<long long>(e.added);
         o["size"] = static_cast<long long>(e.size);
         o["path"] = e.path;
         o["name"] = e.name;
