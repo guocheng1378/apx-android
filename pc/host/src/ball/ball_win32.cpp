@@ -298,69 +298,164 @@ void drawGlyph(Gdiplus::Graphics& gr, const std::string& id, const Gdiplus::Rect
                const Gdiplus::Color& col) {
     const float k  = box.Width / 24.f;
     const float ox = box.X, oy = box.Y;
-    Gdiplus::Pen pen(col, std::max(1.5f, 1.9f * k));
-    pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
-    pen.SetLineJoin(Gdiplus::LineJoinRound);
     auto X = [&](float v) { return ox + v * k; };
     auto Y = [&](float v) { return oy + v * k; };
 
-    if (id == "open_panel") {              // 窗口：框 + 标题栏
-        gr.DrawRectangle(&pen, X(3.5f), Y(4.5f), 17.f * k, 15.f * k);
-        gr.DrawLine(&pen, X(3.5f), Y(9.f), X(20.5f), Y(9.f));
-    } else if (id == "send_clipboard") {   // 剪贴板：板 + 夹子 + 两行内容
-        gr.DrawRectangle(&pen, X(5.f), Y(5.5f), 14.f * k, 14.5f * k);
-        gr.DrawRectangle(&pen, X(9.f), Y(2.8f), 6.f * k, 4.4f * k);
-        gr.DrawLine(&pen, X(8.5f), Y(12.f), X(15.5f), Y(12.f));
-        gr.DrawLine(&pen, X(8.5f), Y(15.5f), X(13.f), Y(15.5f));
-    } else if (id == "toggle_speaker") {   // 喇叭 + 声波
+    // issue#168 第 13 条：几何与手机端 res/drawable/ic_apx_*.xml 逐点对齐（24 视口、
+    // 默认描边 1.7 / 键盘与触控板 1.8 / 电源 2，圆头圆角）。此前是自创直角几何，
+    // 「同形」名不副实；现按安卓 pathData 精确移植，音量/麦克风无对应资源，维持原样。
+    auto stroke = [&](Gdiplus::GraphicsPath& p, float w24) {
+        Gdiplus::Pen pen(col, std::max(1.5f, w24 * k));
+        pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+        pen.SetLineJoin(Gdiplus::LineJoinRound);
+        gr.DrawPath(&pen, &p);
+    };
+    auto seg = [&](Gdiplus::GraphicsPath& p, float x1, float y1, float x2, float y2) {
+        p.AddLine(X(x1), Y(y1), X(x2), Y(y2));
+    };
+    // 圆弧段：圆心 + 半径 + GDI+ 起角/扫角（度，y 向下顺时针为正）——与安卓 a 指令
+    // sweep=1（屏幕顺时针）同侧，起角按圆心指向起点的 atan2 换算。
+    auto arc = [&](Gdiplus::GraphicsPath& p, float cx, float cy, float r,
+                   float start, float sweep) {
+        p.AddArc(X(cx - r), Y(cy - r), 2 * r * k, 2 * r * k, start, sweep);
+    };
+    // 安卓系圆角矩形（四个 a r,r 弧），起笔自上边左端顺时针一圈后闭合
+    auto rrect = [&](Gdiplus::GraphicsPath& p, float x, float y, float w, float h, float r) {
+        p.StartFigure();
+        seg(p, x + r, y, x + w - r, y);
+        arc(p, x + w - r, y + r, r, 270, 90);
+        seg(p, x + w, y + r, x + w, y + h - r);
+        arc(p, x + w - r, y + h - r, r, 0, 90);
+        seg(p, x + w - r, y + h, x + r, y + h);
+        arc(p, x + r, y + h - r, r, 90, 90);
+        seg(p, x, y + h - r, x, y + r);
+        arc(p, x + r, y + r, r, 180, 90);
+        p.CloseFigure();
+    };
+    auto fillEllipse = [&](float cx, float cy, float r) {
+        Gdiplus::SolidBrush b(col);
+        gr.FillEllipse(&b, X(cx - r), Y(cy - r), 2 * r * k, 2 * r * k);
+    };
+    auto fillRect = [&](float x, float y, float w, float h) {
+        Gdiplus::SolidBrush b(col);
+        gr.FillRectangle(&b, X(x), Y(y), w * k, h * k);
+    };
+
+    if (id == "open_panel") {              // 窗口：圆角框 + 标题栏（圆角口径对齐安卓系）
         Gdiplus::GraphicsPath p;
+        rrect(p, 3.5f, 4.5f, 17.f, 15.f, 2.f);
+        seg(p, 3.5f, 9.f, 20.5f, 9.f);
+        stroke(p, 1.7f);
+    } else if (id == "send_clipboard") {   // 剪贴板：= ic_apx_clipboard（板 + 板夹）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
+        seg(p, 9.f, 4.6f, 15.f, 4.6f);
+        arc(p, 15.f, 6.2f, 1.6f, 270, 90);
+        seg(p, 16.6f, 6.2f, 16.6f, 6.6f);
+        seg(p, 16.6f, 6.6f, 18.f, 6.6f);
+        arc(p, 18.f, 8.2f, 1.6f, 270, 90);
+        seg(p, 19.6f, 8.2f, 19.6f, 19.4f);
+        arc(p, 18.f, 19.4f, 1.6f, 0, 90);
+        seg(p, 18.f, 21.f, 6.f, 21.f);
+        arc(p, 6.f, 19.4f, 1.6f, 90, 90);
+        seg(p, 4.4f, 19.4f, 4.4f, 8.2f);
+        arc(p, 6.f, 8.2f, 1.6f, 180, 90);
+        seg(p, 6.f, 6.6f, 7.4f, 6.6f);
+        seg(p, 7.4f, 6.6f, 7.4f, 6.2f);
+        arc(p, 9.f, 6.2f, 1.6f, 0, 90);
+        p.CloseFigure();
+        stroke(p, 1.7f);
+        fillRect(9.2f, 7.4f, 5.6f, 0.6f);   // 板夹内衬（fill path，同安卓）
+    } else if (id == "toggle_speaker") {   // 喇叭 + 声波（安卓 ic_apx 无对应资源，原样保留）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
         p.AddLine(X(4.f), Y(9.f), X(8.5f), Y(9.f));
         p.AddLine(X(8.5f), Y(9.f), X(13.f), Y(4.8f));
         p.AddLine(X(13.f), Y(4.8f), X(13.f), Y(19.2f));
         p.AddLine(X(13.f), Y(19.2f), X(8.5f), Y(15.f));
         p.AddLine(X(8.5f), Y(15.f), X(4.f), Y(15.f));
         p.CloseFigure();
-        gr.DrawPath(&pen, &p);
-        gr.DrawArc(&pen, X(14.f), Y(8.f), 6.f * k, 8.f * k, -55.f, 110.f);
-    } else if (id == "toggle_mic") {       // 麦克风：胶囊 + 托架 + 底座
-        gr.DrawArc(&pen, X(9.f), Y(2.5f), 6.f * k, 11.f * k, 180.f, 180.f);
-        gr.DrawArc(&pen, X(9.f), Y(7.f), 6.f * k, 11.f * k, 0.f, 180.f);
-        gr.DrawArc(&pen, X(5.5f), Y(9.f), 13.f * k, 11.f * k, 0.f, 180.f);
-        gr.DrawLine(&pen, X(12.f), Y(20.f), X(12.f), Y(16.f));
-        gr.DrawLine(&pen, X(8.5f), Y(20.6f), X(15.5f), Y(20.6f));
-    } else if (id == "toggle_display") {   // 显示器 + 底座
-        gr.DrawRectangle(&pen, X(3.f), Y(4.5f), 18.f * k, 12.5f * k);
-        gr.DrawLine(&pen, X(12.f), Y(17.f), X(12.f), Y(20.f));
-        gr.DrawLine(&pen, X(8.f), Y(20.2f), X(16.f), Y(20.2f));
-    } else if (id == "phone_input") {      // 手机输入：键盘（机身 + 两排键 + 空格）
-        gr.DrawRectangle(&pen, X(2.6f), Y(6.2f), 18.8f * k, 11.6f * k);
-        gr.DrawLine(&pen, X(6.2f), Y(10.f), X(9.4f), Y(10.f));
-        gr.DrawLine(&pen, X(11.f), Y(10.f), X(13.f), Y(10.f));
-        gr.DrawLine(&pen, X(14.6f), Y(10.f), X(17.8f), Y(10.f));
-        gr.DrawLine(&pen, X(8.f), Y(14.2f), X(16.f), Y(14.2f));
-    } else if (id == "send_file") {        // 发文件：托盘 + 上箭头（发送）
-        gr.DrawLine(&pen, X(4.5f), Y(14.6f), X(4.5f), Y(19.f));
-        gr.DrawLine(&pen, X(4.5f), Y(19.f), X(19.5f), Y(19.f));
-        gr.DrawLine(&pen, X(19.5f), Y(19.f), X(19.5f), Y(14.6f));
-        gr.DrawLine(&pen, X(12.f), Y(15.4f), X(12.f), Y(4.6f));
-        gr.DrawLine(&pen, X(12.f), Y(4.6f), X(8.2f), Y(8.4f));
-        gr.DrawLine(&pen, X(12.f), Y(4.6f), X(15.8f), Y(8.4f));
-    } else if (id == "toggle_camera") {    // 摄像头：机身 + 取景凸起 + 镜头
-        gr.DrawRectangle(&pen, X(3.f), Y(7.f), 18.f * k, 12.4f * k);
-        gr.DrawRectangle(&pen, X(8.6f), Y(4.4f), 5.f * k, 2.6f * k);
-        gr.DrawEllipse(&pen, X(8.6f), Y(9.6f), 6.8f * k, 6.8f * k);
-    } else if (id == "wireless") {         // 无线：两道弧 + 实心点（旧 conn_status 同形）
-        gr.DrawArc(&pen, X(3.5f), Y(5.5f), 17.f * k, 17.f * k, 202.f, 136.f);
-        gr.DrawArc(&pen, X(7.5f), Y(9.5f), 9.f * k, 9.f * k, 202.f, 136.f);
-        Gdiplus::SolidBrush b(col);
-        gr.FillEllipse(&b, X(10.3f), Y(16.6f), 3.4f * k, 3.4f * k);
-    } else if (id == "touchpad") {         // 触控板：板 + 中心点（球内图标）
-        gr.DrawRectangle(&pen, X(5.5f), Y(3.5f), 13.f * k, 17.f * k);
-        Gdiplus::SolidBrush b(col);
-        gr.FillEllipse(&b, X(9.7f), Y(9.7f), 4.6f * k, 4.6f * k);
-    } else {                               // exit：断口圆 + 竖线
-        gr.DrawArc(&pen, X(4.5f), Y(4.5f), 15.f * k, 15.f * k, -55.f, 290.f);
-        gr.DrawLine(&pen, X(12.f), Y(2.8f), X(12.f), Y(11.5f));
+        p.AddArc(X(14.f), Y(8.f), 6.f * k, 8.f * k, -55.f, 110.f);
+        stroke(p, 1.7f);
+    } else if (id == "toggle_mic") {       // 麦克风：胶囊 + 托架 + 底座（同上，原样保留）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
+        p.AddArc(X(9.f), Y(2.5f), 6.f * k, 11.f * k, 180.f, 180.f);
+        p.AddArc(X(9.f), Y(7.f), 6.f * k, 11.f * k, 0.f, 180.f);
+        p.AddArc(X(5.5f), Y(9.f), 13.f * k, 11.f * k, 0.f, 180.f);
+        p.AddLine(X(12.f), Y(20.f), X(12.f), Y(16.f));
+        p.AddLine(X(8.5f), Y(20.6f), X(15.5f), Y(20.6f));
+        stroke(p, 1.7f);
+    } else if (id == "toggle_display") {   // 显示器：= ic_apx_screen（圆角屏 + 底座）
+        Gdiplus::GraphicsPath p;
+        rrect(p, 2.8f, 3.8f, 16.4f, 12.4f, 1.6f);
+        seg(p, 9.f, 20.f, 15.f, 20.f);
+        seg(p, 12.f, 16.2f, 12.f, 20.f);
+        stroke(p, 1.7f);
+    } else if (id == "phone_input") {      // 键盘：= ic_apx_keyboard（圆角机身 + 实心键 + 空格）
+        Gdiplus::GraphicsPath p;
+        rrect(p, 1.5f, 6.f, 21.f, 12.f, 2.f);
+        stroke(p, 1.8f);
+        fillRect(5.6f, 9.f, 2.f, 2.f);
+        fillRect(9.2f, 9.f, 2.f, 2.f);
+        fillRect(12.8f, 9.f, 2.f, 2.f);
+        fillRect(16.4f, 9.f, 2.f, 2.f);
+        fillRect(8.f, 12.6f, 8.f, 2.f);
+    } else if (id == "send_file") {        // 文件夹：= ic_apx_files（带页签的圆角夹体）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
+        arc(p, 4.6f, 7.6f, 1.6f, 180, 90);          // 左上圆角
+        seg(p, 4.6f, 6.f, 8.1f, 6.f);               // 页签顶边
+        arc(p, 8.1f, 7.6f, 1.6f, 270, 51.3f);       // 页签右肩（chord(1.25,0.6) 的 1.6 弧）
+        seg(p, 9.35f, 6.6f, 10.45f, 7.95f);         // 页签斜边
+        seg(p, 10.45f, 7.95f, 18.35f, 7.95f);       // 夹体顶边
+        arc(p, 18.35f, 9.55f, 1.6f, 270, 90);
+        seg(p, 19.95f, 9.55f, 19.95f, 17.45f);
+        arc(p, 18.35f, 17.45f, 1.6f, 0, 90);
+        seg(p, 18.35f, 19.05f, 4.65f, 19.05f);
+        arc(p, 4.65f, 17.45f, 1.6f, 90, 90);
+        seg(p, 3.05f, 17.45f, 3.f, 7.6f);
+        p.CloseFigure();
+        stroke(p, 1.7f);
+    } else if (id == "toggle_camera") {    // 摄像头：= ic_apx_camera（圆角机身 + 取景口 + 镜头）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
+        arc(p, 4.8f, 7.8f, 1.6f, 180, 90);
+        seg(p, 4.8f, 6.2f, 7.4f, 6.2f);
+        seg(p, 7.4f, 6.2f, 8.7f, 4.5f);       // 取景口左斜边
+        seg(p, 8.7f, 4.5f, 15.3f, 4.5f);
+        seg(p, 15.3f, 4.5f, 16.6f, 6.2f);     // 取景口右斜边
+        seg(p, 16.6f, 6.2f, 19.2f, 6.2f);
+        arc(p, 19.2f, 7.8f, 1.6f, 270, 90);
+        seg(p, 20.8f, 7.8f, 20.8f, 17.8f);
+        arc(p, 19.2f, 17.8f, 1.6f, 0, 90);
+        seg(p, 19.2f, 19.4f, 4.8f, 19.4f);
+        arc(p, 4.8f, 17.8f, 1.6f, 90, 90);
+        p.CloseFigure();
+        stroke(p, 1.7f);
+        Gdiplus::Pen pen(col, std::max(1.5f, 1.7f * k));
+        pen.SetLineCap(Gdiplus::LineCapRound, Gdiplus::LineCapRound, Gdiplus::DashCapRound);
+        gr.DrawEllipse(&pen, X(8.6f), Y(9.6f), 6.8f * k, 6.8f * k);   // 镜头圆（同线宽）
+    } else if (id == "wireless") {         // 无线：= ic_apx_wifi（三道弧 + 实心点）
+        Gdiplus::GraphicsPath p;
+        p.StartFigure();
+        arc(p, 12.f, 18.7808f, 13.f, 226.2f, 87.6f);
+        arc(p, 12.f, 19.3498f, 8.6f, 227.6f, 84.8f);
+        arc(p, 12.f, 19.5305f, 4.2f, 228.2f, 83.6f);
+        stroke(p, 1.7f);
+        fillEllipse(12.f, 17.4f, 1.5f);
+    } else if (id == "touchpad") {         // 触控板：= ic_apx_touchpad（圆角板 + 实心中心点）
+        Gdiplus::GraphicsPath p;
+        rrect(p, 3.5f, 3.5f, 17.f, 17.f, 2.f);
+        stroke(p, 1.8f);
+        fillEllipse(12.f, 11.f, 2.4f);
+    } else {                               // 退出：= ic_apx_power（断口圆 + 竖线，描边 2）
+        Gdiplus::GraphicsPath p;
+        // 断口圆：圆心 (12,11.844) r=7，顶端口宽 8.8 —— 大弧自右端口顺时针 282.1°
+        p.StartFigure();
+        p.AddArc(X(5.f), Y(4.8443f), 14.f * k, 14.f * k, 308.95f, 282.1f);
+        seg(p, 12.f, 2.6f, 12.f, 12.f);
+        stroke(p, 2.f);
     }
 }
 
