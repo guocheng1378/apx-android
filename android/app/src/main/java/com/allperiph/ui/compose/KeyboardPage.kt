@@ -1120,6 +1120,10 @@ private fun KeyBox(
         if (pressed) {
             kotlinx.coroutines.delay(400)
             while (true) {
+                // issue#168 第 7 条：先清一次再发 —— tap 的 60ms 自动释放窗口（55ms 节奏
+                // 下永不到期，每次都被下一拍 removeCallbacks）会让对端看不到新的按下边沿，
+                // 长按只出第一个字符。releaseNow 后每拍都是一次真实的 按下 → 抬起。
+                HidKeys.releaseNow()
                 repeatFired = true
                 onClick()
                 kotlinx.coroutines.delay(55)

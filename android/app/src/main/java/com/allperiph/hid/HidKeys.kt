@@ -215,26 +215,63 @@ object HidKeys {
 
     // —————————————————————————— 按住不放（长按发送） ——————————————————————————
 
-    /** 当前被"按住"的组合键（null = 没按住） */
+    /**
+     * 当前按住不放的键（issue#168 第 7 条：usage → 该键自带的修饰位）。
+     *
+     * 旧版只记「最后一颗按住的键」（heldCombo 单槽），快速打字两键交叠时：
+     * 按 a（按住）→ 按 b（报告顶掉 a）→ 抬 a（全释放，b 也被放掉）→ 抬 b（无事可做）
+     * —— b 的按下边沿被吞，对端少收一个键；修饰位还可能滞留成「系统功能键」观感。
+     * 改成按 usage 记账：每颗键的按下 / 抬起各管各的，报告始终是
+     * 「当前还按着的键 + 它们的修饰并集」。
+     */
     @Volatile
-    private var heldCombo: Combo? = null
+    private var heldKeys = LinkedHashMap<Int, Int>()
 
     /**
-     * 长按：把组合键**按住不放**（keydown 之后不释放），直到 [releaseHold]。
+     * 长按：把组合键**按住不放**（keydown 之后不释放），直到 [releaseHold] / [releaseNow]。
      * 用于需要持续按住的场景：按住 Ctrl 滚轮缩放、按住 Shift 连续多选、游戏里的持续键。
      */
     fun hold(c: Combo) {
         handler.removeCallbacks(releaseTask)
-        send(c.mod, intArrayOf(c.usage))
-        heldCombo = c
+        heldKeys[c.usage] = c.mod
+        sendHeld()
     }
 
-    /** 松开长按：释放全部按键（幂等，未按住时什么都不做） */
-    fun releaseHold() {
-        if (heldCombo == null) return
-        heldCombo = null
+    /**
+     * 松开长按（幂等）。
+     *
+     * @param usage 指定要松开的那颗键：只把它从按住集合里摘掉，其余还按着的键保持按住
+     *   —— 快速打字两键交叠时，先抬的那颗不再连带放掉后按的（第 7 条按键冲突的根因）。
+     *   传 -1 = 不带语义的全释放（ComboChip 长按整组抬起等旧调用点沿用）。
+     */
+    fun releaseHold(usage: Int = -1) {
+        if (usage >= 0) {
+            if (heldKeys.remove(usage) == null) return
+            if (heldKeys.isEmpty()) {
+                handler.removeCallbacks(releaseTask)
+                send(0, IntArray(0))
+            } else {
+                sendHeld()
+            }
+            return
+        }
+        if (heldKeys.isEmpty()) return
+        heldKeys = LinkedHashMap()
         handler.removeCallbacks(releaseTask)
         send(0, IntArray(0))
+    }
+
+    /** 按「当前还按着的键」发全量报告：修饰取并集，最多 6 颗（HID 键盘报告上限） */
+    private fun sendHeld() {
+        var mods = 0
+        val usages = ArrayList<Int>(heldKeys.size)
+        for ((u, m) in heldKeys) {
+            mods = mods or m
+            usages.add(u)
+        }
+        // 同时按住超过 6 颗是极端场景（手柄式玩法），截断保发送不崩
+        while (usages.size > 6) usages.removeAt(0)
+        send(mods, usages.toIntArray())
     }
 
     /**
@@ -248,7 +285,7 @@ object HidKeys {
      * 每轮连发前先清一次，保证每轮都是一次真实的 按下 → 抬起。
      */
     fun releaseNow() {
-        heldCombo = null
+        heldKeys = LinkedHashMap()
         handler.removeCallbacks(releaseTask)
         send(0, IntArray(0))
     }

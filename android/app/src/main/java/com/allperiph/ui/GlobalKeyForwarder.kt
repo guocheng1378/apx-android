@@ -161,7 +161,8 @@ internal object GlobalKeyForwarder {
                 HidKeys.hold(combo)
             }
         } else {
-            HidKeys.releaseHold()
+            // issue#168 第 7 条：只松开抬起的这颗键，快速打字两键交叠不再互相顶掉
+            HidKeys.releaseHold(usage)
         }
         return true
     }

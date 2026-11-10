@@ -169,7 +169,8 @@ internal class PhysKeyBridge(private val act: Activity) {
             }
             // USB / 蓝牙 HID：对端是真实键盘设备，按住不放它自己就会重复，这里什么都不做
         } else {
-            HidKeys.releaseHold()
+            // issue#168 第 7 条：只松开抬起的这颗键，快速打字两键交叠不再互相顶掉
+            HidKeys.releaseHold(usage)
         }
         return true
     }
@@ -177,6 +178,16 @@ internal class PhysKeyBridge(private val act: Activity) {
     // ———— 反馈#8：物理触摸板指针状态 ————
     private var lastGX = Float.NaN
     private var lastGY = Float.NaN
+
+    /**
+     * 双指态质心（issue#168 第 7 条 双指滚动）：上一次两指的 (x, y)；NaN = 上一帧
+     * 不是双指态。与单指基准（lastGX/GY）分开记，两态互不污染。
+     */
+    private var lastTwoX = Float.NaN
+    private var lastTwoY = Float.NaN
+
+    /** 双指质心位移 → 滚轮档位的换算：约 40px 一个滚动档（与常见触摸板手感一致） */
+    private val twoFingerScrollDiv = 40f
 
     /** 批F：光标锁定（issue#44）——已转发（连上+在管）→ 本窗隐藏系统光标；状态边沿才 setter */
     private var lastLockApplied: Boolean? = null
@@ -217,6 +228,34 @@ internal class PhysKeyBridge(private val act: Activity) {
         if (!ready()) return false                        // 没连电脑：就是普通触摸板/鼠标
         val mod = AgentController.module(ModuleId.TOUCHPAD) as? com.allperiph.touchpad.TouchpadModule
             ?: return false
+        // issue#168 第 7 条（双指滚动）：触控板多指事件会原样递上来（pointerCount>=2），
+        // 旧版只读 pointer0 —— 两根手指被当成一只鼠标，双指手势自然无效。改为：两指
+        // 按住时以**质心**位移合成滚轮（纵向滚动 / 横向平移），不再发光标位移；回到
+        // 单指时重置单指基准，按「重入」处理避免跳变。
+        if (event.pointerCount >= 2) {
+            val cx2 = (event.getX(0) + event.getX(1)) / 2f
+            val cy2 = (event.getY(0) + event.getY(1)) / 2f
+            if (!lastTwoX.isNaN()) {
+                val sx = cx2 - lastTwoX
+                val sy = cy2 - lastTwoY
+                if (sx != 0f || sy != 0f) {
+                    // 自然滚动语义：双指往上（sy<0）→ 内容往上滚（wheel>0）
+                    mod.feedPointer(
+                        0f, 0f,
+                        event.buttonState and 0x07,
+                        -sy / twoFingerScrollDiv, sx / twoFingerScrollDiv,
+                        event.eventTime * 1_000_000L,
+                    )
+                }
+            }
+            lastTwoX = cx2
+            lastTwoY = cy2
+            lastGX = Float.NaN
+            lastGY = Float.NaN
+            return true
+        }
+        lastTwoX = Float.NaN
+        lastTwoY = Float.NaN
         val x = event.x
         val y = event.y
         var dx = 0f
