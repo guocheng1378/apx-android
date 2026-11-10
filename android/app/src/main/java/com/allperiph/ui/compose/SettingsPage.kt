@@ -159,14 +159,17 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // 这一步只重排外壳，16 个 Section 的代码位置与前一轮完全一致；同类目内再分两栏需要把
     // 每段拆成可组合函数，属另一轮。
     val twoPane = rememberApAdaptiveLayout().twoPane
-    // 一指横滑切分组（成宇 2026-11-10「设置页的分组切换不方便」+「就按这套做」）：
+    // 一指横滑切分组（成宇 2026-11-10「设置页的分组切换不方便」+「就按这套做」；
+    // 2026-11-10「鼠标调节高度，键盘高度，这两个和滑动切分组冲突，界面调节调节时界面会跑」修正）：
     // 向左滑 = 下一组、向右滑 = 上一组（与横屏四指切页同方向），页签保留不动。
-    // 冲突仲裁靠**事件归属**，不猜意图（挂 Initial pass：父级先看、不抢消费）：
-    // · 滑杆是本页唯一横向拖动的控件，它的拖动一动手就吃掉事件 —— 一旦看到
-    //   `isConsumed`，整段手势立刻退出，滑杆怎么拖都不会翻组；
+    // 冲突仲裁靠**事件归属**，不猜意图 —— 判定必须挂 Main pass（子级先于本修饰符处理）：
+    // · 滑杆是本页唯一横向拖动的控件，它的拖动一动手就吃掉事件 —— Main pass 里同一
+    //   事件先过滑杆再到这里，`isConsumed` 当场可见，整段手势立刻退出；此前挂 Initial
+    //   pass（父级先看）时子控件的消费永远看不到（每个新事件都是干净实例），56dp 阈值
+    //   一到就翻组并把剩余序列吃掉，滑杆拖一半页面跑了 —— 真机复现即此因；
     // · 垂直滚动列表同理（滚动消费纵向拖动），配合「横向 > 2×纵向」的方向门槛，
     //   上下滑 / 斜滑都不会误触发；与主壳竖滑收低栏（纵向 > 2×横向）方向正交；
-    // · 阈值 56dp 与主壳四指切页同一套；触发后把剩余序列在 Initial pass 收掉，
+    // · 阈值 56dp 与主壳四指切页同一套；触发后把剩余序列消费掉，
     //   一滑只翻一组，页签 / 开关的点击不受影响（短按到不了阈值）；
     // · 双指落下即放弃（与低栏长按同口径：手势语义是「一根手指」）。
     val swipeDensity = LocalDensity.current.density
@@ -177,13 +180,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 awaitEachGesture {
                     val down = awaitFirstDown(
                         requireUnconsumed = false,
-                        pass = PointerEventPass.Initial,
+                        pass = PointerEventPass.Main,
                     )
                     val sx = down.position.x
                     val sy = down.position.y
                     var fired = false
                     while (true) {
-                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                        val ev = awaitPointerEvent(PointerEventPass.Main)
                         // 子控件（滑杆 / 滚动列表）认领了拖动 → 手势让路，整段作废
                         if (ev.changes.any { it.isConsumed }) break
                         if (ev.changes.count { it.pressed } > 1) break
@@ -203,7 +206,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                             // 翻完收掉剩余序列：一滑只翻一组
                             while (true) {
-                                val ev2 = awaitPointerEvent(PointerEventPass.Initial)
+                                val ev2 = awaitPointerEvent(PointerEventPass.Main)
                                 ev2.changes.forEach { it.consume() }
                                 if (ev2.changes.none { it.pressed }) break
                             }
