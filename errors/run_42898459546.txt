@@ -1,0 +1,114 @@
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 34%] Built target apxpc_media
+[ 44%] Built target apxpc_discovery
+[ 49%] Built target apxpc_sensors
+[ 75%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 95%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxhost.dir/src/host_main.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/host_main.cpp:34:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:115:44: error: unknown type name 'PhoneFileEntry'; did you mean 'wireless::PhoneFileEntry'?
+  115 |                          const std::vector<PhoneFileEntry>& entries);
+      |                                            ^~~~~~~~~~~~~~
+      |                                            wireless::PhoneFileEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:169:8: note: 'wireless::PhoneFileEntry' declared here
+  169 | struct PhoneFileEntry {
+      |        ^
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/host_main.cpp:34:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:123:40: error: unknown type name 'AlbumEntry'; did you mean 'wireless::AlbumEntry'?
+  123 |                      const std::vector<AlbumEntry>& entries);
+      |                                        ^~~~~~~~~~
+      |                                        wireless::AlbumEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:159:8: note: 'wireless::AlbumEntry' declared here
+  159 | struct AlbumEntry {
+      |        ^
+2 errors generated.
+make[3]: *** [CMakeFiles/apxhost.dir/src/host_main.cpp.o] Error 1
+[ 98%] Building CXX object CMakeFiles/apxhost.dir/src/ui/panel_http.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:36:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:115:44: error: unknown type name 'PhoneFileEntry'; did you mean 'wireless::PhoneFileEntry'?
+  115 |                          const std::vector<PhoneFileEntry>& entries);
+      |                                            ^~~~~~~~~~~~~~
+      |                                            wireless::PhoneFileEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:169:8: note: 'wireless::PhoneFileEntry' declared here
+  169 | struct PhoneFileEntry {
+      |        ^
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:36:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:123:40: error: unknown type name 'AlbumEntry'; did you mean 'wireless::AlbumEntry'?
+  123 |                      const std::vector<AlbumEntry>& entries);
+      |                                        ^~~~~~~~~~
+      |                                        wireless::AlbumEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:159:8: note: 'wireless::AlbumEntry' declared here
+  159 | struct AlbumEntry {
+      |        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:656:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  656 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+1 warning and 2 errors generated.
+make[3]: *** [CMakeFiles/apxhost.dir/src/ui/panel_http.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 34%] Built target apxpc_media
+[ 44%] Built target apxpc_discovery
+[ 49%] Built target apxpc_sensors
+[ 75%] Built target apxpc_service
+[ 88%] Built target apxpc_wireless
+[ 95%] Built target apxpc_localsend
+[ 96%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/desktop_main.cpp:25:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:115:44: error: unknown type name 'PhoneFileEntry'; did you mean 'wireless::PhoneFileEntry'?
+  115 |                          const std::vector<PhoneFileEntry>& entries);
+      |                                            ^~~~~~~~~~~~~~
+      |                                            wireless::PhoneFileEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:169:8: note: 'wireless::PhoneFileEntry' declared here
+  169 | struct PhoneFileEntry {
+      |        ^
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/desktop_main.cpp:25:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:123:40: error: unknown type name 'AlbumEntry'; did you mean 'wireless::AlbumEntry'?
+  123 |                      const std::vector<AlbumEntry>& entries);
+      |                                        ^~~~~~~~~~
+      |                                        wireless::AlbumEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:159:8: note: 'wireless::AlbumEntry' declared here
+  159 | struct AlbumEntry {
+      |        ^
+2 errors generated.
+make[3]: *** [CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o] Error 1
+[ 98%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:36:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:115:44: error: unknown type name 'PhoneFileEntry'; did you mean 'wireless::PhoneFileEntry'?
+  115 |                          const std::vector<PhoneFileEntry>& entries);
+      |                                            ^~~~~~~~~~~~~~
+      |                                            wireless::PhoneFileEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:169:8: note: 'wireless::PhoneFileEntry' declared here
+  169 | struct PhoneFileEntry {
+      |        ^
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:36:
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/panel_http.hpp:7:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/ui/web_panel.hpp:123:40: error: unknown type name 'AlbumEntry'; did you mean 'wireless::AlbumEntry'?
+  123 |                      const std::vector<AlbumEntry>& entries);
+      |                                        ^~~~~~~~~~
+      |                                        wireless::AlbumEntry
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/ctrl9511.hpp:159:8: note: 'wireless::AlbumEntry' declared here
+  159 | struct AlbumEntry {
+      |        ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:656:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  656 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+1 warning and 2 errors generated.
+make[3]: *** [CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
