@@ -17,6 +17,12 @@
     -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    <!--
+      悬浮球「最新照片卡片」（ROADMAP §5.2 ①，2026-11-12）：读系统相册最新一张（MediaStore）
+      需要「照片和视频」分媒体权限。运行时申请走独立透明页 PhotoPermActivity（Service 不能弹权限框）。
+      minSdk 34，无 32- 的 READ_EXTERNAL_STORAGE 分支。
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <!-- v223.29：悬浮球自愈需要「开机广播」——手机重启后按用户意愿位把球放回屏幕 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
@@ -381,6 +387,19 @@
         -->
         <activity
             android:name=".controlled.TakeoverDialogActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
+          ⑪之三 「照片」媒体权限申请页（2026-11-12，ROADMAP §5.2 ①）：悬浮球照片卡在
+          Service（overlay）里构建，运行时权限只能由 Activity 发起 —— 透明主题只承载
+          系统弹窗，进来就申请、拿到结果即 finish。singleTop 防连点叠多层。
+        -->
+        <activity
+            android:name=".ui.PhotoPermActivity"
             android:exported="false"
             android:launchMode="singleTop"
             android:excludeFromRecents="true"

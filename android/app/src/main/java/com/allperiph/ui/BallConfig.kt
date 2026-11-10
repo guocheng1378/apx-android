@@ -55,6 +55,13 @@ object BallConfig {
         MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, POINTER_READ, QUIT,
     )
 
+    /**
+     * 最新照片卡片（ROADMAP §5.2 ①，2026-11-12）：悬浮球菜单顶部**常驻**项 ——
+     * 不进 [ALL]（设置页勾不到，也不受用户增删影响），每次展开菜单固定排在第一位。
+     * 显示最新一张照片/截图的缩略图；点按或拖出即发往电脑（9512，见 [BallLatestPhoto]）。
+     */
+    const val PHOTO_CARD = "photo_card"
+
     /** 首次打开时的默认四项 —— 与旧版写死菜单的主干一致 */
     val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, QUIT)
 

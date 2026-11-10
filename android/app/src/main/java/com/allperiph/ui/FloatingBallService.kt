@@ -1098,7 +1098,9 @@ class FloatingBallService : Service() {
      * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
     private fun buildFan(ballView: View): Fan {
-        val items = BallConfig.enabled(this)
+        // 最新照片卡片固定排第一位（ROADMAP §5.2 ①）——「常驻」不进勾选清单，
+        // 用户哪怕把菜单项清到只剩退出，照片卡也照常出现（发照片是高频动作，不该被关掉）
+        val items = listOf(BallConfig.PHOTO_CARD) + BallConfig.enabled(this)
         val dm = realDisplayMetrics()
         val screenW = dm.widthPixels
         val screenH = dm.heightPixels
@@ -1259,6 +1261,7 @@ class FloatingBallService : Service() {
 
     /** 一颗快捷项：52dp 圆 + 居中单色图标（HyperOS 那边也是只给图标，不给文字） */
     private fun buildFanItem(id: String): View {
+        if (id == BallConfig.PHOTO_CARD) return buildPhotoCardCell()
         val cell = FrameLayout(themed).apply {
             isClickable = true
             isFocusable = true
@@ -1277,8 +1280,98 @@ class FloatingBallService : Service() {
         return cell
     }
 
+    /**
+     * 最新照片卡片（ROADMAP §5.2 ①，2026-11-12）：扇形菜单顶部的常驻格。
+     *
+     * 交互借鉴 Shelf：**按住拖出即发** —— 位移超过拖动阈值就立刻触发发送并收起菜单
+     * （不必等抬手，拖出去那一下就是「拽走这张照片」）；没拖、只是点按抬手时同样发送
+     * （点按也是明确的「发这张」，比「点了没反应」好懂）。发送链路与触控板页发文件
+     * 完全同一条（9512，[BallLatestPhoto.send]），没有新协议。
+     *
+     * 图：最新照片的系统缩略图（后台解码，解码完就地换图）；未授权 / 暂无照片 /
+     * 还没解出来时回落为文件占位图标（观感与其它快捷项一致，不闪一块空白）。
+     */
+    private fun buildPhotoCardCell(): View {
+        val cell = FrameLayout(themed).apply {
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.ui_ball_photo_card_desc)
+            // 底座与其它快捷项同款半透明圆；照片铺满时被下面的圆形裁剪兜住
+            setBackgroundResource(R.drawable.bg_ball_item)
+        }
+        val iv = ImageView(themed).apply {
+            // 照片贴圆形：outline 椭圆 + clipToOutline（framework 裁剪能力，
+            // 不是画形状 —— 形状本身仍只有 UI Kit / drawable 一处）
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+        }
+        cell.addView(iv, FrameLayout.LayoutParams(dp(BallConfig.itemDp(this)), dp(BallConfig.itemDp(this)), Gravity.CENTER))
+        // 查一次 + 异步解码：query 是毫秒级的索引扫描（主线程可承受），
+        // loadThumbnail 的解码在后台线程，回来时菜单多半还开着，就地换上真图
+        val latest = BallLatestPhoto.query(themed)
+        if (latest != null) {
+            BallLatestPhoto.loadThumb(themed, latest, dp(BallConfig.itemDp(this))) {
+                if (iv.isAttachedToWindow) renderPhotoCard(iv)
+            }
+        }
+        renderPhotoCard(iv)
+        var downX = 0f
+        var downY = 0f
+        var dragged = false
+        cell.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = ev.rawX
+                    downY = ev.rawY
+                    dragged = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    // 拖出即发：不需要精确的「拖到某区域再放手」，拖起来就算
+                    if (!dragged &&
+                        (abs(ev.rawX - downX) > touchSlop || abs(ev.rawY - downY) > touchSlop)
+                    ) {
+                        dragged = true
+                        closeMenu()
+                        BallLatestPhoto.send(this, cell)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!dragged) {
+                        closeMenu()
+                        BallLatestPhoto.send(this, cell)
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+        return cell
+    }
+
+    /** 照片卡的图面：有缩略图铺满格子（圆形裁剪、不上 tint），否则回落文件占位图标 */
+    private fun renderPhotoCard(iv: ImageView) {
+        val bmp = BallLatestPhoto.thumbOrNull()
+        if (bmp != null) {
+            iv.setImageBitmap(bmp)
+            iv.imageTintList = null
+            iv.scaleType = ImageView.ScaleType.CENTER_CROP
+        } else {
+            iv.setImageResource(R.drawable.ic_apx_files)
+            iv.imageTintList = ColorStateList.valueOf(themed.resources.getColor(R.color.ball_text))
+            iv.scaleType = ImageView.ScaleType.CENTER
+        }
+    }
+
     /** 快捷项外观：连接模式类按开关态走主色实底，其余走和球同款半透明白／黑 */
     private fun applyFanState(cell: View, id: String) {
+        // 照片卡不是开关也不是模式：缩略图不能上单色 tint，跳过这套状态渲染
+        if (id == BallConfig.PHOTO_CARD) return
         val kind = BallConfig.transportOf(id)
         val on = (kind != null && AgentController.isTransportEnabled(this, kind)) ||
             (BallConfig.isToggle(id) && fanToggleOn(id))
@@ -1348,6 +1441,12 @@ class FloatingBallService : Service() {
     /** 快捷项分发：触控板 / 键盘 / 手柄 / 设备 = 浮窗面板（就地完成）；文件与被控台 = 完整页面（startActivity）；退出与连接模式 = 服务内处理 */
     private fun onFanItem(id: String) {
         when (id) {
+            BallConfig.PHOTO_CARD -> {
+                // 照片卡平时走自己的触摸监听（拖出即发）；分发到这里的只可能是兜底
+                //（如未来哪处改为 setOnClickListener）—— 行为与点按一致：发最新一张
+                closeMenu()
+                BallLatestPhoto.send(this, ball ?: return)
+            }
             BallConfig.TOUCHPAD -> {
                 closeMenu()
                 expand()
