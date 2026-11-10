@@ -130,20 +130,25 @@ class FloatingBallService : Service() {
 
         /**
          * 停靠自动隐藏（issue#168 建议 12）：停靠条 **5 秒无操作**后自动收成
-         * 「发丝线」—— 比停靠条更窄更短更透，几乎不占视觉，但热区仍是这条细线，
-         * 点击 / 往屏内拖都能把球找回来。
+         * 「三分之一圆弧」—— 比停靠条更小更透，几乎不占视觉，但热区仍是这段弧，
+         * 点击能把球找回来。（第 12 条三追：发丝线不好点按，按用户要求改圆弧。）
          */
         private const val DOCK_HIDE_DELAY_MS = 5_000L
 
-        /** 隐藏态竖条尺寸（dp）：只保留一根能认出来的细线 */
-        private const val DOCK_HIDDEN_W_DP = 8
-        private const val DOCK_HIDDEN_H_DP = 48
+        /**
+         * 隐藏态「三分之一圆弧」几何（issue#168 第 12 条三追）：圆心放在**屏幕外**
+         * r/2 处，屏内只能看到正对屏幕的 120°（整圆的三分之一），弧的凸面朝屏幕内、
+         * 开口朝屏幕外 —— 比发丝线好点按得多。
+         */
+        private const val ARC_RADIUS_DP = 26
+        private const val ARC_STROKE_DP = 5
 
         /**
-         * 隐藏态透明度：比停靠态更淡。不取更低的值 —— 太透会在浅色壁纸上彻底
-         * 找不到，用户反而以为球丢了（找回路径必须是「看得见才摸得到」）。
+         * 隐藏态不透明度：圆弧本体只有一根细描边，太透会彻底看不见（用户反馈
+         * 「线条和屏幕背景对比度太低了」）。除了调高不透明度，颜色还会按壁纸明暗
+         * 自适应（见 [peekArcColor]），浅色壁纸用深弧、深色壁纸用浅弧。
          */
-        private const val DOCK_HIDDEN_ALPHA = 0.18f
+        private const val DOCK_HIDDEN_ALPHA = 0.92f
 
         /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
         private const val LONG_PRESS_MS = 800L
@@ -213,7 +218,7 @@ class FloatingBallService : Service() {
 
         /**
          * 设置页换球面图标时**即时生效**（issue#168 第 9 条）：直接找到活着的球换图。
-         * 停靠条 / 发丝线里图标本来就隐藏（applyDockShape 已 GONE），换图无副作用，
+         * 停靠条 / 隐藏圆弧里图标本来就隐藏（applyDockShape 已 GONE），换图无副作用，
          * 恢复成球时 applyBallShape 只管可见性，图还是这里设的这张。
          * 服务没跑（live == null）时静默返回 —— 下次 addBall 会按落盘的选择挂新图。
          */
@@ -402,8 +407,11 @@ class FloatingBallService : Service() {
     /** 停靠在哪一侧（左 / 右）：恢复圆球与往屏内挪都要按这一侧算 */
     private var dockLeft = false
 
-    /** 停靠判定：抬手时球心距左右边缘小于这个值就吸附过去 */
-    private val dockSnapPx get() = dp(48)
+    /**
+     * 停靠判定余量（issue#168 第 12 条三追）：吸附不再按「球心 48dp 内」，改为
+     * **球边贴到屏幕边缘**才触发 —— 余量只留 2dp 容手抖，没挨着边缘不收。
+     */
+    private val dockSnapPx get() = dp(2)
 
     /** 旋转重算用：上次落位时的屏幕尺寸（等比换算 x/y 到新屏） */
     private var lastScreenW = 0
@@ -412,7 +420,7 @@ class FloatingBallService : Service() {
     /** 贴边滑入动画；触摸按下即取消，位置以手指为准 */
     private var dockAnim: android.animation.ValueAnimator? = null
 
-    /** 停靠条是否已收成发丝线（隐藏态）：点击 / 往屏内拖都直接恢复圆球（issue#168 建议 12） */
+    /** 停靠条是否已收成圆弧（隐藏态）：单击直接恢复圆球；往屏内拖手势已取消（第 12 条三追） */
     private var dockHidden = false
 
     /**
@@ -456,7 +464,7 @@ class FloatingBallService : Service() {
         }
         lastScreenW = dm.widthPixels
         lastScreenH = dm.heightPixels
-        // 隐藏态（发丝线）重排后要保持隐藏形态，不能借机变回停靠条 ——
+        // 隐藏态（圆弧）重排后要保持隐藏形态，不能借机变回停靠条 ——
         // 「旋转偷偷把收起的条放出来」看着就像球自己跑了（issue#168 建议 12）
         if (docked) {
             if (dockHidden) hideDockShape(v) else applyDockShape(v, dockLeft)
@@ -638,7 +646,7 @@ class FloatingBallService : Service() {
                     // v223.29.11：抓球即停掉贴边滑入 + 按压脉冲（落下轻微缩小）
                     dockAnim?.cancel()
                     // issue#168 建议 12：任何一次触摸都算「有操作」——先撤掉待执行的
-                    // 隐藏任务；若此刻已是发丝线，接下来这把是点击恢复 / 拖回屏内。
+                    // 隐藏任务；若此刻已是圆弧，接下来这把是点击恢复（拖回屏内不再恢复）。
                     cancelDockHide()
                     view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90).start()
                 }
@@ -662,7 +670,7 @@ class FloatingBallService : Service() {
                     when {
                         // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
                         moved -> settleAfterDrag(view)
-                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）。隐藏态（发丝线）
+                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）。隐藏态（圆弧）
                         // 单击同样直落这里 —— 不停在中间态，一找回就是完整圆球，
                         // 之后单击再展开菜单（issue#168 建议 12）。
                         docked -> undock(view)
@@ -720,8 +728,9 @@ class FloatingBallService : Service() {
         val wasDocked = docked
         lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
-        val nearLeft = v.width > 0 && cx < dockSnapPx
-        val nearRight = v.width > 0 && cx > dm.widthPixels - dockSnapPx
+        // 第 12 条三追：比较的是**球边**离屏幕边缘的距离（cx 是球心），不再是球心距
+        val nearLeft = v.width > 0 && cx - v.width / 2f < dockSnapPx
+        val nearRight = v.width > 0 && dm.widthPixels - (cx + v.width / 2f) < dockSnapPx
         if (nearLeft || nearRight) {
             docked = true
             dockLeft = nearLeft
@@ -744,7 +753,7 @@ class FloatingBallService : Service() {
                         applyDockShape(v, nearLeft)
                         if (wasDocked) {
                             // issue#168 建议 12：停靠条被**再次**拨向边缘 = 用户明确
-                            // 说「收起来」—— 不等 5 秒，落位即收成发丝线；从隐藏态
+                            // 说「收起来」—— 不等 5 秒，落位即收成圆弧；从隐藏态
                             // 拖回边缘也走这，保持隐藏不闪一下。
                             hideDockShape(v)
                         } else {
@@ -756,10 +765,14 @@ class FloatingBallService : Service() {
                 })
                 start()
             }
+        } else if (wasDocked) {
+            // 第 12 条三追：「往屏幕内拖恢复」手势取消 —— 与系统全面屏返回手势冲突。
+            // 停靠态（含隐藏态）被拖离边缘时按**原形态**归位：隐藏态仍收回圆弧、
+            // 停靠条仍回停靠态；找回圆球只认单击（[undock]）。
+            if (dockHidden) hideDockShape(v) else applyDockShape(v, dockLeft)
         } else {
             docked = false
-            // 之前可能是条，落回中间要变回圆球，否则一根条孤零零立在屏幕中间。
-            // 发丝线拖回屏内同样直落这里 —— 「往屏幕内滑动恢复悬浮球」（建议 12）。
+            // 普通圆球拖离边缘落回中间：保持圆球不动
             dockHidden = false
             applyBallShape(v)
             v.alpha = 1f
@@ -859,7 +872,7 @@ class FloatingBallService : Service() {
     // ————————————————————— 停靠自动隐藏（issue#168 建议 12） —————————————————————
 
     /**
-     * 排一次「5 秒无操作收成发丝线」。
+     * 排一次「5 秒无操作收成圆弧」。
      *
      * 只有两条路进这里：首次停靠落位（[settleAfterDrag] 动画结束）。任何一次触摸
      * 都在 ACTION_DOWN 先撤（[cancelDockHide]），所以「无操作」由触摸驱动自然成立；
@@ -885,28 +898,103 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 停靠条 → 发丝线：更窄、更短、更透，视觉上几乎只剩一道边光。
+     * 停靠条 → 三分之一圆弧（issue#168 第 12 条三追）。
      *
-     * 条心不动：按当前条中心换算新窗口 y，收细的一瞬不会上下跳。触摸目标仍是
-     * 这条细线（窗口即热区），点击直落 `docked -> undock` 恢复圆球，往屏内拖则走
-     * [settleAfterDrag] 的非停靠分支恢复 —— 两条找回路径都不需要先「点醒」一次。
+     * 用户反馈发丝线太难点按、对比度太低，改为：弧心在**屏幕外** r/2 处，屏内只露出
+     * 正对屏幕的 120°（整圆的三分之一），凸面朝屏幕内、开口朝屏幕外，点按热区比发丝
+     * 线大得多。条心（圆弧中心）不动：按当前条中心换算新窗口 y，收拢一瞬不会上下跳。
+     * 找回只认**单击**（直落 `docked -> undock`）；「往屏内拖」已按第 12 条三追取消。
      */
     private fun hideDockShape(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         val dm = resources.displayMetrics
         val (left, top) = parentOffset(v)
         val cy = top + lp.y + v.height / 2f
-        val w = dp(DOCK_HIDDEN_W_DP)
-        val h = dp(DOCK_HIDDEN_H_DP)
+        val r = dp(ARC_RADIUS_DP)
+        val stroke = dp(ARC_STROKE_DP)
+        // 弓形可见宽度 = r/2（圆心在屏外 r/2），加描边与 2dp 边距余量
+        val w = r / 2 + stroke + dp(4)
+        // 可见弧高 = 2·r·sin(60°) ≈ 1.73r，加描边余量
+        val h = (2 * r * 0.866f).toInt() + stroke + dp(6)
         lp.width = w
         lp.height = h
         lp.x = if (dockLeft) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
         // 同 applyDockShape：cy 是屏幕坐标，lp.y 是父框坐标，先减 top（v223.29.49 修）
         lp.y = (cy - top - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
         dockHidden = true
+        v.background = ArcPeekDrawable(dockLeft)
         v.alpha = DOCK_HIDDEN_ALPHA
         runCatching { wm.updateViewLayout(v, lp) }
-            .onFailure { Log.w(TAG, "停靠条收成发丝线失败：${it.message}") }
+            .onFailure { Log.w(TAG, "停靠条收成圆弧失败：${it.message}") }
+    }
+
+    /**
+     * 隐藏态圆弧的颜色（issue#168 第 12 条三追「自适应调整颜色提高对比度」）：
+     * 采样当前壁纸的平均亮度 —— 浅色壁纸用深弧、深色壁纸用浅弧，保证两种桌面都看得清。
+     * 采样只做一次（收弧是高频动作，不能每帧解码壁纸），取不到壁纸按浅色处理用深弧。
+     */
+    private var peekArcColorCache = 0
+
+    private fun peekArcColor(): Int {
+        if (peekArcColorCache != 0) return peekArcColorCache
+        val sample: Float = runCatching {
+            val manager = android.app.WallpaperManager.getInstance(this)
+            val drawable = manager.wallpaper ?: return@runCatching 1f
+            val size = 32
+            val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bmp)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            var lum = 0f
+            var n = 0
+            for (y in 0 until size step 4) for (x in 0 until size step 4) {
+                val c = bmp.getPixel(x, y)
+                // Rec. 601 亮度：足够区分「壁纸整体偏亮 / 偏暗」
+                lum += (0.299f * ((c shr 16) and 0xFF) + 0.587f * ((c shr 8) and 0xFF) + 0.114f * (c and 0xFF)) / 255f
+                n++
+            }
+            bmp.recycle()
+            if (n == 0) 1f else lum / n
+        }.getOrDefault(1f)
+        // 亮度高（浅色壁纸）用深弧，亮度低（深色壁纸）用浅弧；带一点透明度融入桌面
+        peekArcColorCache = if (sample > 0.55f) 0xDD202024.toInt() else 0xDDF2F2F2.toInt()
+        return peekArcColorCache
+    }
+
+    /**
+     * 隐藏态的三分之一圆弧绘制（见 [hideDockShape]）。
+     *
+     * 圆心放在屏幕外 r/2 处，画布上只露出 120° 弧段：左缘弧圆心在 x = -r/2、
+     * 圆心角 0° 两侧各 60°；右缘镜像（圆心角 180° 两侧各 60°）。
+     */
+    private inner class ArcPeekDrawable(private val leftSide: Boolean) : android.graphics.drawable.Drawable() {
+        private val stroke = dp(ARC_STROKE_DP).toFloat()
+        private val r = dp(ARC_RADIUS_DP).toFloat()
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeWidth = stroke
+            color = peekArcColor()
+        }
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            val b = bounds
+            val cy = b.exactCenterY()
+            val cx0 = if (leftSide) -r / 2f else b.width() + r / 2f
+            val rect = android.graphics.RectF(cx0 - r, cy - r, cx0 + r, cy + r)
+            val start = if (leftSide) -60f else 120f
+            canvas.drawArc(rect, start, 120f, false, paint)
+        }
+
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+        }
+
+        override fun setColorFilter(cf: android.graphics.ColorFilter?) {
+            paint.colorFilter = cf
+        }
+
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
     }
 
     // ————————————————————— 扇形快捷菜单（v223.15，MIUI / HyperOS 快捷球观感） —————————————————————

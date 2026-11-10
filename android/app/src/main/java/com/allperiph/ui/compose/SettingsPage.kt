@@ -768,8 +768,42 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    // issue#168 第 9 条（2026-11-11）：球面图标内置六选一；相册图片皮肤要走
-                    // 相册取图 + 球面单色 tint 适配（皮肤原图未必有 alpha 蒙版），另行一批。
+                    // issue#168 第 11 条三追（2026-11-11）：切后台唤起悬浮球在 Android 12+
+                    // 被「后台启动前台服务」限制拦住，而拥有 SYSTEM_ALERT_WINDOW（悬浮窗）
+                    // 权限的应用**豁免**这条限制 —— 引导用户授一次权限，自愈链路就通了。
+                    // 状态在每次回到前台时重读（设置页授权返回后要立即反映），不缓存。
+                    var overlayGranted by remember {
+                        mutableStateOf(android.provider.Settings.canDrawOverlays(ctx))
+                    }
+                    androidx.compose.runtime.DisposableEffect(ctx) {
+                        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                                overlayGranted = android.provider.Settings.canDrawOverlays(ctx)
+                            }
+                        }
+                        val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                        owner.lifecycle.addObserver(observer)
+                        onDispose { owner.lifecycle.removeObserver(observer) }
+                    }
+                    ApComponents.ClickRow(
+                        title = "悬浮窗权限",
+                        summary = if (overlayGranted) "已授予，切后台自动唤起悬浮球可正常生效"
+                        else "未授予：切后台自动唤起悬浮球会被系统拦截，点这里去系统设置授权",
+                        onClick = {
+                            if (!overlayGranted) {
+                                runCatching {
+                                    ctx.startActivity(
+                                        Intent(
+                                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            android.net.Uri.parse("package:" + ctx.packageName),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    // issue#168 第 9 条（2026-11-11）：球面图标内置六选一；相册图片皮肤见下批
+                    // （相册取图 + 球面裁圆，取图入口在本分组尾部）。
                     // 点击 = 落盘（BallIcon.set）+ 对活着的球即时换图（FloatingBallService.applyIcon）；
                     // 服务没跑时静默 —— 下次 addBall 挂球会按落盘的选择重设。
                     var ballIcon by remember { mutableStateOf(BallIcon.picked(ctx)) }
