@@ -216,6 +216,18 @@ class TvControllerClient(
             0x46 -> {
                 if (body.size >= 3) com.allperiph.files.PhoneFiles.handle(0x46, body, ::sendControl, host)
             }
+            // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：手机控 PC / TV 的链路上，
+            // 对端也可以浏览本机相册（三端对等）。落 app 模块 PhoneAlbum（与 0x44 同口径直调，
+            // 无 UI 回调要接）；reply 走本链路 sendControl，对端 IP = 本客户端连的服务端 host。
+            0x48 -> {
+                if (body.size >= 5) com.allperiph.files.PhoneAlbum.handle(0x48, body, ::sendControl, host)
+            }
+            0x4A -> {
+                if (body.size >= 2) com.allperiph.files.PhoneAlbum.handle(0x4A, body, ::sendControl, host)
+            }
+            0x4B -> {
+                if (body.size >= 5) com.allperiph.files.PhoneAlbum.handle(0x4B, body, ::sendControl, host)
+            }
         }
     }
 
@@ -378,7 +390,9 @@ class TvControllerClient(
     private fun sendCapsSync() {
         val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
             com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
-            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE
+            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
+            com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
+            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()

@@ -869,6 +869,31 @@ int runDesktopMain() {
     }
 #endif
 
+    // —— 相册投影接线（0x48–0x4B，2026-11-12，能力位 bit4）——
+    // 两条链路的应答都转成 web_panel 事件（on-album-page / on-album-page-fail），
+    // 前端相册网格据此刷新。回调跑在 9511 reader 线程；notifyAlbumPage* 内部
+    // PostWebMessageAsJson（线程安全），可直接调。仅 Windows：mac 走 panel_http，
+    // 本轮未接（与手机文件同口径，避免声明无定义的链接错误）。
+#if defined(_WIN32)
+    {
+        apxpc::wireless::WirelessSession* abSession = session.get();
+        abSession->setOnAlbumPage([](uint8_t err, uint32_t page,
+                                     const std::vector<apxpc::wireless::AlbumEntry>& entries) {
+            apxpc::ui::notifyAlbumPage(err, page, entries);
+        });
+        abSession->setOnAlbumPageFail([](uint8_t err, const std::string& path) {
+            apxpc::ui::notifyAlbumPageFail(err, path);
+        });
+        ctrlSrv.setOnAlbumPage([](uint8_t err, uint32_t page,
+                                  const std::vector<apxpc::wireless::AlbumEntry>& entries) {
+            apxpc::ui::notifyAlbumPage(err, page, entries);
+        });
+        ctrlSrv.setOnAlbumPageFail([](uint8_t err, const std::string& path) {
+            apxpc::ui::notifyAlbumPageFail(err, path);
+        });
+    }
+#endif
+
     // —— 查找手机接线（0x38，2026-11-11，能力位 bit2）——
     // 托盘菜单点击 → 让手机响铃。两条链路择活发送：PC 控手机走 session（9511 客户端），
     // 手机控 PC 走 ctrlSrv（9511 服务端）——与通知同步的接线范围同口径。菜单常驻，

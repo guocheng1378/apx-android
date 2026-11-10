@@ -115,6 +115,14 @@ void notifyPhoneFileList(uint8_t err, const std::string& path,
                          const std::vector<PhoneFileEntry>& entries);
 void notifyPhoneFileFail(uint8_t err, const std::string& path);
 
+// ———————————————— 相册投影（0x48–0x4B，2026-11-12，能力位 bit4） ————————————————
+// desktop_main 在 9511 回调线程调用：把相册分页应答 / 缩略图失败回执推给前端
+// 相册网格（on-album-page / on-album-page-fail 事件）。线程安全同上。
+// 仅 Windows（mac 走 panel_http，本轮未接，如实降级）。
+void notifyAlbumPage(uint8_t err, uint32_t page,
+                     const std::vector<AlbumEntry>& entries);
+void notifyAlbumPageFail(uint8_t err, const std::string& path);
+
 // ———————————————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————————————
 // 查到 GitHub releases 有新版 → 推 on-update-available 事件，前端顶部横幅展示；
 // 点「查看」回 app.openUrl act（web_panel 白名单放行本仓库 release 页）。

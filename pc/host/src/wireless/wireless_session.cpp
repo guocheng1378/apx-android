@@ -202,6 +202,26 @@ WirelessSession::WirelessSession() {
         if (cb) cb(err, path);
     };
 
+    // 相册投影转发（0x48–0x4B，2026-11-12）：受控端回一页相册 / 缩略图失败回执
+    // → 外层回调（web_panel 事件）。锁保护口径与手机文件同款。
+    client_.onAlbumPage = [this](uint8_t err, uint32_t page,
+                                 const std::vector<AlbumEntry>& entries) {
+        std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onAlbumPage_;
+        }
+        if (cb) cb(err, page, entries);
+    };
+    client_.onAlbumPageFail = [this](uint8_t err, const std::string& path) {
+        std::function<void(uint8_t, const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onAlbumPageFail_;
+        }
+        if (cb) cb(err, path);
+    };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -423,6 +443,23 @@ bool WirelessSession::sendPhoneFilePullReq(const std::string& path) {
     return client_.sendPhoneFilePullReq(path);
 }
 
+// 相册投影发送（0x48/0x4A/0x4B，2026-11-12，能力位 bit4）：转发给 9511 客户端
+//（未连接 / 对端不支持都返回 false，由调用方提示）。
+bool WirelessSession::sendAlbumPageReq(uint32_t page) {
+    if (!client_.ready()) return false;
+    return client_.sendAlbumPageReq(page);
+}
+
+bool WirelessSession::sendAlbumWatchReq(bool on) {
+    if (!client_.ready()) return false;
+    return client_.sendAlbumWatchReq(on);
+}
+
+bool WirelessSession::sendAlbumThumbReq(uint32_t id) {
+    if (!client_.ready()) return false;
+    return client_.sendAlbumThumbReq(id);
+}
+
 bool WirelessSession::connected() const { return client_.ready(); }
 
 bool WirelessSession::requestInput(const std::string& hint) {
@@ -459,6 +496,19 @@ void WirelessSession::setOnPhoneFileList(
 void WirelessSession::setOnPhoneFileFail(std::function<void(uint8_t, const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onPhoneFileFail_ = std::move(cb);
+}
+
+// 相册投影回调（0x49/0x47，2026-11-12）：外层 setter 只改本类回调存储 ——
+// 转发 lambda 早已挂在 client_ 上（见构造函数），这里晚赋值也能被下一次应答读到。
+void WirelessSession::setOnAlbumPage(
+    std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onAlbumPage_ = std::move(cb);
+}
+
+void WirelessSession::setOnAlbumPageFail(std::function<void(uint8_t, const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onAlbumPageFail_ = std::move(cb);
 }
 
 bool WirelessSession::sendInputText(const std::string& text, uint8_t flags) {

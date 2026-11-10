@@ -4,6 +4,7 @@ import { Badge, Empty, Meter, Metrics, Notice, Row, Section, Switch } from '../u
 import { fileNameOf, fmtSize, useToggle } from '../ui/hooks';
 import {
   IconAlert,
+  IconCamera,
   IconFileDown,
   IconFileUp,
   IconFolder,
@@ -30,6 +31,163 @@ interface LsDevice {
   port: number;
   lastSeenMs: number;
 }
+
+/** 手机文件条目（on-phone-files 事件载荷，0x45 应答）：isDir=true 时 size 无意义 */
+interface PhoneEntry {
+  name: string;
+  isDir: boolean;
+  size: number;
+}
+
+/** 相册条目（on-album-page 事件载荷，0x49 应答）：added 为秒，id 是 MediaStore 图片 _id */
+interface AlbumEntryT {
+  id: number;
+  added: number;
+  size: number;
+  path: string;
+  name: string;
+}
+
+/** 相册一页条数（与 Android ApxFrame.ALBUM_PAGE_SIZE / web_panel.cpp 口径一致） */
+const ALBUM_PAGE_SIZE = 60;
+
+/** 0x45/0x47/0x49 的 err 取值 → 中文文案（与 Android ApxFrame.PHONEFILE_ERR_* 对拍） */
+const phoneFileErrText = (err: number, path: string) => {
+  const name = path ? `「${fileNameOf(path)}」` : '';
+  switch (err) {
+    case 1: return '手机还没授权：请在手机端允许电脑访问';
+    case 2: return `${name}不存在（可能已被删）`;
+    case 3: return `${name}读取失败`;
+    case 4: return `${name}发送失败（连接中断？）`;
+    default: return `操作失败（错误码 ${err}）`;
+  }
+};
+
+/** 公共外部存储根（Android 惯例路径；子目录路径由对端拼出来再请求） */
+const STORAGE_ROOT = '/storage/emulated/0';
+
+/** 手机路径拼接：根入口条目（「内部存储」）= 存储根本身；其余按目录层级往下拼 */
+const childPathOf = (cur: string, name: string) =>
+  cur === '' ? (name === '内部存储' ? STORAGE_ROOT : STORAGE_ROOT + '/' + name)
+             : cur + '/' + name;
+
+/** 相册拍摄时间（秒）→ 分组日期标签：今天 / 昨天 / 完整日期 */
+const albumDateLabel = (sec: number) => {
+  const d = new Date(sec * 1000);
+  const day = new Date(d);
+  day.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+};
+
+/** 缩略图加载重试上限：手机回图需要时间，先轮询几轮，超限按「取回失败」处理 */
+const THUMB_MAX_TRIES = 15;
+
+/**
+ * 相册单格：滚进视口才发缩略图请求（album.thumb，宿主去重守卫）；
+ * 缩略图文件由 9512 异步推回，img 首次会 404 —— 失败后隔 1.5s 换时间戳重试，
+ * 重试超限或收到失败回执（album:thumb: 前缀）就标灰占位、点按可重试。
+ * 点格子 = 取回原图（phonefile.pull，与浏览文件同一通道）；已标灰的格子点按 = 重试缩略图。
+ */
+const AlbumTile: React.FC<{
+  entry: AlbumEntryT;
+  failed: boolean;
+  onVisible: (id: number) => void;
+  onRetry: (id: number) => void;
+  onOpen: (e: AlbumEntryT) => void;
+  pulling: boolean;
+}> = ({ entry, failed, onVisible, onRetry, onOpen, pulling }) => {
+  const boxRef = React.useRef<HTMLButtonElement | null>(null);
+  const [tries, setTries] = React.useState(0); // 已重试次数（img onError 驱动）
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (ins) => ins.forEach((i) => i.isIntersecting && onVisible(entry.id)),
+      { rootMargin: '300px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [entry.id, onVisible]);
+
+  const dead = failed || tries >= THUMB_MAX_TRIES;
+  return (
+    <button
+      ref={boxRef}
+      className="album-tile"
+      style={{
+        position: 'relative',
+        aspectRatio: '1 / 1',
+        borderRadius: 8,
+        overflow: 'hidden',
+        border: '1px solid var(--line-soft)',
+        padding: 0,
+        cursor: 'pointer',
+        background: 'var(--bg-soft, rgba(127,127,127,.12))',
+      }}
+      title={`${entry.name} · 点击取回原图`}
+      onClick={() => {
+        if (dead) {
+          setTries(0);          // 重试：本地计数清零 + 宿主侧守卫由 onRetry 清
+          onRetry(entry.id);
+        } else {
+          onOpen(entry);
+        }
+      }}
+    >
+      {!dead && (
+        <img
+          src={`https://media.allperiph/albumthumb_${entry.id}.jpg` + (tries > 0 ? `?t=${tries}` : '')}
+          alt={entry.name}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            // 缩略图还没推回来（img 会先 404）：隔 1.5s 换时间戳重试，
+            // 超过上限当「取回失败」标灰，避免无限刷新
+            window.setTimeout(() => setTries((t) => t + 1), 1500);
+          }}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: loaded ? 'block' : 'none',
+          }}
+        />
+      )}
+      {(!loaded || dead) && (
+        <span
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            fontSize: 10.5,
+            color: 'var(--on-tertiary, #888)',
+            background: dead ? 'rgba(127,127,127,.25)' : 'transparent',
+            pointerEvents: 'none',
+          }}
+        >
+          {pulling ? (
+            <>取回中…</>
+          ) : dead ? (
+            <>无法显示<br />点按重试</>
+          ) : (
+            <>加载中…</>
+          )}
+        </span>
+      )}
+    </button>
+  );
+};
 
 /**
  * 传输页 —— 原来分散在「互传卡」与「文件传输弹窗」里，现在同页两条链路：
@@ -68,6 +226,101 @@ export const Transfer: React.FC<Props> = ({ state }) => {
   const [sendPct, setSendPct] = React.useState<number | null>(null);
   const [confirmDel, setConfirmDel] = React.useState<string | null>(null);
   const fileInputId = 'apx-filepanel-file';
+
+  /* —— 浏览手机文件（0x44–0x47）：面包屑 + 条目列表 —— */
+  // act 只表示「请求已发出」，真正的列表走 on-phone-files 事件，
+  // 当前目录与事件里的 path 回显要对着匹配（过期应答直接丢）。
+  const [phonePath, setPhonePath] = React.useState('');            // '' = 根入口
+  const [phoneEntries, setPhoneEntries] = React.useState<PhoneEntry[]>([]);
+  const [phoneBusy, setPhoneBusy] = React.useState(false);
+  const [phonePull, setPhonePull] = React.useState<string | null>(null); // 正在取回的文件名
+  const [phoneErr, setPhoneErr] = React.useState('');
+  const phonePathRef = React.useRef('');
+
+  /** 进入/刷新指定目录：应答是事件，这里只发请求 */
+  const browsePhone = React.useCallback(async (dir: string) => {
+    phonePathRef.current = dir;
+    setPhonePath(dir);
+    setPhoneBusy(true);
+    setPhoneErr('');
+    try {
+      await bridge.act('phonefile.list', { path: dir });
+    } catch (e: any) {
+      setPhoneBusy(false);
+      setPhoneErr(e?.message || String(e));
+    }
+  }, []);
+
+  /* —— 相册投影（0x48–0x4B）：日期分组网格 + 滚动加载 + 新照片提醒 —— */
+  const [albumEntries, setAlbumEntries] = React.useState<AlbumEntryT[]>([]);
+  const [albumBusy, setAlbumBusy] = React.useState(false);          // 等一页应答中
+  const [albumDone, setAlbumDone] = React.useState(false);          // 已到相册最老一页
+  const [albumWatchOn, setAlbumWatchOn] = React.useState(false);    // 新照片提醒开关
+  const [albumErr, setAlbumErr] = React.useState('');
+  const [albumNote, setAlbumNote] = React.useState('');
+  const albumLoadedPages = React.useRef(new Set<number>());   // 已请求过的页号
+  const albumBusyRef = React.useRef(false);                   // 同一时间只等一页
+  const albumRequestedThumbs = React.useRef(new Set<number>()); // 已请求过缩略图的 id
+  const albumFailedThumbs = React.useRef(new Set<number>());    // 缩略图取回失败的 id
+  const [, setThumbTick] = React.useState(0);                 // 失败集合变化触发重渲染
+
+  /** 拉一页相册（page 从 0 起）：去重防抖，真正的条目走 on-album-page 事件 */
+  const loadAlbumPage = React.useCallback(async (page: number) => {
+    if (albumBusyRef.current || albumLoadedPages.current.has(page)) return;
+    albumBusyRef.current = true;
+    albumLoadedPages.current.add(page);
+    setAlbumBusy(true);
+    try {
+      await bridge.act('album.page', { page });
+    } catch (e: any) {
+      albumLoadedPages.current.delete(page);
+      albumBusyRef.current = false;
+      setAlbumBusy(false);
+      setAlbumErr(e?.message || String(e));
+    }
+  }, []);
+
+  /** 按条目 id 请求缩略图（同 id 只发一次；重试由 onThumbRetry 清守卫后再发） */
+  const requestThumb = React.useCallback((id: number) => {
+    if (albumRequestedThumbs.current.has(id)) return;
+    albumRequestedThumbs.current.add(id);
+    bridge.act('album.thumb', { id }).catch(() => {
+      albumFailedThumbs.current.add(id);
+      setThumbTick((t) => t + 1);
+    });
+  }, []);
+
+  /** 缩略图占位点击重试：清掉两条守卫后重新请求，img 的 src 加时间戳绕缓存 */
+  const retryThumb = React.useCallback((id: number) => {
+    albumRequestedThumbs.current.delete(id);
+    albumFailedThumbs.current.delete(id);
+    setThumbTick((t) => t + 1);
+    requestThumb(id);
+  }, [requestThumb]);
+
+  /** 相册刷新：清空已加载页与守卫，从第 0 页重新开始（第一次进入也走这里） */
+  const resetAlbum = React.useCallback(() => {
+    albumLoadedPages.current = new Set();
+    albumBusyRef.current = false;
+    albumRequestedThumbs.current = new Set();
+    albumFailedThumbs.current = new Set();
+    setAlbumEntries([]);
+    setAlbumDone(false);
+    setAlbumErr('');
+    setAlbumNote('');
+    loadAlbumPage(0);
+  }, [loadAlbumPage]);
+
+  const toggleWatch = React.useCallback(async (on: boolean) => {
+    setAlbumWatchOn(on);
+    try {
+      await bridge.act('album.watch', { on });
+      setAlbumNote(on ? '已开启：手机拍到新照片会发系统通知提醒' : '已关闭新照片提醒');
+    } catch (e: any) {
+      setAlbumWatchOn(!on);
+      setAlbumErr(e?.message || String(e));
+    }
+  }, []);
 
   const refreshFiles = React.useCallback(async () => {
     try {
@@ -123,9 +376,65 @@ export const Transfer: React.FC<Props> = ({ state }) => {
         setFileStatus(evt.data?.ok ? '已发送到手机' : `发送失败：${evt.data?.error || '未知原因'}`);
         refreshFiles();
       }),
+      // —— 浏览手机文件：目录应答（0x45），path 与请求对上才算这轮结果 ——
+      bridge.onEvent('on-phone-files', (evt: any) => {
+        const d = evt.data ?? {};
+        if (d.path !== phonePathRef.current) return;
+        setPhoneBusy(false);
+        const err = d.err ?? 0;
+        if (err !== 0) {
+          setPhoneEntries([]);
+          setPhoneErr(phoneFileErrText(err, d.path || ''));
+          return;
+        }
+        setPhoneEntries(Array.isArray(d.entries) ? d.entries : []);
+        setPhoneErr('');
+      }),
+      // 取文件失败回执（0x47，非相册前缀）：按钮还原并提示原因
+      bridge.onEvent('on-phone-files-fail', (evt: any) => {
+        const d = evt.data ?? {};
+        setPhonePull(null);
+        setPhoneErr(phoneFileErrText(d.err ?? -1, d.path || ''));
+      }),
+      // —— 相册投影：分页应答（0x49）—— 按页拼接、少于整页即到相册最老处
+      bridge.onEvent('on-album-page', (evt: any) => {
+        const d = evt.data ?? {};
+        setAlbumBusy(false);
+        albumBusyRef.current = false;
+        if (d.err) {
+          setAlbumErr(phoneFileErrText(d.err, ''));
+          return;
+        }
+        const entries: AlbumEntryT[] = Array.isArray(d.entries) ? d.entries : [];
+        setAlbumEntries((prev) => {
+          const seen = new Set(prev.map((e) => e.id));
+          return prev.concat(entries.filter((e) => !seen.has(e.id)));
+        });
+        if (entries.length < ALBUM_PAGE_SIZE) setAlbumDone(true);
+      }),
+      // 缩略图失败回执（0x47 的 album:thumb: 前缀）：对应格子标灰占位
+      bridge.onEvent('on-album-page-fail', (evt: any) => {
+        const d = evt.data ?? {};
+        const m = /^album:thumb:(\d+)/.exec(d.path || '');
+        if (m) {
+          albumFailedThumbs.current.add(Number(m[1]));
+          setThumbTick((t) => t + 1);
+        }
+        setAlbumErr(phoneFileErrText(d.err ?? -1, d.path || ''));
+      }),
     ];
     return () => offs.forEach((f) => f());
   }, [refreshFiles]);
+
+  /* —— 浏览手机文件 / 相册：只在桌面壳（webview）里能用 —— 浏览器面板的宿主
+     （panel_http）没有 phonefile/album 动作，缩略图虚拟主机也只挂在 WebView2 上，
+     这里如实降级，不装作可用。首次进入桌面壳时各拉一次根入口 / 第 0 页。 */
+  React.useEffect(() => {
+    if (bridge.mode !== 'webview') return;
+    if (phonePathRef.current === '' && phoneEntries.length === 0 && !phoneBusy) browsePhone('');
+    resetAlbum();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* —— 互传：选文件后发送 —— */
   const armPicker = (dev: LsDevice) => {
@@ -261,6 +570,50 @@ export const Transfer: React.FC<Props> = ({ state }) => {
           : lsNote
             ? { tone: 'ok' as const, text: lsNote }
             : null;
+
+  /* —— 相册：滚动到底自动加载下一页（IntersectionObserver 哨兵） —— */
+  const albumSentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = albumSentinelRef.current;
+    if (!el || bridge.mode !== 'webview') return;
+    const io = new IntersectionObserver(
+      (ins) => {
+        ins.forEach((i) => {
+          if (i.isIntersecting && !albumDone && !albumBusy && albumEntries.length > 0)
+            loadAlbumPage(albumLoadedPages.current.size);
+        });
+      },
+      { rootMargin: '300px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [albumDone, albumBusy, albumEntries.length, loadAlbumPage]);
+
+  /* —— 相册：按拍摄日期分组（条目天然按时间倒序，顺序扫一遍成组） —— */
+  const albumGroups = React.useMemo(() => {
+    const groups: { label: string; items: AlbumEntryT[] }[] = [];
+    for (const e of albumEntries) {
+      const label = albumDateLabel(e.added);
+      const last = groups[groups.length - 1];
+      if (last && last.label === label) last.items.push(e);
+      else groups.push({ label, items: [e] });
+    }
+    return groups;
+  }, [albumEntries]);
+
+  /* —— 相册：点格子取原图（走手机文件通道，落进「手机直传」的收到列表） —— */
+  const [albumPull, setAlbumPull] = React.useState<string | null>(null);
+  const pullOriginal = async (e: AlbumEntryT) => {
+    setAlbumPull(e.name);
+    setAlbumErr('');
+    try {
+      await bridge.act('phonefile.pull', { path: e.path });
+      setAlbumNote(`正在取回原图：${e.name}（完成后出现在「手机直传」列表）`);
+    } catch (err: any) {
+      setAlbumPull(null);
+      setAlbumErr(err?.message || String(err));
+    }
+  };
 
   return (
     <>
@@ -508,6 +861,217 @@ export const Transfer: React.FC<Props> = ({ state }) => {
               发送走与手机的控制连接（需已连上）；删除仅限本面板落盘目录内的文件。
             </span>
           </div>
+        </div>
+      </Section>
+
+      {/* ————— 相册投影（0x48–0x4B）————— */}
+      <Section index={2} title="相册投影" note="手机相册在电脑上翻 · 点格子取原图">
+        <div className="card">
+          {browserMode ? (
+            <div style={{ padding: 16 }}>
+              <Notice tone="info" icon={<IconInfo size={16} />}>
+                相册投影需要桌面客户端（缩略图通道只挂在 Windows 桌面壳上），浏览器面板暂不支持。
+              </Notice>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 10, padding: 16, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <Row
+                    lead={<IconCamera size={19} />}
+                    leadTone="accent"
+                    title="新照片提醒"
+                    sub="手机拍到新照片时发一条系统通知（转发到电脑）"
+                    trail={
+                      <Switch on={albumWatchOn} onChange={toggleWatch} label="新照片提醒" />
+                    }
+                  />
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={resetAlbum} title="从头重新加载相册">
+                  刷新
+                </button>
+              </div>
+
+              {(albumErr || albumNote) && (
+                <div style={{ padding: '0 16px 12px' }}>
+                  <Notice
+                    tone={albumErr ? 'err' : 'info'}
+                    icon={albumErr ? <IconAlert size={16} /> : <IconInfo size={16} />}
+                  >
+                    {albumErr || albumNote}
+                  </Notice>
+                </div>
+              )}
+
+              {albumGroups.length === 0 && !albumBusy && !albumErr && (
+                <Empty
+                  icon={<IconCamera size={19} />}
+                  title="还没有加载到照片"
+                  hint="确认手机已连上、且在手机端允许电脑访问相册"
+                />
+              )}
+
+              {albumGroups.map((g) => (
+                <div key={g.label} style={{ padding: '4px 16px 12px' }}>
+                  <div
+                    className="faint"
+                    style={{ fontSize: 11.5, margin: '4px 0 8px' }}
+                  >
+                    {g.label}
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
+                      gap: 6,
+                    }}
+                  >
+                    {g.items.map((e) => (
+                      <AlbumTile
+                        key={e.id}
+                        entry={e}
+                        failed={albumFailedThumbs.current.has(e.id)}
+                        onVisible={requestThumb}
+                        onRetry={retryThumb}
+                        onOpen={pullOriginal}
+                        pulling={albumPull === e.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {/* 哨兵：滚进视口且还有下一页时自动加载 */}
+              <div ref={albumSentinelRef} style={{ height: 1 }} />
+              <div style={{ padding: '8px 16px 14px' }} className="faint">
+                <span style={{ fontSize: 11.5 }}>
+                  {albumBusy
+                    ? '正在加载…'
+                    : albumDone
+                      ? `已到相册最老处 · 共 ${albumEntries.length} 张`
+                      : '继续滚动加载更早的照片'}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      </Section>
+
+      {/* ————— 浏览手机文件（0x44–0x47）————— */}
+      <Section index={3} title="浏览手机文件" note="电脑直接翻手机存储 · 取走文件">
+        <div className="card">
+          {browserMode ? (
+            <div style={{ padding: 16 }}>
+              <Notice tone="info" icon={<IconInfo size={16} />}>
+                浏览手机文件需要桌面客户端，浏览器面板暂不支持。
+              </Notice>
+            </div>
+          ) : (
+            <>
+              {/* 面包屑：手机路径映射成「内部存储 / Download / …」，tap 任意一段回跳 */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '14px 16px 8px',
+                  fontSize: 12.5,
+                  color: 'var(--on-tertiary, #888)',
+                }}
+              >
+                <button
+                  className="btn btn-quiet btn-sm"
+                  onClick={() => browsePhone('')}
+                  disabled={phoneBusy}
+                >
+                  <IconFolder size={14} />
+                  手机存储
+                </button>
+                {(() => {
+                  const segs = phonePath === STORAGE_ROOT
+                    ? ['内部存储']
+                    : phonePath.startsWith(STORAGE_ROOT + '/')
+                      ? ['内部存储', ...phonePath.slice(STORAGE_ROOT.length + 1).split('/').filter(Boolean)]
+                      : [];
+                  return segs.map((seg, i) => {
+                    const target = i === 0 ? STORAGE_ROOT : STORAGE_ROOT + '/' + segs.slice(1, i + 1).join('/');
+                    return (
+                      <React.Fragment key={i}>
+                        <span>›</span>
+                        <button
+                          className="btn btn-quiet btn-sm"
+                          onClick={() => browsePhone(target)}
+                          disabled={i === segs.length - 1 || phoneBusy}
+                        >
+                          {seg}
+                        </button>
+                      </React.Fragment>
+                    );
+                  });
+                })()}
+              </div>
+
+              {phoneErr && (
+                <div style={{ padding: '0 16px 12px' }}>
+                  <Notice tone="err" icon={<IconAlert size={16} />}>
+                    {phoneErr}
+                  </Notice>
+                </div>
+              )}
+
+              <div className="rows" style={{ borderTop: '1px solid var(--line-soft)' }}>
+                {phoneBusy && (
+                  <Empty icon={<IconFolder size={19} />} title="正在读取手机目录…" />
+                )}
+                {!phoneBusy && !phoneErr && phoneEntries.length === 0 && (
+                  <Empty icon={<IconFolder size={19} />} title="这个目录是空的" />
+                )}
+                {phoneEntries.map((e) => {
+                  const full = childPathOf(phonePath, e.name);
+                  return e.isDir ? (
+                    <Row
+                      key={'d:' + e.name}
+                      lead={<IconFolder size={17} />}
+                      title={e.name}
+                      sub="文件夹"
+                      onClick={() => browsePhone(full)}
+                    />
+                  ) : (
+                    <Row
+                      key={'f:' + e.name}
+                      lead={<IconFileDown size={17} />}
+                      title={e.name}
+                      sub={fmtSize(e.size)}
+                      trail={
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          disabled={!!phonePull}
+                          onClick={() => {
+                            setPhonePull(e.name);
+                            setPhoneErr('');
+                            bridge.act('phonefile.pull', { path: full }).catch((err: any) => {
+                              setPhonePull(null);
+                              setPhoneErr(err?.message || String(err));
+                            });
+                          }}
+                          title="取回这个文件（落到「手机直传」的收到列表）"
+                        >
+                          {phonePull === e.name ? '取回中…' : '取到电脑'}
+                        </button>
+                      }
+                    />
+                  );
+                })}
+              </div>
+
+              <div style={{ padding: '10px 16px 14px' }} className="faint">
+                <span style={{ fontSize: 11.5 }}>
+                  取回的文件与手机发来的文件落在同一目录（下载\AllPeriph）；只读，不会改动手机里的文件。
+                </span>
+              </div>
+            </>
+          )}
         </div>
       </Section>
     </>

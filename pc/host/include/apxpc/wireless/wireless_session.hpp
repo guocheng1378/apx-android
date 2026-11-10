@@ -106,6 +106,13 @@ public:
     bool sendPhoneFileListReq(const std::string& path);
     bool sendPhoneFilePullReq(const std::string& path);
 
+    /// 相册投影（0x48–0x4B，2026-11-12，能力位 bit4）：向已连接的受控端请求相册一页 /
+    /// 开关新照片监听 / 按条目 id 请求缩略图（经 9512 推回 JPEG）。
+    /// 未连接或对端不支持返回 false。page 从 0 起、按拍摄时间倒序。
+    bool sendAlbumPageReq(uint32_t page);
+    bool sendAlbumWatchReq(bool on);
+    bool sendAlbumThumbReq(uint32_t id);
+
     /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
     bool connected() const;
 
@@ -154,6 +161,16 @@ public:
     /// 取文件失败回执（文件本体经 9512 成功推回时不发帧）。
     void setOnPhoneFileFail(std::function<void(uint8_t err, const std::string& path)> cb);
 
+    // ————— 相册投影（0x48–0x4B，2026-11-12，能力位 bit4） —————
+    // 受控端回一页相册（0x49）/ 缩略图失败回执（0x47，前缀 album:thumb:），经**控制端
+    // reader** 到这里；接线方（桌面壳）转 web_panel 事件推给前端。锁保护口径同上。
+
+    /// 相册分页应答：err 与 Android ApxFrame.PHONEFILE_ERR_* 一致（0=成功），page 回显请求页号。
+    void setOnAlbumPage(std::function<void(uint8_t err, uint32_t page,
+                                           const std::vector<AlbumEntry>& entries)> cb);
+    /// 缩略图失败回执（缩略图经 9512 成功推回时不发帧；path 形如 "album:thumb:<id>.jpg"）。
+    void setOnAlbumPageFail(std::function<void(uint8_t err, const std::string& path)> cb);
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
@@ -196,6 +213,9 @@ private:
     // 手机文件浏览回调（0x44–0x47，2026-11-11）：锁保护口径同上
     std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
     std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
+    // 相册投影回调（0x48–0x4B，2026-11-12）：锁保护口径同上
+    std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
+    std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
     mutable std::mutex cbMu_;
 };
 

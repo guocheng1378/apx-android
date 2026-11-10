@@ -84,6 +84,15 @@ class ControlServer(
      */
     @Volatile var onPhoneFileCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
 
+    /**
+     * 0x48/0x4A/0x4B 相册投影回调（2026-11-12，能力位 bit4）：电脑浏览本机相册
+     * （0x48 分页）、开关新照片监听（0x4A）、取缩略图（0x4B，本体经 9512）。
+     * 参数口径与 [onPhoneFileCmd] 一致（cmd/body/reply/peerHost）。实现落 app 模块
+     * `com.allperiph.files.PhoneAlbum`（由 ControlledService 注入）；TV 端不设即忽略
+     * （相册只在「电脑控手机 / 手机控手机」两条链路上有界面入口）。
+     */
+    @Volatile var onAlbumCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
+
     @Volatile var onRemoteInputRequest: ((String, String) -> Unit)? = null
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
@@ -435,6 +444,12 @@ class ControlServer(
                             // reply 闭包 = 当前链路的 sendControl（应答 0x45/0x47 走原路返回）。
                             0x44 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x44, body, ::sendControl, currentPeerHost()) }
                             0x46 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x46, body, ::sendControl, currentPeerHost()) }
+                            // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：电脑浏览本机相册。
+                            // 实现落 app 模块 PhoneAlbum（经 onAlbumCmd 回调注入，与 onPhoneFileCmd
+                            // 同一套注入口径）；TV 端不注入 → 静默忽略（类底有日志）。
+                            0x48 -> if (body.size >= 5) actions.add { onAlbumCmd?.invoke(0x48, body, ::sendControl, currentPeerHost()) }
+                            0x4A -> if (body.size >= 2) actions.add { onAlbumCmd?.invoke(0x4A, body, ::sendControl, currentPeerHost()) }
+                            0x4B -> if (body.size >= 5) actions.add { onAlbumCmd?.invoke(0x4B, body, ::sendControl, currentPeerHost()) }
                         }
                     }
                 }
@@ -559,7 +574,9 @@ class ControlServer(
     private fun sendCapsSync() {
         val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
             com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
-            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE
+            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
+            com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
+            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()

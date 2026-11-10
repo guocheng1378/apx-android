@@ -83,6 +83,17 @@ object ApxFrame {
     /** 能力位 bit2：查找手机 —— PC→手机 响铃（0x38，静音也响） */
     const val CAP_FIND_PHONE = 1L shl 2
 
+    /**
+     * 能力位 bit3：手机文件浏览 —— PC/控制端浏览本机目录并取走文件（0x44–0x47）。
+     */
+    const val CAP_PHONE_FILES = 1L shl 3
+
+    /**
+     * 能力位 bit4：相册投影 —— PC 浏览本机相册（0x48–0x4B）：分页取条目（0x48/0x49）、
+     * 新照片监听开关（0x4A）、缩略图按张取（0x4B，本体经 9512）。原图走 0x46（无损）。
+     */
+    const val CAP_ALBUM = 1L shl 4
+
     // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
     /**
      * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]
@@ -132,6 +143,125 @@ object ApxFrame {
     const val PHONEFILE_ERR_NOT_FOUND = 2     // 目录/文件不存在
     const val PHONEFILE_ERR_READ = 3          // 目录读取失败（IO）
     const val PHONEFILE_ERR_SEND_FAILED = 4   // 9512 推送失败（网络断/文件中途消失）
+
+    // ———————————— 9511 相册投影（2026-11-12，能力位 bit4）————————————
+    /**
+     * PC → 手机：取一页相册条目。收发两端与 0x44–0x47 同一套口径：
+     *  · 发送方 PC（web 面板 → ctrl9511.cpp sendCmd）；
+     *  · 接收方手机三条控制链路（ControlServer / TvControlServer / TvControllerClient），
+     *    实现落 app 模块 `PhoneAlbum`（与 PhoneFiles 同一套注入口径）。
+     * 能力门控：PC 发送前核对对端位图含 [CAP_ALBUM]。
+     */
+    const val CMD_ALBUM_PAGE = 0x48
+
+    /** 手机 → PC：一页相册条目应答（见 [packAlbumPageReply]）。 */
+    const val CMD_ALBUM_PAGE_REPLY = 0x49
+
+    /**
+     * PC → 手机：新照片监听开关（相册页打开时开、关掉时关）。
+     * 开着时手机端 ContentObserver 发现新照片 → 经既有 0x40 通知推送（复用通知同步链路，
+     * 不新开帧族）。载荷 `[0x4A][on u8]`：1=开 0=关。
+     */
+    const val CMD_ALBUM_WATCH = 0x4A
+
+    /**
+     * PC → 手机：取一张缩略图。载荷 `[0x4B][id u32 LE]`（MediaStore `_ID`）。
+     * 本体（JPEG）经 9512 推回，文件名 `albumthumb_<id>.jpg`（PC 端虚拟主机映射可直接当
+     * <img> 地址）；失败发 0x47（path = "album:thumb:<id>"，与取文件失败同一回执帧）。
+     */
+    const val CMD_ALBUM_THUMB = 0x4B
+
+    /** 相册单页条目数：60 张 ≈ 每条 ~250B 路径 + 名字，一页帧 < 40KB，远小于 4MB 帧上限 */
+    const val ALBUM_PAGE_SIZE = 60
+
+    /** 缩略图边长（px，正方形）：网格单元 2x density 足够清晰，单张 JPEG 几十 KB */
+    const val ALBUM_THUMB_PX = 256
+
+    /**
+     * 一条相册条目。[path] 是原文件绝对路径（MediaStore `DATA`）—— PC 端「看原图 / 拖拽导出」
+     * 复用既有 0x46（文件本体原样过 9512，无损），所以路径拿不到（部分机型 DATA 为空）的条目
+     * 要从列表里剔除，否则点了取不到。
+     */
+    data class AlbumEntry(val id: Long, val path: String, val name: String, val added: Long, val size: Long)
+
+    /** 组 0x48 相册分页请求：`[0x48][page u32 LE]`（从 0 起，按 DATE_ADDED 倒序）。 */
+    fun packAlbumPageReq(page: Int): ByteArray {
+        val body = ByteArray(5)
+        body[0] = CMD_ALBUM_PAGE.toByte()
+        var v = page
+        for (i in 0 until 4) {
+            body[1 + i] = (v and 0xFF).toByte()
+            v = v ushr 8
+        }
+        return body
+    }
+
+    /** 组 0x4A 监听开关：`[0x4A][on u8]`（1=开 0=关）。 */
+    fun packAlbumWatchReq(on: Boolean): ByteArray =
+        byteArrayOf(CMD_ALBUM_WATCH.toByte(), if (on) 1 else 0)
+
+    /** 组 0x4B 缩略图请求：`[0x4B][id u32 LE]`。 */
+    fun packAlbumThumbReq(id: Long): ByteArray {
+        val body = ByteArray(5)
+        body[0] = CMD_ALBUM_THUMB.toByte()
+        var v = id.toInt()
+        for (i in 0 until 4) {
+            body[1 + i] = (v and 0xFF).toByte()
+            v = v ushr 8
+        }
+        return body
+    }
+
+    /**
+     * 组 0x49 相册分页应答：`[0x49][err u8][page u32 LE][count u16]`
+     * + count × `[id u32 LE][added u32 LE][size u64 LE][pathLen u16][path][nameLen u16][name]`。
+     * added 为秒（MediaStore `DATE_ADDED` 口径），PC 端按它折算本地日期分组。
+     */
+    fun packAlbumPageReply(err: Int, page: Int, entries: List<AlbumEntry>): ByteArray {
+        val shown = if (err == PHONEFILE_ERR_NONE) entries.take(ALBUM_PAGE_SIZE) else emptyList()
+        val head = ByteArray(1 + 1 + 4 + 2)
+        var off = 0
+        head[off++] = CMD_ALBUM_PAGE_REPLY.toByte()
+        head[off++] = err.toByte()
+        var v = page
+        for (i in 0 until 4) {
+            head[off++] = (v and 0xFF).toByte()
+            v = v ushr 8
+        }
+        head[off++] = (shown.size and 0xFF).toByte()
+        head[off] = ((shown.size ushr 8) and 0xFF).toByte()
+        val parts = ArrayList<ByteArray>(shown.size + 1)
+        parts.add(head)
+        for (e in shown) {
+            val p = utf8Clamp(e.path, PHONEFILE_PATH_MAX)
+            val n = utf8Clamp(e.name, PHONEFILE_NAME_MAX)
+            val rec = ByteArray(4 + 4 + 8 + 2 + p.size + 2 + n.size)
+            var o = 0
+            var id = e.id.toInt()
+            for (i in 0 until 4) {
+                rec[o++] = (id and 0xFF).toByte()
+                id = id ushr 8
+            }
+            var ad = e.added.toInt()
+            for (i in 0 until 4) {
+                rec[o++] = (ad and 0xFF).toByte()
+                ad = ad ushr 8
+            }
+            var sz = e.size
+            for (i in 0 until 8) {
+                rec[o++] = (sz and 0xFF).toByte()
+                sz = sz ushr 8
+            }
+            rec[o++] = (p.size and 0xFF).toByte()
+            rec[o++] = ((p.size ushr 8) and 0xFF).toByte()
+            p.copyInto(rec, o); o += p.size
+            rec[o++] = (n.size and 0xFF).toByte()
+            rec[o] = ((n.size ushr 8) and 0xFF).toByte()
+            n.copyInto(rec, o + 1)
+            parts.add(rec)
+        }
+        return parts.reduce { a, b -> a + b }
+    }
 
     /** 目录应答的单目录条目上限：防超大目录把 4MB 帧塞爆（名字 512B 上限，200 条 ≈ 110KB） */
     const val PHONEFILE_MAX_ENTRIES = 200

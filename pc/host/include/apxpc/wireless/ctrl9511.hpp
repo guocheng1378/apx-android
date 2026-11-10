@@ -151,6 +151,18 @@ static constexpr uint64_t kCaps9511NotifySync  = 1ull << 0;  // 手机→PC 推�
 static constexpr uint64_t kCaps9511NotifyReply = 1ull << 1;  // PC→手机 RemoteInput 代发回复（0x41，预留）
 static constexpr uint64_t kCaps9511FindPhone   = 1ull << 2;  // PC→手机 查找手机响铃（0x38）
 static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏览/取走手机文件（0x44–0x47）
+static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相册投影（0x48–0x4B）
+
+/// 相册条目（0x49 分页应答，2026-11-12，与 Android ApxFrame.AlbumEntry 对拍）。
+/// added 为秒（MediaStore DATE_ADDED 口径，PC 端按它折算本地日期分组）；
+/// id 是 MediaStore 图片 _id，缩略图/原图请求都按它寻址。
+struct AlbumEntry {
+    uint32_t id = 0;
+    uint32_t added = 0;
+    uint64_t size = 0;
+    std::string path;
+    std::string name;
+};
 
 /// 手机文件条目（0x45 目录应答，2026-11-11，与 Android ApxFrame.PhoneFileEntry 对拍）。
 /// isDir=true 时 size 无意义（对端恒填 0）；name 为 UTF-8 文件/目录名。
@@ -225,6 +237,14 @@ public:
     bool sendPhoneFileListReq(const std::string& path);
     bool sendPhoneFilePullReq(const std::string& path);
 
+    /// 相册投影（0x48–0x4B，2026-11-12，能力位 bit4）：向已连入的对端请求相册一页 /
+    /// 开关新照片监听 / 按条目 id 请求一张缩略图（经 9512 推回 JPEG）。
+    /// 门控同手机文件：对端报过 0x33 且缺 kCaps9511Album 位时跳过。
+    /// page 从 0 起、按拍摄时间倒序；分页应答走 0x49 回调，失败走 0x47 回执。
+    bool sendAlbumPageReq(uint32_t page);
+    bool sendAlbumWatchReq(bool on);
+    bool sendAlbumThumbReq(uint32_t id);
+
     /// 远程输入回调：受控端收到手机发来的远程输入请求/文本/完成信号
     void setOnRequestInput(std::function<void(const std::string&)> cb) { onRequestInput_ = std::move(cb); }
     void setOnRemoteInputText(std::function<void(const std::string&, uint8_t)> cb) { onRemoteInputText_ = std::move(cb); }
@@ -253,6 +273,18 @@ public:
         onPhoneFileFail_ = std::move(cb);
     }
 
+    /// 相册投影回调（0x49/0x47，2026-11-12，能力位 bit4）：对端回一页相册 /
+    /// 缩略图失败回执时触发（搬运口径同手机文件回调）。回调跑在 reader 线程；
+    /// err 取值与 Android ApxFrame.PHONEFILE_ERR_* 一致（0=成功）。
+    /// 失败回执按 path 前缀 "album:thumb:" 区分是缩略图失败还是文件失败。
+    void setOnAlbumPage(std::function<void(uint8_t err, uint32_t page,
+                                           const std::vector<AlbumEntry>& entries)> cb) {
+        onAlbumPage_ = std::move(cb);
+    }
+    void setOnAlbumPageFail(std::function<void(uint8_t err, const std::string& path)> cb) {
+        onAlbumPageFail_ = std::move(cb);
+    }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -266,6 +298,9 @@ private:
     // 手机文件浏览回调（0x45/0x47，2026-11-11）：搬运口径同上
     std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
     std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
+    // 相册投影回调（0x49/0x47，2026-11-12）：搬运口径同上
+    std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
+    std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----
@@ -340,6 +375,14 @@ public:
     bool sendPhoneFileListReq(const std::string& path);
     bool sendPhoneFilePullReq(const std::string& path);
 
+    /// 相册投影（0x48–0x4B，2026-11-12，能力位 bit4）：向受控端请求相册一页 /
+    /// 开关新照片监听 / 按条目 id 请求缩略图。门控同 sendFindPhone（对端报过 0x33
+    /// 且缺 kCaps9511Album 时跳过）。page 从 0 起、按拍摄时间倒序；分页应答走
+    /// onAlbumPage 回调，缩略图经 9512 推回、失败走 0x47 回执（onAlbumPageFail）。
+    bool sendAlbumPageReq(uint32_t page);
+    bool sendAlbumWatchReq(bool on);
+    bool sendAlbumThumbReq(uint32_t id);
+
     /// 线程安全状态快照（计数 / RTT / 连接）
     Ctrl9511ClientStatus status() const;
 
@@ -371,6 +414,14 @@ public:
     std::function<void(uint8_t err, const std::string& path,
                        const std::vector<PhoneFileEntry>& entries)> onPhoneFileList;
     std::function<void(uint8_t err, const std::string& path)> onPhoneFileFail;
+
+    /// 相册投影回调（0x49/0x47，2026-11-12，能力位 bit4）：受控端回一页相册 /
+    /// 缩略图失败回执时触发。回调跑在 reader 线程；⚠️ 与既有回调一样在 connect()
+    /// 时被捕获，必须在**连接前**赋值。err 取值与 Android ApxFrame.PHONEFILE_ERR_*
+    /// 一致（0=成功）；失败回执按 path 前缀 "album:thumb:" 与文件失败区分。
+    std::function<void(uint8_t err, uint32_t page,
+                       const std::vector<AlbumEntry>& entries)> onAlbumPage;
+    std::function<void(uint8_t err, const std::string& path)> onAlbumPageFail;
 
 private:
     struct Impl;

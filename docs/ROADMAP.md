@@ -578,6 +578,15 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 
 **② 相册投影（全量）**
 
+> **状态（2026-11-12）**：已落地并推送 master（未打 tag、未发版）。跨端 0x48–0x4B +
+> 能力位 bit4：手机端 `PhoneAlbum` 三条控制链路统一入口（`MediaStore` 分页查询、
+> `loadThumbnail(256)`→9512 推回、`ContentObserver` 新照片 → 系统通知）；PC 端
+> `ctrl9511` 收发 + `WirelessSession` 转发 + `web_panel` 三个 act/两个事件 +
+> 传输页「相册投影」区（按天分组网格、滚动分页、点格子取原图、新照片提醒开关）。
+> 与计划的差异：原图「拖拽导出」改「点按取回」（与手机文件同通道，少一套手势）；
+> 相册挂在传输页而非独立页面。缩略图懒加载 = 进视口才请求（前端 IntersectionObserver），
+> 不是预取队列。待真机验证：权限弹窗、分页翻到底、新照片通知、`media.allperiph` 直读。
+
 | 项 | 内容 |
 |---|---|
 | 手机端改动面 | 新增相册模块：`MediaStore` 按天分组（`DATE_ADDED` bucket），缩略图经 `ContentResolver.loadThumbnail` 流式懒加载（分页查询，不一次性全表）；原图按需取（PC 端滚动到哪取到哪）；`ContentObserver` 监听新照片 → 推 PC 通知 |

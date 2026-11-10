@@ -1103,6 +1103,32 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         return postResponse(p, id, okResp());
     }
 
+    // —— 相册投影（0x48–0x4B，2026-11-12，能力位 bit4）——
+    // 链路择活口径与 phonefile 同款：先 session（PC 控手机）再 ctrlSrv（手机控 PC）。
+    // act-response 立即回 ok —— 相册页经 0x49 走 on-album-page 事件、缩略图经 9512
+    // 推回（media.allperiph 虚拟主机直读），都是异步的。
+    if (name == "album.page" || name == "album.watch" || name == "album.thumb") {
+        bool ok = false;
+        if (name == "album.page") {
+            const uint32_t page = payload.find("page") ? static_cast<uint32_t>(
+                payload.find("page")->asNumber()) : 0;
+            if (b.session && b.session->connected()) ok = b.session->sendAlbumPageReq(page);
+            if (!ok && b.ctrlSrv) ok = b.ctrlSrv->sendAlbumPageReq(page);
+        } else if (name == "album.watch") {
+            const bool on = payload.find("on") ? payload.find("on")->asBool() : false;
+            if (b.session && b.session->connected()) ok = b.session->sendAlbumWatchReq(on);
+            if (!ok && b.ctrlSrv) ok = b.ctrlSrv->sendAlbumWatchReq(on);
+        } else {   // album.thumb
+            const uint32_t id = payload.find("id") ? static_cast<uint32_t>(
+                payload.find("id")->asNumber()) : 0;
+            if (b.session && b.session->connected()) ok = b.session->sendAlbumThumbReq(id);
+            if (!ok && b.ctrlSrv) ok = b.ctrlSrv->sendAlbumThumbReq(id);
+        }
+        if (!ok)
+            return postResponse(p, id, failResp("未连接手机（或手机未授权相册访问）"));
+        return postResponse(p, id, okResp());
+    }
+
     // —— 日志：清单 + 按时间范围导出（issue #52 第 3 条）——
     // 与 panel_http.cpp 同口径（那边跑 macOS/Linux）。Windows 这一份**还多一个
     // log.pickDir**：这里的模态对话框跑在 UI 线程（WebView2 消息循环 + STA COM），
@@ -1422,6 +1448,23 @@ void startWebView2Env(Panel* p) {
                                     kWebHost, webDir.c_str(),
                                     COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW))) {
                                 APX_LOGI("WebView2 加载: https://app.allperiph/index.html（虚拟主机映射已启用）");
+                                // 相册投影（2026-11-12）：再映射 media.allperiph → FileReceiver
+                                // 接收目录。缩略图按 <id> 命名落在该目录，前端 <img> 直接引用
+                                // https://media.allperiph/albumthumb_<id>.jpg（同源外的主机名，
+                                // 避免相册大图把面板 web 目录搅在一起）。目录不存在时先建，
+                                // 否则映射对空文件夹的首次写入会失败。
+                                {
+                                    // defaultDir 返回 UTF-8 窄串；filesystem 构造按当前
+                                    // Windows 代码页解释会出错，先转宽串再建路径（与 1029
+                                    // 行 fs::path(utf8ToWide(...)) 同口径）。
+                                    std::filesystem::path recvDir =
+                                        fs::path(utf8ToWide(apxpc::wireless::FileReceiver::defaultDir()));
+                                    std::error_code mkEc;
+                                    std::filesystem::create_directories(recvDir, mkEc);
+                                    wv3->SetVirtualHostNameToFolderMapping(
+                                        L"media.allperiph", recvDir.wstring().c_str(),
+                                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                                }
                                 wv->Navigate((std::wstring(L"https://") + kWebHost + L"/index.html").c_str());
                                 navigated = true;
                             }
@@ -1567,6 +1610,40 @@ void notifyPhoneFileFail(uint8_t err, const std::string& path) {
     d["err"] = static_cast<int>(err);
     d["path"] = path;
     postEvent(p, std::string("on-phone-files-fail"), d);
+}
+
+// ———————— 相册投影（0x48–0x4B，2026-11-12，能力位 bit4） ————————
+// desktop_main 在 9511 回调线程调用：把相册分页应答 / 缩略图失败回执推给前端
+// 相册网格。postEvent 线程安全（同 notifyPhoneFile* 的约定），可直接调。
+// 托盘气泡不做（浏览是面板内的主动操作；新照片提醒由手机端系统通知承担）。
+void notifyAlbumPage(uint8_t err, uint32_t page,
+                     const std::vector<AlbumEntry>& entries) {
+    Panel* p = g_panel;
+    if (!p) return;   // 面板未就绪：分页是请求-应答式交互，静默丢（前端可重发请求）
+    Json d = Json::makeObject();
+    d["err"] = static_cast<int>(err);
+    d["page"] = page;
+    Json arr = Json::makeArray();
+    for (const auto& e : entries) {
+        Json o = Json::makeObject();
+        o["id"] = e.id;
+        o["added"] = e.added;
+        o["size"] = static_cast<long long>(e.size);
+        o["path"] = e.path;
+        o["name"] = e.name;
+        arr.push(std::move(o));
+    }
+    d["entries"] = std::move(arr);
+    postEvent(p, std::string("on-album-page"), d);
+}
+
+void notifyAlbumPageFail(uint8_t err, const std::string& path) {
+    Panel* p = g_panel;
+    if (!p) return;
+    Json d = Json::makeObject();
+    d["err"] = static_cast<int>(err);
+    d["path"] = path;
+    postEvent(p, std::string("on-album-page-fail"), d);
 }
 
 // ———————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————

@@ -206,7 +206,7 @@ struct Ctrl9511Server::Impl {
      */
     void sendCapsSync() {
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles;
+                           | kCaps9511PhoneFiles | kCaps9511Album;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         std::vector<uint8_t> buf(apx::kFrameHeaderSize + sizeof(body) + apx::kFrameCrcSize);
@@ -236,6 +236,10 @@ struct Ctrl9511Server::Impl {
     std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
     std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
     std::atomic<uint64_t> aPhoneFileList_{0}, aPhoneFileFail_{0};
+    // 相册投影回调（0x49/0x47，2026-11-12）：搬运口径同上
+    std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
+    std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
+    std::atomic<uint64_t> aAlbumPage_{0}, aAlbumPageFail_{0};
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -610,14 +614,63 @@ struct Ctrl9511Server::Impl {
                 if (onPhoneFileList_) onPhoneFileList_(err, path, entries);
                 aPhoneFileList_.fetch_add(1);
             }
+        } else if (cmd == 0x49 && bodyLen >= 8) {
+            // ALBUM_PAGE_REPLY 相册分页应答（2026-11-12，能力位 bit4，与 0x48 配对）。
+            // 载荷（与 Android ApxFrame.packAlbumPageReply 对拍）：
+            //   [0x49][err u8][page u32 LE][count u16 LE]
+            //   + count × [id u32 LE][added u32 LE][size u64 LE]
+            //             [pathLen u16 LE][path][nameLen u16 LE][name]
+            // 解析失败整帧丢弃不回调（与 0x45 同口径，坏载荷宁可少一次刷新）。
+            const uint8_t err = p[1];
+            uint32_t page = 0;
+            for (int b = 0; b < 4; ++b)
+                page |= static_cast<uint32_t>(p[2 + b]) << (8 * b);
+            const uint16_t count = static_cast<uint16_t>(p[6]) | (static_cast<uint16_t>(p[7]) << 8);
+            uint32_t off = 8;
+            std::vector<AlbumEntry> entries;
+            entries.reserve(count < 60 ? count : 60);      // 协议上限 60（ALBUM_PAGE_SIZE）
+            for (int i = 0; i < count && off + 12 <= bodyLen; ++i) {
+                AlbumEntry e;
+                for (int b = 0; b < 4; ++b)
+                    e.id |= static_cast<uint32_t>(p[off + b]) << (8 * b);
+                off += 4;
+                for (int b = 0; b < 4; ++b)
+                    e.added |= static_cast<uint32_t>(p[off + b]) << (8 * b);
+                off += 4;
+                for (int b = 0; b < 8; ++b)
+                    e.size |= static_cast<uint64_t>(p[off + b]) << (8 * b);
+                off += 8;
+                const uint16_t pLen = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                off += 2;
+                if (off + pLen > bodyLen) break;           // 条目残缺：到手的先交，整帧不硬解
+                e.path.assign(reinterpret_cast<const char*>(p + off), pLen);
+                off += pLen;
+                if (off + 2 > bodyLen) break;
+                const uint16_t nLen = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                off += 2;
+                if (off + nLen > bodyLen) break;
+                e.name.assign(reinterpret_cast<const char*>(p + off), nLen);
+                off += nLen;
+                entries.push_back(std::move(e));
+            }
+            if (onAlbumPage_) onAlbumPage_(err, page, entries);
+            aAlbumPage_.fetch_add(1);
         } else if (cmd == 0x47 && bodyLen >= 4) {
-            // PHONE_FILE_FAIL 取文件失败回执（与 0x46 配对）：文件本体没推回来时的替代信号。
+            // PHONE_FILE_FAIL 取文件失败回执（与 0x46/0x4B 配对）：文件/缩略图本体没推回来
+            // 时的替代信号。path 以 "album:thumb:" 开头的是相册缩略图失败（0x4B 配对），
+            // 其余是手机文件失败（0x46 配对）—— 回执同帧复用，按前缀分流。
             const uint8_t err = p[1];
             const uint16_t pathLen = static_cast<uint16_t>(p[2]) | (static_cast<uint16_t>(p[3]) << 8);
             if (4 + pathLen <= bodyLen) {
                 const std::string path(reinterpret_cast<const char*>(p + 4), pathLen);
-                if (onPhoneFileFail_) onPhoneFileFail_(err, path);
-                aPhoneFileFail_.fetch_add(1);
+                static const char kAlbumThumbPrefix[] = "album:thumb:";
+                if (path.rfind(kAlbumThumbPrefix, 0) == 0) {
+                    if (onAlbumPageFail_) onAlbumPageFail_(err, path);
+                    aAlbumPageFail_.fetch_add(1);
+                } else {
+                    if (onPhoneFileFail_) onPhoneFileFail_(err, path);
+                    aPhoneFileFail_.fetch_add(1);
+                }
             }
         }
     }
@@ -756,6 +809,9 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         // 手机文件浏览回调（0x45/0x47，2026-11-11）：同款搬运
         im->onPhoneFileList_ = std::move(onPhoneFileList_);
         im->onPhoneFileFail_ = std::move(onPhoneFileFail_);
+        // 相册投影回调（0x49/0x47，2026-11-12）：同款搬运
+        im->onAlbumPage_ = std::move(onAlbumPage_);
+        im->onAlbumPageFail_ = std::move(onAlbumPageFail_);
 
         im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (im->listenFd == kBadSock) { im->st.error = "socket 创建失败"; cleanup(); return false; }
@@ -861,6 +917,42 @@ bool Ctrl9511Server::sendPhoneFilePullReq(const std::string& path) {
     return true;
 }
 
+// 相册投影发送（0x48/0x4A/0x4B，2026-11-12，能力位 bit4）：门控与文件浏览同口径 ——
+// 对端报过 0x33 且缺 kCaps9511Album 才跳过；没报（旧版）照发，对端静默忽略无害。
+// 载荷与 Android ApxFrame.packAlbumPageReq/WatchReq/ThumbReq 对拍（小端逐字节）。
+bool Ctrl9511Server::sendAlbumPageReq(uint32_t page) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    uint8_t body[4] = { static_cast<uint8_t>(page & 0xFF),
+                        static_cast<uint8_t>((page >> 8) & 0xFF),
+                        static_cast<uint8_t>((page >> 16) & 0xFF),
+                        static_cast<uint8_t>((page >> 24) & 0xFF) };
+    impl_->sendCmd(0x48, body, sizeof(body));
+    return true;
+}
+
+bool Ctrl9511Server::sendAlbumWatchReq(bool on) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    const uint8_t body = on ? 1 : 0;
+    impl_->sendCmd(0x4A, &body, 1);
+    return true;
+}
+
+bool Ctrl9511Server::sendAlbumThumbReq(uint32_t id) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    uint8_t body[4] = { static_cast<uint8_t>(id & 0xFF),
+                        static_cast<uint8_t>((id >> 8) & 0xFF),
+                        static_cast<uint8_t>((id >> 16) & 0xFF),
+                        static_cast<uint8_t>((id >> 24) & 0xFF) };
+    impl_->sendCmd(0x4B, body, sizeof(body));
+    return true;
+}
+
 Ctrl9511ServerStatus Ctrl9511Server::status() const {
     if (!impl_) {
         // 受控端没在本进程跑（9511 被另一个实例占用）：其余字段保持默认，但注入权限是
@@ -940,7 +1032,7 @@ struct Ctrl9511Client::Impl {
      */
     void sendCapsSync() {
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles;
+                           | kCaps9511PhoneFiles | kCaps9511Album;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放 body[0]，这里只传位图 8 字节
@@ -1032,8 +1124,11 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbNotifyDismiss = onNotifyDismiss;
     const auto cbPhoneFileList = onPhoneFileList;
     const auto cbPhoneFileFail = onPhoneFileFail;
+    const auto cbAlbumPage = onAlbumPage;
+    const auto cbAlbumPageFail = onAlbumPageFail;
     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
-                                    cbNotifyPush, cbNotifyDismiss, cbPhoneFileList, cbPhoneFileFail] {
+                                    cbNotifyPush, cbNotifyDismiss, cbPhoneFileList, cbPhoneFileFail,
+                                    cbAlbumPage, cbAlbumPageFail] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -1196,14 +1291,60 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                             if (cbPhoneFileList) cbPhoneFileList(err, path, entries);
                         }
                     }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 8 && payload[0] == 0x49) {
+                    // ALBUM_PAGE_REPLY 相册分页应答（2026-11-12，能力位 bit4，与 0x48 配对）：
+                    // 受控手机回报一页相册条目。载荷与服务端 dispatch 同款（与
+                    // ApxFrame.packAlbumPageReply 对拍）；解析失败整帧丢弃不回调，与 0x45 同口径。
+                    {
+                        const uint8_t err = payload[1];
+                        uint32_t page = 0;
+                        for (int b = 0; b < 4; ++b)
+                            page |= static_cast<uint32_t>(payload[2 + b]) << (8 * b);
+                        const uint16_t count = static_cast<uint16_t>(payload[6]) | (static_cast<uint16_t>(payload[7]) << 8);
+                        uint32_t off = 8;
+                        std::vector<AlbumEntry> entries;
+                        entries.reserve(count < 60 ? count : 60);   // 协议上限 60（ALBUM_PAGE_SIZE）
+                        for (int i = 0; i < count && off + 12 <= bodyLen; ++i) {
+                            AlbumEntry e;
+                            for (int b = 0; b < 4; ++b)
+                                e.id |= static_cast<uint32_t>(payload[off + b]) << (8 * b);
+                            off += 4;
+                            for (int b = 0; b < 4; ++b)
+                                e.added |= static_cast<uint32_t>(payload[off + b]) << (8 * b);
+                            off += 4;
+                            for (int b = 0; b < 8; ++b)
+                                e.size |= static_cast<uint64_t>(payload[off + b]) << (8 * b);
+                            off += 8;
+                            const uint16_t pLen = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                            off += 2;
+                            if (off + pLen > bodyLen) break;        // 条目残缺：到手的先交
+                            e.path.assign(reinterpret_cast<const char*>(payload + off), pLen);
+                            off += pLen;
+                            if (off + 2 > bodyLen) break;
+                            const uint16_t nLen = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                            off += 2;
+                            if (off + nLen > bodyLen) break;
+                            e.name.assign(reinterpret_cast<const char*>(payload + off), nLen);
+                            off += nLen;
+                            entries.push_back(std::move(e));
+                        }
+                        if (cbAlbumPage) cbAlbumPage(err, page, entries);
+                    }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 4 && payload[0] == 0x47) {
-                    // PHONE_FILE_FAIL 取文件失败回执（与 0x46 配对）：文件本体没推回来时的替代信号。
+                    // PHONE_FILE_FAIL 取文件失败回执（与 0x46/0x4B 配对）：文件/缩略图本体没推
+                    // 回来时的替代信号。path 以 "album:thumb:" 开头的是相册缩略图失败（0x4B 配对），
+                    // 其余是手机文件失败（0x46 配对）—— 回执同帧复用，按前缀分流。
                     {
                         const uint8_t err = payload[1];
                         const uint16_t pathLen = static_cast<uint16_t>(payload[2]) | (static_cast<uint16_t>(payload[3]) << 8);
                         if (4 + pathLen <= bodyLen) {
                             const std::string path(reinterpret_cast<const char*>(payload + 4), pathLen);
-                            if (cbPhoneFileFail) cbPhoneFileFail(err, path);
+                            static const char kAlbumThumbPrefix[] = "album:thumb:";
+                            if (path.rfind(kAlbumThumbPrefix, 0) == 0) {
+                                if (cbAlbumPageFail) cbAlbumPageFail(err, path);
+                            } else {
+                                if (cbPhoneFileFail) cbPhoneFileFail(err, path);
+                            }
                         }
                     }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
@@ -1423,6 +1564,42 @@ bool Ctrl9511Client::sendPhoneFilePullReq(const std::string& path) {
     body[1] = static_cast<uint8_t>((p.size() >> 8) & 0xFF);
     std::memcpy(body.data() + 2, p.data(), p.size());
     impl_->sendCmd(0x46, body.data(), body.size());
+    return true;
+}
+
+// 相册投影发送（0x48/0x4A/0x4B，2026-11-12，能力位 bit4）：门控与文件浏览同口径 ——
+// 对端报过 0x33 且缺 kCaps9511Album 才明确跳过；没报（旧版）照发，静默忽略无害。
+// 载荷与 Android ApxFrame.packAlbumPageReq/WatchReq/ThumbReq 对拍（小端逐字节）。
+bool Ctrl9511Client::sendAlbumPageReq(uint32_t page) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    uint8_t body[4] = { static_cast<uint8_t>(page & 0xFF),
+                        static_cast<uint8_t>((page >> 8) & 0xFF),
+                        static_cast<uint8_t>((page >> 16) & 0xFF),
+                        static_cast<uint8_t>((page >> 24) & 0xFF) };
+    impl_->sendCmd(0x48, body, sizeof(body));
+    return true;
+}
+
+bool Ctrl9511Client::sendAlbumWatchReq(bool on) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    const uint8_t body = on ? 1 : 0;
+    impl_->sendCmd(0x4A, &body, 1);
+    return true;
+}
+
+bool Ctrl9511Client::sendAlbumThumbReq(uint32_t id) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511Album) == 0) return false;
+    uint8_t body[4] = { static_cast<uint8_t>(id & 0xFF),
+                        static_cast<uint8_t>((id >> 8) & 0xFF),
+                        static_cast<uint8_t>((id >> 16) & 0xFF),
+                        static_cast<uint8_t>((id >> 24) & 0xFF) };
+    impl_->sendCmd(0x4B, body, sizeof(body));
     return true;
 }
 

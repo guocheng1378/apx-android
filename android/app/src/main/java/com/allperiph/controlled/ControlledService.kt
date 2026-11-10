@@ -122,6 +122,12 @@ class ControlledService : Service() {
         server?.onPhoneFileCmd = { cmd, body, reply, peer ->
             com.allperiph.files.PhoneFiles.handle(cmd, body, reply, peer)
         }
+        // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：电脑分页看本机相册、
+        // 监听新照片、按需取缩略图。实现落 PhoneAlbum；回调线程模型同 PhoneFiles，
+        // handle 内部已甩专用线程，这里不做额外调度。
+        server?.onAlbumCmd = { cmd, body, reply, peer ->
+            com.allperiph.files.PhoneAlbum.handle(cmd, body, reply, peer)
+        }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {
