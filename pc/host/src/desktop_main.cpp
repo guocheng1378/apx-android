@@ -27,6 +27,7 @@
 #include "apxpc/wireless/wireless_session.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
 #include "apxpc/wireless/file_receiver.hpp"
+#include "apxpc/wireless/verify_code.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/screen_push.hpp"
@@ -817,7 +818,14 @@ int runDesktopMain() {
             const std::string body = title.empty() ? text
                                      : (text.empty() || title == text ? title : title + "\n" + text);
             if (body.empty()) return;
-            trayRaw->notify(app.empty() ? "手机通知" : app, body);
+            // 验证码一键复制（2026-11-11，补齐 ROADMAP §5.1①）：NIF_INFO 气泡没有按钮，
+            // 「一键」落成自动复制——命中验证码即写 PC 本机剪贴板，气泡里回显码值。
+            // 复制失败（极少见，如剪贴板被占用）不追加「已复制」，气泡只显示原文，不撒谎。
+            std::string code;
+            std::string bodyShown = body;
+            if (apxpc::wireless::copyIfVerifyCode(title, text, &code))
+                bodyShown += "（验证码 " + code + " 已复制）";
+            trayRaw->notify(app.empty() ? "手机通知" : app, bodyShown);
         };
         session->setOnNotifyPush(
             [showNotify](const std::string&, const std::string& title,

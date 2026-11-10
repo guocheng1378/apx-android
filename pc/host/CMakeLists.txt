@@ -362,6 +362,7 @@ set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/ctrl9511.cpp"
   "${APXPC_ROOT}/src/wireless/file_receiver.cpp"
   "${APXPC_ROOT}/src/wireless/file_sender.cpp"
+  "${APXPC_ROOT}/src/wireless/verify_code.cpp"
 )
 if(WIN32)
   list(APPEND APXPC_WIRELESS_SRC "${APXPC_ROOT}/src/wireless/input_injector_win.cpp"

@@ -5,6 +5,7 @@
 #include "apxpc/log.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
+#include "apxpc/wireless/verify_code.hpp"
 
 #if defined(_WIN32)
 #include <shellapi.h>
@@ -179,7 +180,13 @@ int runService(const ServiceOptions& opt) {
                 const std::string body = title.empty() ? text
                                          : (text.empty() || title == text ? title : title + "\n" + text);
                 if (body.empty()) return;
-                trayRaw->notify(app.empty() ? "手机通知" : app, body);
+                // 验证码一键复制（2026-11-11，与桌面壳同口径）：命中即写本机剪贴板并回显；
+                // 复制失败不追加提示，气泡只显示原文（不假装复制成功）。
+                std::string code;
+                std::string bodyShown = body;
+                if (apxpc::wireless::copyIfVerifyCode(title, text, &code))
+                    bodyShown += "（验证码 " + code + " 已复制）";
+                trayRaw->notify(app.empty() ? "手机通知" : app, bodyShown);
             });
         // 消除（0x42）：气泡无法撤回，不接（reader 侧计数记账即可）
         ctrlSrv.setOnNotifyDismiss(nullptr);
