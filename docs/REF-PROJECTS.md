@@ -13,6 +13,7 @@
 | [KDE Connect](https://invent.kde.org/network/kdeconnect-kde) | 手机↔电脑互通全家桶 | 发现/配对/**插件化功能拆分**参考 | GPL-2.0+ |
 | Virtual Display Driver（GitHub 搜 `Virtual-Display-Driver`，IddCx 系） | 用户态虚拟显示器驱动 | 副屏虚拟显示器（现有自研方案的备选已验证路线） | 以仓库为准 |
 | [Sunshine / Moonlight](https://github.com/LizardByte/Sunshine) | 游戏串流（PC→客户端） | 已在用：mac 副屏出路、音频采集参考 | GPL-3.0 |
+| [NectarLink](https://github.com/thtbee/nectarlink) | Android↔Windows/Linux 互通全家桶（通知/剪贴板/文件/相册投影/投屏/摄像头） | **重叠最高**的同类：能力表与缺口直接对齐（见下） | GPL-3.0（app）/ MPL-2.0（core） |
 
 ## 逐项分析：已验证、值得借鉴的点
 
@@ -42,6 +43,12 @@
 ### Virtual Display Driver（IddCx）
 
 - 用户态 IddCx 间接显示驱动：可批量建虚拟显示器、自定义分辨率/刷新率/HDR、可指定 GPU、用户态运行蓝屏概率低。**结论**：我们副屏自研方案（pc/display）与之相比，IddCx 是更「正统」的已验证路线；若日后重做副屏层，优先评估 IddCx（引入前先核该仓库许可并记进本文件）。
+
+### NectarLink（GPL-3.0 / MPL-2.0，且为 Rust 实现——只借鉴思路，代码不可直接进任何目录）
+
+- **能力对照（2026-11-11 调研）**：重叠项——互传（对端兼容 LocalSend v2，断点续传 + BLAKE3 校验）、虚拟摄像头、PC→手机剪贴板、桌面快捷面板（对应我们悬浮球）。**它有我们没有**：① 通知同步（PC 弹手机通知、直接回复、同步消除、验证码一键复制、密码管理器内容过滤）；② 相册投影（MediaStore 相册投影到 PC：按天分组缩略图流式加载、原图按需取、拖拽导出、新照片 PC 通知）；③ 通话横幅与呼叫控制；④ 查找手机（静音也响铃）；⑤ App 窗口化（PC 上独立窗口开手机 App，走无线调试）。
+- **值得借鉴的三点**：① 通知走独立 NotificationListenerService + 按「通知 key」记账实现双端同步消除，验证码单独通道；② 相册投影**按需取图**（元数据全量、缩略图懒加载、原图只在查看/保存时传，PC 端缓存带过期清理）——不整库上传的口径与隐私叙事一致；③ 每个能力一个独立开关（18 个按设备权限位），沿用我们模块注册制即可。
+- **不追求的**：QUIC+TLS1.3/设备密钥体系（与我们「局域网即信任」的现状差距大，若日后做鉴权按 InputLeap 小节次序）；App 窗口化依赖无线调试，门槛高、与本项目「免开发者选项」定位不符，暂不跟。
 
 ## 本项目已验证、不必重造的部分
 
