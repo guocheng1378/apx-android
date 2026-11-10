@@ -142,29 +142,47 @@ class RemoteActivity : Activity() {
         // ★ 电源行提到**拨盘上方**：贴顶、离拇指最近，也符合"先开关机、再操作"的顺序；
         //   拨盘下方依次是 功能 / 音量 / 媒体 三行。
         val rows = rows()
-        addRow(col, rows[0], topMarginDp = 4, rowWeight = 0.78f)
+        // b64→b71（issue#168 第 6 条两次口径变化）：第一轮「横屏沿用竖屏上下排布」
+        // 被用户追补澄清 —— 要的是**旋转 90° 的左右分栏**（左拨盘 / 右按键列），不是
+        // 保持上下排。左右分栏各占一半宽：拨盘在左由 DialLayout 收敛成正圆，右侧一列
+        // 依次是 电源行 + 三行圆钮 + 提示 + 触摸条，高度充裕、按钮不再缺字。
+        if (landscape) {
+            val split = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            split.addView(wrapDial(), LinearLayout.LayoutParams(0, -1, 1f))
+            val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            addRow(right, rows[0], topMarginDp = 4, rowWeight = 0.78f)
+            addKeyRows(right, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
+            right.addView(TextView(this).apply {
+                text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
+                setTextColor(getColor(R.color.md_on_surface_variant))
+                textSize = 11f
+                gravity = Gravity.CENTER
+                setPadding(dp(2), dp(6), dp(2), 0)
+            })
+            right.addView(touchPad(), LinearLayout.LayoutParams(-1, dp(84)).apply {
+                topMargin = dp(6)
+            })
+            split.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
+            col.addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            // 竖屏：拨盘比原先**小一档**。原先给 3.2 权重时它的高度超过屏宽，
+            //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
+            //   剩下的高度分给三行圆钮。
+            col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
+            addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
 
-        // b64（issue#168 第 6 条）：横屏不再走「左拨盘 / 右三行」分栏 —— 真机上分栏被压得
-        // 按钮缺字、行与行错位（真机截图 22:21）。横竖屏统一用竖屏同一套上下排布：拨盘是
-        // 正方（DialLayout 取 min(宽,高) 收敛成圆），三行圆钮占满剩余高度；横屏高度小、
-        // 每行矮一档但完整无缺，用户建议的「横屏直接用竖屏布局」即此。
-        // 竖屏：拨盘比原先**小一档**。原先给 3.2 权重时它的高度超过屏宽，
-        //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
-        //   剩下的高度分给三行圆钮。
-        col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
-        addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
+            col.addView(TextView(this).apply {
+                text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
+                setTextColor(getColor(R.color.md_on_surface_variant))
+                textSize = 11f
+                setPadding(dp(2), dp(6), dp(2), 0)
+            })
 
-        col.addView(TextView(this).apply {
-            text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
-            setTextColor(getColor(R.color.md_on_surface_variant))
-            textSize = 11f
-            setPadding(dp(2), dp(6), dp(2), 0)
-        })
-
-        // —— 底部触摸控制条：单点 = 确认，按住滑动 = 移动被控端光标（v205）——
-        col.addView(touchPad(), LinearLayout.LayoutParams(-1, if (landscape) dp(84) else dp(112)).apply {
-            topMargin = dp(6)
-        })
+            // —— 底部触摸控制条：单点 = 确认，按住滑动 = 移动被控端光标（v205）——
+            col.addView(touchPad(), LinearLayout.LayoutParams(-1, dp(112)).apply {
+                topMargin = dp(6)
+            })
+        }
 
         setContentView(root)
         Backdrop.apply(root, getColor(R.color.md_background))

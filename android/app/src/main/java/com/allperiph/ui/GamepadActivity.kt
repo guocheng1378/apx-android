@@ -153,11 +153,14 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             .windowInsetsPadding(WindowInsets.statusBars)
             .background(colorResource(R.color.overlay_scrim))
     ) {
-        // 出口状态 + 指引（顶部居中；左右各让 100dp 避开 L1 / R1，也避开左上角 ✕）
+        // 出口状态 + 指引（顶部居中；左右各让 170dp —— issue#168 第 8 条追补：原来
+        // 100dp 时文字的左右端仍落在 L1 / R1 的横向范围内，换行一长就被肩键盖住
+        // 一截（文字画在肩键下层）。170dp 起文字整段落在两肩键之间，避让是几何上
+        // 的不重叠，不再靠绘制顺序兜底）
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 12.dp, start = 100.dp, end = 100.dp),
+                .padding(top = 12.dp, start = 170.dp, end = 170.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(

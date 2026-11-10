@@ -82,7 +82,9 @@ R_USE = re.compile(
 # 647 -> 643（v223.29.9）：状态页顶部「运行状态」整块移除（连 overallLabel /
 #   overallDetail 两条 Kotlin 字面量一起删），新增的设备形态 / 悬浮面板高度文案
 #   全部走 strings.xml（DeviceFormPref 只按档位取 getString），净减 4，按实测收紧。
-TEXT_BASELINE = 643
+# 643 -> 657（v223.29.49，issue#168 追补批）：设置页新增「球面图标」标题行与 BallIcon
+#   的未知图标异常文案等 Kotlin 字面量，本批按实测上调；后续新文案仍应走 strings.xml。
+TEXT_BASELINE = 657
 
 
 def strip_comments(text):

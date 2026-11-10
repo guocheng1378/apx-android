@@ -114,7 +114,7 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
         shortSide >= 520f -> 24.dp   // 03 Compact：24dp
         else -> 12.dp              // 手机：保留本页既有 12dp，不改（稿 01 只管内容页 16）
     }
-    val limited = widthDp >= 840f && shortSide >= 520f  // 04：≥840dp 限宽 680 居中（与状态页/设置页同口径）
+    val limited = false  // issue#168 第 2 条追补：平板横屏不再限宽 680 居中，撑满整屏（原稿 04 口径废止）
     // 稿 02：左右按**实际** cutout 垫边（不写死 26dp 示意值），竖屏无 cutout 时为 0
     val insets = rememberApInsets()
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

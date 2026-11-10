@@ -212,6 +212,17 @@ class FloatingBallService : Service() {
         }
 
         /**
+         * 设置页换球面图标时**即时生效**（issue#168 第 9 条）：直接找到活着的球换图。
+         * 停靠条 / 发丝线里图标本来就隐藏（applyDockShape 已 GONE），换图无副作用，
+         * 恢复成球时 applyBallShape 只管可见性，图还是这里设的这张。
+         * 服务没跑（live == null）时静默返回 —— 下次 addBall 会按落盘的选择挂新图。
+         */
+        fun applyIcon(c: Context) {
+            val v = live?.ball ?: return
+            v.findViewById<ImageView>(R.id.ivBallIcon)?.setImageResource(BallIcon.drawable(c))
+        }
+
+        /**
          * 收起一切展开层：扇形菜单、浮窗面板（触控板 / 键盘 / 手柄 / 设备），
          * 并把停靠长条恢复成正常圆球。主壳退出（返回确认 / 任务划掉）时调用 ——
          * 成宇 2026-11-02「退出应用后悬浮窗自动挂起」：主界面一走，展开过的菜单 /
@@ -554,6 +565,9 @@ class FloatingBallService : Service() {
         if (ballAttached) return true
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
         val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
+        // issue#168 第 9 条：球面图标按设置页的选择来（布局里 src 是默认触控板，
+        // 这里每次挂球都重设一次 —— 服务进程被回收重启后也能回到用户选的图标）。
+        v.findViewById<ImageView>(R.id.ivBallIcon)?.setImageResource(BallIcon.drawable(themed))
         runCatching { wm.addView(v, ballLayoutParams()) }.onFailure {
             Log.w(TAG, "addView 失败（悬浮窗权限被撤？）：${it.message}")
             ball = null

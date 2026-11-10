@@ -65,6 +65,14 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import com.allperiph.ui.BallIcon
 
 /**
  * 设置页（阶段 4，**本轮只迁核心分组**）。
@@ -228,17 +236,21 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // **横向滚动**：可横滑的 Row 给子项无限宽约束，Miuix `TextButton` 内部就不会再折行，
     // 窄屏横滑即可看全；宽屏（≥600dp 走 twoPane）仍是左侧竖排，不受影响。
     // padding 放在 horizontalScroll 之前：左右留白固定，只有按钮参与滚动。
+    // issue#168 第 4 条（2026-11-11）：竖屏四签改**紧凑居中**。horizontalScroll 的 Row 实测宽度
+    // 是「内容宽夹外层约束」—— 窄屏装不下时 Row 占满并保留横滑兜底，装得下时 Row 等于内容宽，
+    // 外层 Box 居中即可；间距 6→4dp 收紧，四签更聚拢。
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Row(
         modifier = Modifier
-            .fillMaxWidth()
             .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp + topBar)
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         catLabels.forEachIndexed { idx, name ->
             // 审查条 2.1：加选中态（此前四个页签一模一样，切完看不出在哪一类）
             ApComponents.TabChip(text = name, selected = idx == cat, onClick = { cat = idx })
         }
+    }
     }
 
     }
@@ -755,6 +767,49 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+                    // issue#168 第 9 条（2026-11-11）：球面图标内置六选一；相册图片皮肤要走
+                    // 相册取图 + 球面单色 tint 适配（皮肤原图未必有 alpha 蒙版），另行一批。
+                    // 点击 = 落盘（BallIcon.set）+ 对活着的球即时换图（FloatingBallService.applyIcon）；
+                    // 服务没跑时静默 —— 下次 addBall 挂球会按落盘的选择重设。
+                    var ballIcon by remember { mutableStateOf(BallIcon.picked(ctx)) }
+                    Text(
+                        text = "球面图标",
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        BallIcon.CHOICES.forEach { name ->
+                            val selected = name == ballIcon
+                            Image(
+                                painter = painterResource(BallIcon.res(name)),
+                                contentDescription = name,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = if (selected) 2.dp else 0.dp,
+                                        color = if (selected) MiuixTheme.colorScheme.primary else Color.Transparent,
+                                        shape = CircleShape,
+                                    )
+                                    .clickable {
+                                        ballIcon = name
+                                        BallIcon.set(ctx, name)
+                                        FloatingBallService.applyIcon(ctx)
+                                        Feedback.haptic(ctx)
+                                    },
+                                // 预览色对齐球面观感：未选中次级文字色、选中主题主色 ——
+                                // 选中态靠描边 + 着色双通道，只靠描边在 36dp 上不够醒目。
+                                colorTint = if (selected) MiuixTheme.colorScheme.primary
+                                            else MiuixTheme.colorScheme.onSurfaceSecondary,
+                            )
+                        }
+                    }
                     // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
                     // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
                     var ballItemsOpen by remember { mutableStateOf(false) }

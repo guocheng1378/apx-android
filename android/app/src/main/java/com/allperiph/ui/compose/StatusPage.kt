@@ -83,7 +83,9 @@ fun StatusPage(
         shortSide >= 520f -> 24.dp   // 03 Compact：520–599dp → 24dp（旧值 32 与稿子「16→24」矛盾，修正）
         else -> 16.dp                // 01 手机：<520dp → 16dp
     }
-    val limited = widthDp >= 720f && shortSide >= 520f   // 手机横屏短边 411 不触发限宽
+    // issue#168 第 2 条追补（2026-11-11）：传输协议配置页不再限宽 680 居中（平板横屏黑边），
+    // 改为撑满整屏；shortSide/hPad 仍用于边距档位，不删除避免横屏边距退化。
+    val limited = false
     var tick by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
         while (true) {
