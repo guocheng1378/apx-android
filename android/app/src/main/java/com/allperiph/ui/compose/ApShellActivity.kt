@@ -869,6 +869,16 @@ class ApShellActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onStop() {
+        super.onStop()
+        // issue#168 建议 11：返回桌面 / 切到其它 app 时自动把悬浮球放回屏上。
+        // 自愈入口内部多重门禁：服务还活着是 no-op、用户意愿位关过不拉（手动关过
+        // 就不打扰）、悬浮窗权限被撤也不拉 —— 只有「球该在却不在」这一种情况真的
+        // 起服务。force 跳过 60 秒自愈冷却：离开应用本身就是确认球该在的时刻，
+        // 等下一轮自检闹钟（2 分钟）球缺席太久。
+        runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
+    }
+
     override fun onDestroy() {
         // 退出主壳（返回确认 / 最近任务划掉）时把悬浮球的展开层一起收掉：
         // 只认 isFinishing —— 旋转/重建时不该动用户的悬浮面板。

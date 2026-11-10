@@ -9,7 +9,9 @@ import android.content.pm.ServiceInfo
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
 import android.net.Uri
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
@@ -125,6 +127,23 @@ class FloatingBallService : Service() {
          */
         private const val DOCK_W_DP = 10
         private const val DOCK_H_DP = 64
+
+        /**
+         * 停靠自动隐藏（issue#168 建议 12）：停靠条 **5 秒无操作**后自动收成
+         * 「发丝线」—— 比停靠条更窄更短更透，几乎不占视觉，但热区仍是这条细线，
+         * 点击 / 往屏内拖都能把球找回来。
+         */
+        private const val DOCK_HIDE_DELAY_MS = 5_000L
+
+        /** 隐藏态竖条尺寸（dp）：只保留一根能认出来的细线 */
+        private const val DOCK_HIDDEN_W_DP = 8
+        private const val DOCK_HIDDEN_H_DP = 48
+
+        /**
+         * 隐藏态透明度：比停靠态更淡。不取更低的值 —— 太透会在浅色壁纸上彻底
+         * 找不到，用户反而以为球丢了（找回路径必须是「看得见才摸得到」）。
+         */
+        private const val DOCK_HIDDEN_ALPHA = 0.18f
 
         /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
         private const val LONG_PRESS_MS = 800L
@@ -358,6 +377,18 @@ class FloatingBallService : Service() {
     /** 贴边滑入动画；触摸按下即取消，位置以手指为准 */
     private var dockAnim: android.animation.ValueAnimator? = null
 
+    /** 停靠条是否已收成发丝线（隐藏态）：点击 / 往屏内拖都直接恢复圆球（issue#168 建议 12） */
+    private var dockHidden = false
+
+    /**
+     * 停靠自动隐藏的排程器。球窗口的全部变更本就发生在主线程（onTouch /
+     * 动画回调都在主线程），主线程 Handler 足够，不需要另起线程。
+     */
+    private val dockHideHandler = Handler(Looper.getMainLooper())
+
+    /** 待执行的隐藏任务；取消与重排都经它，避免残留回调在错误状态里把球收没 */
+    private var dockHidePending: Runnable? = null
+
     /**
      * 屏幕配置变化（旋转 / 折叠 / 分屏）→ 重新落位。
      *
@@ -390,7 +421,11 @@ class FloatingBallService : Service() {
         }
         lastScreenW = dm.widthPixels
         lastScreenH = dm.heightPixels
-        if (docked) applyDockShape(v, dockLeft)
+        // 隐藏态（发丝线）重排后要保持隐藏形态，不能借机变回停靠条 ——
+        // 「旋转偷偷把收起的条放出来」看着就像球自己跑了（issue#168 建议 12）
+        if (docked) {
+            if (dockHidden) hideDockShape(v) else applyDockShape(v, dockLeft)
+        }
     }
 
     /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
@@ -489,6 +524,9 @@ class FloatingBallService : Service() {
         // 用户主动关掉（长按球 / 设置页开关 / 菜单「退出」都汇到这里）→ 连自检闹钟一起撤，
         // 否则闹钟下一秒按意愿位又把球拉回来，表现为「关不掉」。
         runCatching { FloatingBallKeepAlive.cancel(this) }
+        // 停靠隐藏的排程同样要撤：任务里引用的窗口即将全部拆除，留着只会空跑
+        cancelDockHide()
+        dockHidden = false
         ballAttachedGlobal = false
         runCatching { com.allperiph.ui.ClipboardSync.serviceDetach(this) }
         // 服务被杀/关闭时面板可能还开着：遮蔽必须一起还，否则系统三指截屏一直被关着
@@ -561,6 +599,9 @@ class FloatingBallService : Service() {
                     moved = false
                     // v223.29.11：抓球即停掉贴边滑入 + 按压脉冲（落下轻微缩小）
                     dockAnim?.cancel()
+                    // issue#168 建议 12：任何一次触摸都算「有操作」——先撤掉待执行的
+                    // 隐藏任务；若此刻已是发丝线，接下来这把是点击恢复 / 拖回屏内。
+                    cancelDockHide()
                     view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90).start()
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -583,7 +624,9 @@ class FloatingBallService : Service() {
                     when {
                         // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
                         moved -> settleAfterDrag(view)
-                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）
+                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）。隐藏态（发丝线）
+                        // 单击同样直落这里 —— 不停在中间态，一找回就是完整圆球，
+                        // 之后单击再展开菜单（issue#168 建议 12）。
                         docked -> undock(view)
                         // 长按关闭：只在「真的没动过」时算数，拖动不背这个锅
                         held >= LONG_PRESS_MS -> shutdown()
@@ -634,6 +677,9 @@ class FloatingBallService : Service() {
         val dm = resources.displayMetrics
         val (left, top) = parentOffset(v)
         val cx = left + lp.x + v.width / 2f
+        // 抓球前的停靠态要留底：拖动期间 docked 一直保持 true，没有它分不清
+        // 「正常球拨到边」（首次停靠）与「停靠条又拨回边」（二次隐藏）
+        val wasDocked = docked
         lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
         val nearLeft = v.width > 0 && cx < dockSnapPx
@@ -658,14 +704,25 @@ class FloatingBallService : Service() {
                         // 按下取消 / 中途改停靠侧都不再收条
                         if (canceled || !docked || dockLeft != nearLeft) return
                         applyDockShape(v, nearLeft)
-                        v.alpha = DOCK_ALPHA
+                        if (wasDocked) {
+                            // issue#168 建议 12：停靠条被**再次**拨向边缘 = 用户明确
+                            // 说「收起来」—— 不等 5 秒，落位即收成发丝线；从隐藏态
+                            // 拖回边缘也走这，保持隐藏不闪一下。
+                            hideDockShape(v)
+                        } else {
+                            // 首次停靠：半透明立条 + 排 5 秒无操作自动隐藏
+                            v.alpha = DOCK_ALPHA
+                            scheduleDockHide()
+                        }
                     }
                 })
                 start()
             }
         } else {
             docked = false
-            // 之前可能是条，落回中间要变回圆球，否则一根条孤零零立在屏幕中间
+            // 之前可能是条，落回中间要变回圆球，否则一根条孤零零立在屏幕中间。
+            // 发丝线拖回屏内同样直落这里 —— 「往屏幕内滑动恢复悬浮球」（建议 12）。
+            dockHidden = false
             applyBallShape(v)
             v.alpha = 1f
         }
@@ -721,6 +778,10 @@ class FloatingBallService : Service() {
         val dm = resources.displayMetrics
         val wasLeft = dockLeft
         docked = false
+        dockHidden = false
+        // 恢复成球后不再有「停靠」可隐藏，先把待执行的任务撤掉，
+        // 免得它到点把一颗好好的圆球收成条。
+        cancelDockHide()
         v.alpha = 1f
         applyBallShape(v)
         // applyBallShape 已按条心把球夹回屏内；这里再往里推一个球身，
@@ -746,6 +807,58 @@ class FloatingBallService : Service() {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
+    }
+
+    // ————————————————————— 停靠自动隐藏（issue#168 建议 12） —————————————————————
+
+    /**
+     * 排一次「5 秒无操作收成发丝线」。
+     *
+     * 只有两条路进这里：首次停靠落位（[settleAfterDrag] 动画结束）。任何一次触摸
+     * 都在 ACTION_DOWN 先撤（[cancelDockHide]），所以「无操作」由触摸驱动自然成立；
+     * 菜单 / 面板展开期间球已被收起（addBall 未挂），回调里的多重条件保证不误伤。
+     */
+    private fun scheduleDockHide() {
+        cancelDockHide()
+        val task = Runnable {
+            dockHidePending = null
+            val v = ball ?: return@Runnable
+            if (docked && !dockHidden && ballAttached && menu == null && panel == null) {
+                hideDockShape(v)
+            }
+        }
+        dockHidePending = task
+        dockHideHandler.postDelayed(task, DOCK_HIDE_DELAY_MS)
+    }
+
+    /** 撤掉待执行的隐藏任务；触摸、恢复圆球、形态切换前都要先撤，防状态错乱 */
+    private fun cancelDockHide() {
+        dockHidePending?.let { dockHideHandler.removeCallbacks(it) }
+        dockHidePending = null
+    }
+
+    /**
+     * 停靠条 → 发丝线：更窄、更短、更透，视觉上几乎只剩一道边光。
+     *
+     * 条心不动：按当前条中心换算新窗口 y，收细的一瞬不会上下跳。触摸目标仍是
+     * 这条细线（窗口即热区），点击直落 `docked -> undock` 恢复圆球，往屏内拖则走
+     * [settleAfterDrag] 的非停靠分支恢复 —— 两条找回路径都不需要先「点醒」一次。
+     */
+    private fun hideDockShape(v: View) {
+        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
+        val dm = resources.displayMetrics
+        val (left, top) = parentOffset(v)
+        val cy = top + lp.y + v.height / 2f
+        val w = dp(DOCK_HIDDEN_W_DP)
+        val h = dp(DOCK_HIDDEN_H_DP)
+        lp.width = w
+        lp.height = h
+        lp.x = if (dockLeft) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
+        lp.y = (cy - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
+        dockHidden = true
+        v.alpha = DOCK_HIDDEN_ALPHA
+        runCatching { wm.updateViewLayout(v, lp) }
+            .onFailure { Log.w(TAG, "停靠条收成发丝线失败：${it.message}") }
     }
 
     // ————————————————————— 扇形快捷菜单（v223.15，MIUI / HyperOS 快捷球观感） —————————————————————
