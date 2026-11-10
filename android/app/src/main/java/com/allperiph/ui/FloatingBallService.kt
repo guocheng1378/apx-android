@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
@@ -463,7 +464,7 @@ class FloatingBallService : Service() {
         val v = ball ?: return
         if (!ballAttached) return
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         dockAnim?.cancel()
         dockAnim = null
@@ -501,6 +502,41 @@ class FloatingBallService : Service() {
     private var moved = false
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
+
+    /**
+     * 真实**整屏**尺寸（宽, 高），px。
+     *
+     * 为什么不用 `resources.displayMetrics`：App 自己被挂成小窗/分屏时（Android 11+ 自由窗口），
+     * 应用上下文的 displayMetrics 会缩成**窗口**大小 —— 球的落位/拖动夹边/贴边吸附、面板按屏高
+     * 的百分比，全都跟着缩：球被关进小窗那块区域出不来、面板只剩窗口那么高。悬浮窗（overlay）
+     * 不属于任何 App 窗口，坐标系必须是整块屏。
+     *
+     * API 30+ 走 `WindowManager.maximumWindowMetrics`（整屏 bounds，不受窗口形态影响，旋转
+     * 后宽高互换）；更老版本退回 displayMetrics —— 那时多窗口也不改写应用 metrics，行为正确。
+     * 注意：这是唯一权威来源，落位/夹边/重排/面板比例一律走这里，别再混用 resources 的值。
+     */
+    private fun realScreenSize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val b = wm.maximumWindowMetrics.bounds
+            return b.width() to b.height()
+        }
+        val dm = resources.displayMetrics  // API 29- 兜底：此时应用 metrics 未被窗口形态改写
+        return dm.widthPixels to dm.heightPixels
+    }
+
+    /**
+     * 真实整屏尺寸的 DisplayMetrics 形态（宽高=整屏，density 沿用当前上下文）。
+     * 给既有 `dm.widthPixels` 用法的调用点做**最小替换**：只换来源，不动各处算式。
+     */
+    private fun realDisplayMetrics(): android.util.DisplayMetrics {
+        val out = android.util.DisplayMetrics()
+        val (w, h) = realScreenSize()
+        out.widthPixels = w
+        out.heightPixels = h
+        out.density = resources.displayMetrics.density
+        out.densityDpi = resources.displayMetrics.densityDpi
+        return out
+    }
 
     // ————————————————————————— 生命周期 —————————————————————————
 
@@ -548,8 +584,9 @@ class FloatingBallService : Service() {
         } else {
             Log.w(TAG, "悬浮球挂载失败：开关位保持 true，设置页会显示「已开启但未显示」")
         }
-        lastScreenW = resources.displayMetrics.widthPixels
-        lastScreenH = resources.displayMetrics.heightPixels
+        val (sw0, sh0) = realScreenSize()
+        lastScreenW = sw0
+        lastScreenH = sh0
         // v223.29.11：旋转后重新落位（旧版无旋转监听，贴边的球转横屏会漂到屏幕中间）
         runCatching { registerComponentCallbacks(reflowCb) }
             .onFailure { Log.w(TAG, "rotation callback register failed: ${it.message}") }
@@ -638,8 +675,9 @@ class FloatingBallService : Service() {
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
-        x = resources.displayMetrics.widthPixels - dp(64)
-        y = resources.displayMetrics.heightPixels / 3
+        val (sw, sh) = realScreenSize()
+        x = sw - dp(64)
+        y = sh / 3
     }
 
     private fun setupBallTouch(v: View) {
@@ -717,7 +755,7 @@ class FloatingBallService : Service() {
     /** 把球挪到窗口坐标 (x, y) 并夹进屏内（拖动期间的每一帧都走这里） */
     private fun moveBall(v: View, x: Float, y: Float) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val maxX = (dm.widthPixels - left - v.width).coerceAtLeast(0)
         // ⚠️ 上限要减父框偏移：lp.y 从父框顶部算，屏幕底部还剩多少得先扣掉状态栏那段，
@@ -736,7 +774,7 @@ class FloatingBallService : Service() {
      */
     private fun settleAfterDrag(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val cx = left + lp.x + v.width / 2f
         // 抓球前的停靠态要留底：拖动期间 docked 一直保持 true，没有它分不清
@@ -806,7 +844,7 @@ class FloatingBallService : Service() {
      */
     private fun applyDockShape(v: View, leftSide: Boolean) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val cy = top + lp.y + v.height / 2f
         val w = dp(DOCK_W_DP)
@@ -827,7 +865,7 @@ class FloatingBallService : Service() {
     /** 贴边竖条 → 圆球：尺寸/背景/图标全恢复，并以当前条心为中心放回屏内 */
     private fun applyBallShape(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val cx = left + lp.x + v.width / 2f
         val cy = top + lp.y + v.height / 2f
@@ -848,7 +886,7 @@ class FloatingBallService : Service() {
     /** 停靠态点击 → 恢复正常显示：竖条变回圆球、不透明，并往屏内挪出一个球身 */
     private fun undock(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val wasLeft = dockLeft
         docked = false
         dockHidden = false
@@ -923,7 +961,7 @@ class FloatingBallService : Service() {
      */
     private fun hideDockShape(v: View) {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val cy = top + lp.y + v.height / 2f
         val r = dp(ARC_RADIUS_DP)
@@ -1061,7 +1099,7 @@ class FloatingBallService : Service() {
      */
     private fun buildFan(ballView: View): Fan {
         val items = BallConfig.enabled(this)
-        val dm = resources.displayMetrics
+        val dm = realDisplayMetrics()
         val screenW = dm.widthPixels
         val screenH = dm.heightPixels
         // 菜单尺寸档（2026-11-07）：项直径与扇形半径一起按用户选的三档缩放，
@@ -1499,7 +1537,7 @@ class FloatingBallService : Service() {
      */
     private fun resizePanel(lp: WindowManager.LayoutParams, dyPx: Int) {
         val v = panel ?: return
-        val hpx = themed.resources.displayMetrics.heightPixels
+        val hpx = realScreenSize().second
         val min = hpx * PanelSize.MIN_PCT / 100
         val max = hpx * PanelSize.MAX_PCT / 100
         val next = (lp.height - dyPx).coerceIn(min, max)
@@ -1517,7 +1555,7 @@ class FloatingBallService : Service() {
      */
     private fun resizePanelCommit(lp: WindowManager.LayoutParams) {
         val key = panelSizeKey ?: return
-        val hpx = themed.resources.displayMetrics.heightPixels
+        val hpx = realScreenSize().second
         if (hpx <= 0) return
         // Math.round(Float) 返回 Long，setPercent 要 Int —— 显式取整，别依赖平台推断
         val pct = Math.round(lp.height * 100f / hpx).toInt()
@@ -1607,8 +1645,7 @@ class FloatingBallService : Service() {
     private fun expand() {
         if (panel != null) return
         ensureTouchpadReady()
-        val hpx = themed.resources.displayMetrics.heightPixels
-        val wpx = themed.resources.displayMetrics.widthPixels
+        val (wpx, hpx) = realScreenSize()
         // 竖屏 300dp 量级的手感；横屏屏更矮，按 34% 高并夹在 220~360dp 之间。
         // ★ v223.29.9：用户调过（设置页滑块 / 面板把手）就用他的比例，且**不再夹 dp** ——
         // 220~360dp 这个窗口本身就是「写死」的一部分，用户拖到 90% 却被夹回 360dp 会看着像坏了。
@@ -1774,8 +1811,7 @@ class FloatingBallService : Service() {
      * 横屏高度只有竖屏一半：横屏占 66% 高、竖屏 52%，底部对齐，上半屏留给原应用。
      */
     private fun expandKeyboard() {
-        val hpx = themed.resources.displayMetrics.heightPixels
-        val wpx = themed.resources.displayMetrics.widthPixels
+        val (wpx, hpx) = realScreenSize()
         // ★ v223.29.9：同 expand()，用户调过就听用户的（见 [PanelSize]）
         val custom = PanelSize.fraction(this, PanelSize.KEYBOARD)
         val height = if (custom > 0f) {
