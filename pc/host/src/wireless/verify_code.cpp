@@ -1,5 +1,7 @@
 #include "apxpc/wireless/verify_code.hpp"
 
+#include "apxpc/wireless/ctrl9511.hpp"  // setSystemClipboard：平台实现在 input_injector_*.cpp
+
 #include "apxpc/log.hpp"
 
 #include <cctype>

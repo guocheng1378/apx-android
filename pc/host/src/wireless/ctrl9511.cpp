@@ -209,11 +209,7 @@ struct Ctrl9511Server::Impl {
                            | kCaps9511PhoneFiles | kCaps9511Album;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
-        std::vector<uint8_t> buf(apx::kFrameHeaderSize + sizeof(body) + apx::kFrameCrcSize);
-        size_t len = 0;
-        if (buildCtrlFrame(buf.data(), buf.size(), len, 0x33, body, sizeof(body),
-                           seq_.fetch_add(1)))
-            enqueue(buf.data(), len);
+        sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放帧头第 1 字节，这里只传位图 8 字节
     }
 
     /** 收 0x33 能力协商：解析对端能力位图（u64 小端，8 字节）存 peerCaps_（pump 线程，原子写）。 */
@@ -247,6 +243,19 @@ struct Ctrl9511Server::Impl {
             outQueue.emplace_back(frame, frame + len);
         }
         writeCv.notify_one();
+    }
+
+    /**
+     * 发一帧控制命令（0x38 / 0x44 / 0x46 / 0x48 / 0x4A / 0x4B 等，2026-11-11）：构帧后进
+     * 发送队列，由 writer 线程按序写出。与 Client::Impl::sendCmd 同名同签名，但服务端
+     * 没有活动统计需求（那些计数只服务 PC 控制手机方向的状态面板），保持精简。
+     * cmd 由本函数写入帧头第 1 字节，body 只传命令号之后的内容。
+     */
+    void sendCmd(uint8_t cmd, const uint8_t* body, size_t bodyLen) {
+        std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + bodyLen + apx::kFrameCrcSize);
+        size_t len = 0;
+        if (buildCtrlFrame(buf.data(), buf.size(), len, cmd, body, bodyLen, seq_.fetch_add(1)))
+            enqueue(buf.data(), len);
     }
 
     void onClipboardChanged(const std::string& text) {

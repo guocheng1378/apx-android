@@ -131,7 +131,7 @@ object PhoneAlbum {
                 ContentResolver.QUERY_ARG_SORT_COLUMNS,
                 arrayOf(MediaStore.Images.Media.DATE_ADDED),
             )
-            putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DESCENDING)
+            putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
         }
         val proj = arrayOf(
             MediaStore.Images.Media._ID,

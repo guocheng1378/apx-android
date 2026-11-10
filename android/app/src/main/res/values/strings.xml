@@ -314,6 +314,7 @@
     <string name="ui_filepanel_record_recv">收到：%1$s</string>
     <string name="ui_filepanel_record_done">成功</string>
     <string name="ui_filepanel_record_failed">失败：%1$s</string>
+    <string name="ui_filepanel_record_in">发送中 %1$d%%</string>
     <string name="ui_filepanel_retry">重试</string>
     <string name="ui_filepanel_open_missing">文件已不在，可能已被删除</string>
     <string name="ui_filepanel_open_failed">没有能打开它的应用</string>

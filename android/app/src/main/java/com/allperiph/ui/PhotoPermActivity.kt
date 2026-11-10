@@ -33,7 +33,10 @@ class PhotoPermActivity : ComponentActivity() {
     }
 
     companion object {
-        /** 悬浮球卡片点击/拖出时拉起（Service 场景需 NEW_TASK 标志） */
+        /** 悬浮球卡片点击/拖出时拉起（Service 场景需 NEW_TASK 标志）—— 伴生启动器，全仓唯一入口 */
+        fun start(c: Context) = c.startActivity(intent(c))
+
+        /** 构造 Intent（[start] 内部用；保留是为了与既有调用点兼容） */
         fun intent(c: Context): Intent =
             Intent(c, PhotoPermActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }

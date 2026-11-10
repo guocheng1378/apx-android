@@ -115,13 +115,16 @@ object PhoneFiles {
             reply(ApxFrame.packPhoneFileListReply(ApxFrame.PHONEFILE_ERR_NOT_FOUND, path, emptyList()))
             return
         }
-        val entries = runCatching {
+        // 列目录：listFiles() 给的是 Array<File>，先按「目录在前、名称不区分大小写」排好，
+        // 再映射成协议条目（isDir/长度都是 File 自带字段，一次遍历不重复 stat）。
+        // runCatching 兜 IO 异常：失败回 READ 错误码，PC 端如实提示，不给空列表装正常。
+        val list = runCatching {
             dir.listFiles()
-                ?.sortedWith(compareByDescending<PhoneFileEntry> { it.isDir }.thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                ?.sortedWith(compareByDescending<File> { it.isDirectory }
+                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+                ?.map { f -> PhoneFileEntry(f.name, f.isDirectory, if (f.isFile) f.length() else 0L) }
                 .orEmpty()
-        }
-        val list = entries.getOrNull(0)?.map { f -> PhoneFileEntry(f.name, f.isDirectory, if (f.isFile) f.length() else 0L) }
-        if (list == null) {
+        }.getOrElse {
             reply(ApxFrame.packPhoneFileListReply(ApxFrame.PHONEFILE_ERR_READ, path, emptyList()))
             return
         }

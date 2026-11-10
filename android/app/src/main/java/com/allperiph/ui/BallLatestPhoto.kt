@@ -67,7 +67,9 @@ object BallLatestPhoto {
                     ContentResolver.QUERY_ARG_SORT_COLUMNS,
                     arrayOf(MediaStore.Images.Media.DATE_ADDED),
                 )
-                putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DESCENDING)
+                // 降序常量全名 QUERY_SORT_DIRECTION_DESCENDING（QUERY_SORT_DESCENDING 不存在，
+                // CI 编译第一时间红过一回——名字记错很贵，写全）。
+                putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
             }
             val proj = arrayOf(
                 MediaStore.Images.Media._ID,
@@ -123,7 +125,7 @@ object BallLatestPhoto {
      */
     fun send(ctx: Context, card: android.view.View) {
         if (!hasMediaPerm(ctx)) {
-            runCatching { ctx.startActivity(PhotoPermActivity.intent(ctx)) }
+            runCatching { PhotoPermActivity.start(ctx) }
                 .onFailure { Log.w(TAG, "拉授权页失败：${it.message}") }
             return
         }

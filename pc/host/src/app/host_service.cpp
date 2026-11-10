@@ -172,7 +172,7 @@ int runService(const ServiceOptions& opt) {
         // 通知同步接线（0x40/0x42，2026-11-11）：手机控本机时，手机的通知经 9511
         // 受控端 dispatch 到这里 → 托盘气泡。回调跑在 reader 线程，TrayIcon::notify
         // 线程安全；tray 对象活到进程退出（ctrlSrv.stop() 之后才析构），raw 指针无悬挂。
-        apxpc::tray::TrayIcon* trayRaw = tray.get();
+        // trayRaw 复用上方托盘接线那一个（同作用域重声明会编译失败）。
         ctrlSrv.setOnNotifyPush(
             [trayRaw](const std::string&, const std::string& title,
                       const std::string& text, const std::string& app) {
