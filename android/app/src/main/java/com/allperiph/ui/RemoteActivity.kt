@@ -1,34 +1,64 @@
 package com.allperiph.ui
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognizerIntent
-import android.util.AttributeSet
-import android.view.Gravity
-import android.view.View
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.allperiph.R
 import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
 import com.allperiph.shared.proto.ApxFrame
-import com.allperiph.shared.ui.ApKit
-import com.allperiph.wireless.ControlTarget
+import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.MiuixTheme
+import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.wireless.ControlTarget
+import top.yukonga.miuix.kmp.basic.Text
 
 /**
  * 「遥控器」—— 仿小米遥控器的**拨盘式**布局（真机反馈"找不到遥控器界面"，之后又要求更像遥控器）。
  *
- * ## 版式
+ * ## 版式（v223.29.55 起整体迁 Compose + Miuix，与主壳同一套设计体系）
  * ```
- *            遥控器          [选择设备] [关闭]
+ *            遥控器          [选择设备] [光标浮层] [关闭]
  *   正在控制：q201（TV）
  *        ╭───────────────╮
  *        │       ▲       │          ← 大正圆方向环（拨盘）
@@ -36,17 +66,23 @@ import com.allperiph.ui.miuix.applyEdgeToEdge
  *        │       ▼       │
  *        ╰───────────────╯
  *          ⭕   ⭕   ⭕              ← 一行三个圆钮
- *          ⭕   ⭕   ⭕                 功能 / 音量 / 媒体 / 电源 共四行
+ *          ⭕   ⭕   ⭕                 功能 / 音量 / 媒体 共三行
  *          ⭕   ⭕   ⭕
- *          ⭕   ⭕   ⭕
+ *      ┌──────────────────┐
+ *      │   单点＝确认      │       ← 底部触摸控制条（约 1/4 屏高）
+ *      └──────────────────┘
  * ```
- * 与初版（3×3 圆角方块）的区别：拨盘是**正圆**、按键是**真圆**、按可用空间铺满。
+ * 横屏：旋转 90° 的左右分栏（左拨盘 / 右按键列）—— 电源行贴右列顶，下接三行圆钮、
+ * 提示与触摸条（issue#168 第 6 条两轮追补的结论，逐条保留）。
+ * 方向对应关系不变：竖屏拨盘下方是 功能 / 音量 / 媒体 三行；电源行只在横屏出现
+ * （竖屏空间被 1/4 屏高的触摸条挤占后收敛为三行，见旧实现 issue#168 三追记录）。
  *
- * ## 两个实现上的坑
- * 1. **正圆**：普通布局里一个"圆"会被父容器拉成椭圆（宽高不等），所以方向环用一个
- *    强制正方形的 [DialLayout]（`onMeasure` 取 min），圆钮则固定直径 + 居中；
- * 2. **不用字符图标**：⏻ ⏮ ⏯ 这类符号在很多 ROM 的字体里是缺字的（会显示成方框），
- *    所以圆钮里直接用文字。要图标的话得配一套 drawable（见文件末尾说明）。
+ * ## 迁移说明
+ *  · 视觉与事件全部换成 Compose（[RemotePanel]）；类名 / 清单入口 / 全部发送通道保持不变；
+ *  · 旧实现按**中文字面量**给按钮选色（"关机"红 / "重启"橙）是记录在案的遗留隐患 ——
+ *    迁移时改为行定义自带语义色（[RemoteKey]），文案资源怎么改都不影响配色；
+ *  · edge-to-edge 按主壳新口径：系统栏显示且透明，内容经 [rememberApInsets] 自行垫边
+ *    （旧版隐藏状态栏的口径已随 2026-11-07 全仓反转）。
  *
  * ## 发送通道（全部复用，无重复实现）
  *  · 方向 / OK / 返回 / 主页 / 菜单 → [HidKeys.tap]（HID usage；**被控端**的 `HID_MAP`
@@ -56,36 +92,17 @@ import com.allperiph.ui.miuix.applyEdgeToEdge
  *  · 底部**触摸控制条**（v205，手机控手机 / TV）：单点 = 确认（当前光标处左键点击），
  *    按住滑动 = 移动被控端光标（0x01 相对位移帧，被控端浮层光标跟随）。
  */
-class RemoteActivity : Activity() {
+class RemoteActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private var targetView: TextView? = null
-    private var landscape = false
 
-    // —— 光标浮层开关（0x32，v223.10）：被控端的蓝点有的场景嫌碍事 ——
-    private lateinit var cursorChip: TextView
-    /** 会话内当前偏好；持久化在 prefs，连接后自动发给被控端 */
-    private var cursorOverlayOn = true
+    /** 光标浮层开关（0x32，v223.10）：Compose 状态，chip 展示与发送动作共用同一份 */
+    private val cursorOverlayOn = mutableStateOf(true)
+
+    /** 回前台自增：目标行 / 出口状态按需重算（选完设备回来、连接状态变化后刷新） */
+    internal val resumeTick = mutableIntStateOf(0)
 
     private fun prefs() = getSharedPreferences(PREF, MODE_PRIVATE)
-
-    private fun cursorLabel(): String =
-        getString(if (cursorOverlayOn) R.string.ui_remote_cursor_on else R.string.ui_remote_cursor_off)
-
-    /** 切换被控端光标浮层：记偏好 + 立即发给当前被控端（没连着就只记，连上自动生效） */
-    private fun toggleCursorOverlay() {
-        cursorOverlayOn = !cursorOverlayOn
-        prefs().edit().putBoolean(KEY_CURSOR_OVERLAY, cursorOverlayOn).apply()
-        cursorChip.text = cursorLabel()
-        com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn
-        if (ControlTarget.isControlling()) {
-            ControlTarget.controlClient?.overlayToggle(cursorOverlayOn)
-        } else {
-            // 浮层是**被控端**画的（PC 面板 / TV 端 0x32），USB / 蓝牙出口没有这个能力：
-            // 过去这里静默什么都不做，用户只看到「开了关都没反应」。偏好照样记住，连上再生效。
-            Toast.makeText(this, getString(R.string.ui_remote_cursor_need_target), Toast.LENGTH_SHORT).show()
-        }
-    }
 
     override fun attachBaseContext(newBase: Context) =
         super.attachBaseContext(ThemePref.wrap(newBase))
@@ -93,534 +110,49 @@ class RemoteActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyEdgeToEdge()
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        // 强调色要叠在「正在用的这个主题」上才算数：View 弹窗（语音说明 / 关机确认）仍走主题
         ApPalette.applyRuntimeTheme(this)
-        landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        buildLayout()
-    }
-
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        // issue#168 第 6 条追补（2026-11-11）：清单声明了 configChanges（旋转不重建
-        // Activity），而布局只在 onCreate 按当时的方向搭一次 —— 旋转后整页还是旧方向，
-        // 表现为「切换横竖屏时布局不自适应」。这里按新方向**整页重搭**
-        // （与 TouchpadActivity 的就地重建同模式）：左右分栏 ↔ 上下排布互切。
-        val nowLand = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
-        if (nowLand != landscape) {
-            landscape = nowLand
-            buildLayout()
-        }
-    }
-
-    /** 整页重搭：onCreate 与 onConfigurationChanged 共用（方向由 [landscape] 决定） */
-    private fun buildLayout() {
-        val root = FrameLayout(this)
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            // 横屏上下紧张、左右富裕；竖屏反过来
-            if (landscape) setPadding(dp(18), dp(6), dp(18), dp(6))
-            else setPadding(dp(14), dp(10), dp(14), dp(8))
-        }
-        root.addView(col, FrameLayout.LayoutParams(-1, -1))
-
-        // —— 顶栏：标题 + 选择设备 / 关闭（对齐小米遥控的"设备名 + 右上角操作"）——
-        // 2026-11-04 资源化（C3 延伸）：这两枚 chip 此前是裸写的中文字面量（"选择设备"、
-        // "关闭"）——全仓就剩这一处 View 层的中文硬编码。前者新补 ui_remote_pick_device，
-        // 后者直接复用既有的 ui_help_close（同文）。
-        val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        head.addView(TextView(this).apply {
-            text = getString(R.string.ui_remote_text_remote)
-            setTextColor(getColor(R.color.md_on_surface))
-            textSize = if (landscape) 17f else 21f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        head.addView(chip(getString(R.string.ui_remote_pick_device)) { pickTarget() })
-        cursorChip = chip(cursorLabel()) { toggleCursorOverlay() }
-        head.addView(cursorChip)
-        head.addView(chip(getString(R.string.ui_help_close)) { finish() })
-        col.addView(head)
         // 读回上次偏好并即时生效：重进本页（含重连）后，上次关掉的浮层不会又冒出来
-        cursorOverlayOn = prefs().getBoolean(KEY_CURSOR_OVERLAY, true)
-        cursorChip.text = cursorLabel()
-        com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn
-        if (ControlTarget.isControlling()) ControlTarget.controlClient?.overlayToggle(cursorOverlayOn)
-
-        targetView = TextView(this).apply {
-            setTextColor(getColor(R.color.md_on_surface_variant))
-            textSize = 12f
-            setPadding(dp(2), dp(4), dp(2), dp(4))
-            maxLines = 2
+        cursorOverlayOn.value = prefs().getBoolean(KEY_CURSOR_OVERLAY, true)
+        com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn.value
+        if (ControlTarget.isControlling()) {
+            ControlTarget.controlClient?.overlayToggle(cursorOverlayOn.value)
         }
-        col.addView(targetView)
-
-        // ★ 电源行提到**拨盘上方**：贴顶、离拇指最近，也符合"先开关机、再操作"的顺序；
-        //   拨盘下方依次是 功能 / 音量 / 媒体 三行。
-        val rows = rows()
-        // b64→b71（issue#168 第 6 条两次口径变化）：第一轮「横屏沿用竖屏上下排布」
-        // 被用户追补澄清 —— 要的是**旋转 90° 的左右分栏**（左拨盘 / 右按键列），不是
-        // 保持上下排。左右分栏各占一半宽：拨盘在左由 DialLayout 收敛成正圆，右侧一列
-        // 依次是 电源行 + 三行圆钮 + 提示 + 触摸条，高度充裕、按钮不再缺字。
-        if (landscape) {
-            val split = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            split.addView(wrapDial(), LinearLayout.LayoutParams(0, -1, 1f))
-            val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            addRow(right, rows[0], topMarginDp = 4, rowWeight = 0.78f)
-            addKeyRows(right, rows, rowWeight = 0.85f, firstTopMarginDp = 8)
-            right.addView(TextView(this).apply {
-                text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
-                setTextColor(getColor(R.color.md_on_surface_variant))
-                textSize = 11f
-                gravity = Gravity.CENTER
-                setPadding(dp(2), dp(6), dp(2), 0)
-            })
-            // 触摸控制条（issue#168 第 6 条三追）：横屏同样按屏高 1/4 放大（原写死 84dp）
-            right.addView(touchPad(), LinearLayout.LayoutParams(-1, padHeightPx()).apply {
-                topMargin = dp(6)
-            })
-            split.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
-            col.addView(split, LinearLayout.LayoutParams(-1, 0, 1f))
-        } else {
-            // 竖屏：拨盘比原先**小一档**。原先给 3.2 权重时它的高度超过屏宽，
-            //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
-            //   剩下的高度分给三行圆钮。
-            col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
-            addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 8)
-
-            col.addView(TextView(this).apply {
-                text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
-                setTextColor(getColor(R.color.md_on_surface_variant))
-                textSize = 11f
-                setPadding(dp(2), dp(6), dp(2), 0)
-            })
-
-            // —— 底部触摸控制条：单点 = 确认，按住滑动 = 移动被控端光标（v205）——
-            col.addView(touchPad(), LinearLayout.LayoutParams(-1, padHeightPx()).apply {
-                topMargin = dp(6)
-            })
-        }
-
-        setContentView(root)
-        Backdrop.apply(root, getColor(R.color.md_background))
-        // Android 15+（targetSdk 35）强制 edge-to-edge，主题 windowFullscreen 不再兜底 ——
-        // 顶栏「遥控器 / 选择设备」被状态栏压住。与全屏操控面同一套处理：
-        // R+ 显式关 decor 贴合、隐藏状态栏、按实际 insets（状态栏/挖孔/导航栏/输入法）给内容垫边，
-        // 系统认为栏还在（insets>0）就垫开，已隐藏时 inset=0 不垫。
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
-            root.setOnApplyWindowInsetsListener { v, insets ->
-                val t = insets.getInsets(
-                    android.view.WindowInsets.Type.statusBars() or
-                        android.view.WindowInsets.Type.navigationBars() or
-                        android.view.WindowInsets.Type.displayCutout() or
-                        android.view.WindowInsets.Type.ime()
-                )
-                v.setPadding(t.left, t.top, t.right, t.bottom)
-                insets
-            }
-            root.requestApplyInsets()
-        }
-        refreshTarget()
+        setContentView(
+            androidx.compose.ui.platform.ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        RemotePanel(host = this@RemoteActivity)
+                    }
+                }
+            },
+        )
     }
 
     override fun onResume() {
         super.onResume()
-        refreshTarget()
+        resumeTick.value++ // 目标行跟随回前台的最新状态
     }
 
-    // ————————————————————————————— 拨盘 —————————————————————————————
-
-    /** 把正圆拨盘居中放进一个可伸缩的容器（避免它在非方形区域里被拉成椭圆） */
-    private fun wrapDial(): FrameLayout {
-        val box = FrameLayout(this)
-        val dial = DialLayout(this).apply {
-            background = ApKit.oval(
-                getColor(R.color.md_surface),
-                getColor(R.color.card_stroke),
-                dp(1),
-            )
-            // 四向箭头：贴着环内缘，背景透明（圆环本身就是"按键"的形状）
-            addView(arrow("▲", Gravity.TOP or Gravity.CENTER_HORIZONTAL) { HidKeys.tap(U_UP) })
-            addView(arrow("▼", Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL) { HidKeys.tap(U_DOWN) })
-            addView(arrow("◀", Gravity.START or Gravity.CENTER_VERTICAL) { HidKeys.tap(U_LEFT) })
-            addView(arrow("▶", Gravity.END or Gravity.CENTER_VERTICAL) { HidKeys.tap(U_RIGHT) })
-            // 中心 OK：主色圆钮，尺寸在 onSizeChanged 里按拨盘直径的 34% 设定
-            val ok = TextView(this@RemoteActivity).apply {
-                text = "OK"
-                textSize = 20f
-                gravity = Gravity.CENTER
-                setTextColor(ApPalette.onPrimary(this@RemoteActivity))
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                background = ApKit.oval(ApPalette.primary(this@RemoteActivity))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    Feedback.tap(this)
-                    HidKeys.tap(U_ENTER)
-                }
-            }
-            // 显式写 FrameLayout.LayoutParams：继承来的嵌套类不能通过子类名（DialLayout.LayoutParams）解析
-            addView(ok, FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER))
-            centerChild = ok
-        }
-        // 撑满容器（-1,-1）再靠 DialLayout 自己收敛成正方形 —— 用 wrap_content 的话
-        // 它会缩成"刚好包住几个箭头"的小圈，拨盘就做不大了。
-        box.addView(dial, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
-        return box
-    }
-
-    /**
-     * 环上的一个方向键：透明底 + 大字号箭头（点击区固定 64dp，够手指戳）。
-     *
-     * 参数名用 `place` 而不是 `gravity`：后者会**遮蔽** TextView 自己的 gravity 属性，
-     * 于是 `gravity = Gravity.CENTER` 变成给 val 参数赋值（编译报 "val cannot be reassigned"）。
-     */
-    private fun arrow(glyph: String, place: Int, onClick: () -> Unit): TextView =
-        TextView(this).apply {
-            text = glyph
-            textSize = 26f
-            this.gravity = Gravity.CENTER
-            setTextColor(getColor(R.color.md_on_surface))
-            isClickable = true
-            isFocusable = true
-            // 注意 arrowSize() 自己已经乘过 density（返回 px），这里不能再套 dp()
-            layoutParams = FrameLayout.LayoutParams(arrowSize(), arrowSize(), place).apply {
-                when (place and Gravity.HORIZONTAL_GRAVITY_MASK) {
-                    Gravity.START -> leftMargin = dp(6)
-                    Gravity.END -> rightMargin = dp(6)
-                }
-                when (place and Gravity.VERTICAL_GRAVITY_MASK) {
-                    Gravity.TOP -> topMargin = dp(6)
-                    Gravity.BOTTOM -> bottomMargin = dp(6)
-                }
-            }
-            setOnClickListener {
-                Feedback.tap(this)
-                onClick()
-            }
-        }
-
-    /**
-     * 强制正方形的容器 —— 圆环的关键。
-     * 普通 FrameLayout 会把子视图撑满容器（宽 ≠ 高 → 椭圆），
-     * 这里 `onMeasure` 取 min(宽,高) 保证是正圆；顺带把中心 OK 按直径比例放大。
-     */
-    private class DialLayout @JvmOverloads constructor(
-        ctx: Context,
-        attrs: AttributeSet? = null,
-    ) : FrameLayout(ctx, attrs) {
-
-        var centerChild: View? = null
-
-        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-            val side = minOf(measuredWidth, measuredHeight)
-            setMeasuredDimension(side, side)
-        }
-
-        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-            super.onSizeChanged(w, h, oldw, oldh)
-            val c = centerChild ?: return
-            val size = (minOf(w, h) * 0.34f).toInt().coerceAtLeast(48)
-            val lp = c.layoutParams as? LayoutParams ?: return
-            if (lp.width != size || lp.height != size) {
-                lp.width = size
-                lp.height = size
-                c.layoutParams = lp
-            }
-        }
-    }
-
-    // ————————————————————————————— 按键行 —————————————————————————————
-
-    /**
-     * 四行圆钮清单，**顺序即屏幕顺序**：电源（拨盘上方）· 功能 · 音量 · 媒体。
-     *
-     * 竖屏：电源行 0.78 权重、拨盘 1.7、其余三行各 0.85；
-     * 横屏：电源行贴顶用满宽度，下方左拨盘 / 右三行各 1 权重均分。
-     */
-    private fun rows(): List<Array<Pair<String, () -> Unit>>> = listOf(
-        // 显式写出元素类型：`HidKeys.tap()` 返回 Int，不标注 lambda 会被推断成 `() -> Int`，
-        // 与 `() -> Unit` 不兼容（编译期 Argument type mismatch）。
-        // 行序即屏幕顺序（电源行在拨盘上方）：电源是遥控器上最需要「盲按」到的一行，
-        // 放最上面离拇指最近；其余按使用频率依次是 功能 / 音量 / 媒体。
-        arrayOf(
-            getString(R.string.ui_touchpad_label_power) to { HidKeys.tap(U_POWER) },
-            getString(R.string.ui_touchpad_label_poweroff) to { confirmPower(0, getString(R.string.ui_touchpad_label_poweroff)) },
-            getString(R.string.ui_touchpad_label_reboot) to { confirmPower(1, getString(R.string.ui_touchpad_label_reboot)) },
-        ),
-        arrayOf(
-            getString(R.string.ui_common_back) to { HidKeys.tap(U_ESC) },
-            getString(R.string.ui_remote_item_home) to { HidKeys.tap(U_HOME) },
-            getString(R.string.ui_remote_item_menu) to { HidKeys.tap(U_MENU) },
-            getString(R.string.ui_remote_item_voice) to { startVoiceInput() },
-        ),
-        arrayOf(
-            getString(R.string.ui_touchpad_label_volume) to { media(HotkeyController.BIT_VOLUME_DOWN) },
-            getString(R.string.ui_touchpad_media_mute) to { media(HotkeyController.BIT_MUTE) },
-            getString(R.string.ui_remote_item_volume) to { media(HotkeyController.BIT_VOLUME_UP) },
-        ),
-        arrayOf(
-            getString(R.string.ui_touchpad_media_prev) to { media(HotkeyController.BIT_PREV_TRACK) },
-            getString(R.string.ui_remote_item_play) to { media(HotkeyController.BIT_PLAY_PAUSE) },
-            getString(R.string.ui_touchpad_media_next) to { media(HotkeyController.BIT_NEXT_TRACK) },
-        ),
-    )
-    /** 拨盘下方的三行：功能 / 音量 / 媒体（[rows] 的 1..3 项） */
-    private fun addKeyRows(
-        parent: LinearLayout,
-        rows: List<Array<Pair<String, () -> Unit>>>,
-        rowWeight: Float,
-        firstTopMarginDp: Int,
-    ) {
-        for (i in 1..3) addRow(parent, rows[i], if (i == 1) firstTopMarginDp else 4, rowWeight)
-    }
-
-    /**
-     * 加一行圆钮。
-     *
-     * @param rowWeight null → 行高按内容（`wrap_content`；横屏顶部那条用满宽度的电源行，
-     *                  不需要靠权重去挤高度）；
-     *                  非 null → 按该权重平分父容器的剩余高度（竖屏整屏排布）。
-     */
-    private fun addRow(
-        parent: LinearLayout,
-        row: Array<Pair<String, () -> Unit>>,
-        topMarginDp: Int,
-        rowWeight: Float?,
-    ) {
-        val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        // 每格是一个占位容器：竖屏圆钮**居中且固定直径** —— 这样才是正圆，
-        // 否则跟着格子宽高走就又变成椭圆了。
-        //
-        // 横屏（issue#168 第 6 条追补，2026-11-11）：行高交给权重分，格子高 < 圆钮
-        // 固定直径时圆钮上下各被裁一截（用户反馈「按钮被截断了一部分」）。改为
-        // **圆角矩形铺满格子**（留 3dp 呼吸边），高度跟行高走、文字必完整 ——
-        // 用户给的第二个选项（「切换按钮为圆角矩形，保证按钮内文字完整」）；
-        // 竖屏空间充裕，保持正圆观感不变。
-        val d = circleSize()
-        for ((label, action) in row) {
-            val cell = FrameLayout(this)
-            if (landscape) {
-                cell.addView(
-                    plate(label) { action() },
-                    // framework 的 MarginLayoutParams 没有统一 margin 属性（那是 Compose 的），
-                    // 四边一起设要走 setMargins()
-                    FrameLayout.LayoutParams(-1, -1, Gravity.CENTER).apply {
-                        setMargins(dp(3), dp(3), dp(3), dp(3))
-                    },
-                )
-            } else {
-                cell.addView(
-                    circle(label, d) { action() },
-                    FrameLayout.LayoutParams(d, d, Gravity.CENTER),
-                )
-            }
-            line.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
-        }
-        // 有权重时行高交给权重决定；无权重时**显式给行高 = 圆钮直径**（子视图是
-        // match_parent，父行若用 wrap_content 会退化成 0）。
-        val lp = if (rowWeight == null) LinearLayout.LayoutParams(-1, d)
-        else LinearLayout.LayoutParams(-1, 0, rowWeight)
-        lp.topMargin = dp(topMarginDp)
-        parent.addView(line, lp)
-    }
-
-    /// 圆钮直径：横屏上下空间小，用小一号。
-    /// issue#168 第 6 条三追（2026-11-11）：触摸条放大到约 1/4 屏高后，竖屏空间被
-    /// 挤压，圆钮从 78dp 收到 68dp，避免触摸条与三行圆钮互相顶撞、按钮文字被裁。
-    private fun circleSize(): Int = if (landscape) dp(58) else dp(68)
-
-    /// 环上箭头的点击区：拨盘收小后跟着收一档（仍 ≥ 44dp，满足最小触控目标）。
-    /// issue#168 第 6 条三追：横屏 50→44、竖屏 56→50，给放大后的触摸条让出空间。
-    private fun arrowSize(): Int = if (landscape) dp(44) else dp(50)
-
-    /// 触摸控制条高度（issue#168 第 6 条三追，2026-11-11）：用户要求触摸条约占
-    /// 「屏幕遥控器显示区域」四分之一大小。原先竖屏写死 112dp、横屏写死 84dp，
-    /// 不同屏幕上比例忽大忽小；改为按屏幕高度 1/4 直接取 px（横屏时 heightPixels
-    /// 是短边，1/4 同样落在合理区间），大屏小屏观感一致。
-    private fun padHeightPx(): Int = resources.displayMetrics.heightPixels / 4
-
-    /**
-     * 一个圆钮：正圆底 + 文字（不用字符图标，见类注释）。
-     *
-     * ⚠️ 现存隐患（2026-11-04 审查记录，**本次不修**）：下面 `when(label)` 是按**中文
-     * 文案**分支选色（"关机"红 / "重启"橙 / "电源"主题色），而 label 全部来自
-     * getString —— 改一个字（哪怕加空格）颜色分支就静默落空，换语言更是一次全丢。
-     * 正确做法是让 [rows] 一并带上语义色（三元组），调用链 rows/addKeyRows/addRow
-     * 都要跟着改类型。当前文案与资源逐字一致、行为无 bug，且这是 30KB 大文件的核心
-     * 交互链，收益（防未来）抵不过整链重写的回归面 —— 留给专门一轮做。
-     */
-    private fun circle(label: String, size: Int, onClick: () -> Unit): TextView =
-        TextView(this).apply {
-            text = label
-            textSize = if (label.length > 2) 13f else 15f
-            gravity = Gravity.CENTER
-            setTextColor(labelColor(label))
-            background = ApKit.oval(
-                getColor(R.color.md_surface),
-                getColor(R.color.card_stroke),
-                dp(1),
-            )
-            isClickable = true
-            isFocusable = true
-            // 尺寸由调用方通过 addView(child, params) 传入（父容器是 FrameLayout 格子）
-            setOnClickListener {
-                Feedback.tap(this)
-                onClick()
-            }
-        }
-
-    /**
-     * 横屏用的圆角矩形按钮：格子铺满、高度跟行高走（[circle] 的固定直径在权重行里
-     * 会被裁），背景与文字色同 [circle] 一套 —— 只换形状，不换语义。
-     */
-    private fun plate(label: String, onClick: () -> Unit): TextView =
-        TextView(this).apply {
-            text = label
-            textSize = if (label.length > 2) 13f else 15f
-            gravity = Gravity.CENTER
-            setTextColor(labelColor(label))
-            background = ApKit.shape(
-                getColor(R.color.md_surface),
-                radiusPx = dp(14).toFloat(),
-                strokeColor = getColor(R.color.card_stroke),
-                strokePx = dp(1),
-            )
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                Feedback.tap(this)
-                onClick()
-            }
-        }
-
-    /** 按钮文字配色（[circle] / [plate] 共用）：关机红 / 重启橙 / 电源主题色 / 其余常规 */
-    private fun labelColor(label: String): Int = when (label) {
-        "关机" -> 0xFFD23F31.toInt()
-        "重启" -> 0xFFF0A020.toInt()
-        "电源" -> ApPalette.primary(this@RemoteActivity)
-        else -> getColor(R.color.md_on_surface)
-    }
-
-    // ————————————————————————————— 触摸控制条 —————————————————————————————
-
-    /** 条上手势状态：单点 = 确认；按住滑动 = 移动被控端光标 */
-    private var padDownX = 0f
-    private var padDownY = 0f
-    private var padDownAt = 0L
-    private var padLastX = 0f
-    private var padLastY = 0f
-    // P1-4：两轴独立的亚像素余数 —— 原来 dx/dy 同为 0 才推进 last，任一轴截断为 0
-    // 时另一轴的位移也被整帧丢掉；余数留在各自 frac 里下一帧续发。
-    private var padFracX = 0f
-    private var padFracY = 0f
-
-    /**
-     * 触摸控制条 —— 手机控制手机 / TV 时用触摸控制被控端光标：
-     *  · 单点（位移 <18dp 且 <350ms）= 确认：在**当前光标处**发一次左键点击（0x01 按下→抬起）；
-     *  · 按住滑动 = 移动光标：相对位移帧（0x01，dx/dy），被控端浮层光标跟随；
-     *  · 未连接受控设备：按下即提示，不发任何帧（与按键行同口径）。
-     *
-     * 与触控板页（GestureEngine）的关系：本条是**遥控器页内**的轻量实现，
-     * 只做「移动 + 确认」两个动作，不带拖拽 / 滚动 / 右键 —— 遥控器场景用不上。
-     */
-    private fun touchPad(): TextView = TextView(this).apply {
-        text = getString(R.string.ui_remote_touchpad_hint)
-        textSize = 12f
-        gravity = Gravity.CENTER
-        setTextColor(getColor(R.color.md_on_surface_variant))
-        background = ApKit.shape(
-            getColor(R.color.md_surface),
-            radiusPx = dp(14).toFloat(),
-            strokeColor = getColor(R.color.card_stroke),
-            strokePx = dp(1),
-        )
-        isClickable = true
-        isFocusable = true
-        setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    padDownX = e.x; padDownY = e.y
-                    padLastX = e.x; padLastY = e.y
-                    padFracX = 0f; padFracY = 0f   // 新的一笔：清掉上一笔的亚像素余数
-                    padDownAt = android.os.SystemClock.uptimeMillis()
-                    // 出口判据统一在 HidMouse / Uplink.resolve：无线有受控目标、有线/蓝牙靠本机
-                    // HID，三条任一可用都能动光标 —— 只有全没有才提示（旧实现只看 ControlTarget，
-                    // 插线 / 蓝牙时这里永远弹「还没连上设备」，触摸条等于废掉）。
-                    if (!HidMouse.available()) {
-                        Toast.makeText(this@RemoteActivity, getString(R.string.ui_remote_toast_no_exit), Toast.LENGTH_SHORT).show()
-                    }
-                }
-                android.view.MotionEvent.ACTION_MOVE -> {
-                    run {
-                        // P1-4：每轴独立累计亚像素 + 钳位。原写法 `if (dx != 0 || dy != 0)`
-                        // 两轴耦合：任一轴整数部分为 0 就整帧不更新 last，另一轴也被拖住；
-                        // 且 dx.toInt() 截断丢掉 <1px 的移动。现在 last 每帧正常推进，
-                        // 余数（含被钳下的超限部分）留在 padFrac 里下一帧续发。
-                        padFracX += (e.x - padLastX) * TOUCH_GAIN
-                        padFracY += (e.y - padLastY) * TOUCH_GAIN
-                        padLastX = e.x; padLastY = e.y
-                        val dx = padFracX.toInt().coerceIn(-127, 127)
-                        val dy = padFracY.toInt().coerceIn(-127, 127)
-                        if (dx != 0 || dy != 0) {
-                            // 三条链路（无线 9511 / USB HID / 蓝牙 HID）由 HidMouse 统一择路；
-                            // 直连 controlClient 就是「只有无线能拖光标」的根因。
-                            if (HidMouse.move(0, dx, dy)) {
-                                padFracX -= dx; padFracY -= dy
-                            } else {
-                                padFracX = 0f; padFracY = 0f   // 没出口就丢余数，别攒着等出口出现
-                            }
-                        }
-                    }
-                }
-                android.view.MotionEvent.ACTION_UP -> {
-                    val dur = android.os.SystemClock.uptimeMillis() - padDownAt
-                    val moved = Math.hypot((e.x - padDownX).toDouble(), (e.y - padDownY).toDouble())
-                    if (moved < dp(TAP_SLOP_DP) && dur < TAP_MS) {
-                        // 同样走 HidMouse：按下 → 40ms 后抬起，被控端按边沿识别单击
-                        if (HidMouse.move(1, 0, 0)) {
-                            handler.postDelayed({ HidMouse.move(0, 0, 0) }, 40)
-                            Feedback.tap(v)
-                        }
-                    }
-                }
-            }
-            true
-        }
-    }
-
-    // ————————————————————————————— 内部 —————————————————————————————
-
-    /** 目标设备状态：没有目标时按键会退化成本机键盘，必须说清楚 */
-    private fun refreshTarget() {
-        val t = targetView ?: return
-        t.text = if (ControlTarget.isControlling()) {
-            getString(
-                R.string.ui_remote_target_controlling,
-                ControlTarget.label,
-                ControlTarget.type.uppercase(),
-            )
+    /** 切换被控端光标浮层：记偏好 + 立即发给当前被控端（没连着就只记，连上自动生效） */
+    private fun toggleCursorOverlay() {
+        cursorOverlayOn.value = !cursorOverlayOn.value
+        prefs().edit().putBoolean(KEY_CURSOR_OVERLAY, cursorOverlayOn.value).apply()
+        com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn.value
+        if (ControlTarget.isControlling()) {
+            ControlTarget.controlClient?.overlayToggle(cursorOverlayOn.value)
         } else {
-            val ex = HidMouse.exit()
-            if (ex == com.allperiph.core.Uplink.NONE) {
-                getString(R.string.ui_remote_target_no_exit)
-            } else {
-                // 有线 / 蓝牙出口时方向键、确认、触摸条全都通，只是作用在「已配对的主机 / 本机」，
-                // 文案必须说清，否则用户会以为「没连设备 = 这一页没用」。
-                getString(R.string.ui_remote_target_fallback, com.allperiph.core.Uplink.label(ex))
-            }
+            // 浮层是**被控端**画的（PC 面板 / TV 端 0x32），USB / 蓝牙出口没有这个能力：
+            // 过去这里静默什么都不做，用户只看到「开了关都没反应」。偏好照样记住，连上再生效。
+            Toast.makeText(this, getString(R.string.ui_remote_cursor_need_target), Toast.LENGTH_SHORT).show()
         }
     }
 
     /**
      * 选设备：交给主页的选择器（发现 / 连接逻辑只保留一处实现），
      * 但**必须带 [com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE]** ——
-     * 否则 MainActivity 只会停在默认的触控板页，用户看到的就是"点选择设备跳回触控页"。
-     * 带上之后它会直接弹出选择器，选完/取消自动 finish 回到本页，本页 onResume 再刷新目标。
+     * 否则主页只会停在默认的触控板页。带上之后主页直接弹选择器，
+     * 选完 / 取消自动 finish 回到本页，本页 onResume 再刷新目标。
      */
     private fun pickTarget() {
         startActivity(
@@ -633,6 +165,29 @@ class RemoteActivity : Activity() {
     private fun media(bit: Int) {
         HotkeyController.press(bit)
         handler.postDelayed({ HotkeyController.release(bit) }, 60)
+    }
+
+    /** 触摸条单点确认的后半段：左键按下发出后，40ms 补抬起（被控端按边沿识别单击） */
+    internal fun postConfirmRelease() {
+        handler.postDelayed({ HidMouse.move(0, 0, 0) }, 40)
+    }
+
+    /** 关机 / 重启：会直接关掉被控设备，必须确认（与键盘页同一套语义） */
+    private fun confirmPower(action: Int, label: String) {
+        val c = ControlTarget.controlClient
+        if (c == null) {
+            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
+            return
+        }
+        ApDialog.builder(this)
+            .setTitle(getString(R.string.ui_remote_dialog_device, label))
+            .setMessage(getString(R.string.ui_remote_dialog_no_only_need, label))
+            .setPositiveButton(label) { _, _ ->
+                c.power(action)
+                Toast.makeText(this, getString(R.string.ui_remote_toast_send_done, label), Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
+            .show()
     }
 
     /** b15 语音输入：走手机的麦（手机是输入端）——识别结果经 9511 INPUT_TEXT(COMMIT)
@@ -664,9 +219,10 @@ class RemoteActivity : Activity() {
             // 只有 Google 语音（国内网络不可达）：不再静默拉起 —— 如实说明，主推输入法语音
             ApDialog.builder(this)
                 .setTitle(getString(R.string.ui_remote_item_voice))
-                .setMessage("这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n" +
-                    "推荐直接用输入法上的语音键口述，文字会自动发到对端；仍要打开 Google 语音也可以。")
-                .setNegativeButton("仍打开") { _, _ -> launchVoice(intent, pickPkg(handlers)) }
+                .setMessage(getString(R.string.ui_remote_voice_google_only))
+                .setNegativeButton(getString(R.string.ui_remote_voice_google_open)) { _, _ ->
+                    launchVoice(intent, pickPkg(handlers))
+                }
                 .setPositiveButton(getString(R.string.ui_common_cancel), null)
                 .show()
             return
@@ -700,46 +256,6 @@ class RemoteActivity : Activity() {
         c.sendInputText(text, ApxFrame.INPUT_FLAG_COMMIT)
     }
 
-    /** 关机 / 重启：会直接关掉被控设备，必须确认（与键盘页同一套语义） */
-    private fun confirmPower(action: Int, label: String) {
-        val c = ControlTarget.controlClient
-        if (c == null) {
-            Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
-            return
-        }
-        ApDialog.builder(this)
-            .setTitle(getString(R.string.ui_remote_dialog_device, label))
-            .setMessage(getString(R.string.ui_remote_dialog_no_only_need, label))
-            .setPositiveButton(label) { _, _ ->
-                c.power(action)
-                Toast.makeText(this, getString(R.string.ui_remote_toast_send_done, label), Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton(getString(R.string.ui_common_cancel), null)
-            .show()
-    }
-
-    private fun chip(text: String, onClick: () -> Unit): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(ApPalette.primary(this@RemoteActivity))
-        textSize = 12f
-        gravity = Gravity.CENTER
-        background = ApKit.shape(
-            getColor(R.color.md_surface),
-            radiusPx = dp(999).toFloat(),
-            strokeColor = getColor(R.color.card_stroke),
-            strokePx = dp(1),
-        )
-        setPadding(dp(12), dp(6), dp(12), dp(6))
-        isClickable = true
-        isFocusable = true
-        setOnClickListener {
-            Feedback.tap(this)
-            onClick()
-        }
-    }
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
     private companion object {
         // 光标浮层开关偏好（0x32）：关掉的状态跨会话记住
         private const val PREF = "apx_remote"
@@ -762,5 +278,441 @@ class RemoteActivity : Activity() {
         const val TOUCH_GAIN = 1.5f   // 手指位移 → 光标位移的增益
         const val TAP_MS = 350L       // 单点判定：最长按压时长
         const val TAP_SLOP_DP = 18    // 单点判定：最大位移（dp）
+    }
+}
+
+// ———————————————————————————————————————————— Compose 面板 ————————————————————————————————————————————
+
+/** 按键的语义色档位：随行定义走，不再按文案反查（修复旧实现的中文字面量选色隐患） */
+private enum class RemoteKeyTint { Normal, Power, Danger, Warn }
+
+/** 一个遥控器按键：键面文字 + 语义色 + 动作（行定义自带色，调用链不再串文案） */
+private class RemoteKey(
+    val label: String,
+    val tint: RemoteKeyTint = RemoteKeyTint.Normal,
+    val action: () -> Unit,
+)
+
+@Composable
+private fun RemotePanel(host: RemoteActivity) {
+    val insets = rememberApInsets()
+    val ctx = LocalContext.current
+    // 方向由 LocalConfiguration 驱动：清单声明了 configChanges（旋转不重建 Activity），
+    // 旋转后 Compose 按新 configuration 重组，整页自动切分栏/竖排（issue#168 第 6 条）。
+    val land = LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val tick = host.resumeTick.value
+    // 目标行：正在控制谁 / 有没有出口。读内存即时值，随 resumeTick（回前台）刷新。
+    val targetText = remember(tick) {
+        when {
+            ControlTarget.isControlling() -> ctx.getString(
+                R.string.ui_remote_target_controlling,
+                ControlTarget.label,
+                ControlTarget.type.uppercase(),
+            )
+            else -> {
+                val ex = HidMouse.exit()
+                if (ex == com.allperiph.core.Uplink.NONE) {
+                    ctx.getString(R.string.ui_remote_target_no_exit)
+                } else {
+                    // 有线 / 蓝牙出口时方向键、确认、触摸条全都通，只是作用在「已配对的主机 / 本机」，
+                    // 文案必须说清，否则用户会以为「没连设备 = 这一页没用」。
+                    ctx.getString(R.string.ui_remote_target_fallback, com.allperiph.core.Uplink.label(ex))
+                }
+            }
+        }
+    }
+    // 按键行清单（顺序即屏幕顺序；语义色随行定义，见 [RemoteKey]）
+    val rows = listOf(
+        listOf(
+            RemoteKey(ctx.getString(R.string.ui_touchpad_label_power), RemoteKeyTint.Power) { HidKeys.tap(RemoteActivity.U_POWER) },
+            RemoteKey(ctx.getString(R.string.ui_touchpad_label_poweroff), RemoteKeyTint.Danger) {
+                host.confirmPower(0, ctx.getString(R.string.ui_touchpad_label_poweroff))
+            },
+            RemoteKey(ctx.getString(R.string.ui_touchpad_label_reboot), RemoteKeyTint.Warn) {
+                host.confirmPower(1, ctx.getString(R.string.ui_touchpad_label_reboot))
+            },
+        ),
+        listOf(
+            RemoteKey(ctx.getString(R.string.ui_common_back)) { HidKeys.tap(RemoteActivity.U_ESC) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_home)) { HidKeys.tap(RemoteActivity.U_HOME) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_menu)) { HidKeys.tap(RemoteActivity.U_MENU) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_voice)) { host.startVoiceInput() },
+        ),
+        listOf(
+            RemoteKey(ctx.getString(R.string.ui_touchpad_label_volume)) { host.media(HotkeyController.BIT_VOLUME_DOWN) },
+            RemoteKey(ctx.getString(R.string.ui_touchpad_media_mute)) { host.media(HotkeyController.BIT_MUTE) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_volume)) { host.media(HotkeyController.BIT_VOLUME_UP) },
+        ),
+        listOf(
+            RemoteKey(ctx.getString(R.string.ui_touchpad_media_prev)) { host.media(HotkeyController.BIT_PREV_TRACK) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_play)) { host.media(HotkeyController.BIT_PLAY_PAUSE) },
+            RemoteKey(ctx.getString(R.string.ui_touchpad_media_next)) { host.media(HotkeyController.BIT_NEXT_TRACK) },
+        ),
+    )
+    val side = if (land) 18.dp else 14.dp
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(start = insets.left + side, end = insets.right + side)
+            .padding(top = insets.top + (if (land) 6.dp else 10.dp), bottom = insets.bottom + (if (land) 6.dp else 8.dp)),
+    ) {
+        // —— 顶栏：标题 + 选择设备 / 光标浮层 / 关闭（对齐小米遥控的"设备名 + 右上角操作"）——
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = ctx.getString(R.string.ui_remote_text_remote),
+                fontSize = if (land) 17.sp else 21.sp,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            HeadChip(label = ctx.getString(R.string.ui_remote_pick_device)) { host.pickTarget() }
+            HeadChip(
+                label = ctx.getString(
+                    if (host.cursorOverlayOn.value) R.string.ui_remote_cursor_on else R.string.ui_remote_cursor_off,
+                ),
+            ) { host.toggleCursorOverlay() }
+            HeadChip(label = ctx.getString(R.string.ui_help_close)) { host.finish() }
+        }
+        Text(
+            text = targetText,
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 2,
+            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp, start = 2.dp),
+        )
+        if (land) {
+            // 横屏：旋转 90° 的左右分栏（issue#168 第 6 条二追口径）——左拨盘，右列
+            // 依次是电源行 + 三行圆钮 + 提示 + 触摸条（触摸条按屏高 1/4 放大，三追）。
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Dial(host = host, modifier = Modifier.fillMaxSize())
+                }
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    KeyRow(rows[0], plate = true, modifier = Modifier.fillMaxWidth().weight(0.78f))
+                    rows.drop(1).forEachIndexed { i, row ->
+                        KeyRow(
+                            row,
+                            plate = true,
+                            modifier = Modifier.fillMaxWidth().weight(0.85f)
+                                .padding(top = if (i == 0) 8.dp else 4.dp),
+                        )
+                    }
+                    Text(
+                        text = ctx.getString(R.string.ui_remote_text_reboot_poweroff_volume_home),
+                        fontSize = 11.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp, end = 2.dp),
+                    )
+                    TouchStrip(
+                        host = host,
+                        modifier = Modifier.fillMaxWidth()
+                            .height(LocalConfiguration.current.screenHeightDp.dp / 4)
+                            .padding(top = 6.dp),
+                    )
+                }
+            }
+        } else {
+            // 竖屏：拨盘比功能行高一大截（旧口径 1.7 vs 0.85），剩给三行圆钮与触摸条；
+            // 电源行不在竖屏出现（空间被 1/4 屏高触摸条挤占后的三行口径，见类注释）。
+            Box(Modifier.fillMaxWidth().weight(1.7f), contentAlignment = Alignment.Center) {
+                Dial(host = host, modifier = Modifier.fillMaxSize())
+            }
+            rows.drop(1).forEachIndexed { i, row ->
+                KeyRow(
+                    row,
+                    plate = false,
+                    modifier = Modifier.fillMaxWidth().weight(0.85f)
+                        .padding(top = if (i == 0) 8.dp else 4.dp),
+                )
+            }
+            Text(
+                text = ctx.getString(R.string.ui_remote_text_reboot_poweroff_volume_home),
+                fontSize = 11.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 6.dp, start = 2.dp),
+            )
+            TouchStrip(
+                host = host,
+                modifier = Modifier.fillMaxWidth()
+                    .height(LocalConfiguration.current.screenHeightDp.dp / 4)
+                    .padding(top = 6.dp),
+            )
+        }
+    }
+}
+
+/**
+ * 拨盘：**正圆**的方向环。旧实现的 [DialLayout.onMeasure 取 min] 在 Compose 里
+ * 用 `BoxWithConstraints` + `size(min)` 达成同一约束 —— 普通容器会把"圆"拉成椭圆
+ * （宽高不等），这里强制正方形兜底。
+ */
+@Composable
+private fun Dial(host: RemoteActivity, modifier: Modifier = Modifier) {
+    val view = LocalView.current
+    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+        val side = minOf(maxWidth, maxHeight)
+        Box(
+            Modifier
+                .size(side)
+                .background(colorResource(R.color.md_surface), CircleShape)
+                .border(1.dp, colorResource(R.color.card_stroke), CircleShape),
+        ) {
+            // 四向箭头：贴着环内缘，背景透明（圆环本身就是"按键"的形状）；
+            // 点击区固定 44/50dp（issue#168 第 6 条三追后的口径），够手指戳。
+            val arrow = if (LocalConfiguration.current.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            ) 44.dp else 50.dp
+            Arrow(
+                glyph = "▲",
+                tint = MiuixTheme.colorScheme.onSurface,
+                size = arrow,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
+            ) { HidKeys.tap(RemoteActivity.U_UP) }
+            Arrow(
+                glyph = "▼",
+                tint = MiuixTheme.colorScheme.onSurface,
+                size = arrow,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp),
+            ) { HidKeys.tap(RemoteActivity.U_DOWN) }
+            Arrow(
+                glyph = "◀",
+                tint = MiuixTheme.colorScheme.onSurface,
+                size = arrow,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 6.dp),
+            ) { HidKeys.tap(RemoteActivity.U_LEFT) }
+            Arrow(
+                glyph = "▶",
+                tint = MiuixTheme.colorScheme.onSurface,
+                size = arrow,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+            ) { HidKeys.tap(RemoteActivity.U_RIGHT) }
+            // 中心 OK：主色圆钮，尺寸按拨盘直径的 34%（下限 48dp，对应旧实现的 px 下限）
+            val okSize = (side * 0.34f).coerceAtLeast(48.dp)
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(okSize)
+                    .background(MiuixTheme.colorScheme.primary, CircleShape)
+                    .clickable {
+                        Feedback.tap(view)
+                        HidKeys.tap(RemoteActivity.U_ENTER)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "OK",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MiuixTheme.colorScheme.onPrimary,
+                )
+            }
+        }
+    }
+}
+
+/** 环上的一个方向键：透明底 + 大字号箭头（[size] 即点击区，≥44dp 满足最小触控目标）。 */
+@Composable
+private fun Arrow(
+    glyph: String,
+    tint: Color,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val view = LocalView.current
+    Box(
+        modifier
+            .size(size)
+            .clickable {
+                Feedback.tap(view)
+                onClick()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = glyph, fontSize = 26.sp, color = tint)
+    }
+}
+
+/** 按键行：每格等宽；竖屏是固定直径的正圆（旧 68dp 口径），横屏是铺满格子的圆角矩形。 */
+@Composable
+private fun KeyRow(row: List<RemoteKey>, plate: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        row.forEach { key ->
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (plate) {
+                    // 横屏（issue#168 第 6 条二追）：行高交给权重分，固定直径会被裁 ——
+                    // 圆角矩形铺满格子（留 3dp 呼吸边），高度跟行高走、文字必完整。
+                    PlateKey(key = key, modifier = Modifier.fillMaxSize().padding(3.dp))
+                } else {
+                    CircleKey(key = key, size = 68.dp)
+                }
+            }
+        }
+    }
+}
+
+/** 竖屏圆钮：正圆底 + 文字（不用字符图标，缺字的老坑见类注释）。 */
+@Composable
+private fun CircleKey(key: RemoteKey, size: Dp) {
+    val view = LocalView.current
+    Box(
+        Modifier
+            .size(size)
+            .background(colorResource(R.color.md_surface), CircleShape)
+            .border(1.dp, colorResource(R.color.card_stroke), CircleShape)
+            .clickable {
+                Feedback.tap(view)
+                key.action()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = key.label,
+            fontSize = if (key.label.length > 2) 13.sp else 15.sp,
+            color = keyColor(key.tint),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 横屏圆角矩形按钮：格子铺满、高度跟行高走（[CircleKey] 的固定直径在权重行里会被裁）。 */
+@Composable
+private fun PlateKey(key: RemoteKey, modifier: Modifier = Modifier) {
+    val view = LocalView.current
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier
+            .background(colorResource(R.color.md_surface), shape)
+            .border(1.dp, colorResource(R.color.card_stroke), shape)
+            .clickable {
+                Feedback.tap(view)
+                key.action()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = key.label,
+            fontSize = if (key.label.length > 2) 13.sp else 15.sp,
+            color = keyColor(key.tint),
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 语义色 → 当前色值：电源走主题主色，关机红 / 重启橙取语义资源（明暗各一套）。 */
+@Composable
+private fun keyColor(tint: RemoteKeyTint): Color = when (tint) {
+    RemoteKeyTint.Normal -> MiuixTheme.colorScheme.onSurface
+    RemoteKeyTint.Power -> MiuixTheme.colorScheme.primary
+    RemoteKeyTint.Danger -> colorResource(R.color.miuix_danger)
+    RemoteKeyTint.Warn -> colorResource(R.color.state_warn)
+}
+
+/** 顶栏胶囊（选择设备 / 光标浮层 / 关闭）：描边圆片 + 主题主色文字。 */
+@Composable
+private fun HeadChip(label: String, onClick: () -> Unit) {
+    val view = LocalView.current
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .padding(start = 8.dp)
+            .background(colorResource(R.color.md_surface), shape)
+            .border(1.dp, colorResource(R.color.card_stroke), shape)
+            .clickable {
+                Feedback.tap(view)
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+        Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.primary, maxLines = 1)
+    }
+}
+
+/**
+ * 触摸控制条 —— 手机控制手机 / TV 时用触摸控制被控端光标：
+ *  · 单点（位移 <18dp 且 <350ms）= 确认：在**当前光标处**发一次左键点击（0x01 按下→抬起）；
+ *  · 按住滑动 = 移动光标：相对位移帧（0x01，dx/dy），被控端浮层光标跟随；
+ *  · 未连接受控设备：按下即提示，不发任何帧（与按键行同口径）。
+ *
+ * 与触控板页（GestureEngine）的关系：本条是**遥控器页内**的轻量实现，
+ * 只做「移动 + 确认」两个动作，不带拖拽 / 滚动 / 右键 —— 遥控器场景用不上。
+ * P1-4 的两轴独立亚像素余数口径原样保留。
+ */
+@Composable
+private fun TouchStrip(host: RemoteActivity, modifier: Modifier = Modifier) {
+    val view = LocalView.current
+    val ctx = LocalContext.current
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(colorResource(R.color.md_surface), shape)
+            .border(1.dp, colorResource(R.color.card_stroke), shape)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    // 出口判据统一在 HidMouse / Uplink.resolve：无线有受控目标、有线/蓝牙靠本机
+                    // HID，三条任一可用都能动光标 —— 只有全没有才提示（旧实现只看 ControlTarget，
+                    // 插线 / 蓝牙时这里永远弹「还没连上设备」，触摸条等于废掉）。
+                    if (!HidMouse.available()) {
+                        Toast.makeText(ctx, ctx.getString(R.string.ui_remote_toast_no_exit), Toast.LENGTH_SHORT).show()
+                    }
+                    val downAt = android.os.SystemClock.uptimeMillis()
+                    val start = down.position
+                    var last = start
+                    var fracX = 0f
+                    var fracY = 0f
+                    while (true) {
+                        val ev = awaitPointerEvent()
+                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!ch.pressed) break
+                        ch.consume()
+                        // P1-4：每轴独立累计亚像素 + 钳位。整数位移发出后余数留在
+                        // frac 里下一帧续发；没出口就丢余数，别攒着等出口出现。
+                        fracX += (ch.position.x - last.x) * RemoteActivity.TOUCH_GAIN
+                        fracY += (ch.position.y - last.y) * RemoteActivity.TOUCH_GAIN
+                        last = ch.position
+                        val dx = fracX.toInt().coerceIn(-127, 127)
+                        val dy = fracY.toInt().coerceIn(-127, 127)
+                        if (dx != 0 || dy != 0) {
+                            // 三条链路（无线 9511 / USB HID / 蓝牙 HID）由 HidMouse 统一择路
+                            if (HidMouse.move(0, dx, dy)) {
+                                fracX -= dx; fracY -= dy
+                            } else {
+                                fracX = 0f; fracY = 0f
+                            }
+                        }
+                    }
+                    // 单点判定：位移与时长都在阈值内 = 确认。同样走 HidMouse：
+                    // 按下 → 40ms 后抬起，被控端按边沿识别单击。
+                    val dur = android.os.SystemClock.uptimeMillis() - downAt
+                    val moved = kotlin.math.hypot(
+                        (last.x - start.x).toDouble(),
+                        (last.y - start.y).toDouble(),
+                    )
+                    if (moved < RemoteActivity.TAP_SLOP_DP.dp.toPx() && dur < RemoteActivity.TAP_MS) {
+                        if (HidMouse.move(1, 0, 0)) {
+                            host.postConfirmRelease()
+                            Feedback.tap(view)
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = ctx.getString(R.string.ui_remote_touchpad_hint),
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            textAlign = TextAlign.Center,
+        )
     }
 }

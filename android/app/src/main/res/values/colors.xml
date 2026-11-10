@@ -34,6 +34,8 @@
 
     <color name="state_error">#FFF04438</color>
     <color name="state_idle">#FF98A2B3</color>
+    <!-- 警示橙（遥控器/键盘页的「重启」语义色；旧实现写死 0xFFF0A020，资源化后明暗同值） -->
+    <color name="state_warn">#FFF0A020</color>
 
     <!-- 卡片描边：与 md_outline 同值（1px 内描边 .07；4px 外扩 .035 由各卡的 outline 层叠画） -->
     <color name="card_stroke">#120F1114</color>

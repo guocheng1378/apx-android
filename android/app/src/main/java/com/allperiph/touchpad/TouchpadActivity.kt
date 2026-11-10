@@ -1,184 +1,184 @@
 package com.allperiph.touchpad
 
-import com.allperiph.shared.ui.ApKit
 import android.app.Activity
-import android.app.AlertDialog
-import android.content.ClipboardManager
 import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
-import android.view.ViewGroup
-import android.widget.FrameLayout
-import android.widget.ImageView
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Button
 import android.widget.Toast
-import android.widget.ViewFlipper
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.R
 import com.allperiph.core.ModuleId
-import com.allperiph.shared.net.FileSender
 import com.allperiph.hid.HidKeys
-import com.allperiph.hid.HotkeyStore
+import com.allperiph.shared.net.FileSender
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.HotkeyController
-
+import com.allperiph.ui.HotkeyBoard
+import com.allperiph.ui.KeyLayouts
+import com.allperiph.ui.KeyPref
+import com.allperiph.ui.compose.ApTouchpadSurface
+import com.allperiph.ui.compose.rememberApBackdrop
+import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.MiuixTheme
+import com.allperiph.ui.miuix.rememberApInsets
+import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.controlled.ControlledService
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
 import com.allperiph.wireless.WirelessModule
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
-import com.allperiph.ui.miuix.applyEdgeToEdge
+import kotlinx.coroutines.delay
 
 /**
- * 触控板操控面（v1.15 两页签版）。
+ * 触控板操控面（三页签：触控板 / 键盘 / 副屏）—— v223.29.55 起整体迁 Compose + Miuix，
+ * 与主壳（ApShellActivity 四页签）同一套设计体系。
  *
- * 信息架构（MIUIX / HyperOS 亮色）：
- *   ┌ 大标题头 —— 页名（24sp Bold）+ 副说明 + 状态胶囊 + 退出
- *   ├ 内容页 —— ViewFlipper 两页
- *   │    0 触控板：手势面（大圆角卡，不消费触摸）+ 常用快捷键 chips（点击发送 / 长按编辑）
- *   │    1 键盘  ：顶部三套键位切换 —— 快捷键盘（QWERTY）/ 遥控键盘（媒体）/ 游戏键盘（WASD 向）
- *   └ 底部页签栏（矢量图标 + 文字，选中染蓝）
- *
- * 与 v1.14 的差异：原「快捷键」「媒体」两个独立页签取消 —— 快捷键回到触控板页做常驻
- * chips（抬手即用），媒体并入键盘页作为「遥控键盘」一套键位。
+ * ## 迁移说明
+ *  · **展示**全部换成 Compose（[ConsoleRoot] 起）；类名 / 清单入口 / 页签结构 /
+ *    全部行为（三页签、全屏、方向键叠层、8 套键位、长按连发、修饰键 sticky、
+ *    音量连发、发文件 / 剪贴板、设备选择、被控开关、自检弹窗、边缘翻页、
+ *    全屏上沿下滑退出）逐条保留；
+ *  · **事件**仍走同一条 `TouchpadModule.feed(MotionEvent)` —— 手势识别是模块层逻辑
+ *    （touchpad/ 包），迁移不改它；手势面复用主壳的 [ApTouchpadSurface]（唯一实现），
+ *    长按 550ms 拖拽 / 双指长按右键拖拽由它统一调度；
+ *  · 快捷键网格沿用 View 版 [HotkeyBoard]（轻点发送 / 长按编辑 / 拖拽排序全在里面），
+ *    经 AndroidView 挂进 Compose —— 行为与主页同一份实现，不另起炉灶；
+ *  · 全屏模式沿用 v223.2 的界面方案（系统栏收起 + 只留手势面 + 右下角退出胶囊 +
+ *    一次性说明），系统栏控制逻辑原样保留；
+ *  · edge-to-edge 常态按主壳新口径：系统栏显示且透明，内容经 [rememberApInsets] 自行垫边
+ *    （旧版常态隐藏状态栏的口径已随 2026-11-07 全仓反转）。
  *
  * 触摸兜底（v1.7b 架构保留）：仅第 0 页且非边缘手势才把事件喂给触控引擎；
  * 左右边缘 28dp 起滑 80dp 翻页。与副屏互斥（架构 §4）。
  * 发送通道：无线走蓝牙 HID，有线走 HID TLC（Report ID 21 键盘 / 4 媒体）。
  */
-class TouchpadActivity : Activity() {
+class TouchpadActivity : ComponentActivity() {
 
-    // —————————————————————————— MIUIX 设计令牌（读资源，随主题明暗自适应） ——————————————————————————
+    /** 跨重组共享的 UI 状态：Activity 的命令式逻辑直接改，Compose 侧观察展示 */
+    private class ConsoleUi {
+        var page by mutableIntStateOf(0)
+        var fullscreen by mutableStateOf(false)
+        var kbTab by mutableIntStateOf(0)
+        var hidReady by mutableStateOf(false)
+        /** 顶部状态胶囊：HID 状态 / 触摸帧数 / 发文件进度共用一行 */
+        var statusText by mutableStateOf("")
+        var deviceReady by mutableStateOf(false)
+        var deviceText by mutableStateOf("")
+        var controlledOn by mutableStateOf(false)
+        /** 副屏页状态行（进入该页 / 旋转后刷新一次） */
+        var displayStatus by mutableStateOf("")
+        /** sticky 修饰键重绘触发器：tap / toggleSticky 后自增 */
+        var modVersion by mutableIntStateOf(0)
+    }
 
-    private val cBg get() = getColor(R.color.miuix_bg)
-    private val cCard get() = getColor(R.color.miuix_card)
-    private val cText get() = getColor(R.color.miuix_text)
-    private val cText2 get() = getColor(R.color.miuix_text_secondary)
-    private val cText3 get() = getColor(R.color.miuix_text_tertiary)
-    private val cDivider get() = getColor(R.color.miuix_divider)
-    private val cStroke get() = getColor(R.color.miuix_stroke)
-    /** 键盘配色：设置页可单独选一套皮肤；不选时保持原来的 miuix_accent 系列 */
-    private val kbSkinPicked get() =
-        com.allperiph.ui.ApSkin.picked(this, com.allperiph.ui.ApSkin.KEYBOARD).isNotBlank()
-    private val cAccent get() =
-        if (kbSkinPicked) com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accent
-        else com.allperiph.ui.ApPalette.primary(this)
-    private val cAccentSoft get() =
-        if (kbSkinPicked) com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accentSoft
-        else com.allperiph.ui.ApPalette.primaryContainer(this)
+    private val ui = ConsoleUi()
+    private val handler = Handler(Looper.getMainLooper())
 
-    /** 键帽密度（设置页可换） */
-    private val dens get() = com.allperiph.ui.KeyPref.density(this)
-    private val cDangerSoft get() = getColor(R.color.md_error_container)
-    private val cDanger get() = getColor(R.color.miuix_danger)
-    private val cTabIdle get() = getColor(R.color.state_idle)
+    /** 实体键盘/指针转发桥（v223.13：全屏操控面此前从没接过 —— issue #52 第 6 条）。 */
+    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
 
-    /** 页签定义 */
-    private class Page(val title: String, val sub: String, val icon: Int)
+    /** 文件选择请求码（传统 startActivityForResult：要兼容 suspend 前的生命周期语义） */
+    private val REQ_PICK_FILE = 9001
 
-    /** 页签视图对：图标按选中态染色 */
-    private class Tab(val icon: ImageView, val label: TextView)
+    /** 快捷键网格容器（View 版 HotkeyBoard 渲染进这里，经 AndroidView 挂上屏幕） */
+    private val hotkeyContainerView by lazy { android.widget.LinearLayout(this) }
 
-    // **必须 lazy**：属性初始化器在 Activity 构造阶段执行，那时 Context 还没 attach，
-    // getString 会直接 NPE —— 症状就是"全屏操控面点不进去"（v186 回归，v187 修）。
-    private val pages by lazy {
-        listOf(
-            Page(getString(R.string.ui_main_item_touchpad), getString(R.string.ui_touchpad_label_hotkey_edit_longpress), R.drawable.ic_apx_touchpad),
-            Page(getString(R.string.ui_touchpad_label_keyboard), getString(R.string.ui_touchpad_label_remote), R.drawable.ic_apx_keyboard),
-            Page(getString(R.string.notify_action_screen), getString(R.string.ui_touchpad_label_screen), R.drawable.ic_apx_power),
+    /** 快捷键网格：行为统一在 ui/HotkeyBoard（与主页共用同一份实现） */
+    internal val hotkeyBoard: HotkeyBoard by lazy {
+        HotkeyBoard(this, hotkeyContainerView, ::boardStyle)
+    }
+
+    /** 操控面版皮肤：中性色（与主页的模板色区分开）。每行个数随横竖屏走（issue#168 第 1 条）：
+     *  竖屏 4 个/行；横屏热键栏变成右侧窄列，改 2 个/行。渲染随整页重建走。 */
+    private fun boardStyle(): HotkeyBoard.Style {
+        val land = resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        return HotkeyBoard.Style(
+            chipText = getColor(R.color.miuix_text),
+            chipBg = getColor(R.color.miuix_card),
+            chipStroke = getColor(R.color.miuix_stroke),
+            chipRadiusDp = 14,
+            padVDp = 13,
+            perRow = if (land) 2 else 4,
+            accent = accentColor(),
+            textPrimary = getColor(R.color.miuix_text),
+            textSecondary = getColor(R.color.miuix_text_secondary),
         )
     }
 
-    /** 键盘页的 7 套布局（对应 kbPager 的 7 个 child，数据见 ui/KeyLayouts） */
-    private val kbNames = listOf("快捷", "遥控", "游戏", "数字", "九宫格", "方向", "F 区", "自定义")
+    /** 键盘配色：设置页可单独选一套皮肤；不选时保持主色系 */
+    private fun accentColor(): Int =
+        if (com.allperiph.ui.ApSkin.picked(this, com.allperiph.ui.ApSkin.KEYBOARD).isNotBlank()) {
+            com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accent
+        } else {
+            com.allperiph.ui.ApPalette.primary(this)
+        }
 
-    // —————————————————————————— 状态 ——————————————————————————
+    private fun accentSoftColor(): Int =
+        if (com.allperiph.ui.ApSkin.picked(this, com.allperiph.ui.ApSkin.KEYBOARD).isNotBlank()) {
+            com.allperiph.ui.ApSkin.current(this, com.allperiph.ui.ApSkin.KEYBOARD).accentSoft
+        } else {
+            com.allperiph.ui.ApPalette.primaryContainer(this)
+        }
 
-    private var titleView: TextView? = null
-    private var subView: TextView? = null
-    private var statusView: TextView? = null
-    private var deviceChip: TextView? = null
-    private var fileBtn: TextView? = null
-    private var clipBtn: TextView? = null
-    private var controlledChip: TextView? = null
-    private var displayStatusView: TextView? = null
-    private lateinit var flipper: ViewFlipper
-
-    /** 文件选择请求码（用传统 startActivityForResult，因本 Activity 非 AndroidX ComponentActivity） */
-    private val REQ_PICK_FILE = 9001
-    private var tabs: List<Tab> = emptyList()
-    private var chipRow: LinearLayout? = null
-    private lateinit var kbPager: ViewFlipper
-    private var kbTabs: List<TextView> = emptyList()
-    // 快捷键网格：行为统一在 ui/HotkeyBoard（与主页共用同一份实现）
-    private lateinit var hotkeyBoard: com.allperiph.ui.HotkeyBoard
-
-    /** 修饰键位 → 该位的所有按钮（快捷键盘与游戏键盘各有一套，需一起点亮） */
-    private val modBtns = LinkedHashMap<Int, MutableList<TextView>>()
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var hidReady = false
-    private var frameCount = 0L
-    private var lastShown = 0L
-
-    // v1.7d：长按拖动定时器——DOWN 后 550ms 触发 armDrag（手指静止无 MOVE 也生效）
-    private val dragTask = Runnable {
-        (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armDrag()
-    }
-
-    // 右键拖拽：**此前 armRightDrag() 全仓库零调用**，双指长按没有任何入口 ——
-    // 与上面的左键拖拽对称：双指落下后 550ms 锁定右键拖拽。
-    private val rightDragTask = Runnable {
-        (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armRightDrag()
-    }
-
-    // 媒体音量按住连发
-    private var volRepeat: Runnable? = null
-
-    // 边缘滑动翻页状态
-    private var edgeStartX = -1f
-    private var edgeSwiped = false
-
-    // ——— v223.2：全屏触控板（issue#47 第 1 条） ———
-    // 起因是「光标锁定」在 Android 上做不到（应用层没有限制光标区域的 API，只能把本窗口
-    // 光标图标设成 TYPE_NULL），所以唯一能消掉误触的路径就是界面：全屏后页面上只剩手势面，
-    // 标题头、页签栏、快捷键网格、方向键叠层、提示行一起收起，系统导航栏也收掉。
-    private var headerView: View? = null
-    private var tabBarView: View? = null
-    private var tpPageCol: LinearLayout? = null
-    /** 实体键盘/指针转发桥（v223.13：全屏操控面此前从没接过 —— issue #52 第 6 条）。 */
-    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
-    private var tpArea: FrameLayout? = null
-    private var tpHint: TextView? = null
-    private var tpHotkeySection: View? = null
-    private var tpDpad: View? = null
-    private var fullscreenChip: TextView? = null
-    private var fullscreenExitPill: TextView? = null
-    @Volatile private var fullscreen = false
-    /** 全屏上沿下滑退出：这一整段手势都吞掉，不喂手势引擎（否则退出动作会顺手甩光标） */
-    private var fsSwallow = false
-    /** 已经因这条手势退出全屏了（但手势还没抬，仍要继续吞到 UP —— 不能半路开始喂引擎） */
-    private var fsExiting = false
-    private var fsStartY = 0f
-    /** 退出小胶囊的淡出任务（进入 3s 后降到 25% 不透明度，别在视野里抢注意力） */
-    private var fsPillFade: Runnable? = null
-
-    // —————————————————————————— 装配 ——————————————————————————
+    // —————————————————————————— 生命周期 ——————————————————————————
 
     /** 主题方案：把用户在设置页选的主题注入资源配置（深色取值在 values-night） */
     override fun attachBaseContext(newBase: Context) {
@@ -196,81 +196,60 @@ class TouchpadActivity : Activity() {
         physKeyBridge?.detach(); physKeyBridge = null
         ControlTarget.controlClient?.onReverseClipboard = null
         // 退出操控面立刻还原系统三指手势（进程被杀的情况交给 App 启动时的自愈）
-        com.allperiph.touchpad.GestureShield.release(this, HOLDER_CONSOLE)
+        GestureShield.release(this, HOLDER_CONSOLE)
         super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyEdgeToEdge()
-        // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
+        // 强调色要叠在「正在用的这个主题」上才算数（View 弹窗：自检 / 关机确认 仍走主题）
         com.allperiph.ui.ApPalette.applyRuntimeTheme(this)
-        // 截屏已放开（与 MainActivity 口径一致）：主控制面此前挂 FLAG_SECURE，
-        // 截图/录屏一片黑，用户没法截图反馈界面问题，排查只能靠口述。
-        // 快捷键列表由 HotkeyBoard 自己从盘上读（见 buildChipsPanel）
-        hidReady = AgentController.runtime?.hid?.isReady() == true
+        // 截屏已放开（与主页口径一致）：主控制面此前挂 FLAG_SECURE，用户没法截图反馈界面问题
+        ui.hidReady = AgentController.runtime?.hid?.isReady() == true
+        ui.statusText = getString(
+            if (ui.hidReady) R.string.ui_touchpad_text_no_frames else R.string.ui_touchpad_text_not,
+        )
+        updateControlledChip()
+        updateDeviceChip()
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(cBg)
-        }
-        com.allperiph.ui.Backdrop.apply(root, cBg) // 背景：预设底色 / 相册图（设置页可选）
-        root.addView(buildHeader())
-        flipper = ViewFlipper(this).apply {
-            addView(touchpadPage())
-            addView(keyboardPage())
-            addView(displayPage())
-        }
-        root.addView(flipper, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(buildTabBar())
-        // v223.2：外层再套一层 FrameLayout，只为了把「退出全屏」小胶囊浮在手势面之上。
-        // 它非全屏时 GONE —— 不在布局里，也不吃触摸；全屏时是页面上**唯一**可点控件，
-        // 且压在右下角 10dp 处，两指划动手势基本不会落在那里。
-        val shell = FrameLayout(this)
-        shell.addView(root, ViewGroup.LayoutParams(-1, -1))
-        fullscreenExitPill = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_fullscreen_exit)
-            setTextColor(cText2)
-            textSize = 11f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(14), dp(7), dp(14), dp(7))
-            alpha = 0.6f
-            visibility = View.GONE
-            isClickable = true
-            isFocusable = false
-            setOnClickListener { setFullscreen(false) }
-        }
-        shell.addView(fullscreenExitPill, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.END).apply {
-            rightMargin = dp(10); bottomMargin = dp(10)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            /** 返回键先确认：操控面退出后外设照常运行，但误触退出会打断手上的操作 */
+            private var backDialogShown = false
+
+            @Deprecated("Deprecated in Java")
+            override fun handleOnBackPressed() {
+                // 全屏时返回键先退出全屏（这里连确认框都不该弹：用户只是想回到控制面）
+                if (ui.fullscreen) {
+                    setFullscreen(false)
+                    return
+                }
+                if (backDialogShown) return
+                backDialogShown = true
+                com.allperiph.ui.ApDialog.builder(this@TouchpadActivity)
+                    .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
+                    .setMessage(getString(R.string.ui_touchpad_dialog_home))
+                    .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
+                    .setNegativeButton(getString(R.string.ui_common_cancel), null)
+                    .setOnDismissListener { backDialogShown = false }
+                    .show()
+            }
         })
-        // v1.7 修复：显式 MATCH_PARENT（root 高度塌缩曾致触摸区只剩一小条）
-        setContentView(shell, ViewGroup.LayoutParams(-1, -1))
+
+        setContentView(
+            androidx.compose.ui.platform.ComposeView(this).apply {
+                setContent {
+                    ApMiuixTheme {
+                        ConsoleRoot(ui = ui, host = this@TouchpadActivity)
+                    }
+                }
+            },
+        )
         // 实体键盘 / 实体触控板转发桥：全屏操控面是独立 Activity，主页触控板页的
         // PhysKeyBridge（TouchpadFragment 里 attach）管不到这里 —— 不接的话全屏里
-        // 实体键盘按键、实体触控板 hover/指针事件全部落进系统默认路径，
-        // 用户看到的就是「实体键盘无法使用、实体触控板单指失效」（issue #52 第 6 条）。
+        // 实体键盘按键、实体触控板 hover/指针事件全部落进系统默认路径
+        // （issue #52 第 6 条）。
         physKeyBridge = com.allperiph.ui.PhysKeyBridge(this).also { it.attach(window) }
-        // Android 15+（targetSdk 35）强制 edge-to-edge，主题里的 windowFullscreen 不再保证内容避开系统栏 ——
-        // R+ 显式接管：关掉 decor 贴合、隐藏状态栏、按实际 insets（状态栏/挖孔/导航栏/输入法）给内容垫边：
-        // 系统认为栏还在（insets>0）就垫开，已隐藏/已贴合时 inset=0 不垫，任何一态都不遮住标题头。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-            window.insetsController?.hide(android.view.WindowInsets.Type.statusBars())
-            root.setOnApplyWindowInsetsListener { v, insets ->
-                val t = insets.getInsets(
-                    android.view.WindowInsets.Type.statusBars() or
-                        android.view.WindowInsets.Type.navigationBars() or
-                        android.view.WindowInsets.Type.displayCutout() or
-                        android.view.WindowInsets.Type.ime()
-                )
-                v.setPadding(t.left, t.top, t.right, t.bottom)
-                insets
-            }
-            root.requestApplyInsets()
-        }
-        refreshTabs()
-        updateControlledChip()
         // 主页「设置 → 管理快捷键」用 EXTRA_PAGE 直达键盘页；launchMode=singleTask，
         // 已在栈中时走 onNewIntent
         showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
@@ -278,23 +257,17 @@ class TouchpadActivity : Activity() {
         TvDiscovery.start()
     }
 
-    /**
-     * 只在前台时遮蔽三指手势：退到后台（Home / 切应用 / 锁屏）立刻还原 ——
-     * 否则用户在桌面想三指下拉截屏时会发现按不动。
-     *
-     * 说明：本操控面前台期间，MIUI 的「三指下滑截屏 / 三指长按区域截屏」被临时
-     * 改成无动作（root），否则三指滑动还没做完，截图就已经存进相册了。
-     * 开关在 设置 → 交互开关 → 三指手势遮蔽；无 root 时只提示一次，走手动兜底。
-     */
+    /** 只在前台时遮蔽三指手势：退到后台（Home / 切应用 / 锁屏）立刻还原 ——
+     *  否则用户在桌面想三指下拉截屏时会发现按不动。 */
     override fun onResume() {
         super.onResume()
         // 与主页同口径：每次回前台复核转发桥（窗口回调被换掉就重新包上）
         physKeyBridge?.ensureAttached(window)
-        com.allperiph.touchpad.GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
+        GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
     }
 
     override fun onPause() {
-        com.allperiph.touchpad.GestureShield.release(this, HOLDER_CONSOLE)
+        GestureShield.release(this, HOLDER_CONSOLE)
         // 退后台会丢掉后续的「按键抬起」：放掉仍按住的键，避免电脑侧 Ctrl / Shift 粘住
         physKeyBridge?.releaseStuckKeys()
         super.onPause()
@@ -305,28 +278,6 @@ class TouchpadActivity : Activity() {
         showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
     }
 
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
-        super.onConfigurationChanged(newConfig)
-        // b17 方案 C 起键盘横屏排布在「建面板那一刻」定型；本壳 Activity 声明 configChanges
-        // （旋转不重建），面板不重建就永远停在旧排。b64（issue#168 第 1 条）起触控板页
-        // （左右分栏）与副屏页（两卡并排）同样按方向定型 —— 旋转时三页一起就地重建，
-        // 页签保持原页，键盘页保持原键位页签。
-        if (!::flipper.isInitialized || !::kbPager.isInitialized) return
-        modBtns.clear() // 修饰键按钮随旧面板作废，重建时统一重新登记，refreshMods 不得摸旧视图
-        val keep = flipper.displayedChild
-        val keepKb = kbPager.displayedChild
-        flipper.removeViewAt(PAGE_TOUCHPAD)
-        flipper.addView(touchpadPage(), PAGE_TOUCHPAD)
-        flipper.removeViewAt(PAGE_KEYBOARD)
-        flipper.addView(keyboardPage(), PAGE_KEYBOARD)
-        flipper.removeViewAt(PAGE_DISPLAY)
-        flipper.addView(displayPage(), PAGE_DISPLAY)
-        flipper.displayedChild = keep
-        showKeyboard(keepKb) // 重排后的键盘页回到原键位页签
-        refreshMods() // 重排后的修饰键补同步 sticky 高亮（与 onCreate 后手动切换同一状态源）
-        updateDisplayStatus() // 副屏页重建后状态行补一次当前值（否则停在空文案）
-    }
-
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -335,917 +286,41 @@ class TouchpadActivity : Activity() {
         }
     }
 
-    /** 大标题头：左对齐标题栈（非居中），右侧状态胶囊与退出 */
-    private fun buildHeader(): View {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(12))
-        }
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val tv = TextView(this).apply {
-            text = pages[0].title
-            setTextColor(cText)
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val st = TextView(this).apply {
-            text = if (hidReady) getString(R.string.ui_touchpad_text_no_frames) else getString(R.string.ui_touchpad_text_not)
-            setTextColor(if (hidReady) cAccent else cDanger)
-            textSize = 11f
-            gravity = Gravity.CENTER
-            background = pill(if (hidReady) cAccentSoft else cDangerSoft)
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-        }
-        val exit = TextView(this).apply {
-            text = getString(R.string.ui_common_exit)
-            setTextColor(cText2)
-            textSize = 13f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(14), dp(6), dp(14), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { finish() }
-        }
-        row.addView(tv)
-        // v184：右侧 chips（状态/被控/设备/遥控/文件/剪贴板/退出）收进可横向滑动的容器 ——
-        // chip 一多就顶出屏幕，横滑解决。
-        val chipsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val chipsScroll = android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chipsRow) }
-        row.addView(chipsScroll, LinearLayout.LayoutParams(0, -2, 1f))
-        chipsRow.addView(st)
-        // 被控模式开关：让本机也能被另一台手机控制（无需单独装 TV APK）
-        val ctl = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_controlled)
-            setTextColor(cText2)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { toggleControlled() }
-            // 长按 = 看注入通道自检（哪一档能力、缺什么、怎么办）
-            setOnLongClickListener { showInjectCaps(); true }
-        }
-        controlledChip = ctl
-        chipsRow.addView(ctl, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-
-        // 右上角设备选择器：切换要控制的设备（本机/PC 或局域网内的 TV）
-        val dev = TextView(this).apply {
-            text = ControlTarget.label
-            setTextColor(cText2)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { showDevicePicker() }
-        }
-        deviceChip = dev
-        chipsRow.addView(dev, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-
-        // 遥控器入口：真机反馈"找不到遥控器的界面" —— 在操控面顶部也放一个，随手可达
-        val remote = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_remote)
-            setTextColor(cAccent)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                startActivity(
-                    android.content.Intent(this@TouchpadActivity, com.allperiph.ui.RemoteActivity::class.java)
-                )
-            }
-        }
-
-        // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
-        val file = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_file)
-            setTextColor(cText2)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                    type = "*/*"
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                }
-                startActivityForResult(intent, REQ_PICK_FILE)
-            }
-        }
-        val clip = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_clipboard)
-            setTextColor(cText2)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { sendClipboard() }
-        }
-        fileBtn = file
-        clipBtn = clip
-        chipsRow.addView(remote, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-        chipsRow.addView(file, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-        chipsRow.addView(clip, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-
-        // 全屏入口：按用户原话「虚拟触控板的页能不能加个全屏模式，把页内其它控件都隐藏」
-        val fs = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_fullscreen_enter)
-            setTextColor(cAccent)
-            textSize = 12f
-            gravity = Gravity.CENTER
-            background = pill(cCard)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            isClickable = true
-            isFocusable = true
-            setOnClickListener { setFullscreen(true) }
-        }
-        fullscreenChip = fs
-        chipsRow.addView(fs, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-        chipsRow.addView(exit, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(8) })
-
-        wrap.addView(row)
-
-        val sub = TextView(this).apply {
-            text = pages[0].sub
-            setTextColor(cText2)
-            textSize = 13f
-        }
-        wrap.addView(sub, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
-
-        titleView = tv
-        statusView = st
-        subView = sub
-        headerView = wrap
-        return wrap
-    }
-
-    // —————————————————————————— 第 0 页：触控板 + 常用快捷键 ——————————————————————————
-    /**
-     * v208：方向键叠层——十字方向键 + 中心 OK，居中覆盖手势面；
-     * 箭头 usage 与 [com.allperiph.ui.KeyLayouts] 方向布局一致（USB HID Keyboard Page 0x07），
-     * 中心 OK = ⏎/Enter（KeyLayouts.ENTER = 0x28），与方向布局的确认键同 usage。
-     * 仅键帽区域消费触摸，键间空隙和手势面其余区域仍走 Activity.onTouchEvent → 触控引擎。
-     */
-    private fun dpadOverlay(): View {
-        fun cell() = LinearLayout.LayoutParams(dp(36), dp(36))
-        fun key(label: String, usage: Int) = keyCap(label, usage)
-        fun gap() = View(this)
-        fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = card(cBg, dp(14))
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-        }
-        val up = row()
-        up.addView(gap(), cell())
-        up.addView(key("↑", 0x52), cell())
-        up.addView(gap(), cell())
-        val mid = row()
-        mid.addView(key("←", 0x50), cell())
-        mid.addView(key("OK", 0x28), cell())
-        mid.addView(key("→", 0x4F), cell())
-        val down = row()
-        down.addView(gap(), cell())
-        down.addView(key("↓", 0x51), cell())
-        down.addView(gap(), cell())
-        col.addView(up)
-        col.addView(mid)
-        col.addView(down)
-        return col
-    }
-
-    /**
-     * 手势面占满剩余空间；页面内子视图除 chips 外均不可点击 → 事件兜底到 Activity.onTouchEvent。
-     * 横屏（issue#168 第 1 条）：竖排会把高度耗尽 —— 手势面被顶成 0、快捷键裁半。
-     * 改成**左右分栏**（与主页触控板同思路）：手势面在左占满整高，快捷键栏在右一列
-     * （网格 perRow=2），宽度富余的横屏正好各得其所。旋转不重建 Activity，切换由
-     * [onConfigurationChanged] 重建整页生效。
-     */
-    private fun touchpadPage(): View {
-        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        val col = LinearLayout(this).apply {
-            orientation = if (land) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            setPadding(dp(16), 0, dp(16), dp(10))
-        }
-        val area = FrameLayout(this).apply {
-            background = card(cCard, dp(22))
-            isClickable = false
-            isFocusable = false
-        }
-        val hint = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_cursor_swipe)
-            setTextColor(cText3)
-            textSize = 13f
-            gravity = Gravity.CENTER
-            isClickable = false
-        }
-        area.addView(hint, FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dp(14)
-        })
-        // 竖屏：手势面吃掉热键栏之外的整列高度；横屏：手势面吃掉右侧栏之外的整行宽度
-        col.addView(area, if (land) LinearLayout.LayoutParams(0, -1, 1f) else LinearLayout.LayoutParams(-1, 0, 1f))
-        tpPageCol = col
-        tpArea = area
-        tpHint = hint
-        // v208：方向键居中覆盖手势面（带中心 OK），四周与键间空隙仍可滑动 ——
-        // 键帽只消费自身区域，键外照常走触控引擎，滑动与方向同屏。
-        tpDpad = dpadOverlay().also { area.addView(it, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)) }
-
-        // 常用快捷键：网格 + 拖拽排序（与主页同一套手势），抬手即用，不占整页
-        val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(4), dp(14), dp(4), dp(8))
-        }
-        head.addView(TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_hotkey); setTextColor(cText); textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        head.addView(TextView(this).apply {
-            text = getString(R.string.ui_common_edit); setTextColor(cAccent); textSize = 12f
-            isClickable = true
-            isFocusable = true
-            // 它是个带背景的胶囊式入口，不是行内纯文字：居中才与其它胶囊一致
-            // （右侧 4dp 是留给标题行的呼吸位，文字本身仍居中）。
-            gravity = Gravity.CENTER
-            setPadding(dp(10), dp(4), dp(4), dp(4))
-            setOnClickListener { hotkeyBoard.managerDialog() }
-        })
-        // 网格容器：每行 4 个（8 个正好两行），块比原来的横滚小胶囊更大
-        val chips = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        chipRow = chips
-        // 全屏时「常用快捷键」整块收起（标题行 + 网格一起），所以给它们一个共同容器
-        val hotkeySection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        // 竖屏：热键栏在下方按内容高度走；横屏：整列搬到右侧固定宽（perRow 改 2，见 boardStyle）。
-        // 横屏追补（issue#168 第 1 条）：热键多于一屏时装不下，块被顶出屏外——
-        // 右列包一层 ScrollView，滚动条按用户要求放在**左侧**（SCROLLBAR_POSITION_LEFT）。
-        // 代价：在块上竖向拖动会被滚动接管（拖动排序转入「编辑」弹窗的上下移）；
-        // 轻点发送 / 长按按住不需要连续位移，不受影响。
-        //
-        // 二次追补（2026-11-11）：滚动范围**只包按钮网格**（chips）——此前标题行
-        // 「常用快捷键 / 编辑」也在滚动区内，会跟着滚出视野、编辑按钮摸不着。
-        // 标题行固定在外，权重占满整列高度，滚动的只有按钮区。
-        hotkeySection.addView(head)
-        if (land) {
-            val sc = ScrollView(this).apply {
-                isVerticalScrollBarEnabled = true
-                setVerticalScrollbarPosition(View.SCROLLBAR_POSITION_LEFT)
-                scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY   // 属性名是大写 B（View.setScrollBarStyle）
-                addView(chips, FrameLayout.LayoutParams(-1, -2))
-            }
-            hotkeySection.addView(sc, LinearLayout.LayoutParams(-1, 0, 1f))
-            col.addView(hotkeySection, LinearLayout.LayoutParams(dp(190), -1).apply { leftMargin = dp(10) })
-        } else {
-            hotkeySection.addView(chips, LinearLayout.LayoutParams(-1, -2))
-            col.addView(hotkeySection, LinearLayout.LayoutParams(-1, -2))
-        }
-        tpHotkeySection = hotkeySection
-        // 快捷键网格：行为与主页完全同一份实现（ui/HotkeyBoard），这里只给中性色皮肤
-        hotkeyBoard = com.allperiph.ui.HotkeyBoard(this, chips, { boardStyle() })
-        hotkeyBoard.render()
-        return col
-    }
-
-    /**
-     * 操控面版皮肤：中性色（与主页的模板色区分开）。每行个数随横竖屏走（issue#168 第 1 条）：
-     * 竖屏 4 个/行；横屏热键栏变成右侧窄列，改 2 个/行，免得 4 个挤在 190dp 里字都放不下。
-     * 渲染在 touchpadPage() 里随整页重建走，旋转后自然按新方向取值。
-     */
-    private fun boardStyle(): com.allperiph.ui.HotkeyBoard.Style {
-        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        return com.allperiph.ui.HotkeyBoard.Style(
-        chipText = cText,
-        chipBg = cCard,
-        chipStroke = cStroke,
-        chipRadiusDp = 14,
-        padVDp = 13,
-        perRow = if (land) 2 else 4,
-        accent = cAccent,
-        textPrimary = cText,
-        textSecondary = cText2,
-        )
-    }
-
-
-    // —————————————————————————— 第 1 页：键盘（三套键位） ——————————————————————————
-
-    private fun keyboardPage(): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), 0, dp(10), dp(12))
-        }
-        // 键位切换：分段胶囊（快捷 / 遥控 / 游戏）
-        val tabRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(6), dp(2), dp(6), dp(10))
-        }
-        kbTabs = kbNames.mapIndexed { i, name ->
-            val t = TextView(this).apply {
-                text = name
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setPadding(0, dp(9), 0, dp(9))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { showKeyboard(i) }
-                if (name == "自定义") {
-                    setOnLongClickListener {
-                        com.allperiph.ui.CustomKeyboardDialog.show(this@TouchpadActivity) {
-                            val idx = kbNames.indexOf("自定义")
-                            if (idx in 0 until kbNames.size) showKeyboard(idx)
-                        }
-                        true
-                    }
-                }
-            }
-            tabRow.addView(t, LinearLayout.LayoutParams(dp(76), -2).apply {
-                setMargins(dp(3), 0, dp(3), 0)
-            })
-            t
-        }
-        // 7 套布局一屏放不下 → 页签行横向可滑
-        col.addView(
-            android.widget.HorizontalScrollView(this).apply {
-                isHorizontalScrollBarEnabled = false
-                addView(tabRow)
-            },
-            LinearLayout.LayoutParams(-1, -2)
-        )
-
-        kbPager = ViewFlipper(this).apply {
-            addView(quickKeyboard())
-            addView(remoteKeyboard())
-            addView(gameKeyboard())
-            addView(numpadKeyboard())
-            addView(grid9Keyboard())
-            addView(arrowKeyboard())
-            addView(fnKeyboard())
-            addView(customKeyboard())
-        }
-        col.addView(kbPager, LinearLayout.LayoutParams(-1, 0, 1f))
-        showKeyboard(0)
-        return col
-    }
-
-    private fun showKeyboard(i: Int) {
-        if (!::kbPager.isInitialized || i !in kbNames.indices) return
-        kbPager.displayedChild = i
-        kbTabs.forEachIndexed { k, t ->
-            val on = k == i
-            t.background = pill(if (on) cAccent else cAccentSoft)
-            t.setTextColor(if (on) cCard else cAccent)
-            t.typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        }
-    }
-
-    /** 快捷键盘：sticky 修饰排 + 5 行 QWERTY */
-    private fun quickKeyboard(): View {
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val modRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        HidKeys.MOD_LABELS.forEach { (text, bit) ->
-            val b = keyCap(text, true) {
-                HidKeys.toggleSticky(bit)
-                refreshMods()
-            }
-            modBtns.getOrPut(bit) { mutableListOf() }.add(b)
-            modRow.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
-                setMargins(dp(2), dp(2), dp(2), dp(6))
-            })
-        }
-        col.addView(modRow, LinearLayout.LayoutParams(-1, 0, 1f))
-        // b64（issue#168 第 1 条）：横屏不再切 FULL 真键盘排 —— 操控面横屏可用高度只有
-        // 竖屏的一半，FULL 的 8 行（修饰 + 符号 + 数字 + 3 字母 + F 区）每行摊不到 30dp，
-        // 键帽被压成字都放不下的细条（真机截图 22:09）。改回与竖屏同一套 6 行 letterRows，
-        // 行高翻倍按钮回到可按的尺寸；要完整 F 区 / 导航键去主页键盘页（横屏走壳内重排）。
-        com.allperiph.ui.KeyPref.letterRows(this).forEach { labels ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val g = dp(dens.gapDp)
-            labels.forEach { text ->
-                val b = keyCap(text, false) {
-                    HidKeys.tapLabel(text) // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）
-                    refreshMods() // tap 会清 sticky，同步熄灭修饰键
-                }
-                row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
-                    setMargins(g, g, g, g)
-                })
-            }
-            col.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
-        }
-        return col
-    }
-
-    /** 遥控键盘：媒体 / 音量（音量键按住连发） */
-    private fun remoteKeyboard(): View {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val rows = listOf(
-            listOf(
-                Triple(getString(R.string.ui_touchpad_media_prev), R.drawable.ic_apx_prev, HotkeyController.BIT_PREV_TRACK),
-                Triple(getString(R.string.ui_touchpad_label_play_pause), R.drawable.ic_apx_play, HotkeyController.BIT_PLAY_PAUSE),
-                Triple(getString(R.string.ui_touchpad_media_next), R.drawable.ic_apx_next, HotkeyController.BIT_NEXT_TRACK),
-            ),
-            listOf(
-                Triple(getString(R.string.ui_touchpad_label_volume), R.drawable.ic_apx_vol_down, HotkeyController.BIT_VOLUME_DOWN),
-                Triple(getString(R.string.ui_touchpad_media_mute), R.drawable.ic_apx_mute, HotkeyController.BIT_MUTE),
-                Triple(getString(R.string.ui_touchpad_label_volume_2), R.drawable.ic_apx_vol_up, HotkeyController.BIT_VOLUME_UP),
-            ),
-        )
-        rows.forEach { defs ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            defs.forEach { (text, icon, bit) ->
-                row.addView(mediaTile(text, icon, bit), LinearLayout.LayoutParams(0, dp(110), 1f).apply {
-                    setMargins(dp(6), dp(6), dp(6), dp(6))
-                })
-            }
-            col.addView(row, LinearLayout.LayoutParams(-1, -2))
-        }
-        // 第三行：电源（软，待机/唤醒）/ 关机 / 重启。
-        // ★ 原先这里的"遥控键盘"只有两行（媒体 + 音量），而主页横屏键盘的同一个布局**已经有**
-        //   电源三键 —— 两个入口能力不一致，用户在全屏操控面里根本找不到关机键。
-        //   关机 / 重启走控制帧 opcode 0x22，需要被控端有 root，所以弹确认框。
-        val pr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun tileLp() = LinearLayout.LayoutParams(0, dp(110), 1f)
-            .apply { setMargins(dp(6), dp(6), dp(6), dp(6)) }
-        pr.addView(mediaTile(getString(R.string.ui_touchpad_label_power), R.drawable.ic_apx_power, HotkeyController.BIT_POWER), tileLp())
-        pr.addView(actionTile(getString(R.string.ui_touchpad_label_poweroff), 0xFFD23F31.toInt()) { confirmPower(0, getString(R.string.ui_touchpad_label_poweroff)) }, tileLp())
-        pr.addView(actionTile(getString(R.string.ui_touchpad_label_reboot), 0xFFF0A020.toInt()) { confirmPower(1, getString(R.string.ui_touchpad_label_reboot)) }, tileLp())
-        col.addView(pr, LinearLayout.LayoutParams(-1, -2))
-        return col
-    }
-
-    /** 动作图块：没有 Consumer 位，点了直接执行（关机 / 重启） */
-    private fun actionTile(text: String, accent: Int, onClick: () -> Unit): View = TextView(this).apply {
-        this.text = text
-        setTextColor(accent)
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-        textSize = 16f
-        gravity = Gravity.CENTER
-        isClickable = true
-        isFocusable = true
-        background = card(cCard, dp(18))
-        setOnClickListener { com.allperiph.ui.Feedback.tap(this); onClick() }
-    }
-
-    /** 关机 / 重启确认：会直接关掉被控设备，别让误触生效 */
-    private fun confirmPower(action: Int, label: String) {
-        val c = com.allperiph.wireless.ControlTarget.controlClient
-        if (c == null) {
-            Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
-            return
-        }
-        com.allperiph.ui.ApDialog.builder(this)
-            .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
-            .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
-            .setPositiveButton(label) { _, _ ->
-                c.power(action)
-                Toast.makeText(this, getString(R.string.ui_touchpad_toast_send_done, label), Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton(getString(R.string.ui_common_cancel), null)
-            .show()
-    }
-
-    /** 注入通道自检：被控端"缺哪一项"在手机上原先只有通知栏一行字 */
-    private fun showInjectCaps() {
-        val inj = com.allperiph.shared.inject.TvInjector
-        val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
-            if (ok) "✓  $name" else "✗  $name\n      → $how"
-        }
-        com.allperiph.ui.ApDialog.builder(this)
-            .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
-            .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
-            .setPositiveButton(getString(R.string.ui_common_close), null)
-            .show()
-    }
-
-    private fun mediaTile(text: String, icon: Int, bit: Int): View {
-        val tile = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            background = card(cCard, dp(18))
-            isClickable = true
-            isFocusable = true
-        }
-        tile.addView(ImageView(this).apply {
-            setImageResource(icon)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            setColorFilter(cAccent)
-        }, LinearLayout.LayoutParams(dp(30), dp(30)))
-        tile.addView(TextView(this).apply {
-            this.text = text; setTextColor(cText2); textSize = 12f; gravity = Gravity.CENTER
-        }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(10) })
-
-        if (bit == HotkeyController.BIT_VOLUME_UP || bit == HotkeyController.BIT_VOLUME_DOWN) {
-            // 音量键：按住连发（PC 按位图边沿计数，须反复 按下→释放）
-            tile.setOnTouchListener { v, ev ->
-                when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        v.background = card(cAccentSoft, dp(18))
-                        com.allperiph.ui.Feedback.tap(v)
-                        rippleOn(v, ev.x, ev.y)
-                        mediaTap(bit)
-                        val task = object : Runnable {
-                            override fun run() {
-                                com.allperiph.ui.Feedback.haptic(v) // 连发只震动
-                                mediaTap(bit)
-                                handler.postDelayed(this, 250)
-                            }
-                        }
-                        volRepeat = task
-                        handler.postDelayed(task, 400)
-                    }
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        v.background = card(cCard, dp(18))
-                        volRepeat?.let { handler.removeCallbacks(it) }
-                        volRepeat = null
-                        HotkeyController.release(bit) // 兜底确保释放
-                    }
-                }
-                true
-            }
-        } else {
-            tile.setOnClickListener {
-                com.allperiph.ui.Feedback.tap(it)
-                rippleOn(it, tile.width / 2f, tile.height / 2f)
-                mediaTap(bit)
-            }
-        }
-        return tile
-    }
-
-    /** Consumer 键点按：PC 按位图边沿识别，故 按下 60ms → 释放 */
-    private fun mediaTap(bit: Int) {
-        HotkeyController.press(bit)
-        handler.postDelayed({ HotkeyController.release(bit) }, 60)
-    }
-
-    /**
-     * 游戏键盘：4×6 高频键位。
-     * 第 1 行技能数字、第 2/3 行左手技能区（Q W E R F B / A S D + 修饰）、
-     * 第 4 行方向键与确认键 —— 覆盖 MOBA / FPS 的默认手位。
-     */
-    private fun gameKeyboard(): View {
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val layout = listOf(
-            listOf("Esc", "1", "2", "3", "4", "Tab"),
-            listOf("Q", "W", "E", "R", "F", "B"),
-            listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
-            listOf("↑", "↓", "←", "→", "Enter", "Del"),
-        )
-        layout.forEach { labels ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            labels.forEach { text ->
-                val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == text }?.second
-                val b = keyCap(text, bit != null) {
-                    if (bit != null) {
-                        HidKeys.toggleSticky(bit)
-                    } else {
-                        HidKeys.tapLabel(text)
-                    }
-                    refreshMods()
-                }
-                if (bit != null) modBtns.getOrPut(bit) { mutableListOf() }.add(b)
-                row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
-                    setMargins(dp(2), dp(2), dp(2), dp(2))
-                })
-            }
-            col.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
-        }
-        return col
-    }
-
-    /** MIUIX 键帽：白底细描边 + 9dp 圆角；修饰键用浅蓝底/蓝字，锁定后实蓝底白字 */
-    private fun keyCap(text: String, modifier: Boolean, onTap: () -> Unit): TextView = TextView(this).apply {
-        this.text = text
-        textSize = dens.textSize
-        gravity = Gravity.CENTER
-        setTextColor(if (modifier) cAccent else cText)
-        val corner = dp(dens.cornerDp)
-        val restBg = { if (modifier) card(cAccentSoft, corner) else strokeCard(cCard, corner, cStroke) }
-        background = restBg()
-        isClickable = true
-        isFocusable = true
-        // ---- 长按连发（issue #52 建议 7）----
-        // 按住不放 → 400ms 后每 55ms 重复发送同一个键，退格 / 方向键 / 字母可以一口气
-        // 连打，不用一下一下戳。松开时**吞掉多出来的那一次 click** —— 否则长按退格会
-        // 多删一个字符（连发 N 次 + 抬手 1 次）。修饰键不参与：Shift / Ctrl / Caps 之类
-        // 连发只会把修饰状态反复开关，没有任何意义。
-        var repeatOn = false
-        var repeatFired = false
-        val tick = object : Runnable {
-            override fun run() {
-                if (!repeatOn) return
-                repeatFired = true
-                onTap()
-                this@apply.postDelayed(this, 55L)
-            }
-        }
-        setOnClickListener {
-            if (repeatFired) {
-                repeatFired = false
-            } else {
-                onTap()
-            }
-        }
-        // M3 Expressive 弹性反馈（Issue #15）：Spring 物理动画替代固定 duration
-        setOnTouchListener { v, e ->
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    ExpressiveFeedback.press(v)
-                    v.background = card(cAccentSoft, corner)
-                    com.allperiph.ui.Feedback.tap(v)
-                    rippleOn(v, e.x, e.y)
-                    if (!modifier) {
-                        repeatOn = true
-                        repeatFired = false
-                        v.postDelayed(tick, 400L)
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    ExpressiveFeedback.release(v)
-                    v.background = restBg()
-                    if (repeatOn) {
-                        repeatOn = false
-                        v.removeCallbacks(tick)
-                    }
-                    // CANCEL 不会再来一次 click，标志要当场清掉，否则下一次短按被吞
-                    if (e.actionMasked == MotionEvent.ACTION_CANCEL) repeatFired = false
-                }
-            }
-            false // 交回给 click，发送逻辑不变
-        }
-    }
-
-    /**
-     * 玻璃扩散：从落点向外铺开一圈波前（[com.allperiph.ui.GlassRipple]），画在 `foreground` 上，
-     * 因此不会与键帽底色 / 修饰键高亮（走 `background`）互相覆盖。
-     */
-    /** 显式 usage 的键帽（扩展布局用：小键盘的键面文字与 usage 不是一一对应） */
-    private fun keyCap(text: String, usage: Int): TextView = keyCap(text, false) { HidKeys.tap(usage) }
-
-    /**
-     * 自定义布局（v1.33）：用户在 [CustomKeyboardDialog] 编辑的整套行表；
-     * 未配置时给占位提示，配置后按行渲染。
-     */
-    private fun customKeyboard(): View {
-        val rows = com.allperiph.ui.KeyPref.customRows(this)
-        if (rows.isNullOrEmpty()) {
-            return TextView(this).apply {
-                text = getString(R.string.ui_touchpad_text_edit_longpress)
-                gravity = Gravity.CENTER
-                setTextColor(cText2)
-                textSize = 14f
-            }
-        }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val g = dp(dens.gapDp)
-        rows.forEach { labels ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            labels.forEach { text ->
-                val b = keyCap(text, false) {
-                    HidKeys.tapLabel(text)
-                    refreshMods()
-                }
-                row.addView(b, LinearLayout.LayoutParams(0, -1, 1f).apply {
-                    setMargins(g, g, g, g)
-                })
-            }
-            col.addView(row, LinearLayout.LayoutParams(-1, 0, 1f))
-        }
-        return col
-    }
-
-    private fun rippleOn(v: View, x: Float, y: Float) {
-        if (v.width <= 0 || v.height <= 0) return
-        val dur = com.allperiph.ui.ApTiming.motionMs(this, 620L)
-        if (dur <= 0L) return // 动效关闭时只留震动 / 音效
-        val ripple = com.allperiph.ui.GlassRipple(
-            x, y,
-            getColor(R.color.nav_pill_shine),
-            cAccent,
-            maxOf(v.width, v.height) * 1.05f,
-            dur,
-        ).apply {
-            onFinish = { if (v.foreground === this) v.foreground = null }
-        }
-        v.foreground = ripple
-        ripple.play()
-    }
-
-    private fun refreshMods() {
-        modBtns.forEach { (bit, list) ->
-            val on = HidKeys.isSticky(bit)
-            list.forEach { b ->
-                b.background = card(if (on) cAccent else cAccentSoft, dp(9))
-                b.setTextColor(if (on) cCard else cAccent)
-            }
-        }
-    }
-
-    // —————————————————————————— 扩展布局（v1.32）：数字 / 九宫格 / 方向 / F 区 ——————————————————————————
-
-    /** 按 [com.allperiph.ui.KeyLayouts] 的行列渲染：行高等分、列宽按权重 */
-    private fun keyGrid(rows: List<List<com.allperiph.ui.KeyLayouts.Key>>): View {
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        rows.forEach { row ->
-            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            row.forEach { k ->
-                // b17：FULL 的 Shift/Ctrl/Alt → toggleSticky（与 quickKeyboard 修饰排同口径）
-                val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
-                val cap = keyCap(k.label, bit != null) {
-                    if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
-                }
-                r.addView(cap, LinearLayout.LayoutParams(0, -1, k.weight).apply {
-                    setMargins(dp(3), dp(3), dp(3), dp(3))
-                })
-            }
-            col.addView(r, LinearLayout.LayoutParams(-1, 0, 1f))
-        }
-        return col
-    }
-
-    private fun numpadKeyboard() = keyGrid(com.allperiph.ui.KeyLayouts.NUMPAD)
-
-    private fun grid9Keyboard() = keyGrid(com.allperiph.ui.KeyLayouts.GRID9)
-
-    private fun arrowKeyboard() = keyGrid(com.allperiph.ui.KeyLayouts.ARROWS)
-
-    private fun fnKeyboard() = keyGrid(com.allperiph.ui.KeyLayouts.FN)
-
-    // —————————————————————————— 页签栏与翻页 ——————————————————————————
-
-    private fun buildTabBar(): View {
-        val wrap = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(cCard)
-        }
-        wrap.addView(View(this).apply { setBackgroundColor(cDivider) },
-            LinearLayout.LayoutParams(-1, dp(1)))
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        tabs = pages.mapIndexed { i, p ->
-            val col = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(0, dp(9), 0, dp(9))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { showPage(i) }
-            }
-            val icon = ImageView(this).apply {
-                setImageResource(p.icon)
-                scaleType = ImageView.ScaleType.FIT_CENTER
-            }
-            val labelView = TextView(this).apply {
-                text = p.title; textSize = 10f; gravity = Gravity.CENTER
-            }
-            col.addView(icon, LinearLayout.LayoutParams(dp(24), dp(24)))
-            col.addView(labelView, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(4) })
-            row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
-            Tab(icon, labelView)
-        }
-        wrap.addView(row, LinearLayout.LayoutParams(-1, -2))
-        tabBarView = wrap
-        return wrap
-    }
+    // —————————————————————————— 页面切换 ——————————————————————————
 
     private fun showPage(i: Int) {
-        if (i !in pages.indices) return
+        if (i !in 0..PAGE_DISPLAY) return
         // 全屏只服务于触控板页：切页前先退出全屏（页签栏在全屏里是隐藏的，
         // 只有「从别处回本页」这类路径会撞上，兜一手免得停在半截状态）
-        if (fullscreen && i != PAGE_TOUCHPAD) setFullscreen(false)
-        handler.removeCallbacks(dragTask)
-        handler.removeCallbacks(rightDragTask)
-        flipper.displayedChild = i
-        titleView?.text = pages[i].title
-        subView?.text = pages[i].sub
+        if (ui.fullscreen && i != PAGE_TOUCHPAD) setFullscreen(false)
+        ui.page = i
         if (i == PAGE_TOUCHPAD) hotkeyBoard.render()
         if (i == PAGE_DISPLAY) updateDisplayStatus()
-        refreshTabs()
-    }
-
-    // —————————————————————————— 第 2 页：副屏（显示）+ 链接 TV/PC ——————————————————————————
-    /**
-     * 副屏页。横屏（issue#168 第 1 条）：竖排两张卡会把「链接设备」两个按钮挤到屏外，
-     * 改成左右两卡各占一半宽；竖屏保持上下排（竖屏截图显示完整，不动）。
-     */
-    private fun displayPage(): View {
-        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        val col = LinearLayout(this).apply {
-            orientation = if (land) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(10))
-        }
-        // 副屏（显示）状态卡
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.bg_card)
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-        }
-        card.addView(TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_screen)
-            setTextColor(cText); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
-        })
-        val status = TextView(this).apply {
-            text = WirelessModule.statusText()
-            setTextColor(cText2); textSize = 13f
-            setPadding(0, dp(8), 0, dp(8))
-        }
-        displayStatusView = status
-        card.addView(status)
-        card.addView(TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_screen_recv_fullscreen_local)
-            setTextColor(cText2); textSize = 12f
-        })
-        // 竖屏：状态卡整行宽、底部留 12dp；横屏：状态卡占左半列（与右侧链接卡同行）
-        col.addView(
-            card,
-            if (land) LinearLayout.LayoutParams(0, -1, 1f).apply { rightMargin = dp(8) }
-            else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
-        )
-
-        val linkCard = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.bg_card)
-            setPadding(dp(18), dp(18), dp(18), dp(18))
-        }
-        // 链接设备标题：竖屏作为独立小标题挂在卡上方；横屏塞进链接卡内部当卡头
-        // （横屏两卡左右分栏，中间不能插一条整行标题 —— issue#168 第 1 条）
-        val linkTitle = TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_device)
-            setTextColor(cAccent); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.06f
-            setPadding(dp(4), 0, 0, dp(8))
-        }
-        if (land) linkCard.addView(linkTitle, 0)
-        else col.addView(linkTitle)
-        val tvBtn = Button(this).apply {
-            text = getString(R.string.ui_main_item_link)
-            setBackgroundResource(R.drawable.bg_btn_primary)
-            setTextColor(com.allperiph.ui.ApPalette.onPrimary(this@TouchpadActivity))
-            textSize = 15f; typeface = Typeface.DEFAULT_BOLD
-            // framework Button 默认 gravity = left|center_vertical，宽按钮上文字会贴左
-            // （issue#52 第 10 条「部分按钮内文字没有居中」剩下的就是这种代码里 new 出来的按钮）。
-            gravity = Gravity.CENTER
-            setPadding(0, dp(14), 0, dp(14))
-            setOnClickListener { showDevicePicker() }
-        }
-        linkCard.addView(tvBtn)
-        val pcBtn = Button(this).apply {
-            text = getString(R.string.ui_main_item_screen)
-            setBackgroundResource(R.drawable.bg_btn_ghost)
-            setTextColor(cAccent)
-            textSize = 15f
-            gravity = Gravity.CENTER   // 同上：默认靠左，宽按钮上看着就是没对齐
-            setPadding(0, dp(13), 0, dp(13))
-            setOnClickListener {
-                startActivity(Intent(this@TouchpadActivity, com.allperiph.screen.ScreenActivity::class.java))
-            }
-        }
-        linkCard.addView(pcBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        // 竖屏：链接卡整行宽；横屏：占右半列（issue#168 第 1 条，两个按钮不再被挤出屏）
-        col.addView(
-            linkCard,
-            if (land) LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(8) }
-            else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
-        )
-        return col
-    }
-
-    private fun updateDisplayStatus() {
-        displayStatusView?.text = WirelessModule.statusText()
-    }
-
-    private fun refreshTabs() {
-        tabs.forEachIndexed { i, t ->
-            val on = i == flipper.displayedChild
-            val color = if (on) cAccent else cTabIdle
-            t.icon.setColorFilter(color)
-            t.label.setTextColor(color)
-            t.label.typeface = if (on) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        }
     }
 
     // —————————————————————————— 触摸兜底（v1.7b 架构保留） ——————————————————————————
 
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
+    // 边缘滑动翻页状态
+    private var edgeStartX = -1f
+    private var edgeSwiped = false
+
+    // 全屏上沿下滑退出：这一整段手势都吞掉，不喂手势引擎（否则退出动作会顺手甩光标）
+    private var fsSwallow = false
+    /** 已经因这条手势退出全屏了（但手势还没抬，仍要继续吞到 UP —— 不能半路开始喂引擎） */
+    private var fsExiting = false
+    private var fsStartY = 0f
+
+    private var frameCount = 0L
+    private var lastShown = 0L
+
+    /**
+     * 触控板页手势入口（挂在 [ApTouchpadSurface] 的 onGesture 上）：
+     * 全屏上沿下滑退出 → 边缘翻页 → 剩余事件原样喂触控引擎。
+     */
+    fun onSurfaceGesture(ev: MotionEvent) {
         // 全屏下「从屏幕最上沿往下拉」= 退出全屏（附加路径，系统手势导航可能先吃掉这一步）。
-        // 这段手势整段吞掉、绝不喂手势引擎，否则退出动作会顺手把光标也甩走一段；
-        // 注意要吞到 UP 为止 —— 中途开始喂引擎会送出一个没有 DOWN 的 MOVE。
-        if (fullscreen) {
+        // 这段手势整段吞掉、绝不喂手势引擎 —— 中途开始喂引擎会送出一个没有 DOWN 的 MOVE。
+        if (ui.fullscreen) {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> if (ev.y < dp(24)) {
                     fsSwallow = true
@@ -1256,15 +331,15 @@ class TouchpadActivity : Activity() {
                     setFullscreen(false)
                 }
             }
-        }
-        if (fsSwallow) {
-            if (ev.actionMasked == MotionEvent.ACTION_UP ||
-                ev.actionMasked == MotionEvent.ACTION_CANCEL
-            ) {
-                fsSwallow = false
-                fsExiting = false
+            if (fsSwallow) {
+                if (ev.actionMasked == MotionEvent.ACTION_UP ||
+                    ev.actionMasked == MotionEvent.ACTION_CANCEL
+                ) {
+                    fsSwallow = false
+                    fsExiting = false
+                }
+                return
             }
-            return true
         }
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -1272,41 +347,50 @@ class TouchpadActivity : Activity() {
                 val w = resources.displayMetrics.widthPixels
                 // 全屏里不做边缘翻页：不动的触控板上，左右边缘跟别处没有区别，
                 // 留着只会变成「滑到边上页面跑了」
-                edgeStartX = if (!fullscreen && flipper.displayedChild == PAGE_TOUCHPAD &&
+                edgeStartX = if (!ui.fullscreen && ui.page == PAGE_TOUCHPAD &&
                     (ev.x < dp(28) || ev.x > w - dp(28))
-                ) ev.x else -1f
-                if (edgeStartX < 0f) handler.postDelayed(dragTask, 550)
+                ) {
+                    ev.x
+                } else {
+                    -1f
+                }
             }
-            // 第二指落下 = 双指长按的起点（右键拖拽）；边缘手势期间不抢
-            MotionEvent.ACTION_POINTER_DOWN -> if (ev.pointerCount == 2 && edgeStartX < 0f) {
-                handler.postDelayed(rightDragTask, 550)
-            }
+            // 第二指落下 = 双指长按的起点（右键拖拽）—— 由 ApTouchpadSurface 自己的
+            // rightDragTask 调度，这里不再排（onGesture 在它之后调用，语义一致）
             MotionEvent.ACTION_MOVE -> if (edgeStartX >= 0f && !edgeSwiped) {
                 val dx = ev.x - edgeStartX
                 if (abs(dx) > dp(80)) {
                     edgeSwiped = true
-                    val n = flipper.childCount
-                    showPage(if (dx < 0) (flipper.displayedChild + 1) % n else (flipper.displayedChild + n - 1) % n)
+                    showPage(
+                        if (dx < 0) (ui.page + 1) % 3 else (ui.page + 3 - 1) % 3,
+                    )
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                handler.removeCallbacks(dragTask)
-                handler.removeCallbacks(rightDragTask)
-                edgeStartX = -1f
-            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> edgeStartX = -1f
         }
         // 仅触控板页且非边缘手势才喂手势引擎
-        if (flipper.displayedChild == PAGE_TOUCHPAD && edgeStartX < 0f && !edgeSwiped) {
+        if (ui.page == PAGE_TOUCHPAD && edgeStartX < 0f && !edgeSwiped) {
             (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.feed(ev)
             frameCount++
             val now = System.currentTimeMillis()
             if (now - lastShown > 250) { // 4Hz 刷新，避免 UI 抖动
                 lastShown = now
-                if (hidReady) statusView?.text = getString(R.string.ui_touchpad_text_done, frameCount)
+                if (ui.hidReady) ui.statusText = getString(R.string.ui_touchpad_text_done, frameCount)
             }
         }
-        return true
     }
+
+    /** 长按 550ms → 拖拽锁定（[ApTouchpadSurface] 调度，喂给触控模块） */
+    fun armDragNow() {
+        (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armDrag()
+    }
+
+    /** 双指长按 550ms → 右键拖拽锁定 */
+    fun armRightDragNow() {
+        (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armRightDrag()
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     // —————————————————————————— 全屏触控板 ——————————————————————————
 
@@ -1314,49 +398,16 @@ class TouchpadActivity : Activity() {
      * 切换全屏触控板（v223.2，#47 第 1 条）。
      *
      * 为什么是界面方案而不是真锁光标：Android 没给第三方 App「把系统光标限制在某区域」的
-     * API —— 光标由 InputReader + SurfaceFlinger 管，应用层只能把本窗口光标图标设成
-     * TYPE_NULL（就是用户看到的「只有隐藏光标生效」）。所以让光标即使存在也没有可误触的
+     * API —— 应用层只能把本窗口光标图标设成 TYPE_NULL。所以让光标即使存在也没有可误触的
      * 控件，是唯一不依赖 root 的做法。
      *
-     * 进出都只改可见性与内边距，不动视图树（避免重建后手势引擎与 ViewFlipper 状态错位）。
-     * 退出的**可靠**路径就两条：返回键、右下角小胶囊（3s 后自动降到 25% 不透明度）。
-     * 上沿下滑那条（onTouchEvent 里的 fsSwallow）是顺手留的附加路径 —— 手势导航的设备上
-     * 上沿下滑会被系统拿去拉通知栏，所以它只在部分机型上生效，**不写进提示文案**，
-     * 免得给用户一个按了没反应的操作。
+     * 进出只改可见性状态（Compose 按状态重组）；退出的**可靠**路径两条：返回键、
+     * 右下角小胶囊（3s 后自动降到 25% 不透明度）。上沿下滑是顺手留的附加路径 ——
+     * 手势导航的设备上会被系统拿去拉通知栏，**不写进提示文案**。
      */
-    private fun setFullscreen(on: Boolean) {
-        if (fullscreen == on) return
-        fullscreen = on
-        fsPillFade?.let { handler.removeCallbacks(it) }
-        dropFsTip()
-
-        headerView?.visibility = if (on) View.GONE else View.VISIBLE
-        // 全屏只可能停在触控板页（showPage 有守卫），页签栏一律收起
-        tabBarView?.visibility = if (on) View.GONE else View.VISIBLE
-        tpHotkeySection?.visibility = if (on) View.GONE else View.VISIBLE
-        tpDpad?.visibility = if (on) View.GONE else View.VISIBLE
-        tpHint?.visibility = if (on) View.GONE else View.VISIBLE
-        fullscreenChip?.visibility = if (on) View.GONE else View.VISIBLE
-
-        // 手势面撑满：去掉页边距与卡片圆角，整块屏幕就是一整片触控板
-        tpPageCol?.setPadding(
-            if (on) 0 else dp(16), 0,
-            if (on) 0 else dp(16),
-            if (on) 0 else dp(10)
-        )
-        tpArea?.background = if (on) card(cBg, 0) else card(cCard, dp(22))
-
-        val pill = fullscreenExitPill
-        if (pill != null) {
-            pill.visibility = if (on) View.VISIBLE else View.GONE
-            pill.alpha = if (on) 0.6f else 0f
-            if (on) {
-                val fade = Runnable { pill.animate().alpha(0.25f).setDuration(400).start() }
-                fsPillFade = fade
-                handler.postDelayed(fade, 3000)
-            }
-        }
-
+    fun setFullscreen(on: Boolean) {
+        if (ui.fullscreen == on) return
+        ui.fullscreen = on
         // 系统栏：全屏连导航栏一起收（否则底部那条常年占着 40dp，还容易被误滑出来）。
         // BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE 保留「边缘滑动临时唤出」，用户随时能切走。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1376,102 +427,23 @@ class TouchpadActivity : Activity() {
                 }
             }
         }
-
-        if (on) {
-            // 一次性说明：第一次进全屏必须让人知道怎么出去，否则就是「进去了出不来」的坑
-            val tip = TextView(this).apply {
-                text = getString(R.string.ui_touchpad_fullscreen_hint)
-                setTextColor(cBg)
-                textSize = 12f
-                gravity = Gravity.CENTER
-                background = pill(cText)
-                setPadding(dp(16), dp(9), dp(16), dp(9))
-                alpha = 0f
-            }
-            (fullscreenExitPill?.parent as? FrameLayout)?.addView(
-                tip, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER).apply { bottomMargin = dp(48) }
-            )
-            fsTip = tip
-            tip.animate().alpha(0.92f).setDuration(180).start()
-            val hide = Runnable { dropFsTip() }
-            fsTipHide = hide
-            handler.postDelayed(hide, 2600)
-        }
-    }
-
-    /** 全屏说明条：进入时弹一次，2.6s 后自己淡出移除（中途退出全屏则立刻收掉） */
-    private var fsTip: TextView? = null
-    private var fsTipHide: Runnable? = null
-
-    private fun dropFsTip() {
-        fsTipHide?.let { handler.removeCallbacks(it) }
-        fsTipHide = null
-        val tip = fsTip ?: return
-        fsTip = null
-        tip.animate().alpha(0f).setDuration(200).withEndAction {
-            (tip.parent as? ViewGroup)?.removeView(tip)
-        }.start()
-    }
-
-    // —————————————————————————— 样式与尺寸工具 ——————————————————————————
-
-    private fun label(text: String): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(cText2)
-        textSize = 12f
-    }
-
-    // 形状一律经 ApKit 产出（「画形状的唯一实现处」）：这里保留这三个名字是为了 22 处调用点
-    // 一行不改，但不再各自 new GradientDrawable —— 圆角/描边口径只有 ApKit 一处。
-    private fun card(color: Int, radius: Int): GradientDrawable = ApKit.rect(color, radius.toFloat())
-
-    private fun strokeCard(color: Int, radius: Int, stroke: Int): GradientDrawable =
-        ApKit.shape(color, radius.toFloat(), strokeColor = stroke, strokePx = 1)
-
-    private fun pill(color: Int): GradientDrawable = ApKit.pill(color, dp(999).toFloat())
-
-    // ————————————————————————— 返回键 —————————————————————————
-
-    /** 退出确认框（连按返回时不叠出多个） */
-    private var backDialog: AlertDialog? = null
-
-    /** 返回键先确认：操控面退出后外设照常运行，但误触退出会打断手上的操作 */
-    @Deprecated("Deprecated in Java")
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        // 全屏时返回键先退出全屏（这里连确认框都不该弹：用户只是想回到控制面）
-        if (fullscreen) { setFullscreen(false); return }
-        if (backDialog?.isShowing == true) return
-        backDialog = com.allperiph.ui.ApDialog.builder(this)
-            .setTitle(getString(R.string.ui_touchpad_dialog_exit_console))
-            .setMessage(getString(R.string.ui_touchpad_dialog_home))
-            .setPositiveButton(getString(R.string.ui_common_exit)) { _, _ -> finish() }
-            .setNegativeButton(getString(R.string.ui_common_cancel), null)
-            .create()
-            .also { it.show() }
     }
 
     // —————————————————————————— 设备选择（控制目标） ——————————————————————————
 
     private fun updateDeviceChip() {
-        val c = deviceChip ?: return
-        val ready = ControlTarget.isControlling()
-        // 出口一并显示：点不动时先看这里到底"发去哪了"。注意本页不订阅事件（无 disposables），
-        // 所以这里展示的是**刷新那一刻**的出口；实时显示在主界面顶栏徽章与触控板提示行。
-        c.text = (if (ready) getString(R.string.ui_touchpad_text_device_2, ControlTarget.label) else ControlTarget.label) +
-            " · ${com.allperiph.core.Uplink.hint()}"
-        c.setTextColor(if (ready) cAccent else cText2)
-        fileBtn?.visibility = if (ready) View.VISIBLE else View.GONE
-        clipBtn?.visibility = if (ready) View.VISIBLE else View.GONE
+        ui.deviceReady = ControlTarget.isControlling()
+        // 出口一并显示：点不动时先看这里到底"发去哪了"。这里展示的是**刷新那一刻**的出口；
+        // 实时显示在主界面顶栏徽章与触控板提示行。
+        ui.deviceText =
+            (if (ui.deviceReady) getString(R.string.ui_touchpad_text_device_2, ControlTarget.label) else ControlTarget.label) +
+                " · ${com.allperiph.core.Uplink.hint()}"
     }
 
     // —————————————————————————— 被控模式（本机可被另一台手机控制） ——————————————————————————
 
     private fun updateControlledChip() {
-        val c = controlledChip ?: return
-        val on = ControlledService.isRunning()
-        c.text = if (on) getString(R.string.ui_touchpad_text_controlled_ok) else getString(R.string.ui_touchpad_text_controlled)
-        c.setTextColor(if (on) cAccent else cText2)
+        ui.controlledOn = ControlledService.isRunning()
     }
 
     /** 切换被控模式：开启→请求权限并启动前台服务；关闭→停止服务 */
@@ -1540,10 +512,9 @@ class TouchpadActivity : Activity() {
     }
 
     private fun promptTvIp() {
-        val edit = EditText(this).apply {
+        val edit = android.widget.EditText(this).apply {
             hint = getString(R.string.ui_touchpad_hint_manual_ip)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setPadding(dp(20), dp(12), dp(20), dp(12))
         }
         com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_touchpad_dialog_input))
@@ -1570,7 +541,7 @@ class TouchpadActivity : Activity() {
                 }
                 if (ok) {
                     // 先断开旧连接：否则旧实例仍在 running，readerLoop 会每 2s 无限重连旧 IP，
-                    // 并留下 socket + tx/ping/reconn 线程（与 MainActivity 同一处修复）
+                    // 并留下 socket + tx/ping/reconn 线程（与主页同源的一处修复）
                     ControlTarget.controlClient?.takeIf { it !== c }?.disconnect()
                     ControlTarget.controlClient = c
                     ControlTarget.host = ip
@@ -1609,11 +580,13 @@ class TouchpadActivity : Activity() {
         Toast.makeText(this, getString(R.string.ui_main_toast_file_send), Toast.LENGTH_SHORT).show()
         Thread({
             val ok = FileSender.send(this, host, uri) { p ->
-                runOnUiThread { statusView?.text = getString(R.string.ui_touchpad_send_progress, p) }
+                runOnUiThread { ui.statusText = getString(R.string.ui_touchpad_send_progress, p) }
             }
             runOnUiThread {
                 Toast.makeText(this, if (ok) getString(R.string.ui_main_text_file_send_done) else getString(R.string.ui_touchpad_text_send_failed), Toast.LENGTH_SHORT).show()
-                statusView?.text = if (hidReady) getString(R.string.ui_touchpad_text_no_frames) else getString(R.string.ui_touchpad_text_not)
+                ui.statusText = getString(
+                    if (ui.hidReady) R.string.ui_touchpad_text_no_frames else R.string.ui_touchpad_text_not,
+                )
             }
         }, "tv-file").start()
     }
@@ -1635,17 +608,1076 @@ class TouchpadActivity : Activity() {
         Toast.makeText(this, if (ok) getString(R.string.ui_touchpad_text_clipboard_send_done) else getString(R.string.ui_touchpad_text_send_failed), Toast.LENGTH_SHORT).show()
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    /** Consumer 键点按：PC 按位图边沿识别，故 按下 60ms → 释放 */
+    fun mediaTap(bit: Int) {
+        HotkeyController.press(bit)
+        handler.postDelayed({ HotkeyController.release(bit) }, 60)
+    }
 
-    companion object {
-        /** 启动参数：直接落到指定页签（0 触控板 / 1 键盘） */
+    /** 关机 / 重启确认：会直接关掉被控设备，别让误触生效 */
+    private fun confirmPower(action: Int, label: String) {
+        val c = ControlTarget.controlClient
+        if (c == null) {
+            Toast.makeText(this, getString(R.string.ui_touchpad_toast_device_connect_not), Toast.LENGTH_SHORT).show()
+            return
+        }
+        com.allperiph.ui.ApDialog.builder(this)
+            .setTitle(getString(R.string.ui_touchpad_dialog_device, label))
+            .setMessage(getString(R.string.ui_touchpad_dialog_no_only_need, label))
+            .setPositiveButton(label) { _, _ ->
+                c.power(action)
+                Toast.makeText(this, getString(R.string.ui_touchpad_toast_send_done, label), Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(getString(R.string.ui_common_cancel), null)
+            .show()
+    }
+
+    /** 注入通道自检：被控端"缺哪一项"在手机上原先只有通知栏一行字（被控开关长按触发） */
+    private fun showInjectCaps() {
+        val inj = com.allperiph.shared.inject.TvInjector
+        val lines = inj.capabilities().joinToString("\n") { (name, ok, how) ->
+            if (ok) "✓  $name" else "✗  $name\n      → $how"
+        }
+        com.allperiph.ui.ApDialog.builder(this)
+            .setTitle(getString(R.string.ui_touchpad_dialog_selftest_channel_inject))
+            .setMessage(getString(R.string.ui_touchpad_dialog_control_state, lines, inj.channelText()))
+            .setPositiveButton(getString(R.string.ui_common_close), null)
+            .show()
+    }
+
+    private fun updateDisplayStatus() {
+        ui.displayStatus = WirelessModule.statusText()
+    }
+
+    private companion object {
+        /** 启动参数：直接落到指定页签（0 触控板 / 1 键盘 / 2 副屏） */
         const val EXTRA_PAGE = "page"
 
-        private const val PAGE_TOUCHPAD = 0
-        private const val PAGE_KEYBOARD = 1
-        private const val PAGE_DISPLAY = 2
+        const val PAGE_TOUCHPAD = 0
+        const val PAGE_KEYBOARD = 1
+        const val PAGE_DISPLAY = 2
 
-        /** 三指手势遮蔽的持有者标识（与 MainActivity 的 main 区分开） */
-        private const val HOLDER_CONSOLE = "console"
+        /** 三指手势遮蔽的持有者标识（与主页的 main 区分开） */
+        const val HOLDER_CONSOLE = "console"
+    }
+}
+
+// ———————————————————————————————————————————— Compose 面板 ————————————————————————————————————————————
+
+private data class ConsolePage(val titleRes: Int, val subRes: Int, val iconRes: Int)
+
+private val CONSOLE_PAGES = listOf(
+    ConsolePage(R.string.ui_main_item_touchpad, R.string.ui_touchpad_label_hotkey_edit_longpress, R.drawable.ic_apx_touchpad),
+    ConsolePage(R.string.ui_touchpad_label_keyboard, R.string.ui_touchpad_label_remote, R.drawable.ic_apx_keyboard),
+    ConsolePage(R.string.notify_action_screen, R.string.ui_touchpad_label_screen, R.drawable.ic_apx_power),
+)
+
+@Composable
+private fun ConsoleRoot(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val insets = rememberApInsets()
+    val ctx = LocalContext.current
+    // 背景走主壳同一条偏好（背景图 / 预设底色 / 动态），操控面默认底色 miuix_bg
+    val backdrop = rememberApBackdrop(ctx, colorResource(R.color.miuix_bg))
+    Box(modifier = Modifier.fillMaxSize().then(backdrop)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    start = insets.left,
+                    top = insets.top,
+                    end = insets.right,
+                    bottom = insets.bottom,
+                ),
+        ) {
+            if (!ui.fullscreen) ConsoleHeader(ui, host)
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                when (ui.page) {
+                    TouchpadActivity.PAGE_TOUCHPAD -> ConsoleTouchpadPage(ui, host)
+                    TouchpadActivity.PAGE_KEYBOARD -> ConsoleKeyboardPage(ui, host)
+                    else -> ConsoleDisplayPage(ui, host)
+                }
+            }
+            if (!ui.fullscreen) ConsoleTabBar(ui, host)
+        }
+        if (ui.fullscreen) FullscreenOverlay(ui, host)
+    }
+}
+
+// —————————————————————————— 大标题头 ——————————————————————————
+
+/** 大标题头：左对齐标题栈（非居中），右侧状态胶囊与退出（v184 起 chips 横滑） */
+@Composable
+private fun ConsoleHeader(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = ctx.getString(CONSOLE_PAGES[ui.page].titleRes),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Row(
+                Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 状态胶囊：HID 就绪蓝、未就绪红；触摸后变成帧数
+                val ready = ui.hidReady
+                ChipPill(
+                    label = ui.statusText,
+                    tint = colorResource(if (ready) R.color.state_ok else R.color.miuix_danger),
+                    bg = colorResource(if (ready) R.color.state_ok_soft else R.color.md_error_container),
+                    compact = true,
+                )
+                // 被控模式开关：让本机也能被另一台手机控制（无需单独装 TV APK）；
+                // 长按 = 看注入通道自检（哪一档能力、缺什么、怎么办）
+                ChipPill(
+                    label = ctx.getString(
+                        if (ui.controlledOn) R.string.ui_touchpad_text_controlled_ok else R.string.ui_touchpad_text_controlled,
+                    ),
+                    tint = if (ui.controlledOn) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary,
+                    bg = colorResource(R.color.miuix_card),
+                    onClick = { host.toggleControlled() },
+                    onLongClick = { host.showInjectCaps() },
+                )
+                // 右上角设备选择器：切换要控制的设备（本机/PC 或局域网内的 TV）
+                ChipPill(
+                    label = ui.deviceText,
+                    tint = if (ui.deviceReady) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary,
+                    bg = colorResource(R.color.miuix_card),
+                    onClick = { host.showDevicePicker() },
+                )
+                // 遥控器入口：真机反馈"找不到遥控器的界面" —— 在操控面顶部也放一个，随手可达
+                ChipPill(
+                    label = ctx.getString(R.string.ui_touchpad_text_remote),
+                    tint = MiuixTheme.colorScheme.primary,
+                    bg = colorResource(R.color.miuix_card),
+                    onClick = {
+                        host.startActivity(
+                            Intent(ctx, com.allperiph.ui.RemoteActivity::class.java),
+                        )
+                    },
+                )
+                // 仅当选中受控设备（手机 / PC / TV）时展示：发文件 / 发剪贴板
+                if (ui.deviceReady) {
+                    ChipPill(
+                        label = ctx.getString(R.string.ui_touchpad_text_file),
+                        tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        bg = colorResource(R.color.miuix_card),
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                                type = "*/*"
+                                addCategory(Intent.CATEGORY_OPENABLE)
+                            }
+                            host.startActivityForResultCompat(intent)
+                        },
+                    )
+                    ChipPill(
+                        label = ctx.getString(R.string.ui_touchpad_text_clipboard),
+                        tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        bg = colorResource(R.color.miuix_card),
+                        onClick = { host.sendClipboard() },
+                    )
+                }
+                // 全屏入口：按用户原话「虚拟触控板的页能不能加个全屏模式，把页内其它控件都隐藏」
+                ChipPill(
+                    label = ctx.getString(R.string.ui_touchpad_fullscreen_enter),
+                    tint = MiuixTheme.colorScheme.primary,
+                    bg = colorResource(R.color.miuix_card),
+                    onClick = { host.setFullscreen(true) },
+                )
+                ChipPill(
+                    label = ctx.getString(R.string.ui_common_exit),
+                    tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    bg = colorResource(R.color.miuix_card),
+                    onClick = { host.finish() },
+                )
+            }
+        }
+        Text(
+            text = ctx.getString(CONSOLE_PAGES[ui.page].subRes),
+            fontSize = 13.sp,
+            color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+/** 顶部胶囊：描边圆片 + 短文字（状态 / 入口 / 开关通用；可点，被控开关带长按自检） */
+@Composable
+private fun ChipPill(
+    label: String,
+    tint: Color,
+    bg: Color,
+    compact: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
+) {
+    val view = LocalView.current
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier
+            .padding(start = if (compact) 0.dp else 8.dp)
+            .clip(shape)
+            .background(bg)
+            .pointerInput(onClick, onLongClick) {
+                detectTapGestures(
+                    onTap = if (onClick != null) {
+                        { FeedbackTap(view); onClick() }
+                    } else {
+                        null
+                    },
+                    onLongPress = if (onLongClick != null) {
+                        { com.allperiph.ui.Feedback.haptic(view); onLongClick() }
+                    } else {
+                        null
+                    },
+                )
+            }
+            .padding(
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = 6.dp,
+            ),
+    ) {
+        Text(text = label, fontSize = if (compact) 11.sp else 12.sp, color = tint, maxLines = 1)
+    }
+}
+
+/** 行内小工具：把 [com.allperiph.ui.Feedback.tap] 的调用集中在一处，避免到处写全限定名 */
+private fun FeedbackTap(view: android.view.View) = com.allperiph.ui.Feedback.tap(view)
+
+// —————————————————————————— 第 0 页：触控板 ——————————————————————————
+
+/**
+ * 手势面占满剩余空间；横屏（issue#168 第 1 条）左右分栏：手势面在左占满整高，
+ * 快捷键网格在右一列（竖排则网格在下方）。旋转由 LocalConfiguration 驱动重组生效。
+ * 全屏（v223.2）：整块屏幕只剩手势面，方向键叠层、快捷键网格一起收起。
+ */
+@Composable
+private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val land = LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // 旋转后 HotkeyBoard 的每行个数要按新方向取值（横屏 2 / 竖屏 4），重画一次
+    LaunchedEffect(land) { host.hotkeyBoard.render() }
+    val surface: @Composable (Modifier) -> Unit = { m ->
+        ApTouchpadSurface(
+            onGesture = { host.onSurfaceGesture(it) },
+            onLongPressArmDrag = { host.armDragNow() },
+            onLongPressRightDrag = { host.armRightDragNow() },
+            modifier = m,
+        )
+    }
+    if (ui.fullscreen) {
+        // 全屏：去掉页边距，整块屏幕就是一整片触控板
+        surface(Modifier.fillMaxSize())
+        return
+    }
+    if (land) {
+        Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                surface(Modifier.fillMaxSize())
+                // v208：方向键居中覆盖手势面（带中心 OK），四周与键间空隙仍可滑动 ——
+                // 键帽只消费自身区域，键外照常走触控引擎，滑动与方向同屏。
+                DpadOverlay(host, Modifier.align(Alignment.Center))
+            }
+            Column(Modifier.width(190.dp).fillMaxHeight().padding(start = 10.dp)) {
+                HotkeyHead(host)
+                // 横屏追补（issue#168 第 1 条）：热键多于一屏时装不下 —— 右列包一层滚动，
+                // 滚动范围只包按钮网格（标题行固定在外，编辑按钮摸得着）。
+                Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                    HotkeyGridView(host)
+                }
+            }
+        }
+    } else {
+        Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                surface(Modifier.fillMaxSize())
+                DpadOverlay(host, Modifier.align(Alignment.Center))
+            }
+            HotkeyHead(host)
+            HotkeyGridView(host)
+        }
+    }
+}
+
+/** 「常用快捷键 / 编辑」标题行：编辑入口弹 HotkeyBoard 的管理弹窗（与主页同一份实现） */
+@Composable
+private fun HotkeyHead(host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    val view = LocalView.current
+    Row(
+        Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 14.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = ctx.getString(R.string.ui_touchpad_text_hotkey),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = MiuixTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = ctx.getString(R.string.ui_common_edit),
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.primary,
+            modifier = Modifier
+                .clickable {
+                    com.allperiph.ui.Feedback.tap(view)
+                    host.hotkeyBoard.managerDialog()
+                }
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** View 版快捷键网格（[HotkeyBoard] 渲染）：轻点发送 / 长按编辑 / 拖拽排序全在里面 */
+@Composable
+private fun HotkeyGridView(host: TouchpadActivity) {
+    AndroidView(
+        factory = { host.hotkeyContainerView },
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/**
+ * v208：方向键叠层——十字方向键 + 中心 OK，居中覆盖手势面；
+ * 箭头 usage 与 [KeyLayouts] 方向布局一致（USB HID Keyboard Page 0x07），
+ * 中心 OK = Enter（0x28），与方向布局的确认键同 usage。
+ * 仅键帽区域消费触摸，键间空隙和手势面其余区域仍走触控引擎。
+ */
+@Composable
+private fun DpadOverlay(host: TouchpadActivity, modifier: Modifier = Modifier) {
+    val cell = 36.dp
+    fun gap() = @Composable { Spacer(Modifier.size(cell)) }
+    fun key(label: String, usage: Int) = @Composable {
+        KeyCap(
+            label = label,
+            usage = usage,
+            modVersion = 0,
+            onTap = { },
+            modifier = Modifier.size(cell),
+        )
+    }
+    Column(
+        modifier
+            .background(colorResource(R.color.miuix_bg), RoundedCornerShape(14.dp))
+            .padding(4.dp),
+    ) {
+        Row { gap(); key("↑", 0x52); gap() }
+        Row { key("←", 0x50); key("OK", 0x28); key("→", 0x4F) }
+        Row { gap(); key("↓", 0x51); gap() }
+    }
+}
+
+// —————————————————————————— 第 1 页：键盘（8 套键位） ——————————————————————————
+
+private val KB_TABS = listOf(
+    R.string.ui_kb_tab_quick,
+    R.string.ui_kb_tab_remote,
+    R.string.ui_kb_tab_game,
+    R.string.ui_kb_tab_num,
+    R.string.ui_kb_tab_grid9,
+    R.string.ui_kb_tab_arrows,
+    R.string.ui_kb_tab_fn,
+    R.string.ui_kb_tab_custom,
+)
+
+/** 键盘页：顶部 8 页签横滑（长按「自定义」进编辑）+ 当前布局（ViewFlipper 时代的 8 页逐一对齐） */
+@Composable
+private fun ConsoleKeyboardPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, bottom = 12.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(
+            start = 6.dp, end = 6.dp, top = 2.dp, bottom = 10.dp,
+        )) {
+            KB_TABS.forEachIndexed { i, res ->
+                val selected = ui.kbTab == i
+                Box(
+                    Modifier
+                        .padding(horizontal = 3.dp)
+                        .width(76.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.primary.copy(alpha = 0.14f),
+                        )
+                        .pointerInput(i) {
+                            detectTapGestures(
+                                onTap = {
+                                    com.allperiph.ui.Feedback.tap(host)
+                                    ui.kbTab = i
+                                },
+                                onLongPress = if (i == KB_TABS.size - 1) {
+                                    // 长按「自定义」：进 CustomKeyboardDialog 编辑整套行表
+                                    {
+                                        com.allperiph.ui.Feedback.haptic(host)
+                                        com.allperiph.ui.CustomKeyboardDialog.show(host) {
+                                            val idx = KB_TABS.lastIndex
+                                            if (idx >= 0) ui.kbTab = idx
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                        .padding(vertical = 9.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = ctx.getString(res),
+                        fontSize = 13.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            when (ui.kbTab) {
+                0 -> QuickKeyboard(ui, host)
+                1 -> RemoteKeyboard(ui, host)
+                2 -> GameKeyboard(ui, host)
+                3 -> KeyGridLayout(KeyLayouts.NUMPAD, ui)
+                4 -> KeyGridLayout(KeyLayouts.GRID9, ui)
+                5 -> KeyGridLayout(KeyLayouts.ARROWS, ui)
+                6 -> KeyGridLayout(KeyLayouts.FN, ui)
+                else -> CustomLayout(ui)
+            }
+        }
+    }
+}
+
+/** 快捷键盘：sticky 修饰排 + 6 行 letterRows（横屏不切 FULL —— 操控面横屏高度只有竖屏一半，
+ *  FULL 的 8 行每行摊不到 30dp；b64 结论原样保留）。 */
+@Composable
+private fun QuickKeyboard(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    val dens = KeyPref.density(ctx)
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().weight(1f)) {
+            HidKeys.MOD_LABELS.forEach { (text, bit) ->
+                KeyCap(
+                    label = text,
+                    isModifier = true,
+                    modBit = bit,
+                    modVersion = ui.modVersion,
+                    onTap = {
+                        HidKeys.toggleSticky(bit)
+                        ui.modVersion++
+                    },
+                    modifier = Modifier.weight(1f).padding(
+                        start = 2.dp, top = 2.dp, end = 2.dp, bottom = 6.dp,
+                    ),
+                )
+            }
+        }
+        KeyPref.letterRows(ctx).forEach { labels ->
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                val g = dens.gapDp.dp
+                labels.forEach { text ->
+                    KeyCap(
+                        label = text,
+                        modVersion = ui.modVersion,
+                        onTap = {
+                            // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）
+                            HidKeys.tapLabel(text)
+                            ui.modVersion++ // tap 会清 sticky，同步熄灭修饰键
+                        },
+                        modifier = Modifier.weight(1f).padding(g),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 遥控键盘：媒体 / 音量（音量键按住连发）+ 电源三键（关机 / 重启走 0x22，弹确认） */
+@Composable
+private fun RemoteKeyboard(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    Column(
+        Modifier.fillMaxSize(),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_media_prev),
+                icon = R.drawable.ic_apx_prev,
+                bit = HotkeyController.BIT_PREV_TRACK,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_label_play_pause),
+                icon = R.drawable.ic_apx_play,
+                bit = HotkeyController.BIT_PLAY_PAUSE,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_media_next),
+                icon = R.drawable.ic_apx_next,
+                bit = HotkeyController.BIT_NEXT_TRACK,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+        }
+        Row(Modifier.fillMaxWidth()) {
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_label_volume),
+                icon = R.drawable.ic_apx_vol_down,
+                bit = HotkeyController.BIT_VOLUME_DOWN,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_media_mute),
+                icon = R.drawable.ic_apx_mute,
+                bit = HotkeyController.BIT_MUTE,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_label_volume_2),
+                icon = R.drawable.ic_apx_vol_up,
+                bit = HotkeyController.BIT_VOLUME_UP,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+        }
+        // 第三行：电源（软，待机/唤醒）/ 关机 / 重启 —— 与主页横屏键盘的同一布局对齐
+        // （原先两个入口能力不一致，用户在全屏操控面里根本找不到关机键）。
+        Row(Modifier.fillMaxWidth()) {
+            MediaTile(
+                label = ctx.getString(R.string.ui_touchpad_label_power),
+                icon = R.drawable.ic_apx_power,
+                bit = HotkeyController.BIT_POWER,
+                host = host,
+                modifier = Modifier.weight(1f).padding(6.dp),
+            )
+            ActionTile(
+                label = ctx.getString(R.string.ui_touchpad_label_poweroff),
+                tint = colorResource(R.color.miuix_danger),
+                modifier = Modifier.weight(1f).padding(6.dp),
+            ) { host.confirmPower(0, ctx.getString(R.string.ui_touchpad_label_poweroff)) }
+            ActionTile(
+                label = ctx.getString(R.string.ui_touchpad_label_reboot),
+                tint = colorResource(R.color.state_warn),
+                modifier = Modifier.weight(1f).padding(6.dp),
+            ) { host.confirmPower(1, ctx.getString(R.string.ui_touchpad_label_reboot)) }
+        }
+    }
+}
+
+/**
+ * 游戏键盘：4×6 高频键位。
+ * 第 1 行技能数字、第 2/3 行左手技能区（Q W E R F B / A S D + 修饰）、
+ * 第 4 行方向键与确认键 —— 覆盖 MOBA / FPS 的默认手位。
+ */
+@Composable
+private fun GameKeyboard(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    Column(Modifier.fillMaxSize()) {
+        val layout = listOf(
+            listOf("Esc", "1", "2", "3", "4", "Tab"),
+            listOf("Q", "W", "E", "R", "F", "B"),
+            listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
+            listOf("↑", "↓", "←", "→", "Enter", "Del"),
+        )
+        layout.forEach { labels ->
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                labels.forEach { text ->
+                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == text }?.second
+                    KeyCap(
+                        label = text,
+                        isModifier = bit != null,
+                        modBit = bit ?: 0,
+                        modVersion = ui.modVersion,
+                        onTap = {
+                            if (bit != null) {
+                                HidKeys.toggleSticky(bit)
+                            } else {
+                                HidKeys.tapLabel(text)
+                            }
+                            ui.modVersion++
+                        },
+                        modifier = Modifier.weight(1f).padding(2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 按 [KeyLayouts] 的行列渲染：行高等分、列宽按权重（数字 / 九宫格 / 方向 / F 区共用） */
+@Composable
+private fun KeyGridLayout(rows: List<List<KeyLayouts.Key>>, ui: TouchpadActivity.ConsoleUi) {
+    Column(Modifier.fillMaxSize()) {
+        rows.forEach { row ->
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                row.forEach { k ->
+                    // FULL 的 Shift/Ctrl/Alt → toggleSticky（与快捷键盘修饰排同口径）
+                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
+                    KeyCap(
+                        label = k.label,
+                        isModifier = bit != null,
+                        modBit = bit ?: 0,
+                        modVersion = ui.modVersion,
+                        onTap = {
+                            if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
+                            ui.modVersion++
+                        },
+                        modifier = Modifier.weight(k.weight).padding(3.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 自定义布局（v1.33）：用户在 CustomKeyboardDialog 编辑的整套行表；未配置时给占位提示 */
+@Composable
+private fun CustomLayout(ui: TouchpadActivity.ConsoleUi) {
+    val ctx = LocalContext.current
+    val rows = KeyPref.customRows(ctx)
+    if (rows.isNullOrEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_text_edit_longpress),
+                fontSize = 14.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+        }
+        return
+    }
+    val dens = KeyPref.density(ctx)
+    Column(Modifier.fillMaxSize()) {
+        rows.forEach { labels ->
+            Row(Modifier.fillMaxWidth().weight(1f)) {
+                val g = dens.gapDp.dp
+                labels.forEach { text ->
+                    KeyCap(
+                        label = text,
+                        modVersion = ui.modVersion,
+                        onTap = {
+                            HidKeys.tapLabel(text)
+                            ui.modVersion++ // tap 会清 sticky，同步熄灭修饰键
+                        },
+                        modifier = Modifier.weight(1f).padding(g),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * MIUIX 键帽：白底细描边 + 密度自适应圆角；修饰键用浅主色底/主色字，锁定后实主色底白字。
+ *
+ * 长按连发（issue #52 建议 7）：按住不放 → 400ms 后每 55ms 重复发送同一个键，
+ * 退格 / 方向键 / 字母可以一口气连打。松开时**吞掉多出来的那一次 click** ——
+ * 否则长按退格会多删一个字符。修饰键不参与：Shift / Ctrl / Caps 连发只会把
+ * 修饰状态反复开关，没有任何意义。
+ */
+@Composable
+private fun KeyCap(
+    label: String,
+    modifier: Modifier = Modifier,
+    usage: Int = 0,
+    isModifier: Boolean = false,
+    modBit: Int = 0,
+    modVersion: Int = 0,
+    host: TouchpadActivity? = null,
+    onTap: () -> Unit,
+) {
+    val view = LocalView.current
+    val ctx = LocalContext.current
+    val dens = KeyPref.density(ctx)
+    val corner = dens.cornerDp.dp
+    // sticky 状态：修饰键按 HidKeys 实时值取，modVersion 变化触发重组
+    val stickyOn = isModifier && modVersion >= 0 && HidKeys.isSticky(modBit)
+    val pressed = remember { androidx.compose.runtime.mutableStateOf(false) }
+    val shape = RoundedCornerShape(corner)
+    val accent = remember { Color(host?.accentColor() ?: com.allperiph.ui.ApPalette.primary(ctx)) }
+    val accentSoft = remember {
+        Color(host?.accentSoftColor() ?: com.allperiph.ui.ApPalette.primaryContainer(ctx))
+    }
+    fun tapKey() {
+        if (usage != 0) HidKeys.tap(usage) else onTap()
+    }
+    Box(
+        modifier
+            .clip(shape)
+            .background(
+                when {
+                    stickyOn -> accent
+                    isModifier || pressed.value -> accentSoft
+                    else -> colorResource(R.color.miuix_card)
+                },
+            )
+            .then(
+                if (stickyOn || isModifier || pressed.value) Modifier else Modifier.border(
+                    1.dp,
+                    colorResource(R.color.miuix_stroke),
+                    shape,
+                ),
+            )
+            .pointerInput(isModifier, onTap) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    com.allperiph.ui.Feedback.tap(view)
+                    pressed.value = true
+                    var repeatFired = false
+                    var sawRelease = false
+                    try {
+                        if (!isModifier) {
+                            // 首发延迟：400ms 内抬起 = 普通点击（finally 里统一发）
+                            val pressStart = System.currentTimeMillis()
+                            while (true) {
+                                val remain =
+                                    400L - (System.currentTimeMillis() - pressStart)
+                                if (remain <= 0) break
+                                val ev = withTimeoutOrNull(remain) { awaitPointerEvent() } ?: break
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) {
+                                    sawRelease = true
+                                    break
+                                }
+                                ch.consume()
+                            }
+                            // 连发阶段：每 55ms 重复同一个键，直到抬起
+                            while (true) {
+                                tapKey()
+                                repeatFired = true
+                                val ev = withTimeoutOrNull(55L) { awaitPointerEvent() } ?: continue
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) {
+                                    sawRelease = true
+                                    break
+                                }
+                                ch.consume()
+                            }
+                        }
+                    } finally {
+                        pressed.value = false
+                        // 普通点击在抬手那一刻发送；连发阶段已发过的不补（否则长按退格
+                        // 会多删一个字符）；手势被取消（弹窗接管 / 离开组合）不发。
+                        if (!repeatFired && sawRelease) tapKey()
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontSize = dens.textSize.sp,
+            textAlign = TextAlign.Center,
+            color = when {
+                stickyOn -> MiuixTheme.colorScheme.onPrimary
+                isModifier -> accent
+                else -> MiuixTheme.colorScheme.onSurface
+            },
+            maxLines = 1,
+        )
+    }
+}
+
+/** 媒体图块：图标 + 文字；音量键按住连发（PC 按位图边沿计数，须反复 按下→释放） */
+@Composable
+private fun MediaTile(
+    label: String,
+    icon: Int,
+    bit: Int,
+    host: TouchpadActivity,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    val isVolume = bit == HotkeyController.BIT_VOLUME_UP || bit == HotkeyController.BIT_VOLUME_DOWN
+    val shape = RoundedCornerShape(18.dp)
+    val accent = remember { Color(host.accentColor()) }
+    val accentSoft = remember { Color(host.accentSoftColor()) }
+    val pressed = remember { mutableStateOf(false) }
+    Column(
+        modifier
+            .height(110.dp)
+            .clip(shape)
+            .background(
+                when {
+                    pressed.value && isVolume -> accentSoft
+                    else -> colorResource(R.color.miuix_card)
+                },
+            )
+            .then(
+                if (isVolume) {
+                    Modifier.pointerInput(bit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            pressed.value = true
+                            com.allperiph.ui.Feedback.tap(view)
+                            host.mediaTap(bit)
+                            try {
+                                // 400ms 后进入 250ms 连发（连发只震动，PC 按位图边沿计数）
+                                val pressStart = System.currentTimeMillis()
+                                while (true) {
+                                    val remain = 400L - (System.currentTimeMillis() - pressStart)
+                                    if (remain <= 0) break
+                                    val ev = withTimeoutOrNull(remain) { awaitPointerEvent() } ?: break
+                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed) return@awaitEachGesture
+                                    ch.consume()
+                                }
+                                while (true) {
+                                    com.allperiph.ui.Feedback.haptic(view) // 连发只震动
+                                    host.mediaTap(bit)
+                                    val ev = withTimeoutOrNull(250L) { awaitPointerEvent() } ?: continue
+                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed) break
+                                    ch.consume()
+                                }
+                            } finally {
+                                pressed.value = false
+                                HotkeyController.release(bit) // 兜底确保释放
+                            }
+                        }
+                    }
+                } else {
+                    Modifier
+                },
+            )
+            .then(if (isVolume) Modifier else Modifier.clickable {
+                com.allperiph.ui.Feedback.tap(view)
+                host.mediaTap(bit)
+            }),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+    ) {
+        Image(
+            painter = painterResource(icon),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(accent),
+            modifier = Modifier.size(30.dp),
+        )
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+    }
+}
+
+/** 动作图块：没有 Consumer 位，点了直接执行（关机 / 重启） */
+@Composable
+private fun ActionTile(
+    label: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val view = LocalView.current
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier
+            .height(110.dp)
+            .clip(shape)
+            .background(colorResource(R.color.miuix_card))
+            .clickable {
+                com.allperiph.ui.Feedback.tap(view)
+                onClick()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = tint,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+// —————————————————————————— 第 2 页：副屏（显示）+ 链接 TV/PC ——————————————————————————
+
+/**
+ * 副屏页。横屏（issue#168 第 1 条）：竖排两张卡会把「链接设备」两个按钮挤到屏外，
+ * 改成左右两卡各占一半宽；竖屏保持上下排。
+ */
+@Composable
+private fun ConsoleDisplayPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    val land = LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    if (land) {
+        Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+            Box(Modifier.weight(1f).fillMaxHeight().padding(end = 4.dp)) { StatusCard(ui) }
+            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 4.dp)) { LinkCard(host) }
+        }
+    } else {
+        Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
+            StatusCard(ui)
+            LinkCard(host, modifier = Modifier.padding(top = 12.dp))
+        }
+    }
+    // 副屏状态随进入页面刷新一次（与旧 updateDisplayStatus 的时点一致）
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        host.updateDisplayStatusIfNeeded()
+        onDispose { }
+    }
+}
+
+/** 副屏（显示）状态卡：当前收屏状态 + 全屏说明 */
+@Composable
+private fun StatusCard(ui: TouchpadActivity.ConsoleUi) {
+    val ctx = LocalContext.current
+    ApComponents.Card {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_text_screen),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = ui.displayStatus,
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_text_screen_recv_fullscreen_local),
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+/** 链接设备卡：链接 TV（设备选择器）/ 链接 PC（副屏投屏页） */
+@Composable
+private fun LinkCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    ApComponents.Section(
+        title = ctx.getString(R.string.ui_touchpad_text_device),
+        modifier = modifier,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(8.dp)) {
+            ApComponents.ActionButton(
+                text = ctx.getString(R.string.ui_main_item_link),
+            ) { host.showDevicePicker() }
+            ApComponents.ActionButton(
+                text = ctx.getString(R.string.ui_main_item_screen),
+            ) {
+                host.startActivity(
+                    Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
+                )
+            }
+        }
+    }
+}
+
+// —————————————————————————— 页签栏 ——————————————————————————
+
+/** 底部页签栏（矢量图标 + 文字，选中染主色）：三页签，全屏时整条收起 */
+@Composable
+private fun ConsoleTabBar(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().background(colorResource(R.color.miuix_card))) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(colorResource(R.color.miuix_divider)))
+        Row(Modifier.fillMaxWidth()) {
+            CONSOLE_PAGES.forEachIndexed { i, p ->
+                val on = ui.page == i
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clickable {
+                            com.allperiph.ui.Feedback.tap(host)
+                            host.showPage(i)
+                        }
+                        .padding(top = 9.dp, bottom = 9.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Image(
+                        painter = painterResource(p.iconRes),
+                        contentDescription = null,
+                        colorFilter = ColorFilter.tint(
+                            if (on) MiuixTheme.colorScheme.primary else colorResource(R.color.state_idle),
+                        ),
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Text(
+                        text = ctx.getString(p.titleRes),
+                        fontSize = 10.sp,
+                        color = if (on) MiuixTheme.colorScheme.primary else colorResource(R.color.state_idle),
+                        modifier = Modifier.padding(top = 4.dp),
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// —————————————————————————— 全屏覆盖层 ——————————————————————————
+
+/**
+ * 全屏覆盖层：右下角「退出全屏」小胶囊（进入 3s 后降到 25% 不透明度，别在视野里抢
+ * 注意力）+ 一次性说明（第一次进全屏必须让人知道怎么出去，否则就是「进去了出不来」
+ * 的坑；2.6s 后自己淡出）。
+ */
+@Composable
+private fun FullscreenOverlay(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    val ctx = LocalContext.current
+    val view = LocalView.current
+    Box(Modifier.fillMaxSize()) {
+        // 退出胶囊
+        var pillAlpha by remember { mutableStateOf(0.6f) }
+        LaunchedEffect(Unit) {
+            delay(3000)
+            pillAlpha = 0.25f
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(10.dp)
+                .alpha(pillAlpha)
+                .clip(RoundedCornerShape(50))
+                .background(colorResource(R.color.miuix_card))
+                .clickable {
+                    com.allperiph.ui.Feedback.tap(view)
+                    host.setFullscreen(false)
+                }
+                .padding(horizontal = 14.dp, vertical = 7.dp),
+        ) {
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_fullscreen_exit),
+                fontSize = 11.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+        }
+        // 一次性说明：进全屏弹一次，2.6s 后自己淡出（中途退出全屏则随覆盖层一起消失）
+        var tipVisible by remember { mutableStateOf(true) }
+        LaunchedEffect(Unit) {
+            delay(2600)
+            tipVisible = false
+        }
+        if (tipVisible) {
+            Text(
+                text = ctx.getString(R.string.ui_touchpad_fullscreen_hint),
+                fontSize = 12.sp,
+                color = colorResource(R.color.miuix_bg),
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(bottom = 48.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(colorResource(R.color.miuix_text))
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            )
+        }
     }
 }

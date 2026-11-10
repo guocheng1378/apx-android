@@ -174,6 +174,8 @@
     <string name="ui_remote_item_menu">菜单</string>
     <string name="ui_remote_item_voice">语音</string>
     <string name="ui_remote_voice_unavailable">语音识别不可用</string>
+    <string name="ui_remote_voice_google_only">这台手机的系统语音识别只有 Google 语音，国内网络下连不上。\n\n推荐直接用输入法上的语音键口述，文字会自动发到对端；仍要打开 Google 语音也可以。</string>
+    <string name="ui_remote_voice_google_open">仍打开</string>
     <string name="ui_remote_item_volume">音量 ＋</string>
     <string name="ui_remote_item_play">播放</string>
     <string name="ui_remote_toast_device_connect_not">还没连上设备</string>
