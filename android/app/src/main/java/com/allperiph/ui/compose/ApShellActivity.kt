@@ -145,12 +145,12 @@ class ApShellActivity : ComponentActivity() {
             // 这一层只管主壳四页；弹窗是独立组合，在 ApComponents.DialogCard 里
             // 自己再供一次 —— 两处都读 UiScalePref.current，拖滑条即刻全端生效。
             val __base = androidx.compose.ui.platform.LocalDensity.current
-            // 平滑过渡（成宇 2026-11-07「dpi 变一下 UI 跳动一下」）：缩放改 150ms
-            // 缓动到位，密度不再一帧硬切 —— 整树跟一条曲线重排，跳变消失。
-            val __scale by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = com.allperiph.ui.UiScalePref.current.floatValue,
-                animationSpec = androidx.compose.animation.core.tween(150),
-            )
+            // 直接跟手，不再加缓动（成宇 2026-11-10「界面缩放不丝滑」）：150ms tween
+            // 是档位跳变时代（离散档之间一步一跳）加的平滑；滑条改连续后它只剩副作用
+            // —— 拖动中每次目标值变化都重启 tween，界面永远落后拇指一小截地「追」，
+            // 松手后还多渲染一段尾巴，正是不丝滑的来源。UiScalePref 只有滑条一个
+            // 写入方（连续、每次步进极小），直接读它即是逐帧实况预览，天然平滑。
+            val __scale = com.allperiph.ui.UiScalePref.current.floatValue
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.ui.platform.LocalDensity provides
                     androidx.compose.ui.unit.Density(__base.density * __scale, __base.fontScale),
