@@ -168,7 +168,7 @@ class RemoteActivity : Activity() {
             split.addView(wrapDial(), LinearLayout.LayoutParams(0, -1, 1f))
             val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             addRow(right, rows[0], topMarginDp = 4, rowWeight = 0.78f)
-            addKeyRows(right, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
+            addKeyRows(right, rows, rowWeight = 0.85f, firstTopMarginDp = 8)
             right.addView(TextView(this).apply {
                 text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
                 setTextColor(getColor(R.color.md_on_surface_variant))
@@ -176,7 +176,8 @@ class RemoteActivity : Activity() {
                 gravity = Gravity.CENTER
                 setPadding(dp(2), dp(6), dp(2), 0)
             })
-            right.addView(touchPad(), LinearLayout.LayoutParams(-1, dp(84)).apply {
+            // 触摸控制条（issue#168 第 6 条三追）：横屏同样按屏高 1/4 放大（原写死 84dp）
+            right.addView(touchPad(), LinearLayout.LayoutParams(-1, padHeightPx()).apply {
                 topMargin = dp(6)
             })
             split.addView(right, LinearLayout.LayoutParams(0, -1, 1f))
@@ -186,7 +187,7 @@ class RemoteActivity : Activity() {
             //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
             //   剩下的高度分给三行圆钮。
             col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
-            addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
+            addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 8)
 
             col.addView(TextView(this).apply {
                 text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)
@@ -196,7 +197,7 @@ class RemoteActivity : Activity() {
             })
 
             // —— 底部触摸控制条：单点 = 确认，按住滑动 = 移动被控端光标（v205）——
-            col.addView(touchPad(), LinearLayout.LayoutParams(-1, dp(112)).apply {
+            col.addView(touchPad(), LinearLayout.LayoutParams(-1, padHeightPx()).apply {
                 topMargin = dp(6)
             })
         }
@@ -428,11 +429,20 @@ class RemoteActivity : Activity() {
         parent.addView(line, lp)
     }
 
-    /// 圆钮直径：横屏上下空间小，用小一号
-    private fun circleSize(): Int = if (landscape) dp(58) else dp(78)
+    /// 圆钮直径：横屏上下空间小，用小一号。
+    /// issue#168 第 6 条三追（2026-11-11）：触摸条放大到约 1/4 屏高后，竖屏空间被
+    /// 挤压，圆钮从 78dp 收到 68dp，避免触摸条与三行圆钮互相顶撞、按钮文字被裁。
+    private fun circleSize(): Int = if (landscape) dp(58) else dp(68)
 
-    /// 环上箭头的点击区：拨盘收小后跟着收一档（仍 ≥ 48dp，满足最小触控目标）
-    private fun arrowSize(): Int = if (landscape) dp(50) else dp(56)
+    /// 环上箭头的点击区：拨盘收小后跟着收一档（仍 ≥ 44dp，满足最小触控目标）。
+    /// issue#168 第 6 条三追：横屏 50→44、竖屏 56→50，给放大后的触摸条让出空间。
+    private fun arrowSize(): Int = if (landscape) dp(44) else dp(50)
+
+    /// 触摸控制条高度（issue#168 第 6 条三追，2026-11-11）：用户要求触摸条约占
+    /// 「屏幕遥控器显示区域」四分之一大小。原先竖屏写死 112dp、横屏写死 84dp，
+    /// 不同屏幕上比例忽大忽小；改为按屏幕高度 1/4 直接取 px（横屏时 heightPixels
+    /// 是短边，1/4 同样落在合理区间），大屏小屏观感一致。
+    private fun padHeightPx(): Int = resources.displayMetrics.heightPixels / 4
 
     /**
      * 一个圆钮：正圆底 + 文字（不用字符图标，见类注释）。
