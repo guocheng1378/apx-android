@@ -86,7 +86,8 @@ R_USE = re.compile(
 #   的未知图标异常文案等 Kotlin 字面量，本批按实测上调；后续新文案仍应走 strings.xml。
 # 657 -> 664（issue#168 第 5/11/12 条批次，未发版）：悬浮窗权限引导行、手柄自定义卡片
 #   与日志文案等新增 Kotlin 字面量，本批按实测上调；后续新文案仍应走 strings.xml。
-TEXT_BASELINE = 664
+# 664 -> 665（第 9 条相册皮肤，未发版）：设置页「相册」入口字样一处。
+TEXT_BASELINE = 665
 
 
 def strip_comments(text):

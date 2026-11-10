@@ -807,6 +807,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // 点击 = 落盘（BallIcon.set）+ 对活着的球即时换图（FloatingBallService.applyIcon）；
                     // 服务没跑时静默 —— 下次 addBall 挂球会按落盘的选择重设。
                     var ballIcon by remember { mutableStateOf(BallIcon.picked(ctx)) }
+                    // 相册皮肤取图（issue#168 第 9 条剩余）：GetContent 选图 → 中心裁方
+                    // 副本落私有目录（BallIcon.setPhoto）→ 选中 CUSTOM → 活着的球即时换图。
+                    // 用 GetContent 而非 PickVisualMedia：只读一次立即拷贝，不需要持久授权。
+                    val ballSkinPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+                        androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+                    ) { uri ->
+                        if (uri != null && BallIcon.setPhoto(ctx, uri)) {
+                            ballIcon = BallIcon.CUSTOM
+                            FloatingBallService.applyIcon(ctx)
+                            Feedback.haptic(ctx)
+                        }
+                    }
                     Text(
                         text = "球面图标",
                         fontSize = 16.sp,
@@ -846,6 +858,29 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                     if (selected) MiuixTheme.colorScheme.primary
                                     else MiuixTheme.colorScheme.onSurfaceSecondary,
                                 ),
+                            )
+                        }
+                        // 「相册」入口：与内置图标同排的 36dp 圆点，点开系统选图。
+                        // 皮肤预览用选中态描边 + 主题色「相册」字样（不放原图 —— 取图前
+                        // 没有可显示的内容，取完图 ballIcon 即为 CUSTOM，重进设置页可见）。
+                        val skinSelected = ballIcon == BallIcon.CUSTOM
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    width = if (skinSelected) 2.dp else 0.dp,
+                                    color = if (skinSelected) MiuixTheme.colorScheme.primary else Color.Transparent,
+                                    shape = CircleShape,
+                                )
+                                .clickable { ballSkinPicker.launch("image/*") },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "相册",
+                                fontSize = 11.sp,
+                                color = if (skinSelected) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
                         }
                     }

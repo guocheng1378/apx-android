@@ -224,7 +224,23 @@ class FloatingBallService : Service() {
          */
         fun applyIcon(c: Context) {
             val v = live?.ball ?: return
-            v.findViewById<ImageView>(R.id.ivBallIcon)?.setImageResource(BallIcon.drawable(c))
+            setBallIcon(v.findViewById(R.id.ivBallIcon) ?: return, c)
+        }
+
+        /**
+         * 按落盘选择给球面挂图（issue#168 第 9 条）：选中相册皮肤（[BallIcon.CUSTOM]）
+         * 且副本可解码时挂位图 —— 照片不上单色 tint，是什么样就显示什么样；副本损坏 /
+         * 未选相册则回落内置图标。addBall 与设置页即时换图共用这一条路。
+         */
+        private fun setBallIcon(iv: ImageView, c: Context) {
+            if (BallIcon.picked(c) == BallIcon.CUSTOM) {
+                val bmp = BallIcon.bitmap(c)
+                if (bmp != null) {
+                    iv.setImageBitmap(bmp)
+                    return
+                }
+            }
+            iv.setImageResource(BallIcon.drawable(c))
         }
 
         /**
@@ -599,7 +615,7 @@ class FloatingBallService : Service() {
         val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         // issue#168 第 9 条：球面图标按设置页的选择来（布局里 src 是默认触控板，
         // 这里每次挂球都重设一次 —— 服务进程被回收重启后也能回到用户选的图标）。
-        v.findViewById<ImageView>(R.id.ivBallIcon)?.setImageResource(BallIcon.drawable(themed))
+        setBallIcon(v.findViewById<ImageView>(R.id.ivBallIcon) ?: return, themed)
         runCatching { wm.addView(v, ballLayoutParams()) }.onFailure {
             Log.w(TAG, "addView 失败（悬浮窗权限被撤？）：${it.message}")
             ball = null
