@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -96,19 +98,15 @@ fun StatusPage(
 
     val state = remember(tick) { snapshot(ctx) }
 
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-    Column(
-        modifier = Modifier
-            .then(if (limited) Modifier.widthIn(max = 680.dp) else Modifier.fillMaxWidth())
-            .verticalScroll(rememberScrollState())
-            .padding(
-                start = hPad + insets.left,
-                end = hPad + insets.right,
-                top = 8.dp + topBar,
-                bottom = bottomGap + insets.bottom,
-            ),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+    // —— 段落抽块（平板适配 §6.2，2026-11-11）——
+    // ①②③④=「开关与操作」（传输/音频方向/控制/模块），⑤⑥=「详情与诊断」（链路/帮助）。
+    // 双栏（≥600dp）：左栏=操作块，右栏=详情块 + 所选模块详情卡；窄屏：两块顺序复用，
+    // 与迁移前单栏完全一致 —— 两套观感共用同一份 Section 代码，不维护两份。
+    // selModule 是模块在 state.modules 里的下标；快照每秒重建但 AgentController 注册序
+    // 不变，下标选择不会漂移；越界（模块列表为空的瞬间）由 getOrNull 兜底。
+    var selModule by remember { mutableIntStateOf(0) }
+    val opsSections: @Composable () -> Unit = {
+
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_transport)) {
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
@@ -283,36 +281,76 @@ fun StatusPage(
         }
         ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
             Column {
-                state.modules.forEach { row ->
-                    ApComponents.ItemRow(
-                        title = row.label,
-                        summary = row.detail,
-                        showDivider = true,
-                        trailing = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
-                                ApComponents.Pill(
-                                    text = ctx.getString(row.stateRes),
-                                    color = stateColor(row.state),
+                state.modules.forEachIndexed { mi, row ->
+                    // 尾部（状态胶囊 + 启停开关）两种行形一致，抽成局部 trailing 复用
+                    val trailing: @Composable () -> Unit = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ApComponents.Pill(
+                                text = ctx.getString(row.stateRes),
+                                color = stateColor(row.state),
+                            )
+                            if (state.running) {
+                                Switch(
+                                    checked = row.enabled,
+                                    onCheckedChange = { on ->
+                                        Feedback.haptic(ctx)
+                                        AgentController.setModuleEnabled(ctx, row.id, on)
+                                        tick++
+                                    },
                                 )
-                                if (state.running) {
-                                    Switch(
-                                        checked = row.enabled,
-                                        onCheckedChange = { on ->
-                                            Feedback.haptic(ctx)
-                                            AgentController.setModuleEnabled(ctx, row.id, on)
-                                            tick++
-                                        },
-                                    )
-                                }
                             }
-                        },
-                    )
+                        }
+                    }
+                    if (adaptive.twoPane) {
+                        // 平板双栏（§6.2）：整行可点选模块，详情/诊断落右栏；
+                        // 选中态只在右栏体现，左栏不加高亮（避免行高随选中跳动）
+                        ApComponents.ClickRow(
+                            title = row.label,
+                            summary = row.detail,
+                            trailing = trailing,
+                            onClick = { selModule = mi },
+                        )
+                    } else {
+                        ApComponents.ItemRow(
+                            title = row.label,
+                            summary = row.detail,
+                            showDivider = true,
+                            trailing = trailing,
+                        )
+                    }
                 }
             }
         }
+
+    }
+    val detailSections: @Composable () -> Unit = {
+
+        if (adaptive.twoPane) {
+            // 右栏详情卡（§6.2「左栏列表，右栏详情」）：展示左栏选中的模块行，
+            // 标题用模块名、正文用其实时 detail（状态/链路口径与左栏同一份快照）。
+            // 无新文案 —— 全部复用模块行已有的 label/detail/stateRes，窄屏不显示本卡。
+            val sel = state.modules.getOrNull(selModule) ?: state.modules.firstOrNull()
+            if (sel != null) {
+                ApComponents.Section(title = sel.label) {
+                    Column {
+                        ApComponents.ItemRow(
+                            title = sel.label,
+                            summary = sel.detail,
+                            trailing = {
+                                ApComponents.Pill(
+                                    text = ctx.getString(sel.stateRes),
+                                    color = stateColor(sel.state),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
         ApComponents.Section(title = ctx.getString(R.string.card_link)) {
             Column {
                 ApComponents.ActionButton(
@@ -413,7 +451,56 @@ fun StatusPage(
         }
         if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
     }
-    } // Box：限宽居中（界面稿 04，≥720dp）
+
+    if (adaptive.twoPane) {
+        // 平板/宽屏双栏：左右各占一半、各自独立滚动；外层统一垫 hPad 边距（与本页
+        // 单栏口径同源），两栏间距 12dp 分隔。右栏 = 模块详情卡 + 链路诊断 + 帮助。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = hPad + insets.left,
+                    end = hPad + insets.right,
+                    top = 8.dp + topBar,
+                    bottom = bottomGap + insets.bottom,
+                ),
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) { opsSections() }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(start = 12.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) { detailSections() }
+        }
+    } else {
+        // 窄屏单栏：原排版原样（Box + 限宽 + 滚动 + 边距），内容改为两块顺序复用
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier
+                .then(if (limited) Modifier.widthIn(max = 680.dp) else Modifier.fillMaxWidth())
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    start = hPad + insets.left,
+                    end = hPad + insets.right,
+                    top = 8.dp + topBar,
+                    bottom = bottomGap + insets.bottom,
+                ),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            opsSections()
+            detailSections()
+        }
+        } // Box：限宽居中（界面稿 04，≥720dp）
+    }
 }
 
 private class ModuleRowVm(

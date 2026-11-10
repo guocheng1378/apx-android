@@ -587,12 +587,17 @@ Wi‑Fi 侧：**复用同一套命令 TLV**，改为在 TCP 帧的 `streamId=ctr
 
 ---
 
-## 六、平板适配 UI 规划（2026-11-11 规划，未开工）
+## 六、平板适配 UI 规划（2026-11-11 规划；6.2 首批已落地，未发版）
 
 > 现有基础：`ui/miuix/ApAdaptive.kt` 的 `rememberApAdaptiveLayout()` 按窗口实测宽度
 > （`LocalWindowInfo.containerSize` 优先，Configuration 滞后只作冷启动回退）分
 > Compact / Medium / Expanded 三档，`twoPane = ≥600dp`；`DeviceFormPref` 管设备语义。
 > 规划要点是**把这套体系从"设置页专属"推广成全 App 约定**。
+>
+> **进度（2026-11-11）**：6.2 两栏脚手架 `ApTwoPaneScaffold` 已落地——设置页双栏迁移到
+> 统一壳（观感不变），状态页接入双栏（左=开关与操作，右=所选模块详情 + 链路诊断 + 帮助，
+> 模块行可点选，窄屏保持原单栏）。6.3 键盘键高上限、手柄双摇杆分置，以及 6.1 的
+> Expanded「低栏收侧边竖条」（待设计确认）尚未开工；平板真机验证待补。
 
 ### 6.1 统一断点与档位行为
 

@@ -48,6 +48,7 @@ import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
 import androidx.compose.ui.window.Dialog
 import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.ApTwoPaneScaffold
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
@@ -255,32 +256,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     }
 
     }
-    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-    if (twoPane) {
-        Column(
-            modifier = Modifier
-                .width(180.dp)
-                .fillMaxHeight()
-                // 左侧分类列只垫 8dp：横屏那张低栏挪到了**右上角**，左侧这一竖列
-                // 与它不重叠，跟着垫 96dp 只会在左上角留一段没用的空档。
-                .padding(start = 12.dp + insets.left, top = 8.dp)
-                // issue#168 第 3 条：横屏左侧四签「靠左居中」—— 四项固定、总高有限
-                // （约 4×48dp，最矮的横屏窗口也放得下），竖直居中比贴顶好看；
-                // 去掉防御性滚动（可滚动布局里居中参数不生效）。
-                ,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            catLabels.forEachIndexed { idx, name ->
-                ApComponents.TabChip(
-                    text = name,
-                    selected = idx == cat,
-                    onClick = { cat = idx },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-    }
-
+    // 双栏壳推广（平板适配 §6.2，2026-11-11）：详情区抽成本地 detailPane，双栏与单栏
+    // 复用同一份内容；左列表/右详情的骨架改走 ApTwoPaneScaffold（状态页同批接入），
+    // 栏宽与居中口径收进壳里，页面只给内容。
+    val detailPane: @Composable () -> Unit = {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
@@ -1658,6 +1637,34 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         }
         }
     }
+    }
+    if (twoPane) {
+        // 双栏（≥600dp）：左列表右详情走统一壳（§6.2）。左栏内容竖直居中由壳负责，
+        // 这里只补横向缩进与 8dp 顶距（横屏低栏在右上角，左侧无需垫 96dp，原口径迁移保留）。
+        // 外层 weight(1f)：详情区占满页签行之外的剩余高度。
+        ApTwoPaneScaffold(
+            left = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp + insets.left, top = 8.dp),
+                ) {
+                    catLabels.forEachIndexed { idx, name ->
+                        ApComponents.TabChip(
+                            text = name,
+                            selected = idx == cat,
+                            onClick = { cat = idx },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            },
+            right = detailPane,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+        )
+    } else {
+        // 窄屏单栏：详情区直接铺开，行为与迁移前一致
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) { detailPane() }
     }
     }
 
