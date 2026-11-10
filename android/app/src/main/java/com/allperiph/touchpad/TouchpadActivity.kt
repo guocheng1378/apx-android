@@ -76,8 +76,9 @@ import com.allperiph.ui.KeyPref
 import com.allperiph.ui.compose.ApTouchpadSurface
 import com.allperiph.ui.compose.rememberApBackdrop
 import com.allperiph.ui.miuix.ApComponents
+import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.ApMiuixTheme
-import com.allperiph.ui.miuix.MiuixTheme
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.wireless.ControlTarget
@@ -260,9 +261,9 @@ class TouchpadActivity : ComponentActivity() {
         super.onPause()
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        showPage(intent?.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD) ?: PAGE_TOUCHPAD)
+        showPage(intent.getIntExtra(EXTRA_PAGE, PAGE_TOUCHPAD))
     }
 
     @Deprecated("Deprecated in Java")
@@ -991,6 +992,7 @@ private val KB_TABS = listOf(
 @Composable
 private fun ConsoleKeyboardPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
     val ctx = LocalContext.current
+    val view = LocalView.current
     Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, bottom = 12.dp)) {
         Row(
             Modifier.fillMaxWidth()
@@ -1023,7 +1025,7 @@ private fun ConsoleKeyboardPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
                         .pointerInput(i) {
                             detectTapGestures(
                                 onTap = {
-                                    com.allperiph.ui.Feedback.tap(host)
+                                    com.allperiph.ui.Feedback.tap(view)
                                     ui.kbTab = i
                                 },
                                 onLongPress = longPress,
@@ -1584,14 +1586,16 @@ private fun LinkCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
         Column(Modifier.fillMaxWidth().padding(8.dp)) {
             ApComponents.ActionButton(
                 text = ctx.getString(R.string.ui_main_item_link),
-            ) { host.showDevicePicker() }
+                onClick = { host.showDevicePicker() },
+            )
             ApComponents.ActionButton(
                 text = ctx.getString(R.string.ui_main_item_screen),
-            ) {
-                host.startActivity(
-                    Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
-                )
-            }
+                onClick = {
+                    host.startActivity(
+                        Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
+                    )
+                },
+            )
         }
     }
 }
@@ -1602,6 +1606,7 @@ private fun LinkCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
 @Composable
 private fun ConsoleTabBar(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
     val ctx = LocalContext.current
+    val view = LocalView.current
     Column(Modifier.fillMaxWidth().background(colorResource(R.color.miuix_card))) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(colorResource(R.color.miuix_divider)))
         Row(Modifier.fillMaxWidth()) {
@@ -1611,7 +1616,7 @@ private fun ConsoleTabBar(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity
                     Modifier
                         .weight(1f)
                         .clickable {
-                            com.allperiph.ui.Feedback.tap(host)
+                            com.allperiph.ui.Feedback.tap(view)
                             host.showPage(i)
                         }
                         .padding(top = 9.dp, bottom = 9.dp),

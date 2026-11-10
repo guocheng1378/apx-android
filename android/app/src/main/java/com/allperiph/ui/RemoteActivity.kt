@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,7 +48,7 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.ui.miuix.ApMiuixTheme
-import com.allperiph.ui.miuix.MiuixTheme
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.wireless.ControlTarget
@@ -97,7 +98,7 @@ class RemoteActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
 
     /** 光标浮层开关（0x32，v223.10）：Compose 状态，chip 展示与发送动作共用同一份 */
-    private val cursorOverlayOn = mutableStateOf(true)
+    internal val cursorOverlayOn = mutableStateOf(true)
 
     /** 回前台自增：目标行 / 出口状态按需重算（选完设备回来、连接状态变化后刷新） */
     internal val resumeTick = mutableIntStateOf(0)
@@ -135,7 +136,7 @@ class RemoteActivity : ComponentActivity() {
     }
 
     /** 切换被控端光标浮层：记偏好 + 立即发给当前被控端（没连着就只记，连上自动生效） */
-    private fun toggleCursorOverlay() {
+    internal fun toggleCursorOverlay() {
         cursorOverlayOn.value = !cursorOverlayOn.value
         prefs().edit().putBoolean(KEY_CURSOR_OVERLAY, cursorOverlayOn.value).apply()
         com.allperiph.wireless.TvControllerClient.lastOverlayCursorEnabled = cursorOverlayOn.value
@@ -154,7 +155,7 @@ class RemoteActivity : ComponentActivity() {
      * 否则主页只会停在默认的触控板页。带上之后主页直接弹选择器，
      * 选完 / 取消自动 finish 回到本页，本页 onResume 再刷新目标。
      */
-    private fun pickTarget() {
+    internal fun pickTarget() {
         startActivity(
             Intent(this, com.allperiph.ui.compose.ApShellActivity::class.java)
                 .putExtra(com.allperiph.ui.compose.ApShellActivity.EXTRA_PICK_DEVICE, true),
@@ -162,7 +163,7 @@ class RemoteActivity : ComponentActivity() {
     }
 
     /** 多媒体键：按下 + 60ms 释放（被控端按位图边沿识别，见 HotkeyController） */
-    private fun media(bit: Int) {
+    internal fun media(bit: Int) {
         HotkeyController.press(bit)
         handler.postDelayed({ HotkeyController.release(bit) }, 60)
     }
@@ -173,7 +174,7 @@ class RemoteActivity : ComponentActivity() {
     }
 
     /** 关机 / 重启：会直接关掉被控设备，必须确认（与键盘页同一套语义） */
-    private fun confirmPower(action: Int, label: String) {
+    internal fun confirmPower(action: Int, label: String) {
         val c = ControlTarget.controlClient
         if (c == null) {
             Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
@@ -195,7 +196,7 @@ class RemoteActivity : ComponentActivity() {
      *  自己的语音入口重复）。依赖 Wi-Fi 控制链；断链或无识别服务时如实提示。
      *  v223.29.33：先挑识别器再拉起 —— 国内只有 Google 语音（网络不可达）时不再静默
      *  拉起，如实说明并主推输入法语音；有非 Google 识别器时显式 setPackage 防落回 Google。 */
-    private fun startVoiceInput() {
+    internal fun startVoiceInput() {
         if (ControlTarget.controlClient == null) {
             Toast.makeText(this, getString(R.string.ui_remote_toast_device_connect_not), Toast.LENGTH_SHORT).show()
             return
@@ -256,7 +257,7 @@ class RemoteActivity : ComponentActivity() {
         c.sendInputText(text, ApxFrame.INPUT_FLAG_COMMIT)
     }
 
-    private companion object {
+    internal companion object {
         // 光标浮层开关偏好（0x32）：关掉的状态跨会话记住
         private const val PREF = "apx_remote"
         private const val KEY_CURSOR_OVERLAY = "cursor_overlay"
