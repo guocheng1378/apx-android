@@ -10,6 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -156,7 +159,60 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // 这一步只重排外壳，16 个 Section 的代码位置与前一轮完全一致；同类目内再分两栏需要把
     // 每段拆成可组合函数，属另一轮。
     val twoPane = rememberApAdaptiveLayout().twoPane
-    Column(modifier = Modifier.fillMaxSize()) {
+    // 一指横滑切分组（成宇 2026-11-10「设置页的分组切换不方便」+「就按这套做」）：
+    // 向左滑 = 下一组、向右滑 = 上一组（与横屏四指切页同方向），页签保留不动。
+    // 冲突仲裁靠**事件归属**，不猜意图（挂 Initial pass：父级先看、不抢消费）：
+    // · 滑杆是本页唯一横向拖动的控件，它的拖动一动手就吃掉事件 —— 一旦看到
+    //   `isConsumed`，整段手势立刻退出，滑杆怎么拖都不会翻组；
+    // · 垂直滚动列表同理（滚动消费纵向拖动），配合「横向 > 2×纵向」的方向门槛，
+    //   上下滑 / 斜滑都不会误触发；与主壳竖滑收低栏（纵向 > 2×横向）方向正交；
+    // · 阈值 56dp 与主壳四指切页同一套；触发后把剩余序列在 Initial pass 收掉，
+    //   一滑只翻一组，页签 / 开关的点击不受影响（短按到不了阈值）；
+    // · 双指落下即放弃（与低栏长按同口径：手势语义是「一根手指」）。
+    val swipeDensity = LocalDensity.current.density
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial,
+                    )
+                    val sx = down.position.x
+                    val sy = down.position.y
+                    var fired = false
+                    while (true) {
+                        val ev = awaitPointerEvent(PointerEventPass.Initial)
+                        // 子控件（滑杆 / 滚动列表）认领了拖动 → 手势让路，整段作废
+                        if (ev.changes.any { it.isConsumed }) break
+                        if (ev.changes.count { it.pressed } > 1) break
+                        val c = ev.changes.firstOrNull { it.id == down.id }
+                            ?: ev.changes.firstOrNull()
+                            ?: break
+                        if (!c.pressed) break
+                        if (fired) continue
+                        val dx = c.position.x - sx
+                        val dy = c.position.y - sy
+                        if (kotlin.math.abs(dx) > 56f * swipeDensity &&
+                            kotlin.math.abs(dx) > 2f * kotlin.math.abs(dy)
+                        ) {
+                            fired = true
+                            cat = if (dx < 0) (cat + 1) % catLabels.size
+                            else (cat + catLabels.size - 1) % catLabels.size
+                            Feedback.haptic(ctx)
+                            // 翻完收掉剩余序列：一滑只翻一组
+                            while (true) {
+                                val ev2 = awaitPointerEvent(PointerEventPass.Initial)
+                                ev2.changes.forEach { it.consume() }
+                                if (ev2.changes.none { it.pressed }) break
+                            }
+                            break
+                        }
+                    }
+                }
+            },
+    ) {
     if (!twoPane) {
     // 竖屏页签：四个分类名合计 20 个汉字（主题与外观 / 快捷键与外设 / 工具与传输 / 数据与维护），
     // 400dp 宽的手机上每个只剩约 89dp，装不下 6 个汉字 —— 真机（v223.22）上「快捷键与外设」
