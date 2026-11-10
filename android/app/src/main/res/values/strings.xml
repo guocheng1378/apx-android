@@ -297,6 +297,19 @@
     <string name="ui_filepanel_where">收到的文件：%1$s</string>
     <string name="ui_filepanel_sending_detail">发送中 %1$d%% · %2$s</string>
     <string name="ui_filepanel_sending">发送中 %1$d%%</string>
+    <!-- v2「文件管理」第一批（2026-11-11）：打开/分享/传输记录/平板双栏 -->
+    <string name="ui_filepanel_open">打开</string>
+    <string name="ui_filepanel_share">分享</string>
+    <string name="ui_filepanel_detail_none">从左边选一个文件，这里能看大小、时间，也能转发、打开、分享、删除</string>
+    <string name="ui_filepanel_records">传输记录</string>
+    <string name="ui_filepanel_record_none">本次还没有传输记录（关掉面板就清空）</string>
+    <string name="ui_filepanel_record_send">发出：%1$s</string>
+    <string name="ui_filepanel_record_recv">收到：%1$s</string>
+    <string name="ui_filepanel_record_done">成功</string>
+    <string name="ui_filepanel_record_failed">失败：%1$s</string>
+    <string name="ui_filepanel_retry">重试</string>
+    <string name="ui_filepanel_open_missing">文件已不在，可能已被删除</string>
+    <string name="ui_filepanel_open_failed">没有能打开它的应用</string>
 
     <string name="ui_remoteinput_title">🔵 输入中</string>
     <string name="ui_remoteinput_from">来自「%1$s」</string>

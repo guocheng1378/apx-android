@@ -340,6 +340,17 @@
         </receiver>
 
         <!--
+          文件面板「打开 / 分享」（2026-11-11「文件管理」第一批）：把收到的文件以 content://
+          临时授权给相册 / 播放器 / 分享目标。与 TV 端 .ui.ApxFileProvider 同构（各自一份），
+          不得传 file://（targetSdk ≥ 24 会抛 FileUriExposedException，见类头注释）。
+        -->
+        <provider
+            android:name=".ui.ApxFileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <!--
           ⑪ 遥控输入：全屏 Activity（覆盖在其他应用之上）
           由被控端设备点击通知启动，用于接收远程键盘输入
         -->
