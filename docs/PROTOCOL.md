@@ -387,6 +387,7 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 | 0x28 | 特殊键/组合键 | 被控 → 控制端 | `[1]=mod（1=Ctrl 2=Shift 4=Alt） [2]=Windows VK 码` |
 | 0x31 | 手机模式状态 | 被控（手机）→ 控制端（PC） | `[1]=flags`：bit0 无线可用 bit1 蓝牙可用 bit2 USB 可用 bit3 无线在用 bit4 蓝牙在用 bit5 USB 在用（**可用 ≠ 在用**，bit3..5 最多置一位；无出口时三者皆 0） |
 | `0x32` | 光标浮层开关 | 控制端 → 被控端 | `[0]=0x32 [1]=show(0x00 隐藏 / 0x01 显示)` | 被控端浮层光标（蓝点）由控制端关/开；TvInjector.setOverlayEnabled 统一门控 |
+| `0x33` | 能力协商 | 双向 | `[0]=0x33 [1..8]=caps(u64 LE)` | 连接建立后**两端各发一帧**，接收方存下对端位图（Android 存于 `ControlServer.peerCaps` / `TvControllerClient.peerCaps`；PC 存于 `Ctrl9511{Server,Client}Status.peerCaps`）。发送能力帧前先核对**对端**位图，缺位的一端不发；旧版安静忽略未知帧号。能力位：bit0 通知同步(0x40/0x42)、bit1 通知回复(0x41，预留)、bit2 查找手机(0x38)。位号三处同源：Android `ApxFrame.CAP_*` / PC `ctrl9511.hpp kCaps9511*` / 本表 |
 | `'p'` | 心跳 | 双向 | 主动方发 `'p'+"ing"`，对端回 `'p'+"ong"`；连续 3 轮无 pong 判定链路失效（见 §3.3.2） |
 
 > v223.6：`0x31` 是面板「无线/蓝牙/USB」三个开关改成**真实状态**的依据。蓝牙与 USB 的真开关在手机端（系统配对 / root 配 gadget），PC 只是被动 host，摆一个拨不动的开关只会让人以为坏了 —— 改成手机每 2s 上报一字节，面板照实显示「可用 / 当前在用」。位序两端各有一份实现（Android `ModeStatus.kt` / PC `phone_mode.hpp`），各有单测用**同一组期望值**钉住。
@@ -477,7 +478,7 @@ PC `pc/host/src/media/media_session.cpp`。
 
 ## 5. 版本与兼容
 
-- 协议版本字段 `u16`，当前 **1.7**
+- 协议版本字段 `u16`，当前 **1.8**
 
 **变更记录**
 
@@ -499,6 +500,7 @@ PC `pc/host/src/media/media_session.cpp`。
 | **1.6** | 传感器 TLC 的 Feature Report 追加 **Power State（usage 0x0319，8b，D0=0）**，布局变为 `reportId(1)+state(1)+status(1)+sensitivity(2)+interval(4)+power(1)` = 10B；Report Interval 的 Logical Max 改 32 位语义 | Feature 布局（9B→10B，`ImuFeatureReport`）、GET_REPORT 登记载荷 | L1、L2（登记载荷） | 对齐微软《Sensor HID Class Driver》模板字段集（实测固件普遍声明 Power State）；Linux 头 `PROY_POWER_STATE 0x200319` 为权威 |
 | **1.7** | §3.3 补齐控制面命令表（0x04 / 0x07 / 0x10 / 0x20 / 0x21 / 0x22 / 0x25–0x28 与 `'p'` 心跳），并新增 §3.3.1 挂起语义、§3.3.2 半开检测、§3.3.3 CRC 与重同步 | 9511 统一控制面（手机 / TV / PC 三端） | L1、L2、L3、L4、L5 | 命令号此前只散落在代码与各端注释里，是"某方向偶尔不工作"类缺陷的主要来源（键码起始偏移、0x04 分发不一致、CRC 覆盖范围分歧都踩过）。现在由 `scripts/check_protocol.py` 在 CI 守着，**"有人发但没人收"直接报错** —— 0x22 在 PC 端的缺失就是它先发现的 |
 | **1.7** | 明确三条收帧纪律：① 接收侧**必须**校验尾部 CRC32；② magic / 长度失配一律**逐字节重同步**（禁止整体丢缓冲）；③ 被控端"挂起" = **保持连接**、只忽略输入类命令（心跳与 0x10 仍处理，否则"恢复"永远送不进来） | 六条收帧路径（手机被控 / 手机控制端 / 手机媒体 / TV 控制面 / TV 媒体 / PC 媒体面）与三端连接管理 | L2、L3、L4、L5 | 真机踩坑：不校验 CRC 时错位数据直接进解码器（花屏 / 乱点光标）；整体丢缓冲把一次错位放大成"整段输入失灵"；挂起若拒绝连接则控制端再也连不上（单向门） |
+| **1.8** | §3.3 新增 `0x33` 能力协商：连接建立后两端各发一帧能力位图（u64 LE），发送能力帧前核对**对端**位图，缺位不发；新增能力位 bit0 通知同步 / bit1 通知回复（预留）/ bit2 查找手机 | 9511 统一控制面四条链路（手机被控 / 手机控制端 / PC 被控 / PC 控制端） | L2 | 增量功能（通知同步、查找手机）两端版本可能不同步，需要握手交换"谁支持什么"，旧版安静降级（借鉴 NectarLink 能力表机制，见 docs/ROADMAP.md §5.0） |
 - 手机端与 PC 端版本不一致时：高版本端必须兼容低版本字段集，未知扩展头按 `headerExtWords` 跳过
 
 ---

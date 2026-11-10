@@ -32,6 +32,14 @@ class TvControllerClient(
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
 
+    /**
+     * 对端能力位图（0x33 能力协商，2026-11-11）：对端连接后报上来的支持能力，
+     * 见 [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量。0 = 未收到（旧版对端没有该
+     * 机制，此时能力帧族一律不发）。新会话建立（[openSocket]）时清零重收。
+     */
+    @Volatile var peerCaps: Long = 0L
+        private set
+
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
@@ -66,6 +74,10 @@ class TvControllerClient(
         thread(name = "tvctrl-reader") { readerLoop(s) }
         startTx()
         startModeStatus()
+        // 能力协商（0x33，2026-11-11）：新会话清空上一会话的对端能力，并把本端能力报给对端。
+        // 接收侧存 [peerCaps]；不发的话对端学到的永远是 0，能力帧族全被门掉。
+        peerCaps = 0L
+        sendCapsSync()
         // v223.29.12 热修：会话建立**即刻**上报一帧 0x31，不等 2s 轮询线程。
         // PC 端握手时会把 modeReported_ 清零（「新会话从未上报开始」）；若模式线程恰在
         // disconnect/快速重连的 isAlive 早退竞态里死掉（startModeStatus 里
@@ -178,6 +190,15 @@ class TvControllerClient(
                 if (cb != null) cb(text, flags) else injectRemoteTextFallback(text, flags)
             }
             0x27 -> { onRemoteInputDone?.invoke() }
+            // 0x33 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节），存进 [peerCaps]。
+            0x33 -> {
+                if (body.size >= 9) {
+                    var caps = 0L
+                    for (i in 0 until 8) caps = caps or ((body[1 + i].toLong() and 0xFF) shl (8 * i))
+                    peerCaps = caps
+                    Log.i("TvCtrl", "对端能力：0x${java.lang.Long.toHexString(caps)}")
+                }
+            }
         }
     }
 
@@ -307,6 +328,21 @@ class TvControllerClient(
      */
     fun overlayToggle(show: Boolean) =
         sendControl(byteArrayOf(0x32.toByte(), (if (show) 1 else 0).toByte()))
+
+    /**
+     * 发 0x33 能力协商（2026-11-11）：把本端能力位图报给对端，连接建立后由 [openSocket]
+     * 立即调用一次。命令号按字面量写（0x33），与 ApxFrame.CMD_CAPS_SYNC 及
+     * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
+     */
+    private fun sendCapsSync() {
+        val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
+            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE
+        val body = ByteArray(9)
+        body[0] = 0x33.toByte()
+        for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()
+        sendControl(body)
+    }
 
     /**
      * 模式状态上报（0x31）：[flags] 的位布局见 [ModeStatus] / phone_mode.hpp。

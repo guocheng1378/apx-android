@@ -54,6 +54,14 @@ class TvControlServer(
         runCatching { client?.close() }
     }
 
+    /**
+     * 对端能力位图（0x33 能力协商，2026-11-11）：对端连接后报上来的支持能力，
+     * 见 [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量。0 = 未收到（旧版对端没有该
+     * 机制，此时能力帧族一律不发）。新会话建立（[activate]）时清零重收。
+     */
+    @Volatile var peerCaps: Long = 0L
+        private set
+
     /** PC 请求恢复被控：重新接受连接 */
     fun resumeAccept() {
         if (suspended) Log.i("被控控制面", "无线被控已恢复（PC 请求）")
@@ -169,6 +177,10 @@ class TvControlServer(
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
+        // 能力协商（0x33，2026-11-11）：新会话清空上一会话的对端能力，并把本端能力报给对端
+        //（与 :shared 的 ControlServer 同一机制 —— 两份实现逐字节同协议，见类头注释）。
+        peerCaps = 0L
+        sendCapsSync()
         Log.i("被控控制面", "手机已连入：$peerText")
         mainHandler.post { TvInputDispatcher.peer(true, peerText) }
         TvInjector.setConnected(true)
@@ -268,7 +280,8 @@ class TvControlServer(
                         val cmd = body[0].toInt() and 0xFF
                         // v184：挂起期间只回 ping、只处理模块开关(0x10)，输入类命令一律丢弃。
                         // 连接保持（见 activate），因此 PC 随时能把挂起拨回来。
-                        if (suspended && cmd != 'p'.code && cmd != 0x10) {
+                        // 0x33 能力协商是元数据不是输入：挂起期照收。
+                        if (suspended && cmd != 'p'.code && cmd != 0x10 && cmd != 0x33) {
                             // 被控已挂起：忽略鼠标/键盘/触摸等输入
                         } else when (cmd) {
                             'p'.code -> actions.add { sendControl(PONG) }
@@ -288,6 +301,9 @@ class TvControlServer(
                             // 0x32 光标浮层开关（v223.10）：与 :shared 的 ControlServer 同一条 ——
                             // 控制端（手机遥控器）关/开本端的浮层光标；直接落 TvInjector。
                             0x32 -> if (body.size >= 2) actions.add { TvInjector.setOverlayEnabled(body[1].toInt() and 0xFF != 0) }
+                            // 0x33 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节），
+                            // 存进 [peerCaps]。元数据落 volatile，内联处理不入注入队列。
+                            0x33 -> if (body.size >= 9) onCapsSync(body)
                         }
                     }
                 }
@@ -479,6 +495,33 @@ class TvControlServer(
     private fun onInputDone() {
         Log.i("被控控制面", "远程输入完成")
         mainHandler.post { onRemoteInputDone?.invoke() }
+    }
+
+    /**
+     * 收 0x33 能力协商（2026-11-11）：解析对端能力位图（u64 小端，8 字节，见
+     * [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量）存进 [peerCaps]。
+     * 与 :shared 的 ControlServer.onCapsSync 同一机制（两份实现逐字节同协议）。
+     */
+    private fun onCapsSync(body: ByteArray) {
+        var caps = 0L
+        for (i in 0 until 8) caps = caps or ((body[1 + i].toLong() and 0xFF) shl (8 * i))
+        peerCaps = caps
+        Log.i("被控控制面", "对端能力：0x${java.lang.Long.toHexString(caps)}")
+    }
+
+    /**
+     * 发 0x33 能力协商（2026-11-11）：把本端能力位图报给对端，连接建立后由 [activate]
+     * 立即调用一次。命令号按字面量写（0x33），与 ApxFrame.CMD_CAPS_SYNC 及
+     * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
+     */
+    private fun sendCapsSync() {
+        val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
+            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE
+        val body = ByteArray(9)
+        body[0] = 0x33.toByte()
+        for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()
+        sendControl(body)
     }
 
     fun sendControl(body: ByteArray): Boolean {

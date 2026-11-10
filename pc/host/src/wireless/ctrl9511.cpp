@@ -185,6 +185,33 @@ struct Ctrl9511Server::Impl {
     std::atomic<uint8_t> modeFlags_{0};
     /// 本次会话是否收到过模式帧（见 Ctrl9511ServerStatus::modeReported）
     std::atomic<bool> modeReported_{false};
+    /// 对端能力位图（0x33 能力协商，2026-11-11；位定义见 kCaps9511*，头文件）。
+    /// 0 = 本会话未收到 —— 旧版手机没有该机制，能力帧族一律不发（前向兼容）。
+    std::atomic<uint64_t> peerCaps_{0};
+
+    /**
+     * 发 0x33 能力协商（2026-11-11）：把本机（PC 服务端）的能力位图报给连入的手机。
+     * 命令号按字面量写（0x33），与 kCaps9511* / Android ApxFrame.CMD_CAPS_SYNC /
+     * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
+     */
+    void sendCapsSync() {
+        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone;
+        uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
+        for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
+        std::vector<uint8_t> buf(apx::kFrameHeaderSize + sizeof(body) + apx::kFrameCrcSize);
+        size_t len = 0;
+        if (buildCtrlFrame(buf.data(), buf.size(), len, 0x33, body, sizeof(body),
+                           seq_.fetch_add(1)))
+            enqueue(buf.data(), len);
+    }
+
+    /** 收 0x33 能力协商：解析对端能力位图（u64 小端，8 字节）存 peerCaps_（pump 线程，原子写）。 */
+    void onCapsSync(const uint8_t* p, uint32_t bodyLen) {
+        (void)bodyLen;  // 调用点已保证 >= 9
+        uint64_t caps = 0;
+        for (int i = 0; i < 8; ++i) caps |= static_cast<uint64_t>(p[1 + i]) << (8 * i);
+        peerCaps_.store(caps);
+    }
 
     // 远程输入回调（UI 层注册）
     std::function<void(const std::string&)> onRequestInput_;
@@ -293,6 +320,10 @@ struct Ctrl9511Server::Impl {
            否则面板会把上一模式当成当前状态一直显示（issue#52：切了模式却看到旧状态）。 */
         modeReported_.store(false);
         modeFlags_.store(0);
+        // 能力协商（0x33，2026-11-11）：新会话清掉上一会话的对端能力，并把本机能力报给对端 ——
+        // 不发的话手机学到的永远是 0，能力帧族全被门掉（通知同步/查找手机整条断）。
+        peerCaps_.store(0);
+        sendCapsSync();
         // ★ 新会话必须清空发送队列：没有对端时 onClipboardChanged() 每变一次剪贴板就
         //   enqueue 一帧反向剪贴板(0x21)，只增不减；不清的话手机一连上就被灌一串历史
         //   旧内容、剪贴板被刷乱。（媒体层 media_session.cpp 同场景已有 outQ_.clear()）
@@ -314,6 +345,7 @@ struct Ctrl9511Server::Impl {
            用户看到的就是「都断了还写着无线在用」。——「不知道」就说不知道。 */
         modeReported_.store(false);
         modeFlags_.store(0);
+        peerCaps_.store(0);   // 能力协商（0x33）：断链即作废，重连后由新一轮 0x33 重建
     }
 
     void readerLoop(Sock s) {
@@ -483,6 +515,10 @@ struct Ctrl9511Server::Impl {
             modeFlags_.store(p[1]);
             modeReported_.store(true);
             aModeStatus_.fetch_add(1);
+        } else if (cmd == 0x33 && bodyLen >= 9) {
+            // CAPS_SYNC 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节）。
+            // 元数据落原子变量，不动注入路径。
+            onCapsSync(p, bodyLen);
         }
     }
 
@@ -705,6 +741,7 @@ Ctrl9511ServerStatus Ctrl9511Server::status() const {
     s.modeStatus = impl_->aModeStatus_.load();
     s.modeFlags = impl_->modeFlags_.load();
     s.modeReported = impl_->modeReported_.load();
+    s.peerCaps = impl_->peerCaps_.load();
     /* 注入权限：macOS 无「辅助功能」授权时 CGEventPost 会被系统静默丢弃。
        每次读状态实时问一次（一次 TCC 查询），面板据此打横幅 —— 不让「连上了、
        帧也到了、注入被吞」这种最难查的组合继续伪装成「没反应」。 */
@@ -741,6 +778,21 @@ struct Ctrl9511Client::Impl {
     std::atomic<bool> pingPending_{false};
     // v184：连续无 pong 的轮数 —— 达到阈值即判定链路失效（半开检测）
     std::atomic<int> missedPongs_{0};
+    /// 对端能力位图（0x33 能力协商，2026-11-11；位定义见 kCaps9511*，头文件）。
+    /// 0 = 本会话未收到 —— 旧版对端没有该机制，能力帧族一律不发（前向兼容）。
+    std::atomic<uint64_t> peerCaps_{0};
+
+    /**
+     * 发 0x33 能力协商（2026-11-11）：把本机（PC 控制端）的能力位图报给对端。
+     * 命令号按字面量写（0x33），与 kCaps9511* / Android ApxFrame.CMD_CAPS_SYNC /
+     * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
+     */
+    void sendCapsSync() {
+        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone;
+        uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
+        for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
+        sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放 body[0]，这里只传位图 8 字节
+    }
 
     int64_t nowMs() const {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -814,6 +866,10 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     im->sock = s;
     im->running.store(true);
     impl_.reset(im);
+
+    // 能力协商（0x33，2026-11-11）：连接建立即把本机能力报给对端 —— 不发的话手机学到的
+    // 永远是 0，能力帧族全被门掉（通知同步/查找手机整条断）。对端回的位图存 peerCaps_。
+    im->sendCapsSync();
 
     const auto cbClip = onReverseClipboard;
     const auto cbReqInput = onRequestInput;
@@ -900,6 +956,15 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 } else if (h.streamId == apx::kStreamControl && payload[0] == 0x28 && bodyLen >= 2) {
                     // v184：特殊键/组合键（手机编辑快捷键排）：[0x28, mod, vk]
                     if (cbSpecialKey) cbSpecialKey(payload[1], payload[2]);
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 9 && payload[0] == 0x33) {
+                    // CAPS_SYNC 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节）。
+                    // 元数据落原子变量，不动注入路径；新会话由 connect() 清零重收。
+                    {
+                        uint64_t caps = 0;
+                        for (int i = 0; i < 8; ++i)
+                            caps |= static_cast<uint64_t>(payload[1 + i]) << (8 * i);
+                        im->peerCaps_.store(caps);
+                    }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
                     im->pingPending_.store(false);
@@ -1092,6 +1157,7 @@ Ctrl9511ClientStatus Ctrl9511Client::status() const {
         s.requestInput = impl_->aRequestInput_.load();
         s.inputText = impl_->aInputText_.load();
         s.inputDone = impl_->aInputDone_.load();
+        s.peerCaps = impl_->peerCaps_.load();   // 能力协商（0x33）：对端能力位图
     }
     return s;
 }

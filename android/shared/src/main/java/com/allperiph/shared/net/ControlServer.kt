@@ -53,6 +53,15 @@ class ControlServer(
     /** 对端连入/断开的服务级回调（记忆对端 IP、刷新通知等）；与 [ControlEndpoint.onPeerStateChanged] 区别在于它是上层侧效应 */
     @Volatile var onPeerChanged: ((Boolean, String) -> Unit)? = null
 
+    /**
+     * 对端能力位图（0x33 能力协商，2026-11-11）：连接建立后对端报上来的支持能力，
+     * 见 [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量。0 = 未收到（旧版对端没有该机制，
+     * 此时上层只能按"不支持新能力"处理，即能力帧族一律不发）。
+     * 新会话建立（[doActivate]）时清零重收；只有 ready 且 peerCaps 含对应位才允许发对应帧。
+     */
+    @Volatile var peerCaps: Long = 0L
+        private set
+
     /** 0x05 开副屏请求回调（TV 用；手机端不设即忽略） */
     @Volatile var onOpenScreenRequest: (() -> Unit)? = null
 
@@ -269,6 +278,10 @@ class ControlServer(
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
+        // 能力协商（0x33，2026-11-11）：新会话立即清空上一会话的对端能力，并把自己的能力
+        // 报给对端 —— 接收侧存下 [peerCaps]；不发的话对端永远学到 0，能力帧族全被门掉。
+        peerCaps = 0L
+        sendCapsSync()
         Log.i("控制面", "对端已连入：$peerText")
         mainHandler.post { endpoint.onPeerStateChanged(true, peerText); onPeerChanged?.invoke(true, peerText) }
         runCatching { sock.soTimeout = READ_TIMEOUT_MS }
@@ -360,7 +373,10 @@ class ControlServer(
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
                     if (body != null && body.isNotEmpty()) {
                         val cmd = body[0].toInt() and 0xFF
-                        if (suspended && cmd != 'p'.code && cmd != 0x10) {
+                        // v184：挂起期间只回 ping、只处理模块开关(0x10)，输入类命令一律丢弃。
+                        // 连接保持（见 activate），因此 PC 随时能把挂起拨回来。
+                        // 0x33 能力协商是元数据不是输入：挂起期照收（连接保活时对端可能刚升级）。
+                        if (suspended && cmd != 'p'.code && cmd != 0x10 && cmd != 0x33) {
                             // 控制面已挂起：忽略鼠标/键盘/触摸等输入
                         } else when (cmd) {
                             'p'.code -> {
@@ -386,6 +402,9 @@ class ControlServer(
                             // 直接落 TvInjector（同模块，无循环）—— 被控端不需要知道这个开关，
                             // 浮层画不画由注入器统一门控（三个 move 落点都走 paintOverlay）。
                             0x32 -> if (body.size >= 2) actions.add { TvInjector.setOverlayEnabled(body[1].toInt() and 0xFF != 0) }
+                            // 0x33 能力协商（2026-11-11）：对端连接后报能力位图（u64 小端 8 字节）。
+                            // 只是元数据落 volatile，直接内联处理不入注入队列。
+                            0x33 -> if (body.size >= 9) onCapsSync(body)
                         }
                     }
                 }
@@ -478,6 +497,33 @@ class ControlServer(
     }
 
     private fun onOpenScreen() { Log.i("控制面", "收到开副屏请求"); onOpenScreenRequest?.invoke() }
+
+    /**
+     * 收 0x33 能力协商（2026-11-11）：解析对端能力位图（u64 小端，8 字节，见
+     * [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量）存进 [peerCaps]。
+     * 调用点在 pump() 内（rxLock 持有），只做 volatile 写与日志，无锁需求。
+     */
+    private fun onCapsSync(body: ByteArray) {
+        var caps = 0L
+        for (i in 0 until 8) caps = caps or ((body[1 + i].toLong() and 0xFF) shl (8 * i))
+        peerCaps = caps
+        Log.i("控制面", "对端能力：0x${java.lang.Long.toHexString(caps)}")
+    }
+
+    /**
+     * 发 0x33 能力协商（2026-11-11）：把本端能力位图报给对端。连接建立后由 [doActivate]
+     * 立即调用一次。命令号按字面量写（0x33），与 ApxFrame.CMD_CAPS_SYNC 及
+     * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
+     */
+    private fun sendCapsSync() {
+        val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
+            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE
+        val body = ByteArray(9)
+        body[0] = 0x33.toByte()
+        for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()
+        if (!sendControl(body)) Log.w("控制面", "能力协商帧发送失败（连接未就绪）")
+    }
 
     private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
 

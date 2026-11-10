@@ -64,6 +64,25 @@ object ApxFrame {
     const val INPUT_FLAG_COMMIT = 0x04       // 完整文本（粘贴整段）
     const val INPUT_FLAG_CANCEL = 0x08       // 用户取消
 
+    // ———————————— 9511 控制面能力协商（2026-11-11，借鉴 NectarLink 能力表）————————————
+    /**
+     * 连接建立后**两端各发一帧** [CMD_CAPS_SYNC]（body = 自身能力位图 u64 小端 8 字节），
+     * 接收方存下对端位图；发送能力帧前先核对**对端**位图，缺位的一端不发送对应帧族，
+     * 旧版收到不认识的帧号安静忽略（协议前向兼容的唯一手段）。
+     * 与 PC 侧镜像（`pc/host/include/apxpc/wireless/ctrl9511.hpp`）的位号必须一致，
+     * 由 `scripts/check_protocol.py` 与 docs/PROTOCOL.md §3.3 三处对拍。
+     */
+    const val CMD_CAPS_SYNC = 0x33
+
+    /** 能力位 bit0：通知同步 —— 手机→PC 推送（0x40）与消除（0x42）通知 */
+    const val CAP_NOTIFY_SYNC = 1L shl 0
+
+    /** 能力位 bit1：通知回复 —— PC→手机 经 RemoteInput 代发回复（0x41，预留未实现） */
+    const val CAP_NOTIFY_REPLY = 1L shl 1
+
+    /** 能力位 bit2：查找手机 —— PC→手机 响铃（0x38，静音也响） */
+    const val CAP_FIND_PHONE = 1L shl 2
+
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {
             var c = i
