@@ -44,6 +44,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
@@ -149,6 +150,15 @@ std::string readSystemClipboard();
 static constexpr uint64_t kCaps9511NotifySync  = 1ull << 0;  // 手机→PC 推送/消除通知（0x40/0x42）
 static constexpr uint64_t kCaps9511NotifyReply = 1ull << 1;  // PC→手机 RemoteInput 代发回复（0x41，预留）
 static constexpr uint64_t kCaps9511FindPhone   = 1ull << 2;  // PC→手机 查找手机响铃（0x38）
+static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏览/取走手机文件（0x44–0x47）
+
+/// 手机文件条目（0x45 目录应答，2026-11-11，与 Android ApxFrame.PhoneFileEntry 对拍）。
+/// isDir=true 时 size 无意义（对端恒填 0）；name 为 UTF-8 文件/目录名。
+struct PhoneFileEntry {
+    std::string name;
+    bool isDir = false;
+    uint64_t size = 0;
+};
 
 // ---------------------------------------------------------- 9511 受控服务端 ----
 struct Ctrl9511ServerStatus {
@@ -208,6 +218,13 @@ public:
     /// 未连接时为 no-op（返回 false），调用方无需提示 —— 托盘菜单常驻，连着才有效。
     bool sendFindPhone(uint8_t action);
 
+    /// 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3）：向已连入的对端请求目录列表 /
+    /// 取走一个文件。与服务端 sendFindPhone 同款门控：对端报过 0x33 且缺
+    /// kCaps9511PhoneFiles 位时跳过（旧版对未知 cmd 静默忽略，提前挡一道省得空等）。
+    /// path 空 = 请求对端的根入口列表。文件本体经 9512 推回，失败走 0x47 回执。
+    bool sendPhoneFileListReq(const std::string& path);
+    bool sendPhoneFilePullReq(const std::string& path);
+
     /// 远程输入回调：受控端收到手机发来的远程输入请求/文本/完成信号
     void setOnRequestInput(std::function<void(const std::string&)> cb) { onRequestInput_ = std::move(cb); }
     void setOnRemoteInputText(std::function<void(const std::string&, uint8_t)> cb) { onRemoteInputText_ = std::move(cb); }
@@ -225,6 +242,17 @@ public:
         onNotifyDismiss_ = std::move(cb);
     }
 
+    /// 手机文件浏览回调（0x45/0x47，2026-11-11，能力位 bit3）：对端回目录列表 /
+    /// 取文件失败回执时触发（与远程输入回调同款搬运：start() 时归 Impl 所有）。
+    /// 回调跑在 reader 线程；err 取值与 Android ApxFrame.PHONEFILE_ERR_* 一致（0=成功）。
+    void setOnPhoneFileList(std::function<void(uint8_t err, const std::string& path,
+                                               const std::vector<PhoneFileEntry>& entries)> cb) {
+        onPhoneFileList_ = std::move(cb);
+    }
+    void setOnPhoneFileFail(std::function<void(uint8_t err, const std::string& path)> cb) {
+        onPhoneFileFail_ = std::move(cb);
+    }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -235,6 +263,9 @@ private:
     // 通知同步回调（成员由外层 setter 写、Impl 在 start() 时搬走 —— 与远程输入回调同款）
     std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
     std::function<void(const std::string&)> onNotifyDismiss_;
+    // 手机文件浏览回调（0x45/0x47，2026-11-11）：搬运口径同上
+    std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
+    std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----
@@ -302,6 +333,13 @@ public:
     /// （旧版手机对 0x38 静默忽略，这里提前挡一道省得空等）。
     bool sendFindPhone(uint8_t action);
 
+    /// 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3）：向受控端请求目录列表 /
+    /// 取走一个文件。门控同 sendFindPhone（对端报过 0x33 且缺 kCaps9511PhoneFiles 时跳过）。
+    /// path 空 = 请求对端根入口列表；文件本体经 9512 推回，失败走 0x47 回执。
+    /// 返回 false = 未连接或对端不支持，调用方据此提示。
+    bool sendPhoneFileListReq(const std::string& path);
+    bool sendPhoneFilePullReq(const std::string& path);
+
     /// 线程安全状态快照（计数 / RTT / 连接）
     Ctrl9511ClientStatus status() const;
 
@@ -325,6 +363,14 @@ public:
     std::function<void(const std::string& key, const std::string& title,
                        const std::string& text, const std::string& app)> onNotifyPush;
     std::function<void(const std::string& key)> onNotifyDismiss;
+
+    /// 手机文件浏览回调（0x45/0x47，2026-11-11，能力位 bit3）：受控端回目录列表 /
+    /// 取文件失败回执时触发。回调跑在 reader 线程；⚠️ 与既有回调一样在 connect()
+    /// 时被捕获，必须在**连接前**赋值（WirelessSession 的转发 lambda 同款）。
+    /// err 取值与 Android ApxFrame.PHONEFILE_ERR_* 一致（0=成功）。
+    std::function<void(uint8_t err, const std::string& path,
+                       const std::vector<PhoneFileEntry>& entries)> onPhoneFileList;
+    std::function<void(uint8_t err, const std::string& path)> onPhoneFileFail;
 
 private:
     struct Impl;

@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!--
+      手机文件浏览（2026-11-11「文件管理」方向三，0x44–0x47）：电脑浏览/取走手机公共目录的
+      文件需要「所有文件访问」。只在收到 0x44/0x46 时读取公共目录；不授予则 PC 端如实提示
+      （PhoneFiles 回 ERR_NO_PERM），应用私有目录（接收文件的 APX 目录）不受影响。
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <!-- v223.29：悬浮球自愈需要「开机广播」——手机重启后按用户意愿位把球放回屏幕 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

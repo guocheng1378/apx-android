@@ -52,6 +52,13 @@ class TvControlServer(
      */
     @Volatile var onFindPhone: ((Int) -> Unit)? = null
 
+    /**
+     * 0x44/0x46 手机文件回调（2026-11-11，能力位 bit3）：控制端浏览本机目录并取走文件。
+     * 参数口径与 :shared ControlServer.onPhoneFileCmd 一致（cmd/body/reply/peerHost）。
+     * 实现落 app 模块 `com.allperiph.files.PhoneFiles`（由 ControlledService 注入）。
+     */
+    @Volatile var onPhoneFileCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
+
     @Volatile private var suspended = false
 
     /** PC 请求挂起被控：断开当前连接并拒绝新连接（监听保留，可随时恢复） */
@@ -315,6 +322,11 @@ class TvControlServer(
                             // 与 :shared ControlServer 同一条；实现落 FindPhoneRinger
                             // （经 onFindPhone 回调注入，未注入只留日志）。
                             0x38 -> if (body.size >= 2) actions.add { onFindPhoneFrame(body) }
+                            // 0x44/0x46 手机文件（2026-11-11，能力位 bit3）：控制端浏览本机并取文件。
+                            // reply = 本链路 sendControl（0x45/0x47 原路返回）；对端 IP 从当前
+                            // client socket 现取（0x46 经 9512 推送文件时的目标）。
+                            0x44 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x44, body, ::sendControl, client?.inetAddress?.hostAddress) }
+                            0x46 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x46, body, ::sendControl, client?.inetAddress?.hostAddress) }
                         }
                     }
                 }

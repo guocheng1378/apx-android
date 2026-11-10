@@ -182,6 +182,26 @@ WirelessSession::WirelessSession() {
         if (cb) cb(key);
     };
 
+    // 手机文件浏览转发（0x44–0x47，2026-11-11）：受控端回目录列表 / 取文件失败回执
+    // → 外层回调（web_panel 事件）。锁保护口径与通知同步同款。
+    client_.onPhoneFileList = [this](uint8_t err, const std::string& path,
+                                     const std::vector<PhoneFileEntry>& entries) {
+        std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onPhoneFileList_;
+        }
+        if (cb) cb(err, path, entries);
+    };
+    client_.onPhoneFileFail = [this](uint8_t err, const std::string& path) {
+        std::function<void(uint8_t, const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onPhoneFileFail_;
+        }
+        if (cb) cb(err, path);
+    };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -391,6 +411,18 @@ bool WirelessSession::sendFindPhone(uint8_t action) {
     return client_.sendFindPhone(action);
 }
 
+// 手机文件浏览发送（0x44/0x46，2026-11-11，能力位 bit3）：转发给 9511 客户端
+//（未连接 / 对端不支持都返回 false，由调用方提示）。
+bool WirelessSession::sendPhoneFileListReq(const std::string& path) {
+    if (!client_.ready()) return false;
+    return client_.sendPhoneFileListReq(path);
+}
+
+bool WirelessSession::sendPhoneFilePullReq(const std::string& path) {
+    if (!client_.ready()) return false;
+    return client_.sendPhoneFilePullReq(path);
+}
+
 bool WirelessSession::connected() const { return client_.ready(); }
 
 bool WirelessSession::requestInput(const std::string& hint) {
@@ -414,6 +446,19 @@ void WirelessSession::setOnNotifyPush(
 void WirelessSession::setOnNotifyDismiss(std::function<void(const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onNotifyDismiss_ = std::move(cb);
+}
+
+// 手机文件浏览回调（0x45/0x47，2026-11-11）：外层 setter 只改本类回调存储 ——
+// 转发 lambda 早已挂在 client_ 上（见构造函数），这里晚赋值也能被下一次应答读到。
+void WirelessSession::setOnPhoneFileList(
+    std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onPhoneFileList_ = std::move(cb);
+}
+
+void WirelessSession::setOnPhoneFileFail(std::function<void(uint8_t, const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onPhoneFileFail_ = std::move(cb);
 }
 
 bool WirelessSession::sendInputText(const std::string& text, uint8_t flags) {

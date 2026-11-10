@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
+import com.allperiph.files.PhoneFiles
 import com.allperiph.shared.net.FileReceiver
 import com.allperiph.shared.net.FileSender
 import com.allperiph.ui.miuix.ApMiuixTheme
@@ -123,8 +124,15 @@ class FilePanelActivity : ComponentActivity() {
     /** 平板双栏（≥600dp）：右栏当前选中的文件；窄屏不用（tap 行即转发） */
     private var selected by mutableStateOf<File?>(null)
 
+    /**
+     * 「所有文件访问」授权状态（方向三：电脑浏览手机文件的前提）。
+     * onCreate 首查 + onResume 复查——用户从系统设置授完权回来立刻消失，不用重启面板。
+     */
+    private var storageOk by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        storageOk = PhoneFiles.hasStorageAccess(this)
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
         applyEdgeToEdge()
         setContentView(
@@ -146,6 +154,7 @@ class FilePanelActivity : ComponentActivity() {
                                     .padding(top = 8.dp, bottom = 4.dp)
                                     .clickable { switchTarget() },
                             )
+                            permGrantButton()
                             if (adaptive.twoPane) {
                                 // 双栏（§6.2 文件传输页）：左=列表点选，右=详情+记录。
                                 // 顶栏（标题/目标）留在双栏外全宽 —— 目标切换是全页面的事。
@@ -199,6 +208,7 @@ class FilePanelActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        storageOk = PhoneFiles.hasStorageAccess(this)
         refreshTargets()
         refreshList()
     }
@@ -409,6 +419,37 @@ class FilePanelActivity : ComponentActivity() {
                 color = colorResource(R.color.overlay_on_accent),
             )
         }
+    }
+
+    /**
+     * 「允许电脑浏览手机文件」入口（方向三）：没授「所有文件访问」时显示一行 muted
+     * 文字按钮，tap 跳系统授权页（onResume 复查，授完自动消失）；已授权不渲染。
+     * 系统页可能被某些 ROM 裁剪，startActivity 兜 try-catch，失败提示走通用状态行。
+     */
+    @androidx.compose.runtime.Composable
+    private fun permGrantButton() {
+        if (storageOk) return
+        Text(
+            text = getString(R.string.ui_filepanel_perm_grant),
+            fontSize = 13.sp,
+            color = colorResource(R.color.overlay_muted),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp, bottom = 2.dp)
+                .clickable { requestStorageAccess() },
+        )
+    }
+
+    /** 跳「所有文件访问」系统设置页；入口拿不到（ROM 差异）就只提示用户去系统设置 */
+    private fun requestStorageAccess() {
+        val intent = PhoneFiles.storageSettingsIntent(this)
+        runCatching {
+            if (intent != null) {
+                startActivity(intent)
+                return
+            }
+        }
+        status(getString(R.string.ui_filepanel_perm_grant_manual), warn = true)
     }
 
     @androidx.compose.runtime.Composable

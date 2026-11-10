@@ -206,6 +206,16 @@ class TvControllerClient(
             0x38 -> {
                 if (body.size >= 2) com.allperiph.findphone.FindPhoneRinger.handle(body[1].toInt() and 0xFF)
             }
+            // 0x44 浏览本机目录（2026-11-11，能力位 bit3）：手机控 PC / TV 的链路上，对端
+            // 也可以浏览本机文件（三端对等）。落 app 模块 PhoneFiles（与 0x38 同口径直调，
+            // 无 UI 回调要接）；reply 走本链路 sendControl，对端 IP = 本客户端连的服务端 host。
+            0x44 -> {
+                if (body.size >= 3) com.allperiph.files.PhoneFiles.handle(0x44, body, ::sendControl, host)
+            }
+            // 0x46 取走文件：同上，PhoneFiles 内部经 9512 把文件推给对端（host）。
+            0x46 -> {
+                if (body.size >= 3) com.allperiph.files.PhoneFiles.handle(0x46, body, ::sendControl, host)
+            }
         }
     }
 

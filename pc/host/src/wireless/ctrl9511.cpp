@@ -100,6 +100,16 @@ bool buildCtrlFrame(uint8_t* buf, size_t cap, size_t& outLen,
     return true;
 }
 
+/// 手机文件路径的 UTF-8 截断（0x44/0x46 发送侧）：协议上限 1024 字节
+///（与 Android ApxFrame.PHONEFILE_PATH_MAX / utf8Clamp 对拍），不在多字节字符中间断开。
+std::string clampPhoneFilePath(const std::string& path) {
+    constexpr size_t kPathMax = 1024;
+    if (path.size() <= kPathMax) return path;
+    size_t end = kPathMax;
+    while (end > 0 && (static_cast<uint8_t>(path[end]) & 0xC0) == 0x80) --end;  // 回退 UTF-8 续字节
+    return path.substr(0, end);
+}
+
 bool sendAll(Sock s, const uint8_t* p, size_t n) {
     size_t off = 0;
     while (off < n) {
@@ -195,7 +205,8 @@ struct Ctrl9511Server::Impl {
      * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
      */
     void sendCapsSync() {
-        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone;
+        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
+                           | kCaps9511PhoneFiles;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         std::vector<uint8_t> buf(apx::kFrameHeaderSize + sizeof(body) + apx::kFrameCrcSize);
@@ -221,6 +232,10 @@ struct Ctrl9511Server::Impl {
     std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
     std::function<void(const std::string&)> onNotifyDismiss_;
     std::atomic<uint64_t> aNotifyPush_{0}, aNotifyDismiss_{0};
+    // 手机文件浏览回调（0x45/0x47，2026-11-11）：搬运口径同上（外层 setter 写、start() 搬运）
+    std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
+    std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
+    std::atomic<uint64_t> aPhoneFileList_{0}, aPhoneFileFail_{0};
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -562,6 +577,48 @@ struct Ctrl9511Server::Impl {
                 if (onNotifyDismiss_) onNotifyDismiss_(key);
                 aNotifyDismiss_.fetch_add(1);
             }
+        } else if (cmd == 0x45 && bodyLen >= 4) {
+            // PHONE_FILE_LIST_REPLY 目录应答（2026-11-11，能力位 bit3）：对端回报目录内容。
+            // 载荷（与 Android ApxFrame.packPhoneFileListReply 对拍）：
+            //   [0x45][err u8][pathLen u16 LE][path][count u16 LE]
+            //   + count × [nameLen u16 LE][name][dir u8][size u64 LE]
+            // 解析失败整帧丢弃不回调（坏载荷宁可少一次刷新，与 0x40 同口径）。
+            const uint8_t err = p[1];
+            const uint16_t pathLen = static_cast<uint16_t>(p[2]) | (static_cast<uint16_t>(p[3]) << 8);
+            uint32_t off = 4;
+            if (off + pathLen + 2 <= bodyLen) {
+                const std::string path(reinterpret_cast<const char*>(p + off), pathLen);
+                off += pathLen;
+                const uint16_t count = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                off += 2;
+                std::vector<PhoneFileEntry> entries;
+                entries.reserve(count < 200 ? count : 200);   // 协议上限 200（PHONEFILE_MAX_ENTRIES）
+                for (int i = 0; i < count && off + 2 <= bodyLen; ++i) {
+                    const uint16_t nLen = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                    off += 2;
+                    if (off + nLen + 9 > bodyLen) break;       // 条目残缺：到手的先交，整帧不硬解
+                    PhoneFileEntry e;
+                    e.name.assign(reinterpret_cast<const char*>(p + off), nLen);
+                    off += nLen;
+                    e.isDir = p[off] != 0;
+                    off += 1;
+                    for (int b = 0; b < 8; ++b)
+                        e.size |= static_cast<uint64_t>(p[off + b]) << (8 * b);
+                    off += 8;
+                    entries.push_back(std::move(e));
+                }
+                if (onPhoneFileList_) onPhoneFileList_(err, path, entries);
+                aPhoneFileList_.fetch_add(1);
+            }
+        } else if (cmd == 0x47 && bodyLen >= 4) {
+            // PHONE_FILE_FAIL 取文件失败回执（与 0x46 配对）：文件本体没推回来时的替代信号。
+            const uint8_t err = p[1];
+            const uint16_t pathLen = static_cast<uint16_t>(p[2]) | (static_cast<uint16_t>(p[3]) << 8);
+            if (4 + pathLen <= bodyLen) {
+                const std::string path(reinterpret_cast<const char*>(p + 4), pathLen);
+                if (onPhoneFileFail_) onPhoneFileFail_(err, path);
+                aPhoneFileFail_.fetch_add(1);
+            }
         }
     }
 
@@ -696,6 +753,9 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         // 再赋值也不会丢（回调成员已归 Impl 所有，外层只是个中转）。
         im->onNotifyPush_ = std::move(onNotifyPush_);
         im->onNotifyDismiss_ = std::move(onNotifyDismiss_);
+        // 手机文件浏览回调（0x45/0x47，2026-11-11）：同款搬运
+        im->onPhoneFileList_ = std::move(onPhoneFileList_);
+        im->onPhoneFileFail_ = std::move(onPhoneFileFail_);
 
         im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (im->listenFd == kBadSock) { im->st.error = "socket 创建失败"; cleanup(); return false; }
@@ -769,6 +829,35 @@ bool Ctrl9511Server::sendFindPhone(uint8_t action) {
     const uint64_t caps = impl_->peerCaps_.load();
     if (caps != 0 && (caps & kCaps9511FindPhone) == 0) return false;
     impl_->sendCmd(0x38, &action, 1);
+    return true;
+}
+
+// 手机文件浏览发送（0x44/0x46，2026-11-11，能力位 bit3）：门控与 sendFindPhone 同口径 ——
+// 对端报过 0x33 且缺 kCaps9511PhoneFiles 才跳过；没报（旧版）照发，对端静默忽略无害。
+// body=[pathLen u16 LE][path]，sendCmd 会把 cmd 放帧头第 1 字节，这里只给 cmd 之后的内容。
+bool Ctrl9511Server::sendPhoneFileListReq(const std::string& path) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511PhoneFiles) == 0) return false;
+    const auto p = clampPhoneFilePath(path);
+    uint8_t hdr[2] = { static_cast<uint8_t>(p.size() & 0xFF),
+                       static_cast<uint8_t>((p.size() >> 8) & 0xFF) };
+    std::vector<uint8_t> body(hdr, hdr + 2);
+    body.insert(body.end(), p.begin(), p.end());
+    impl_->sendCmd(0x44, body.data(), body.size());
+    return true;
+}
+
+bool Ctrl9511Server::sendPhoneFilePullReq(const std::string& path) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511PhoneFiles) == 0) return false;
+    const auto p = clampPhoneFilePath(path);
+    uint8_t hdr[2] = { static_cast<uint8_t>(p.size() & 0xFF),
+                       static_cast<uint8_t>((p.size() >> 8) & 0xFF) };
+    std::vector<uint8_t> body(hdr, hdr + 2);
+    body.insert(body.end(), p.begin(), p.end());
+    impl_->sendCmd(0x46, body.data(), body.size());
     return true;
 }
 
@@ -850,7 +939,8 @@ struct Ctrl9511Client::Impl {
      * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
      */
     void sendCapsSync() {
-        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone;
+        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
+                           | kCaps9511PhoneFiles;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放 body[0]，这里只传位图 8 字节
@@ -940,8 +1030,10 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbSpecialKey = onSpecialKey;
     const auto cbNotifyPush = onNotifyPush;
     const auto cbNotifyDismiss = onNotifyDismiss;
+    const auto cbPhoneFileList = onPhoneFileList;
+    const auto cbPhoneFileFail = onPhoneFileFail;
     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
-                                    cbNotifyPush, cbNotifyDismiss] {
+                                    cbNotifyPush, cbNotifyDismiss, cbPhoneFileList, cbPhoneFileFail] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -1070,6 +1162,48 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                             const std::string key(reinterpret_cast<const char*>(payload + 3), keyLen);
                             if (cbNotifyDismiss) cbNotifyDismiss(key);
                             im->aNotifyDismiss_.fetch_add(1);
+                        }
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 4 && payload[0] == 0x45) {
+                    // PHONE_FILE_LIST_REPLY 目录应答（2026-11-11，能力位 bit3）：受控手机回报
+                    // 目录内容。载荷与服务端 dispatch 同款（与 ApxFrame.packPhoneFileListReply
+                    // 对拍）；解析失败整帧丢弃不回调，与 0x40 同口径。
+                    {
+                        const uint8_t err = payload[1];
+                        const uint16_t pathLen = static_cast<uint16_t>(payload[2]) | (static_cast<uint16_t>(payload[3]) << 8);
+                        uint32_t off = 4;
+                        if (off + pathLen + 2 <= bodyLen) {
+                            const std::string path(reinterpret_cast<const char*>(payload + off), pathLen);
+                            off += pathLen;
+                            const uint16_t count = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                            off += 2;
+                            std::vector<PhoneFileEntry> entries;
+                            entries.reserve(count < 200 ? count : 200);   // 协议上限 200
+                            for (int i = 0; i < count && off + 2 <= bodyLen; ++i) {
+                                const uint16_t nLen = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                                off += 2;
+                                if (off + nLen + 9 > bodyLen) break;      // 条目残缺：到手的先交
+                                PhoneFileEntry e;
+                                e.name.assign(reinterpret_cast<const char*>(payload + off), nLen);
+                                off += nLen;
+                                e.isDir = payload[off] != 0;
+                                off += 1;
+                                for (int b = 0; b < 8; ++b)
+                                    e.size |= static_cast<uint64_t>(payload[off + b]) << (8 * b);
+                                off += 8;
+                                entries.push_back(std::move(e));
+                            }
+                            if (cbPhoneFileList) cbPhoneFileList(err, path, entries);
+                        }
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 4 && payload[0] == 0x47) {
+                    // PHONE_FILE_FAIL 取文件失败回执（与 0x46 配对）：文件本体没推回来时的替代信号。
+                    {
+                        const uint8_t err = payload[1];
+                        const uint16_t pathLen = static_cast<uint16_t>(payload[2]) | (static_cast<uint16_t>(payload[3]) << 8);
+                        if (4 + pathLen <= bodyLen) {
+                            const std::string path(reinterpret_cast<const char*>(payload + 4), pathLen);
+                            if (cbPhoneFileFail) cbPhoneFileFail(err, path);
                         }
                     }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
@@ -1259,6 +1393,36 @@ bool Ctrl9511Client::sendFindPhone(uint8_t action) {
     const uint64_t caps = impl_->peerCaps_.load();
     if (caps != 0 && (caps & kCaps9511FindPhone) == 0) return false;
     impl_->sendCmd(0x38, &action, 1);
+    return true;
+}
+
+// 手机文件浏览发送（0x44/0x46，2026-11-11，能力位 bit3）：门控与 sendFindPhone 同口径 ——
+// 对端报过 0x33 且缺 kCaps9511PhoneFiles 才明确跳过；没报（旧版）照发，静默忽略无害。
+// body=[pathLen u16 LE][path]（与 ApxFrame.packPhoneFileListReq/PullReq 对拍）；
+// sendCmd 会把 cmd 放帧头第 1 字节，这里只传 cmd 之后的内容。
+bool Ctrl9511Client::sendPhoneFileListReq(const std::string& path) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511PhoneFiles) == 0) return false;
+    const auto p = clampPhoneFilePath(path);
+    std::vector<uint8_t> body(2 + p.size());
+    body[0] = static_cast<uint8_t>(p.size() & 0xFF);
+    body[1] = static_cast<uint8_t>((p.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + 2, p.data(), p.size());
+    impl_->sendCmd(0x44, body.data(), body.size());
+    return true;
+}
+
+bool Ctrl9511Client::sendPhoneFilePullReq(const std::string& path) {
+    if (!impl_) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511PhoneFiles) == 0) return false;
+    const auto p = clampPhoneFilePath(path);
+    std::vector<uint8_t> body(2 + p.size());
+    body[0] = static_cast<uint8_t>(p.size() & 0xFF);
+    body[1] = static_cast<uint8_t>((p.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + 2, p.data(), p.size());
+    impl_->sendCmd(0x46, body.data(), body.size());
     return true;
 }
 

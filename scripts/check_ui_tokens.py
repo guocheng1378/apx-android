@@ -93,7 +93,11 @@ R_USE = re.compile(
 # 668 -> 671（查找手机 0x38，未发版）：FindPhoneRinger 的日志 TAG 与两条 stopInternal
 #   原因标记（"30s 到时"/"对端请求"）——诊断数据而非用户可见文案，进 strings.xml 没意义
 #   （与 HidMouse 错误文案同口径），本批按实测上调。
-TEXT_BASELINE = 671
+# 671 -> 674（文件管理三方向，未发版）：文件面板 v2 一处状态行内嵌提示（FilePanelActivity
+#   "沿用传统回调（本机无 AndroidX）"，代码行尾注释被行内引号误计 1 处）+ PhoneFiles 根入口
+#   数据名（"内部存储"，经 0x45 协议返回的对端展示名，PC 端文案已走 web 文案层）。
+#   后续新文案仍应优先走 strings.xml。
+TEXT_BASELINE = 674
 
 
 def strip_comments(text):

@@ -106,6 +106,110 @@ object ApxFrame {
      */
     const val CMD_FIND_PHONE = 0x38
 
+    // ———————————— 9511 手机文件浏览（2026-11-11，能力位 bit3）————————————
+    /**
+     * PC / 控制端浏览手机文件并取走（「文件管理」方向三）。收发两端：
+     *  · 发送方 PC（web 面板 → ctrl9511.cpp sendCmd）；
+     *  · 接收方手机三条控制链路（ControlServer / TvControlServer / TvControllerClient），
+     *    实现落 app 模块 `PhoneFiles`（与 0x38 的 FindPhoneRinger 同一套注入口径）；
+     *  · 应答 0x45/0x47 由手机发出、PC 控制端 reader / 受控服务端 dispatch 两处收。
+     * 能力门控：PC 发送前核对对端位图含 [CAP_PHONE_FILES]（旧版手机安静忽略兜底）。
+     */
+    const val CMD_PHONE_FILE_LIST = 0x44
+
+    /** 手机 → 控制端：目录应答（见 [packPhoneFileListReply]）。 */
+    const val CMD_PHONE_FILE_LIST_REPLY = 0x45
+
+    /** PC / 控制端 → 手机：取走一个文件（手机经 9512 推回；文件到达即成功，无独立成功回执）。 */
+    const val CMD_PHONE_FILE_PULL = 0x46
+
+    /** 手机 → 控制端：取文件失败回执（见 [packPhoneFileFail]）。 */
+    const val CMD_PHONE_FILE_FAIL = 0x47
+
+    /** 应答/回执错误码（与 PC 端 ctrl9511.cpp 解析、web 面板文案三处对齐） */
+    const val PHONEFILE_ERR_NONE = 0          // 成功
+    const val PHONEFILE_ERR_NO_PERM = 1       // 手机没给「所有文件访问」权限
+    const val PHONEFILE_ERR_NOT_FOUND = 2     // 目录/文件不存在
+    const val PHONEFILE_ERR_READ = 3          // 目录读取失败（IO）
+    const val PHONEFILE_ERR_SEND_FAILED = 4   // 9512 推送失败（网络断/文件中途消失）
+
+    /** 目录应答的单目录条目上限：防超大目录把 4MB 帧塞爆（名字 512B 上限，200 条 ≈ 110KB） */
+    const val PHONEFILE_MAX_ENTRIES = 200
+
+    /** 单条名字上限（UTF-8 字节），与 u16 长度段相称 */
+    const val PHONEFILE_NAME_MAX = 512
+
+    /** 目录应答的路径上限（与请求同段） */
+    const val PHONEFILE_PATH_MAX = 1024
+
+    /** 一条目录条目：isDir=true 时 size 无意义（恒 0） */
+    data class PhoneFileEntry(val name: String, val isDir: Boolean, val size: Long)
+
+    /** 组 0x44 浏览请求：`[0x44][pathLen u16 LE][path]`；path 空 = 手机回报根入口列表。 */
+    fun packPhoneFileListReq(path: String): ByteArray {
+        val p = utf8Clamp(path, PHONEFILE_PATH_MAX)
+        val body = ByteArray(1 + 2 + p.size)
+        body[0] = CMD_PHONE_FILE_LIST.toByte()
+        body[1] = (p.size and 0xFF).toByte(); body[2] = ((p.size ushr 8) and 0xFF).toByte()
+        p.copyInto(body, 3)
+        return body
+    }
+
+    /** 组 0x46 取文件请求：`[0x46][pathLen u16 LE][path]`（绝对路径，只收普通文件）。 */
+    fun packPhoneFilePullReq(path: String): ByteArray {
+        val p = utf8Clamp(path, PHONEFILE_PATH_MAX)
+        val body = ByteArray(1 + 2 + p.size)
+        body[0] = CMD_PHONE_FILE_PULL.toByte()
+        body[1] = (p.size and 0xFF).toByte(); body[2] = ((p.size ushr 8) and 0xFF).toByte()
+        p.copyInto(body, 3)
+        return body
+    }
+
+    /**
+     * 组 0x45 目录应答：`[0x45][err u8][pathLen u16][path][count u16]`
+     * + count × `[nameLen u16][name][dir u8][size u64 LE]`（均小端；名字条目按调用方顺序）。
+     * err != 0 时 count 恒 0、无条目段（调用方用 path 回显是哪个目录失败）。
+     */
+    fun packPhoneFileListReply(err: Int, path: String, entries: List<PhoneFileEntry>): ByteArray {
+        val p = utf8Clamp(path, PHONEFILE_PATH_MAX)
+        val shown = if (err == PHONEFILE_ERR_NONE) entries.take(PHONEFILE_MAX_ENTRIES) else emptyList()
+        val body = ByteArray(1 + 1 + 2 + p.size + 2)
+        var off = 0
+        body[off++] = CMD_PHONE_FILE_LIST_REPLY.toByte()
+        body[off++] = err.toByte()
+        body[off++] = (p.size and 0xFF).toByte(); body[off++] = ((p.size ushr 8) and 0xFF).toByte()
+        p.copyInto(body, off); off += p.size
+        body[off++] = (shown.size and 0xFF).toByte(); body[off++] = ((shown.size ushr 8) and 0xFF).toByte()
+        // 条目段逐条追加（变长，不能预先定总长）
+        val parts = ArrayList<ByteArray>(shown.size + 1)
+        parts.add(body)
+        for (e in shown) {
+            val n = utf8Clamp(e.name, PHONEFILE_NAME_MAX)
+            val rec = ByteArray(2 + n.size + 1 + 8)
+            rec[0] = (n.size and 0xFF).toByte(); rec[1] = ((n.size ushr 8) and 0xFF).toByte()
+            n.copyInto(rec, 2)
+            rec[2 + n.size] = if (e.isDir) 1 else 0
+            var sz = e.size
+            for (i in 0 until 8) {
+                rec[3 + n.size + i] = (sz and 0xFF).toByte()
+                sz = sz ushr 8
+            }
+            parts.add(rec)
+        }
+        return parts.reduce { a, b -> a + b }
+    }
+
+    /** 组 0x47 取文件失败回执：`[0x47][err u8][pathLen u16 LE][path]`。成功不发（文件本体即回执）。 */
+    fun packPhoneFileFail(err: Int, path: String): ByteArray {
+        val p = utf8Clamp(path, PHONEFILE_PATH_MAX)
+        val body = ByteArray(1 + 1 + 2 + p.size)
+        body[0] = CMD_PHONE_FILE_FAIL.toByte()
+        body[1] = err.toByte()
+        body[2] = (p.size and 0xFF).toByte(); body[3] = ((p.size ushr 8) and 0xFF).toByte()
+        p.copyInto(body, 4)
+        return body
+    }
+
     /** 通知同步各字段的字节上限（u16 长度段的单字段上限是 65535，这里按气泡可读性收紧） */
     private const val NOTIFY_KEY_MAX = 512
     private const val NOTIFY_TITLE_MAX = 512

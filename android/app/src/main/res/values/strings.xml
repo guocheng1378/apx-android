@@ -310,6 +310,8 @@
     <string name="ui_filepanel_retry">重试</string>
     <string name="ui_filepanel_open_missing">文件已不在，可能已被删除</string>
     <string name="ui_filepanel_open_failed">没有能打开它的应用</string>
+    <string name="ui_filepanel_perm_grant">允许电脑浏览手机文件（点此去授权）</string>
+    <string name="ui_filepanel_perm_grant_manual">未能打开授权页，请到系统设置授予「所有文件访问」</string>
 
     <string name="ui_remoteinput_title">🔵 输入中</string>
     <string name="ui_remoteinput_from">来自「%1$s」</string>

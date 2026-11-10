@@ -74,6 +74,16 @@ class ControlServer(
      */
     @Volatile var onFindPhone: ((Int) -> Unit)? = null
 
+    /**
+     * 0x44/0x46 手机文件回调（2026-11-11，能力位 bit3）：电脑浏览本机目录（0x44）并取走文件
+     * （0x46）。回调参数：(cmd, body, reply, peerHost) —— body 为整段帧载荷（含 cmd 字节）；
+     * reply = 本链路的 sendControl（应答 0x45/0x47 原路返回）；peerHost = 当前对端 IP
+     * （0x46 经 9512 推送文件时的目标）。实现落 app 模块
+     * `com.allperiph.files.PhoneFiles`（由 ControlledService 注入）；TV 端不设即忽略
+     * （浏览手机文件只在 PC 控手机 / 手机控手机两条链路上有界面入口）。
+     */
+    @Volatile var onPhoneFileCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
+
     @Volatile var onRemoteInputRequest: ((String, String) -> Unit)? = null
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
@@ -419,6 +429,12 @@ class ControlServer(
                             // 实现落 app 模块 FindPhoneRinger（经 onFindPhone 回调注入；
                             // TV 不设回调即忽略）。
                             0x38 -> if (body.size >= 2) actions.add { onFindPhoneFrame(body) }
+                            // 0x44/0x46 手机文件（2026-11-11，能力位 bit3）：电脑浏览本机目录并取走文件。
+                            // 实现落 app 模块 PhoneFiles（经 onPhoneFileCmd 回调注入，与 0x38 的
+                            // FindPhoneRinger 同一套注入口径）；TV 端不注入 → 静默忽略（类底有日志）。
+                            // reply 闭包 = 当前链路的 sendControl（应答 0x45/0x47 走原路返回）。
+                            0x44 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x44, body, ::sendControl, currentPeerHost()) }
+                            0x46 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x46, body, ::sendControl, currentPeerHost()) }
                         }
                     }
                 }

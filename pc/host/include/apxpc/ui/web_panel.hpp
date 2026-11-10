@@ -33,6 +33,9 @@
 #include <vector>
 
 #include "apxpc/config/app_config.hpp"
+// PhoneFileEntry（0x45 目录应答条目）完整类型 —— notifyPhoneFileList 的入参要用；
+// ctrl9511.hpp 在 Windows 上先带 winsock2.h，必须早于下面的 windows.h（LEAN_AND_MEAN 已设）。
+#include "apxpc/wireless/ctrl9511.hpp"
 
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
@@ -103,6 +106,14 @@ int runWebPanel(const HostBundle& bundle, const std::string& webDir = {});
 // 托盘气泡提示 + 推 on-file-received 事件给前端文件面板；面板未就绪时仅记日志。
 // PostWebMessageAsJson 线程安全，接收线程可直接调（同 web_panel.cpp postEvent 注释的约定）。
 void notifyFileReceived(const std::string& path);
+
+// ———————————————— 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3） ————————————————
+// desktop_main 在 9511 回调线程调用：把目录应答 / 取文件失败回执推给前端
+//「浏览手机文件」区（on-phone-files / on-phone-files-fail 事件）。线程安全同上。
+// 仅 Windows（mac 走 panel_http，本轮未接，如实降级）。
+void notifyPhoneFileList(uint8_t err, const std::string& path,
+                         const std::vector<PhoneFileEntry>& entries);
+void notifyPhoneFileFail(uint8_t err, const std::string& path);
 
 // ———————————————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————————————
 // 查到 GitHub releases 有新版 → 推 on-update-available 事件，前端顶部横幅展示；

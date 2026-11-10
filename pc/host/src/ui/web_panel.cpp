@@ -1081,6 +1081,28 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         return postResponse(p, id, okResp());
     }
 
+    // —— 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3）——
+    // 先走「PC 控手机」的会话客户端；未连或发送失败再试「手机控 PC」的服务端
+    //（同一条 9511 链路的两端，谁连着用谁）。act-response 立即回 ok —— 目录内容
+    // 经 0x45 走 on-phone-files 事件、文件本体经 9512 推回，都是异步的。
+    if (name == "phonefile.list" || name == "phonefile.pull") {
+        const std::string path = payload.find("path") ? payload.find("path")->asString() : "";
+        if (name == "phonefile.pull" && path.empty())
+            return postResponse(p, id, failResp("未指定文件"));
+        bool ok = false;
+        if (b.session && b.session->connected()) {
+            ok = (name == "phonefile.list") ? b.session->sendPhoneFileListReq(path)
+                                            : b.session->sendPhoneFilePullReq(path);
+        }
+        if (!ok && b.ctrlSrv) {
+            ok = (name == "phonefile.list") ? b.ctrlSrv->sendPhoneFileListReq(path)
+                                            : b.ctrlSrv->sendPhoneFilePullReq(path);
+        }
+        if (!ok)
+            return postResponse(p, id, failResp("未连接手机（或手机未授权文件浏览）"));
+        return postResponse(p, id, okResp());
+    }
+
     // —— 日志：清单 + 按时间范围导出（issue #52 第 3 条）——
     // 与 panel_http.cpp 同口径（那边跑 macOS/Linux）。Windows 这一份**还多一个
     // log.pickDir**：这里的模态对话框跑在 UI 线程（WebView2 消息循环 + STA COM），
@@ -1513,6 +1535,38 @@ void notifyFileReceived(const std::string& path) {
     Json d = Json::makeObject();
     d["path"] = path;
     postEvent(p, std::string("on-file-received"), d);
+}
+
+// ———————— 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3） ————————
+// desktop_main 在 9511 回调线程调用：把目录应答 / 取文件失败回执推给前端
+//「浏览手机文件」区。postEvent 线程安全（同 notifyFileReceived 的约定），可直接调。
+// 托盘气泡不做（浏览是面板内的主动操作，气泡打断反而多余），只走前端事件。
+void notifyPhoneFileList(uint8_t err, const std::string& path,
+                         const std::vector<PhoneFileEntry>& entries) {
+    Panel* p = g_panel;
+    if (!p) return;   // 面板未就绪：目录应答是请求-应答式交互，静默丢（前端按钮停在原态可重试）
+    Json d = Json::makeObject();
+    d["err"] = static_cast<int>(err);
+    d["path"] = path;
+    Json arr = Json::makeArray();
+    for (const auto& e : entries) {
+        Json o = Json::makeObject();
+        o["name"] = e.name;
+        o["isDir"] = e.isDir;
+        o["size"] = static_cast<long long>(e.size);
+        arr.push(std::move(o));
+    }
+    d["entries"] = std::move(arr);
+    postEvent(p, std::string("on-phone-files"), d);
+}
+
+void notifyPhoneFileFail(uint8_t err, const std::string& path) {
+    Panel* p = g_panel;
+    if (!p) return;
+    Json d = Json::makeObject();
+    d["err"] = static_cast<int>(err);
+    d["path"] = path;
+    postEvent(p, std::string("on-phone-files-fail"), d);
 }
 
 // ———————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————

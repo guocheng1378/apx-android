@@ -117,6 +117,11 @@ class ControlledService : Service() {
         // 实现落 FindPhoneRinger（STREAM_ALARM 最大音量 + 亮屏，30s 自动停）；
         // 回调已在主线程（ControlServer 侧 mainHandler.post），Ringer 内部再 post 一次也无害。
         server?.onFindPhone = { action -> com.allperiph.findphone.FindPhoneRinger.handle(action) }
+        // 0x44/0x46 手机文件（2026-11-11，能力位 bit3）：电脑浏览本机目录并取走文件。
+        // 实现落 PhoneFiles；回调本身在 actions 队列线程，PhoneFiles.handle 内部已甩专用线程。
+        server?.onPhoneFileCmd = { cmd, body, reply, peer ->
+            com.allperiph.files.PhoneFiles.handle(cmd, body, reply, peer)
+        }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {

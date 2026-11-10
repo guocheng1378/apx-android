@@ -101,6 +101,11 @@ public:
     /// action：1=响铃 0=停，当前只有响铃一键。未连接返回 false（托盘菜单常驻，连着才有效）。
     bool sendFindPhone(uint8_t action);
 
+    /// 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3）：向已连接的受控端请求目录列表 /
+    /// 取走一个文件。未连接或对端不支持返回 false，由调用方提示。path 空 = 根入口列表。
+    bool sendPhoneFileListReq(const std::string& path);
+    bool sendPhoneFilePullReq(const std::string& path);
+
     /// 当前是否真的连着受控端。剪贴板这类“必须先有连接”的操作用它做前置判断。
     bool connected() const;
 
@@ -137,6 +142,17 @@ public:
                                             const std::string& text, const std::string& app)> cb);
     /// 受控手机消除通知（key 与推送时一致；气泡无法撤回，当前仅转发记账）。
     void setOnNotifyDismiss(std::function<void(const std::string& key)> cb);
+
+    // ————— 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3） —————
+    // 受控端回目录列表（0x45）/ 取文件失败回执（0x47），经**控制端 reader** 到这里；
+    // 接线方（桌面壳）转 web_panel 事件推给前端。回调跑在 9511 reader 线程，
+    // 锁保护口径与通知同步同款 —— connect() 前挂转发 lambda，之后随时改回调都生效。
+
+    /// 目录应答：err 与 Android ApxFrame.PHONEFILE_ERR_* 一致（0=成功），path 回显请求目录。
+    void setOnPhoneFileList(std::function<void(uint8_t err, const std::string& path,
+                                               const std::vector<PhoneFileEntry>& entries)> cb);
+    /// 取文件失败回执（文件本体经 9512 成功推回时不发帧）。
+    void setOnPhoneFileFail(std::function<void(uint8_t err, const std::string& path)> cb);
 
 private:
     enum class Mode { Idle, Auto, Manual };
@@ -177,6 +193,9 @@ private:
     // 构造时挂在 client_ 上的转发 lambda 每次带锁取最新。
     std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
     std::function<void(const std::string&)> onNotifyDismiss_;
+    // 手机文件浏览回调（0x44–0x47，2026-11-11）：锁保护口径同上
+    std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
+    std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;
     mutable std::mutex cbMu_;
 };
 

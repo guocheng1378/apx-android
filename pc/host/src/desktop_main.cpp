@@ -844,6 +844,31 @@ int runDesktopMain() {
 #endif
     }
 
+    // —— 手机文件浏览接线（0x44–0x47，2026-11-11，能力位 bit3）——
+    // 两条链路的应答都转成 web_panel 事件（on-phone-files / on-phone-files-fail），
+    // 前端「浏览手机文件」区据此刷新。回调跑在 9511 reader 线程；notifyPhoneFile*
+    // 内部 PostWebMessageAsJson（线程安全），可直接调。
+    // 仅 Windows：mac 走 panel_http（事件推送另一套），本轮未接，避免声明无定义的链接错误。
+#if defined(_WIN32)
+    {
+        apxpc::wireless::WirelessSession* pfSession = session.get();
+        pfSession->setOnPhoneFileList([](uint8_t err, const std::string& path,
+                                         const std::vector<apxpc::wireless::PhoneFileEntry>& entries) {
+            apxpc::ui::notifyPhoneFileList(err, path, entries);
+        });
+        pfSession->setOnPhoneFileFail([](uint8_t err, const std::string& path) {
+            apxpc::ui::notifyPhoneFileFail(err, path);
+        });
+        ctrlSrv.setOnPhoneFileList([](uint8_t err, const std::string& path,
+                                      const std::vector<apxpc::wireless::PhoneFileEntry>& entries) {
+            apxpc::ui::notifyPhoneFileList(err, path, entries);
+        });
+        ctrlSrv.setOnPhoneFileFail([](uint8_t err, const std::string& path) {
+            apxpc::ui::notifyPhoneFileFail(err, path);
+        });
+    }
+#endif
+
     // —— 查找手机接线（0x38，2026-11-11，能力位 bit2）——
     // 托盘菜单点击 → 让手机响铃。两条链路择活发送：PC 控手机走 session（9511 客户端），
     // 手机控 PC 走 ctrlSrv（9511 服务端）——与通知同步的接线范围同口径。菜单常驻，
