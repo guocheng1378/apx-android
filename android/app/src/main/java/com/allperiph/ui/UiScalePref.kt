@@ -35,11 +35,26 @@ object UiScalePref {
         current.floatValue = sp.getFloat(KEY, 1f).coerceIn(MIN, MAX)
     }
 
-    /** 设置页滑条写入：内存态 + 持久化一次到位。 */
+    /** 设置页滑条写入：内存态 + 持久化一次到位（非拖动路径的调用方用）。 */
     fun set(ctx: android.content.Context, value: Float) {
-        val v = value.coerceIn(MIN, MAX)
-        current.floatValue = v
+        setLive(value)
+        persist(ctx)
+    }
+
+    /**
+     * 拖动中的逐帧更新：**只改内存态，不碰磁盘**（成宇 2026-11-10「界面调节，又开始卡着了」）。
+     * 此前这里每帧 `.edit().putFloat().apply()` —— apply 虽异步，但每次调用都往
+     * SharedPreferences 的待写队列塞一份全量快照，拖动全程（几十上百帧）在主线程
+     * 排队落盘，正是调节发卡的来源。内存态 [current] 是唯一渲染来源，先改它即是
+     * 逐帧实况预览；持久化交给 [persist] 在松手时一次落盘。
+     */
+    fun setLive(value: Float) {
+        current.floatValue = value.coerceIn(MIN, MAX)
+    }
+
+    /** 落盘当前缩放（幂等；滑条 onValueChangeFinished 调）。 */
+    fun persist(ctx: android.content.Context) {
         ctx.getSharedPreferences(FILE, android.content.Context.MODE_PRIVATE)
-            .edit().putFloat(KEY, v).apply()
+            .edit().putFloat(KEY, current.floatValue).apply()
     }
 }

@@ -1101,7 +1101,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 ) {
                 SliderPreference(
                     value = com.allperiph.ui.UiScalePref.current.floatValue,
-                    onValueChange = { com.allperiph.ui.UiScalePref.set(ctx, it) },
+                    // 拖动中只改内存（setLive），松手才落盘（persist）——每帧写
+                    // SharedPreferences 是「界面调节卡着」的来源，见 UiScalePref.setLive。
+                    onValueChange = { com.allperiph.ui.UiScalePref.setLive(it) },
+                    onValueChangeFinished = { com.allperiph.ui.UiScalePref.persist(ctx) },
                     title = ctx.getString(R.string.ui_set_label_ui_scale),
                     valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
                     valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
