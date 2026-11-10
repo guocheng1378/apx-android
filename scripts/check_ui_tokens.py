@@ -84,7 +84,9 @@ R_USE = re.compile(
 #   全部走 strings.xml（DeviceFormPref 只按档位取 getString），净减 4，按实测收紧。
 # 643 -> 657（v223.29.49，issue#168 追补批）：设置页新增「球面图标」标题行与 BallIcon
 #   的未知图标异常文案等 Kotlin 字面量，本批按实测上调；后续新文案仍应走 strings.xml。
-TEXT_BASELINE = 657
+# 657 -> 664（issue#168 第 5/11/12 条批次，未发版）：悬浮窗权限引导行、手柄自定义卡片
+#   与日志文案等新增 Kotlin 字面量，本批按实测上调；后续新文案仍应走 strings.xml。
+TEXT_BASELINE = 664
 
 
 def strip_comments(text):

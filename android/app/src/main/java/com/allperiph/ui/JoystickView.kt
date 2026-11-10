@@ -40,6 +40,15 @@ class JoystickView(context: Context) : View(context) {
     private var knobX = 0f
     private var knobY = 0f
 
+    /**
+     * 当前认领摇杆的那根手指（issue#168 第 5 条 多指）。
+     *
+     * 旧版直接取 `event.x / y` —— 那是「最后一根手指」的坐标，任何第二根手指
+     * 落下（哪怕按的是按钮），摇杆头就会跳过去。改为认领 ACTION_DOWN 的那根
+     * pointerId，之后只跟这一根；认领的手指抬离才回中。
+     */
+    private var trackedId = MotionEvent.INVALID_POINTER_ID
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         cx = w / 2f
@@ -57,15 +66,41 @@ class JoystickView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> updateKnob(event.x, event.y)
+            MotionEvent.ACTION_DOWN -> {
+                // 认领第一根落进摇杆的手指；已经有手指在操作时新手指不接管
+                if (trackedId == MotionEvent.INVALID_POINTER_ID) {
+                    trackedId = event.getPointerId(event.actionIndex)
+                    updateKnob(event.x, event.y)
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // 只跟认领的那一根：其余手指的移动（按按钮 / 划屏）不影响摇杆
+                val idx = event.findPointerIndex(trackedId)
+                if (trackedId != MotionEvent.INVALID_POINTER_ID && idx >= 0) {
+                    updateKnob(event.getX(idx), event.getY(idx))
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 认领的手指抬离：回中；其余手指继续按原状（不接管）
+                if (event.getPointerId(event.actionIndex) == trackedId) {
+                    recenter()
+                    trackedId = MotionEvent.INVALID_POINTER_ID
+                }
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                knobX = cx
-                knobY = cy
-                invalidate()
-                onAxis?.invoke(0, 0)
+                recenter()
+                trackedId = MotionEvent.INVALID_POINTER_ID
             }
         }
         return true
+    }
+
+    /** 摇杆回中：视觉与轴值都归零（多指批抽出公共路径，认领手指抬离 / 全部抬离共用） */
+    private fun recenter() {
+        knobX = cx
+        knobY = cy
+        invalidate()
+        onAxis?.invoke(0, 0)
     }
 
     private fun updateKnob(x: Float, y: Float) {

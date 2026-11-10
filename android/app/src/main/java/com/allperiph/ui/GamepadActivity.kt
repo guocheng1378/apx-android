@@ -7,6 +7,9 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -119,6 +123,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
     var adviceLine by remember { mutableStateOf("") }
     var statusOk by remember { mutableStateOf(false) }
 
+    // issue#168 第 5 条（自定义按钮）：长按任意实体键进入配置 —— padConfiguring 记
+    // 当前配置的槽位，保存后 bump padConfigVersion 让所有按钮重读配置。配置卡片直接
+    // 画在面板里，不开 Compose Dialog：悬浮球 overlay 宿主是 Service 挂的窗口，
+    // Dialog 要另开窗口会 BadToken。
+    var padConfiguring by remember { mutableStateOf<String?>(null) }
+    var padConfigVersion by remember { mutableIntStateOf(0) }
+
     DisposableEffect(Unit) {
         val ui = Handler(Looper.getMainLooper())
         val refresh = {
@@ -188,18 +199,30 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // 肩键 L1 / R1（顶部两角；L1 右移避开左上角的 ✕）
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 72.dp, y = 14.dp)) {
-            Pad(label = "L1", bit = GamepadController.BTN_L1, size = 78.dp)
+            Pad(
+                label = "L1", bit = GamepadController.BTN_L1, size = 78.dp, slot = "L1",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "L1" },
+            )
         }
         Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-24).dp, y = 14.dp)) {
-            Pad(label = "R1", bit = GamepadController.BTN_R1, size = 78.dp)
+            Pad(
+                label = "R1", bit = GamepadController.BTN_R1, size = 78.dp, slot = "R1",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "R1" },
+            )
         }
 
         // Select / Start（底部中央）
         Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = (-64).dp, y = (-18).dp)) {
-            Pad(label = "Sel", bit = GamepadController.BTN_SELECT, size = 64.dp)
+            Pad(
+                label = "Sel", bit = GamepadController.BTN_SELECT, size = 64.dp, slot = "Sel",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "Sel" },
+            )
         }
         Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = 64.dp, y = (-18).dp)) {
-            Pad(label = "Start", bit = GamepadController.BTN_START, size = 64.dp)
+            Pad(
+                label = "Start", bit = GamepadController.BTN_START, size = 64.dp, slot = "Start",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "Start" },
+            )
         }
 
         // 左摇杆（左下）/ 右摇杆（右下）—— 自定义 View，走 AndroidView 互操作
@@ -228,16 +251,75 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // A/B/X/Y：右摇杆左侧菱形排布（任天堂式），坐标沿用原 View 版实测值
         Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp, y = (-102).dp)) {
-            Pad(label = "A", bit = GamepadController.BTN_A)
+            Pad(label = "A", bit = GamepadController.BTN_A, slot = "A",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "A" })
         }
         Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-60).dp)) {
-            Pad(label = "B", bit = GamepadController.BTN_B)
+            Pad(label = "B", bit = GamepadController.BTN_B, slot = "B",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "B" })
         }
         Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-144).dp)) {
-            Pad(label = "X", bit = GamepadController.BTN_X)
+            Pad(label = "X", bit = GamepadController.BTN_X, slot = "X",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "X" })
         }
         Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp, y = (-102).dp)) {
-            Pad(label = "Y", bit = GamepadController.BTN_Y)
+            Pad(label = "Y", bit = GamepadController.BTN_Y, slot = "Y",
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "Y" })
+        }
+
+        // issue#168 第 5 条（自定义按钮）：内嵌配置卡 —— 键位、尺寸各一行，点按循环
+        // 切换即保存；「完成」收起。padConfigVersion 变化会让所有按钮重读配置。
+        padConfiguring?.let { slot ->
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 120.dp)
+                    .background(colorResource(R.color.overlay_scrim))
+                    .padding(16.dp),
+            ) {
+                val cfgCtx = LocalContext.current
+                val defaults = GamepadPadConfig.SLOT_DEFAULTS[slot]
+                    ?: (GamepadController.BTN_A to 58)
+                val curBit = GamepadPadConfig.bit(cfgCtx, slot, defaults.first)
+                val curSize = GamepadPadConfig.sizeDp(cfgCtx, slot, defaults.second)
+                Text(text = "自定义按钮：$slot", fontSize = 15.sp, color = colorResource(R.color.overlay_pad_text))
+                Text(
+                    text = "键位：${GamepadPadConfig.labelOf(curBit)}（点按切换）",
+                    fontSize = 14.sp,
+                    color = colorResource(R.color.overlay_pad_text),
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .clickable {
+                            GamepadPadConfig.set(
+                                cfgCtx, slot, GamepadPadConfig.nextBit(curBit), curSize,
+                            )
+                            padConfigVersion++
+                            Feedback.haptic(cfgCtx)
+                        },
+                )
+                Text(
+                    text = "尺寸：${curSize}dp（点按切换）",
+                    fontSize = 14.sp,
+                    color = colorResource(R.color.overlay_pad_text),
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .clickable {
+                            GamepadPadConfig.set(
+                                cfgCtx, slot, curBit, GamepadPadConfig.nextSize(curSize),
+                            )
+                            padConfigVersion++
+                            Feedback.haptic(cfgCtx)
+                        },
+                )
+                Text(
+                    text = "完成",
+                    fontSize = 14.sp,
+                    color = colorResource(R.color.overlay_pad_ok),
+                    modifier = Modifier
+                        .padding(top = 12.dp)
+                        .clickable { padConfiguring = null },
+                )
+            }
         }
     }
 }
@@ -247,18 +329,33 @@ internal fun GamepadPanel(onExit: () -> Unit) {
  * 按下时换底色 + 加粗描边作反馈（原 View 版靠 `GradientDrawable` 做同样的事）。
  *
  * [onDown] 非空时只执行它（✕ 退出键不需要发 HID 帧），此时 [bit] 传 0。
+ *
+ * 自定义（issue#168 第 5 条）：[slot] 非空的实体键长按 [onConfigure] 进入配置，
+ * 键位与尺寸从 [GamepadPadConfig] 按 [configVersion] 重读 —— 落盘后 bump 版本号
+ * 即全部生效。
  */
 @Composable
 private fun Pad(
     label: String,
     bit: Int,
     size: Dp = 58.dp,
-    onDown: (() -> Unit)? = null,
+    slot: String? = null,
+    configVersion: Int = 0,
+    onConfigure: (() -> Unit)? = null,
 ) {
-    var pressed by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    // 键位 / 尺寸按配置版本重读：保存配置后父级状态变化触发重组，这里就拿到新值
+    val effBit = if (slot == null) bit else GamepadPadConfig.bit(ctx, slot, bit)
+    val effSize = if (slot == null) size else GamepadPadConfig.sizeDp(ctx, slot, size.value.toInt()).dp
+    val effLabel = if (slot == null) label else GamepadPadConfig.labelOf(effBit)
+    // issue#168 第 5 条（多指）：用「按住的手指数」而不是单布尔 —— 每根落进按钮的
+    // 手指在各自协程里独立认领/抬起，互不阻塞（detectTapGestures 一次只跟一个手势
+    // 序列，多指同按会被吞）。同一时刻任一手指按着就算按下。
+    var pressCount by remember { mutableIntStateOf(0) }
+    val pressed = pressCount > 0
     Box(
         modifier = Modifier
-            .size(size)
+            .size(effSize)
             .background(
                 color = if (pressed) colorResource(R.color.overlay_pad_key_pressed) else colorResource(R.color.overlay_pad_key_idle),
                 shape = CircleShape,
@@ -268,22 +365,43 @@ private fun Pad(
                 color = if (pressed) colorResource(R.color.overlay_pad_stroke_pressed) else colorResource(R.color.overlay_pad_stroke_idle),
                 shape = CircleShape,
             )
-            .pointerInput(bit, onDown) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        if (onDown != null) onDown() else GamepadController.setButton(bit, true)
-                        tryAwaitRelease()
-                        pressed = false
-                        if (onDown == null) GamepadController.setButton(bit, false)
-                    },
-                )
+            .pointerInput(effBit, slot, onDown, onConfigure) {
+                // 逐指追踪：awaitFirstDown 认领落进按钮的那根手指，随后只追这一根
+                // pointerId 直到它抬起；第二根手指（同一颗或别的按钮）不干扰本协程。
+                // 长按（[ViewConfiguration.longPressTimeoutMillis]）且可配置的实体键
+                // 触发一次 [onConfigure]，之后继续等抬起。
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    pressCount++
+                    if (onDown != null) onDown() else GamepadController.setButton(effBit, true)
+                    val longPressMs = viewConfiguration.longPressTimeoutMillis
+                    var configured = false
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val mine = event.changes.firstOrNull { it.id == down.pointerId } ?: break
+                            if (!mine.pressed) break
+                            mine.consume()
+                            if (!configured && onConfigure != null && slot != null &&
+                                mine.uptimeMillis - down.uptimeMillis >= longPressMs
+                            ) {
+                                configured = true
+                                onConfigure()
+                            }
+                        }
+                    } finally {
+                        // 协程被取消（弹窗接管触摸 / 视图销毁）也要复位，防按键卡住
+                        pressCount--
+                        if (onDown == null) GamepadController.setButton(effBit, false)
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = label,
-            fontSize = if (label.length > 2) 13.sp else 17.sp,
+            text = effLabel,
+            fontSize = if (effLabel.length > 2) 13.sp else 17.sp,
             color = colorResource(R.color.overlay_pad_text),
         )
     }
