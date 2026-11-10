@@ -112,7 +112,7 @@ void notifyFileReceived(const std::string& path);
 //「浏览手机文件」区（on-phone-files / on-phone-files-fail 事件）。线程安全同上。
 // 仅 Windows（mac 走 panel_http，本轮未接，如实降级）。
 void notifyPhoneFileList(uint8_t err, const std::string& path,
-                         const std::vector<PhoneFileEntry>& entries);
+                         const std::vector<apxpc::wireless::PhoneFileEntry>& entries);
 void notifyPhoneFileFail(uint8_t err, const std::string& path);
 
 // ———————————————— 相册投影（0x48–0x4B，2026-11-12，能力位 bit4） ————————————————
@@ -120,7 +120,7 @@ void notifyPhoneFileFail(uint8_t err, const std::string& path);
 // 相册网格（on-album-page / on-album-page-fail 事件）。线程安全同上。
 // 仅 Windows（mac 走 panel_http，本轮未接，如实降级）。
 void notifyAlbumPage(uint8_t err, uint32_t page,
-                     const std::vector<AlbumEntry>& entries);
+                     const std::vector<apxpc::wireless::AlbumEntry>& entries);
 void notifyAlbumPageFail(uint8_t err, const std::string& path);
 
 // ———————————————— 更新通道（v223.29.16，desktop_main 更新检查线程调用） ————————————————

@@ -1585,7 +1585,7 @@ void notifyFileReceived(const std::string& path) {
 //「浏览手机文件」区。postEvent 线程安全（同 notifyFileReceived 的约定），可直接调。
 // 托盘气泡不做（浏览是面板内的主动操作，气泡打断反而多余），只走前端事件。
 void notifyPhoneFileList(uint8_t err, const std::string& path,
-                         const std::vector<PhoneFileEntry>& entries) {
+                         const std::vector<apxpc::wireless::PhoneFileEntry>& entries) {
     Panel* p = g_panel;
     if (!p) return;   // 面板未就绪：目录应答是请求-应答式交互，静默丢（前端按钮停在原态可重试）
     Json d = Json::makeObject();
@@ -1617,7 +1617,7 @@ void notifyPhoneFileFail(uint8_t err, const std::string& path) {
 // 相册网格。postEvent 线程安全（同 notifyPhoneFile* 的约定），可直接调。
 // 托盘气泡不做（浏览是面板内的主动操作；新照片提醒由手机端系统通知承担）。
 void notifyAlbumPage(uint8_t err, uint32_t page,
-                     const std::vector<AlbumEntry>& entries) {
+                     const std::vector<apxpc::wireless::AlbumEntry>& entries) {
     Panel* p = g_panel;
     if (!p) return;   // 面板未就绪：分页是请求-应答式交互，静默丢（前端可重发请求）
     Json d = Json::makeObject();
