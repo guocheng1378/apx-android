@@ -172,7 +172,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // · 阈值 56dp 与主壳四指切页同一套；触发后把剩余序列消费掉，
     //   一滑只翻一组，页签 / 开关的点击不受影响（短按到不了阈值）；
     // · 双指落下即放弃（与低栏长按同口径：手势语义是「一根手指」）。
-    val swipeDensity = LocalDensity.current.density
+    // 阈值密度用 rememberUpdatedState：pointerInput(Unit) 不随重组重启，直接捕获
+    // 局部变量会把**第一次组合**的密度焊死——界面缩放（80%~125%）一改，56dp 的
+    // 阈值就漂移（最坏差 45%），与四指切页「拿旧值当新值」同族。每帧读最新值。
+    val swipeDensity by androidx.compose.runtime.rememberUpdatedState(LocalDensity.current.density)
     Column(
         modifier = Modifier
             .fillMaxSize()
