@@ -590,22 +590,27 @@ class TouchpadActivity : Activity() {
         chipRow = chips
         // 全屏时「常用快捷键」整块收起（标题行 + 网格一起），所以给它们一个共同容器
         val hotkeySection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        hotkeySection.addView(head)
-        hotkeySection.addView(chips, LinearLayout.LayoutParams(-1, -2))
         // 竖屏：热键栏在下方按内容高度走；横屏：整列搬到右侧固定宽（perRow 改 2，见 boardStyle）。
         // 横屏追补（issue#168 第 1 条）：热键多于一屏时装不下，块被顶出屏外——
         // 右列包一层 ScrollView，滚动条按用户要求放在**左侧**（SCROLLBAR_POSITION_LEFT）。
         // 代价：在块上竖向拖动会被滚动接管（拖动排序转入「编辑」弹窗的上下移）；
         // 轻点发送 / 长按按住不需要连续位移，不受影响。
+        //
+        // 二次追补（2026-11-11）：滚动范围**只包按钮网格**（chips）——此前标题行
+        // 「常用快捷键 / 编辑」也在滚动区内，会跟着滚出视野、编辑按钮摸不着。
+        // 标题行固定在外，权重占满整列高度，滚动的只有按钮区。
+        hotkeySection.addView(head)
         if (land) {
             val sc = ScrollView(this).apply {
                 isVerticalScrollBarEnabled = true
                 setVerticalScrollbarPosition(View.SCROLLBAR_POSITION_LEFT)
                 scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY   // 属性名是大写 B（View.setScrollBarStyle）
-                addView(hotkeySection, FrameLayout.LayoutParams(-1, -2))
+                addView(chips, FrameLayout.LayoutParams(-1, -2))
             }
-            col.addView(sc, LinearLayout.LayoutParams(dp(190), -1).apply { leftMargin = dp(10) })
+            hotkeySection.addView(sc, LinearLayout.LayoutParams(-1, 0, 1f))
+            col.addView(hotkeySection, LinearLayout.LayoutParams(dp(190), -1).apply { leftMargin = dp(10) })
         } else {
+            hotkeySection.addView(chips, LinearLayout.LayoutParams(-1, -2))
             col.addView(hotkeySection, LinearLayout.LayoutParams(-1, -2))
         }
         tpHotkeySection = hotkeySection

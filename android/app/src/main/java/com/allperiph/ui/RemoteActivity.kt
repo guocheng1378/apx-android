@@ -96,7 +96,24 @@ class RemoteActivity : Activity() {
         // 强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文叠加会丢）
         ApPalette.applyRuntimeTheme(this)
         landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        buildLayout()
+    }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // issue#168 第 6 条追补（2026-11-11）：清单声明了 configChanges（旋转不重建
+        // Activity），而布局只在 onCreate 按当时的方向搭一次 —— 旋转后整页还是旧方向，
+        // 表现为「切换横竖屏时布局不自适应」。这里按新方向**整页重搭**
+        // （与 TouchpadActivity 的就地重建同模式）：左右分栏 ↔ 上下排布互切。
+        val nowLand = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        if (nowLand != landscape) {
+            landscape = nowLand
+            buildLayout()
+        }
+    }
+
+    /** 整页重搭：onCreate 与 onConfigurationChanged 共用（方向由 [landscape] 决定） */
+    private fun buildLayout() {
         val root = FrameLayout(this)
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -375,15 +392,28 @@ class RemoteActivity : Activity() {
         rowWeight: Float?,
     ) {
         val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        // 每格是一个占位容器，圆钮在其中**居中且固定直径** —— 这样才是正圆，
+        // 每格是一个占位容器：竖屏圆钮**居中且固定直径** —— 这样才是正圆，
         // 否则跟着格子宽高走就又变成椭圆了。
+        //
+        // 横屏（issue#168 第 6 条追补，2026-11-11）：行高交给权重分，格子高 < 圆钮
+        // 固定直径时圆钮上下各被裁一截（用户反馈「按钮被截断了一部分」）。改为
+        // **圆角矩形铺满格子**（留 3dp 呼吸边），高度跟行高走、文字必完整 ——
+        // 用户给的第二个选项（「切换按钮为圆角矩形，保证按钮内文字完整」）；
+        // 竖屏空间充裕，保持正圆观感不变。
         val d = circleSize()
         for ((label, action) in row) {
             val cell = FrameLayout(this)
-            cell.addView(
-                circle(label, d) { action() },
-                FrameLayout.LayoutParams(d, d, Gravity.CENTER),
-            )
+            if (landscape) {
+                cell.addView(
+                    plate(label) { action() },
+                    FrameLayout.LayoutParams(-1, -1, Gravity.CENTER).apply { margin = dp(3) },
+                )
+            } else {
+                cell.addView(
+                    circle(label, d) { action() },
+                    FrameLayout.LayoutParams(d, d, Gravity.CENTER),
+                )
+            }
             line.addView(cell, LinearLayout.LayoutParams(0, -1, 1f))
         }
         // 有权重时行高交给权重决定；无权重时**显式给行高 = 圆钮直径**（子视图是
@@ -415,13 +445,7 @@ class RemoteActivity : Activity() {
             text = label
             textSize = if (label.length > 2) 13f else 15f
             gravity = Gravity.CENTER
-            val fg = when (label) {
-                "关机" -> 0xFFD23F31.toInt()
-                "重启" -> 0xFFF0A020.toInt()
-                "电源" -> ApPalette.primary(this@RemoteActivity)
-                else -> getColor(R.color.md_on_surface)
-            }
-            setTextColor(fg)
+            setTextColor(labelColor(label))
             background = ApKit.oval(
                 getColor(R.color.md_surface),
                 getColor(R.color.card_stroke),
@@ -435,6 +459,38 @@ class RemoteActivity : Activity() {
                 onClick()
             }
         }
+
+    /**
+     * 横屏用的圆角矩形按钮：格子铺满、高度跟行高走（[circle] 的固定直径在权重行里
+     * 会被裁），背景与文字色同 [circle] 一套 —— 只换形状，不换语义。
+     */
+    private fun plate(label: String, onClick: () -> Unit): TextView =
+        TextView(this).apply {
+            text = label
+            textSize = if (label.length > 2) 13f else 15f
+            gravity = Gravity.CENTER
+            setTextColor(labelColor(label))
+            background = ApKit.shape(
+                getColor(R.color.md_surface),
+                radiusPx = dp(14).toFloat(),
+                strokeColor = getColor(R.color.card_stroke),
+                strokePx = dp(1),
+            )
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                Feedback.tap(this)
+                onClick()
+            }
+        }
+
+    /** 按钮文字配色（[circle] / [plate] 共用）：关机红 / 重启橙 / 电源主题色 / 其余常规 */
+    private fun labelColor(label: String): Int = when (label) {
+        "关机" -> 0xFFD23F31.toInt()
+        "重启" -> 0xFFF0A020.toInt()
+        "电源" -> ApPalette.primary(this@RemoteActivity)
+        else -> getColor(R.color.md_on_surface)
+    }
 
     // ————————————————————————————— 触摸控制条 —————————————————————————————
 

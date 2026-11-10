@@ -113,7 +113,7 @@ class FloatingBallService : Service() {
         /**
          * 球直径（dp）。窗口尺寸直接用这个值给死，不走 WRAP_CONTENT ——
          * 球底 `bg_floating_ball` 是 layer-list，而 shape 基元**没有** intrinsic size，
-         * `WRAP_CONTENT` 会一路塌到子 View（那个 22dp 图标），实测球窗口只有 66px
+         * `WRAP_CONTENT` 会一路塌到子 View（当年 22dp、现 26dp 的图标），实测球窗口只有 66px
          * （22dp，@3x），比设计小一半，顺带把扇形的圆心也带偏。
          */
         private const val BALL_DP = 48
@@ -605,7 +605,7 @@ class FloatingBallService : Service() {
 
     private fun ballLayoutParams() = WindowManager.LayoutParams(
         // ⚠️ 必须给死尺寸，别用 WRAP_CONTENT：球底是 layer-list，shape 没有 intrinsic
-        //    size，wrap_content 会塌到子 View（那个 22dp 图标）→ 实测球只有 66px。
+        //    size，wrap_content 会塌到子 View（那个 22dp 图标，v223.29.51 起改 26dp）→ 实测球只有 66px。
         dp(BALL_DP),
         dp(BALL_DP),
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,

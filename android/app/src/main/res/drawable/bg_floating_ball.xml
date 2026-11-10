@@ -4,6 +4,11 @@
   形态：48dp 半透明圆 + 一圈极淡外沿柔光（layer-list 模拟投影 —— overlay 窗口
   没有父容器，elevation 不会画阴影）。
   配色全部走 ball_* 令牌，深浅两套由 values-night 覆盖，这个文件不用改。
+
+  v223.29.51（issue#168 第 9 条追补）：去掉左上角的偏心高光小球（用户反馈
+  「浅白色圆形高光去掉，背景只留纯色」），玻璃渐变一并收掉 —— 球身改走
+  ball_solid 纯色令牌（深浅两套各取原渐变的顶部值，观感最接近改动前），
+  外沿柔光与描边保留（轮廓感，非高光）。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- 外沿柔光：比球身大一圈、透明度更低，远看像一层淡淡的投影 -->
@@ -12,33 +17,17 @@
             <solid android:color="@color/ball_halo" />
         </shape>
     </item>
-    <!-- 球身：仿玻璃 —— 上亮下暗的线性渐变 + 1dp 外沿描边。
-         overlay 窗口拿不到下层画面，真模糊（Haze / RuntimeShader）在这里无效，
-         所以用「渐变 + 高光 + 柔光」三件套近似玻璃质感。 -->
+    <!-- 球身：纯色 + 1dp 外沿描边（v223.29.51 起不再做玻璃质感三件套） -->
     <item
         android:bottom="2dp"
         android:left="2dp"
         android:right="2dp"
         android:top="2dp">
         <shape android:shape="oval">
-            <gradient
-                android:angle="270"
-                android:endColor="@color/ball_glass_bottom"
-                android:startColor="@color/ball_glass_top"
-                android:type="linear" />
+            <solid android:color="@color/ball_solid" />
             <stroke
                 android:width="1dp"
                 android:color="@color/ball_stroke" />
-        </shape>
-    </item>
-    <!-- 顶部高光：偏心小球，模拟玻璃的反光点（inset 把它压到球体上部） -->
-    <item
-        android:bottom="20dp"
-        android:left="10dp"
-        android:right="18dp"
-        android:top="6dp">
-        <shape android:shape="oval">
-            <solid android:color="@color/ball_glass_hi" />
         </shape>
     </item>
 </layer-list>

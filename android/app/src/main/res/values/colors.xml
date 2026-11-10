@@ -105,10 +105,12 @@
     <color name="hotkey_tpl_sheet">#FF1E9E5A</color>   <!-- 表格数据 -->
     <color name="hotkey_tpl_tv">#FFE0457B</color>   <!-- TV 遥控 -->
 
-    <!-- 悬浮球仿玻璃（v223.22）：overlay 窗口拿不到下层画面，真模糊做不了，用渐变+高光近似 -->
+    <!-- 球身纯色（v223.29.51 起）：球面玻璃渐变/高光已按用户反馈去掉（bg_floating_ball）；
+         ball_glass_top/bottom 仍被停靠条与菜单项背景（bg_ball_dock / bg_ball_item）引用，
+         高光 ball_glass_hi 已随高光一并移除 -->
+    <color name="ball_solid">#CCFFFFFF</color>
     <color name="ball_glass_top">#CCFFFFFF</color>
     <color name="ball_glass_bottom">#8CFFFFFF</color>
-    <color name="ball_glass_hi">#59FFFFFF</color>
 
     <!--
       浮层语义色（2026-11-07「写死色值收编」）：FilePanel / Gamepad / StatusPage 此前在

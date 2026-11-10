@@ -17,8 +17,8 @@
 
     <ImageView
         android:id="@+id/ivBallIcon"
-        android:layout_width="22dp"
-        android:layout_height="22dp"
+        android:layout_width="26dp"
+        android:layout_height="26dp"
         android:layout_gravity="center"
         android:contentDescription="@string/ui_main_label_floating_ball"
         android:src="@drawable/ic_apx_touchpad"
