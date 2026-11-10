@@ -77,10 +77,11 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 const bool vis = self2->ballVisibleFn_ ? self2->ballVisibleFn_() : false;
                 AppendMenu(m, MF_STRING, IDM_BALL, vis ? L"隐藏悬浮球" : L"显示悬浮球");
             }
-            // 查找手机（0x38）：手机静音也响（闹钟流），30s 自动停。菜单常驻 ——
+            // 查找手机（0x38）：手机静音也响（闹钟流），30s 自动停；35s 内再点同一项
+            // 即停止（find_phone_toggle 时间窗切换，2026-11-11）。菜单常驻 ——
             // 没连手机时点了没反应（sendFindPhone 返回 false），不值得为此动态显隐。
             if (self2 && self2->onFindPhone_)
-                AppendMenu(m, MF_STRING, IDM_FIND_PHONE, L"查找手机（手机响铃 30 秒）");
+                AppendMenu(m, MF_STRING, IDM_FIND_PHONE, L"查找手机（响铃 30 秒，再点停止）");
             AppendMenu(m, MF_SEPARATOR, 0, nullptr);
             AppendMenu(m, MF_STRING, IDM_QUIT, L"退出");
             SetForegroundWindow(hwnd);

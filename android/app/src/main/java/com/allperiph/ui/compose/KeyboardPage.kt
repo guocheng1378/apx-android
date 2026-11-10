@@ -315,6 +315,27 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     var tab by remember { mutableIntStateOf(0) }
     // 自定义行表要在编辑弹窗保存后刷新
     var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
+    // §6.3（ROADMAP 2026-11-11）：Expanded（≥840dp，平板）键高不无限拉伸 —— 键位区按
+    // 6 行 × 80dp 封顶居中，余出的整块高度给底部工具行（剪贴板 / 语音 / 灯效）。
+    // Compact / Medium（手机竖横屏）行为完全不变：键位区照旧 weight 占满，不画工具行。
+    // 走窗口实测宽度（与 ApKeyboardPage 同源判定），不读 configuration（旋转回写滞后一拍）。
+    val expanded = rememberApAdaptiveLayout().width >= 840.dp
+    // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
+    var voiceText by remember { mutableStateOf<String?>(null) }
+    // 系统语音识别拉起器：主屏键盘页有宿主 Activity 可用；悬浮球 overlay（Service 窗口）
+    // 没有 startActivityForResult 的宿主，点了只给提示（见工具行 onClick 分支）。
+    val voiceLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
+    ) { r ->
+        // EXTRA_RESULTS 字面值与 SpeechRecognizer 源码逐字一致（公开协议常量，零符号依赖，
+        // 与 RemoteInputActivity.startVoiceInput 同口径）
+        val t = r.data?.getStringArrayListExtra("android.speech.extra.RESULTS")
+            ?.firstOrNull().orEmpty()
+        voiceText = if (t.isNotBlank()) t else null
+        if (t.isBlank()) {
+            android.widget.Toast.makeText(ctx, R.string.ui_kb_voice_none, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     CompositionLocalProvider(LocalRgb provides rgbSpec, LocalMatPhase provides matPhase) {
         Column(
@@ -429,19 +450,92 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             }
 
             // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                when (tab) {
-                    0 -> QuickLayout(dens, keycap, fx)
-                    1 -> RemoteLayout()
-                    2 -> GameLayout(dens, keycap, fx)
-                    3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
-                    4 -> KeyGridLayout(KeyLayouts.GRID9, dens, keycap, fx)
-                    5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, keycap, fx)
-                    6 -> KeyGridLayout(KeyLayouts.FN, dens, keycap, fx)
-                    else -> CustomLayout(customRows, dens, keycap, fx) {
-                        customRows = KeyPref.customRows(ctx)
+            // §6.3：Expanded 时键位区 heightIn 封顶（480dp ≈ 6 行 × 80dp），外层 Box 垂直居中，
+            // 超出封顶的高度留在键位区下方，由下面的工具行占住 —— 键帽不再被拉成巨块。
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                        .then(if (expanded) Modifier.heightIn(max = 480.dp) else Modifier),
+                ) {
+                    when (tab) {
+                        0 -> QuickLayout(dens, keycap, fx)
+                        1 -> RemoteLayout()
+                        2 -> GameLayout(dens, keycap, fx)
+                        3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
+                        4 -> KeyGridLayout(KeyLayouts.GRID9, dens, keycap, fx)
+                        5 -> KeyGridLayout(KeyLayouts.ARROWS, dens, keycap, fx)
+                        6 -> KeyGridLayout(KeyLayouts.FN, dens, keycap, fx)
+                        else -> CustomLayout(customRows, dens, keycap, fx) {
+                            customRows = KeyPref.customRows(ctx)
+                        }
                     }
                 }
+            }
+            // —— Expanded 工具行（§6.3「超出部分给工具键」）：剪贴板补发 / 语音输入 / 灯效循环 ——
+            // 三键复用遥控页的 MediaTile 观感；剪贴板与悬浮球面板的「一键补发」同一份
+            // ClipboardSync 口径，语音走系统识别 → 确认卡 → 电脑剪贴板，灯效与页签行快切同动作。
+            if (expanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(72.dp).padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    MediaTile(ctx.getString(R.string.ui_ball_fn_clipboard), Modifier.weight(1f)) {
+                        Feedback.tap(host)
+                        sendClipboardToPc(ctx)
+                    }
+                    MediaTile(ctx.getString(R.string.ui_kb_tool_voice), Modifier.weight(1f)) {
+                        Feedback.tap(host)
+                        val act = ctx as? android.app.Activity
+                        if (act == null) {
+                            // 悬浮键盘（Service 窗口）没有可拉起识别界面的宿主，如实说明
+                            android.widget.Toast.makeText(
+                                ctx, R.string.ui_kb_voice_only_main, android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        } else {
+                            launchKeyboardVoice(ctx, voiceLauncher)
+                        }
+                    }
+                    MediaTile(ctx.getString(R.string.ui_kb_tool_rgb), Modifier.weight(1f)) {
+                        Feedback.tap(host)
+                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT
+                        KeyPref.setRgb(ctx, rgbMode)
+                    }
+                }
+            }
+        }
+    }
+
+    // —— 语音识别结果确认卡：说了什么、发不发，用户看得见再决定 ——
+    voiceText?.let { t ->
+        ApComponents.DialogCard(onDismiss = { voiceText = null }) {
+            Text(text = ctx.getString(R.string.ui_kb_voice_result_title), fontSize = 16.sp)
+            Text(
+                text = t,
+                fontSize = 18.sp,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_common_cancel),
+                    onClick = { voiceText = null },
+                )
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_voice_send),
+                    onClick = {
+                        val client = com.allperiph.wireless.ControlTarget.controlClient
+                        val ok = client != null && client.ready &&
+                            runCatching { client.sendClipboard(t) }.getOrDefault(false)
+                        android.widget.Toast.makeText(
+                            ctx,
+                            if (ok) R.string.ui_kb_voice_sent else R.string.ui_ball_fn_clipboard_nolink,
+                            android.widget.Toast.LENGTH_SHORT,
+                        ).show()
+                        voiceText = null
+                    },
+                )
             }
         }
     }
@@ -1212,5 +1306,79 @@ private fun KeyBox(
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) { Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg) }
+    }
+}
+
+/**
+ * 「剪贴板」工具键（§6.3 Expanded 工具行）：把手机当前剪贴板文字一键发到电脑剪贴板
+ * （0x20 通道），与悬浮球剪贴板面板的「一键补发」同一份 ClipboardSync 口径 ——
+ * 取值、空串判定、程序性写入抑制都在 ClipboardSync 一处，这里不重复实现。
+ */
+internal fun sendClipboardToPc(ctx: android.content.Context) {
+    val client = com.allperiph.wireless.ControlTarget.controlClient
+    if (client == null || !client.ready) {
+        android.widget.Toast.makeText(
+            ctx, R.string.ui_ball_fn_clipboard_nolink, android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        return
+    }
+    val cur = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
+    if (cur.isEmpty()) {
+        android.widget.Toast.makeText(
+            ctx, R.string.ui_ball_fn_clipboard_empty, android.widget.Toast.LENGTH_SHORT,
+        ).show()
+        return
+    }
+    val ok = runCatching { client.sendClipboard(cur) }.getOrDefault(false)
+    android.widget.Toast.makeText(
+        ctx,
+        if (ok) ctx.getString(R.string.ui_ball_fn_clipboard_copied, cur.length)
+        else ctx.getString(R.string.ui_ball_fn_clipboard_nolink),
+        android.widget.Toast.LENGTH_SHORT,
+    ).show()
+}
+
+/**
+ * 「语音」工具键（§6.3 Expanded 工具行）：系统语音识别 → 结果确认卡 → 发到电脑剪贴板。
+ *
+ * 识别器挑选与 RemoteInputActivity.startVoiceInput 同口径（v223.29.33 结论）：
+ * **先挑非 Google 的识别活动再拉起** —— 国内 ROM 往往只有 Google 语音（网络不可达），
+ * 旧实现静默拉起必然落到它。只有 Google 时如实提示并推荐输入法语音键，不静默拉起。
+ * ACTION / EXTRA 字面值与 SpeechRecognizer 源码逐字一致（公开协议常量，零符号依赖）。
+ */
+internal fun launchKeyboardVoice(
+    ctx: android.content.Context,
+    launcher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
+) {
+    val intent = android.content.Intent("android.speech.action.RECOGNIZE_SPEECH").apply {
+        putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form")
+        putExtra("android.speech.extra.LANGUAGE_PREFERENCE", "zh-CN")
+        putExtra("android.speech.extra.LANGUAGE", "zh-CN")
+    }
+    val handlers = ctx.packageManager.queryIntentActivities(
+        intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY,
+    )
+    val nonGoogle = handlers.firstOrNull {
+        !(it.activityInfo?.packageName ?: "").startsWith("com.google.android")
+    }
+    val pick = nonGoogle ?: handlers.firstOrNull()
+    if (pick == null) {
+        android.widget.Toast.makeText(
+            ctx, R.string.ui_kb_voice_unavailable, android.widget.Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+    if (nonGoogle == null) {
+        // 只有 Google 语音：国内网络不可达 —— 如实提示，不静默拉起（同 RemoteInputActivity）
+        android.widget.Toast.makeText(
+            ctx, R.string.ui_kb_voice_google_only, android.widget.Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+    intent.setPackage(pick.activityInfo.packageName)
+    runCatching { launcher.launch(intent) }.onFailure {
+        android.widget.Toast.makeText(
+            ctx, R.string.ui_kb_voice_unavailable, android.widget.Toast.LENGTH_SHORT,
+        ).show()
     }
 }

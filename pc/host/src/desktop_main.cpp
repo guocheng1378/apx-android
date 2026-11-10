@@ -27,6 +27,7 @@
 #include "apxpc/wireless/wireless_session.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
 #include "apxpc/wireless/file_receiver.hpp"
+#include "apxpc/wireless/find_phone_toggle.hpp"
 #include "apxpc/wireless/verify_code.hpp"
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/media/media_session.hpp"
@@ -898,12 +899,17 @@ int runDesktopMain() {
     // 托盘菜单点击 → 让手机响铃。两条链路择活发送：PC 控手机走 session（9511 客户端），
     // 手机控 PC 走 ctrlSrv（9511 服务端）——与通知同步的接线范围同口径。菜单常驻，
     // 未连接时 sendFindPhone 返回 false，点了没反应（不值得为此动态显隐菜单）。
+    // 「再点停止」（ROADMAP §5.1 ② 遗留）：35s 内再点同一菜单项发停止(0)，时间窗
+    // 切换收在 find_phone_toggle.hpp；发送不成功不动窗口状态。
     {
         apxpc::wireless::WirelessSession* sessionRaw = session.get();
         tray->setFindPhoneCallback([sessionRaw, &ctrlSrv] {
-            // 先试 session（常规链路：PC 是控制端），没连或发送失败再试 ctrlSrv。
-            if (sessionRaw && sessionRaw->sendFindPhone(1)) return;
-            ctrlSrv.sendFindPhone(1);
+            // 先试 session（常规链路：PC 是控制端），没连或发送失败再试 ctrlSrv；
+            // 哪条真发出去由返回值告知 find_phone_toggle（不成功不计入时间窗）。
+            apxpc::wireless::sendFindPhoneToggle([sessionRaw, &ctrlSrv](uint8_t action) {
+                if (sessionRaw && sessionRaw->sendFindPhone(action)) return true;
+                return ctrlSrv.sendFindPhone(action);
+            });
         });
     }
 

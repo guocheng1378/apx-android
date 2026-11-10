@@ -407,6 +407,16 @@
     <string name="ui_kb_tab_fn">F 区</string>
     <string name="ui_kb_tab_custom">自定义</string>
     <string name="ui_kb_close">关闭</string>
+    <!-- §6.3 Expanded 工具行（键盘页底部）：剪贴板/语音/灯效 三键及语音链路文案 -->
+    <string name="ui_kb_tool_voice">语音</string>
+    <string name="ui_kb_tool_rgb">灯效</string>
+    <string name="ui_kb_voice_none">没听清，再试一次</string>
+    <string name="ui_kb_voice_unavailable">系统语音识别不可用</string>
+    <string name="ui_kb_voice_google_only">这台手机的系统语音识别只有 Google 语音（国内网络连不上），建议用输入法上的语音键口述</string>
+    <string name="ui_kb_voice_only_main">语音要在主屏键盘页使用（悬浮窗里没有宿主界面）</string>
+    <string name="ui_kb_voice_result_title">语音识别结果</string>
+    <string name="ui_kb_voice_send">发到电脑</string>
+    <string name="ui_kb_voice_sent">已发到电脑剪贴板</string>
     <!-- v223.24 快捷键面板（组合键网格）与编辑弹窗的文案：不写死在 Kotlin 里 -->
     <!-- 快捷键编辑的候选键（与被控操控面同一批键位；名字即 HotkeyStore 里的标签，改这里会连带 USAGE_REPAIRS） -->
     <!-- v223.24 「遥控」行的键面文字（与被控操控面 remoteKeyboard 同一组键，文案不写死在 Kotlin） -->

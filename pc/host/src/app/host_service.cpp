@@ -5,6 +5,7 @@
 #include "apxpc/log.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
+#include "apxpc/wireless/find_phone_toggle.hpp"
 #include "apxpc/wireless/verify_code.hpp"
 
 #if defined(_WIN32)
@@ -194,8 +195,15 @@ int runService(const ServiceOptions& opt) {
         // 查找手机接线（0x38，2026-11-11，能力位 bit2）：托盘菜单点击 → 让已连入的
         // 控制端手机响铃（30s 自动停）。菜单常驻；未连接/对端不支持时 sendFindPhone
         // 返回 false，点了没反应（与桌面壳同口径，不为此动态显隐菜单）。
+        // 「再点停止」（ROADMAP §5.1 ② 遗留）：35s 内再点同一菜单项发停止(0)，
+        // 走 find_phone_toggle.hpp 的时间窗切换；发送不成功不动窗口状态。
         apxpc::wireless::Ctrl9511Server* srvRaw = &ctrlSrv;
-        tray->setFindPhoneCallback([srvRaw] { if (srvRaw) srvRaw->sendFindPhone(1); });
+        tray->setFindPhoneCallback([srvRaw] {
+            if (!srvRaw) return;
+            apxpc::wireless::sendFindPhoneToggle([srvRaw](uint8_t action) {
+                return srvRaw->sendFindPhone(action);
+            });
+        });
     }
 
     // 开机自启

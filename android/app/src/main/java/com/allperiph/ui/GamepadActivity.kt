@@ -159,12 +159,18 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
     // b64（issue#168 第 5 条）：面板从 edge-to-edge 起是贴屏顶画的，L1 / R1 顶到状态栏
     // 区域里点不到。整个根盒垫上状态栏 insets —— 悬浮球 overlay 宿主 insets 为 0，不受影响。
-    Box(
+    // BoxWithConstraints 只为取本盒实宽：本面板可能套在 LandscapePanel 的旋转盒里，
+    // LocalWindowInfo 的宽度是竖屏原窗宽，判定不了「横过来之后有多宽」——
+    // §6.3 Expanded 判定（ABXY 键区是否移到中轴）必须用旋转后内容的实际宽度。
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
             .background(colorResource(R.color.overlay_scrim))
     ) {
+        // §6.3（ROADMAP 2026-11-11）：Expanded（内容实宽 ≥840dp，平板横屏）双摇杆分置
+        // 两侧、按键区（ABXY）移到中间；手机横屏（Compact/Medium）维持原贴角布局不动。
+        val expandedPad = maxWidth >= 840.dp
         // 出口状态 + 指引（顶部居中；左右各让 170dp —— issue#168 第 8 条追补：原来
         // 100dp 时文字的左右端仍落在 L1 / R1 的横向范围内，换行一长就被肩键盖住
         // 一截（文字画在肩键下层）。170dp 起文字整段落在两肩键之间，避让是几何上
@@ -250,20 +256,26 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 .size(150.dp),
         )
 
-        // A/B/X/Y：右摇杆左侧菱形排布（任天堂式），坐标沿用原 View 版实测值
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp, y = (-102).dp)) {
+        // A/B/X/Y：右摇杆左侧菱形排布（任天堂式），坐标沿用原 View 版实测值。
+        // §6.3 Expanded：整簇平移到屏幕中轴（「双摇杆分置两侧、中间放按键区」）——
+        // 原布局簇心距右缘 221dp（四键横向占 -320..-122dp），平移量 = 221dp − 实宽/2
+        // 让簇心落在中线上；同时整簇抬高 40dp，给仍在底部居中的 Sel/Start 让位。
+        // 非 Expanded 时 dx/dy 为 0，四个偏移与原实测值完全一致，手机横屏不变。
+        val abxyShift = if (expandedPad) 221.dp - maxWidth / 2 else 0.dp
+        val abxyLift = if (expandedPad) (-40).dp else 0.dp
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp + abxyShift, y = (-102).dp + abxyLift)) {
             Pad(label = "A", bit = GamepadController.BTN_A, slot = "A",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "A" })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-60).dp)) {
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift, y = (-60).dp + abxyLift)) {
             Pad(label = "B", bit = GamepadController.BTN_B, slot = "B",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "B" })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp, y = (-144).dp)) {
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift, y = (-144).dp + abxyLift)) {
             Pad(label = "X", bit = GamepadController.BTN_X, slot = "X",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "X" })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp, y = (-102).dp)) {
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp + abxyShift, y = (-102).dp + abxyLift)) {
             Pad(label = "Y", bit = GamepadController.BTN_Y, slot = "Y",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "Y" })
         }
