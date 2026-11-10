@@ -229,6 +229,13 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
+        // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
+        // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
+        // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
+        // 用户点球展开后不会被立刻按回去，直到再次切页。
+        androidx.compose.runtime.LaunchedEffect(page) {
+            barCollapsed = page == 1 || page == 2
+        }
         // 方案4：让位量跟收/展联动（动效走 ApMotion 进入曲线 200ms，与 barFx 同步，球缩与
         // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位
         // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
