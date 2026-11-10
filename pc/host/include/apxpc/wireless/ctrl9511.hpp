@@ -169,6 +169,9 @@ struct Ctrl9511ServerStatus {
     /// 手机上报的模式状态帧（0x31）计数与原始位图；位布局见 phone_mode.hpp
     uint64_t modeStatus = 0;
     uint8_t modeFlags = 0;
+    /// 通知同步（0x40/0x42，2026-11-11）：推送/消除计数（手机 → PC）
+    uint64_t notifyPush = 0;
+    uint64_t notifyDismiss = 0;
     /**
      * 本**次**会话里手机是否上报过模式状态。
      *
@@ -205,6 +208,18 @@ public:
     void setOnRemoteInputText(std::function<void(const std::string&, uint8_t)> cb) { onRemoteInputText_ = std::move(cb); }
     void setOnRemoteInputDone(std::function<void()> cb) { onRemoteInputDone_ = std::move(cb); }
 
+    /// 通知同步回调（0x40/0x42，2026-11-11）：手机（被控或控 PC 的一端）推送/消除通知，
+    /// 由接线方转成托盘气泡（`TrayIcon::notify`）。回调跑在 reader 线程 —— TrayIcon::notify
+    /// 双平台线程安全，可直接调用；传空 function = 取消接线（停止期防悬挂用）。
+    /// app=应用展示名（微信/QQ…），key=Android 通知键（0x42 原样带回，当前仅记账）。
+    void setOnNotifyPush(std::function<void(const std::string& key, const std::string& title,
+                                            const std::string& text, const std::string& app)> cb) {
+        onNotifyPush_ = std::move(cb);
+    }
+    void setOnNotifyDismiss(std::function<void(const std::string& key)> cb) {
+        onNotifyDismiss_ = std::move(cb);
+    }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -212,6 +227,9 @@ private:
     std::function<void(const std::string&)> onRequestInput_;
     std::function<void(const std::string&, uint8_t)> onRemoteInputText_;
     std::function<void()> onRemoteInputDone_;
+    // 通知同步回调（成员由外层 setter 写、Impl 在 start() 时搬走 —— 与远程输入回调同款）
+    std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
+    std::function<void(const std::string&)> onNotifyDismiss_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----
@@ -228,6 +246,9 @@ struct Ctrl9511ClientStatus {
     uint64_t requestInput = 0;
     uint64_t inputText = 0;
     uint64_t inputDone = 0;
+    /// 通知同步（0x40/0x42，2026-11-11）：推送/消除计数（手机 → PC 控制端）
+    uint64_t notifyPush = 0;
+    uint64_t notifyDismiss = 0;
     /**
      * 对端能力位图（0x33 能力协商，2026-11-11）：手机连入后报上来的支持能力。
      * 位定义与 Android 侧 ApxFrame.CAP_* 镜像（kCaps9511*，本文件底部）；
@@ -285,6 +306,14 @@ public:
     std::function<void(const std::string&, uint8_t)> onRemoteInputText;
     /// 远程输入回调：对端输入完成
     std::function<void()> onRemoteInputDone;
+
+    /// 通知同步回调（0x40/0x42，2026-11-11）：受控手机推送/消除通知（PC 控手机时走这条
+    /// —— 手机是 9511 服务端，通知经控制端 reader 到这里），接线方转托盘气泡。
+    /// 回调跑在 reader 线程（TrayIcon::notify 线程安全）；⚠️ 与既有回调一样在
+    /// connect() 时被捕获，必须在**连接前**赋值（WirelessSession 的转发 lambda 就是为此）。
+    std::function<void(const std::string& key, const std::string& title,
+                       const std::string& text, const std::string& app)> onNotifyPush;
+    std::function<void(const std::string& key)> onNotifyDismiss;
 
 private:
     struct Impl;

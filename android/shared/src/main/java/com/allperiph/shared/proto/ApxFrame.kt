@@ -83,6 +83,73 @@ object ApxFrame {
     /** 能力位 bit2：查找手机 —— PC→手机 响铃（0x38，静音也响） */
     const val CAP_FIND_PHONE = 1L shl 2
 
+    // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
+    /**
+     * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]
+     * （旧版对端安静不发，帧进了黑洞也是白推）。载荷布局见 [packNotifyPush]。
+     * 接收方：PC `ctrl9511.cpp` 服务端 dispatch（手机控 PC）与客户端 reader（PC 控手机），
+     * 两处都把通知转成托盘气泡（`TrayIcon::notify`）。
+     */
+    const val CMD_NOTIFY_PUSH = 0x40
+
+    /** 手机 → PC：消除一条通知（用户在手机上划掉/点开时回发，PC 端气泡随即过时）。 */
+    const val CMD_NOTIFY_DISMISS = 0x42
+
+    /** 通知同步各字段的字节上限（u16 长度段的单字段上限是 65535，这里按气泡可读性收紧） */
+    private const val NOTIFY_KEY_MAX = 512
+    private const val NOTIFY_TITLE_MAX = 512
+    private const val NOTIFY_TEXT_MAX = 4096
+    private const val NOTIFY_APP_MAX = 64
+
+    /** UTF-8 字节截断：超长字符串只取前 max 字节（不在多字节字符中间断开） */
+    private fun utf8Clamp(s: String, max: Int): ByteArray {
+        val all = s.toByteArray(Charsets.UTF_8)
+        if (all.size <= max) return all
+        var end = max
+        while (end > 0 && (all[end].toInt() and 0xC0) == 0x80) end--   // 回退到字符头
+        return all.copyOf(end)
+    }
+
+    /**
+     * 组 0x40 通知推送帧：
+     * `[0x40][keyLen u16 LE][key][titleLen u16 LE][title][textLen u16 LE][text][appLen u8][app]`
+     * （UTF-8；key 为 Android `StatusBarNotification.key`，PC 端回发 0x42 时原样带回）。
+     * @return 载荷；key 为空（无法消除/去重）返回 null，调用方直接丢弃
+     */
+    fun packNotifyPush(key: String, title: String, text: String, app: String): ByteArray? {
+        if (key.isEmpty()) return null
+        val kb = utf8Clamp(key, NOTIFY_KEY_MAX)
+        val tb = utf8Clamp(title, NOTIFY_TITLE_MAX)
+        val xb = utf8Clamp(text, NOTIFY_TEXT_MAX)
+        val ab = utf8Clamp(app, NOTIFY_APP_MAX)
+        val body = ByteArray(1 + 2 + kb.size + 2 + tb.size + 2 + xb.size + 1 + ab.size)
+        var off = 0
+        body[off++] = CMD_NOTIFY_PUSH.toByte()
+        body[off++] = (kb.size and 0xFF).toByte(); body[off++] = ((kb.size ushr 8) and 0xFF).toByte()
+        kb.copyInto(body, off); off += kb.size
+        body[off++] = (tb.size and 0xFF).toByte(); body[off++] = ((tb.size ushr 8) and 0xFF).toByte()
+        tb.copyInto(body, off); off += tb.size
+        body[off++] = (xb.size and 0xFF).toByte(); body[off++] = ((xb.size ushr 8) and 0xFF).toByte()
+        xb.copyInto(body, off); off += xb.size
+        body[off++] = ab.size.toByte()
+        ab.copyInto(body, off)
+        return body
+    }
+
+    /**
+     * 组 0x42 通知消除帧：`[0x42][keyLen u16 LE][key]`。key 为空返回 null（无事可消除）。
+     */
+    fun packNotifyDismiss(key: String): ByteArray? {
+        if (key.isEmpty()) return null
+        val kb = utf8Clamp(key, NOTIFY_KEY_MAX)
+        val body = ByteArray(1 + 2 + kb.size)
+        body[0] = CMD_NOTIFY_DISMISS.toByte()
+        body[1] = (kb.size and 0xFF).toByte()
+        body[2] = ((kb.size ushr 8) and 0xFF).toByte()
+        kb.copyInto(body, 3)
+        return body
+    }
+
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {
             var c = i

@@ -320,6 +320,30 @@ class TvControllerClient(
     fun sendInputDone() { sendControl(ApxFrame.packInputDone()) }
 
     /**
+     * 发 0x40 通知推送（2026-11-11，能力位 bit0）：本机通知推给**受控端**（PC 显示托盘
+     * 气泡；TV 没有通知中心，但协议上是同一帧，TV 端不接即安静忽略）。调用方是
+     * `ApxNotificationListener`（经 NotificationSyncBus 的 controller 通道进来）。
+     *
+     * 能力门控：对端必须报过 [ApxFrame.CAP_NOTIFY_SYNC]（0x33 能力协商）——
+     * 旧版对端安静返回 false，帧族一律不发（前向兼容）。
+     */
+    fun sendNotificationPush(key: String, title: String, text: String, app: String): Boolean {
+        if (!ready) return false
+        if (peerCaps and ApxFrame.CAP_NOTIFY_SYNC == 0L) return false
+        return sendControl(ApxFrame.packNotifyPush(key, title, text, app) ?: return false)
+    }
+
+    /**
+     * 发 0x42 通知消除（与 [sendNotificationPush] 配对）：本机通知被划掉/点开时回发。
+     * 能力门控同上。
+     */
+    fun sendNotificationDismiss(key: String): Boolean {
+        if (!ready) return false
+        if (peerCaps and ApxFrame.CAP_NOTIFY_SYNC == 0L) return false
+        return sendControl(ApxFrame.packNotifyDismiss(key) ?: return false)
+    }
+
+    /**
      * 光标浮层开关（0x32，v223.10）：关/开**被控端**的光标浮层。
      * 手机控手机 / 手机控 TV 时，被控端会把本端光标画成全局浮层（蓝点）；
      * 有的场景嫌它碍事 —— 控制端给个开关，经控制面告诉被控端收起来。

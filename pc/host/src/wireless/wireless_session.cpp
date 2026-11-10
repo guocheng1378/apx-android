@@ -161,6 +161,27 @@ WirelessSession::WirelessSession() {
         if (cb) cb(hint);
     };
 
+    // 通知同步转发（0x40/0x42，2026-11-11）：受控手机推送/消除通知 → 外层回调（托盘气泡）。
+    // 这两条 lambda 必须在构造时挂上：Ctrl9511Client 在 connect() 时按值捕获 reader 回调，
+    // 之后直接改 client_.onNotifyPush 不会生效；转发 lambda 每次带锁取最新回调就没这个坑。
+    client_.onNotifyPush = [this](const std::string& key, const std::string& title,
+                                  const std::string& text, const std::string& app) {
+        std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onNotifyPush_;
+        }
+        if (cb) cb(key, title, text, app);
+    };
+    client_.onNotifyDismiss = [this](const std::string& key) {
+        std::function<void(const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onNotifyDismiss_;
+        }
+        if (cb) cb(key);
+    };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -374,6 +395,19 @@ bool WirelessSession::requestInput(const std::string& hint) {
 void WirelessSession::setOnRequestInput(std::function<void(const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onRequestInput_ = std::move(cb);
+}
+
+// 通知同步（0x40/0x42，2026-11-11）：外层 setter 只改本类回调存储 —— 转发 lambda
+// 早已挂在 client_ 上（见构造函数），这里晚赋值也能被下一次通知读到。
+void WirelessSession::setOnNotifyPush(
+    std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onNotifyPush_ = std::move(cb);
+}
+
+void WirelessSession::setOnNotifyDismiss(std::function<void(const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onNotifyDismiss_ = std::move(cb);
 }
 
 bool WirelessSession::sendInputText(const std::string& text, uint8_t flags) {

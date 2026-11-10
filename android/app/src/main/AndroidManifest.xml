@@ -295,6 +295,20 @@
         </service>
 
         <!--
+          ⑨之二 通知同步（2026-11-11）：通知使用权监听，手机通知 → PC 托盘气泡（0x40/0x42）。
+          双开关：应用内偏好默认关（NotificationSyncPref）+ 系统「通知使用权」授权；
+          未打开偏好时监听即使被绑定也立即返回，通知不出本机。
+        -->
+        <service
+            android:name=".notify.ApxNotificationListener"
+            android:exported="false"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
           ⑩ 快捷设置 Tile：下拉通知栏快速开关
         -->
         <service

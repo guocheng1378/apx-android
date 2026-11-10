@@ -122,6 +122,18 @@ public:
     /// 通知对端输入完成（0x27），对方据此收起浮层 / 落定文本。
     bool sendInputDone();
 
+    // ————— 通知同步（0x40/0x42，2026-11-11） —————
+    // PC 控手机时，手机是 9511 服务端，它的通知经**控制端 reader** 回传到这里；
+    // 接线方（桌面壳/CLI 宿主）转成托盘气泡。回调跑在 9511 reader 线程。
+
+    /// 受控手机推送通知（key=Android 通知键，title/text=标题/正文，app=应用展示名）。
+    /// setOnNotifyPush 必须在**连接建立前**调用 —— Ctrl9511Client 的回调在 connect()
+    /// 时被捕获；这里的转发 lambda 在构造时挂上，之后随时改回调都生效（带锁读取）。
+    void setOnNotifyPush(std::function<void(const std::string& key, const std::string& title,
+                                            const std::string& text, const std::string& app)> cb);
+    /// 受控手机消除通知（key 与推送时一致；气泡无法撤回，当前仅转发记账）。
+    void setOnNotifyDismiss(std::function<void(const std::string& key)> cb);
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
@@ -157,6 +169,10 @@ private:
 
     // 反向远程输入回调：UI 线程写（setter）、reader 线程读（转发），故用锁保护。
     std::function<void(const std::string&)> onRequestInput_;
+    // 通知同步回调（0x40/0x42，2026-11-11）：与 onRequestInput_ 同款 —— 外层随时改，
+    // 构造时挂在 client_ 上的转发 lambda 每次带锁取最新。
+    std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
+    std::function<void(const std::string&)> onNotifyDismiss_;
     mutable std::mutex cbMu_;
 };
 

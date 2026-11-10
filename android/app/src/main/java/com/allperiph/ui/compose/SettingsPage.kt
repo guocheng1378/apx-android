@@ -1161,6 +1161,34 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+                    // 通知同步（2026-11-11）：手机通知 → PC 托盘气泡。默认关 —— 通知里
+                    // 可能有验证码/聊天摘要这类敏感内容，必须用户明确打开；还差系统
+                    // 「通知使用权」授权，入口就是下面的按钮（两层都齐才真正推）。
+                    var notifySync by remember {
+                        mutableStateOf(com.allperiph.notify.NotificationSyncPref.isEnabled(ctx))
+                    }
+                    ApComponents.SwitchRow(
+                        title = "通知同步到电脑",
+                        summary = "手机来通知时，电脑托盘弹出气泡（连接 PC 且对方支持时生效）",
+                        checked = notifySync,
+                        onCheckedChange = { on ->
+                            notifySync = on
+                            com.allperiph.notify.NotificationSyncPref.setEnabled(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                    ApComponents.ActionButton(
+                        text = "通知使用权设置",
+                        onClick = {
+                            runCatching {
+                                ctx.startActivity(
+                                    Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
+                                )
+                            }.onFailure {
+                                Toast.makeText(ctx, "打开系统设置失败", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
                     // 遥控器（审查条 1.6）：此前全仓只有旧控制台 TouchpadActivity 的 pill 能拉起，
                     // 主壳（唯一 launcher 入口）没有任何路径 —— 用户不开悬浮球就进不去。
                     ApComponents.ActionButton(

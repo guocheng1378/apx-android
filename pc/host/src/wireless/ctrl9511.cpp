@@ -217,6 +217,10 @@ struct Ctrl9511Server::Impl {
     std::function<void(const std::string&)> onRequestInput_;
     std::function<void(const std::string&, uint8_t)> onRemoteInputText_;
     std::function<void()> onRemoteInputDone_;
+    // 通知同步回调（0x40/0x42，2026-11-11）：外层 setter 写入、start() 时搬进来
+    std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
+    std::function<void(const std::string&)> onNotifyDismiss_;
+    std::atomic<uint64_t> aNotifyPush_{0}, aNotifyDismiss_{0};
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -519,6 +523,45 @@ struct Ctrl9511Server::Impl {
             // CAPS_SYNC 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节）。
             // 元数据落原子变量，不动注入路径。
             onCapsSync(p, bodyLen);
+        } else if (cmd == 0x40 && bodyLen >= 7) {
+            // NOTIFY_PUSH 通知推送（2026-11-11，能力位 bit0）：手机 → PC 托盘气泡。
+            // 载荷（与 Android ApxFrame.packNotifyPush 对拍）：
+            //   [0x40][keyLen u16 LE][key][titleLen u16 LE][title][textLen u16 LE][text][appLen u8][app]
+            // 解析失败整帧丢弃（记 dropped 不计成功），不回调 —— 坏载荷宁可少一条气泡。
+            const uint16_t keyLen = static_cast<uint16_t>(p[1]) | (static_cast<uint16_t>(p[2]) << 8);
+            uint32_t off = 3;
+            if (off + keyLen + 2 <= bodyLen) {
+                const std::string key(reinterpret_cast<const char*>(p + off), keyLen);
+                off += keyLen;
+                const uint16_t titleLen = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                off += 2;
+                if (off + titleLen + 2 <= bodyLen) {
+                    const std::string title(reinterpret_cast<const char*>(p + off), titleLen);
+                    off += titleLen;
+                    const uint16_t textLen = static_cast<uint16_t>(p[off]) | (static_cast<uint16_t>(p[off + 1]) << 8);
+                    off += 2;
+                    if (off + textLen + 1 <= bodyLen) {
+                        const std::string text(reinterpret_cast<const char*>(p + off), textLen);
+                        off += textLen;
+                        const uint8_t appLen = p[off];
+                        off += 1;
+                        if (off + appLen <= bodyLen) {
+                            const std::string app(reinterpret_cast<const char*>(p + off), appLen);
+                            if (onNotifyPush_) onNotifyPush_(key, title, text, app);
+                            aNotifyPush_.fetch_add(1);
+                        }
+                    }
+                }
+            }
+        } else if (cmd == 0x42 && bodyLen >= 3) {
+            // NOTIFY_DISMISS 通知消除（与 0x40 配对）：用户在手机上划掉/点开通知。
+            // 当前气泡无法撤回，仅回调记账 —— 为「PC 端通知中心/回跳」等后续功能留状态。
+            const uint16_t keyLen = static_cast<uint16_t>(p[1]) | (static_cast<uint16_t>(p[2]) << 8);
+            if (3 + keyLen <= bodyLen) {
+                const std::string key(reinterpret_cast<const char*>(p + 3), keyLen);
+                if (onNotifyDismiss_) onNotifyDismiss_(key);
+                aNotifyDismiss_.fetch_add(1);
+            }
         }
     }
 
@@ -649,6 +692,10 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         im->onRequestInput_ = std::move(onRequestInput_);
         im->onRemoteInputText_ = std::move(onRemoteInputText_);
         im->onRemoteInputDone_ = std::move(onRemoteInputDone_);
+        // 通知同步回调（0x40/0x42，2026-11-11）：同款搬运 —— start() 之后外层 setter
+        // 再赋值也不会丢（回调成员已归 Impl 所有，外层只是个中转）。
+        im->onNotifyPush_ = std::move(onNotifyPush_);
+        im->onNotifyDismiss_ = std::move(onNotifyDismiss_);
 
         im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (im->listenFd == kBadSock) { im->st.error = "socket 创建失败"; cleanup(); return false; }
@@ -742,6 +789,8 @@ Ctrl9511ServerStatus Ctrl9511Server::status() const {
     s.modeFlags = impl_->modeFlags_.load();
     s.modeReported = impl_->modeReported_.load();
     s.peerCaps = impl_->peerCaps_.load();
+    s.notifyPush = impl_->aNotifyPush_.load();
+    s.notifyDismiss = impl_->aNotifyDismiss_.load();
     /* 注入权限：macOS 无「辅助功能」授权时 CGEventPost 会被系统静默丢弃。
        每次读状态实时问一次（一次 TCC 查询），面板据此打横幅 —— 不让「连上了、
        帧也到了、注入被吞」这种最难查的组合继续伪装成「没反应」。 */
@@ -771,6 +820,8 @@ struct Ctrl9511Client::Impl {
     // 注入计数（发送线程累加，status() 按值返回）
     std::atomic<uint64_t> aMouse_{0}, aTouch_{0}, aKeyboard_{0}, aConsumer_{0};
     std::atomic<uint64_t> aRequestInput_{0}, aInputText_{0}, aInputDone_{0};
+    // 通知同步（0x40/0x42，2026-11-11）：推送/消除计数（PC 控手机时手机是服务端，从这里收）
+    std::atomic<uint64_t> aNotifyPush_{0}, aNotifyDismiss_{0};
     // 心跳 RTT：-1 表示未测得；ping 发出时刻由 ping 线程记录，pong 到达时算差
     std::atomic<int64_t> rttMs_{-1};
     std::atomic<int64_t> pingSentMs_{0};
@@ -876,7 +927,10 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbInputText = onRemoteInputText;
     const auto cbInputDone = onRemoteInputDone;
     const auto cbSpecialKey = onSpecialKey;
-    im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey] {
+    const auto cbNotifyPush = onNotifyPush;
+    const auto cbNotifyDismiss = onNotifyDismiss;
+    im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
+                                    cbNotifyPush, cbNotifyDismiss] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -964,6 +1018,48 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                         for (int i = 0; i < 8; ++i)
                             caps |= static_cast<uint64_t>(payload[1 + i]) << (8 * i);
                         im->peerCaps_.store(caps);
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 7 && payload[0] == 0x40) {
+                    // NOTIFY_PUSH 通知推送（2026-11-11，能力位 bit0）：受控手机推送通知 →
+                    // 托盘气泡。载荷布局与 Android ApxFrame.packNotifyPush 对拍（同服务端 dispatch）：
+                    //   [0x40][keyLen u16 LE][key][titleLen u16 LE][title][textLen u16 LE][text][appLen u8][app]
+                    {
+                        const uint16_t keyLen = static_cast<uint16_t>(payload[1]) | (static_cast<uint16_t>(payload[2]) << 8);
+                        uint32_t off = 3;
+                        if (off + keyLen + 2 <= bodyLen) {
+                            const std::string key(reinterpret_cast<const char*>(payload + off), keyLen);
+                            off += keyLen;
+                            const uint16_t titleLen = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                            off += 2;
+                            if (off + titleLen + 2 <= bodyLen) {
+                                const std::string title(reinterpret_cast<const char*>(payload + off), titleLen);
+                                off += titleLen;
+                                const uint16_t textLen = static_cast<uint16_t>(payload[off]) | (static_cast<uint16_t>(payload[off + 1]) << 8);
+                                off += 2;
+                                if (off + textLen + 1 <= bodyLen) {
+                                    const std::string text(reinterpret_cast<const char*>(payload + off), textLen);
+                                    off += textLen;
+                                    const uint8_t appLen = payload[off];
+                                    off += 1;
+                                    if (off + appLen <= bodyLen) {
+                                        const std::string app(reinterpret_cast<const char*>(payload + off), appLen);
+                                        if (cbNotifyPush) cbNotifyPush(key, title, text, app);
+                                        im->aNotifyPush_.fetch_add(1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 3 && payload[0] == 0x42) {
+                    // NOTIFY_DISMISS 通知消除（与 0x40 配对）：用户在手机上划掉/点开通知。
+                    // 当前仅回调记账（气泡无法撤回），为后续 PC 端通知中心留状态。
+                    {
+                        const uint16_t keyLen = static_cast<uint16_t>(payload[1]) | (static_cast<uint16_t>(payload[2]) << 8);
+                        if (3 + keyLen <= bodyLen) {
+                            const std::string key(reinterpret_cast<const char*>(payload + 3), keyLen);
+                            if (cbNotifyDismiss) cbNotifyDismiss(key);
+                            im->aNotifyDismiss_.fetch_add(1);
+                        }
                     }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
@@ -1158,6 +1254,8 @@ Ctrl9511ClientStatus Ctrl9511Client::status() const {
         s.inputText = impl_->aInputText_.load();
         s.inputDone = impl_->aInputDone_.load();
         s.peerCaps = impl_->peerCaps_.load();   // 能力协商（0x33）：对端能力位图
+        s.notifyPush = impl_->aNotifyPush_.load();       // 通知同步（0x40/0x42）计数
+        s.notifyDismiss = impl_->aNotifyDismiss_.load();
     }
     return s;
 }

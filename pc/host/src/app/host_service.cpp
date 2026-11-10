@@ -167,6 +167,22 @@ int runService(const ServiceOptions& opt) {
         });
         tray->setQuitCallback([] { g_running = false; });
         tray->create("全能外设 · 控制中枢");
+
+        // 通知同步接线（0x40/0x42，2026-11-11）：手机控本机时，手机的通知经 9511
+        // 受控端 dispatch 到这里 → 托盘气泡。回调跑在 reader 线程，TrayIcon::notify
+        // 线程安全；tray 对象活到进程退出（ctrlSrv.stop() 之后才析构），raw 指针无悬挂。
+        apxpc::tray::TrayIcon* trayRaw = tray.get();
+        ctrlSrv.setOnNotifyPush(
+            [trayRaw](const std::string&, const std::string& title,
+                      const std::string& text, const std::string& app) {
+                if (!trayRaw) return;
+                const std::string body = title.empty() ? text
+                                         : (text.empty() || title == text ? title : title + "\n" + text);
+                if (body.empty()) return;
+                trayRaw->notify(app.empty() ? "手机通知" : app, body);
+            });
+        // 消除（0x42）：气泡无法撤回，不接（reader 侧计数记账即可）
+        ctrlSrv.setOnNotifyDismiss(nullptr);
     }
 
     // 开机自启

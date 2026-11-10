@@ -646,6 +646,31 @@ class ControlServer(
         return sendControl(ApxFrame.packRequestInput(hint, 0))
     }
 
+    /**
+     * 发 0x40 通知推送（2026-11-11，能力位 bit0）：把本机一条通知推给对端 —— PC 端
+     * dispatch 收到后转托盘气泡（`TrayIcon::notify`）。调用方是通知使用权监听
+     * （app 模块 `ApxNotificationListener`，经 NotificationSyncBus 的 controlled 通道进来）。
+     *
+     * 能力门控：对端必须报过 [ApxFrame.CAP_NOTIFY_SYNC]（0x33 能力协商）——
+     * 旧版对端没有该机制时安静返回 false，帧族一律不发（发了也进黑洞，还会刷日志）。
+     */
+    fun sendNotificationPush(key: String, title: String, text: String, app: String): Boolean {
+        if (!ready) return false
+        if (peerCaps and ApxFrame.CAP_NOTIFY_SYNC == 0L) return false
+        return sendControl(ApxFrame.packNotifyPush(key, title, text, app) ?: return false)
+    }
+
+    /**
+     * 发 0x42 通知消除（与 [sendNotificationPush] 配对）：用户在本机划掉/点开通知时回发，
+     * PC 端气泡虽无法撤回，但状态机知道该通知已不在了（为后续「PC 端点通知回跳」铺路）。
+     * 能力门控同上。
+     */
+    fun sendNotificationDismiss(key: String): Boolean {
+        if (!ready) return false
+        if (peerCaps and ApxFrame.CAP_NOTIFY_SYNC == 0L) return false
+        return sendControl(ApxFrame.packNotifyDismiss(key) ?: return false)
+    }
+
     fun sendSpecialKey(mod: Int, vk: Int) { sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte())) }
 
     private fun readU32Le(ins: InputStream): Int {

@@ -803,6 +803,39 @@ int runDesktopMain() {
 
     if (cfg.autostart) apxpc::tray::setAutostart(true);
 
+    // —— 通知同步接线（0x40/0x42，2026-11-11）：手机通知 → 托盘气泡 ——
+    // 两条来源：① PC 控手机（WirelessSession 的 9511 客户端收）；② 手机控 PC
+    // （9511 受控端 dispatch 收，仅 Win——mac 的受控端在 panel_http 内，见下）。
+    // 回调跑在 reader 线程：TrayIcon::notify 双平台线程安全，可直接调用；
+    // 托盘析构在 session/ctrlSrv.stop() 之后（退出清理反向顺序），回调无悬挂窗口。
+    {
+        apxpc::tray::TrayIcon* trayRaw = tray.get();
+        auto showNotify = [trayRaw](const std::string& app, const std::string& title,
+                                    const std::string& text) {
+            if (!trayRaw) return;
+            // 气泡排版：标题=应用名；正文=通知标题 + 正文（去重、都空时不冒泡）
+            const std::string body = title.empty() ? text
+                                     : (text.empty() || title == text ? title : title + "\n" + text);
+            if (body.empty()) return;
+            trayRaw->notify(app.empty() ? "手机通知" : app, body);
+        };
+        session->setOnNotifyPush(
+            [showNotify](const std::string&, const std::string& title,
+                         const std::string& text, const std::string& app) {
+                showNotify(app, title, text);
+            });
+        // 消除（0x42）：气泡无法撤回，当前不接 —— 仅 reader 侧计数记账
+        session->setOnNotifyDismiss(nullptr);
+#if defined(_WIN32)
+        ctrlSrv.setOnNotifyPush(
+            [showNotify](const std::string&, const std::string& title,
+                         const std::string& text, const std::string& app) {
+                showNotify(app, title, text);
+            });
+        ctrlSrv.setOnNotifyDismiss(nullptr);
+#endif
+    }
+
     // 球扇形全局热键（M4-c(b)）：装配处注册。mac 的 Carbon 事件靠主线程 AppKit
     // 泵分发，必须在下方 tray->run() 之前注册。
     ballhotkey::start(cfg);

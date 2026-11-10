@@ -388,6 +388,8 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 | 0x31 | 手机模式状态 | 被控（手机）→ 控制端（PC） | `[1]=flags`：bit0 无线可用 bit1 蓝牙可用 bit2 USB 可用 bit3 无线在用 bit4 蓝牙在用 bit5 USB 在用（**可用 ≠ 在用**，bit3..5 最多置一位；无出口时三者皆 0） |
 | `0x32` | 光标浮层开关 | 控制端 → 被控端 | `[0]=0x32 [1]=show(0x00 隐藏 / 0x01 显示)` | 被控端浮层光标（蓝点）由控制端关/开；TvInjector.setOverlayEnabled 统一门控 |
 | `0x33` | 能力协商 | 双向 | `[0]=0x33 [1..8]=caps(u64 LE)` | 连接建立后**两端各发一帧**，接收方存下对端位图（Android 存于 `ControlServer.peerCaps` / `TvControllerClient.peerCaps`；PC 存于 `Ctrl9511{Server,Client}Status.peerCaps`）。发送能力帧前先核对**对端**位图，缺位的一端不发；旧版安静忽略未知帧号。能力位：bit0 通知同步(0x40/0x42)、bit1 通知回复(0x41，预留)、bit2 查找手机(0x38)。位号三处同源：Android `ApxFrame.CAP_*` / PC `ctrl9511.hpp kCaps9511*` / 本表 |
+| `0x40` | 通知推送 | 手机 → PC | `[0]=0x40 [1..2]=keyLen(u16 LE) [..]=key [..2]=titleLen [..]=title [..2]=textLen [..]=text [1]=appLen(u8) [..]=app`（UTF-8；key=Android `StatusBarNotification.key`，PC 回发 0x42 时原样带回；title/text/app 按气泡可读性截断，key 上限 512B、text 上限 4KB） | 手机通知 → PC 托盘气泡（`TrayIcon::notify`）。Android 侧由 `ApxNotificationListener`（通知使用权监听，**默认关**，偏好 + 授权双开关）发出；发送前核对对端能力位含 bit0。PC 两处接收：服务端 dispatch（手机控 PC）与控制端 reader（PC 控手机）。目前仅 Windows 托盘接线（mac 气泡未接） |
+| `0x42` | 通知消除 | 手机 → PC | `[0]=0x42 [1..2]=keyLen(u16 LE) [..]=key` | 用户在手机上划掉/点开通知时回发；PC 端气泡无法撤回，当前仅回调记账（为「PC 端通知中心/回跳」留状态），与 0x40 同门控 |
 | `'p'` | 心跳 | 双向 | 主动方发 `'p'+"ing"`，对端回 `'p'+"ong"`；连续 3 轮无 pong 判定链路失效（见 §3.3.2） |
 
 > v223.6：`0x31` 是面板「无线/蓝牙/USB」三个开关改成**真实状态**的依据。蓝牙与 USB 的真开关在手机端（系统配对 / root 配 gadget），PC 只是被动 host，摆一个拨不动的开关只会让人以为坏了 —— 改成手机每 2s 上报一字节，面板照实显示「可用 / 当前在用」。位序两端各有一份实现（Android `ModeStatus.kt` / PC `phone_mode.hpp`），各有单测用**同一组期望值**钉住。

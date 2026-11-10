@@ -73,6 +73,8 @@ CMD_NAMES = {
     0x31: "模式状态上报（手机 → 控制端面板）",
     0x32: "光标浮层开关（控制端 → 被控端）",
     0x33: "能力协商（连接后两端各报一次，body=能力位图 u64 LE）",
+    0x40: "通知推送（手机 → PC，能力位 bit0）",
+    0x42: "通知消除（手机 → PC，与 0x40 配对）",
 }
 
 
@@ -196,6 +198,16 @@ def cmd_tokens_cpp_client_reader(path: str) -> set[int]:
     return {int(m.group(1), 16) for m in re.finditer(r"payload\[0\]\s*==\s*0x([0-9A-Fa-f]{2})", text)}
 
 
+def cmd_tokens_kotlin_const(path: str) -> dict[int, str]:
+    """ApxFrame.kt 的 `CMD_* = 0xNN` 常量：组帧收口在 packer（packNotifyPush 等），
+    发送侧不再重复命令号字面量 —— 这些常量即两端共享的发送命令号，按发送侧计。"""
+    out: dict[int, str] = {}
+    text = read_text(path) or ""
+    for m in re.finditer(r"CMD_([A-Z_0-9]+)\s*=\s*0x([0-9A-Fa-f]{2})", text):
+        out[int(m.group(2), 16)] = m.group(1)
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -294,6 +306,10 @@ def main() -> int:
         os.path.join(app_pkg, "wireless", "TvControllerClient.kt"))
     senders["app 被控应答"] = cmd_tokens_kotlin_send(
         os.path.join(app_pkg, "controlled", "TvControlServer.kt"))
+    # v1.9：组帧收口进 ApxFrame packer（packNotifyPush/packNotifyDismiss）后，
+    # 命令号只以 CMD_* 常量形式存在于共享模块 —— 这些常量按两端共享的发送侧计。
+    senders["kotlin 协议常量"] = set(cmd_tokens_kotlin_const(
+        os.path.join(shared_pkg, "proto", "ApxFrame.kt")))
     senders["pc 控制端"] = cmd_tokens_cpp_send(ctrl_cpp)
     receivers["app 被控"] = cmd_tokens_kotlin_dispatch(
         os.path.join(app_pkg, "controlled", "TvControlServer.kt"))
