@@ -1,0 +1,49 @@
+[ 11%] Built target apx_shared
+[ 25%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 51%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/app/host_service.cpp:174:32: error: redefinition of 'trayRaw'
+  174 |         apxpc::tray::TrayIcon* trayRaw = tray.get();
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/app/host_service.cpp:163:25: note: previous definition is here
+  163 |         tray::TrayIcon* trayRaw = tray.get();
+      |                         ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o] Error 1
+[ 53%] Building CXX object CMakeFiles/apxpc_service.dir/src/tray/tray_win32.cpp.o
+[ 55%] Building CXX object CMakeFiles/apxpc_service.dir/src/autostart.cpp.o
+[ 56%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/registry.cpp.o
+[ 58%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/fx.cpp.o
+[ 60%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/ball_win32.cpp.o
+[ 61%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/app/update_check_mac.mm.o
+[ 63%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 75%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 25%] Built target apxpc_core
+[ 35%] Built target apxpc_media
+[ 45%] Built target apxpc_discovery
+[ 50%] Built target apxpc_sensors
+[ 51%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/app/host_service.cpp:174:32: error: redefinition of 'trayRaw'
+  174 |         apxpc::tray::TrayIcon* trayRaw = tray.get();
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/app/host_service.cpp:163:25: note: previous definition is here
+  163 |         tray::TrayIcon* trayRaw = tray.get();
+      |                         ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 63%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
