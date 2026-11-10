@@ -406,7 +406,11 @@ class RemoteActivity : Activity() {
             if (landscape) {
                 cell.addView(
                     plate(label) { action() },
-                    FrameLayout.LayoutParams(-1, -1, Gravity.CENTER).apply { margin = dp(3) },
+                    // framework 的 MarginLayoutParams 没有统一 margin 属性（那是 Compose 的），
+                    // 四边一起设要走 setMargins()
+                    FrameLayout.LayoutParams(-1, -1, Gravity.CENTER).apply {
+                        setMargins(dp(3), dp(3), dp(3), dp(3))
+                    },
                 )
             } else {
                 cell.addView(
