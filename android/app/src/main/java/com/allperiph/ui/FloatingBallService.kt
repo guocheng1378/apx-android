@@ -291,6 +291,30 @@ class FloatingBallService : Service() {
         }
 
         /**
+         * 切后台自愈的**进程内补球**（issue#168 建议 11 的 v223.29.50 补课）。
+         *
+         * v223.29.48 只走了 [ensureRunningIfWanted] 一条路：服务活着时它直接返回
+         * false（什么都不做），服务不在时又卡在 Android 12+ 的后台前台服务启动限制上
+         * ——`onStop` 时应用已进后台，`startForegroundService` 会被系统直接拒绝
+         * （ForegroundServiceStartNotAllowedException，被 runCatching 吞掉只剩日志），
+         * 真机表现就是「切了后台球不出来」。真机上「服务不在」几乎只发生在用户手动关
+         * （意愿位 off，本来就不该拉），所以**最常见的缺口其实是服务活着、球没挂**。
+         *
+         * 这条路不经过服务启动：活着就原地补挂（[addBall]），面板 / 菜单展开期间球是
+         * 刻意收起的（collapse 时还球），不越俎代庖。服务真不在时仍退回
+         * [ensureRunningIfWanted]（老系统可用），被拒则等主壳 `onResume` 回前台兜底
+         * ——前台启动无限制，回来必补上。
+         */
+        fun restoreBallIfNeeded(c: Context) {
+            if (!isOn(c)) return
+            val svc = live ?: return
+            if (svc.panel != null || svc.menu != null) return
+            if (svc.ballAttached) return
+            runCatching { svc.addBall() }
+                .onFailure { Log.w(TAG, "切后台补球失败：${it.message}") }
+        }
+
+        /**
          * 悬浮窗权限判读（v223.29.1 第 5 条修复的核心）。
          *
          * **不要单独用 [Settings.canDrawOverlays] 当判据。** 真机实测（2026-11-02，
@@ -761,7 +785,10 @@ class FloatingBallService : Service() {
         lp.width = w
         lp.height = h
         lp.x = if (leftSide) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
-        lp.y = (cy - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
+        // ⚠️ cy 是**屏幕**坐标，lp.y 是**父框**坐标（父框顶被状态栏顶下去）——
+        // 直接把 cy - h/2 写进 lp.y 会把条整体压低一个状态栏高度（真机 48dp），
+        // 用户看到的「线条下移一段距离、和球原来的高度不一致」就是这一行（v223.29.49 修）。
+        lp.y = (cy - top - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
         v.setBackgroundResource(R.drawable.bg_ball_dock)
         v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.GONE
         runCatching { wm.updateViewLayout(v, lp) }
@@ -778,8 +805,11 @@ class FloatingBallService : Service() {
         val s = dp(BALL_DP)
         lp.width = s
         lp.height = s
-        lp.x = (cx - s / 2f).toInt().coerceIn(0, (dm.widthPixels - left - s).coerceAtLeast(0))
-        lp.y = (cy - s / 2f).toInt().coerceIn(0, (dm.heightPixels - top - s).coerceAtLeast(0))
+        // ⚠️ cx/cy 是屏幕坐标，lp.x/lp.y 是父框坐标（原点被状态栏/左 inset 顶下去）——
+        // 必须先减掉 parentOffset 再落 lp，否则恢复成球时整体向右下漂一个 inset
+        // （用户反馈「点开线条后球向左下移、高度位置都变了」的根因之一，v223.29.49 修）。
+        lp.x = (cx - left - s / 2f).toInt().coerceIn(0, (dm.widthPixels - left - s).coerceAtLeast(0))
+        lp.y = (cy - top - s / 2f).toInt().coerceIn(0, (dm.heightPixels - top - s).coerceAtLeast(0))
         v.setBackgroundResource(R.drawable.bg_floating_ball)
         v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.VISIBLE
         runCatching { wm.updateViewLayout(v, lp) }
@@ -802,6 +832,9 @@ class FloatingBallService : Service() {
         // 免得球心仍落在吸附阈值内，下次一拖就又变条。
         lp.x = if (wasLeft) min(dp(BALL_DP), (dm.widthPixels - dp(BALL_DP)).coerceAtLeast(0))
                else (dm.widthPixels - dp(BALL_DP) * 2).coerceAtLeast(0)
+        // ⚠️ 上面改了 lp.x 必须落回 WindowManager：applyBallShape 内部那次 update 是在
+        // 这行**之前**执行的，漏写的话球会停在恢复那一刻的位置（贴边半嵌），
+        // 直到下一次拖动才被 moveBall 带进屏内（v223.29.49 修）。
         publishBallPosition(v)
         // v223.29.11 动效：变回圆球时从压缩态回弹
         v.scaleX = 0.6f
@@ -868,7 +901,8 @@ class FloatingBallService : Service() {
         lp.width = w
         lp.height = h
         lp.x = if (dockLeft) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
-        lp.y = (cy - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
+        // 同 applyDockShape：cy 是屏幕坐标，lp.y 是父框坐标，先减 top（v223.29.49 修）
+        lp.y = (cy - top - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
         dockHidden = true
         v.alpha = DOCK_HIDDEN_ALPHA
         runCatching { wm.updateViewLayout(v, lp) }

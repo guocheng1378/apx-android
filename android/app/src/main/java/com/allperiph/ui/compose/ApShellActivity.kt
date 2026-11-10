@@ -862,6 +862,10 @@ class ApShellActivity : ComponentActivity() {
         OrientLock.apply(this)
         // 剪贴板同步（旧主壳里由 MainActivity 挂载，迁到新宿主后同一个入口）
         com.allperiph.ui.ClipboardSync.register(this)
+        // issue#168 建议 11 的回前台兜底（v223.29.50）：onStop 已进后台时
+        // startForegroundService 可能被系统拒，服务不在的球就在回前台这一刻补拉
+        // （前台启动无限制）。内部幂等：服务活着 / 意愿位关着都是 no-op。
+        runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
     }
 
     override fun onPause() {
@@ -872,10 +876,11 @@ class ApShellActivity : ComponentActivity() {
     override fun onStop() {
         super.onStop()
         // issue#168 建议 11：返回桌面 / 切到其它 app 时自动把悬浮球放回屏上。
-        // 自愈入口内部多重门禁：服务还活着是 no-op、用户意愿位关过不拉（手动关过
-        // 就不打扰）、悬浮窗权限被撤也不拉 —— 只有「球该在却不在」这一种情况真的
-        // 起服务。force 跳过 60 秒自愈冷却：离开应用本身就是确认球该在的时刻，
-        // 等下一轮自检闹钟（2 分钟）球缺席太久。
+        // 两级自愈（v223.29.50 补课）：服务活着走进程内补球（不碰服务启动）——
+        // Android 12+ 起后台 startForegroundService 会被系统拒绝，v223.29.48 在真机
+        // 上正是死在这里（runCatching 吞掉，只剩「切了后台球不出来」）；
+        // 服务不在才退回服务级拉起（老系统可用，新系统被拒则等 onResume 回前台兜底）。
+        runCatching { com.allperiph.ui.FloatingBallService.restoreBallIfNeeded(this) }
         runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
     }
 
