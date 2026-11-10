@@ -601,7 +601,7 @@ class TouchpadActivity : Activity() {
             val sc = ScrollView(this).apply {
                 isVerticalScrollBarEnabled = true
                 setVerticalScrollbarPosition(View.SCROLLBAR_POSITION_LEFT)
-                scrollbarStyle = View.SCROLLBARS_INSIDE_OVERLAY
+                scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY   // 属性名是大写 B（View.setScrollBarStyle）
                 addView(hotkeySection, FrameLayout.LayoutParams(-1, -2))
             }
             col.addView(sc, LinearLayout.LayoutParams(dp(190), -1).apply { leftMargin = dp(10) })

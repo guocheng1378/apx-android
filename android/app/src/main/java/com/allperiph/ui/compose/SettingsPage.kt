@@ -72,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import com.allperiph.ui.BallIcon
 
 /**
@@ -805,8 +806,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                     },
                                 // 预览色对齐球面观感：未选中次级文字色、选中主题主色 ——
                                 // 选中态靠描边 + 着色双通道，只靠描边在 36dp 上不够醒目。
-                                colorTint = if (selected) MiuixTheme.colorScheme.primary
-                                            else MiuixTheme.colorScheme.onSurfaceSecondary,
+                                // foundation.Image 没有 colorTint 参数，着色走 colorFilter.tint
+                                // （Miuix 的 Icon 才有 colorTint 这名字，别混）。
+                                colorFilter = ColorFilter.tint(
+                                    if (selected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurfaceSecondary,
+                                ),
                             )
                         }
                     }
