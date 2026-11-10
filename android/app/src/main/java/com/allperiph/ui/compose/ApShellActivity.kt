@@ -92,9 +92,13 @@ class ApShellActivity : ComponentActivity() {
     private var fourStartX = -1f
     private var fourSwiped = false
 
-    /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写 */
-    @Volatile
-    private var pageState = 0
+    /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写。
+     *  必须是快照状态（成宇 2026-11-10「横屏的四指切页好像不能用」）：此前是普通
+     *  `@Volatile` 字段，四指滑在 dispatchTouchEvent 里只改它、不同时写 `page`，
+     *  而 `LaunchedEffect(pageState)` 的 key 是组合期读到的值 —— 改普通字段不会
+     *  触发重组，同步 effect 永远不再跑，界面纹丝不动。改成 snapshot state 后
+     *  任何一处写它都会让读它的组合失效，四指切页即时生效。 */
+    private var pageState by androidx.compose.runtime.mutableStateOf(0)
 
     /** 退出确认弹窗开关（v223.28 补回旧 MainActivity 迁移时整块丢掉的那份） */
     private val showExitAsk = androidx.compose.runtime.mutableStateOf(false)
