@@ -10,11 +10,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -25,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.BoxWithConstraints
 import android.content.res.Configuration
@@ -141,7 +145,14 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(colorResource(R.color.overlay_scrim))) {
+    // b64（issue#168 第 5 条）：面板从 edge-to-edge 起是贴屏顶画的，L1 / R1 顶到状态栏
+    // 区域里点不到。整个根盒垫上状态栏 insets —— 悬浮球 overlay 宿主 insets 为 0，不受影响。
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .background(colorResource(R.color.overlay_scrim))
+    ) {
         // 出口状态 + 指引（顶部居中；左右各让 100dp 避开 L1 / R1，也避开左上角 ✕）
         Column(
             modifier = Modifier
@@ -152,6 +163,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             Text(
                 text = statusLine,
                 fontSize = 12.sp,
+                textAlign = TextAlign.Center, // issue#168 第 8 条：提示文字居中 + 自动换行
                 color = if (statusOk) colorResource(R.color.overlay_pad_ok) else colorResource(R.color.overlay_pad_warn),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -159,6 +171,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 Text(
                     text = adviceLine,
                     fontSize = 10.5.sp,
+                    textAlign = TextAlign.Center, // 同上
                     color = colorResource(R.color.overlay_pad_text_dim),
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                 )

@@ -142,23 +142,17 @@ class RemoteActivity : Activity() {
         // ★ 电源行提到**拨盘上方**：贴顶、离拇指最近，也符合"先开关机、再操作"的顺序；
         //   拨盘下方依次是 功能 / 音量 / 媒体 三行。
         val rows = rows()
-        addRow(col, rows[0], topMarginDp = 4, rowWeight = if (landscape) null else 0.78f)
+        addRow(col, rows[0], topMarginDp = 4, rowWeight = 0.78f)
 
-        if (landscape) {
-            // 横屏：左拨盘 / 右三行圆钮（各半宽、整高）——竖排会被压成一条缝
-            val dual = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            dual.addView(wrapDial(), LinearLayout.LayoutParams(0, -1, 1f))
-            val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            addKeyRows(right, rows, rowWeight = 1f, firstTopMarginDp = 6)
-            dual.addView(right, LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(14) })
-            col.addView(dual, LinearLayout.LayoutParams(-1, 0, 1f))
-        } else {
-            // 竖屏：拨盘比原先**小一档**。原先给 3.2 权重时它的高度超过屏宽，
-            //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
-            //   剩下的高度分给三行圆钮。
-            col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
-            addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
-        }
+        // b64（issue#168 第 6 条）：横屏不再走「左拨盘 / 右三行」分栏 —— 真机上分栏被压得
+        // 按钮缺字、行与行错位（真机截图 22:21）。横竖屏统一用竖屏同一套上下排布：拨盘是
+        // 正方（DialLayout 取 min(宽,高) 收敛成圆），三行圆钮占满剩余高度；横屏高度小、
+        // 每行矮一档但完整无缺，用户建议的「横屏直接用竖屏布局」即此。
+        // 竖屏：拨盘比原先**小一档**。原先给 3.2 权重时它的高度超过屏宽，
+        //   被 DialLayout 收敛成"几乎占满宽度"的正圆；现在降到 1.7（约 250dp），
+        //   剩下的高度分给三行圆钮。
+        col.addView(wrapDial(), LinearLayout.LayoutParams(-1, 0, 1.7f))
+        addKeyRows(col, rows, rowWeight = 0.85f, firstTopMarginDp = 12)
 
         col.addView(TextView(this).apply {
             text = getString(R.string.ui_remote_text_reboot_poweroff_volume_home)

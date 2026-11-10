@@ -248,11 +248,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             modifier = Modifier
                 .width(180.dp)
                 .fillMaxHeight()
-                .verticalScroll(rememberScrollState())
                 // 左侧分类列只垫 8dp：横屏那张低栏挪到了**右上角**，左侧这一竖列
                 // 与它不重叠，跟着垫 96dp 只会在左上角留一段没用的空档。
-                .padding(start = 12.dp + insets.left, top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(start = 12.dp + insets.left, top = 8.dp)
+                // issue#168 第 3 条：横屏左侧四签「靠左居中」—— 四项固定、总高有限
+                // （约 4×48dp，最矮的横屏窗口也放得下），竖直居中比贴顶好看；
+                // 去掉防御性滚动（可滚动布局里居中参数不生效）。
+                ,
+            verticalArrangement = Arrangement.Center,
         ) {
             catLabels.forEachIndexed { idx, name ->
                 ApComponents.TabChip(
@@ -1190,7 +1193,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             },
                         )
                     }
-                    ApComponents.NarrowButton(
+                    // issue#168 第 3 条：这是模板管理区唯一的页级动作按钮，别的动作按钮都是
+                    // 整行居中，就它随文字宽靠左 —— 升级成 ActionButton 与周围对齐。
+                    ApComponents.ActionButton(
                         text = "从内置模板新建一份可改的",
                         onClick = {
                             val used = customs.map { it.name }.toSet()

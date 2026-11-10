@@ -307,17 +307,24 @@ class TouchpadActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        // b17 方案 C 的横屏 FULL 真键盘在「建面板那一刻」就定型（quickKeyboard 读当时的
-        // orientation）；本壳 Activity 声明 configChanges（旋转不重建），面板不重建就永远
-        // 停在竖屏排 —— 用户看到的「横屏设计的键盘布局没了」。旋转时就地重建键盘页，
-        // 横竖屏互转都能拿到对应排布；页签回到默认的快捷键位（keyboardPage 本就如此）。
+        // b17 方案 C 起键盘横屏排布在「建面板那一刻」定型；本壳 Activity 声明 configChanges
+        // （旋转不重建），面板不重建就永远停在旧排。b64（issue#168 第 1 条）起触控板页
+        // （左右分栏）与副屏页（两卡并排）同样按方向定型 —— 旋转时三页一起就地重建，
+        // 页签保持原页，键盘页保持原键位页签。
         if (!::flipper.isInitialized || !::kbPager.isInitialized) return
         modBtns.clear() // 修饰键按钮随旧面板作废，重建时统一重新登记，refreshMods 不得摸旧视图
         val keep = flipper.displayedChild
+        val keepKb = kbPager.displayedChild
+        flipper.removeViewAt(PAGE_TOUCHPAD)
+        flipper.addView(touchpadPage(), PAGE_TOUCHPAD)
         flipper.removeViewAt(PAGE_KEYBOARD)
         flipper.addView(keyboardPage(), PAGE_KEYBOARD)
+        flipper.removeViewAt(PAGE_DISPLAY)
+        flipper.addView(displayPage(), PAGE_DISPLAY)
         flipper.displayedChild = keep
+        showKeyboard(keepKb) // 重排后的键盘页回到原键位页签
         refreshMods() // 重排后的修饰键补同步 sticky 高亮（与 onCreate 后手动切换同一状态源）
+        updateDisplayStatus() // 副屏页重建后状态行补一次当前值（否则停在空文案）
     }
 
     @Deprecated("Deprecated in Java")
@@ -521,10 +528,17 @@ class TouchpadActivity : Activity() {
         return col
     }
 
-    /** 手势面占满剩余空间；页面内子视图除 chips 外均不可点击 → 事件兜底到 Activity.onTouchEvent */
+    /**
+     * 手势面占满剩余空间；页面内子视图除 chips 外均不可点击 → 事件兜底到 Activity.onTouchEvent。
+     * 横屏（issue#168 第 1 条）：竖排会把高度耗尽 —— 手势面被顶成 0、快捷键裁半。
+     * 改成**左右分栏**（与主页触控板同思路）：手势面在左占满整高，快捷键栏在右一列
+     * （网格 perRow=2），宽度富余的横屏正好各得其所。旋转不重建 Activity，切换由
+     * [onConfigurationChanged] 重建整页生效。
+     */
     private fun touchpadPage(): View {
+        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = if (land) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             setPadding(dp(16), 0, dp(16), dp(10))
         }
         val area = FrameLayout(this).apply {
@@ -542,7 +556,8 @@ class TouchpadActivity : Activity() {
         area.addView(hint, FrameLayout.LayoutParams(-1, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
             topMargin = dp(14)
         })
-        col.addView(area, LinearLayout.LayoutParams(-1, 0, 1f))
+        // 竖屏：手势面吃掉热键栏之外的整列高度；横屏：手势面吃掉右侧栏之外的整行宽度
+        col.addView(area, if (land) LinearLayout.LayoutParams(0, -1, 1f) else LinearLayout.LayoutParams(-1, 0, 1f))
         tpPageCol = col
         tpArea = area
         tpHint = hint
@@ -577,7 +592,12 @@ class TouchpadActivity : Activity() {
         val hotkeySection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         hotkeySection.addView(head)
         hotkeySection.addView(chips, LinearLayout.LayoutParams(-1, -2))
-        col.addView(hotkeySection, LinearLayout.LayoutParams(-1, -2))
+        // 竖屏：热键栏在下方按内容高度走；横屏：整列搬到右侧固定宽（perRow 改 2，见 boardStyle）
+        col.addView(
+            hotkeySection,
+            if (land) LinearLayout.LayoutParams(dp(190), -1).apply { leftMargin = dp(10) }
+            else LinearLayout.LayoutParams(-1, -2)
+        )
         tpHotkeySection = hotkeySection
         // 快捷键网格：行为与主页完全同一份实现（ui/HotkeyBoard），这里只给中性色皮肤
         hotkeyBoard = com.allperiph.ui.HotkeyBoard(this, chips, { boardStyle() })
@@ -585,18 +605,25 @@ class TouchpadActivity : Activity() {
         return col
     }
 
-    /** 操控面版皮肤：中性色（与主页的模板色区分开），每行 4 个 */
-    private fun boardStyle(): com.allperiph.ui.HotkeyBoard.Style = com.allperiph.ui.HotkeyBoard.Style(
+    /**
+     * 操控面版皮肤：中性色（与主页的模板色区分开）。每行个数随横竖屏走（issue#168 第 1 条）：
+     * 竖屏 4 个/行；横屏热键栏变成右侧窄列，改 2 个/行，免得 4 个挤在 190dp 里字都放不下。
+     * 渲染在 touchpadPage() 里随整页重建走，旋转后自然按新方向取值。
+     */
+    private fun boardStyle(): com.allperiph.ui.HotkeyBoard.Style {
+        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        return com.allperiph.ui.HotkeyBoard.Style(
         chipText = cText,
         chipBg = cCard,
         chipStroke = cStroke,
         chipRadiusDp = 14,
         padVDp = 13,
-        perRow = 4,
+        perRow = if (land) 2 else 4,
         accent = cAccent,
         textPrimary = cText,
         textSecondary = cText2,
-    )
+        )
+    }
 
 
     // —————————————————————————— 第 1 页：键盘（三套键位） ——————————————————————————
@@ -685,11 +712,10 @@ class TouchpadActivity : Activity() {
             })
         }
         col.addView(modRow, LinearLayout.LayoutParams(-1, 0, 1f))
-        if (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
-            // b17 方案 C：横屏按现实真键盘排（15u 行制变宽）；weight 6f 对齐竖屏 6 行比例
-            col.addView(keyGrid(com.allperiph.ui.KeyLayouts.FULL), LinearLayout.LayoutParams(-1, 0, 6f))
-            return col
-        }
+        // b64（issue#168 第 1 条）：横屏不再切 FULL 真键盘排 —— 操控面横屏可用高度只有
+        // 竖屏的一半，FULL 的 8 行（修饰 + 符号 + 数字 + 3 字母 + F 区）每行摊不到 30dp，
+        // 键帽被压成字都放不下的细条（真机截图 22:09）。改回与竖屏同一套 6 行 letterRows，
+        // 行高翻倍按钮回到可按的尺寸；要完整 F 区 / 导航键去主页键盘页（横屏走壳内重排）。
         com.allperiph.ui.KeyPref.letterRows(this).forEach { labels ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             val g = dp(dens.gapDp)
@@ -1098,9 +1124,14 @@ class TouchpadActivity : Activity() {
     }
 
     // —————————————————————————— 第 2 页：副屏（显示）+ 链接 TV/PC ——————————————————————————
+    /**
+     * 副屏页。横屏（issue#168 第 1 条）：竖排两张卡会把「链接设备」两个按钮挤到屏外，
+     * 改成左右两卡各占一半宽；竖屏保持上下排（竖屏截图显示完整，不动）。
+     */
     private fun displayPage(): View {
+        val land = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = if (land) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(10))
         }
         // 副屏（显示）状态卡
@@ -1124,20 +1155,28 @@ class TouchpadActivity : Activity() {
             text = getString(R.string.ui_touchpad_text_screen_recv_fullscreen_local)
             setTextColor(cText2); textSize = 12f
         })
-        col.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        // 竖屏：状态卡整行宽、底部留 12dp；横屏：状态卡占左半列（与右侧链接卡同行）
+        col.addView(
+            card,
+            if (land) LinearLayout.LayoutParams(0, -1, 1f).apply { rightMargin = dp(8) }
+            else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
+        )
 
-        // 链接设备
-        col.addView(TextView(this).apply {
-            text = getString(R.string.ui_touchpad_text_device)
-            setTextColor(cAccent); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.06f
-            setPadding(dp(4), 0, 0, dp(8))
-        })
         val linkCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.bg_card)
             setPadding(dp(18), dp(18), dp(18), dp(18))
         }
+        // 链接设备标题：竖屏作为独立小标题挂在卡上方；横屏塞进链接卡内部当卡头
+        // （横屏两卡左右分栏，中间不能插一条整行标题 —— issue#168 第 1 条）
+        val linkTitle = TextView(this).apply {
+            text = getString(R.string.ui_touchpad_text_device)
+            setTextColor(cAccent); textSize = 13f; typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.06f
+            setPadding(dp(4), 0, 0, dp(8))
+        }
+        if (land) linkCard.addView(linkTitle, 0)
+        else col.addView(linkTitle)
         val tvBtn = Button(this).apply {
             text = getString(R.string.ui_main_item_link)
             setBackgroundResource(R.drawable.bg_btn_primary)
@@ -1162,7 +1201,12 @@ class TouchpadActivity : Activity() {
             }
         }
         linkCard.addView(pcBtn, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
-        col.addView(linkCard, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        // 竖屏：链接卡整行宽；横屏：占右半列（issue#168 第 1 条，两个按钮不再被挤出屏）
+        col.addView(
+            linkCard,
+            if (land) LinearLayout.LayoutParams(0, -1, 1f).apply { leftMargin = dp(8) }
+            else LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
+        )
         return col
     }
 
