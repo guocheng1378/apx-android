@@ -179,7 +179,7 @@ object BallLatestPhoto {
 
     /**
      * 解码待发首张缩略图（后台线程，回主线程 [onReady]）—— 与 [loadThumb] 同口径，
-     * 但针对多选结果 URI：九追起结果是**本地快照 file://**（[PhotoPickActivity] 落
+     * 但针对多选结果 URI：九追起结果是本地快照（file://，[PhotoPickActivity] 落
      * 缓存，避开厂商收回 picker uri 授权的问题），用 BitmapFactory 按解码边界降采样；
      * 极旧的 picker uri（快照失败残留）仍走 [ContentResolver.loadThumbnail]。
      */
@@ -292,7 +292,7 @@ object BallLatestPhoto {
      * 收到的是 1157B 的 file.bin —— FileSender.queryName 查不到 DISPLAY_NAME、
      * openInputStream 只吐 1KB 假数据；文件面板正常说明 9512 链路本身通）。
      *
-     * 流程：九追起多选结果优先是**本地快照 file://**（[PhotoPickActivity] 落缓存，
+     * 流程：九追起多选结果优先是本地快照（file://，[PhotoPickActivity] 落缓存，
      * 规避厂商收回 picker uri 授权）—— 本地文件直接走 [FileSender.send] 的 File 版，
      * 探大小用 File.length、文件名用快照文件名（快照时已带原始名），不需要兜底；
      * 快照失败退回原 uri 时才走原兜底：先 openFileDescriptor 探真实大小 ——
