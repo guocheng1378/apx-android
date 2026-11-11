@@ -1355,6 +1355,10 @@ private fun KeyBox(
                 onClick()
                 kotlinx.coroutines.delay(55)
             }
+        } else {
+            // 全审查条 10：按压被 CANCEL（手势滑出键面）时 click 不回调，滞留的
+            // repeatFired 会把下一次点按整个吞掉 —— 松开/取消一律复位。
+            repeatFired = false
         }
     }
     if (keycap == KeyPref.KEYCAP_GLASS) {

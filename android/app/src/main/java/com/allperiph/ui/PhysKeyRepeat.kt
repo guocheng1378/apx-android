@@ -36,8 +36,14 @@ internal object PhysKeyRepeat {
 
     /** 首次按下：按住不放 + 起 400ms 连发定时器 */
     fun start(c: HidKeys.Combo) {
-        stop(-1)
+        // 全审查条 4：换键接管连发时只停拍 + 只放上一颗连发键 —— 旧实现走
+        // stop(-1) 全释放（releaseNow），把用户还按着的其它键一并误放掉
+        //（如 A 键还按着、B 键接管连发，A 应保持按下）。
+        beat?.let { handler.removeCallbacks(it) }
+        beat = null
+        val prev = combo
         combo = c
+        if (prev != null) HidKeys.releaseHold(prev.usage) else HidKeys.releaseNow()
         HidKeys.hold(c)
         val r = object : Runnable {
             override fun run() {

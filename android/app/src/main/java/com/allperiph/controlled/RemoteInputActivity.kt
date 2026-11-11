@@ -323,6 +323,10 @@ class RemoteInputActivity : ComponentActivity() {
                     onClick()
                     kotlinx.coroutines.delay(55)
                 }
+            } else {
+                // 全审查条 10：按压被 CANCEL 时 click 不回调，滞留的 repeatFired
+                // 会吞掉下一次点按 —— 松开/取消一律复位。
+                repeatFired = false
             }
         }
         val host = androidx.compose.ui.platform.LocalView.current
