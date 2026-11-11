@@ -112,9 +112,11 @@ fun TouchpadPage(
     )
     val insets = rememberApInsets()
     Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = insets.left, end = insets.right),
+        modifier = Modifier.fillMaxSize(),
+        // 2026-11-12 用户拍板「手势区也改撑满，其他页不动」：此前 Row 级左右挖孔
+        // insets 把横屏手势面左右各垫掉一条（与键盘页 8b91988 同一稿 02 旧口径）。
+        // 手势面整面无文字、指头落点不受键帽约束，挖孔回避废止 —— insets 只保留
+        // 给快捷键栏（有文字，维持原垫边不变），手势面左右铺到屏缘。
     ) {
       Column(modifier = Modifier.weight(1f)) {
         ApTouchpadSurface(
@@ -131,11 +133,14 @@ fun TouchpadPage(
         )
 
         if (!wide) {
-            HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap, fixedRows = HOTKEY_FIXED_ROWS)
+            Box(modifier = Modifier.padding(start = insets.left, end = insets.right)) {
+                HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap, fixedRows = HOTKEY_FIXED_ROWS)
+            }
         }
       }
       if (wide) {
-          Box(modifier = Modifier.width(sideWidth).fillMaxHeight()) {
+          Box(modifier = Modifier.width(sideWidth).fillMaxHeight()
+              .padding(end = insets.right)) {
               HotkeyGrid(ctx = ctx, topBar = topBar, bottomGap = bottomGap)
           }
       }
