@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -131,6 +132,27 @@ internal fun GamepadPanel(onExit: () -> Unit) {
     var padConfiguring by remember { mutableStateOf<String?>(null) }
     var padConfigVersion by remember { mutableIntStateOf(0) }
 
+    // issue#168 追补（长按拖动移位）：每槽位的附加偏移（dp），从配置读初值；
+    // 长按后拖动实时改、松手落盘（[GamepadPadConfig.setOffset]），下次进面板仍生效。
+    val padCtx = LocalContext.current
+    var padOffsets by remember {
+        mutableStateOf(
+            GamepadPadConfig.SLOT_DEFAULTS.keys.associateWith { GamepadPadConfig.offset(padCtx, it) },
+        )
+    }
+    val padMoveBy: (String, Float, Float) -> Unit = { slot, dx, dy ->
+        val cur = padOffsets[slot] ?: (0f to 0f)
+        padOffsets = padOffsets + (slot to ((cur.first + dx) to (cur.second + dy)))
+    }
+    val padMoveEnd: (String) -> Unit = { slot ->
+        val off = padOffsets[slot] ?: (0f to 0f)
+        GamepadPadConfig.setOffset(padCtx, slot, off.first, off.second)
+    }
+    fun padDrag(slot: String): Pair<Dp, Dp> {
+        val off = padOffsets[slot] ?: (0f to 0f)
+        return off.first.dp to off.second.dp
+    }
+
     DisposableEffect(Unit) {
         val ui = Handler(Looper.getMainLooper())
         val refresh = {
@@ -205,30 +227,38 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
 
         // 肩键 L1 / R1（顶部两角；L1 右移避开左上角的 ✕）
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 72.dp, y = 14.dp)) {
+        val l1Drag = padDrag("L1")
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 72.dp + l1Drag.first, y = 14.dp + l1Drag.second)) {
             Pad(
                 label = "L1", bit = GamepadController.BTN_L1, size = 78.dp, slot = "L1",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "L1" },
+                onMoveBy = { dx, dy -> padMoveBy("L1", dx, dy) }, onMoveEnd = { padMoveEnd("L1") },
             )
         }
-        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-24).dp, y = 14.dp)) {
+        val r1Drag = padDrag("R1")
+        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-24).dp + r1Drag.first, y = 14.dp + r1Drag.second)) {
             Pad(
                 label = "R1", bit = GamepadController.BTN_R1, size = 78.dp, slot = "R1",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "R1" },
+                onMoveBy = { dx, dy -> padMoveBy("R1", dx, dy) }, onMoveEnd = { padMoveEnd("R1") },
             )
         }
 
         // Select / Start（底部中央）
-        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = (-64).dp, y = (-18).dp)) {
+        val selDrag = padDrag("Sel")
+        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = (-64).dp + selDrag.first, y = (-18).dp + selDrag.second)) {
             Pad(
                 label = "Sel", bit = GamepadController.BTN_SELECT, size = 64.dp, slot = "Sel",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "Sel" },
+                onMoveBy = { dx, dy -> padMoveBy("Sel", dx, dy) }, onMoveEnd = { padMoveEnd("Sel") },
             )
         }
-        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = 64.dp, y = (-18).dp)) {
+        val startDrag = padDrag("Start")
+        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(x = 64.dp + startDrag.first, y = (-18).dp + startDrag.second)) {
             Pad(
                 label = "Start", bit = GamepadController.BTN_START, size = 64.dp, slot = "Start",
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "Start" },
+                onMoveBy = { dx, dy -> padMoveBy("Start", dx, dy) }, onMoveEnd = { padMoveEnd("Start") },
             )
         }
 
@@ -263,21 +293,29 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // 非 Expanded 时 dx/dy 为 0，四个偏移与原实测值完全一致，手机横屏不变。
         val abxyShift = if (expandedPad) 221.dp - maxWidth / 2 else 0.dp
         val abxyLift = if (expandedPad) (-40).dp else 0.dp
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp + abxyShift, y = (-102).dp + abxyLift)) {
+        val aDrag = padDrag("A")
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-180).dp + abxyShift + aDrag.first, y = (-102).dp + abxyLift + aDrag.second)) {
             Pad(label = "A", bit = GamepadController.BTN_A, slot = "A",
-                configVersion = padConfigVersion, onConfigure = { padConfiguring = "A" })
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "A" },
+                onMoveBy = { dx, dy -> padMoveBy("A", dx, dy) }, onMoveEnd = { padMoveEnd("A") })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift, y = (-60).dp + abxyLift)) {
+        val bDrag = padDrag("B")
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift + bDrag.first, y = (-60).dp + abxyLift + bDrag.second)) {
             Pad(label = "B", bit = GamepadController.BTN_B, slot = "B",
-                configVersion = padConfigVersion, onConfigure = { padConfiguring = "B" })
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "B" },
+                onMoveBy = { dx, dy -> padMoveBy("B", dx, dy) }, onMoveEnd = { padMoveEnd("B") })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift, y = (-144).dp + abxyLift)) {
+        val xDrag = padDrag("X")
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-250).dp + abxyShift + xDrag.first, y = (-144).dp + abxyLift + xDrag.second)) {
             Pad(label = "X", bit = GamepadController.BTN_X, slot = "X",
-                configVersion = padConfigVersion, onConfigure = { padConfiguring = "X" })
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "X" },
+                onMoveBy = { dx, dy -> padMoveBy("X", dx, dy) }, onMoveEnd = { padMoveEnd("X") })
         }
-        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp + abxyShift, y = (-102).dp + abxyLift)) {
+        val yDrag = padDrag("Y")
+        Box(modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-320).dp + abxyShift + yDrag.first, y = (-102).dp + abxyLift + yDrag.second)) {
             Pad(label = "Y", bit = GamepadController.BTN_Y, slot = "Y",
-                configVersion = padConfigVersion, onConfigure = { padConfiguring = "Y" })
+                configVersion = padConfigVersion, onConfigure = { padConfiguring = "Y" },
+                onMoveBy = { dx, dy -> padMoveBy("Y", dx, dy) }, onMoveEnd = { padMoveEnd("Y") })
         }
 
         // issue#168 第 5 条（自定义按钮）：内嵌配置卡 —— 键位、尺寸各一行，点按循环
@@ -343,9 +381,15 @@ internal fun GamepadPanel(onExit: () -> Unit) {
  *
  * [onDown] 非空时只执行它（✕ 退出键不需要发 HID 帧），此时 [bit] 传 0。
  *
- * 自定义（issue#168 第 5 条）：[slot] 非空的实体键长按 [onConfigure] 进入配置，
- * 键位与尺寸从 [GamepadPadConfig] 按 [configVersion] 重读 —— 落盘后 bump 版本号
- * 即全部生效。
+ * 自定义（issue#168 第 5 条 + 追补）：[slot] 非空的实体键长按 [onConfigure] 进入配置
+ *（键位与尺寸从 [GamepadPadConfig] 按 [configVersion] 重读），长按住不放再拖动则
+ * 经 [onMoveBy] 实时移位、松手经 [onMoveEnd] 落盘 —— 与「长按编辑」同一次按住，
+ * 拖与不拖两种结果，不用切模式。
+ *
+ * 触发不灵敏的根因（追补）：pointerInput 的 key 里原先放了 onDown / onConfigure 两个
+ * 每次重组都新建的 lambda —— 出口状态轮询每 500ms 刷一次状态行，重组即换 key，
+ * 手势协程被反复取消重启，长按经常活不到阈值。现在回调走 [rememberUpdatedState]，
+ * key 只剩 [effBit] 与 [slot]（真正的语义变化才重启手势）。
  */
 @Composable
 private fun Pad(
@@ -356,12 +400,19 @@ private fun Pad(
     configVersion: Int = 0,
     onDown: (() -> Unit)? = null,
     onConfigure: (() -> Unit)? = null,
+    onMoveBy: ((Float, Float) -> Unit)? = null,
+    onMoveEnd: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     // 键位 / 尺寸按配置版本重读：保存配置后父级状态变化触发重组，这里就拿到新值
     val effBit = if (slot == null) bit else GamepadPadConfig.bit(ctx, slot, bit)
     val effSize = if (slot == null) size else GamepadPadConfig.sizeDp(ctx, slot, size.value.toInt()).dp
     val effLabel = if (slot == null) label else GamepadPadConfig.labelOf(effBit)
+    // 回调经 rememberUpdatedState 桥进手势协程：重组换 lambda 不再重启手势
+    val currentOnDown by rememberUpdatedState(onDown)
+    val currentOnConfigure by rememberUpdatedState(onConfigure)
+    val currentOnMoveBy by rememberUpdatedState(onMoveBy)
+    val currentOnMoveEnd by rememberUpdatedState(onMoveEnd)
     // issue#168 第 5 条（多指）：用「按住的手指数」而不是单布尔 —— 每根落进按钮的
     // 手指在各自协程里独立认领/抬起，互不阻塞（detectTapGestures 一次只跟一个手势
     // 序列，多指同按会被吞）。同一时刻任一手指按着就算按下。
@@ -379,35 +430,48 @@ private fun Pad(
                 color = if (pressed) colorResource(R.color.overlay_pad_stroke_pressed) else colorResource(R.color.overlay_pad_stroke_idle),
                 shape = CircleShape,
             )
-            .pointerInput(effBit, slot, onDown, onConfigure) {
+            .pointerInput(effBit, slot) {
                 // 逐指追踪：awaitFirstDown 认领落进按钮的那根手指，随后只追这一根
                 // pointerId 直到它抬起；第二根手指（同一颗或别的按钮）不干扰本协程。
                 // 长按（[ViewConfiguration.longPressTimeoutMillis]）且可配置的实体键
-                // 触发一次 [onConfigure]，之后继续等抬起。
+                // 触发一次 [onConfigure]（进配置卡），之后手指再动就在按住拖动移位。
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     pressCount++
-                    if (onDown != null) onDown() else GamepadController.setButton(effBit, true)
+                    if (currentOnDown != null) currentOnDown() else GamepadController.setButton(effBit, true)
                     val longPressMs = viewConfiguration.longPressTimeoutMillis
                     var configured = false
+                    var lastX = 0f
+                    var lastY = 0f
                     try {
                         while (true) {
                             val event = awaitPointerEvent()
                             val mine = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!mine.pressed) break
                             mine.consume()
-                            if (!configured && onConfigure != null && slot != null &&
+                            if (!configured && currentOnConfigure != null && slot != null &&
                                 mine.uptimeMillis - down.uptimeMillis >= longPressMs
                             ) {
                                 configured = true
-                                onConfigure()
+                                lastX = mine.position.x
+                                lastY = mine.position.y
+                                Feedback.haptic(ctx)   // 编辑/拖动模式起振一次，手感有确认
+                                currentOnConfigure()
+                            } else if (configured && currentOnMoveBy != null) {
+                                // 长按后继续拖：按钮实时跟手（面板层改 offset），松手落盘
+                                val x = mine.position.x
+                                val y = mine.position.y
+                                currentOnMoveBy((x - lastX) / density, (y - lastY) / density)
+                                lastX = x
+                                lastY = y
                             }
                         }
                     } finally {
                         // 协程被取消（弹窗接管触摸 / 视图销毁）也要复位，防按键卡住
+                        if (configured) currentOnMoveEnd?.invoke()
                         pressCount--
-                        if (onDown == null) GamepadController.setButton(effBit, false)
+                        if (currentOnDown == null) GamepadController.setButton(effBit, false)
                     }
                 }
             },
