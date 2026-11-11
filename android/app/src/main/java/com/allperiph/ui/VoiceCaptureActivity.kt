@@ -416,10 +416,11 @@ class VoiceCaptureActivity : ComponentActivity() {
                             ApComponents.ActionButton(
                                 text = getString(R.string.ui_voice_offline_stop),
                                 onClick = {
-                                // stop 让采集线程收束，onResult 会带终态 JSON 回来；
-                                // 引擎与投递统一在那边处理，这里不动句柄
-                                runCatching { speech?.stop() }
-                            }
+                                    // stop 让采集线程收束，onResult 会带终态 JSON 回来；
+                                    // 引擎与投递统一在那边处理，这里不动句柄
+                                    runCatching { speech?.stop() }
+                                },
+                            )
                         }
                     }
                 }
