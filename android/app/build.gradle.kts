@@ -133,6 +133,13 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
 
+    // —— 离线语音识别（2026-11-11 成宇「弹了系统语音识别不可用」：国内 ROM 无
+    // RECOGNIZE_SPEECH 处理器）——「生产代码不引入第三方依赖」原则的**第三个显式例外**：
+    // Vosk（Apache-2.0，源码公开）内置离线识别；模型 vosk-model-small-cn-0.22（同为
+    // Apache-2.0，约 40MB）运行期从官方源下载到内部存储、不打进 APK，识别全程本地
+    // 不联网。锁 0.3.47（Maven Central 最新 stable）；JNA 5.13.0 由 POM 传递提供。
+    implementation("com.alphacephei:vosk-android:0.3.47")
+
     testImplementation("junit:junit:4.13.2")
 }
 

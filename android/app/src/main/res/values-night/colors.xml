@@ -82,4 +82,6 @@
     <color name="module_state_pending">#FFFFB454</color>
     <color name="module_state_error">#FFFF7AA8</color>
     <color name="module_state_idle">#FFA8B0BC</color>
+    <!-- 离线语音面板的透明底暗化层（v223.29.60）：60% 黑，透出背后键盘面板 -->
+    <color name="voice_scrim">#99000000</color>
 </resources>

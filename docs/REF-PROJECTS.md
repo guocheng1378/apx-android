@@ -14,6 +14,7 @@
 | Virtual Display Driver（GitHub 搜 `Virtual-Display-Driver`，IddCx 系） | 用户态虚拟显示器驱动 | 副屏虚拟显示器（现有自研方案的备选已验证路线） | 以仓库为准 |
 | [Sunshine / Moonlight](https://github.com/LizardByte/Sunshine) | 游戏串流（PC→客户端） | 已在用：mac 副屏出路、音频采集参考 | GPL-3.0 |
 | [NectarLink](https://github.com/thtbee/nectarlink) | Android↔Windows/Linux 互通全家桶（通知/剪贴板/文件/相册投影/投屏/摄像头） | **重叠最高**的同类：能力表与缺口直接对齐（见下） | GPL-3.0（app）/ MPL-2.0（core） |
+| [Vosk](https://github.com/alphacephei/vosk-api) | 开源离线语音识别（Kaldi 封装，中文模型 small-cn） | 语音键的**已验证依赖**（2026-11-11）：国内 ROM 无系统识别引擎，内置离线识别兜底（库+模型均 Apache-2.0） | Apache-2.0 |
 
 ## 逐项分析：已验证、值得借鉴的点
 

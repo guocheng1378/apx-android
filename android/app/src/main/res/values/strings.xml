@@ -412,7 +412,16 @@
     <string name="ui_kb_tool_rgb">灯效</string>
     <string name="ui_kb_voice_none">没听清，再试一次</string>
     <string name="ui_kb_voice_unavailable">系统语音识别不可用</string>
-    <string name="ui_kb_voice_google_only">这台手机的系统语音识别只有 Google 语音（国内网络连不上），建议用输入法上的语音键口述</string>
+    <!-- ui_kb_voice_google_only 已随离线识别方案移除（v223.29.60）：Google-only 不再劝退，改走内置离线识别 -->
+    <string name="ui_voice_offline_intro">这台手机没有系统语音识别，改用内置离线识别；首次使用需下载约 40MB 中文语音包，之后识别不再联网</string>
+    <string name="ui_voice_offline_go">下载语音包并开始</string>
+    <string name="ui_voice_offline_progress">正在下载语音包 %1$d%%</string>
+    <string name="ui_voice_offline_retry">语音包下载失败，点此重试</string>
+    <string name="ui_voice_offline_preparing">正在准备识别引擎…</string>
+    <string name="ui_voice_offline_listening">正在听，请说话…</string>
+    <string name="ui_voice_offline_stop">结束</string>
+    <string name="ui_voice_offline_no_perm">需要麦克风权限才能离线语音识别</string>
+    <string name="ui_voice_offline_grant">允许麦克风</string>
     <!-- ui_kb_voice_only_main 已随 VoiceCaptureActivity 移除（悬浮键盘不再只弹提示，链路打通） -->
     <string name="ui_kb_voice_result_title">语音识别结果</string>
     <string name="ui_kb_voice_send">发到电脑</string>

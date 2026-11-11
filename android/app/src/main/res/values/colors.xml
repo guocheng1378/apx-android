@@ -148,4 +148,6 @@
     <color name="module_state_error">#FFB4235A</color>
     <color name="module_state_idle">#FF5B6470</color>
     <color name="keycap_rgb_black">#FF0C0C0C</color>
+    <!-- 离线语音面板的透明底暗化层（v223.29.60）：60% 黑，透出背后键盘面板 -->
+    <color name="voice_scrim">#99000000</color>
 </resources>
