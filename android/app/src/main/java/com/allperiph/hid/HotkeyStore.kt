@@ -22,7 +22,9 @@ object HotkeyStore {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_TEMPLATE, null)
 
     fun applyTemplate(ctx: Context, t: HotkeyTemplates.Template) {
-        save(ctx, t.combos)
+        // issue#168 第 14 条：落库前按当前被控机系统翻译——存档里存的是**本机认的组合**，
+        // 换系统后改选「被控机系统」再重套模板即可（存量存档不动，只影响新套的模板）。
+        save(ctx, PeerOs.current(ctx).adapt(t.combos))
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit().putString(KEY_TEMPLATE, t.key).apply()
     }
@@ -112,7 +114,8 @@ object HotkeyStore {
 
     fun load(ctx: Context): MutableList<HidKeys.Combo> {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        val raw = sp.getString(KEY_ITEMS, null) ?: return HidKeys.DEFAULTS.toMutableList()
+        // issue#168 第 14 条：无存档回退走 PeerOs——被控机选了 macOS 时出厂行也是 ⌘ 系（Windows 基线不变）
+        val raw = sp.getString(KEY_ITEMS, null) ?: return PeerOs.defaults(ctx).toMutableList()
         return repair(
             runCatching {
                 val arr = JSONArray(raw)
@@ -120,7 +123,7 @@ object HotkeyStore {
                     val o = arr.getJSONObject(i)
                     HidKeys.Combo(o.optString("label"), o.optInt("mod"), o.optInt("usage"))
                 }
-            }.getOrElse { HidKeys.DEFAULTS.toMutableList() },
+            }.getOrElse { PeerOs.defaults(ctx).toMutableList() },
         )
     }
 
