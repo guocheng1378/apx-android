@@ -284,23 +284,31 @@ public:
         const size_t n = count > 6 ? 6 : count;
         // 修饰键：Mac 不区分左右，统一用左侧键码（控制=0x3B/0x38? 用 0x3B=Control,0x38=Shift,0x3A=Option,0x37=Cmd）
         const int modMap[8] = {0x3B, 0x38, 0x3A, 0x37, 0x3B, 0x38, 0x3A, 0x37};
+        // issue#168 2026-11-11 15:12 反馈（无线标点/大写失效）：
+        // 之前发普通键事件从不 CGEventSetFlags —— macOS 的修饰键是**每个事件自带**
+        // 的标志位，不是全局粘滞状态；裸键事件永远不带 Shift，系统收到的就是小写
+        // 字母/无上档符号。修法：把 HID mod 位图换算成 CGEventFlags，
+        // 修饰键自身的 down/up 和普通键 down/up 全部携带（down/up 都要带，
+        // 否则抬起事件丢标志位会被系统判成组合不一致）。
+        const CGEventFlags flags = modFlagsFromBitmap(mod);
         for (int bit = 0; bit < 8; ++bit) {
             const uint8_t m = static_cast<uint8_t>(1u << bit);
             const bool was = (kbMod_ & m) != 0, now = (mod & m) != 0;
             if (was == now) continue;
             CGKeyCode kc = static_cast<CGKeyCode>(modMap[bit]);
             CGEventRef e = CGEventCreateKeyboardEvent(nullptr, kc, now);
+            CGEventSetFlags(e, flags);
             CGEventPost(kCGHIDEventTap, e); CFRelease(e);
         }
         for (uint8_t i = 0; i < 6; ++i) {
             const uint8_t k = kbKeys_[i]; if (!k) continue;
             bool still = false; for (size_t j = 0; j < n; ++j) if (keys[j] == k) { still = true; break; }
-            if (!still) postKey(k, false);
+            if (!still) postKey(k, false, flags);
         }
         for (size_t j = 0; j < n; ++j) {
             const uint8_t k = keys[j]; if (!k) continue;
             bool existed = false; for (uint8_t i = 0; i < 6; ++i) if (kbKeys_[i] == k) { existed = true; break; }
-            if (!existed) postKey(k, true);
+            if (!existed) postKey(k, true, flags);
         }
         kbMod_ = mod;
         for (uint8_t i = 0; i < 6; ++i) kbKeys_[i] = (i < n) ? keys[i] : 0;
@@ -319,7 +327,18 @@ public:
         }
     }
 
-    void postKey(uint8_t usage, bool down) {
+    /// HID mod 位图（bit0-3=左 Ctrl/Shift/Alt/Win，bit4-7=右位同序）→ CGEventFlags。
+    /// Mac 不区分左右，右侧位映射到同一个 Flag（与上方 modMap 的左键码口径一致）。
+    static CGEventFlags modFlagsFromBitmap(uint8_t mod) {
+        CGEventFlags f = 0;
+        if (mod & 0x11) f |= kCGEventFlagMaskControl;
+        if (mod & 0x22) f |= kCGEventFlagMaskShift;
+        if (mod & 0x44) f |= kCGEventFlagMaskAlternate;
+        if (mod & 0x88) f |= kCGEventFlagMaskCommand;
+        return f;
+    }
+
+    void postKey(uint8_t usage, bool down, CGEventFlags flags = 0) {
         if (usage == 0x65) {
             // 「菜单」：只在「按下」那一拍发右键，抬起不再发第二次
             if (down) postContextMenu();
@@ -331,13 +350,15 @@ public:
             APX_LOGW("按键未映射：HID usage=0x{:02x} 已跳过（misc/小键盘等冷门键）", usage);
             return;
         }
-        postCode(cg, down);
+        postCode(cg, down, flags);
     }
 
-    /// 按键码直投（手柄降级用；-1 = 该位没有对应键，静默跳过）
-    void postCode(int cgKey, bool down) {
+    /// 按键码直投（手柄降级用；-1 = 该位没有对应键，静默跳过）。
+    /// flags 默认 0：手柄降级路径不带修饰键，保持原行为。
+    void postCode(int cgKey, bool down, CGEventFlags flags = 0) {
         if (cgKey < 0) return;
         CGEventRef e = CGEventCreateKeyboardEvent(nullptr, static_cast<CGKeyCode>(cgKey), down);
+        CGEventSetFlags(e, flags);
         CGEventPost(kCGHIDEventTap, e); CFRelease(e);
     }
 
