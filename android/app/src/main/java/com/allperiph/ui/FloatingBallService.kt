@@ -19,9 +19,11 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -167,6 +169,9 @@ class FloatingBallService : Service() {
         /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项 */
         private const val FAN_GAP_DP = 10
 
+        /** 照片卡「待发数量」角标的 view tag：渲染时按 tag 找回（发版后字段名稳定，不参与混淆） */
+        private const val BADGE_TAG = "photoCardBadge"
+
         /** 扇形张角的搜索下限（°）。再小就挤成一条线，不如让邻项略叠一点 */
         private const val FAN_SPAN_MIN = 10f
 
@@ -240,18 +245,49 @@ class FloatingBallService : Service() {
 
         /**
          * 按落盘选择给球面挂图（issue#168 第 9 条）：选中相册皮肤（[BallIcon.CUSTOM]）
-         * 且副本可解码时挂位图 —— 照片不上单色 tint，是什么样就显示什么样；副本损坏 /
-         * 未选相册则回落内置图标。addBall 与设置页即时换图共用这一条路。
+         * 且副本可解码时挂位图 —— 副本损坏 / 未选相册则回落内置图标。
+         * addBall 与设置页即时换图共用这一条路。
+         *
+         * 二轮修正（issue#168 2026-11-11「选择图片皮肤不生效，必须是纯色图片」）：
+         * 根因是布局 XML 里的 `android:tint="@color/ball_text"` —— 它在视图 inflate 时
+         * 落成 imageTintList，[ImageView.setImageBitmap] **不会清掉它**，任何照片都被
+         * 整体压成一个单色色块，只有照片本身恰好是纯色时才「看不出不对」。修法：
+         * 照片挂上就摘 tint，并铺满球面（26dp 的图标尺寸装不下照片观感，改 44dp +
+         * 圆形裁剪 + CENTER_CROP，与菜单里照片卡同款）；回落内置图标时把这几样
+         * 逐一还原（tint / 尺寸 / 缩放），否则换回图标会顶着照片的残留状态显示。
+         * 任意 1:1（乃至任意比例）照片都走中心裁方副本（[BallIcon.setPhoto]），本就支持。
          */
         private fun setBallIcon(iv: ImageView, c: Context) {
-            if (BallIcon.picked(c) == BallIcon.CUSTOM) {
-                val bmp = BallIcon.bitmap(c)
-                if (bmp != null) {
-                    iv.setImageBitmap(bmp)
-                    return
+            val bmp = if (BallIcon.picked(c) == BallIcon.CUSTOM) BallIcon.bitmap(c) else null
+            val density = iv.resources.displayMetrics.density
+            if (bmp != null) {
+                iv.setImageBitmap(bmp)
+                iv.imageTintList = null
+                iv.scaleType = ImageView.ScaleType.CENTER_CROP
+                // 照片贴圆形裁剪：与照片卡同一套 outline 手法（framework 裁剪，非自绘）
+                iv.clipToOutline = true
+                iv.outlineProvider = object : android.view.ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: android.graphics.Outline) {
+                        outline.setOval(0, 0, view.width, view.height)
+                    }
+                }
+                iv.layoutParams = iv.layoutParams.apply {
+                    width = (44 * density + 0.5f).toInt()
+                    height = (44 * density + 0.5f).toInt()
+                }
+            } else {
+                iv.setImageResource(BallIcon.drawable(c))
+                // 恢复 XML 默认观感：tint（XML 里 android:tint 的运行时等价物）、
+                // 26dp 图标尺寸、按中心摆放 —— 照片路径改过这三样
+                iv.imageTintList = ColorStateList.valueOf(c.resources.getColor(R.color.ball_text))
+                iv.scaleType = ImageView.ScaleType.CENTER
+                iv.clipToOutline = false
+                iv.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+                iv.layoutParams = iv.layoutParams.apply {
+                    width = (26 * density + 0.5f).toInt()
+                    height = (26 * density + 0.5f).toInt()
                 }
             }
-            iv.setImageResource(BallIcon.drawable(c))
         }
 
         /**
@@ -1408,9 +1444,12 @@ class FloatingBallService : Service() {
      * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
     private fun buildFan(ballView: View): Fan {
-        // 最新照片卡片固定排第一位（ROADMAP §5.2 ①）——「常驻」不进勾选清单，
-        // 用户哪怕把菜单项清到只剩退出，照片卡也照常出现（发照片是高频动作，不该被关掉）
-        val items = listOf(BallConfig.PHOTO_CARD) + BallConfig.enabled(this)
+        // 照片卡默认排第一位（ROADMAP §5.2 ①）——issue#168 二轮起可在设置页关闭
+        //（[BallLatestPhoto.photoCardEnabled]，「相册按钮没有加到设置页悬浮球菜单项」）；
+        // 关掉后菜单从勾选清单第一项排起，勾选清单本身不受影响
+        val items =
+            (if (BallLatestPhoto.photoCardEnabled(this)) listOf(BallConfig.PHOTO_CARD) else emptyList()) +
+                BallConfig.enabled(this)
         val dm = realDisplayMetrics()
         val screenW = dm.widthPixels
         val screenH = dm.heightPixels
@@ -1591,15 +1630,17 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 最新照片卡片（ROADMAP §5.2 ①，2026-11-12）：扇形菜单顶部的常驻格。
+     * 最新照片卡片（ROADMAP §5.2 ①，2026-11-12；issue#168 二轮改「点选 → 再点发」）：
+     * 扇形菜单顶部的照片格，默认排第一位（可在设置页关闭，[BallLatestPhoto.photoCardEnabled]）。
      *
-     * 交互借鉴 Shelf：**按住拖出即发** —— 位移超过拖动阈值就立刻触发发送并收起菜单
-     * （不必等抬手，拖出去那一下就是「拽走这张照片」）；没拖、只是点按抬手时同样发送
-     * （点按也是明确的「发这张」，比「点了没反应」好懂）。发送链路与触控板页发文件
-     * 完全同一条（9512，[BallLatestPhoto.send]），没有新协议。
+     * 交互（二轮反馈「每次点击按钮后触发多选图片，然后再点击图标发送到电脑，发送之后
+     * 按钮重置需要重新选择新图片」）：
+     *  · 待发为空：点按 / 拖出 → 拉系统**多选**（[PhotoPickActivity]，可挑多张）；
+     *  · 有待发：卡面显示首张缩略图 + 数量角标，再点卡 = 全部发出（[BallLatestPhoto.send]），
+     *    发完自动重置，下次点按重新选图；
+     *  · 没权限先走授权页（[PhotoPermActivity]），没连上如实提示。
      *
-     * 图：最新照片的系统缩略图（后台解码，解码完就地换图）；未授权 / 暂无照片 /
-     * 还没解出来时回落为文件占位图标（观感与其它快捷项一致，不闪一块空白）。
+     * 发送链路与触控板页发文件同一条（9512，无新协议）。
      */
     private fun buildPhotoCardCell(): View {
         val cell = FrameLayout(themed).apply {
@@ -1619,13 +1660,30 @@ class FloatingBallService : Service() {
                 }
             }
         }
+        // 数量角标（待发多张时叠在卡面上，一眼看出「这是待发状态、不是最新照片」）
+        val badge = TextView(themed).apply {
+            tag = BADGE_TAG
+            textSize = 11f
+            setTextColor(android.graphics.Color.WHITE)
+            // 半透明黑底圆角小胶囊：与快捷项底座不撞形
+            setBackgroundResource(R.drawable.bg_ball_badge)
+            visibility = View.GONE
+        }
         cell.addView(iv, FrameLayout.LayoutParams(dp(BallConfig.itemDp(this)), dp(BallConfig.itemDp(this)), Gravity.CENTER))
+        cell.addView(badge, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         // 查一次 + 异步解码：query 是毫秒级的索引扫描（主线程可承受），
         // loadThumbnail 的解码在后台线程，回来时菜单多半还开着，就地换上真图
-        val latest = BallLatestPhoto.query(themed)
-        if (latest != null) {
-            BallLatestPhoto.loadThumb(themed, latest, dp(BallConfig.itemDp(this))) {
+        if (BallLatestPhoto.pendingCount() > 0) {
+            // 待发状态：首张缩略图在后台解，解回来就地换
+            BallLatestPhoto.loadPendingThumb(themed, dp(BallConfig.itemDp(this))) {
                 if (iv.isAttachedToWindow) renderPhotoCard(iv)
+            }
+        } else {
+            val latest = BallLatestPhoto.query(themed)
+            if (latest != null) {
+                BallLatestPhoto.loadThumb(themed, latest, dp(BallConfig.itemDp(this))) {
+                    if (iv.isAttachedToWindow) renderPhotoCard(iv)
+                }
             }
         }
         renderPhotoCard(iv)
@@ -1664,9 +1722,22 @@ class FloatingBallService : Service() {
         return cell
     }
 
-    /** 照片卡的图面：有缩略图铺满格子（圆形裁剪、不上 tint），否则回落文件占位图标 */
+    /**
+     * 照片卡的图面：有待发显示待发首张缩略图 + 数量角标（多选待发态）；
+     * 没有待发显示最新照片缩略图；都没有（未授权 / 无照片 / 还没解出来）
+     * 回落文件占位图标（观感与其它快捷项一致，不闪一块空白）。
+     * 照片铺满格子（圆形裁剪、不上 tint），占位图标走单色 tint 居中。
+     */
     private fun renderPhotoCard(iv: ImageView) {
-        val bmp = BallLatestPhoto.thumbOrNull()
+        val pendingN = BallLatestPhoto.pendingCount()
+        // 数量角标：挂在照片卡（iv 的父容器）上，按待发数量显隐
+        (iv.parent as? ViewGroup)?.let { cell ->
+            cell.findViewWithTag<TextView>(BADGE_TAG)?.apply {
+                text = pendingN.toString()
+                visibility = if (pendingN > 0) View.VISIBLE else View.GONE
+            }
+        }
+        val bmp = if (pendingN > 0) BallLatestPhoto.pendingThumbOrNull() else BallLatestPhoto.thumbOrNull()
         if (bmp != null) {
             iv.setImageBitmap(bmp)
             iv.imageTintList = null
@@ -1752,8 +1823,8 @@ class FloatingBallService : Service() {
     private fun onFanItem(id: String) {
         when (id) {
             BallConfig.PHOTO_CARD -> {
-                // 照片卡平时走自己的触摸监听（拖出即发）；分发到这里的只可能是兜底
-                //（如未来哪处改为 setOnClickListener）—— 行为与点按一致：发最新一张
+                // 照片卡平时走自己的触摸监听（点选 → 再点发）；分发到这里的只可能是兜底
+                //（如未来哪处改为 setOnClickListener）—— 行为与点按一致（多选 / 发送见 BallLatestPhoto.send）
                 closeMenu()
                 BallLatestPhoto.send(this, ball ?: return)
             }

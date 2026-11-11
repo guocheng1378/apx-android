@@ -21,8 +21,10 @@ import com.allperiph.wireless.ControlTarget
  *  1. **查最新一张照片/截图**（MediaStore 按 `DATE_ADDED` 倒序取 1 条）并解码小尺寸
  *     缩略图（[ContentResolver.loadThumbnail]，系统缓存命中时近乎零开销）——
  *     是相册投影（全量）的先行验证，刻意不做分组/分页/监听；
- *  2. **拖出即发**：文件本体走 [FileSender] 的 9512 通道，落盘到对端「收到的文件」
- *     目录（与触控板页发文件同一条链路，协议零新增）。
+ *  2. **点选 → 再点发**（issue#168 二轮改版）：点卡先进系统**多选**（可挑多张），
+ *     选完再点卡把选中的全部发出（[FileSender] 9512 通道），发完自动重置重新选图。
+ *     待发期间卡面显示首张缩略图 + 数量角标（见文末「多选待发」一节）。
+ *     相册为空时系统多选页自己会呈现空态，这里不再单独报「还没有照片」。
  *
  * ## 发送目标怎么定（两路取一，覆盖 PC 的两个方向）
  *  · 手机当触控板**控制**电脑：[ControlTarget.host]（选了受控设备时的 IP）；
@@ -39,6 +41,9 @@ object BallLatestPhoto {
 
     private const val TAG = "BallLatestPhoto"
 
+    /** 悬浮球偏好文件：与 [FloatingBallService]、[BallIcon] 同一份，避免偏好文件碎片化 */
+    private const val PREF_FILE = "apx_floating_ball"
+
     /** 查到的一条：媒体 uri + 文件名（发送时作对端落盘名）+ DATE_ADDED（缓存命中判定） */
     data class Latest(val uri: Uri, val name: String, val dateAdded: Long)
 
@@ -50,6 +55,25 @@ object BallLatestPhoto {
     fun hasMediaPerm(ctx: Context): Boolean =
         ctx.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    // —————————————————————————— 相册按钮显示开关（issue#168 二轮，2026-11-11） ——————————————————————————
+    //
+    // 二轮反馈「相册按钮没有加到 app 设置页悬浮球菜单项，需要加上，保证可以自定义是否显示
+    // 这个相册按钮」。此前照片卡是**常驻**项（不进勾选清单、关不掉）—— 常驻的初衷是
+    // 「发照片不该被清空清单关掉」，但用户要的是自定义权，常驻让位。
+    // 开关存进悬浮球同一份偏好文件（`apx_floating_ball`），默认开（老用户零感知）。
+
+    private const val KEY_PHOTO_CARD_ON = "photo_card_on"
+
+    /** 照片卡是否显示在扇形菜单第一位（默认开） */
+    fun photoCardEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE).getBoolean(KEY_PHOTO_CARD_ON, true)
+
+    /** 设置照片卡显示开关；关闭后菜单展开即不再出现（菜单每次现建，无需通知服务） */
+    fun setPhotoCardEnabled(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_PHOTO_CARD_ON, on).apply()
+    }
 
     /**
      * 同步查最新一张。菜单在主线程构建，但查询是 ContentProvider 的 binder 调用 +
@@ -118,10 +142,71 @@ object BallLatestPhoto {
     /** 发送中的去重位：拖出与抬手两个分支都叫 [send]，别把一张照片发两遍 */
     private val sending = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    // —————————————————————————— 多选待发（issue#168 二轮，2026-11-11） ——————————————————————————
+    //
+    // 二轮反馈「发送逻辑不对：应该每次点击按钮后触发多选图片，然后再点击图标发送到电脑，
+    // 发送之后按钮重置需要重新选择新图片」。改后的节奏：
+    //   ① 点照片卡（待发为空）→ 拉系统多选（[PhotoPickActivity]，GetMultipleContents）；
+    //   ② 选完卡上显示第一张缩略图 + 数量角标 → 再点卡 = 把选中的全部发出（9512 逐张）；
+    //   ③ 发完（无论成败）清空待发 → 卡回到「最新照片」占位，下次点按重新选图。
+
+    /** 待发清单：用户刚在多选框挑的图；非空时点卡即发，发完清空 */
+    @Volatile private var pending: List<Uri> = emptyList()
+
+    /** 待发数量（卡上角标 / 判定当前该选图还是该发送） */
+    fun pendingCount(): Int = pending.size
+
+    /** 待发的第一张（卡上缩略图用它；null = 没有待发） */
+    fun pendingFirst(): Uri? = pending.firstOrNull()
+
     /**
-     * 发当前最新一张给电脑。UI 事件（点按 / 拖出）都汇到这里：
-     * 没权限 → 拉授权页；没连上 → 如实提示；发完（成功或失败）Toast 报结果。
-     * 阻塞活（9512 发送）甩专用线程，Toast 回主线程 —— 与 TouchpadActivity.sendFile 同口径。
+     * 选图结果回调：[PhotoPickActivity] 拿到系统多选结果后投回这里（选图页是透明
+     * Activity，结果不经任何窗口 —— 由本回调解码 + 落状态）。挂上回调是拉选图页的
+     * 前置条件；服务进程活着期间一直挂着也无妨（重复挂同一实现）。
+     */
+    @Volatile var onPicked: ((Context, List<Uri>) -> Unit)? = null
+
+    /** 待发首张的缩略图缓存：键是首张 uri 的字符串，换了人立即作废重解 */
+    @Volatile private var pendingThumb: Bitmap? = null
+    @Volatile private var pendingThumbKey: String? = null
+
+    /** 卡面缩略图：有待发给待发首张的缩略图，没有给 null（回落「最新照片」占位） */
+    fun pendingThumbOrNull(): Bitmap? = pendingThumb
+
+    /**
+     * 解码待发首张缩略图（后台线程，回主线程 [onReady]）—— 与 [loadThumb] 同口径，
+     * 但针对多选结果 URI（系统临时授权，授权随 Activity 结果持续到进程结束；
+     * 进程被杀后待发作废，卡自然回落占位图，不会假装还有图）。
+     */
+    fun loadPendingThumb(ctx: Context, sizePx: Int, onReady: () -> Unit) {
+        val first = pending.firstOrNull() ?: return
+        val key = first.toString()
+        if (pendingThumbKey == key && pendingThumb != null) {
+            onReady()
+            return
+        }
+        pendingThumbKey = key
+        pendingThumb = null
+        Thread({
+            pendingThumb = runCatching {
+                ctx.contentResolver.loadThumbnail(first, android.util.Size(sizePx * 2, sizePx * 2), null)
+            }.onFailure { Log.w(TAG, "待发缩略图解码失败：${it.message}") }.getOrNull()
+            Handler(Looper.getMainLooper()).post { onReady() }
+        }, "apx-ball-pending-thumb").start()
+    }
+
+    /** 多选结果落状态：记清单、作废旧缩略图、Toast 提示下一步（发送） */
+    private fun handlePicked(ctx: Context, uris: List<Uri>) {
+        pending = uris.distinct()
+        pendingThumb = null
+        pendingThumbKey = null
+        toast(ctx, R.string.ui_ball_photo_picked, pending.size)
+    }
+
+    /**
+     * 照片卡总入口（点按 / 拖出都汇到这）：有待发就**全部发出**并清空重置；
+     * 没有待发就挂好回调、拉系统多选页。没权限先走授权页，没连上如实提示。
+     * 发送走 [FileSender] 的 9512 通道逐张发，与触控板页发文件同一条链路。
      */
     fun send(ctx: Context, card: android.view.View) {
         if (!hasMediaPerm(ctx)) {
@@ -129,9 +214,12 @@ object BallLatestPhoto {
                 .onFailure { Log.w(TAG, "拉授权页失败：${it.message}") }
             return
         }
-        val latest = query(ctx)
-        if (latest == null) {
-            toast(ctx, R.string.ui_ball_photo_none)
+        val list = pending
+        if (list.isEmpty()) {
+            // ① 待发为空：进多选。回调先挂再拉页，选图页拿结果时必定有接收方
+            onPicked = { c, uris -> handlePicked(c, uris) }
+            runCatching { PhotoPickActivity.start(ctx) }
+                .onFailure { Log.w(TAG, "拉多选页失败：${it.message}") }
             return
         }
         val host = peerHost()
@@ -142,15 +230,23 @@ object BallLatestPhoto {
         if (!sending.compareAndSet(false, true)) return
         toast(ctx, R.string.ui_main_toast_file_send)
         Thread({
-            val ok = runCatching { FileSender.send(ctx, host, latest.uri) }
-                .onFailure { Log.w(TAG, "发照片失败：${it.message}") }
-                .getOrDefault(false)
+            var ok = 0
+            list.forEach { uri ->
+                if (runCatching { FileSender.send(ctx, host, uri) }
+                        .onFailure { Log.w(TAG, "发照片失败：${it.message}") }
+                        .getOrDefault(false)
+                ) ok++
+            }
+            val total = list.size
+            // ③ 发完重置：待发清空 + 缩略图作废，卡回到「最新照片」占位 ——
+            //    下次点按重新选图（用户明确要求「发送之后按钮重置需要重新选择新图片」）
+            pending = emptyList()
+            pendingThumb = null
+            pendingThumbKey = null
             sending.set(false)
             Handler(Looper.getMainLooper()).post {
-                toast(
-                    ctx,
-                    if (ok) R.string.ui_main_text_file_send_done else R.string.ui_touchpad_text_send_failed,
-                )
+                if (ok == total) toast(ctx, R.string.ui_ball_photo_send_done, total)
+                else toast(ctx, R.string.ui_touchpad_text_send_failed)
                 // 发完收起菜单：动作已完成，留着一张卡片没有任何后续可点
                 FloatingBallService.collapseOverlays()
             }
@@ -167,17 +263,18 @@ object BallLatestPhoto {
         return controlled.currentPeerHost()?.takeIf { it.isNotBlank() }
     }
 
-    private fun toast(ctx: Context, res: Int) {
-        Toast2.show(ctx, res)
+    private fun toast(ctx: Context, res: Int, arg: Int) {
+        Toast2.show(ctx, res, arg)
     }
 }
 
 /** 文案 toast 的小收口（避免各处直接 new Toast 的样式漂移；仅本文件内部使用） */
 private object Toast2 {
     private val main = Handler(Looper.getMainLooper())
-    fun show(ctx: Context, res: Int) {
+    fun show(ctx: Context, res: Int, arg: Int = 0) {
         main.post {
-            android.widget.Toast.makeText(ctx.applicationContext, ctx.getString(res), android.widget.Toast.LENGTH_SHORT).show()
+            val text = if (arg > 0) ctx.getString(res, arg) else ctx.getString(res)
+            android.widget.Toast.makeText(ctx.applicationContext, text, android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 }

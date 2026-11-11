@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  照片卡「待发数量」角标的底座（issue#168 二轮，2026-11-11）：半透明黑底圆角胶囊，
+  叠在照片卡中央，白色数字 —— 待发状态下与「最新照片」一眼区分。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/ball_badge" />
+    <corners android:radius="999dp" />
+    <padding
+        android:left="6dp"
+        android:right="6dp"
+        android:top="1dp"
+        android:bottom="1dp" />
+</shape>

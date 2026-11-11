@@ -1,6 +1,6 @@
 {
   "schemaVersion": "1.0",
-  "generatedAt": "2026-09-21T02:59:14+08:00",
+  "generatedAt": "2026-11-11T14:12:48+08:00",
   "lanes": {
     "L1": {
       "laneId": "L1",
@@ -245,7 +245,10 @@
         "补齐 idd/apxdisp_idd.vcxproj 与 .inf（当前只有骨架）"
       ],
       "errors": [],
-      "violations": [],
+      "violations": [
+        "touchedFiles 超出归属目录：reports/L4.json",
+        "touchedFiles 超出归属目录：reports/L4.md"
+      ],
       "blockersDetail": [
         {
           "desc": "无 VS2022 / WDK 环境，无法完成 IddCx、HID minidriver 与完整链接验证",
@@ -301,7 +304,10 @@
         "按协议 v1.2 同步 HID 报告解析（低频 Report ID 7..15、Consumer 位图、sensorId 字段移除）"
       ],
       "errors": [],
-      "violations": [],
+      "violations": [
+        "touchedFiles 超出归属目录：reports/L5.json",
+        "touchedFiles 超出归属目录：reports/L5.md"
+      ],
       "blockersDetail": [
         {
           "desc": "无 VS2022 / Windows SDK 环境，Windows 专有实现无法编译验证",
@@ -588,7 +594,24 @@
       "desc": "未执行：pc/tools/ 目录**不存在**，sensor_dump 未交付（见 blockers）"
     }
   ],
-  "compliance": [],
+  "compliance": [
+    {
+      "laneId": "L4",
+      "desc": "touchedFiles 超出归属目录：reports/L4.json"
+    },
+    {
+      "laneId": "L4",
+      "desc": "touchedFiles 超出归属目录：reports/L4.md"
+    },
+    {
+      "laneId": "L5",
+      "desc": "touchedFiles 超出归属目录：reports/L5.json"
+    },
+    {
+      "laneId": "L5",
+      "desc": "touchedFiles 超出归属目录：reports/L5.md"
+    }
+  ],
   "verdict": {
     "milestones": [
       {

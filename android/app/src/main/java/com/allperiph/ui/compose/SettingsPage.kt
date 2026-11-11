@@ -35,6 +35,7 @@ import com.allperiph.ui.DeviceFormPref
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.IssueLauncher
 import com.allperiph.ui.FloatingBallService
+import com.allperiph.ui.BallLatestPhoto
 import com.allperiph.ui.ThemePref
 import com.allperiph.ui.GlobalKeyForwarder
 import com.allperiph.ui.HidKeyOverrides
@@ -898,6 +899,20 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             )
                         }
                     }
+                    // issue#168 二轮（2026-11-11）：相册按钮（菜单里的照片卡）此前是常驻项、
+                    // 关不掉 —— 用户要求「保证可以自定义是否显示这个相册按钮」。开关落
+                    // BallLatestPhoto 的偏好文件，菜单每次现建，关掉下次展开即生效。
+                    var photoCardOn by remember { mutableStateOf(BallLatestPhoto.photoCardEnabled(ctx)) }
+                    ApComponents.SwitchRow(
+                        title = "相册按钮",
+                        summary = "悬浮球菜单顶部显示照片按钮：点一次选图（可多选），再点一次发送到电脑，发完自动重置",
+                        checked = photoCardOn,
+                        onCheckedChange = { on ->
+                            photoCardOn = on
+                            BallLatestPhoto.setPhotoCardEnabled(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
                     // 成宇 2026-11-03「设置页悬浮窗的功能可以改成下拉列表，还有一些长的列都要改」：
                     // 12 个开关平铺把设置页拉得很长，收进默认收起的折叠分组，组头一眼看到勾了几项。
                     var ballItemsOpen by remember { mutableStateOf(false) }

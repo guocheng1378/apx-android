@@ -1,6 +1,6 @@
 # 五路并行开发汇报汇总
 
-- 生成时间：2026-09-21T02:59:14+08:00
+- 生成时间：2026-11-11T14:12:48+08:00
 - 规范依据：`docs/REQ-五路回报.md`（REQ-REPORT-001）
 
 ## 状态矩阵
@@ -10,8 +10,8 @@
 | L1 | 协议与公共库 | core-proto | **PARTIAL** | 17 | 2/3 | 2 | 7(1) | 0 |
 | L2 | Android 设备桥与 Gadget | android-devices | **PARTIAL** | 37 | 4/7 | 0 | 6(0) | 0 |
 | L3 | Android 副屏与 App UI | android-screen-ui | **PARTIAL** | 21 | 3/4 | 1 | 0(0) | 0 |
-| L4 | PC 副屏驱动与推流 | pc-display | **PARTIAL** | 43 | 1/4 | 1 | 1(1) | 0 |
-| L5 | PC 宿主服务与工具 | pc-host | **PARTIAL** | 35 | 1/3 | 2 | 2(2) | 0 |
+| L4 | PC 副屏驱动与推流 | pc-display | **PARTIAL** | 43 | 1/4 | 1 | 1(1) | 2 |
+| L5 | PC 宿主服务与工具 | pc-host | **PARTIAL** | 35 | 1/3 | 2 | 2(2) | 2 |
 
 ## 缺口清单
 
@@ -50,7 +50,10 @@
 
 ## 合规问题
 
-- 无
+- **[L4]** touchedFiles 超出归属目录：reports/L4.json
+- **[L4]** touchedFiles 超出归属目录：reports/L4.md
+- **[L5]** touchedFiles 超出归属目录：reports/L5.json
+- **[L5]** touchedFiles 超出归属目录：reports/L5.md
 
 ## 里程碑判定
 
@@ -72,6 +75,6 @@
 
 ## 协议变更留痕（main 范围，§10.4）
 
-- 当前协议版本 **1.5**（`docs/PROTOCOL.md` §5）
-- 每次协议修订的变更原因、影响范围与受影响 lane 记录于 `docs/PROTOCOL.md` §5 变更记录表与 `reports/MAIN-INTERVENTIONS.md`，本汇总不复述
+- 当前协议版本 **1.8**（`docs/PROTOCOL.md` §5）
+- 每次协议修订的变更原因、影响范围与受影响 lane 记录于 `docs/PROTOCOL.md` §5 变更记录表与 `docs/reports/MAIN-INTERVENTIONS.md`，本汇总不复述
 

@@ -407,6 +407,20 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
+          ⑪之六 相册多选页（2026-11-11，issue#168 二轮）：悬浮球照片卡改「点选 → 再点发」，
+          点卡拉系统多选 —— Service overlay 里没有 Activity 宿主，透明页进来就拉
+          GetMultipleContents、结果投回 BallLatestPhoto.onPicked 即 finish。
+          singleTop 防连点叠多层（同 PhotoPermActivity）。
+        -->
+        <activity
+            android:name=".ui.PhotoPickActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
           ⑪之四 「语音」工具键识别宿主页（2026-11-11）：系统语音识别要 Activity 宿主，
           悬浮键盘（Service overlay）里的语音键没有宿主 —— 透明页进来就拉识别、
           结果经伴生回调投回面板、即 finish。singleTop 防连点叠多层（同 PhotoPermActivity）。

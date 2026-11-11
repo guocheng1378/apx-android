@@ -97,7 +97,9 @@ R_USE = re.compile(
 #   "沿用传统回调（本机无 AndroidX）"，代码行尾注释被行内引号误计 1 处）+ PhoneFiles 根入口
 #   数据名（"内部存储"，经 0x45 协议返回的对端展示名，PC 端文案已走 web 文案层）。
 #   后续新文案仍应优先走 strings.xml。
-TEXT_BASELINE = 658
+# 658 -> 660（issue#168 二轮，未发版）：设置页「相册按钮」开关行内嵌标题与摘要 2 处
+#   （SettingsPage 悬浮球分组，与同组「球面图标」「相册」等既有行内文案同口径）。
+TEXT_BASELINE = 660
 
 
 def strip_comments(text):

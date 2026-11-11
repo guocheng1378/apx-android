@@ -244,10 +244,11 @@
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
     <string name="ui_ball_fn_quit">退出</string>
-    <!-- 悬浮球「最新照片卡片」（ROADMAP §5.2 ①）：常驻菜单顶部，拖出/点按即发电脑 -->
-    <string name="ui_ball_photo_card_desc">最新一张照片 · 点按或拖出即发到电脑</string>
-    <string name="ui_ball_photo_none">相册里还没有照片</string>
+    <!-- 悬浮球「照片卡」（ROADMAP §5.2 ①；issue#168 二轮改「点选 → 再点发」：点按多选，再点发送，发完重置） -->
+    <string name="ui_ball_photo_card_desc">照片 · 点按选图，再点发送</string>
     <string name="ui_ball_photo_target_none">还没连上电脑 —— 连上后再发照片</string>
+    <string name="ui_ball_photo_picked">已选 %1$d 张 —— 再点一次照片按钮即发送</string>
+    <string name="ui_ball_photo_send_done">已发送 %1$d 张照片到电脑，按钮已重置</string>
     <!-- 相册投影新照片推送（0x4A 监听，经 0x40 通知链路；文案随推送帧发往 PC） -->
     <string name="ui_album_watch_push_title">新照片</string>
     <string name="ui_album_watch_push_app">相册</string>
