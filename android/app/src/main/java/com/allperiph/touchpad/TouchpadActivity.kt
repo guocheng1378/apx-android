@@ -736,10 +736,16 @@ private fun ConsoleRoot(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) 
                 }
             }
             // 低栏整改成可拖悬浮球（issue#168 2026-11-11 第 3 条，与主壳低栏同批口径）：
-            // 点球弹三页切换菜单；全屏态不渲染（球会被触控手势层误触，退出全屏即回）
-            if (!ui.fullscreen) ConsoleNavBall(ui, host)
+            // 点球弹三页切换菜单；全屏态不渲染（球会被触控手势层误触，退出全屏即回）。
+            // ⚠️ 球层**不能**放在本 Column 里（issue#168 2026-11-11 15:12 反馈「进操控面
+            // 触摸板/键盘/副屏页全没内容，点全屏才显示」的根因）：Column 的无 weight 子项
+            // 先量、weight 子项后量 —— fillMaxSize 的球层作为无 weight 子项会把整列高度
+            // 吃光，weight(1f) 的内容区被压成**零高**，三页全部「空白」，只有切全屏
+            //（球层不渲染）内容才回来。挪到根 Box 与 Column 平级做纯悬浮层，
+            // 不再参与 Column 分高度（主壳 ApShellActivity 的球本来就是同级兄弟）。
         }
         if (ui.fullscreen) FullscreenOverlay(host)
+        if (!ui.fullscreen) ConsoleNavBall(ui, host)
     }
 }
 
@@ -1668,6 +1674,11 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     var navBallY by remember { mutableFloatStateOf(-1f) }
     var menuOpen by remember { mutableStateOf(false) }
     val dm = host.resources.displayMetrics
+    // 主题明暗判（与主壳 navDarkBall 同一算式）：反色球用 —— 深色主题白球 / 浅色主题黑球
+    val navDarkBall = run {
+        val bg = MiuixTheme.colorScheme.background
+        0.2126f * bg.red + 0.7152f * bg.green + 0.0722f * bg.blue < 0.5f
+    }
     // 首次组合 / 转屏：读共享落点（球左上角比例）；无档落右上角（操控面大标题头在
     // 左上，右上既有退出胶囊……避开标题行，落**右下**与拇指区一致）
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -1746,26 +1757,37 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                     detectTapGestures(onTap = { menuOpen = !menuOpen })
                 }
                 .background(
+                    // 与主壳导航球同款反色高对比（issue#168 2026-11-11 15:12 反馈「深色和浅色
+                    // 主题对比度都低」）：surfaceContainer 与背景同族怎么调透明度都糊在底色里，
+                    // 改为深色主题给近白球、浅色主题给近黑球，恒与背景拉开。
+                    // 主题明暗按背景色亮度判（与主壳 navDarkBall 同一算式）。
                     Brush.verticalGradient(
-                        listOf(
-                            MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
-                            MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
-                        ),
+                        if (navDarkBall) {
+                            listOf(Color.White.copy(alpha = 0.94f), Color.White.copy(alpha = 0.86f))
+                        } else {
+                            listOf(Color.Black.copy(alpha = 0.88f), Color.Black.copy(alpha = 0.80f))
+                        },
                     ),
                 )
                 .border(
                     width = 1.dp,
                     brush = Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = 0.3f),
-                            Color.White.copy(alpha = 0.1f),
-                        ),
+                        if (navDarkBall) {
+                            listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.06f))
+                        } else {
+                            listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.12f))
+                        },
                     ),
                     shape = CircleShape,
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+            // 字色随球色翻转（球反色后 onSurface 必有一侧看不清）
+            Text(
+                text = "≡",
+                fontSize = 17.sp,
+                color = if (navDarkBall) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.95f),
+            )
         }
     }
 }

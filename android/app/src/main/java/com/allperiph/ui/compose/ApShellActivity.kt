@@ -726,30 +726,41 @@ class ApShellActivity : ComponentActivity() {
                             },
                         )
                     }
-                    // 低栏导航球配色加深（issue#168 2026-11-11 追加反馈「低栏的悬浮球颜色太浅」）：
-                    // 原先是 0.66/0.46 的半透明玻璃，浅色内容上一晃就找不着 —— 改近实底
-                    //（0.97/0.88），描边同步加浓，任何主题下都有清晰的球轮廓。
+                    // 导航球反色高对比（issue#168 2026-11-11 15:12 反馈「导航球在深色和浅色
+                    // 主题都对比度低，建议配色和主题背景区别开」）：surfaceContainer 与背景
+                    // 同族，0.97/0.88 还是和底色糊在一起。改为**与主题反色**：深色主题给
+                    // 近白球、浅色主题给近黑球 —— 球色恒与背景拉开（反色不随主题素材变化，
+                    // 用户在哪个主题都不用找球）。描边与字色随球色翻转。
                     .background(
                         Brush.verticalGradient(
-                            listOf(
-                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f),
-                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f),
-                            ),
+                            if (navDarkBall) {
+                                listOf(Color.White.copy(alpha = 0.94f), Color.White.copy(alpha = 0.86f))
+                            } else {
+                                listOf(Color.Black.copy(alpha = 0.88f), Color.Black.copy(alpha = 0.80f))
+                            },
                         ),
                     )
                     .border(
                         width = 1.dp,
                         brush = Brush.verticalGradient(
-                            listOf(
-                                Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
-                                Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
-                            ),
+                            // 描边随球色反着给（球已是反色，白描边在白球上等于没有）：
+                            // 深色主题白球配暗描边，浅色主题黑球配亮描边，边缘都有定义。
+                            if (navDarkBall) {
+                                listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.06f))
+                            } else {
+                                listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.12f))
+                            },
                         ),
                         shape = CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+                // 字色随球色翻转（球反色后 onSurface 在白球/黑球上必有一侧看不清）
+                Text(
+                    text = "≡",
+                    fontSize = 17.sp,
+                    color = if (navDarkBall) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.95f),
+                )
             }
         }
     }
