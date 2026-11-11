@@ -228,10 +228,28 @@ public:
 
             IOObjectRelease(service);
 
+            // 是否会被名单过滤（提前算出，供下面那行观测日志标注）
+            bool skippedByAllow = false;
             if (!opt.includeAllUsb) {
                 const bool inAllow = std::find(allow.begin(), allow.end(), d.vid) != allow.end();
-                if (!inAllow && !d.looksLikeApxGadget()) continue;
+                if (!inAllow && !d.looksLikeApxGadget()) skippedByAllow = true;
             }
+
+            // 可观测性（USB 输入排障第一现场）：无论是否被名单过滤，每台设备都留一行
+            // 「这次到底看见了谁」。此前被跳过的设备一行日志都没有——用户"插了手机但
+            // Mac 没反应"时，日志里只剩本机 4 台设备的速度行，分不清是没插、被 macOS
+            // 「允许配件连接」拦下（系统层直接不上总线），还是 VID/PID 落在名单外。
+            std::string ifcSummary;
+            for (const auto& i : d.interfaces) {
+                ifcSummary += i.roleName();
+                ifcSummary += ' ';
+            }
+            APX_LOGD("IOKit 枚举：设备 {} {} 接口=[{}] 复合={}{}",
+                     d.displayName, d.vidPid(),
+                     ifcSummary, d.isComposite ? "是" : "否",
+                     skippedByAllow ? "（名单外，跳过）" : "");
+
+            if (skippedByAllow) continue;
             devices.push_back(std::move(d));
         }
         IOObjectRelease(it);
