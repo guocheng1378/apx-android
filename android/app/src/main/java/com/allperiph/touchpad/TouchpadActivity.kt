@@ -1144,7 +1144,9 @@ private fun QuickKeyboard(ui: TouchpadActivity.ConsoleUi) {
     }
 }
 
-/** 遥控键盘：媒体 / 音量（音量键按住连发）+ 电源三键（关机 / 重启走 0x22，弹确认） */
+/** 遥控键盘：媒体 / 音量（音量键按住连发）+ 电源三键（关机 / 重启走 0x22，弹确认）。
+ *  键位与文案走 KeyLayouts.REMOTE_ROWS 共享表（审计批3 2026-11-12：与主壳键盘页同源，只此一份）；
+ *  图标是操控面渲染细节，按 bit 在此映射，共享表不背 UI 细节。 */
 @Composable
 private fun RemoteKeyboard(host: TouchpadActivity) {
     val ctx = LocalContext.current
@@ -1152,74 +1154,47 @@ private fun RemoteKeyboard(host: TouchpadActivity) {
         Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_media_prev),
-                icon = R.drawable.ic_apx_prev,
-                bit = HotkeyController.BIT_PREV_TRACK,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_label_play_pause),
-                icon = R.drawable.ic_apx_play,
-                bit = HotkeyController.BIT_PLAY_PAUSE,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_media_next),
-                icon = R.drawable.ic_apx_next,
-                bit = HotkeyController.BIT_NEXT_TRACK,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-        }
-        Row(Modifier.fillMaxWidth()) {
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_label_volume),
-                icon = R.drawable.ic_apx_vol_down,
-                bit = HotkeyController.BIT_VOLUME_DOWN,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_media_mute),
-                icon = R.drawable.ic_apx_mute,
-                bit = HotkeyController.BIT_MUTE,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_label_volume_2),
-                icon = R.drawable.ic_apx_vol_up,
-                bit = HotkeyController.BIT_VOLUME_UP,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-        }
-        // 第三行：电源（软，待机/唤醒）/ 关机 / 重启 —— 与主页横屏键盘的同一布局对齐
-        // （原先两个入口能力不一致，用户在全屏操控面里根本找不到关机键）。
-        Row(Modifier.fillMaxWidth()) {
-            MediaTile(
-                label = ctx.getString(R.string.ui_touchpad_label_power),
-                icon = R.drawable.ic_apx_power,
-                bit = HotkeyController.BIT_POWER,
-                host = host,
-                modifier = Modifier.weight(1f).padding(6.dp),
-            )
-            ActionTile(
-                label = ctx.getString(R.string.ui_touchpad_label_poweroff),
-                tint = colorResource(R.color.miuix_danger),
-                modifier = Modifier.weight(1f).padding(6.dp),
-            ) { host.confirmPower(0, ctx.getString(R.string.ui_touchpad_label_poweroff)) }
-            ActionTile(
-                label = ctx.getString(R.string.ui_touchpad_label_reboot),
-                tint = colorResource(R.color.state_warn),
-                modifier = Modifier.weight(1f).padding(6.dp),
-            ) { host.confirmPower(1, ctx.getString(R.string.ui_touchpad_label_reboot)) }
+        KeyLayouts.REMOTE_ROWS.forEach { defs ->
+            Row(Modifier.fillMaxWidth()) {
+                defs.forEach { key ->
+                    val label = ctx.getString(key.labelRes)
+                    val m = Modifier.weight(1f).padding(6.dp)
+                    when {
+                        // 位图键（媒体 / 音量 / 电源）：图块自带按下即发与音量连发
+                        key.bit >= 0 -> MediaTile(
+                            label = label,
+                            icon = remoteIcon(key.bit),
+                            bit = key.bit,
+                            host = host,
+                            modifier = m,
+                        )
+                        // 关机（0）/ 重启（1）：不直接发，先经 host.confirmPower 二次确认
+                        key.powerAction == 0 -> ActionTile(
+                            label = label,
+                            tint = colorResource(R.color.miuix_danger),
+                            modifier = m,
+                        ) { host.confirmPower(0, label) }
+                        else -> ActionTile(
+                            label = label,
+                            tint = colorResource(R.color.state_warn),
+                            modifier = m,
+                        ) { host.confirmPower(1, label) }
+                    }
+                }
+            }
         }
     }
+}
+
+/** 操控面媒体图块图标：按共享表的 bit 映射（关机 / 重启无 bit，走 ActionTile 分支不进这里） */
+private fun remoteIcon(bit: Int): Int = when (bit) {
+    HotkeyController.BIT_PREV_TRACK -> R.drawable.ic_apx_prev
+    HotkeyController.BIT_PLAY_PAUSE -> R.drawable.ic_apx_play
+    HotkeyController.BIT_NEXT_TRACK -> R.drawable.ic_apx_next
+    HotkeyController.BIT_VOLUME_DOWN -> R.drawable.ic_apx_vol_down
+    HotkeyController.BIT_MUTE -> R.drawable.ic_apx_mute
+    HotkeyController.BIT_VOLUME_UP -> R.drawable.ic_apx_vol_up
+    else -> R.drawable.ic_apx_power
 }
 
 /**
@@ -1231,12 +1206,8 @@ private fun RemoteKeyboard(host: TouchpadActivity) {
 private fun GameKeyboard(ui: TouchpadActivity.ConsoleUi) {
     val ctx = LocalContext.current
     Column(Modifier.fillMaxSize()) {
-        val layout = listOf(
-            listOf("Esc", "1", "2", "3", "4", "Tab"),
-            listOf("Q", "W", "E", "R", "F", "B"),
-            listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
-            listOf("↑", "↓", "←", "→", "Enter", "Del"),
-        )
+        // 键位表走 KeyLayouts.GAME_ROWS 共享表（审计批3 2026-11-12：与主壳键盘页同源，只此一份）
+        val layout = KeyLayouts.GAME_ROWS
         layout.forEach { labels ->
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 labels.forEach { text ->

@@ -1,5 +1,7 @@
 package com.allperiph.ui
 
+import com.allperiph.R
+
 /**
  * 扩展键盘布局（v1.32）：**数字小键盘 / 九宫格 / 方向键 / F 区** 四套专用键位。
  *
@@ -136,6 +138,44 @@ object KeyLayouts {
             Key("Ctrl", 0, 1.5f), Key("Win", 0, 1f), Key("Alt", 0, 1f), Key("Space", SPACE, 6f),
             Key("Alt", 0, 1f), Key("Win", 0, 1f), Key("Ctrl", 0, 1.5f),
             Key("←", LEFT), Key("↓", DOWN), Key("→", RIGHT),
+        ),
+    )
+
+    // —————————————————————————— 游戏键盘 4×6 键位表 ——————————————————————————
+    // 审计批3（2026-11-12）：主壳键盘页 GameLayout 与操控面 GameKeyboard 原先各自写同一份
+    // 4×6 表，只靠注释互相引用「同款」—— 改一边忘一边迟早分叉。抽成共享常量，
+    // 两边只保留各自的键帽渲染（主壳灯效/密度，操控面连发/主题色），键位只此一份。
+    val GAME_ROWS: List<List<String>> = listOf(
+        listOf("Esc", "1", "2", "3", "4", "Tab"),
+        listOf("Q", "W", "E", "R", "F", "B"),
+        listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
+        listOf("↑", "↓", "←", "→", "Enter", "Del"),
+    )
+
+    // —————————————————————————— 遥控（媒体 / 电源）行表 ——————————————————————————
+    // 审计批3（2026-11-12）：主壳 RemoteLayout 与操控面 RemoteKeyboard 原先各自手写同一份
+    // 「媒体两行 + 电源行」键表，历史上就发生过两边能力不一致（操控面找不到关机键，后补齐）。
+    // 抽成共享数据：键位与文案只此一份，渲染与交互各留各的 —— bit 键按下即发（主壳
+    // press/release 60ms，操控面图块自带连发），powerAction >= 0 的走关机/重启确认弹窗
+    //（0=关机，1=重启，均需被控端 root，opcode 0x22 与操控面 confirmPower 同语义）。
+    // label 统一用操控面一套文案资源（图块大、带空格更易读）；主壳原 ui_kb_* 六条仅此引用，随批删除。
+    data class RemoteKey(val labelRes: Int, val bit: Int, val powerAction: Int = -1)
+
+    val REMOTE_ROWS: List<List<RemoteKey>> = listOf(
+        listOf(
+            RemoteKey(R.string.ui_touchpad_media_prev, HotkeyController.BIT_PREV_TRACK),
+            RemoteKey(R.string.ui_touchpad_label_play_pause, HotkeyController.BIT_PLAY_PAUSE),
+            RemoteKey(R.string.ui_touchpad_media_next, HotkeyController.BIT_NEXT_TRACK),
+        ),
+        listOf(
+            RemoteKey(R.string.ui_touchpad_label_volume, HotkeyController.BIT_VOLUME_DOWN),
+            RemoteKey(R.string.ui_touchpad_media_mute, HotkeyController.BIT_MUTE),
+            RemoteKey(R.string.ui_touchpad_label_volume_2, HotkeyController.BIT_VOLUME_UP),
+        ),
+        listOf(
+            RemoteKey(R.string.ui_touchpad_label_power, HotkeyController.BIT_POWER),
+            RemoteKey(R.string.ui_touchpad_label_poweroff, -1, powerAction = 0),
+            RemoteKey(R.string.ui_touchpad_label_reboot, -1, powerAction = 1),
         ),
     )
 }

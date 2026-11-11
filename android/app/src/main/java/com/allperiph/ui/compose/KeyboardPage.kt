@@ -726,8 +726,10 @@ private fun QuickLayout(
  * 遥控键盘：媒体 / 音量（Consumer 位图，与操控面 `remoteKeyboard` 同一条 HotkeyController 链路）
  * + 电源行。
  *
- * 关机 / 重启走 opcode 0x22，需被控端 root；主屏保留这两键是为了「对端卡死时还能远程救」，
- * 被控操控面上这两键已被移除（那边误触代价更大）。弹确认框，与操控面 `confirmPower` 同语义。
+ * 键位与文案走 [KeyLayouts.REMOTE_ROWS] 共享表（审计批3 2026-11-12：原先两边各写一份，靠注释
+ * 互相提醒对齐，历史上就分叉过——操控面一度找不到关机键）。本页保留自己的灯效图块渲染与
+ * press/release 60ms 交互；关机 / 重启的确认弹窗与操控面 confirmPower 同语义（opcode 0x22，
+ * 需被控端 root），主屏保留这两键是为了「对端卡死时还能远程救」。
  */
 @Composable
 private fun RemoteLayout() {
@@ -736,44 +738,21 @@ private fun RemoteLayout() {
     var confirm by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val hk = com.allperiph.ui.HotkeyController
     Column(modifier = Modifier.fillMaxSize()) {
-        listOf(
-            listOf(
-                ctx.getString(R.string.ui_kb_prev) to hk.BIT_PREV_TRACK,
-                ctx.getString(R.string.ui_kb_play) to hk.BIT_PLAY_PAUSE,
-                ctx.getString(R.string.ui_kb_next) to hk.BIT_NEXT_TRACK,
-            ),
-            listOf(
-                ctx.getString(R.string.ui_kb_vol_down) to hk.BIT_VOLUME_DOWN,
-                ctx.getString(R.string.ui_kb_mute) to hk.BIT_MUTE,
-                ctx.getString(R.string.ui_kb_vol_up) to hk.BIT_VOLUME_UP,
-            ),
-        ).forEach { defs ->
+        KeyLayouts.REMOTE_ROWS.forEach { defs ->
             Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
-                defs.forEach { (label, bit) ->
+                defs.forEach { key ->
+                    val label = ctx.getString(key.labelRes)
                     MediaTile(label, Modifier.weight(1f).fillMaxHeight()) {
-                        hk.press(bit)
-                        handler.postDelayed({ hk.release(bit) }, 60)
+                        if (key.powerAction >= 0) {
+                            // 关机 / 重启：不直接发，先进确认框（见下方 DialogCard）
+                            confirm = key.powerAction to label
+                        } else {
+                            hk.press(key.bit)
+                            handler.postDelayed({ hk.release(key.bit) }, 60)
+                        }
                     }
                 }
             }
-        }
-        // 第三行：电源（软，待机 / 唤醒）/ 关机 / 重启 —— 与操控面同一行键位
-        Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
-            MediaTile(
-                ctx.getString(R.string.ui_touchpad_label_power),
-                Modifier.weight(1f).fillMaxHeight(),
-            ) {
-                hk.press(hk.BIT_POWER)
-                handler.postDelayed({ hk.release(hk.BIT_POWER) }, 60)
-            }
-            MediaTile(
-                ctx.getString(R.string.ui_touchpad_label_poweroff),
-                Modifier.weight(1f).fillMaxHeight(),
-            ) { confirm = 0 to ctx.getString(R.string.ui_touchpad_label_poweroff) }
-            MediaTile(
-                ctx.getString(R.string.ui_touchpad_label_reboot),
-                Modifier.weight(1f).fillMaxHeight(),
-            ) { confirm = 1 to ctx.getString(R.string.ui_touchpad_label_reboot) }
         }
     }
 
@@ -814,15 +793,10 @@ private fun RemoteLayout() {
     }
 }
 
-/** 游戏键盘：4×6 高频键位（技能数字 / 左手技能区 / 方向+确认）—— 与操控面 `gameKeyboard` 同款 */
+/** 游戏键盘：4×6 高频键位（技能数字 / 左手技能区 / 方向+确认）—— 键位表走 [KeyLayouts.GAME_ROWS] 共享表（与操控面同源，审计批3 2026-11-12） */
 @Composable
 private fun GameLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
-    val layout = listOf(
-        listOf("Esc", "1", "2", "3", "4", "Tab"),
-        listOf("Q", "W", "E", "R", "F", "B"),
-        listOf("A", "S", "D", "Shift", "Space", "Ctrl"),
-        listOf("↑", "↓", "←", "→", "Enter", "Del"),
-    )
+    val layout = KeyLayouts.GAME_ROWS
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         layout.forEach { labels ->
