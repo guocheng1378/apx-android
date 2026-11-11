@@ -45,6 +45,9 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/functionfs.h>
 #define APX_HAVE_FUNCTIONFS_UAPI 1
+// evdev 独占拦截（EVIOCGRAB 在 linux/input.h 的 uapi 里）
+#include <linux/input.h>
+#define APX_HAVE_EVDEV_UAPI 1
 #endif
 
 namespace {
@@ -870,6 +873,67 @@ Java_com_allperiph_core_FfsChannel_nativeClose(JNIEnv*, jclass) {
 }
 
 #endif  // APX_HAVE_FUNCTIONFS_UAPI
+
+// ———————— evdev 独占拦截（touchpad 直读，issue#168 三追第 4 条）————————
+//
+// 为什么放 native：Kotlin 侧没有任何公开 API 能对 fd 做 ioctl —— android.system.Os
+// 没有公开的 ioctl 重载，libcore 反射会被 hidden-api 拦。libapx 里几行 C 就够。
+//
+// 契约（与 ApxNative.kt 的 external 声明一致）：
+//   evdevGrab(path) = open(path, O_RDONLY) + ioctl(EVIOCGRAB, 1)
+//                     成功返回 fd（>0，保持打开且独占中）；失败返回 -errno（<0）。
+//                     注意：open 受 SELinux 约束（chmod 666 只解决 DAC 一半），
+//                     被拦返回 -EACCES，由 Kotlin 侧决定补 sepolicy 规则重试或退回只转发。
+//   evdevRead(fd, buf, off, len) = read(fd, buf+off, len)
+//                     成功返回字节数；对端关闭 / EINTR / EAGAIN 返回 0；其它错误 -errno。
+//   evdevRelease(fd) = ioctl(EVIOCGRAB, 0) + close(fd)，尽力而为返回 0。
+//
+#if defined(APX_HAVE_POSIX_IO) && defined(APX_HAVE_EVDEV_UAPI)
+
+JNIEXPORT jint JNICALL
+Java_com_allperiph_core_ApxNative_evdevGrab(JNIEnv* env, jobject, jstring path) {
+  if (path == nullptr) return -EINVAL;
+  const char* p = env->GetStringUTFChars(path, nullptr);
+  if (p == nullptr) return -ENOMEM;
+  const int fd = ::open(p, O_RDONLY);
+  env->ReleaseStringUTFChars(path, p);
+  if (fd < 0) return -errno;
+  int grab = 1;
+  if (::ioctl(fd, EVIOCGRAB, &grab) != 0) {
+    const int e = errno;
+    ::close(fd);
+    return -e;
+  }
+  return fd;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_allperiph_core_ApxNative_evdevRead(JNIEnv* env, jobject, jint fd,
+                                            jbyteArray buf, jint off, jint len) {
+  if (len <= 0) return 0;
+  const jsize cap = env->GetArrayLength(buf);
+  if (off < 0 || len > cap - off) return -EINVAL;
+  jbyte* p = env->GetByteArrayElements(buf, nullptr);
+  if (p == nullptr) return -ENOMEM;
+  const ssize_t r = ::read(fd, p + off, static_cast<size_t>(len));
+  env->ReleaseByteArrayElements(buf, p, 0);
+  if (r < 0) {
+    const int e = errno;
+    if (e == EINTR || e == EAGAIN) return 0;
+    return -e;
+  }
+  return static_cast<jint>(r);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_allperiph_core_ApxNative_evdevRelease(JNIEnv*, jobject, jint fd) {
+  if (fd < 0) return 0;
+  const int off = 0;
+  ::ioctl(fd, EVIOCGRAB, &off);  // 解除独占；失败也照样关（内核随 close 释放 grab）
+  return ::close(fd);
+}
+
+#endif  // APX_HAVE_POSIX_IO && APX_HAVE_EVDEV_UAPI
 
 #endif  // APX_HAVE_POSIX_IO
 

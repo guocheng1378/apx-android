@@ -2,12 +2,9 @@ package com.allperiph.touchpad
 
 import android.os.Handler
 import android.os.HandlerThread
-import android.system.Os
+import com.allperiph.core.ApxNative
 import com.allperiph.shared.util.Log
-import java.io.DataInputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -26,7 +23,7 @@ import java.util.concurrent.TimeUnit
  * v223.29.66 补「输入没拦截」的大头（issue#168 三追第 4 条）：
  *   **EVIOCGRAB 独占**。旧通路 `su -c cat <节点>` 只是抄一份事件 —— 内核照样把
  *   事件派给安卓输入子系统，触控板一边转发一边操作手机屏幕，用户根本没法验证。
- *   现在启动时 root 放权限 → 本进程打开 → `ioctl(EVIOCGRAB)` 独占：内核从此不再
+ *   现在启动时 root 放权限 → libapx 打开节点 → `ioctl(EVIOCGRAB)` 独占：内核从此不再
  *   把该设备的事件派给其它读者（安卓光标在内），输入只走本进程 → 电脑。
  *   独占失败（如 SELinux 拦打开）的节点落回 root-cat 通路（只转发、不拦截），
  *   界面按 [interceptedAll] 如实区分两种状态，不装成功。
@@ -90,16 +87,11 @@ class EvdevPointerReader(
         private const val EVENT_SIZE = 24
 
         /**
-         * EVIOCGRAB 的 ioctl 号（issue#168 三追第 4 条「拦截转发」的核心）：
-         * `_IOC(_IOC_WRITE, 'E', 0x90, sizeof(int))` = 0x40044590。对一个已打开的
-         * evdev 节点发它，内核从此**不再把该设备的事件派给其它读者** —— 安卓输入
-         * 子系统（光标、点击）在内。这就是「读 ≠ 消费」问题的解：旧通路 `su -c cat`
-         * 只是抄一份事件，安卓照收，触控板照样操作手机屏幕。
+         * 独占拦截用的 ioctl 号 `EVIOCGRAB = _IOC(_IOC_WRITE,'E',0x90,4) = 0x40044590`
+         * 已下沉到 libapx（见 ApxNative.evdevGrab）：Kotlin 侧没有任何公开 API 能对
+         * fd 做 ioctl（android.system.Os 没有公开的 ioctl 重载），所以 grab 一步
+         * 整体在 native 里完成 —— open + EVIOCGRAB 原子拿到已独占的 fd。
          */
-        private const val EVIOCGRAB = 0x40044590
-        // Os.ioctl 只有 (fd, cmd, Long) / (fd, cmd, MemoryAddress) 两个公开重载（int 版不存在）
-        private const val GRAB_ON = 1L
-        private const val GRAB_OFF = 0L
 
         /** 设备节点的标准权限（root:input 660）：拦截开始前放成 666、停止时还原 */
         private const val NODE_MODE_OPEN = "666"
@@ -218,12 +210,12 @@ class EvdevPointerReader(
     private val procs = ArrayList<Process>()
 
     /**
-     * 已独占拦截的节点与打开流（EVIOCGRAB 持有中；stop 时逐个解除并还原权限）。
+     * 已独占拦截的节点与 fd（EVIOCGRAB 持有中；stop 时逐个解除并还原权限）。
      * 独占后内核不再把该设备派给安卓输入子系统 —— 触控板不再操作手机屏幕。
      * 注意代价：拦截是「全程」的，电脑侧出口没就绪时 [RootPointerBridge.feed] 会
      * 丢弃事件，触控板在「开启直读但没连电脑」期间不会有任何反应 —— 重连即恢复。
      */
-    private val grabbed = ArrayList<Pair<File, FileInputStream>>()
+    private val grabbed = ArrayList<Pair<File, Int>>()
 
     /** 全部节点都拿到独占拦截（true）= 真正的「拦截转发」；false = 有节点落到只转发 */
     var interceptedAll: Boolean = false
@@ -258,15 +250,17 @@ class EvdevPointerReader(
         thread = ht
         handler = Handler(ht.looper)
         // 拦截走同步（启动一次每节点约 1s 的 su chmod + open + ioctl，设置页本来就在
-        // 等扫描的 su 返回，可接受）：拿到的流交后台线程读；拿不到的节点落回旧
+        // 等扫描的 su 返回，可接受）：拿到的 fd 交后台线程读；拿不到的节点落回旧
         // root-cat 通路（只转发、不拦截，安卓侧仍会收到 —— 界面会如实说明）。
         val grabbedNow = ArrayList<File>()
         for (f in found) {
-            val stream = grabDevice(f.path)
-            if (stream != null) {
-                synchronized(grabbed) { grabbed.add(f.path to stream) }
+            val fd = grabDevice(f.path)
+            if (fd >= 0) {
+                synchronized(grabbed) { grabbed.add(f.path to fd) }
                 grabbedNow.add(f.path)
-                handler?.post { parseStream(stream, f.path.name) }
+                handler?.post {
+                    parseStream({ buf, off, len -> ApxNative.evdevRead(fd, buf, off, len) }, f.path.name)
+                }
             } else {
                 handler?.post { readRootCat(f.path) }
             }
@@ -283,15 +277,10 @@ class EvdevPointerReader(
             for (p in procs) runCatching { p.destroy() }
             procs.clear()
         }
-        // 逐个解除独占、关流、还原设备权限（重启也会还原，但主动还原不留尾巴）
+        // 逐个解除独占、关 fd、还原设备权限（重启也会还原，但主动还原不留尾巴）
         synchronized(grabbed) {
-            for ((f, stream) in grabbed) {
-                try {
-                    Os.ioctl(stream.fd, EVIOCGRAB, GRAB_OFF)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "解除独占失败（关流后内核会自行释放）：${t.message}")
-                }
-                runCatching { stream.close() }
+            for ((f, fd) in grabbed) {
+                runCatching { ApxNative.evdevRelease(fd) }
                 runSu("chmod $NODE_MODE_RESTORE ${f.absolutePath}")
             }
             grabbed.clear()
@@ -329,27 +318,36 @@ class EvdevPointerReader(
     }
 
     /**
-     * 独占拦截通路：root 放节点权限 → 本进程打开 → EVIOCGRAB 抢占。
-     * 抢占成功返回保持打开的流（内核从此不把该设备派给其它读者，含安卓光标）；
-     * 失败（SELinux 拦打开、设备被别人占着等）返回 null，由调用方落到
-     * [readRootCat] 兜底 —— 那条能转发、不能拦截，界面会如实区分。
+     * 独占拦截通路：root 放节点权限 → libapx 打开节点并 EVIOCGRAB 抢占。
+     * 成功返回保持打开的 fd（内核从此不把该设备派给其它读者，含安卓光标）；
+     * 失败返回负值（-EACCES 等），由调用方落到 [readRootCat] 兜底 —— 那条能转发、
+     * 不能拦截，界面会如实区分。
      */
-    private fun grabDevice(f: File): FileInputStream? {
+    private fun grabDevice(f: File): Int {
         try {
             runSu("chmod $NODE_MODE_OPEN ${f.absolutePath}")
-            val stream = FileInputStream(f)
-            try {
-                Os.ioctl(stream.fd, EVIOCGRAB, GRAB_ON)
-            } catch (t: Throwable) {
-                runCatching { stream.close() }
-                throw t
+            var fd = ApxNative.evdevGrabOrNull(f.absolutePath)
+            if (fd == -13 || fd == -1) {
+                // chmod 666 只解决 DAC 一半；SELinux 拦 untrusted_app 读 input 设备时
+                // 表现为 EACCES(-13) / EPERM(-1)。补放行规则重试一次，尽力而为 ——
+                // 规则不生效就认输退兜底，不装成功。
+                runSu("magiskpolicy --live 'allow untrusted_app input_device dir { search }'")
+                runSu("magiskpolicy --live 'allow untrusted_app input_device chr_file { getattr open read }'")
+                runSu("supolicy --live 'allow untrusted_app input_device dir { search }'")
+                runSu("supolicy --live 'allow untrusted_app input_device chr_file { getattr open read }'")
+                fd = ApxNative.evdevGrabOrNull(f.absolutePath)
             }
-            Log.i(TAG, "已独占拦截 ${f.name}（安卓侧不再收到该设备事件）")
-            return stream
+            if (fd >= 0) {
+                Log.i(TAG, "已独占拦截 ${f.name}（安卓侧不再收到该设备事件）")
+                return fd
+            }
+            Log.i(TAG, "独占拦截不可用，退回只转发：${f.name} err=$fd")
+            runSu("chmod $NODE_MODE_RESTORE ${f.absolutePath}")
+            return fd
         } catch (t: Throwable) {
             Log.i(TAG, "独占拦截不可用，退回只转发：${f.name} ${t.message}")
             runSu("chmod $NODE_MODE_RESTORE ${f.absolutePath}")
-            return null
+            return -1
         }
     }
 
@@ -361,7 +359,8 @@ class EvdevPointerReader(
                 .redirectErrorStream(false)
                 .start()
             synchronized(procs) { procs.add(proc) }
-            parseStream(proc.inputStream, f.name)
+            // 子进程 stdout 与独占 fd 的字节排布相同（24B struct input_event），共用解析循环
+            parseStream({ buf, off, len -> proc.inputStream.read(buf, off, len) }, f.name)
         } finally {
             runCatching { proc?.destroy() }
             synchronized(procs) { procs.remove(proc) }
@@ -369,86 +368,84 @@ class EvdevPointerReader(
     }
 
     /**
-     * 事件解析主循环（两条通路共用）：从 [ins] 阻塞读 24 字节 struct input_event，
-     * 拆出位移 / 按键 / 滚轮。拦截通路读的是本进程 fd，root-cat 通路读的是子进程 stdout，
-     * 字节排布相同（见 [EVENT_SIZE]）。
+     * 事件解析主循环（两条通路共用）：经 [readChunk] 阻塞读 24 字节 struct input_event，
+     * 拆出位移 / 按键 / 滚轮。拦截通路读的是 libapx 持有的本进程 fd，root-cat 通路
+     * 读的是子进程 stdout，字节排布相同（见 [EVENT_SIZE]）。
      */
-    private fun parseStream(ins: InputStream, nodeName: String) {
+    private fun parseStream(readChunk: (buf: ByteArray, off: Int, len: Int) -> Int, nodeName: String) {
         try {
-            DataInputStream(ins.buffered()).use { stream ->
-                val buf = ByteArray(EVENT_SIZE)
-                // REL 通路（鼠标）：mickey 直接累加
-                var pdx = 0; var pdy = 0; var pwheel = 0; var ppan = 0
-                // ABS 通路（触控板）：绝对坐标在本帧出现 REL 时不参与（混合设备只用 REL）
-                var ax = 0; var ay = 0
-                var baseX = 0; var baseY = 0
-                var absBase = false            // 本轮接触已有基准点（抬手重置，避免跳变）
-                var mtContact = false          // MT_TRACKING_ID >= 0 = slot0 手指在板
-                var touchContact = false       // BTN_TOUCH（非 MT / MT 设备都可能有）
-                var relSeen = false            // 本帧出现过 REL 事件
-                var buttons = 0
-                while (running) {
-                    var read = 0
-                    while (read < EVENT_SIZE) {
-                        val n = stream.read(buf, read, EVENT_SIZE - read)
-                        if (n < 0) return
-                        read += n
+            val buf = ByteArray(EVENT_SIZE)
+            // REL 通路（鼠标）：mickey 直接累加
+            var pdx = 0; var pdy = 0; var pwheel = 0; var ppan = 0
+            // ABS 通路（触控板）：绝对坐标在本帧出现 REL 时不参与（混合设备只用 REL）
+            var ax = 0; var ay = 0
+            var baseX = 0; var baseY = 0
+            var absBase = false            // 本轮接触已有基准点（抬手重置，避免跳变）
+            var mtContact = false          // MT_TRACKING_ID >= 0 = slot0 手指在板
+            var touchContact = false       // BTN_TOUCH（非 MT / MT 设备都可能有）
+            var relSeen = false            // 本帧出现过 REL 事件
+            var buttons = 0
+            while (running) {
+                var read = 0
+                while (read < EVENT_SIZE) {
+                    val n = readChunk(buf, read, EVENT_SIZE - read)
+                    if (n < 0) return
+                    read += n
+                }
+                val type = le16(buf, 16)
+                val code = le16(buf, 18)
+                val value = le32(buf, 20)
+                when (type) {
+                    EV_REL -> when (code) {
+                        REL_X -> { pdx += value; relSeen = true }
+                        REL_Y -> { pdy += value; relSeen = true }
+                        REL_WHEEL -> pwheel += value
+                        REL_HWHEEL -> ppan += value
                     }
-                    val type = le16(buf, 16)
-                    val code = le16(buf, 18)
-                    val value = le32(buf, 20)
-                    when (type) {
-                        EV_REL -> when (code) {
-                            REL_X -> { pdx += value; relSeen = true }
-                            REL_Y -> { pdy += value; relSeen = true }
-                            REL_WHEEL -> pwheel += value
-                            REL_HWHEEL -> ppan += value
+                    EV_ABS -> when (code) {
+                        ABS_X -> ax = value
+                        ABS_Y -> ay = value
+                        ABS_MT_POSITION_X -> ax = value
+                        ABS_MT_POSITION_Y -> ay = value
+                        // MT_TRACKING_ID：只跟 0 号触点（多指只动第一指，单光标语义）
+                        ABS_MT_TRACKING_ID -> {
+                            mtContact = value >= 0
+                            if (!mtContact) absBase = false
                         }
-                        EV_ABS -> when (code) {
-                            ABS_X -> ax = value
-                            ABS_Y -> ay = value
-                            ABS_MT_POSITION_X -> ax = value
-                            ABS_MT_POSITION_Y -> ay = value
-                            // MT_TRACKING_ID：只跟 0 号触点（多指只动第一指，单光标语义）
-                            ABS_MT_TRACKING_ID -> {
-                                mtContact = value >= 0
-                                if (!mtContact) absBase = false
-                            }
+                    }
+                    EV_KEY -> when (code) {
+                        BTN_TOUCH -> {
+                            touchContact = value != 0
+                            if (!touchContact) absBase = false
                         }
-                        EV_KEY -> when (code) {
-                            BTN_TOUCH -> {
-                                touchContact = value != 0
-                                if (!touchContact) absBase = false
+                        in BTN_LEFT..BTN_MIDDLE -> {
+                            buttons = when (code) {
+                                BTN_LEFT -> if (value != 0) buttons or 0x01 else buttons and 0x01.inv()
+                                BTN_RIGHT -> if (value != 0) buttons or 0x02 else buttons and 0x02.inv()
+                                else -> if (value != 0) buttons or 0x04 else buttons and 0x04.inv()
                             }
-                            in BTN_LEFT..BTN_MIDDLE -> {
-                                buttons = when (code) {
-                                    BTN_LEFT -> if (value != 0) buttons or 0x01 else buttons and 0x01.inv()
-                                    BTN_RIGHT -> if (value != 0) buttons or 0x02 else buttons and 0x02.inv()
-                                    else -> if (value != 0) buttons or 0x04 else buttons and 0x04.inv()
-                                }
-                                onButton(buttons)
-                            }
+                            onButton(buttons)
                         }
-                        EV_SYN -> {
-                            if (pdx != 0 || pdy != 0) { onMove(pdx, pdy); pdx = 0; pdy = 0 }
-                            if (pwheel != 0 || ppan != 0) { onWheel(pwheel, ppan); pwheel = 0; ppan = 0 }
-                            // ABS 触控板合成位移：接触中且本帧无 REL 才参与；
-                            // 接触开始的第一帧只记基准（绝对坐标差一整段距离，不合成）
-                            val contact = mtContact || touchContact
-                            if (!relSeen && contact) {
-                                if (absBase) {
-                                    val dx = ((ax - baseX) * ABS_SENSITIVITY).toInt()
-                                    val dy = ((ay - baseY) * ABS_SENSITIVITY).toInt()
-                                    if (dx != 0 || dy != 0) onMove(dx, dy)
-                                    baseX = ax; baseY = ay
-                                } else {
-                                    baseX = ax; baseY = ay; absBase = true
-                                }
-                            } else if (!contact) {
-                                absBase = false
+                    }
+                    EV_SYN -> {
+                        if (pdx != 0 || pdy != 0) { onMove(pdx, pdy); pdx = 0; pdy = 0 }
+                        if (pwheel != 0 || ppan != 0) { onWheel(pwheel, ppan); pwheel = 0; ppan = 0 }
+                        // ABS 触控板合成位移：接触中且本帧无 REL 才参与；
+                        // 接触开始的第一帧只记基准（绝对坐标差一整段距离，不合成）
+                        val contact = mtContact || touchContact
+                        if (!relSeen && contact) {
+                            if (absBase) {
+                                val dx = ((ax - baseX) * ABS_SENSITIVITY).toInt()
+                                val dy = ((ay - baseY) * ABS_SENSITIVITY).toInt()
+                                if (dx != 0 || dy != 0) onMove(dx, dy)
+                                baseX = ax; baseY = ay
+                            } else {
+                                baseX = ax; baseY = ay; absBase = true
                             }
-                            relSeen = false
+                        } else if (!contact) {
+                            absBase = false
                         }
+                        relSeen = false
                     }
                 }
             }
