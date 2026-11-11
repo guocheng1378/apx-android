@@ -124,6 +124,18 @@ class ApShellActivity : ComponentActivity() {
     @Volatile
     private var adaptiveState: com.allperiph.ui.miuix.ApAdaptiveLayout? = null
 
+    /**
+     * 实体键盘 / 实体触板转发桥（issue#168 2026-11-11 15:12 反馈「只有全面触控板页面里
+     * 才可以使用外接键盘，其他页面都无法使用」）：
+     * 此前桥只挂在操控面 [com.allperiph.touchpad.TouchpadActivity]，主壳四个页
+     * （状态/触控板/键盘/设置）没有窗口回调拦截，实体键盘按键全部落进系统默认路径
+     * —— 电脑上一个字都收不到。挂上之后主壳任意页都可转发；app 之外（桌面/其他
+     * 应用）仍由无障碍那条 [com.allperiph.ui.GlobalKeyForwarder] 全局路径覆盖，
+     * 两条路径同一套判据（[com.allperiph.ui.PhysKeyBridge] 内部注释），不会双发：
+     * 无障碍在事件进窗口前消费，窗口桥只在无障碍放行时才看得到。
+     */
+    private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
+
     companion object {
         /** 「只来选设备」模式：遥控器页带这个 extra 启动时立刻弹设备选择器 */
         const val EXTRA_PICK_DEVICE = "com.allperiph.extra.PICK_DEVICE"
@@ -157,6 +169,9 @@ class ApShellActivity : ComponentActivity() {
         // 同上：能在 onSaveInstanceState 保住时优先用存档值（比 intent extra 更贴近
         // 「用户刚才看的是哪一页」；extra 只在冷启动带参时才有）。
         savedInstanceState?.getInt(STATE_PAGE, -1)?.takeIf { it >= 0 }?.let { pageState = it }
+        // 实体键盘转发桥挂上（见 physKeyBridge 注释）：挂在窗口回调链最前，先于视图树
+        // 拦到按键；与操控面同款（attach 一次 + onResume 复核 + onPause 放残键）。
+        physKeyBridge = com.allperiph.ui.PhysKeyBridge(this).also { it.attach(window) }
         setContent {
             // 2026-11-07（成宇「做成可以无极自定义 dpi 缩放」）：整体密度乘全局缩放。
             // 这一层只管主壳四页；弹窗是独立组合，在 ApComponents.DialogCard 里
@@ -813,10 +828,16 @@ class ApShellActivity : ComponentActivity() {
         // startForegroundService 可能被系统拒，服务不在的球就在回前台这一刻补拉
         // （前台启动无限制）。内部幂等：服务活着 / 意愿位关着都是 no-op。
         runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
+        // 转发桥自愈复核（与操控面同口径）：窗口回调被换掉就重新包上，避免退后台后失联
+        physKeyBridge?.ensureAttached(window)
     }
 
     override fun onPause() {
         com.allperiph.ui.ClipboardSync.unregister(this)
+        // 退后台会丢掉后续「按键抬起」：放掉仍按住的键，避免电脑侧 Ctrl / Shift 粘住
+        //（与操控面 onPause 同款；不这样做，下次回前台前敲的字全带修饰）
+        physKeyBridge?.releaseStuckKeys()
+        super.onPause()
         // 服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）：桌面只悬浮球一个控件，
         // 主壳前后台收栏通知随之移除。
         super.onPause()
@@ -837,6 +858,8 @@ class ApShellActivity : ComponentActivity() {
         // 退出主壳（返回确认 / 最近任务划掉）时把悬浮球的展开层一起收掉：
         // 只认 isFinishing —— 旋转/重建时不该动用户的悬浮面板。
         if (isFinishing) com.allperiph.ui.FloatingBallService.collapseOverlays()
+        // 转发桥随壳注销（旋转重建也会走这里重建新桥，detach 只还原自己的包装）
+        physKeyBridge?.detach(); physKeyBridge = null
         super.onDestroy()
     }
 
