@@ -93,9 +93,17 @@ class GamepadActivity : ComponentActivity() {
  * 不会错位（这是不能用「只画一张旋转图」的理由）。已经是横屏时不加包裹，原样渲染。
  */
 @Composable
-internal fun LandscapePanel(content: @Composable () -> Unit) {
+internal fun LandscapePanel(
+    landscape: Boolean? = null,
+    content: @Composable () -> Unit,
+) {
     val cfg = LocalConfiguration.current
-    if (cfg.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+    // 横竖判定（2026-11-12「很多界面都有这样的问题」系统性排查）：传 null（GamepadActivity
+    // 这类自带 Configuration 的宿主）才信 cfg；悬浮面板宿主是 Service 挂的 overlay 窗口，
+    // 服务的 Configuration 滞后/冻结（同根因见 rememberApAdaptiveLayout 的注释），由
+    // 调用方按 realScreenSize 实测传入 —— 这里只做判定，不猜配置。
+    val isLandscape = landscape ?: (cfg.orientation == Configuration.ORIENTATION_LANDSCAPE)
+    if (isLandscape) {
         content()
         return
     }
