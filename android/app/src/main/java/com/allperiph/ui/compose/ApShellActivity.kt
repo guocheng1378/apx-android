@@ -702,15 +702,24 @@ class ApShellActivity : ComponentActivity() {
                         detectDragGestures(
                             onDrag = { change, drag ->
                                 change.consume()
+                                // 2026-11-12 反馈「旋转后悬浮栏不能往右移动，只能到中间，
+                                // 点了也会跳到左边」：拖拽边界此前用的是闭包捕获的 dmBall
+                                //（首帧那份 DisplayMetrics）—— 本壳转屏不重建，转屏后旧对象
+                                // 仍停在竖屏尺寸，横向被夹在旧屏宽（≈横屏屏宽 46%，正好是
+                                // 「只能到中间」）；且一进拖拽旧钳制立刻生效，坐标先被拽回
+                                // 上限，看起来就是「跳到左边」。与操控面球 d5d700d 同病根：
+                                // 每次拖拽事件现读一份，转屏后边界立刻换新。
+                                val dm = resources.displayMetrics
                                 navBallX = (navBallX + drag.x)
-                                    .coerceIn(0f, dmBall.widthPixels - navBallPx)
+                                    .coerceIn(0f, dm.widthPixels - navBallPx)
                                 navBallY = (navBallY + drag.y)
-                                    .coerceIn(0f, dmBall.heightPixels - navBallPx)
+                                    .coerceIn(0f, dm.heightPixels - navBallPx)
                             },
                             onDragEnd = {
+                                val dm = resources.displayMetrics
                                 com.allperiph.ui.BallPos.save(
                                     this@ApShellActivity,
-                                    navBallX, navBallY, dmBall.widthPixels, dmBall.heightPixels,
+                                    navBallX, navBallY, dm.widthPixels, dm.heightPixels,
                                 )
                             },
                         )
