@@ -1362,17 +1362,22 @@ private fun KeyCap(
                                 }
                                 ch.consume()
                             }
-                            // 连发阶段：每 55ms 重复同一个键，直到抬起
-                            while (true) {
-                                if (usage != 0) HidKeys.tap(usage) else onTap()
-                                repeatFired = true
-                                val ev = withTimeoutOrNull(55L) { awaitPointerEvent() } ?: continue
-                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!ch.pressed) {
-                                    sawRelease = true
-                                    break
+                            // 连发阶段：仅当 400ms 内没有抬起（指针仍按住）才进入。
+                            // 抬起事件已在上一段被消费，若不加这道闸，这里会永远等不到
+                            // 抬手 —— 每 55ms 重发同一键、pressed 高亮永不回弹，正是
+                            // 用户报修「外设模式点了一直灰、没反应」的根因（v223.29.56 起）。
+                            if (!sawRelease) {
+                                while (true) {
+                                    if (usage != 0) HidKeys.tap(usage) else onTap()
+                                    repeatFired = true
+                                    val ev = withTimeoutOrNull(55L) { awaitPointerEvent() } ?: continue
+                                    val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!ch.pressed) {
+                                        sawRelease = true
+                                        break
+                                    }
+                                    ch.consume()
                                 }
-                                ch.consume()
                             }
                         }
                     } finally {
