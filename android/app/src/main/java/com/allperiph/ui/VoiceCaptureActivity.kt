@@ -220,6 +220,11 @@ class VoiceCaptureActivity : ComponentActivity() {
             return
         }
         if (speech != null) return // 识别已在跑（重进面板等场景），别把 AudioRecord 顶掉
+        // Preparing 守卫：模型加载线程在后台跑时 offlineState 已置 Preparing，
+        // 期间 micPerm 授权回调、下载完成回调度 / launchSpeech 兜底再进来，
+        // 没有这一守卫会并发起第二个线程 —— 后建的 Model/SpeechService 引用
+        // 顶掉先建的（字段被覆盖），先建那份的 AudioRecord 永远被占、无法回收。
+        if (offlineState is Offline.Preparing) return
         offlineState = Offline.Preparing
         Thread {
             try {
@@ -231,7 +236,9 @@ class VoiceCaptureActivity : ComponentActivity() {
                 speech = svc
                 svc.startListening(offlineListener)
                 runOnUiThread { offlineState = Offline.Listening("") }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable 而不是 Exception：Model 构造走 JNI + 大内存，OOM 之类的
+                // Error 一旦漏出会杀线程而不走 Failed，页面卡死在「加载中」
                 Log.w(TAG, "离线识别初始化失败：${e.message}")
                 releaseEngine()
                 runOnUiThread { offlineState = Offline.Failed }

@@ -452,10 +452,25 @@ class RemoteInputActivity : ComponentActivity() {
         intent.setPackage(pkg)
         try {
             @Suppress("DEPRECATION")
-            startActivityForResult(intent, 726)
+            startActivityForResult(intent, REQ_VOICE)
         } catch (e: Exception) {
             Toast.makeText(this, "系统语音识别不可用", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /**
+     * 语音识别结果回填（此前缺失：startVoiceInput 拉起识别后没人接 RESULT，
+     * 用户对着系统识别说完一整句，结果整个被丢弃 ——「语音」按钮是死键）。
+     * 取第一条候选 append 进输入框：走 TextWatcher 的增量 diff 链自动发往对端。
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_VOICE || resultCode != Activity.RESULT_OK) return
+        val t = data?.getStringArrayListExtra("android.speech.extra.RESULTS")
+            ?.firstOrNull().orEmpty().trim()
+        if (t.isEmpty()) return
+        suppressInputWatcher = false   // append 是真实输入，必须走增量链
+        editText?.append(t)
     }
 
     override fun onDestroy() {
@@ -469,6 +484,9 @@ class RemoteInputActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SOURCE = "source_device"
         const val EXTRA_HINT = "hint"
+
+        /** 语音识别请求码（本页内部使用） */
+        private const val REQ_VOICE = 726
 
         /**
          * 回程通道：true = 请求经本机 9511 **客户端**链路进来（本机正在控制的目标设备，
