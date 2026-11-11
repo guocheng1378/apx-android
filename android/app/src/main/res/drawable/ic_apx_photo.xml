@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 快捷项图标：相册 / 最新照片卡的占位（相框 + 太阳 + 山，image 标准造型）
+     2026-11-12 新增：照片卡无图可显（未授权 / 相册无图 / 缩略图未解出）时，
+     旧版回落直接用 ic_apx_files（文件夹），与「发送文件」项在菜单里撞成一对
+     （用户「相册和发送文件呢」）。改用本图标占位，与文件项一眼区分。
+     家族口径：24 视口 / 描边 1.7 / 圆角圆头 / 黑白单色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- 相框：圆角描边矩形 -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.4,4.5 h15.2 a1.6,1.6 0 0 1 1.6,1.6 v11.8 a1.6,1.6 0 0 1 -1.6,1.6 h-15.2 a1.6,1.6 0 0 1 -1.6,-1.6 v-11.8 a1.6,1.6 0 0 1 1.6,-1.6 z" />
+    <!-- 太阳（圆帽点） -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M8.2,9 h.01" />
+    <!-- 两座山：起收在相框左右边线上，圆肩折线 -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.8,17.8 L7.6,13 a1.2,1.2 0 0 1 1.7,0 L13,16.7 M11.5,18.7 L15.8,14.4 a1.2,1.2 0 0 1 1.7,0 L21.2,18.1" />
+</vector>

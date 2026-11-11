@@ -1609,7 +1609,9 @@ class FloatingBallService : Service() {
             iv.imageTintList = null
             iv.scaleType = ImageView.ScaleType.CENTER_CROP
         } else {
-            iv.setImageResource(R.drawable.ic_apx_files)
+            // 2026-11-12：占位从 ic_apx_files 换成 ic_apx_photo —— 旧版与「发送文件」项
+            // 在菜单里同款文件夹撞形（issue#168 用户「相册和发送文件呢」）
+            iv.setImageResource(R.drawable.ic_apx_photo)
             iv.imageTintList = ColorStateList.valueOf(themed.resources.getColor(R.color.ball_text))
             iv.scaleType = ImageView.ScaleType.CENTER
         }
