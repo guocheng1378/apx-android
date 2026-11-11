@@ -118,16 +118,7 @@ class EvdevPointerReader(
                 Log.i(TAG, "设备表直读失败（改走 root）：${t.message}")
             }
             return try {
-                val pr = ProcessBuilder("su", "-c", "cat /proc/bus/input/devices")
-                    .redirectErrorStream(false)
-                    .start()
-                val done = pr.waitFor(5, TimeUnit.SECONDS)
-                if (!done) {
-                    runCatching { pr.destroy() }
-                    null
-                } else {
-                    pr.inputStream.readBytes().toString(Charsets.UTF_8)
-                }
+                suCapture("cat /proc/bus/input/devices", 5)
             } catch (t: Throwable) {
                 Log.w(TAG, "设备表 root 读取也失败：${t.message}")
                 null
@@ -210,6 +201,13 @@ class EvdevPointerReader(
     private val procs = ArrayList<Process>()
 
     /**
+     * 在跑的事件解析循环数（全审查条 2）：stop() 先置 running=false，读循环经
+     * native poll 1s 超时自然退出后计数归零 —— stop 据此等读线程真正离开
+     * read 再解除独占 / 关 fd（跨线程 close 正被 read 的 fd 是未定义行为）。
+     */
+    private val liveStreams = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
      * 已独占拦截的节点与 fd（EVIOCGRAB 持有中；stop 时逐个解除并还原权限）。
      * 独占后内核不再把该设备派给安卓输入子系统 —— 触控板不再操作手机屏幕。
      * 注意代价：拦截是「全程」的，电脑侧出口没就绪时 [RootPointerBridge.feed] 会
@@ -258,10 +256,12 @@ class EvdevPointerReader(
             if (fd >= 0) {
                 synchronized(grabbed) { grabbed.add(f.path to fd) }
                 grabbedNow.add(f.path)
+                liveStreams.incrementAndGet()
                 handler?.post {
                     parseStream({ buf, off, len -> ApxNative.evdevRead(fd, buf, off, len) }, f.path.name)
                 }
             } else {
+                liveStreams.incrementAndGet()
                 handler?.post { readRootCat(f.path) }
             }
         }
@@ -272,10 +272,23 @@ class EvdevPointerReader(
     }
 
     fun stop() {
+        // 全审查条 2（顺序即修复）：①running=false —— 读循环在 native poll 1s 超时
+        // 内自然退出（readRootCat 通路靠 destroy 子进程让 read 抛错退出）；
+        // ②等读循环真正离开 read（有界等待，超时则尽力而为）；
+        // ③此时才解除独占 / 关 fd / 还原权限 —— 旧实现从另一线程 close 正被
+        // read 阻塞的 fd 是未定义行为，读线程会永久卡死、EVIOCGRAB 不解除。
         running = false
         synchronized(procs) {
             for (p in procs) runCatching { p.destroy() }
             procs.clear()
+        }
+        val deadline = System.currentTimeMillis() + 2500
+        while (liveStreams.get() > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50)
+            } catch (_: InterruptedException) {
+                break
+            }
         }
         // 逐个解除独占、关 fd、还原设备权限（重启也会还原，但主动还原不留尾巴）
         synchronized(grabbed) {
@@ -295,12 +308,49 @@ class EvdevPointerReader(
     /** root 可用性：起一次 `su -c true` 判成败（与 RootShell.open 同口径的轻量版） */
     private fun hasRoot(): Boolean = try {
         val pr = ProcessBuilder("su", "-c", "true").redirectErrorStream(true).start()
+        // 全审查条 9：先在后台线程排空输出再等退出 —— 个别 su 实现输出管道满时
+        // 会卡住不退出，先 waitFor 永远超时（3 秒白等 + 误判无 root）。
+        val drain = Thread { runCatching { pr.inputStream.readBytes() } }
+            .apply { isDaemon = true; start() }
         val done = pr.waitFor(3, TimeUnit.SECONDS)
-        if (!done) runCatching { pr.destroy() }
-        done && pr.exitValue() == 0
+        if (!done) {
+            runCatching { pr.destroy() }
+            runCatching { drain.interrupt() }
+            false
+        } else {
+            runCatching { drain.join(1000) }
+            pr.exitValue() == 0
+        }
     } catch (t: Throwable) {
         Log.w(TAG, "su 探测异常：${t.message}")
         false
+    }
+
+    /**
+     * 起 su 子进程跑单条命令并取 stdout（全审查条 9）：输出由后台线程排空 ——
+     * 个别 su 实现输出管道满会卡住不退出，先 waitFor 永远超时。超时返回 null。
+     */
+    private fun suCapture(cmd: String, timeoutSec: Long): String? = try {
+        val pr = ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
+        var out: ByteArray? = null
+        val drain = Thread {
+            out = try {
+                pr.inputStream.readBytes()
+            } catch (_: Throwable) {
+                null
+            }
+        }.apply { isDaemon = true; start() }
+        if (!pr.waitFor(timeoutSec, TimeUnit.SECONDS)) {
+            runCatching { pr.destroy() }
+            runCatching { drain.interrupt() }
+            null
+        } else {
+            runCatching { drain.join(1000) }
+            out?.toString(Charsets.UTF_8)
+        }
+    } catch (t: Throwable) {
+        Log.w(TAG, "su 执行失败：$cmd ${t.message}")
+        null
     }
 
     /** 起一个 root 子进程跑单条命令（放/收设备节点权限用）：只等结束，不取输出 */
@@ -390,6 +440,12 @@ class EvdevPointerReader(
                 while (read < EVENT_SIZE) {
                     val n = readChunk(buf, read, EVENT_SIZE - read)
                     if (n < 0) return
+                    if (n == 0) {
+                        // 全审查条 2：poll 超时 / EINTR —— 回外层看 running，
+                        // stop() 后 ≤1s 内退出；running 期间继续等数据即可
+                        if (!running) return
+                        continue
+                    }
                     read += n
                 }
                 val type = le16(buf, 16)
@@ -451,6 +507,9 @@ class EvdevPointerReader(
             }
         } catch (t: Throwable) {
             if (running) Log.w(TAG, "evdev 读取结束 $nodeName：${t.message}")
+        } finally {
+            // 全审查条 2：循环退出即减计数，stop() 的有界等待据此判断读线程已离开 read
+            liveStreams.decrementAndGet()
         }
     }
 

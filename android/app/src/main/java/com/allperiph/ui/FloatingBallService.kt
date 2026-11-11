@@ -1977,14 +1977,23 @@ class FloatingBallService : Service() {
                 }
             }
             BallConfig.POINTER_READ -> {
-                RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), next)
-                if (next && !RootPointerBridge.active) {
-                    // 拿不到 root / 没接指针设备：start() 自己降级了，这里如实回退，不显示假开启
-                    RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), false)
-                    Toast.makeText(this, getString(R.string.ui_ball_toggle_pointer_fail), Toast.LENGTH_SHORT).show()
+                // 全审查条 1：起停改后台（su 扫描最坏 3–5 秒/节点，同步等必 ANR），
+                // 结果在主线程回调里处理 —— 不再同步读 active（异步下必然竞态）。
+                RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), next) { ok ->
+                    if (next && !ok) {
+                        // 拿不到 root / 没接指针设备：start() 自己降级了，这里如实回退，不显示假开启
+                        RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), false)
+                        Toast.makeText(this, getString(R.string.ui_ball_toggle_pointer_fail), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(
+                            this,
+                            getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                     renderFanStates()
-                    return
                 }
+                return
             }
         }
         Toast.makeText(

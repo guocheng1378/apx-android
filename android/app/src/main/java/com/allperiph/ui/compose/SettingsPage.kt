@@ -1262,19 +1262,22 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         checked = rootPointer,
                         onCheckedChange = { on ->
                             rootPointer = on
+                            Feedback.haptic(ctx)
+                            // 全审查条 1：起停在后台线程跑（su 扫描/独占每节点最坏 3–5 秒，
+                            // 同步等必 ANR），完成后在回调里如实告知接管结果并按失败回弹
+                            // 开关（全审查条 6）—— issue #52 问题 5 的教训：界面状态必须与实际一致
                             com.allperiph.touchpad.RootPointerBridge.setEnabled(
                                 ctx,
                                 com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
                                 on,
-                            )
-                            // 开关后如实告知接管结果（成功/没 root/没设备），不装成功
-                            // —— issue #52 问题 5 的教训：界面状态必须与实际一致
-                            if (on) {
-                                com.allperiph.touchpad.RootPointerBridge.lastStatus?.let {
-                                    android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show()
+                            ) { ok ->
+                                if (on && !ok) rootPointer = false
+                                if (on) {
+                                    com.allperiph.touchpad.RootPointerBridge.lastStatus?.let {
+                                        android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show()
+                                    }
                                 }
                             }
-                            Feedback.haptic(ctx)
                         },
                     )
                 }

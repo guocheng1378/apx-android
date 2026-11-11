@@ -2,12 +2,15 @@ package com.allperiph.touchpad
 
 import android.content.Context
 import android.hardware.input.InputManager
+import android.os.Handler
+import android.os.Looper
 import com.allperiph.R
 import com.allperiph.core.ModuleId
 import com.allperiph.core.Uplink
 import com.allperiph.shared.util.Log
 import com.allperiph.ui.AgentController
 import com.allperiph.wireless.ControlTarget
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
 /**
@@ -65,6 +68,16 @@ object RootPointerBridge {
 
     /** 热插拔重扫在后台做：su 扫描最坏 3–5 秒，上主线程会卡界面 */
     private val rescanExecutor = Executors.newSingleThreadExecutor()
+
+    /** 起停完成后回主线程通知调用方（设置页弹 toast / 悬浮球回退渲染） */
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * 全审查条 5：热插拔监听里登记过的 deviceId → 是否指针源。
+     * removed 事件只给 deviceId（拿不到设备了），据此判断是否值得 su 重扫。
+     */
+    private val pointerDevices = ConcurrentHashMap<Int, Boolean>()
+
     private var hotplugRegistered = false
     private var appCtx: Context? = null
 
@@ -84,15 +97,31 @@ object RootPointerBridge {
         enabled = isEnabled(store)
     }
 
-    /** 设置页开关的唯一写入口：落盘 + 立刻起停；拿不到 root 时 [start] 会如实降级。 */
-    fun setEnabled(ctx: Context, store: android.content.SharedPreferences, on: Boolean) {
+    /**
+     * 设置页开关的唯一写入口：落盘 + 立刻起停；拿不到 root 时 [start] 会如实降级。
+     *
+     * 全审查条 1：su 探测 / 扫描 / 逐节点独占（每节点最坏 3–5 秒）不再占用调用线程
+     * —— 从设置页 / 悬浮球调来时都是主线程，同步等最长 15s+ 必 ANR。起停整体挪到
+     * rescanExecutor 串行执行，完成后经主线程回调 [onDone](active)：调用方据此
+     * 弹结果提示 / 按失败回弹开关（全审查条 6），不再同步读 active（异步下必然竞态）。
+     */
+    fun setEnabled(
+        ctx: Context,
+        store: android.content.SharedPreferences,
+        on: Boolean,
+        onDone: ((ok: Boolean) -> Unit)? = null,
+    ) {
         enabled = on
         store.edit().putBoolean(KEY_ENABLED, on).apply()
-        if (on) {
-            ensureHotplug(ctx.applicationContext)
-            start()
-        } else {
-            stop()
+        val app = ctx.applicationContext
+        rescanExecutor.execute {
+            if (on) {
+                ensureHotplug(app)
+                start()
+            } else {
+                stop()
+            }
+            onDone?.let { cb -> mainHandler.post { cb(active) } }
         }
     }
 
@@ -154,8 +183,25 @@ object RootPointerBridge {
         val im = appContext.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return
         im.registerInputDeviceListener(
             object : InputManager.InputDeviceListener {
-                override fun onInputDeviceAdded(deviceId: Int) = rescan()
-                override fun onInputDeviceRemoved(deviceId: Int) = rescan()
+                // 全审查条 5：added 只对指针源（鼠标 / 触控板 / 轨迹球）设备重扫并登记
+                // —— 键盘、耳机、手柄等插拔不该触发 3–5 秒的 su 扫描。
+                override fun onInputDeviceAdded(deviceId: Int) {
+                    val d = im.getInputDevice(deviceId) ?: return
+                    val isPtr = (d.sources and (
+                        InputDevice.SOURCE_MOUSE or
+                            InputDevice.SOURCE_TOUCHPAD or
+                            InputDevice.SOURCE_TRACKBALL
+                        )) != 0
+                    pointerDevices[deviceId] = isPtr
+                    if (isPtr) rescan()
+                }
+
+                // 全审查条 5：removed 只剩 deviceId，用登记表判断 —— 拔掉的若不是
+                // 指针设备（或监听注册前就在的老设备），不值得 su 重扫。
+                override fun onInputDeviceRemoved(deviceId: Int) {
+                    if (pointerDevices.remove(deviceId) == true) rescan()
+                }
+
                 override fun onInputDeviceChanged(deviceId: Int) = Unit
             },
             null,
