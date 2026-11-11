@@ -413,7 +413,7 @@
     <string name="ui_kb_voice_none">没听清，再试一次</string>
     <string name="ui_kb_voice_unavailable">系统语音识别不可用</string>
     <string name="ui_kb_voice_google_only">这台手机的系统语音识别只有 Google 语音（国内网络连不上），建议用输入法上的语音键口述</string>
-    <string name="ui_kb_voice_only_main">语音要在主屏键盘页使用（悬浮窗里没有宿主界面）</string>
+    <!-- ui_kb_voice_only_main 已随 VoiceCaptureActivity 移除（悬浮键盘不再只弹提示，链路打通） -->
     <string name="ui_kb_voice_result_title">语音识别结果</string>
     <string name="ui_kb_voice_send">发到电脑</string>
     <string name="ui_kb_voice_sent">已发到电脑剪贴板</string>

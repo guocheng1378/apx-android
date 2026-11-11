@@ -332,19 +332,21 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     val portraitPhone = !adaptive.landscape && adaptive.width < 600.dp
     // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
     var voiceText by remember { mutableStateOf<String?>(null) }
-    // 系统语音识别拉起器：主屏键盘页有宿主 Activity 可用；悬浮球 overlay（Service 窗口）
-    // 没有 startActivityForResult 的宿主，点了只给提示（见工具行 onClick 分支）。
-    val voiceLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult(),
-    ) { r ->
-        // EXTRA_RESULTS 字面值与 SpeechRecognizer 源码逐字一致（公开协议常量，零符号依赖，
-        // 与 RemoteInputActivity.startVoiceInput 同口径）
-        val t = r.data?.getStringArrayListExtra("android.speech.extra.RESULTS")
-            ?.firstOrNull().orEmpty()
-        voiceText = if (t.isNotBlank()) t else null
-        if (t.isBlank()) {
-            android.widget.Toast.makeText(ctx, R.string.ui_kb_voice_none, android.widget.Toast.LENGTH_SHORT).show()
+    // 识别结果回投（2026-11-11 成宇「语音按键链路不能用」）：主屏与悬浮键盘统一走
+    // VoiceCaptureActivity 透明宿主页 —— 语音识别必须有 Activity 宿主，悬浮键盘
+    // （Service overlay）没有，旧实现在悬浮键盘里点了只弹「要在主屏使用」，链路断了。
+    // 结果经伴生回调落回本面板的确认卡；DisposableEffect 挂 / 摘，
+    // 防 Service 面板销毁重建后旧回调滞留（接住已被新面板取代的写入）。
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        com.allperiph.ui.VoiceCaptureActivity.onResult = { t ->
+            voiceText = t?.takeIf { it.isNotBlank() }
+            if (voiceText == null) {
+                android.widget.Toast.makeText(
+                    ctx, R.string.ui_kb_voice_none, android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
+        onDispose { com.allperiph.ui.VoiceCaptureActivity.onResult = null }
     }
 
     CompositionLocalProvider(LocalRgb provides rgbSpec, LocalMatPhase provides matPhase) {
@@ -504,15 +506,11 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                     }
                     MediaTile(ctx.getString(R.string.ui_kb_tool_voice), Modifier.weight(1f)) {
                         Feedback.tap(host)
-                        val act = ctx as? android.app.Activity
-                        if (act == null) {
-                            // 悬浮键盘（Service 窗口）没有可拉起识别界面的宿主，如实说明
-                            android.widget.Toast.makeText(
-                                ctx, R.string.ui_kb_voice_only_main, android.widget.Toast.LENGTH_SHORT,
-                            ).show()
-                        } else {
-                            launchKeyboardVoice(ctx, voiceLauncher)
-                        }
+                        // 统一走透明宿主页拉系统识别（2026-11-11「语音按键链路不能用」）：
+                        // 悬浮键盘没有 Activity 宿主，主屏同样可用 —— 识别器挑选、
+                        // Google-only 提示都在 VoiceCaptureActivity 内（同 v223.29.33 口径），
+                        // 结果经伴生回调回到本面板的确认卡。
+                        com.allperiph.ui.VoiceCaptureActivity.start(ctx)
                     }
                     MediaTile(ctx.getString(R.string.ui_kb_tool_rgb), Modifier.weight(1f)) {
                         Feedback.tap(host)
@@ -1442,46 +1440,9 @@ internal fun sendClipboardToPc(ctx: android.content.Context) {
 }
 
 /**
- * 「语音」工具键（§6.3 Expanded 工具行）：系统语音识别 → 结果确认卡 → 发到电脑剪贴板。
- *
- * 识别器挑选与 RemoteInputActivity.startVoiceInput 同口径（v223.29.33 结论）：
- * **先挑非 Google 的识别活动再拉起** —— 国内 ROM 往往只有 Google 语音（网络不可达），
- * 旧实现静默拉起必然落到它。只有 Google 时如实提示并推荐输入法语音键，不静默拉起。
- * ACTION / EXTRA 字面值与 SpeechRecognizer 源码逐字一致（公开协议常量，零符号依赖）。
+ * 「语音」工具键（§6.3 Expanded 工具行）的原拉起器（2026-11-11 移除）：
+ * 主屏路径曾用 rememberLauncherForActivityResult 直拉识别、悬浮键盘路径只弹提示；
+ * 成宇「语音按键链路不能用」后统一并入 [com.allperiph.ui.VoiceCaptureActivity] ——
+ * 识别器挑选（v223.29.33 口径：先挑非 Google 识别活动）、结果抽取都在宿主页内，
+ * 主屏与悬浮键盘共用一条链路，本文件不再保留第二套实现。
  */
-internal fun launchKeyboardVoice(
-    ctx: android.content.Context,
-    launcher: androidx.activity.result.ActivityResultLauncher<android.content.Intent>,
-) {
-    val intent = android.content.Intent("android.speech.action.RECOGNIZE_SPEECH").apply {
-        putExtra("android.speech.extra.LANGUAGE_MODEL", "free_form")
-        putExtra("android.speech.extra.LANGUAGE_PREFERENCE", "zh-CN")
-        putExtra("android.speech.extra.LANGUAGE", "zh-CN")
-    }
-    val handlers = ctx.packageManager.queryIntentActivities(
-        intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY,
-    )
-    val nonGoogle = handlers.firstOrNull {
-        !(it.activityInfo?.packageName ?: "").startsWith("com.google.android")
-    }
-    val pick = nonGoogle ?: handlers.firstOrNull()
-    if (pick == null) {
-        android.widget.Toast.makeText(
-            ctx, R.string.ui_kb_voice_unavailable, android.widget.Toast.LENGTH_LONG,
-        ).show()
-        return
-    }
-    if (nonGoogle == null) {
-        // 只有 Google 语音：国内网络不可达 —— 如实提示，不静默拉起（同 RemoteInputActivity）
-        android.widget.Toast.makeText(
-            ctx, R.string.ui_kb_voice_google_only, android.widget.Toast.LENGTH_LONG,
-        ).show()
-        return
-    }
-    intent.setPackage(pick.activityInfo.packageName)
-    runCatching { launcher.launch(intent) }.onFailure {
-        android.widget.Toast.makeText(
-            ctx, R.string.ui_kb_voice_unavailable, android.widget.Toast.LENGTH_SHORT,
-        ).show()
-    }
-}

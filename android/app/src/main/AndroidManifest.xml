@@ -407,6 +407,19 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
+          ⑪之四 「语音」工具键识别宿主页（2026-11-11）：系统语音识别要 Activity 宿主，
+          悬浮键盘（Service overlay）里的语音键没有宿主 —— 透明页进来就拉识别、
+          结果经伴生回调投回面板、即 finish。singleTop 防连点叠多层（同 PhotoPermActivity）。
+        -->
+        <activity
+            android:name=".ui.VoiceCaptureActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
           ⑫ 连接状态通知点击 → RemoteInputActivity
           v196 起改为由ControlledService 直接发 RemoteInputActivity 的 PendingIntent，
           原 .controlled.ConnectNotificationReceiver 这个类**并不存在**（注册是悬空的），
