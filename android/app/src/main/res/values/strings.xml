@@ -458,6 +458,9 @@
     <string name="ui_set_label_ui_scale">界面缩放</string>
     <string name="ui_set_sec_theme">主题数据</string>
     <string name="ui_set_sec_tpl_custom">模板管理（自定义）</string>
+    <!-- issue#168 第 14 条：快捷键按被控机系统适配（Windows 基线 / macOS 换键） -->
+    <string name="ui_set_peer_os">被控机系统</string>
+    <string name="ui_set_peer_os_hint">切换后已套模板需重新套用，「恢复默认」也会按新系统给出键位</string>
     <string name="ui_set_sec_keymap">键映射</string>
     <!-- v223.29.4 键映射收进折叠组（成宇 2026-11-04「键映射这一块太长了，用折叠」）：
          组头回显「已改 N 处」，不展开也知道改没改过。 -->

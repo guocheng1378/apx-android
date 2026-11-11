@@ -1155,6 +1155,31 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+                    // ———————————————— 被控机系统（issue#168 第 14 条）————————————————
+                    // 快捷键按被控机系统适配的开关：Windows 基线原样发送；macOS 把 Ctrl 系
+                    // 组合键与 Win 专属键翻译成 ⌘ 系（见 PeerOs.macCombo）。
+                    // 只改发送侧翻译，不碰键面「Win」标签；切换后已落库存档不动，
+                    // 重新套模板或「恢复默认」才按新系统重出键位，故切换时给一条提示。
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_set_peer_os),
+                        summary = com.allperiph.hid.PeerOs.labels(ctx).getOrElse(
+                            com.allperiph.hid.PeerOs.indexOf(com.allperiph.hid.PeerOs.current(ctx))
+                        ) { "" },
+                        items = com.allperiph.hid.PeerOs.labels(ctx),
+                        selectedIndex = com.allperiph.hid.PeerOs.indexOf(
+                            com.allperiph.hid.PeerOs.current(ctx)
+                        ),
+                        onSelectedIndexChange = { i ->
+                            com.allperiph.hid.PeerOs.setCurrent(
+                                ctx, com.allperiph.hid.PeerOs.fromIndex(i)
+                            )
+                            Feedback.haptic(ctx)
+                            Toast.makeText(
+                                ctx, ctx.getString(R.string.ui_set_peer_os_hint),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                    )
                 }
             }
         }
