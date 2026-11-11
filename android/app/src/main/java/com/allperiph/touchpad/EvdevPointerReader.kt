@@ -97,8 +97,9 @@ class EvdevPointerReader(
          * 只是抄一份事件，安卓照收，触控板照样操作手机屏幕。
          */
         private const val EVIOCGRAB = 0x40044590
-        private const val GRAB_ON = 1
-        private const val GRAB_OFF = 0
+        // Os.ioctl 只有 (fd, cmd, Long) / (fd, cmd, MemoryAddress) 两个公开重载（int 版不存在）
+        private const val GRAB_ON = 1L
+        private const val GRAB_OFF = 0L
 
         /** 设备节点的标准权限（root:input 660）：拦截开始前放成 666、停止时还原 */
         private const val NODE_MODE_OPEN = "666"
