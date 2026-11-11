@@ -85,7 +85,16 @@ object FileSender {
     fun send(context: Context, host: String, uri: Uri, onProgress: ((Int) -> Unit)? = null): Boolean {
         val cr = context.contentResolver
         val size = cr.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
-        val name = queryName(cr, uri) ?: "file.bin"
+        // 九追（issue#168 2026-11-11）：DISPLAY_NAME 查不到不再一律落 file.bin —— 部分
+        // 文件管理器（HyperOS 实测，README.txt 发出后对端叫 file.bin）不回这个列。
+        // 退而求其次从 uri 里还原：file:// 的路径段、content:// 末段带「.」的当文件名
+        // （documentsui 的 primary:Download/README.txt 取冒号后一段）；都没有才落 file.bin。
+        val name = queryName(cr, uri)
+            ?: uri.lastPathSegment
+                ?.substringAfterLast('/')
+                ?.substringAfterLast(':')
+                ?.takeIf { it.contains('.') }
+            ?: "file.bin"
         val ins = cr.openInputStream(uri) ?: return false
         return ins.use { send(host, name, size, it, onProgress) }
     }

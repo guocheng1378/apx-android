@@ -13,6 +13,7 @@ import com.allperiph.R
 import com.allperiph.shared.net.FileSender
 import com.allperiph.shared.util.Log
 import com.allperiph.wireless.ControlTarget
+import java.io.File
 
 /**
  * 悬浮球「最新照片卡片」的数据与发送（ROADMAP §5.2 ①，2026-11-12）。
@@ -43,6 +44,9 @@ object BallLatestPhoto {
 
     /** 悬浮球偏好文件：与 [FloatingBallService]、[BallIcon] 同一份，避免偏好文件碎片化 */
     private const val PREF_FILE = "apx_floating_ball"
+
+    /** 选图快照在 cache 下的目录名（[PhotoPickActivity] 写、本类发送后清） */
+    internal const val SNAP_DIR = "apx_pick"
 
     /** 查到的一条：媒体 uri + 文件名（发送时作对端落盘名）+ DATE_ADDED（缓存命中判定） */
     data class Latest(val uri: Uri, val name: String, val dateAdded: Long)
@@ -175,8 +179,9 @@ object BallLatestPhoto {
 
     /**
      * 解码待发首张缩略图（后台线程，回主线程 [onReady]）—— 与 [loadThumb] 同口径，
-     * 但针对多选结果 URI（系统临时授权，授权随 Activity 结果持续到进程结束；
-     * 进程被杀后待发作废，卡自然回落占位图，不会假装还有图）。
+     * 但针对多选结果 URI：九追起结果是**本地快照 file://**（[PhotoPickActivity] 落
+     * 缓存，避开厂商收回 picker uri 授权的问题），用 BitmapFactory 按解码边界降采样；
+     * 极旧的 picker uri（快照失败残留）仍走 [ContentResolver.loadThumbnail]。
      */
     fun loadPendingThumb(ctx: Context, sizePx: Int, onReady: () -> Unit) {
         val first = pending.firstOrNull() ?: return
@@ -188,12 +193,32 @@ object BallLatestPhoto {
         pendingThumbKey = key
         pendingThumb = null
         Thread({
-            pendingThumb = runCatching {
-                ctx.contentResolver.loadThumbnail(first, android.util.Size(sizePx * 2, sizePx * 2), null)
-            }.onFailure { Log.w(TAG, "待发缩略图解码失败：${it.message}") }.getOrNull()
+            pendingThumb = decodeThumb(ctx, first, sizePx)
             Handler(Looper.getMainLooper()).post { onReady() }
         }, "apx-ball-pending-thumb").start()
     }
+
+    /**
+     * 缩略图统一入口：本地快照（file://）走 BitmapFactory 边界降采样，
+     * 其他（media / picker uri）走 [ContentResolver.loadThumbnail]（媒体库缓存命中近乎零开销）。
+     */
+    private fun decodeThumb(ctx: Context, uri: Uri, sizePx: Int): Bitmap? = runCatching {
+        if (uri.scheme == "file") {
+            val path = uri.path ?: return@runCatching null
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= sizePx * 2) sample *= 2
+            android.graphics.BitmapFactory.decodeFile(
+                path,
+                android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                },
+            )
+        } else {
+            ctx.contentResolver.loadThumbnail(uri, android.util.Size(sizePx * 2, sizePx * 2), null)
+        }
+    }.onFailure { Log.w(TAG, "缩略图解码失败：${it.message}") }.getOrNull()
 
     /** 多选结果落状态：记清单、作废旧缩略图、Toast 提示下一步（发送） */
     private fun handlePicked(ctx: Context, uris: List<Uri>) {
@@ -235,11 +260,13 @@ object BallLatestPhoto {
                 if (sendOne(ctx, host, uri)) ok++
             }
             val total = list.size
-            // ③ 发完重置：待发清空 + 缩略图作废，卡回到「最新照片」占位 ——
-            //    下次点按重新选图（用户明确要求「发送之后按钮重置需要重新选择新图片」）
+            // ③ 发完重置：待发清空 + 缩略图作废 + 快照缓存清空（快照只在待发期间有效，
+            //    留着只会白占 cache）—— 卡回到「最新照片」占位，下次点按重新选图
+            //   （用户明确要求「发送之后按钮重置需要重新选择新图片」）
             pending = emptyList()
             pendingThumb = null
             pendingThumbKey = null
+            File(ctx.cacheDir, SNAP_DIR).takeIf { it.isDirectory }?.deleteRecursively()
             sending.set(false)
             Handler(Looper.getMainLooper()).post {
                 if (ok == total) toast(ctx, R.string.ui_ball_photo_send_done, total)
@@ -265,7 +292,10 @@ object BallLatestPhoto {
      * 收到的是 1157B 的 file.bin —— FileSender.queryName 查不到 DISPLAY_NAME、
      * openInputStream 只吐 1KB 假数据；文件面板正常说明 9512 链路本身通）。
      *
-     * 流程：先 openFileDescriptor 探真实大小 ——
+     * 流程：九追起多选结果优先是**本地快照 file://**（[PhotoPickActivity] 落缓存，
+     * 规避厂商收回 picker uri 授权）—— 本地文件直接走 [FileSender.send] 的 File 版，
+     * 探大小用 File.length、文件名用快照文件名（快照时已带原始名），不需要兜底；
+     * 快照失败退回原 uri 时才走原兜底：先 openFileDescriptor 探真实大小 ——
      *  · 大小正常（>2KB）→ 原样走 [FileSender.send]（Context+Uri 版）；
      *  · 打不开或 0..2047B（假流特征）→ 退 [ContentResolver.loadThumbnail] 4K 缩略图
      *    （媒体库有缓存，不依赖原始流），压 JPEG 90 后用流版 [FileSender.send] 发出，
@@ -273,6 +303,11 @@ object BallLatestPhoto {
      */
     private fun sendOne(ctx: Context, host: String, uri: Uri): Boolean {
         val cr = ctx.contentResolver
+        // 本地快照：文件就在 cache 里，直接发（名字=快照文件名，带原始名）
+        if (uri.scheme == "file") {
+            val f = File(uri.path ?: return false)
+            if (f.isFile) return FileSender.send(host, f)
+        }
         val size = runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }
             .onFailure { Log.w(TAG, "探大小失败：${it.message}") }
             .getOrNull()
