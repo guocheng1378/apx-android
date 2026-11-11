@@ -1221,17 +1221,23 @@ class FloatingBallService : Service() {
      *    角度递减，第一项落在参考方向逆时针一侧（用户原话「逆时针排列」）；
      * 4. **缩短与球距离、收紧行间距**：半径与间隙整档下调（见 [BallConfig.arcRadiusDp] /
      *    [FAN_GAP_DP]）。
-     * 兜底逻辑不变：极端贴边时逐项钳进屏内（含可绘制区上沿），宁可邻项略叠，
-     * 不摆到看不见的地方（HyperOS 会裁掉窗口负坐标，见五追口径）。
+     * 5. **贴边不叠（七追 2026-11-11「这排的太乱了」）**：每圈容量先按「该半径下圆心
+     *    仍在屏内的连续角区间」封顶，塞不下的项顺延外圈；逐项钳进屏内（含可绘制区
+     *    上沿）只作最后兜底，正常路径不再出现邻项略叠（HyperOS 会裁掉窗口负坐标，
+     *    见五追口径）。
      *
      * 窗口取**所有快捷项外扩一圈的矩形**，而不是固定的正方形包围盒：球贴边时正方形
      * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
     /**
      * 单圈摆位（圈层版 [buildFan] 每圈调用一次）：全部圈层共用**朝屏心**的参考方向，
-     * 逆时针、固定角距（见上方类注释）；[topMin] 仍是可绘制区 y 上沿，兜底钳位沿用
-     * 五追口径。返回值第二位带出参考角 —— 旧版每圈各搜各的圆心角会相背，现在圈层
-     * 朝向天然一致，原样传回。
+     * 逆时针、固定角距（见上方类注释）；[topMin] 仍是可绘制区 y 上沿。返回值第二位带出
+     * 参考角 —— 旧版每圈各搜各的圆心角会相背，现在圈层朝向天然一致，原样传回。
+     *
+     * 七追（2026-11-11 用户截图「这排的太乱了」）：新增 [arcMinDeg] / [arcMaxDeg] 可行
+     * 角区间（[allowedArcDeg] 量出、含参考方向），整段弧先按固定角距展开，再把**弧段
+     * 整体**钳进区间内 —— 不再让放不下的项各自逐项钳位叠到同一角上。调用方保证
+     * span ≤ 区间宽度（圈容量已按区间封顶），这里的钳位只是几何上的保险。
      */
     private fun placeArcRing(
         m: Int,
@@ -1244,12 +1250,16 @@ class FloatingBallService : Service() {
         screenW: Int,
         screenH: Int,
         topMin: Int,
+        arcMinDeg: Double,
+        arcMaxDeg: Double,
     ): Pair<List<Pair<Float, Float>>, Float> {
         val half = itemPx / 2f
         // 可行区的屏幕坐标上下沿：下沿就是屏幕底，上沿是可绘制区顶（父框原点之下）
         val yTop = topMin + half
         if (m <= 1) {
-            val a = Math.toRadians(refDirDeg.toDouble())
+            // 单项也要落在可行区间内：贴边时朝屏心角被区间边缘截断就贴边摆
+            val aDeg = refDirDeg.coerceIn(arcMinDeg.toFloat(), arcMaxDeg.toFloat())
+            val a = Math.toRadians(aDeg.toDouble())
             return listOf(
                 (cx + baseR * cos(a).toFloat()).coerceIn(half, screenW - half) to
                     (cy + baseR * sin(a).toFloat()).coerceIn(yTop, screenH - half),
@@ -1264,7 +1274,10 @@ class FloatingBallService : Service() {
             2.0 * asin(min(chord / (2.0 * baseR), 1.0)),
         ).toFloat()
         val spanDeg = step * (m - 1)
-        val startDeg = refDirDeg + spanDeg / 2f
+        // 七追：整段弧钳进可行角区间 —— 先按朝屏心对称展开，若有一端出了屏就把整段
+        // 往屏内挪，而不是让个别项逐项钳位叠成一坨（调用方已保证 span ≤ 区间宽度）
+        val startDeg = (refDirDeg + spanDeg / 2f)
+            .coerceIn((arcMinDeg + spanDeg).toFloat(), arcMaxDeg.toFloat())
         val pts = ArrayList<Pair<Float, Float>>(m)
         for (i in 0 until m) {
             // 逆时针排列：角度随序号递减
@@ -1277,6 +1290,44 @@ class FloatingBallService : Service() {
         }
         // 参考方向原样传回：所有圈层共用朝屏心角，圈层朝向天然一致
         return pts to refDirDeg
+    }
+
+    /**
+     * 半径 r 时「快捷项圆心仍在屏内」的连续可行角区间（包含参考方向 refDirDeg 的那一段）。
+     *
+     * 七追（2026-11-11 用户截图「这排的太乱了」）配套：此前贴边球每圈固定塞 5/8/11 项，
+     * 弧段比贴边球真正看得见的范围宽，几何上放不下的项被逐项钳进屏内，全叠到同一角上。
+     * 这里按 1° 步进从参考方向向两侧扩展，量出本圈半径下真正摆得下的角度范围；圈层
+     * 容量随之封顶（见 [buildFan]）。参考方向本身不可行（理论不出现：球不会停在屏外）
+     * 时退回整圈可行，由既有的逐项钳位兜底。返回值允许越过 ±180°（跨 0° 的弧不断开）。
+     */
+    private fun allowedArcDeg(
+        cx: Float,
+        cy: Float,
+        r: Float,
+        half: Float,
+        screenW: Int,
+        screenH: Int,
+        topMin: Int,
+        refDirDeg: Float,
+    ): Pair<Double, Double> {
+        val yTop = topMin + half
+        fun ok(a: Double): Boolean {
+            val x = cx + r * cos(Math.toRadians(a)).toFloat()
+            val y = cy + r * sin(Math.toRadians(a)).toFloat()
+            return x >= half && x <= screenW - half && y >= yTop && y <= screenH - half
+        }
+        val norm = ((refDirDeg % 360) + 360) % 360
+        if (!ok(norm)) return -180.0 to 180.0
+        // 从参考方向向两侧扩展可行弧（角度减小 = 逆时针方向，增大 = 顺时针）。
+        // ⚠️ 必须带 360° 上限：球在屏幕内部时整圆可行，没有上限扩展会永远停不下来。
+        var aMin = norm
+        var stepsL = 0
+        while (stepsL < 360 && ok(aMin - 1.0)) { aMin -= 1.0; stepsL++ }
+        var aMax = norm
+        var stepsR = 0
+        while (stepsR < 360 && ok(aMax + 1.0)) { aMax += 1.0; stepsR++ }
+        return aMin to aMax
     }
 
     private fun buildFan(ballView: View): Fan {
@@ -1322,29 +1373,39 @@ class FloatingBallService : Service() {
                     (cy + designR * sin(a).toFloat()).coerceIn(parentTop + half, screenH - half),
             )
         } else {
-            // 圈层分配（issue#168 六追 2026-11-11：「单圈层样式改为每层递增 3 个」）：
-            // 内圈 5、外圈 8、再外 11…… 从内往外依次装满；≤5 项时只有内圈，
-            // 未排满的圈按固定角距聚拢（见 placeArcRing），不摊满整圈
-            val ringCounts = ArrayList<Int>()
-            var rem = n
-            var cap = FAN_RING_FIRST
-            while (rem > 0) {
-                val m = minOf(rem, cap)
-                ringCounts.add(m)
-                rem -= m
-                cap += FAN_RING_STEP
-            }
-            // 五追：外圈以**内圈选中的圆心角**为参考方向（内圈放不下则仍是朝屏心角）——
-            // 圈与圈朝向一致，不再各搜各的导致两段弧相背；上界传可绘制区顶（状态栏之下）
-            var refDir = dirDeg
-            ringCounts.forEachIndexed { ringIdx, m ->
+            // 七追（2026-11-11 用户截图「这排的太乱了」）：圈层分配改为「可行弧封顶、
+            // 放不下顺延外圈」。此前固定按 5/8/11 装圈，贴边球可见弧比 5 项的张角窄，
+            // 装不下的项被逐项钳进屏内叠成一坨；现在每圈先量出该半径下圆心留在屏内的
+            // 连续角区间（[allowedArcDeg]），再按固定角距反解本圈最多放得下几项，
+            // 塞不下的项自然落到下一圈 —— 任何一圈都不再出现邻项互叠。
+            var next = 0
+            var ringIdx = 0
+            while (next < n) {
                 // 外圈半径逐圈外移一圈「图标 + 间隙」，保证相邻圈不叠
                 val ringR = designR + ringIdx * (itemPx + gapPx)
-                val (pts, chosen) = placeArcRing(
-                    m, ringR, cx, cy, refDir, itemPx, gapPx, screenW, screenH, parentTop,
+                val (arcMin, arcMax) = allowedArcDeg(
+                    cx, cy, ringR, half, screenW, screenH, parentTop, dirDeg,
+                )
+                // 本圈固定角距（与 placeArcRing 同一公式，先在这里反解容量）
+                val step = Math.toDegrees(
+                    2.0 * asin(min((itemPx + gapPx) / (2.0 * ringR), 1.0)),
+                ).toFloat()
+                // 圈层容量仍按「内圈 5、外圈 8、再外 11……」递增（六追口径），
+                // 只是先被可行角区间封顶：贴边球能放几项放几项，放不下的顺延下一圈
+                val nominalCap = FAN_RING_FIRST + ringIdx * FAN_RING_STEP
+                val wedgeCap = if (arcMax - arcMin >= 359.0) {
+                    nominalCap
+                } else {
+                    ((arcMax - arcMin) / step).toInt() + 1
+                }
+                val m = minOf(n - next, maxOf(minOf(nominalCap, wedgeCap), 1))
+                val (pts, _) = placeArcRing(
+                    m, ringR, cx, cy, dirDeg, itemPx, gapPx, screenW, screenH, parentTop,
+                    arcMin, arcMax,
                 )
                 centres.addAll(pts)
-                refDir = chosen
+                next += m
+                ringIdx++
             }
         }
 
