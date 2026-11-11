@@ -140,8 +140,10 @@ class FloatingBallService : Service() {
          * 四追（2026-11-11 15:50「弧度调低一点，圆弧高度为悬浮球直径一致」）：120° 弧段
          * 的可见高 ≈ 1.732r，加描边与 6dp 窗口余量后要正好等于一颗球的直径（48dp），
          * 反解 r = (48 − 5 − 6) / 1.732 ≈ 21 —— 比旧值（26）更扁更矮，弧占的高度与球一致。
+         * v223.29.73 改名 DOCK_ARC_RADIUS_DP：与 BallConfig.ARC_RADIUS_DP（扇形菜单半径 66）
+         * 同名不同义，按审查发现改名区分。
          */
-        private const val ARC_RADIUS_DP = 21
+        private const val DOCK_ARC_RADIUS_DP = 21
         private const val ARC_STROKE_DP = 5
 
         /**
@@ -1035,7 +1037,7 @@ class FloatingBallService : Service() {
         val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         val cy = top + lp.y + v.height / 2f
-        val r = dp(ARC_RADIUS_DP)
+        val r = dp(DOCK_ARC_RADIUS_DP)
         val stroke = dp(ARC_STROKE_DP)
         // 弓形可见宽度 = r/2（圆心在屏外 r/2），加描边与 2dp 边距余量
         val w = r / 2 + stroke + dp(4)
@@ -1100,7 +1102,7 @@ class FloatingBallService : Service() {
      */
     private inner class ArcPeekDrawable(private val leftSide: Boolean) : android.graphics.drawable.Drawable() {
         private val stroke = dp(ARC_STROKE_DP).toFloat()
-        private val r = dp(ARC_RADIUS_DP).toFloat()
+        private val r = dp(DOCK_ARC_RADIUS_DP).toFloat()
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
             style = android.graphics.Paint.Style.STROKE
             strokeCap = android.graphics.Paint.Cap.ROUND

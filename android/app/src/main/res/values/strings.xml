@@ -377,7 +377,7 @@
     <string name="ui_help_title_switch">开关与日志</string>
     <string name="ui_help_cursor_lock">触摸板光标锁定：连上电脑后本窗隐藏系统光标，触控板点击只转发到电脑（Pad 防误触）。</string>
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
-    <string name="ui_help_ball">悬浮球：设置页「悬浮栏」里开关。① 长按主界面的悬浮低栏会**就地唤出扇形常用功能**（与单击悬浮球同一个菜单，图标 / 开关态 / 顺序都在设置页编辑）；② 悬浮球展开的触控板浮窗与主界面触控板页手势完全一致 —— 长按 550ms 锁拖拽、双指长按 550ms 锁右键拖拽、双指滚动有位移门禁（滚动途中不会误触发右键），震动反馈同一套档位；③ 手机重启或进程被回收后，按用户意愿位自动把球放回来（关过球的用户不会被强行拉起）。</string>
+    <string name="ui_help_ball">悬浮球：设置页「悬浮球」里开关。① 长按主界面的悬浮导航球会**就地唤出扇形常用功能**（与单击悬浮球同一个菜单，图标 / 开关态 / 顺序都在设置页编辑；低栏已退场，导航球可拖动换位）；② 悬浮球展开的触控板浮窗与主界面触控板页手势完全一致 —— 长按 550ms 锁拖拽、双指长按 550ms 锁右键拖拽、双指滚动有位移门禁（滚动途中不会误触发右键），震动反馈同一套档位；③ 手机重启或进程被回收后，按用户意愿位自动把球放回来（关过球的用户不会被强行拉起）。</string>
     <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
     <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
     <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 在「状态 → 受控与出口」点「选择受控设备」选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
@@ -520,7 +520,7 @@
     <string name="ui_home_quick_clip">发送剪贴板</string>
     <string name="ui_home_quick_screen">副屏</string>
     <string name="ui_home_quick_camera">摄像头</string>
-    <string name="ui_home_quick_hint">长按底部悬浮栏唤出这一排</string>
+    <string name="ui_home_quick_hint">长按悬浮导航球唤出这一排</string>
     <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
     <string name="ui_set_btn_camera">摄像头（手机画面回传本机）</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>

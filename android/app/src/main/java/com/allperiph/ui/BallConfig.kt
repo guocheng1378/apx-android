@@ -93,9 +93,23 @@ object BallConfig {
     private const val PREF = "apx_ball_config"
     private const val KEY_ITEMS = "items"
 
-    /** 当前菜单尺寸档（越界值按标准档处理） */
-    fun menuScale(ctx: Context): Int = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        .getInt(KEY_MENU_SCALE, MENU_NORMAL).coerceIn(MENU_COMPACT, MENU_LARGE)
+    /**
+     * 当前菜单尺寸档（越界值按标准档处理）。
+     *
+     * v223.29.73（UI 审查发现 8）：用户没改过时按屏幕定默认 —— 平板（最短边 ≥600dp，
+     * 与 ApAdaptive 的 Medium 起点同口径）默认 Large 档，46dp/66dp 的标准档在平板上
+     * 相对偏小；未存值以 -1 哨兵区分「没设过」，用户在设置页点过档位后永远尊重用户。
+     */
+    fun menuScale(ctx: Context): Int {
+        val saved = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getInt(KEY_MENU_SCALE, -1)
+        if (saved in MENU_COMPACT..MENU_LARGE) return saved
+        val shortDp = minOf(
+            ctx.resources.configuration.screenWidthDp,
+            ctx.resources.configuration.screenHeightDp,
+        )
+        return if (shortDp >= 600) MENU_LARGE else MENU_NORMAL
+    }
 
     fun setMenuScale(ctx: Context, value: Int) {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()

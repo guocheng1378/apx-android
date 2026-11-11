@@ -43,7 +43,11 @@ import com.allperiph.ui.miuix.applyEdgeToEdge
  */
 class SendActivity : ComponentActivity() {
 
-    companion object { private const val PICK_CODE = 0x105F }
+    companion object {
+        private const val PICK_CODE = 0x105F
+        /** Bundle 键：选中的发送目标（v223.29.73，防转屏/回收后丢失） */
+        private const val STATE_PICKED = "picked_target"
+    }
 
     private var devices by mutableStateOf<List<LocalSendClient.Discovered>>(emptyList())
     private val handler = Handler(Looper.getMainLooper())
@@ -59,6 +63,17 @@ class SendActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // v223.29.73：恢复上一轮选中的发送目标（存取见 onSaveInstanceState 注释）。
+        // 没有它，选文件中途页面重建后 picked 恒为 null，onActivityResult 只能空手而归。
+        savedInstanceState?.getString(STATE_PICKED)?.let { raw ->
+            runCatching {
+                val o = org.json.JSONObject(raw)
+                picked = LocalSendClient.Discovered(
+                    o.getString("alias"), o.getString("deviceType"), o.getString("ip"),
+                    o.getInt("port"), o.getString("fingerprint"), System.currentTimeMillis(),
+                )
+            }
+        }
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
         applyEdgeToEdge()
         title = "发送到设备"
@@ -122,6 +137,24 @@ class SendActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(Intent.createChooser(intent, "选择要发送的文件"), PICK_CODE)
+    }
+
+    /**
+     * v223.29.73：把选中的发送目标落进 Bundle。
+     * [LocalSendClient.Discovered] 不是 Parcelable，序列化成 JSON 存字符串；
+     * lastSeen 无需保存，重建时用当前时间重置即可。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        picked?.let {
+            outState.putString(STATE_PICKED, org.json.JSONObject().apply {
+                put("alias", it.alias)
+                put("deviceType", it.deviceType)
+                put("ip", it.ip)
+                put("port", it.port)
+                put("fingerprint", it.fingerprint)
+            }.toString())
+        }
     }
 
     override fun onResume() { super.onResume(); handler.post(refresh) }

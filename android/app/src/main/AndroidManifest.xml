@@ -260,6 +260,7 @@
         <activity
             android:name=".localsend.SendActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:label="LocalSend 发送" />
 
         <!--
@@ -391,6 +392,7 @@
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity=""
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
@@ -404,6 +406,7 @@
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity=""
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
@@ -418,6 +421,7 @@
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity=""
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
@@ -431,6 +435,7 @@
             android:launchMode="singleTop"
             android:excludeFromRecents="true"
             android:taskAffinity=""
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
@@ -542,6 +547,7 @@
             android:name=".screenmirror.ScreenMirrorActivity"
             android:exported="false"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:theme="@style/Theme.AllPeriph.Miuix"
             android:excludeFromRecents="true" />
 

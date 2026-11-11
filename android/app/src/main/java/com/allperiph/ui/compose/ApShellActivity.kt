@@ -79,9 +79,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -204,8 +201,8 @@ class ApShellActivity : ComponentActivity() {
         // 底部却还空着 96dp（那 96dp 本来就是为底部居中的低栏留的）。
         // 竖屏维持原样：底栏在底部居中，88dp 是「底栏自身高度 + 一点呼吸」。
         // 方案4（成宇 2026-11-07「低栏缩回应是透明悬浮，不该强占界面面积」）：
-        // 让位量不再固定，在下方 barCollapsed 声明处按收/展状态动画 —— 收起成球时
-        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套进入曲线（界面稿禁弹簧）；展开恢复原值。
+        // 让位量按收/展状态动画 —— 低栏退场后收/展已定死为球态（v223.29.73 删 barCollapsed），
+        // 竖屏 88dp / 横屏 96dp 收到 8dp，内容回涨与球缩同一套进入曲线（界面稿禁弹簧）。
         // 2026-11-07 二轮（成宇「按安卓 aosp 规范适配，不是直接隐藏状态栏和小白条」
         // 「圆角和挖孔优化不是直接上部分不显示内容」）：系统栏改为显示
         // （applyEdgeToEdge），顶部按**含状态栏**的 top 垫 —— 竖屏内容从状态栏下
@@ -249,7 +246,7 @@ class ApShellActivity : ComponentActivity() {
         // 底栏整改成悬浮球（issue#168 2026-11-11 第 2 条「在 app 里时底部悬浮栏改成悬浮球
         // 样式，可以移动，点开出个页面切换」）：低栏胶囊整条退场，收/展状态随之定死为球态，
         // bottomGap / topGap 不再随页变化。球本体在 Shell 尾部渲染（可拖 + 点按切页 + 长按快捷入口）。
-        var barCollapsed by remember { mutableStateOf(true) }
+        // v223.29.73：barCollapsed 随收/展手势一并删除（手势已无承载，见 Box 处注释）。
         // 页面切换菜单开关：点导航球弹出（见 Shell 尾部 PageSwitchCard）。
         var pageSwitchOpen by remember { mutableStateOf(false) }
         // —— 低栏拖动移位已迁往服务层悬浮栏（issue#168 2026-11-10 22:46「悬浮栏拖动卡顿
@@ -361,8 +358,10 @@ class ApShellActivity : ComponentActivity() {
         // 旧实现的注释保留在下面这段里，行为差异只在这里，别处不要各写一套。
         //
         // 横持 / 竖持自动切页（旧 Views 版的既有行为，迁 Compose 时整段丢了）：
-        // 横持 → 键盘页，竖持 → 触控板页；**停在状态页（0）与设置页（3）时不抢方向**，
-        // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
+        // 横持 → 键盘页，竖持 → 触控板页；**停在设置页（3）时不抢方向**，
+        // 免得用户正改设置被翻走。注意状态页（0）会同样被切走（见下方 when）——
+        // v223.29.73 把这条注释与代码对齐：旧注释写「状态页不抢」，与实际行为不符。
+        // 只做这两页之间的往返，其它页不动。
         // 节流 1.5s：旋转过程中传感器会连报，不节流会来回抖。
         // 方向锁定：开启时重力判读不再抢页（见 OrientLock 的 KDoc：锁 = 什么都别动）。
         // **每次组合都现读偏好**，不要缓存成字段：设置页是在同一个 Activity 里拨开关的，
@@ -398,41 +397,9 @@ class ApShellActivity : ComponentActivity() {
                 // rememberApBackdrop 返回 drawBehind，画在子内容之下、**不新增层级**；
                 // 口径与 Views 侧 Backdrop 一致：自定义图 > 预设底色 > fallback（主题底色）。
                 .then(rememberApBackdrop(this@ApShellActivity, shellBg))
-                // 单指上下滑收/展悬浮栏（成宇 2026-11-07 第 4 条）：上滑→收成球、下滑→展开。
-                // · Initial pass 只观察不消费：页面滚动、按钮点击、低栏长按全部照常；
-                // · 96dp 竖向位移且竖 ≥ 2×横 且全程单指才触发 —— 点按/斜滑/双指滚动不会误收；
-                // · 触控板页（page==1）豁免：那页单指滑动是移光标，收栏会跟光标乱跳；
-                //   键盘页不豁免 —— 打字是离散点按，够不到 96dp 的竖向阈值。
-                .pointerInput(page) {
-                    if (page != 1) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(
-                                requireUnconsumed = false,
-                                pass = PointerEventPass.Initial,
-                            )
-                            val sx = down.position.x
-                            val sy = down.position.y
-                            var fired = false
-                            while (true) {
-                                val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                if (ev.changes.isEmpty()) break
-                                val c = ev.changes.firstOrNull { it.id == down.id }
-                                    ?: ev.changes.first()
-                                if (!c.pressed) break
-                                if (fired) continue
-                                val dy = c.position.y - sy
-                                val dx = c.position.x - sx
-                                if (ev.changes.count { it.pressed } == 1 &&
-                                    kotlin.math.abs(dy) > 96f * density &&
-                                    kotlin.math.abs(dy) > 2f * kotlin.math.abs(dx)
-                                ) {
-                                    fired = true
-                                    barCollapsed = dy < 0
-                                }
-                            }
-                        }
-                    }
-                },
+                // v223.29.73：删除「单指上下滑收/展悬浮栏」手势（v223.29.66 审查发现）。
+                // 低栏胶囊整条退场后（见 :249 注释），收/展状态已定死为球态，
+                // 这个手势再没有承载对象 —— 保留只会让用户在非触控板页滑出误触。
         ) {
             Column(
                 modifier = Modifier
