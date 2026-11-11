@@ -312,6 +312,13 @@ object HidKeys {
         "$" to (MOD_SHIFT to 0x21), "%" to (MOD_SHIFT to 0x22), "^" to (MOD_SHIFT to 0x23),
         "&" to (MOD_SHIFT to 0x24), "*" to (MOD_SHIFT to 0x25), "(" to (MOD_SHIFT to 0x26),
         ")" to (MOD_SHIFT to 0x27), "_" to (MOD_SHIFT to 0x2D), "+" to (MOD_SHIFT to 0x2E),
+        // issue#168 第 8 条：补齐全键盘（KeyLayouts.FULL）双标键的另外 9 个上档符号。
+        // 此前这批符号在任何 label 发送通路（快捷键盘符号排 / 自定义布局 / 游戏键盘，
+        // 全走 [tapLabel]）都发不出去 —— 不在本表就走 [usageOf] 兜底，而上档符号没有
+        // 独立 usage（落 0 被静默丢弃），用户只能打键面下档。
+        "~" to (MOD_SHIFT to 0x35), ":" to (MOD_SHIFT to 0x33), "\"" to (MOD_SHIFT to 0x34),
+        "<" to (MOD_SHIFT to 0x36), ">" to (MOD_SHIFT to 0x37), "?" to (MOD_SHIFT to 0x38),
+        "{" to (MOD_SHIFT to 0x2F), "}" to (MOD_SHIFT to 0x30), "|" to (MOD_SHIFT to 0x31),
     )
 
     /**

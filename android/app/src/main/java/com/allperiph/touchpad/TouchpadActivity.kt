@@ -140,6 +140,14 @@ class TouchpadActivity : ComponentActivity() {
     /** 实体键盘/指针转发桥（v223.13：全屏操控面此前从没接过 —— issue #52 第 6 条）。 */
     private var physKeyBridge: com.allperiph.ui.PhysKeyBridge? = null
 
+    /**
+     * 出口变化订阅（issue#168 第 8 条）：顶部设备胶囊此前只在进页与连接动作时刷新，
+     * USB 模式下出口中途变成「无」（gadget 掉线 / 写入持续被拒）时界面一直停在旧文案，
+     * 用户只看到「点不动」却没有任何提示。订阅 [com.allperiph.core.UplinkEvent] 让
+     * 胶囊跟着出口实时变，掉出无出口时当场能看到原因（Uplink.hint 的具体文案）。
+     */
+    private var uplinkSub: com.allperiph.shared.event.EventBus.Disposable? = null
+
     /** 快捷键网格容器（View 版 HotkeyBoard 渲染进这里，经 AndroidView 挂上屏幕） */
     internal val hotkeyContainerView by lazy { android.widget.LinearLayout(this) }
 
@@ -182,6 +190,7 @@ class TouchpadActivity : ComponentActivity() {
      */
     override fun onDestroy() {
         physKeyBridge?.detach(); physKeyBridge = null
+        uplinkSub?.dispose(); uplinkSub = null
         ControlTarget.controlClient?.onReverseClipboard = null
         // 退出操控面立刻还原系统三指手势（进程被杀的情况交给 App 启动时的自愈）
         GestureShield.release(this, HOLDER_CONSOLE)
@@ -200,6 +209,10 @@ class TouchpadActivity : ComponentActivity() {
         )
         updateControlledChip()
         updateDeviceChip()
+        // 出口变化 → 设备胶囊实时刷新（onMain 保证在主线程；注释见 uplinkSub 字段）
+        uplinkSub = com.allperiph.shared.event.EventBus.onMain<com.allperiph.core.UplinkEvent> {
+            updateDeviceChip()
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             /** 返回键先确认：操控面退出后外设照常运行，但误触退出会打断手上的操作 */
@@ -1380,6 +1393,24 @@ private fun KeyCap(
                                     }
                                     ch.consume()
                                 }
+                            }
+                        } else {
+                            // 修饰键（Ctrl/Alt/Shift/Win）没有连发语义：等抬起后由 finally
+                            // 统一触发 onTap（toggleSticky）。v223.29.56 连发改造把「点击发送」
+                            // 收进普通键分支后，修饰键在 try 里没有任何动作、sawRelease 也永远
+                            // 置不上 —— toggleSticky 点不亮，操控面的 Shift 从此失效：双标键
+                            //（;: 这类）只剩默认下档符号，正是 issue#168 第 8 条「无法输入
+                            // 按键上方标点」的根因。刻意不加超时：长按修饰键是合法操作，
+                            // 按住期间没有指针事件就挂起等抬起（手势取消由 awaitEachGesture
+                            // 收尾，finally 里 sawRelease=false 自然不发）。
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!ch.pressed) {
+                                    sawRelease = true
+                                    break
+                                }
+                                ch.consume()
                             }
                         }
                     } finally {
