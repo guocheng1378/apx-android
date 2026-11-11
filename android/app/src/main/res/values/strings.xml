@@ -518,7 +518,9 @@
     <string name="ui_nav_settings">设置</string>
     <string name="ui_nav_switch_title">切换页面</string>
     <string name="ui_home_sec_quick">快捷入口</string>
-    <string name="ui_home_quick_file">发送文件</string>
+    <!-- 审计批2（2026-11-12）：低栏快捷弹窗拉起的是 LocalSend 互传页（SendActivity），
+         原名「发送文件」与设置页「文件面板」（对端协议收发）易混 —— 改「互传发文件」点开区别。 -->
+    <string name="ui_home_quick_file">互传发文件</string>
     <string name="ui_home_quick_clip">发送剪贴板</string>
     <string name="ui_home_quick_screen">副屏</string>
     <string name="ui_home_quick_camera">摄像头</string>
@@ -683,7 +685,9 @@
     <string name="ui_set_album_btn_summary">悬浮球菜单顶部显示照片按钮：点一次选图（可多选），再点一次发送到电脑，发完自动重置</string>
     <string name="ui_set_ball_selected">已勾选 %1$d / %2$d</string>
     <string name="ui_set_hotkey_unset">未设置（默认）</string>
-    <string name="ui_set_file_panel">文件面板</string>
+    <!-- 审计批2（2026-11-12）：原名「文件面板」看不出能收也能发，与互传页（SendActivity）职责易混 ——
+         改「文件收发面板」：本页走控制/文件通道收发对端文件，互传走 LocalSend（设置页另一枚）。 -->
+    <string name="ui_set_file_panel">文件收发面板</string>
     <string name="ui_set_send_files">发送文件（LocalSend）</string>
     <string name="ui_set_screen_ctrl">屏幕（投屏 / 被控）</string>
     <string name="ui_set_kb_forward_title">物理键盘全局转发</string>

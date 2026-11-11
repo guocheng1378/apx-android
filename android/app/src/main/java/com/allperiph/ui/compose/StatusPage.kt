@@ -430,18 +430,13 @@ fun StatusPage(
         var helpOpen by remember { mutableStateOf(false) }
         ApComponents.Section(title = ctx.getString(R.string.ui_main_cat_help)) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = ctx.getString(R.string.ui_help_title_howto), fontSize = 15.sp)
-                Text(
-                    text = ctx.getString(R.string.ui_help_howto),
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+                // 审计批2（2026-11-12）：页面原本平铺「三步上手」标题 + howto 全文 + hint 三行，
+                // 前两段与 ApHelpSheet 弹层首段完全重复（HelpSheet 第一组就是 title_howto/howto），
+                // 同一份内容一页两处 —— 精简为只留 hint 一行当目录 + 按钮直达弹层，不丢信息。
                 Text(
                     text = ctx.getString(R.string.ui_main_cat_help_hint),
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    modifier = Modifier.padding(top = 6.dp),
                 )
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.ui_help_open_full),
