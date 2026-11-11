@@ -1561,11 +1561,8 @@ private fun ActionTile(
 // —————————————————————————— 第 2 页：副屏（显示）+ 链接 TV/PC ——————————————————————————
 
 /**
- * 副屏页。横屏（issue#168 第 1 条）：竖排卡片会把「链接设备」两个按钮挤到屏外，
- * 改成左右两栏各占一半宽；竖屏保持上下排。
- * 五页整合（issue#168 第 1 条后半）：文件 / 剪贴板两个发送动作从首页快捷入口与
- * 顶部胶囊收敛进本页 —— 低栏「副屏·文件·剪贴板」一项直达这里，操控面内切换页签
- * 也走同一张卡。横屏右栏两卡超高时包一层滚动，短屏不把按钮裁掉。
+ * 副屏页。横屏（issue#168 第 1 条）：竖排两张卡会把「链接设备」两个按钮挤到屏外，
+ * 改成左右两卡各占一半宽；竖屏保持上下排。
  * 副屏状态随进入页面刷新一次（与旧 updateDisplayStatus 的时点一致）。
  */
 @Composable
@@ -1579,22 +1576,12 @@ private fun ConsoleDisplayPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAct
     if (land) {
         Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             Box(Modifier.weight(1f).fillMaxHeight().padding(end = 4.dp)) { StatusCard(ui) }
-            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 4.dp)) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    LinkCard(host)
-                    TransferCard(host, modifier = Modifier.padding(top = 12.dp))
-                }
-            }
+            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 4.dp)) { LinkCard(host) }
         }
     } else {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             StatusCard(ui)
             LinkCard(host, modifier = Modifier.padding(top = 12.dp))
-            TransferCard(host, modifier = Modifier.padding(top = 12.dp))
         }
     }
 }
@@ -1646,31 +1633,6 @@ private fun LinkCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
                         Intent(ctx, com.allperiph.screen.ScreenActivity::class.java),
                     )
                 },
-            )
-        }
-    }
-}
-
-/**
- * 文件与剪贴板卡（issue#168 第 1 条五页整合）：发文件 / 发剪贴板两个动作落进副屏页，
- * 与「副屏·文件·剪贴板」低栏项呼应 —— 不连设备时点击给「未连接」提示
- * （[TouchpadActivity.pickFile] / [TouchpadActivity.sendClipboard] 内置），不会静默失败。
- */
-@Composable
-private fun TransferCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
-    val ctx = LocalContext.current
-    ApComponents.Section(
-        title = ctx.getString(R.string.ui_touchpad_text_transfer),
-        modifier = modifier,
-    ) {
-        Column(Modifier.fillMaxWidth().padding(8.dp)) {
-            ApComponents.ActionButton(
-                text = ctx.getString(R.string.ui_touchpad_text_file),
-                onClick = { host.pickFile() },
-            )
-            ApComponents.ActionButton(
-                text = ctx.getString(R.string.ui_touchpad_text_clipboard),
-                onClick = { host.sendClipboard() },
             )
         }
     }

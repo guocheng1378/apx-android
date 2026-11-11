@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import android.content.res.Configuration
 import androidx.compose.runtime.Composable
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.allperiph.core.ModuleId
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.AgentForegroundService
 import com.allperiph.ui.ThemePref
@@ -48,7 +50,7 @@ import com.allperiph.R
 import com.allperiph.ui.miuix.apHazeSource
 import com.allperiph.ui.miuix.rememberApHazeState
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
-import com.allperiph.touchpad.TouchpadActivity
+import com.allperiph.touchpad.TouchpadModule
 import top.yukonga.miuix.kmp.basic.FloatingNavigationBar
 import top.yukonga.miuix.kmp.basic.FloatingToolbarDefaults
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
@@ -64,6 +66,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -81,22 +84,12 @@ import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
 
 /**
- * 新主壳（唯一 launcher 入口）。
- *
- * ## 五页整合（issue#168 第 1 条，2026-11-11「先把大事做了」第二批）
- * 低栏五页：**传输协议管理**（原状态页，[StatusPage]）+ **触控板 / 键盘 / 副屏·文件·剪贴板**
- * （三项不再各自养一份界面 —— 首页内嵌的触控板页 / 键盘页整块移除，低栏项直接把
- * 全屏操控面 [com.allperiph.touchpad.TouchpadActivity] 拉到对应页签，全 app 只剩操控面
- * 这一份触控板与键盘实现）+ **设置**（[SettingsPage]）。
- * 副屏页因此并入「文件 / 剪贴板」两个发送动作（见操控面 [com.allperiph.touchpad.TouchpadActivity]
- * 的副屏页）。
+ * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
  *
  * 旧主壳 `com.allperiph.ui.MainActivity` 已删（迁移完成后清理），它承担的职责都在本类落地：
- * 横竖屏策略（`sensor` + [rememberApAdaptiveLayout] 两栏）、
+ * 横竖屏策略（`sensor` + [rememberApAdaptiveLayout] 两栏、重力判读自动切页）、
  * 剪贴板同步（onResume/onPause 挂 [com.allperiph.ui.ClipboardSync]）、
- * 受控设备选择器（[ApDevicePicker]）。
- * （重力判读自动切页随首页触控板/键盘页移除一并拆除 —— 它只在那两页之间切换，
- * 操控面独立成 Activity 后无处可切，见 Shell() 内该段注释的存档。）
+ * 横屏触控板页的三指手势遮蔽持有、受控设备选择器（[ApDevicePicker]）。
  */
 class ApShellActivity : ComponentActivity() {
 
@@ -152,9 +145,7 @@ class ApShellActivity : ComponentActivity() {
         intent?.removeExtra(EXTRA_PICK_DEVICE)
         // 同上：能在 onSaveInstanceState 保住时优先用存档值（比 intent extra 更贴近
         // 「用户刚才看的是哪一页」；extra 只在冷启动带参时才有）。
-        // 存档值收紧到 0..1（五页整合后壳内只有 状态/设置 两页；老存档的 2/3 是已删除
-        // 的触控板/键盘页，落回状态页比落到 else 分支更符合预期）。
-        savedInstanceState?.getInt(STATE_PAGE, -1)?.takeIf { it in 0..1 }?.let { pageState = it }
+        savedInstanceState?.getInt(STATE_PAGE, -1)?.takeIf { it >= 0 }?.let { pageState = it }
         setContent {
             // 2026-11-07（成宇「做成可以无极自定义 dpi 缩放」）：整体密度乘全局缩放。
             // 这一层只管主壳四页；弹窗是独立组合，在 ApComponents.DialogCard 里
@@ -223,13 +214,20 @@ class ApShellActivity : ComponentActivity() {
             drawContent()
         }
         var page by remember { mutableIntStateOf(pageState) }
-        // 四指切页在 dispatchTouchEvent 里改 pageState，这里单向同步即可：
-        // 低栏点击写 page，效果里写回 pageState（dispatchTouchEvent 只读它）。
-        // （皮肤逐页同步已随首页触控板/键盘页移除一并删除：壳内只剩状态/设置两页，
-        // 触控板皮肤在操控面自己渲染时生效，壳内常置 TOUCHPAD 档 —— onCreate 的
-        // ApAccentSync.apply(this) 就是这一档，切换页签不再需要重设。）
+        // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
         androidx.compose.runtime.LaunchedEffect(page) {
             pageState = page
+            // 页面切了就换该模块的皮肤（成宇 2026-11-03「看看为什么不能映射触摸页和键盘页」）：
+            // 皮肤是按模块选的，强调色却只有一份 Miuix 配色 —— 在切页这一处收敛，
+            // 比让每个页面各自 sync 更不容易漏。skinAccent 是 Compose 状态，写它会重组。
+            com.allperiph.ui.compose.ApAccentSync.apply(
+                this@ApShellActivity,
+                when (page) {
+                    1 -> com.allperiph.ui.ApSkin.TOUCHPAD
+                    2 -> com.allperiph.ui.ApSkin.KEYBOARD
+                    else -> com.allperiph.ui.ApSkin.TOUCHPAD
+                },
+            )
         }
         androidx.compose.runtime.LaunchedEffect(pageState) {
             if (page != pageState) page = pageState
@@ -241,20 +239,25 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
-        // —— 低栏拖动移位已迁往服务层悬浮球（issue#168 2026-11-10 22:46「悬浮栏拖动卡顿
+        // —— 低栏拖动移位已迁往服务层悬浮栏（issue#168 2026-11-10 22:46「悬浮栏拖动卡顿
         // 不跟手，改为和悬浮球一个实现方案」）——
         // 壳内低栏是 Activity 窗口里的 Compose 节点，拖动靠每帧重组 offset，真机上就是
         // 「卡顿不跟手」；与球同一套实现的移位只能住 WindowManager overlay（见
-        // FloatingBallService 的悬浮球：同一套按住跟手 / 贴边吸附 / 单击恢复，位置落盘）。
-        // 壳内低栏保留：收/展 + 长按快捷入口。
-        // （进触屏/键盘页自动收栏的 effect 已随首页触控板/键盘页移除一并删除：
-        //  壳内两页都是普通浏览页，低栏保持展开；手动上滑收球照常可用。）
+        // FloatingBallService 的悬浮栏：同一套按住跟手 / 贴边吸附 / 单击恢复，位置落盘）。
+        // 壳内低栏保留：收/展 + 进操控页自动收起（导航语义不变）+ 长按快捷入口；
+        // 主壳在前台期间服务层悬浮栏会自行收起，两套栏不会同屏。
+        // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
+        // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
+        // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
+        // 用户点球展开后不会被立刻按回去，直到再次切页。
+        androidx.compose.runtime.LaunchedEffect(page) {
+            barCollapsed = page == 1 || page == 2
+        }
         // 方案4：让位量跟收/展联动（动效走 ApMotion 进入曲线 200ms，与 barFx 同步，球缩与
         // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位
         // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
         // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。
-        // （原「键盘页横屏 40dp 特判」已随键盘页移除删除：壳内两页都不再与收起球
-        //  的角位贴边，8dp 收起态让位即安全。）
+        // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。
         val bottomGap by androidx.compose.animation.core.animateDpAsState(
             targetValue = if (barCollapsed) 8.dp else if (landscape) 24.dp else 88.dp,
             // 界面稿 08 质感层：禁弹簧（原 LowBouncy 会回弹），进入曲线 200ms，
@@ -298,13 +301,86 @@ class ApShellActivity : ComponentActivity() {
             }
             showExitAsk.value = true
         }
-        // （横屏触控板页的三指手势遮蔽持有、重力判读自动切页 —— 两段已随首页触控板/键盘页
-        //  移除一并删除（issue#168 第 1 条五页整合，2026-11-11）：
-        //  · 遮蔽：操控面（TouchpadActivity）自己 onResume/onPause 持有 / 释放（HOLDER_CONSOLE），
-        //    壳内不再有手势面，"main" 持有者不再需要；
-        //  · 自动切页：它只在触控板页 ↔ 键盘页之间往返（横持→键盘、竖持→触控板），壳内
-        //    没有这两页后无处可切；操控面是独立 Activity，不宜在转屏时被后台强拉。
-        //    设置页的「横持自动切到键盘页」开关随之移除，OrientLock 的方向锁定开关不受影响。）
+        // 横屏进触控板页时持有三指遮蔽，离开即释放（旧 MainActivity 的持有者标识是 "main"）
+        androidx.compose.runtime.LaunchedEffect(landscape, page) {
+            if (landscape && page == 1) {
+                com.allperiph.touchpad.GestureShield.acquireWithHint(
+                    this@ApShellActivity, "main",
+                )
+            } else {
+                com.allperiph.touchpad.GestureShield.releaseSoon(this@ApShellActivity, "main")
+            }
+        }
+        // 重力方向判读：旧版「横持 / 竖持自动切页**不受系统方向锁限制**」靠的就是自己判重力，
+        // 而不是读 configuration（读 configuration 时开方向锁就永远不切）。这里补上：
+        // ACCELEROMETER 的 x/y 绝对值谁大就是横/竖，翻转要过 1.5 m/s² 余量（约 45°±5° 滞回），
+        // 传感器缺失时退回 configuration（`gravityLandscape == null`）。
+        var gravityLandscape by remember { mutableStateOf<Boolean?>(null) }
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            val sm = getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+            val acc = sm?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+            val listener = if (acc == null) null else object : android.hardware.SensorEventListener {
+                override fun onSensorChanged(e: android.hardware.SensorEvent) {
+                    val ax = kotlin.math.abs(e.values[0])
+                    val ay = kotlin.math.abs(e.values[1])
+                    if (ax + ay < 5f) return          // 手机平放/晃得太厉害时不判方向
+                    gravityLandscape = when (gravityLandscape) {
+                        null -> ax > ay
+                        true -> !(ay > ax + 1.5f)
+                        false -> ax > ay + 1.5f
+                    }
+                }
+
+                override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) = Unit
+            }
+            if (sm != null && listener != null) {
+                sm.registerListener(listener, acc, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+            }
+            onDispose { if (sm != null && listener != null) sm.unregisterListener(listener) }
+        }
+        val orientationLandscape = gravityLandscape ?: landscape
+
+        // ★ 2026-11-04（成宇「横竖屏切换好像被你强制了」）：自动切页**默认关闭**。
+        //
+        // 这一段是旧 Views 版的行为，迁 Compose 时被特意补回来（b6dbdca）。问题是它读的是
+        // 加速度计、**不看系统方向锁** —— 用户明明在系统里开着「竖屏锁定」，躺着坐着把手机
+        // 转一下，页面照样从触控板跳到键盘页。用户的原话就是「横竖屏切换好像被你强制了」。
+        //
+        // 现在的口径：
+        //   · 版式朝向交回系统（OrientLock 关锁时是 UNSPECIFIED，见那个对象的 KDoc）；
+        //   · 自动切页改成一个**显式开关**（设置页「快捷键与外设 → 通用 → 横持自动切到键盘页」），
+        //     默认关 —— 「我不动，你就别动」；
+        //   · 打开后仍按原来的滞回逻辑工作（给需要边走边用手势面的用户）。
+        //
+        // 旧实现的注释保留在下面这段里，行为差异只在这里，别处不要各写一套。
+        //
+        // 横持 / 竖持自动切页（旧 Views 版的既有行为，迁 Compose 时整段丢了）：
+        // 横持 → 键盘页，竖持 → 触控板页；**停在状态页（0）与设置页（3）时不抢方向**，
+        // 免得用户正打字/正改设置被翻走。只做这两页之间的往返，其它页不动。
+        // 节流 1.5s：旋转过程中传感器会连报，不节流会来回抖。
+        // 方向锁定：开启时重力判读不再抢页（见 OrientLock 的 KDoc：锁 = 什么都别动）。
+        // **每次组合都现读偏好**，不要缓存成字段：设置页是在同一个 Activity 里拨开关的，
+        // 缓存只在 onResume 更新的话，本会话里重力判读还按旧值跑 —— 用户开了「锁定」、
+        // 回到触控板页一转手机，页面照样被换成键盘页，得退到后台再回来才生效
+        // （审查 v5 §9.2-A）。切页会重组 Shell，所以现读的值能跟上开关。
+        val locked = OrientLock.isOn(this@ApShellActivity)
+        // 横持自动切页的显式开关（默认关；见上面这段的说明）。
+        // 与 locked 同口径：**每次组合现读偏好**，不要 remember 缓存 ——
+        // 设置页是在同一个 Activity 里拨这个开关的，缓存了就要退后台再回来才生效。
+        val autoSwap = com.allperiph.ui.OrientLock.autoSwapEnabled(this@ApShellActivity)
+        androidx.compose.runtime.LaunchedEffect(orientationLandscape, locked, autoSwap) {
+            if (locked || !autoSwap) return@LaunchedEffect
+            val target = when {
+                orientationLandscape && (page == 0 || page == 1) -> 2
+                !orientationLandscape && page == 2 -> 1
+                else -> -1
+            }
+            if (target >= 0 && target != page) {
+                kotlinx.coroutines.delay(1500)
+                page = target
+                pageState = target
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -319,9 +395,10 @@ class ApShellActivity : ComponentActivity() {
                 // 单指上下滑收/展悬浮栏（成宇 2026-11-07 第 4 条）：上滑→收成球、下滑→展开。
                 // · Initial pass 只观察不消费：页面滚动、按钮点击、低栏长按全部照常；
                 // · 96dp 竖向位移且竖 ≥ 2×横 且全程单指才触发 —— 点按/斜滑/双指滚动不会误收；
-                // · （原「触控板页豁免」已随该页移除删除：壳内两页都是浏览页，没有
-                //   单指移光标的手势面，全部页面都适用同一套收展手势。）
-                .pointerInput(Unit) {
+                // · 触控板页（page==1）豁免：那页单指滑动是移光标，收栏会跟光标乱跳；
+                //   键盘页不豁免 —— 打字是离散点按，够不到 96dp 的竖向阈值。
+                .pointerInput(page) {
+                    if (page != 1) {
                         awaitEachGesture {
                             val down = awaitFirstDown(
                                 requireUnconsumed = false,
@@ -348,6 +425,7 @@ class ApShellActivity : ComponentActivity() {
                                 }
                             }
                         }
+                    }
                 },
         ) {
             Column(
@@ -404,9 +482,31 @@ class ApShellActivity : ComponentActivity() {
                             topBar = topGap,
                             bottomGap = bottomGap,
                         )
-                        // 五页整合（issue#168 第 1 条）：触控板/键盘两页整块移除，
-                        // 低栏项直接拉起全屏操控面对应页签（五页里的「触控板 / 键盘 /
-                        // 副屏·文件·剪贴板」三项），壳内不再各自养一份重复界面。
+                        1 -> TouchpadPage(
+                            ctx = this@ApShellActivity,
+                            onGesture = { ev -> touchpadModule()?.feed(ev) },
+                            onLongPressArmDrag = { touchpadModule()?.armDrag() },
+                            onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
+                            topBar = topGap,
+                            bottomGap = bottomGap,
+                        )
+                        // 成宇 2026-11-03「键盘页可以再往上点」：横屏 96dp 的顶部让位是给
+                        // **右上角**那枚低栏留的，但低栏只占右半屏，键盘页整块跟着下移 96dp
+                        // 白白丢掉一截高度。这里横屏只留 40dp（页签行仍在低栏左侧，不会被压住）。
+                        //
+                        // ⚠️ 2026-11-04 成宇「横屏时低栏挡了两个按键不能用」的修正：
+                        // 之前这里是 24dp，低栏胶囊的**下沿落在 58dp**（8dp 顶部间隙 + 48dp 胶囊
+                        // + 描边），而修饰键排（Ctrl/Alt/Shift/Win）的顶部只到 54dp ——
+                        // 真机 uiautomator 实测低栏胶囊 [1780,30]-[2464,174] 与 Shift
+                        // [1319,162]-[1911,319] 重叠 12px、与 Win [1941,162]-[2533,319] 重叠更多，
+                        // 用户看到的就是「Shift / Win 被低栏压着，点不动」。
+                        // 40dp 让修饰键排的顶部落到 40 + 30（页签行）= 70dp > 低栏下沿 56dp，
+                        // 留出 14dp 呼吸；40 - 24 = 16dp 的代价摊到 6 行键位，每行只少 2.7dp，
+                        // 仍在 48dp 命中下限之上（横屏 400dp 高时每行约 48dp）。
+                        2 -> ApKeyboardPage(
+                            topBar = if (landscape) 24.dp else topGap,
+                            bottomGap = bottomGap,
+                        )
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
                             onRecreate = { recreate() },
@@ -429,6 +529,11 @@ class ApShellActivity : ComponentActivity() {
                 QuickActionsDialog(
                     ctx = this@ApShellActivity,
                     onDismiss = { quickActionsOpen = false },
+                    onOpenTouchpad = {
+                        quickActionsOpen = false
+                        page = 1
+                        pageState = 1
+                    },
                 )
             }
 
@@ -493,8 +598,8 @@ class ApShellActivity : ComponentActivity() {
             // 低栏不再另造一套「常用功能」面板。球不在屏幕上（用户关过悬浮球 / B 服务没起来）
             // 则给一句明确解释，而不是长按毫无反应。
             // 横屏时低栏挪到右上角（成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」）：
-            // 横屏本来横向就宽，底栏居中会压住页面底部那条最常用的区域（旧键盘/触控板页
-            // 时代尤其如此）；挪到右上角后既避开拇指区，也避开横屏时右侧的内容列。
+            // 横屏本来横向就宽，底栏居中会压住键盘页/触控板页底部那条最常用的区域；
+            // 挪到右上角后既避开拇指区，也避开横屏时右侧的快捷键列。
             // 竖屏保持底部居中不动（拇指可及性是竖屏的第一需求）。
             val barAlign = if (landscape) Alignment.TopEnd else Alignment.BottomCenter
             // ⚠️ 光给 Box 传 align(TopEnd) 是**不够**的：FloatingNavigationBar 的根
@@ -673,15 +778,6 @@ class ApShellActivity : ComponentActivity() {
                         ),
                     color = if (navGlass) Color.Transparent else navSurface,
                 ) {
-                    // 五页整合（issue#168 第 1 条）：低栏五项 = 传输协议管理（本壳页 0）+
-                    // 触控板 / 键盘 / 副屏·文件·剪贴板（直接拉起全屏操控面对应页签，
-                    // 见 EXTRA_PAGE）+ 设置（本壳页 1）。操控面三项是「入口」不是页签：
-                    // 没有选中态（永远 selected = false），点击即开 Activity。
-                    // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表、
-                    // 副屏与操控面页签同一枚电源矢量（ic_apx_power），自家矢量经 vectorResource
-                    // 转 ImageVector（单色描边，随选中态着色）；传输 / 设置语义中性，
-                    // 保留 miuix-icons 的 Home / Settings（extended 156 个里没有
-                    // Touchpad/Keyboard 这类设备语义名，自家矢量反而是现成的）。
                     FloatingNavigationBarItem(
                         selected = page == 0,
                         onClick = { page = 0 },
@@ -690,29 +786,27 @@ class ApShellActivity : ComponentActivity() {
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
-                        selected = false,
-                        onClick = { openConsole(TouchpadActivity.PAGE_TOUCHPAD) },
+                        selected = page == 1,
+                        onClick = { page = 1 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_touchpad),
                         label = stringResource(R.string.ui_nav_touchpad),
                         enabled = true,
                     )
                     FloatingNavigationBarItem(
-                        selected = false,
-                        onClick = { openConsole(TouchpadActivity.PAGE_KEYBOARD) },
+                        selected = page == 2,
+                        onClick = { page = 2 },
                         icon = ImageVector.vectorResource(R.drawable.ic_apx_keyboard),
                         label = stringResource(R.string.ui_nav_keyboard),
                         enabled = true,
                     )
+                    // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表，
+                    // 一眼看不出是什么 —— 这两页改用自家矢量 ic_apx_touchpad / ic_apx_keyboard
+                    // 经 vectorResource 转 ImageVector（单色描边，随选中态着色）；状态 / 设置
+                    // 语义中性，保留 miuix-icons 的 Home / Settings（extended 156 个里没有
+                    // Touchpad/Keyboard 这类设备语义名，自家矢量反而是现成的）。
                     FloatingNavigationBarItem(
-                        selected = false,
-                        onClick = { openConsole(TouchpadActivity.PAGE_DISPLAY) },
-                        icon = ImageVector.vectorResource(R.drawable.ic_apx_power),
-                        label = stringResource(R.string.ui_nav_display),
-                        enabled = true,
-                    )
-                    FloatingNavigationBarItem(
-                        selected = page == 1,
-                        onClick = { page = 1 },
+                        selected = page == 3,
+                        onClick = { page = 3 },
                         icon = MiuixIcons.Settings,
                         label = stringResource(R.string.ui_nav_settings),
                         enabled = true,
@@ -726,9 +820,9 @@ class ApShellActivity : ComponentActivity() {
     /**
      * 四指左右滑切页（横屏换页方式，避开触控板自身一到三指手势）。
      *
-     * 走 [dispatchTouchEvent] 而不是 Compose 的 pointerInput：与旧 `MainActivity` 同一套
-     * 阈值（56dp）与循环顺序。五页整合后壳内只剩 状态 ↔ 设置 两页可切（操控面三项
-     * 是 Activity 入口，不参与切页循环）。
+     * 走 [dispatchTouchEvent] 而不是 Compose 的 pointerInput：键盘页是 AndroidView 包着的
+     * `KeyboardPanels`，按键会吃掉事件序列，只有分发第一站能稳定看到四指。
+     * 与旧 `MainActivity` 同一套阈值（56dp）与循环顺序。
      */
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         if (adaptiveState?.landscape == true) {
@@ -747,7 +841,7 @@ class ApShellActivity : ComponentActivity() {
                         val dx = ev.x - fourStartX
                         if (kotlin.math.abs(dx) > 56f * resources.displayMetrics.density) {
                             fourSwiped = true
-                            val order = intArrayOf(0, 1)   // 状态 ↔ 设置（五页整合后壳内仅两页）
+                            val order = intArrayOf(1, 2, 3)   // 触控板 → 键盘 → 设置
                             val cur = order.indexOf(pageState).coerceAtLeast(0)
                             pageState = if (dx < 0) {
                                 order[(cur + 1) % order.size]
@@ -761,17 +855,8 @@ class ApShellActivity : ComponentActivity() {
         return super.dispatchTouchEvent(ev)
     }
 
-    /**
-     * 低栏三项（触控板 / 键盘 / 副屏·文件·剪贴板）共用的操控面入口：带 [page] 拉起
-     * 全屏操控面（launchMode=singleTask，已在栈中走 onNewIntent 直达页签）。
-     * 五页整合后全 app 的触控板 / 键盘 / 副屏 / 文件 / 剪贴板都只有操控面这一份实现。
-     */
-    private fun openConsole(page: Int) {
-        startActivity(
-            android.content.Intent(this, TouchpadActivity::class.java)
-                .putExtra(TouchpadActivity.EXTRA_PAGE, page),
-        )
-    }
+    private fun touchpadModule(): TouchpadModule? =
+        AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule
 
     /** 与旧 `btnStart` 同一组副作用：模块编排 + 前台服务 */
     private fun toggleAgent(want: Boolean) {
@@ -1235,12 +1320,13 @@ internal fun ApDevicePanel(
  * **直接打开管理列表**（`HotkeyBoard.managerDialog`：上移 / 下移 / 改 / 删 / 新建 /
  * 恢复默认全在里面），不再只是把页面切到触控板页让用户自己去找长按入口。
  * 皮肤取色与触控板页同一口径（`MiuixTheme` 的 onSurface / surface），否则同一个列表
- * 从两个入口进来长得不一样。非 Activity 上下文（理论上不会发生）才退回开操控面。
+ * 从两个入口进来长得不一样。非 Activity 上下文（理论上不会发生）才退回切页。
  */
 @Composable
 private fun QuickActionsDialog(
     ctx: Context,
     onDismiss: () -> Unit,
+    onOpenTouchpad: () -> Unit,
 ) {
     // 管理弹窗的皮肤：与触控板页同一个取色口径（主题色），否则从低栏进来的列表
     // 会和从触控板页进来的长得不一样。
@@ -1332,16 +1418,7 @@ private fun QuickActionsDialog(
                 // 上移 / 下移 / 改 / 删 / 新建 / 恢复默认 都在那一个弹窗里。
                 val act = ctx as? android.app.Activity
                 if (act == null) {
-                    // 非 Activity 上下文（理论上不会发生）：退回开操控面（触控板页签）
-                    runCatching {
-                        ctx.startActivity(
-                            Intent(ctx, com.allperiph.touchpad.TouchpadActivity::class.java)
-                                .putExtra(
-                                    com.allperiph.touchpad.TouchpadActivity.EXTRA_PAGE,
-                                    com.allperiph.touchpad.TouchpadActivity.PAGE_TOUCHPAD,
-                                ),
-                        )
-                    }
+                    onOpenTouchpad()
                 } else {
                     // 形状参数走 Style.HOME_*（2026-11-04 收敛）：此前这里硬编码 12/12/4，
                     // 与触控板页 HotkeyGrid.kbStyle **各写一份同样的值** —— 改圆角或每行

@@ -107,7 +107,6 @@
     <string name="ui_touchpad_text_remote">遥控</string>
     <string name="ui_touchpad_text_file">文件</string>
     <string name="ui_touchpad_text_clipboard">剪贴板</string>
-    <string name="ui_touchpad_text_transfer">文件与剪贴板</string>
     <string name="ui_touchpad_text_cursor_swipe">在此区域滑动控制光标</string>
     <string name="ui_touchpad_text_hotkey">常用快捷键</string>
     <!-- v223.2 全屏触控板 -->
@@ -511,10 +510,9 @@
          首页补一排「快捷入口」。文案尽量复用既有词条（手柄 / 遥控器 / 编辑快捷键），
          只新增旧版没有、也无人复用的三条。 -->
     <string name="ui_kb_custom_empty_hint">还没有自定义布局：点下方「编辑」配置行表</string>
-    <string name="ui_nav_status">传输</string>
+    <string name="ui_nav_status">状态</string>
     <string name="ui_nav_touchpad">触控板</string>
     <string name="ui_nav_keyboard">键盘</string>
-    <string name="ui_nav_display">副屏</string>
     <string name="ui_nav_settings">设置</string>
     <string name="ui_home_sec_quick">快捷入口</string>
     <string name="ui_home_quick_file">发送文件</string>
@@ -548,6 +546,8 @@
     <string name="ui_theme_preset_glass_desc">青碧 · 玻璃键帽 · 高光 · 轻震动 · 键盘音</string>
     <string name="ui_theme_preset_bouncy">弹跳趣味</string>
     <string name="ui_theme_preset_bouncy_desc">暮紫 · 机械键帽 · 弹跳 · 强震动 · 点击音</string>
+    <string name="ui_set_auto_swap_title">横持自动切到键盘页</string>
+    <string name="ui_set_auto_swap_sum">关闭后页面不随重力自动切换（默认关）</string>
     <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
     <string name="ui_pick_device_controlled">外设模式（本机被控）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>
