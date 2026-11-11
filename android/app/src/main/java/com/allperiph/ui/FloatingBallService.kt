@@ -162,6 +162,9 @@ class FloatingBallService : Service() {
         /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项 */
         private const val FAN_GAP_DP = 10
 
+        /** 圈层首圈容量（issue#168）：内圈最多 5 个，外圈依次 6、7…… */
+        private const val FAN_RING_FIRST = 5
+
         /** 照片卡「待发数量」角标的 view tag：渲染时按 tag 找回（发版后字段名稳定，不参与混淆） */
         private const val BADGE_TAG = "photoCardBadge"
 
@@ -1419,6 +1422,8 @@ class FloatingBallService : Service() {
      * 上一版真机表现是「图标散着、还叠在一起」，三个错都在这儿纠：
      * 1. **张角不能拍脑袋取 44°×n**：球停在边缘／角落时，朝外那半边根本没空间。
      *    这里改成从上限往下退（[FAN_SPAN_STEP] 一档），退到「每项都完整落在屏内」为止；
+     *    issue#168 起改为**圈层**：内圈最多 [FAN_RING_FIRST] 项，超出进外圈（外圈比内圈
+     *    多容 1 项，5/6/7 递增），每圈独立跑同一套「从宽到窄」搜索（[placeArcRing]）；
      * 2. **圆心角不能硬取「朝屏心」那个角**：球在角上时它并不是可行区间的中点，
      *    弧的一半会甩出屏。改成在 0.5° 粒度上搜遍一周，取**离朝屏心方向最近**的可行角；
      * 3. **半径按弦长定**：相邻两项的弦长（2R·sin(step/2)）必须容得下「图标 + 间隙」，
@@ -1428,6 +1433,88 @@ class FloatingBallService : Service() {
      * 窗口取**所有快捷项外扩一圈的矩形**，而不是固定的正方形包围盒：球贴边时正方形
      * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
+    /**
+     * 单圈摆位（圈层版 [buildFan] 每圈调用一次）：
+     * 先试「张角从宽到窄」，整圈完整落在屏内就取离朝屏心方向最近的可行角；
+     * 一档都放不下（球被挤在角落）就退化为逐项钳进屏内——宁可邻项略叠，也不摆到看不见的地方。
+     * m == 1 时直接落在朝屏心方向上。
+     */
+    private fun placeArcRing(
+        m: Int,
+        baseR: Float,
+        cx: Float,
+        cy: Float,
+        dirDeg: Float,
+        itemPx: Float,
+        gapPx: Float,
+        screenW: Int,
+        screenH: Int,
+    ): List<Pair<Float, Float>> {
+        val half = itemPx / 2f
+        if (m <= 1) {
+            val a = Math.toRadians(dirDeg.toDouble())
+            return listOf(
+                (cx + baseR * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                    (cy + baseR * sin(a).toFloat()).coerceIn(half, screenH - half),
+            )
+        }
+        var span = min(180f, 44f * (m - 1))
+        while (span >= FAN_SPAN_MIN) {
+            val step = span / (m - 1)
+            // 不重叠所需半径：相邻弦长 2R·sin(step/2) ≥ 图标 + 间隙
+            val r = maxOf(
+                baseR,
+                (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+            )
+            var best: List<Pair<Float, Float>>? = null
+            var bestDev = Float.MAX_VALUE
+            var k = 0
+            while (k < 720) {                       // 0.5° 粒度扫一周
+                val c = dirDeg - 180f + k * 0.5f
+                val pts = ArrayList<Pair<Float, Float>>(m)
+                var ok = true
+                var i = 0
+                while (i < m) {
+                    val a = Math.toRadians((c - span / 2f + step * i).toDouble())
+                    val x = cx + r * cos(a).toFloat()
+                    val y = cy + r * sin(a).toFloat()
+                    if (x < half || x > screenW - half || y < half || y > screenH - half) {
+                        ok = false
+                        break
+                    }
+                    pts.add(x to y)
+                    i++
+                }
+                if (ok) {
+                    var dev = ((c - dirDeg) % 360f + 360f) % 360f
+                    if (dev > 180f) dev = 360f - dev
+                    if (dev < bestDev) {
+                        bestDev = dev
+                        best = pts
+                    }
+                }
+                k++
+            }
+            if (best != null) return best
+            span -= FAN_SPAN_STEP
+        }
+        // 极端兜底：保持最小张角，逐项夹进屏内
+        val step = 24f / (m - 1)
+        val r = maxOf(
+            baseR,
+            (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
+        )
+        val out = ArrayList<Pair<Float, Float>>(m)
+        for (i in 0 until m) {
+            val a = Math.toRadians((dirDeg - 12f + step * i).toDouble())
+            out.add(
+                (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                    (cy + r * sin(a).toFloat()).coerceIn(half, screenH - half),
+            )
+        }
+        return out
+    }
+
     private fun buildFan(ballView: View): Fan {
         // 照片卡默认排第一位（ROADMAP §5.2 ①）——issue#168 二轮起可在设置页关闭
         //（[BallLatestPhoto.photoCardEnabled]，「相册按钮没有加到设置页悬浮球菜单项」）；
@@ -1470,64 +1557,21 @@ class FloatingBallService : Service() {
                     (cy + designR * sin(a).toFloat()).coerceIn(half, screenH - half),
             )
         } else {
-            var span = min(180f, 44f * (n - 1))
-            while (span >= FAN_SPAN_MIN) {
-                val step = span / (n - 1)
-                // 不重叠所需半径：相邻弦长 2R·sin(step/2) ≥ 图标 + 间隙
-                val r = maxOf(
-                    designR,
-                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
-                )
-                var best: List<Pair<Float, Float>>? = null
-                var bestDev = Float.MAX_VALUE
-                var k = 0
-                while (k < 720) {                       // 0.5° 粒度扫一周
-                    val c = dirDeg - 180f + k * 0.5f
-                    val pts = ArrayList<Pair<Float, Float>>(n)
-                    var ok = true
-                    var i = 0
-                    while (i < n) {
-                        val a = Math.toRadians((c - span / 2f + step * i).toDouble())
-                        val x = cx + r * cos(a).toFloat()
-                        val y = cy + r * sin(a).toFloat()
-                        if (x < half || x > screenW - half || y < half || y > screenH - half) {
-                            ok = false
-                            break
-                        }
-                        pts.add(x to y)
-                        i++
-                    }
-                    if (ok) {
-                        var dev = ((c - dirDeg) % 360f + 360f) % 360f
-                        if (dev > 180f) dev = 360f - dev
-                        if (dev < bestDev) {
-                            bestDev = dev
-                            best = pts
-                        }
-                    }
-                    k++
-                }
-                if (best != null) {
-                    centres.addAll(best)
-                    break
-                }
-                span -= FAN_SPAN_STEP
+            // 圈层分配（issue#168：「1 圈最多 5 个，多了自动进外圈，外圈比内圈多 1 个」）：
+            // 内圈 5、外圈 6、再外 7…… 从内往外依次装满；≤5 项时只有内圈，行为与旧版一致
+            val ringCounts = ArrayList<Int>()
+            var rem = n
+            var cap = FAN_RING_FIRST
+            while (rem > 0) {
+                val m = minOf(rem, cap)
+                ringCounts.add(m)
+                rem -= m
+                cap++
             }
-            if (centres.isEmpty()) {
-                // 极端兜底（球被挤在角落、项又多）：保持最小张角，逐项夹进屏内。
-                //   宁可邻项略叠一点，也不摆到看不见的地方 —— 叠一点至少每个都点得到。
-                val step = 24f / (n - 1)
-                val r = maxOf(
-                    designR,
-                    (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
-                )
-                for (i in 0 until n) {
-                    val a = Math.toRadians((dirDeg - 12f + step * i).toDouble())
-                    centres.add(
-                        (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
-                            (cy + r * sin(a).toFloat()).coerceIn(half, screenH - half),
-                    )
-                }
+            ringCounts.forEachIndexed { ringIdx, m ->
+                // 外圈半径逐圈外移一圈「图标 + 间隙」，保证相邻圈不叠
+                val ringR = designR + ringIdx * (itemPx + gapPx)
+                centres.addAll(placeArcRing(m, ringR, cx, cy, dirDeg, itemPx, gapPx, screenW, screenH))
             }
         }
 
