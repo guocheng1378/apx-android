@@ -1317,7 +1317,7 @@ class FloatingBallService : Service() {
             val y = cy + r * sin(Math.toRadians(a)).toFloat()
             return x >= half && x <= screenW - half && y >= yTop && y <= screenH - half
         }
-        // 归一化到 [0,360)；转 Double 与返回值/扩展步进统一精度
+        // 归一化角度到 0..360 度；转 Double 与返回值/扩展步进统一精度
         val norm = (((refDirDeg % 360) + 360) % 360).toDouble()
         if (!ok(norm)) return -180.0 to 180.0
         // 从参考方向向两侧扩展可行弧（角度减小 = 逆时针方向，增大 = 顺时针）。
