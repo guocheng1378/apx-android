@@ -751,8 +751,16 @@ class FloatingBallService : Service() {
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         val (sw, sh) = realScreenSize()
-        x = sw - dp(64)
-        y = sh / 3
+        // 位置共享（issue#168 2026-11-11）：优先回到壳内导航球或上一次拖动的最后落点，
+        // app 内外同位衔接；没有记录才落原生默认位（右侧三分之一高处）
+        val last = BallPos.load(this@FloatingBallService, sw, sh, dp(BALL_DP))
+        if (last != null) {
+            x = last.first
+            y = last.second
+        } else {
+            x = sw - dp(64)
+            y = sh / 3
+        }
     }
 
     private fun setupBallTouch(v: View) {
@@ -990,6 +998,11 @@ class FloatingBallService : Service() {
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
+        // 位置共享（issue#168 2026-11-11）：拖动 / 转屏 / 停靠形态切换的每次收口都记档，
+        // 服务球与壳内导航球共用 [BallPos]，app 内外位置无缝衔接
+        val (pLeft, pTop) = parentOffset(v)
+        val pDm = realDisplayMetrics()
+        BallPos.save(this, pLeft + lp.x.toFloat(), pTop + lp.y.toFloat(), pDm.widthPixels, pDm.heightPixels)
     }
 
     // ————————————————————— 停靠隐藏态维护（issue#168 三追） —————————————————————

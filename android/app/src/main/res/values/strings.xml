@@ -514,6 +514,7 @@
     <string name="ui_nav_touchpad">触控板</string>
     <string name="ui_nav_keyboard">键盘</string>
     <string name="ui_nav_settings">设置</string>
+    <string name="ui_nav_switch_title">切换页面</string>
     <string name="ui_home_sec_quick">快捷入口</string>
     <string name="ui_home_quick_file">发送文件</string>
     <string name="ui_home_quick_clip">发送剪贴板</string>

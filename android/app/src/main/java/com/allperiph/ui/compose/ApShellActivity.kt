@@ -18,6 +18,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
@@ -236,9 +246,12 @@ class ApShellActivity : ComponentActivity() {
         // 低栏长按弹出的「快捷入口」开关（内容见文件末尾 QuickActionsDialog）。
         // ⚠️ 必须在 Box 之前声明：弹窗判定在 Box 内容 lambda 内（前向引用不成立）。
         var quickActionsOpen by remember { mutableStateOf(false) }
-        // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
-        // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
-        var barCollapsed by remember { mutableStateOf(false) }
+        // 底栏整改成悬浮球（issue#168 2026-11-11 第 2 条「在 app 里时底部悬浮栏改成悬浮球
+        // 样式，可以移动，点开出个页面切换」）：低栏胶囊整条退场，收/展状态随之定死为球态，
+        // bottomGap / topGap 不再随页变化。球本体在 Shell 尾部渲染（可拖 + 点按切页 + 长按快捷入口）。
+        var barCollapsed by remember { mutableStateOf(true) }
+        // 页面切换菜单开关：点导航球弹出（见 Shell 尾部 PageSwitchCard）。
+        var pageSwitchOpen by remember { mutableStateOf(false) }
         // —— 低栏拖动移位已迁往服务层悬浮栏（issue#168 2026-11-10 22:46「悬浮栏拖动卡顿
         // 不跟手，改为和悬浮球一个实现方案」）——
         // 壳内低栏是 Activity 窗口里的 Compose 节点，拖动靠每帧重组 offset，真机上就是
@@ -246,20 +259,13 @@ class ApShellActivity : ComponentActivity() {
         // FloatingBallService 的悬浮栏：同一套按住跟手 / 贴边吸附 / 单击恢复，位置落盘）。
         // 壳内低栏保留：收/展 + 进操控页自动收起（导航语义不变）+ 长按快捷入口；
         // 主壳在前台期间服务层悬浮栏会自行收起，两套栏不会同屏。
-        // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
-        // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
-        // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
-        // 用户点球展开后不会被立刻按回去，直到再次切页。
-        androidx.compose.runtime.LaunchedEffect(page) {
-            barCollapsed = page == 1 || page == 2
-        }
         // 方案4：让位量跟收/展联动（动效走 ApMotion 进入曲线 200ms，与 barFx 同步，球缩与
         // 内容回涨一次动画到位）。收起后只剩一枚 48dp 玻璃球浮在内容上，页面让位
         // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
         // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。
         // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。
         val bottomGap by androidx.compose.animation.core.animateDpAsState(
-            targetValue = if (barCollapsed) 8.dp else if (landscape) 24.dp else 88.dp,
+            targetValue = 8.dp,
             // 界面稿 08 质感层：禁弹簧（原 LowBouncy 会回弹），进入曲线 200ms，
             // 设置页「动效」关掉时 durationMs = 0ms（直接落位）。
             animationSpec = androidx.compose.animation.core.tween(
@@ -270,7 +276,7 @@ class ApShellActivity : ComponentActivity() {
             label = "bottomGap",
         )
         val topGap by androidx.compose.animation.core.animateDpAsState(
-            targetValue = if (landscape) (if (barCollapsed) 8.dp else 96.dp) else 0.dp,
+            targetValue = if (landscape) 8.dp else 0.dp,
             // 同 bottomGap：进入曲线 200ms、无回弹（界面稿 08）。
             animationSpec = androidx.compose.animation.core.tween(
                 durationMillis =
@@ -577,241 +583,126 @@ class ApShellActivity : ComponentActivity() {
                 }
             }
 
-            // 底栏 = 悬浮玻璃胶囊（用户 2026-11-02 的原话是「悬浮低栏要和当初组件预览里
-            // 一样的」；那个预览页已随 2026-11-04 归档删除，**做法全部保留**在这段与
-            // LayerBackdrop / Highlight 三件套里）：FloatingNavigationBar 胶囊 +
-            // Miuix textureBlur 采样内容层（LayerBackdrop）+ Highlight 玻璃描边；
-            // 无运行时着色器的老机器退化为纯色胶囊。
-            // 0.9.4 契约：FloatingNavigationBar 的 modifier 作用于内层胶囊 Row，根 Column 固定
-            // fillMaxWidth 且不接定位 —— 垂直定位由外层 Box align(BottomCenter) 负责，
-            // 离底高度组件自管（26dp + 导航栏 inset），不要往胶囊 modifier 里塞 padding。
-            val navSurface = MiuixTheme.colorScheme.surfaceContainer
-            val navGlass = isRuntimeShaderSupported() &&
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-            val navDark = remember(shellBg) {
+            // 底栏 → 悬浮球导航（issue#168 2026-11-11 第 2 条：「在 app 里时底部悬浮栏
+            // 改成悬浮球样式，可以移动，点开出个页面切换；出了 app 悬浮球同步位置」）：
+            // 低栏胶囊整条退场，壳内导航收敛为一枚 48dp 可拖玻璃球 —— 点按弹页面切换
+            // 菜单（传输 / 触控板 / 键盘 / 设置），长按保留快捷入口弹窗；落点走
+            // [com.allperiph.ui.BallPos] 与服务层悬浮球共用同一份存档，退出 app 后
+            // 服务球从同位接棒（「出了 app 悬浮球同步位置」）。绝对定位住全屏 Box 顶层，
+            // 拖动不再受低栏角位约束，转屏回跑由 onConfigurationChanged 的 reflowNow
+            // 之外另在本球落点存档时自然衔接（横竖屏各按各自屏幕尺寸回读比例）。
+            val navDarkBall = remember(shellBg) {
                 0.2126f * shellBg.red + 0.7152f * shellBg.green +
                     0.0722f * shellBg.blue < 0.5f
             }
-            // 长按悬浮低栏 → 唤出悬浮球的扇形常用功能（成宇 2026-11-02
-            // 「常用功能可以通过长按悬浮低栏呼唤出来」）。
-            // 复用悬浮球自己的扇形菜单：菜单项清单、图标、开关态、分发逻辑都只有一份，
-            // 低栏不再另造一套「常用功能」面板。球不在屏幕上（用户关过悬浮球 / B 服务没起来）
-            // 则给一句明确解释，而不是长按毫无反应。
-            // 横屏时低栏挪到右上角（成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」）：
-            // 横屏本来横向就宽，底栏居中会压住键盘页/触控板页底部那条最常用的区域；
-            // 挪到右上角后既避开拇指区，也避开横屏时右侧的快捷键列。
-            // 竖屏保持底部居中不动（拇指可及性是竖屏的第一需求）。
-            val barAlign = if (landscape) Alignment.TopEnd else Alignment.BottomCenter
-            // ⚠️ 光给 Box 传 align(TopEnd) 是**不够**的：FloatingNavigationBar 的根
-            // Column 固定 `fillMaxWidth()`，它在父 Box 里已经占满整行宽度，水平方向
-            // 怎么对齐都不会动。真正决定胶囊位置的是组件自己的 `horizontalAlignment`
-            // （见上游 NavigationBar.kt：`.align(horizontalAlignment)` + 只有 End 那一侧
-            // 才加 36dp 内侧留白）。所以横屏必须把 End 一起传下去，否则「挪到右上角」
-            // 只会变成「贴到最上面、仍然水平居中」。
-            val barHorizontal = if (landscape) Alignment.End else Alignment.CenterHorizontally
-            // ⚠️ 这层 Box 必须自己限宽：FloatingNavigationBar 的根 Column 是 fillMaxWidth，
-            // 在不受限的 Box 里会把宽度撑满整行 —— 于是这枚带长按手势的 Box 在横屏时变成
-            // 「整条顶部横带」，把左上角设置页分类列的点击全吃了（成宇 2026-11-03
-            // 「横屏时设置页分组不能切换了」，真机 input tap 复现：页签能点、分组点不动）。
-            // 限到 440dp 后触摸判定跟胶囊走，横屏左列、竖屏底栏两侧的内容恢复可点。
-            // 低栏收/展动效（2026-11-07）：收起成球 / 展开成胶囊此前是一帧硬切 ——
-            // 这是屏幕上唯一的常驻控件，跳变最扎眼。给一次缩放淡入
-            // （ApMotion 进入曲线，界面稿 08 禁弹簧 —— springSpec 已改为无回弹 tween）。
-            val barFx = remember { Animatable(1f) }
-            androidx.compose.runtime.LaunchedEffect(barCollapsed) {
-                barFx.snapTo(0.84f)
-                barFx.animateTo(
-                    targetValue = 1f,
-                    animationSpec = com.allperiph.ui.miuix.ApMotion.springSpec(
-                        this@ApShellActivity,
-                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
-                    ),
+            val navBallPx = with(LocalDensity.current) { 48.dp.toPx() }
+            val ballDensity = LocalDensity.current
+            var navBallX by remember { mutableFloatStateOf(-1f) }
+            var navBallY by remember { mutableFloatStateOf(-1f) }
+            val dmBall = resources.displayMetrics
+            androidx.compose.runtime.LaunchedEffect(landscape) {
+                // 首次组合 / 转屏：读共享落点（球左上角比例）。转屏时重读一次 ——
+                // 存的是比例，横竖屏互换也能落回相对位置；无档则落原生角位
+                // （竖屏底中、横屏右上，与旧收起球同位）。
+                val loaded = com.allperiph.ui.BallPos.load(
+                    this@ApShellActivity, dmBall.widthPixels, dmBall.heightPixels, navBallPx.toInt(),
                 )
+                if (loaded != null) {
+                    navBallX = loaded.first.toFloat()
+                    navBallY = loaded.second.toFloat()
+                } else {
+                    navBallX = if (landscape) {
+                        dmBall.widthPixels - navBallPx - 20.dp.toPx()
+                    } else {
+                        (dmBall.widthPixels - navBallPx) / 2f
+                    }
+                    navBallY = if (landscape) {
+                        with(ballDensity) { (8.dp + topPad).toPx() }
+                    } else {
+                        dmBall.heightPixels - navBallPx - with(ballDensity) { 26.dp.toPx() }
+                    }
+                }
             }
             Box(
                 modifier = Modifier
-                    .align(barAlign)
-                    // 横屏顶栏贴到屏幕上沿时，8dp 会落进大圆角/挖孔的弧内（真机横屏截图里
-                    // 胶囊左上角被屏幕弧切掉一截）。这里叠上挖孔让位量 topPad。
-                    .then(if (landscape) Modifier.padding(top = 8.dp + topPad) else Modifier)
-                    .widthIn(max = 440.dp)
-                    .graphicsLayer {
-                        val v = barFx.value
-                        alpha = 0.72f + 0.28f * v
-                        scaleX = v
-                        scaleY = v
-                    }
-                    .pointerInput(landscape) {
-                        // 低栏手势（2026-11-11 收敛）：只剩「按住不动 650ms → 长按弹快捷入口」。
-                        // 拖动移位已迁往服务层悬浮栏（本文件上方注释）：壳内 Compose 节点拖动
-                        // 靠每帧重组 offset，真机卡顿不跟手 —— 跟手版本只能住 WindowManager
-                        // overlay（与球同一套实现）。移动超 slop 直接放行，不拦事件。
-                        awaitEachGesture {
-                            val down = awaitFirstDown(
-                                requireUnconsumed = false,
-                                pass = PointerEventPass.Initial,
-                            )
-                            val start = down.position
-                            val startMs = System.currentTimeMillis()
-                            var longPressFired = false
-                            while (true) {
-                                val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                // ⚠️ 长按只在**单指**下成立（成宇 2026-11-04「挡了两个按键
-                                // 不能用」）：这根 pointerInput 挂在低栏外层 Box 上，且
-                                // `requireUnconsumed = false` —— 横屏低栏的命中区正好贴着修饰键
-                                // 排，键盘按键的按下它**也会收到**（不消费，键帽照常能按）。
-                                // 两根手指同时按 Shift + Win 时这里会误判，第二根手指落下即放弃。
-                                if (ev.changes.count { it.pressed } > 1) break
-                                val c = ev.changes.firstOrNull { it.id == down.id }
-                                    ?: ev.changes.firstOrNull()
-                                if (c == null) continue
-                                if (!c.pressed) break
-                                if ((c.position - start).getDistance() >
-                                    viewConfiguration.touchSlop
-                                ) {
-                                    // 按住后移动：不是长按（拖动语义归服务层悬浮栏），整个手势放弃
-                                    break
-                                }
-                                if (System.currentTimeMillis() - startMs >= 650L) {
-                                    // 长按成立：把剩余序列在 Initial pass 里标记消费，
-                                    // 页签的 clickable 在 Main pass 看到已消费就不会再当点击
-                                    longPressFired = true
-                                    while (true) {
-                                        val e2 = awaitPointerEvent(PointerEventPass.Initial)
-                                        e2.changes.forEach { it.consume() }
-                                        if (e2.changes.none { it.pressed }) break
-                                    }
-                                    break
-                                }
-                            }
-                            if (longPressFired) {
-                                // Shell() 里没有 LocalContext 的 `ctx`：这个函数有自己的
-                                // this@ApShellActivity（Activity 本身就是 Context），
-                                // 直接用它，别再引入一个可能为 null 的局部变量。
-                                val act = this@ApShellActivity
-                                // 成宇 2026-11-04「悬浮低栏长按没震动」：长按虽然成立了，手感上
-                                // 却没有任何反馈 —— 补一下震动（与页签的按键反馈同一条 Feedback
-                                // 链路，尊重设置里的震动档位，档位是「关」时不震）。
-                                com.allperiph.ui.Feedback.haptic(act)
-                                // 成宇 2026-11-04「弹出应该是状态页的快捷入口的弹窗，再把状态页的
-                                // 移除」：长按不再借用悬浮球的扇形菜单 —— 那套与球自身的 12 项配置
-                                // 耦合、球没开时还会变成「长按没反应」；改用本壳自己的快捷入口弹窗，
-                                // 内容就是原先状态页那一段六个入口，任何情况下都能弹出。
-                                quickActionsOpen = true
-                            }
-                        }
-                    },
-            ) {
-                if (barCollapsed) {
-                    // 收起态：一枚 48dp 小球顶在原角位（成宇 2026-11-07 第 4 条），点按展开。
-                    // 竖屏补 26dp 底距 = 低栏组件自管的离底高度；横屏补 20dp 侧距与低栏
-                    // End 侧内留白对位（外层 Box 的横屏 top 8dp 已由父级给出，这里不重复）。
-                    Box(
-                        modifier = Modifier
-                            .then(
-                                if (landscape) Modifier.padding(end = 20.dp)
-                                else Modifier.padding(bottom = 26.dp),
-                            )
-                            .size(48.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            // 收起球的可访问性描述（48dp 可点元素必须有描述，UI 规范硬规则）
-                            .semantics {
-                                contentDescription = getString(R.string.ui_dock_ball_desc)
-                            }
-                            // 方案4·玻璃化：实心 surfaceContainer → 半透明渐变玻璃 +
-                            // 1dp 高光描边（与展开胶囊同一套质感，shader-free 老机器同款）——
-                            // 收起后球浮在内容上、内容可透出，不再是压着界面的实心圆。
-                            .background(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    listOf(
-                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
-                                        MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
-                                    ),
-                                ),
-                            )
-                            .border(
-                                width = 1.dp,
-                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = if (navDark) 0.16f else 0.52f),
-                                        Color.White.copy(alpha = if (navDark) 0.05f else 0.14f),
-                                    ),
-                                ),
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                            )
-                            .clickable { barCollapsed = false },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
-                    }
-                } else {
-                // （else 分支内容沿用原缩进：收/展只切低栏 Box 的内容，不动布局结构）
-                FloatingNavigationBar(
-                    horizontalAlignment = barHorizontal,
-                    modifier = Modifier
-                        .widthIn(max = 440.dp)
-                        // 低栏页签的「按下即震 + 长按确认」（成宇 2026-11-04「长按按键没震动」）：
-                        // 挂在 FloatingNavigationBar 根上，四个页签一起生效 —— 与键帽同一套手势，
-                        // 一次只震一下（页签自身没有 Feedback.tap，不会重复）。
-                        // ⚠️ 与上面那根 pointerInput 的分工：那根管「长按低栏弹快捷入口」并会
-                        // 在成立后 consume，也负责长按那一下震动；这根只给「按下即震」，
-                        // 长按确认关掉（longPressFeel = false），免得按住低栏震两下。
-                        .apKeyFeel(longPressFeel = false)
-                        .then(
-                            if (navGlass) {
-                                Modifier.textureBlur(
-                                    backdrop = navBackdrop,
-                                    shape = RoundedCornerShape(FloatingToolbarDefaults.CornerRadius),
-                                    blurRadius = 25f,
-                                    colors = BlurDefaults.blurColors(
-                                        blendColors = listOf(
-                                            BlendColorEntry(color = navSurface.copy(alpha = 0.4f)),
-                                        ),
-                                    ),
-                                    highlight = if (navDark) Highlight.GlassStrokeMiddleDark
-                                    else Highlight.GlassStrokeMiddleLight,
+                    .align(Alignment.TopStart)
+                    .offset { IntOffset(navBallX.roundToInt(), navBallY.roundToInt()) }
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .semantics { contentDescription = getString(R.string.ui_dock_ball_desc) }
+                    // 拖动跟手（compose 侧靠每帧 offset 重组，球是单节点小控件，
+                    // 旧低栏「拖动卡顿」的顾虑远小于整条胶囊的逐帧重排）
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDrag = { change, drag ->
+                                change.consume()
+                                navBallX = (navBallX + drag.x)
+                                    .coerceIn(0f, dmBall.widthPixels - navBallPx)
+                                navBallY = (navBallY + drag.y)
+                                    .coerceIn(0f, dmBall.heightPixels - navBallPx)
+                            },
+                            onDragEnd = {
+                                com.allperiph.ui.BallPos.save(
+                                    this@ApShellActivity,
+                                    navBallX, navBallY, dmBall.widthPixels, dmBall.heightPixels,
                                 )
-                            } else {
-                                Modifier
-                            }
+                            },
+                        )
+                    }
+                    // 点按 = 页面切换菜单；长按 = 快捷入口（原低栏长按语义原样迁移）
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { pageSwitchOpen = true },
+                            onLongPress = {
+                                com.allperiph.ui.Feedback.haptic(this@ApShellActivity)
+                                quickActionsOpen = true
+                            },
+                        )
+                    }
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
+                            ),
                         ),
-                    color = if (navGlass) Color.Transparent else navSurface,
-                ) {
-                    FloatingNavigationBarItem(
-                        selected = page == 0,
-                        onClick = { page = 0 },
-                        icon = MiuixIcons.Home,
-                        label = stringResource(R.string.ui_nav_status),
-                        enabled = true,
                     )
-                    FloatingNavigationBarItem(
-                        selected = page == 1,
-                        onClick = { page = 1 },
-                        icon = ImageVector.vectorResource(R.drawable.ic_apx_touchpad),
-                        label = stringResource(R.string.ui_nav_touchpad),
-                        enabled = true,
-                    )
-                    FloatingNavigationBarItem(
-                        selected = page == 2,
-                        onClick = { page = 2 },
-                        icon = ImageVector.vectorResource(R.drawable.ic_apx_keyboard),
-                        label = stringResource(R.string.ui_nav_keyboard),
-                        enabled = true,
-                    )
-                    // 图标（成宇 2026-11-02「悬浮低栏的图标不对」）：触控板配格子、键盘配列表，
-                    // 一眼看不出是什么 —— 这两页改用自家矢量 ic_apx_touchpad / ic_apx_keyboard
-                    // 经 vectorResource 转 ImageVector（单色描边，随选中态着色）；状态 / 设置
-                    // 语义中性，保留 miuix-icons 的 Home / Settings（extended 156 个里没有
-                    // Touchpad/Keyboard 这类设备语义名，自家矢量反而是现成的）。
-                    FloatingNavigationBarItem(
-                        selected = page == 3,
-                        onClick = { page = 3 },
-                        icon = MiuixIcons.Settings,
-                        label = stringResource(R.string.ui_nav_settings),
-                        enabled = true,
-                    )
-                }
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = if (navDarkBall) 0.16f else 0.52f),
+                                Color.White.copy(alpha = if (navDarkBall) 0.05f else 0.14f),
+                            ),
+                        ),
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
+            }
+
+            // 页面切换菜单（issue#168 2026-11-11 第 2 条「点开出个页面切换」）：
+            // 四页直达，点选后菜单收起、球留在原位（页面内容随 page 切换）。
+            if (pageSwitchOpen) {
+                ApComponents.DialogCard(onDismiss = { pageSwitchOpen = false }) {
+                    Text(text = stringResource(R.string.ui_nav_switch_title), fontSize = 17.sp)
+                    listOf(
+                        0 to R.string.ui_nav_status,
+                        1 to R.string.ui_nav_touchpad,
+                        2 to R.string.ui_nav_keyboard,
+                        3 to R.string.ui_nav_settings,
+                    ).forEach { (target, labelRes) ->
+                        ApComponents.ActionButton(
+                            text = stringResource(labelRes),
+                            onClick = {
+                                pageSwitchOpen = false
+                                page = target
+                                pageState = target
+                            },
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
                 }
             }
         }
