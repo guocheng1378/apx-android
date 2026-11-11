@@ -612,7 +612,7 @@ class ApShellActivity : ComponentActivity() {
                     navBallY = loaded.second.toFloat()
                 } else {
                     navBallX = if (landscape) {
-                        dmBall.widthPixels - navBallPx - 20.dp.toPx()
+                        dmBall.widthPixels - navBallPx - with(ballDensity) { 20.dp.toPx() }
                     } else {
                         (dmBall.widthPixels - navBallPx) / 2f
                     }
