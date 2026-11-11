@@ -34,6 +34,13 @@ class HidDevice(
     @Volatile
     private var listener: ((ByteArray) -> Unit)? = null
 
+    // 写失败诊断（issue#168 2026-11-11）：连败计数只用于日志定性，成功一笔即清零；
+    // lastFailLogMs/lastReopenMs 是节流游标，均在写入线程串行访问，无需原子类。
+    @Volatile
+    private var consecutiveWriteFailures = 0
+    private var lastFailLogMs = 0L
+    private var lastReopenMs = 0L
+
     val isOpen: Boolean get() = fd != null
 
     /** 挂载后内核异步创建节点，这里轮询等待并打开 */
@@ -113,13 +120,65 @@ class HidDevice(
             val n = try {
                 Os.write(f, report, off, report.size - off)
             } catch (e: ErrnoException) {
-                // 主机未取走上一段：丢帧，绝不阻塞
+                // 主机未取走上一段：丢帧，绝不阻塞。
+                //
+                // issue#168 2026-11-11 15:12 反馈（pad 日志通读）：有线模式 15 分钟里
+                // 键盘 HID **每一笔**写入都失败（Uplink 在 USB/无出口之间来回翻），
+                // 而这里长期把 errno 吞掉不记 —— 复盘时只能看到「写入失败」，分不清是
+                //   EAGAIN/EALREADY（主机没在取，保持续写即可）还是
+                //   ENODEV/ESHUTDOWN/EBADF（fd 已随 gadget 重绑失效 / 端点已关，
+                //   继续写一万次也不会好，必须重开设备节点）。
+                // 两类的处置完全不同，errno 就是分水岭 —— 从这里开始必须留下。
+                onWriteFailure(e.errno)
                 return false
             }
-            if (n <= 0) return false
+            if (n <= 0) {
+                onWriteFailure(0)
+                return false
+            }
             off += n
         }
+        // 任意一笔成功即清连败计数（EAGAIN 偶发丢帧属正常，不该触发重开）
+        consecutiveWriteFailures = 0
         return true
+    }
+
+    /**
+     * 写失败统一入口：errno 节流落日志 + 陈旧 fd 自愈（issue#168 2026-11-11）。
+     *
+     * 自愈判据：ENODEV / ESHUTDOWN / EBADF / EINVAL 这类**结构性**错误说明 fd 已失效
+     * （gadget 被系统重绑 / UDC 重挂后内核节点重建，旧 fd 指着已死的 inode），写多少次
+     * 都不会好 —— 关掉旧 fd 后**重开**一次节点即可恢复（节点名固定，重开成功即满血）。
+     * EAGAIN / EALREADY 是「主机暂时没取」的正常丢帧，只记日志不动 fd。
+     * 重开有 2s 限频：连续失败时避免在输入线程里高频开关节点。
+     */
+    private fun onWriteFailure(errno: Int) {
+        consecutiveWriteFailures++
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastFailLogMs >= FAIL_LOG_INTERVAL_MS) {
+            lastFailLogMs = now
+            // 连败数一起记：对端看日志就能判断「偶发丢帧」还是「全挂」
+            Log.w(TAG, "HID 写入失败 errno=$errno（连续 $consecutiveWriteFailures 次）")
+        }
+        if (!isStaleFdErrno(errno)) return
+        if (now - lastReopenMs < REOPEN_MIN_INTERVAL_MS) return
+        lastReopenMs = now
+        Log.w(TAG, "HID fd 已失效（errno=$errno）：关闭并重开 $path 自愈")
+        runCatching { fd?.let { Os.close(it) } }
+        fd = null
+        if (open(waitMs = 0)) {
+            Log.i(TAG, "HID 自愈成功：$path 已重开")
+        } else {
+            // 节点也没了（gadget 已被拆）：isReady() 转 false，Uplink 如实报「无出口」，
+            // 恢复由 GadgetManager 的挂载/自愈流程负责，这里不越权重建 gadget。
+            Log.w(TAG, "HID 自愈失败：$path 暂不可开（等 gadget 模块重新挂载）")
+        }
+    }
+
+    /** 结构性错误 = fd 已失效，重开才有救；EAGAIN/EALREADY 属正常丢帧 */
+    private fun isStaleFdErrno(errno: Int): Boolean = when (errno) {
+        OsConstants.ENODEV, OsConstants.ESHUTDOWN, OsConstants.EBADF, OsConstants.EINVAL -> true
+        else -> false
     }
 
     override fun isReady(): Boolean = fd != null
@@ -148,5 +207,9 @@ class HidDevice(
     companion object {
         private const val TAG = "HidDevice"
         private const val READ_POLL_MS = 4L
+
+        // 写失败日志节流与 fd 重开限频（issue#168 2026-11-11，见 onWriteFailure 注释）
+        private const val FAIL_LOG_INTERVAL_MS = 5_000L
+        private const val REOPEN_MIN_INTERVAL_MS = 2_000L
     }
 }
