@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -264,7 +265,16 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
+internal fun ApFullKeyboard(
+    onClose: (() -> Unit)? = null,
+    bottomGap: Dp = 0.dp,
+    /** 悬浮面板自适应覆盖（issue#168 返工「横竖屏切换布局回归」）：overlay 里
+     *  windowInfo/configuration 不可信，由 FloatingBallService 用 realScreenSize 传入
+     *  整屏实测值；主屏 Activity 调用不传（null）走原自适应判定。 */
+    landscapeOverride: Boolean? = null,
+    widthDpOverride: Float? = null,
+    heightDpOverride: Float? = null,
+) {
     val ctx = LocalContext.current
     val host = LocalView.current
     val dens = KeyPref.density(ctx)
@@ -318,17 +328,17 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     var tab by remember { mutableIntStateOf(0) }
     // 自定义行表要在编辑弹窗保存后刷新
     var customRows by remember { mutableStateOf(KeyPref.customRows(ctx)) }
+    val adaptive = rememberApAdaptiveLayout(landscapeOverride, widthDpOverride, heightDpOverride)
     // §6.3（ROADMAP 2026-11-11）：Expanded（≥840dp，平板）键高不无限拉伸 —— 键位区按
     // 6 行 × 80dp 封顶居中，余出的整块高度给底部工具行（剪贴板 / 语音 / 灯效）。
     // Compact / Medium（手机竖横屏）行为完全不变：键位区照旧 weight 占满，不画工具行。
     // 走窗口实测宽度（与 ApKeyboardPage 同源判定），不读 configuration（旋转回写滞后一拍）。
-    // issue#168（2026-11-11 手机竖屏清单）：竖屏手机键位区不再 weight 占满整页 ——
-    // 键帽被整页高度拉成巨块（「拉伸变形」）。改为「下方 2/3 键位 + 上方 1/3
-    // 常用快捷键与自定义按键」：键位区 weight 2f，顶部常驻一排快捷键（HotkeyStore，
-    // 与触控板页同一份数据）和一排自定义键（customRows 展平，与「自定义」页签同源），
-    // 都是点击即发的活键，不吃静态占位。横屏与 Medium/Expanded 全部保持原行为。
-    val adaptive = rememberApAdaptiveLayout()
-    val expanded = adaptive.width >= 840.dp
+    // issue#168 返工（2026-11-12「横竖屏切换布局回归」）：手机横屏宽 ≈900dp ≥840 也被
+    // 当成平板 —— 436dp 高的横屏里键位区 heightIn(480dp) 封顶，6 行键每行只剩 ≈48dp，
+    // F 键两行标签直接被裁掉。Expanded 收窄为「宽 ≥840 且短边 ≥600」：真平板
+    // （两个维度都够大）才收，手机横屏（短边 <600）恢复 weight 占满的 Compact 行为。
+    // 竖屏手机键位区改 2/3 的口径见上面 portraitPhone 注释（不变）。
+    val expanded = adaptive.width >= 840.dp && minOf(adaptive.width.value, adaptive.height.value) >= 600f
     val portraitPhone = !adaptive.landscape && adaptive.width < 600.dp
     // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
     var voiceText by remember { mutableStateOf<String?>(null) }
@@ -479,7 +489,7 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                         .then(if (expanded) Modifier.heightIn(max = 480.dp) else Modifier),
                 ) {
                     when (tab) {
-                        0 -> QuickLayout(dens, keycap, fx)
+                        0 -> QuickLayout(dens, keycap, fx, landscapeOverride, widthDpOverride, heightDpOverride)
                         1 -> RemoteLayout()
                         2 -> GameLayout(dens, keycap, fx)
                         3 -> KeyGridLayout(KeyLayouts.NUMPAD, dens, keycap, fx)
@@ -556,102 +566,124 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
 }
 
 /**
- * 竖屏手机键盘页上方 1/3（issue#168 2026-11-11 清单）：「常用快捷键」+「自定义按键」各一行。
+ * 竖屏手机键盘页上方 1/3（issue#168 返工 2026-11-11「要触控板页常用快捷键栏样式、
+ * 按钮限 2 行，不是加两个标题行」）：不再有「常用快捷键 / 自定义」两行标题，
+ * 也不再放自定义按键 chips（自定义键位在键位区「自定义」页签里本来就有一份）。
  *
- * 数据源与动作链路：
- *  · 快捷键 = [HotkeyStore.load]（与触控板页 HotkeyGrid 同一份 HotkeyStore），
- *    点击 `HidKeys.combo` 直发组合键 + `bump` 记使用频次 —— 与触控板页点芯片同语义；
- *  · 自定义按键 = [KeyPref.customRows] 展平（与「自定义」页签同一份行表），
- *    点击 `HidKeys.tapLabel` 直发 —— 与键位区键帽同一条发送链路。
+ * 数据源与动作链路：快捷键 = [HotkeyStore.load]（与触控板页 HotkeyGrid 同一份
+ * HotkeyStore），点击 `HidKeys.combo` 直发组合键 + `bump` 记使用频次 —— 与触控板页
+ * 点芯片同语义；自动排序开启时按使用频次排（与 HotkeyBoard.render 同口径）。
  *
- * 两组各占一行、横向滚动（高度恒定两行文字 + 两行芯片，不随内容数量膨胀，
- * 否则会反过来把下方 2/3 的键位区吃掉）。空态给既有引导文案，不画假按钮。
- * 键位区改 2/3 的动机见 [ApFullKeyboard] 里的 portraitPhone 注释。
+ * 视觉对齐触控板页快捷键栏：芯片 4 个一行、最多 2 行（装不下的快捷键去触控板页用，
+ * 那里有编辑入口可增删调序），行尾不足补空位保持网格稳定 —— 与 HotkeyBoard 的
+ * 补空格同思路。空态给既有引导文案，不画假按钮。
+ * 键位区占 2/3 的动机见 [ApFullKeyboard] 里的 portraitPhone 注释。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PortraitQuickStrip(fx: Int) {
     val ctx = LocalContext.current
     // Feedback.tap 收 View 不收 Context（与 ApFullKeyboard 的 host 同口径）
     val host = LocalView.current
-    val hotkeys = remember { com.allperiph.hid.HotkeyStore.load(ctx) }
-    val customKeys = remember { KeyPref.customRows(ctx).orEmpty().flatten() }
-    val subColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Text(
-            text = ctx.getString(R.string.ui_touchpad_text_hotkey),
-            fontSize = 12.sp,
-            color = subColor,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (hotkeys.isEmpty()) {
-                Text(
-                    text = ctx.getString(R.string.ui_hotkey_empty),
-                    fontSize = 12.sp,
-                    color = subColor,
-                )
-            } else {
-                hotkeys.forEach { combo ->
-                    ApComponents.TabChip(
-                        text = combo.label,
-                        selected = false,
-                        onClick = {
-                            Feedback.tap(host)
-                            HidKeys.combo(combo)
-                            com.allperiph.hid.HotkeyStore.bump(ctx, combo)
-                        },
-                        fx = fx,
-                    )
-                }
-            }
+    val hotkeys = remember {
+        val loaded = com.allperiph.hid.HotkeyStore.load(ctx)
+        if (com.allperiph.hid.HotkeyStore.isAutoSort(ctx)) {
+            val usage = com.allperiph.hid.HotkeyStore.loadUsage(ctx)
+            loaded.sortedByDescending { usage[com.allperiph.hid.HotkeyStore.comboKey(it)] ?: 0 }
+        } else {
+            loaded
         }
+    }
+    // 4 个一行、最多 2 行（issue#168「按钮限 2 行」）
+    val rows = hotkeys.take(8).chunked(4)
+    if (rows.isEmpty()) {
         Text(
-            text = ctx.getString(R.string.ui_kb_tab_custom),
+            text = ctx.getString(R.string.ui_hotkey_empty),
             fontSize = 12.sp,
-            color = subColor,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (customKeys.isEmpty()) {
-                Text(
-                    text = ctx.getString(R.string.ui_kb_custom_empty_hint),
-                    fontSize = 12.sp,
-                    color = subColor,
-                )
-            } else {
-                customKeys.forEach { label ->
-                    ApComponents.TabChip(
-                        text = label,
-                        selected = false,
-                        onClick = {
-                            Feedback.tap(host)
-                            HidKeys.tapLabel(label)
-                        },
+        return
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        rows.forEach { chunk ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                chunk.forEach { combo ->
+                    QuickChip(
+                        label = combo.label,
                         fx = fx,
-                    )
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Feedback.tap(host)
+                        HidKeys.combo(combo)
+                        com.allperiph.hid.HotkeyStore.bump(ctx, combo)
+                    }
                 }
+                // 行尾补空位占位：最后一行不满 4 个时保持与上一行同宽的网格
+                repeat(4 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
     }
 }
 
+/** 触控板页快捷键栏同款芯片（视觉对齐 HotkeyBoard.buildChip）：卡片底 + 圆角 14dp + 居中单行文字 */
+@Composable
+private fun QuickChip(
+    label: String,
+    fx: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val accent = MiuixTheme.colorScheme.primary
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fxValues = rememberKeyFx(pressed, fx)
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainer)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .then(Modifier.keyFx(fxValues, accent))
+            .heightIn(min = 40.dp)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            color = MiuixTheme.colorScheme.onSurface,
+            // 芯片恒单行：过长出省略号，不把网格行顶出屏外
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 /** 快捷键盘：sticky 修饰排 + `KeyPref.letterRows` 五行 —— 与操控面 `quickKeyboard()` 同款 */
 @Composable
-private fun QuickLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
+private fun QuickLayout(
+    dens: KeyPref.Density,
+    keycap: Int,
+    fx: Int,
+    /** 与 [ApFullKeyboard] 同源的自适应覆盖：悬浮键盘里 QuickLayout 自行读一次自适应，
+     *  也必须用整屏实测值，否则「横屏画竖屏排」在这层复发（v223.29.61）。 */
+    landscapeOverride: Boolean? = null,
+    widthDpOverride: Float? = null,
+    heightDpOverride: Float? = null,
+) {
     val ctx = LocalContext.current
     val rows = KeyPref.letterRows(ctx)
     // b17 方案 C：横屏切真键盘（15u 行制），竖屏保持 letterRows 紧凑排
     // 横屏判定走窗口实测（v223.29.8 同源修法）：本壳 Activity 声明了 configChanges，
     // 旋转不重建，`LocalConfiguration.orientation` 回写滞后一拍 —— 已经横着拿键盘
     // 还停在竖屏排，FULL 真键盘就像「没了」。containerSize 与布局测量同源，永不滞后。
-    val wide = rememberApAdaptiveLayout().landscape
+    val wide = rememberApAdaptiveLayout(landscapeOverride, widthDpOverride, heightDpOverride).landscape
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）

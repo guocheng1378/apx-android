@@ -9,6 +9,7 @@ import android.os.Looper
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
@@ -65,29 +67,42 @@ class SendActivity : ComponentActivity() {
                 setContent {
                     ApMiuixTheme {
                         Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                            Text(
-                                text = if (devices.isEmpty()) {
-                                    "附近还没有设备：确认目标端已开启互传，且与本机在同一网络"
-                                } else {
-                                    "点一台设备，然后选要发送的文件（${devices.size} 台在线）"
-                                },
+                            if (devices.isEmpty()) {
+                                // issue#168 返工（2026-11-12「发送文件的文字要高度（垂直）居中，
+                                // 之前只把左右居中了」）：空态提示不再顶在页首 —— 占满剩余高度
+                                // 后垂直居中，视线落在屏幕中部，页面不再「上半有字下半全空」。
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().weight(1f),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "附近还没有设备：确认目标端已开启互传，且与本机在同一网络",
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            } else {
                                 // v223.29.58（issue#168 2026-11-11）：提示居中换行 + 字色与
                                 // 全局次级文案同口径（此前默认色偏黑，和其余页面观感不一）。
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                            )
-                            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                                items(devices) { d ->
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 8.dp)
-                                            .clickable { pickFile(d) },
-                                    ) {
-                                        Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                                            Text(text = d.alias)
-                                            Text(text = "${d.deviceType} · ${d.ip}")
+                                Text(
+                                    text = "点一台设备，然后选要发送的文件（${devices.size} 台在线）",
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                )
+                                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                                    items(devices) { d ->
+                                        Card(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(bottom = 8.dp)
+                                                .clickable { pickFile(d) },
+                                        ) {
+                                            Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                                                Text(text = d.alias)
+                                                Text(text = "${d.deviceType} · ${d.ip}")
+                                            }
                                         }
                                     }
                                 }

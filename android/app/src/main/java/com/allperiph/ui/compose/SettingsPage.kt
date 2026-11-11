@@ -878,9 +878,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
+                                // issue#168 第 10 条（2026-11-12「相册文字没做按钮描边」）：
+                                // 与内置图标同排但没有常驻描边，看着不像按钮 —— 未选中给一圈
+                                // 次级描边兜底造型，选中仍走主题主色加粗描边。
                                 .border(
-                                    width = if (skinSelected) 2.dp else 0.dp,
-                                    color = if (skinSelected) MiuixTheme.colorScheme.primary else Color.Transparent,
+                                    width = if (skinSelected) 2.dp else 1.dp,
+                                    color = if (skinSelected) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = 0.45f),
                                     shape = CircleShape,
                                 )
                                 .clickable { ballSkinPicker.launch("image/*") },

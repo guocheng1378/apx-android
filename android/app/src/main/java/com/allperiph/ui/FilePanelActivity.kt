@@ -178,12 +178,18 @@ class FilePanelActivity : ComponentActivity() {
                                     color = colorResource(R.color.overlay_muted),
                                 )
                                 if (files.isEmpty()) {
-                                    Text(
-                                        text = getString(R.string.ui_filepanel_text_file_no_local),
-                                        fontSize = 13.sp,
-                                        color = colorResource(R.color.overlay_muted),
-                                        modifier = Modifier.padding(top = 8.dp),
-                                    )
+                                    // issue#168 返工（2026-11-12）：窄屏空态同样垂直居中
+                                    //（占满列表区剩余高度后居中，不贴在说明文字下面）。
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth().weight(1f),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = getString(R.string.ui_filepanel_text_file_no_local),
+                                            fontSize = 13.sp,
+                                            color = colorResource(R.color.overlay_muted),
+                                        )
+                                    }
                                 } else {
                                     LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
                                         items(files) { f -> fileRow(f, twoPane = false) }
@@ -223,11 +229,13 @@ class FilePanelActivity : ComponentActivity() {
     private fun fileListPane(twoPane: Boolean) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (files.isEmpty()) {
+                // issue#168 返工（2026-11-12「文件面板的文字要高度（垂直）居中，之前只把
+                // 左右居中了」）：空态提示垂直居中，不再顶在栏首。
                 Text(
                     text = getString(R.string.ui_filepanel_text_file_no_local),
                     fontSize = 13.sp,
                     color = colorResource(R.color.overlay_muted),
-                    modifier = Modifier.padding(top = 8.dp),
+                    modifier = Modifier.align(Alignment.Center),
                 )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize()) {

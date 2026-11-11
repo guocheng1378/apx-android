@@ -1070,6 +1070,9 @@ internal fun ApDevicePickerBody(
     landscape: Boolean = false,
     listMaxHeightDp: Int = 0,
     footer: (@Composable () -> Unit)? = null,
+    /** 悬浮球面板专用（issue#168 返工 2026-11-12「设备页文字与关闭按钮居中」）：
+     *  标题水平居中、「关闭」按钮整行居中。主屏不传（false）保持原左对齐排版。 */
+    centered: Boolean = false,
 ) {
     val ctx = LocalContext.current
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
@@ -1107,7 +1110,11 @@ internal fun ApDevicePickerBody(
         Text(
             text = ctx.getString(R.string.ui_pick_device_title),
             fontSize = 17.sp,
-            modifier = Modifier.padding(bottom = 8.dp),
+            // 居中档（悬浮面板）：标题整行居中；主屏保持左对齐
+            textAlign = if (centered) TextAlign.Center else null,
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .let { if (centered) it.fillMaxWidth() else it },
         )
         ApComponents.ActionButton(
             text = ctx.getString(R.string.ui_pick_device_local),
@@ -1142,8 +1149,17 @@ internal fun ApDevicePickerBody(
                 ).show()
             },
         )
-        // 悬浮面板的「关闭」按钮落左栏底（横屏时与被控开关同列）。
-        footer?.invoke()
+        // 悬浮面板的「关闭」按钮落左栏底（横屏时与被控开关同列）；
+        // 居中档（悬浮面板）下整行水平居中。
+        if (footer != null) {
+            if (centered) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    footer()
+                }
+            } else {
+                footer()
+            }
+        }
     }
     val rightPane: @Composable () -> Unit = {
         // —— 最近连接：点一下就连（不必等广播重新发现）——
@@ -1269,6 +1285,8 @@ internal fun ApDevicePanel(
     onClose: () -> Unit,
     landscape: Boolean = false,
     listMaxHeightDp: Int = 0,
+    /** 悬浮面板居中档：透传 [ApDevicePickerBody.centered]（主屏调用不传，保持原排版）。 */
+    centered: Boolean = false,
 ) {
     Column(
         modifier = Modifier
@@ -1280,6 +1298,7 @@ internal fun ApDevicePanel(
                 onDone = onClose,
                 landscape = landscape,
                 listMaxHeightDp = listMaxHeightDp,
+                centered = centered,
                 footer = {
                     ApComponents.NarrowButton(
                         text = stringResource(R.string.ui_help_close),

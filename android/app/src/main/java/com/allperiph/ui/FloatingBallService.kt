@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
@@ -2235,7 +2236,20 @@ class FloatingBallService : Service() {
         //（用户原话「加一个背景，避免上方文字对比度过低看不清」）。铺底让整块键盘
         // 有 surfaceContainer 实底，对比度回归正常；把手仍在顶部（resizable 面板同款）。
         expandComposePanel(height, resizable = PanelSize.KEYBOARD, paintBg = true) {
-            ApFullKeyboard(onClose = { collapse() }, bottomGap = 0.dp)
+            // ★ issue#168 返工（2026-11-12「横竖屏切换布局回归」）：overlay 的 ComposeView
+            //  挂在 WindowManager 上，LocalWindowInfo.containerSize / LocalConfiguration
+            //  给的是小窗/服务竖屏配置，横屏时 ApFullKeyboard 拿到 portraitPhone=true，
+            //  画出竖屏布局、键帽文字显示不全。这里用 realScreenSize 实测整屏宽高
+            //  （dp 换算走服务 density）覆盖自适应判定 —— 键盘内部所有派生量
+            //  （横竖排 / Expanded / portraitPhone）都按整屏口径重算。
+            val den = resources.displayMetrics.density
+            ApFullKeyboard(
+                onClose = { collapse() },
+                bottomGap = 0.dp,
+                landscapeOverride = wpx > hpx,
+                widthDpOverride = wpx / den,
+                heightDpOverride = hpx / den,
+            )
         }
     }
 
@@ -2299,7 +2313,13 @@ class FloatingBallService : Service() {
         val density = resources.displayMetrics.density
         val listMaxDp = if (wpx > hpx) ((hpx / density) * 0.55f).toInt() else 0
         expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
-            ApDevicePanel(onClose = { collapse() }, landscape = wpx > hpx, listMaxHeightDp = listMaxDp)
+            ApDevicePanel(
+                onClose = { collapse() },
+                landscape = wpx > hpx,
+                listMaxHeightDp = listMaxDp,
+                // issue#168 返工（2026-11-12「设备页文字与关闭按钮居中」）
+                centered = true,
+            )
         }
     }
 
@@ -2326,16 +2346,22 @@ class FloatingBallService : Service() {
                     .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
             ) {
                 ApComponents.Card {
-                    Column {
+                    Column(
+                        // issue#168 返工（2026-11-12「悬浮球剪贴板/设备页文字与关闭按钮居中」）：
+                        // 面板窄，标题/提示/内容左对齐挤在左半边不好看，整列水平居中。
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         Text(
                             text = stringResource(R.string.ui_ball_fn_clipboard_title),
                             fontSize = 17.sp,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
                         Text(
                             text = stringResource(R.string.ui_ball_fn_clipboard_hint),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
                         Text(
@@ -2345,6 +2371,7 @@ class FloatingBallService : Service() {
                                 text.take(120) + if (text.length > 120) "…" else "",
                             ),
                             fontSize = 13.sp,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
                         ApComponents.ActionButton(

@@ -58,7 +58,16 @@ data class ApAdaptiveLayout(
  *  · Expanded (≥840dp)：平板横屏、电视。
  */
 @Composable
-fun rememberApAdaptiveLayout(): ApAdaptiveLayout {
+fun rememberApAdaptiveLayout(
+    /** 横竖屏覆盖（悬浮面板专用）：Service overlay 的 ComposeView 挂在 WindowManager 上，
+     *  LocalWindowInfo.containerSize 拿到的是**小窗尺寸**、LocalConfiguration 也是服务
+     *  竖屏配置（issue#168 返工「悬浮键盘横屏画出竖屏布局」的根因）。调用方用
+     *  realScreenSize 实测的整屏宽高覆盖后，本函数的**全部派生量**
+     *  （widthClass / landscape / twoPane / form）都按覆盖值重算 —— 不是只改一个字段。 */
+    landscapeOverride: Boolean? = null,
+    widthDpOverride: Float? = null,
+    heightDpOverride: Float? = null,
+): ApAdaptiveLayout {
     val cfg = LocalConfiguration.current
     // 横屏判定（成宇 2026-11-04「横屏时有时低栏不会到右上角」）：
     // v223.29.7 已把 `cfg.orientation` 换成 `cfg.screenWidthDp > cfg.screenHeightDp`，
@@ -82,6 +91,26 @@ fun rememberApAdaptiveLayout(): ApAdaptiveLayout {
     } else {
         w = cfg.screenWidthDp.dp
         h = cfg.screenHeightDp.dp
+    }
+    // 覆盖先于一切派生：悬浮面板传入的是整屏实测值，窗口/配置在 overlay 里不可信
+    // （参数文档说明根因）。任一覆盖非空就整体重算，避免「覆盖了宽、横竖还按小窗猜」。
+    if (landscapeOverride != null || widthDpOverride != null || heightDpOverride != null) {
+        val ow = widthDpOverride?.dp ?: w
+        val oh = heightDpOverride?.dp ?: h
+        val oLandscape = landscapeOverride ?: (ow > oh)
+        return ApAdaptiveLayout(
+            widthClass = when {
+                ow.value >= 840 -> ApWidthClass.Expanded
+                ow.value >= 600 -> ApWidthClass.Medium
+                else -> ApWidthClass.Compact
+            },
+            width = ow,
+            height = oh,
+            landscape = oLandscape,
+            twoPane = ow.value >= 600,
+            form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, ow.value),
+            padCutout = oLandscape,
+        )
     }
     val cls = when {
         w.value >= 840 -> ApWidthClass.Expanded
