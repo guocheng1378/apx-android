@@ -337,6 +337,19 @@ class FloatingBallService : Service() {
         }
 
         /**
+         * 转屏重排的进程内直调入口（2026-11-11 成宇「悬浮球收缩后，旋转屏幕会乱跑」）。
+         *
+         * ApShellActivity 声明了 configChanges，转屏回调它**必收到**；由它在
+         * onConfigurationChanged 里调这里，把球重排从「app 级回调碰运气」改成
+         * 「主界面在场就一定触发」。服务不在（球没开）时静默跳过；面板 / 菜单
+         * 展开期间球是收起的，[reflowForScreenChange] 内部按 ballAttached 自行空跑。
+         */
+        fun reflowNow() {
+            runCatching { live?.reflowForScreenChange() }
+                .onFailure { Log.w(TAG, "转屏重排直调失败：${it.message}") }
+        }
+
+        /**
          * 悬浮窗权限判读（v223.29.1 第 5 条修复的核心）。
          *
          * **不要单独用 [Settings.canDrawOverlays] 当判据。** 真机实测（2026-11-02，
@@ -458,6 +471,21 @@ class FloatingBallService : Service() {
     private val reflowCb = object : android.content.ComponentCallbacks {
         override fun onConfigurationChanged(newConfig: android.content.res.Configuration) = reflowForScreenChange()
         override fun onLowMemory() {}
+    }
+
+    /**
+     * 服务自身的转屏回调（2026-11-11 成宇「悬浮球收缩后，旋转屏幕会乱跑」）。
+     *
+     * 原来只依赖 [reflowCb] 这条 app 级注册通道：它挂在应用上下文的回调清单里，
+     * 部分 ROM / targetSdk 组合下转屏只给**自己声明了 configChanges 的 Activity**
+     * 派发（ApShellActivity 正是这种），服务这条通道收不到 —— 球的绝对像素位置
+     * 停在旧方向，横竖互换后看起来就是「乱跑」。Service 本身就是 ComponentCallbacks2，
+     * 框架对每个组件都有直接派发，补这条保险；与 [reflowCb] 重复触发也无妨，
+     * [reflowForScreenChange] 幂等（尺寸没变就是空跑）。
+     */
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        reflowForScreenChange()
     }
 
     private fun reflowForScreenChange() {

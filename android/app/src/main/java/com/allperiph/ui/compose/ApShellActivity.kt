@@ -269,6 +269,14 @@ class ApShellActivity : ComponentActivity() {
         var barOffsetY by remember(landscape) {
             mutableFloatStateOf(dockPrefs.getFloat(if (landscape) "dock.oy.l" else "dock.oy.p", 0f))
         }
+        // 转屏后把另一方向存的偏移钳回当前可视区（2026-11-11 成宇「底栏旋转屏幕会乱跑」）：
+        // 偏移按方向各存一份，但钳制只发生在拖动里 —— 旋转加载的另一方向值没人管，
+        // 极端情况下会停在锚位外侧（贴边越界）。落盘保持用户摆的原位，只改显示态；
+        // 下次拖动结束仍按原值落盘，不污染另一方向的记忆。
+        androidx.compose.runtime.LaunchedEffect(landscape) {
+            barOffsetX = clampDockX(barOffsetX, landscape)
+            barOffsetY = clampDockY(barOffsetY, landscape)
+        }
         // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
         // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
         // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
@@ -672,13 +680,18 @@ class ApShellActivity : ComponentActivity() {
                         scaleX = v
                         scaleY = v
                     }
-                    .pointerInput(Unit) {
+                    .pointerInput(landscape) {
                         // 低栏手势（2026-11-11 重写，issue#168 第 1 条追补）：
                         //  · 按住不动 650ms → 长按弹快捷入口（原语义不变）；
                         //  · 按住后移动超 slop → 拖动移位：立即收成球、球跟手，松手落位
                         //    并按方向落盘（「拖动悬浮栏时自动缩小为球状，支持按住移动位置」）。
                         // 两种手势都只认单指；事件全程在 Initial pass 观察与消费，
                         // 页签的正常点击不受影响。
+                        // ⚠️ key 必须挂 landscape（2026-11-11 成宇「底栏旋转屏幕会乱跑」）：
+                        // 原来 key=Unit，转屏后协程不重启，闭包里捕获的还是旧方向的
+                        // clampDockX/Y / dockMetrics / landscape —— 拖动按旧方向钳制、
+                        // 偏移还会写进旧方向的偏好键，球在新方向上落点全错（「捕获旧值」家族④）。
+                        // 挂上 key 后转屏即重启，闭包重取当前方向的值。
                         awaitEachGesture {
                             val down = awaitFirstDown(
                                 requireUnconsumed = false,
@@ -923,6 +936,14 @@ class ApShellActivity : ComponentActivity() {
             AgentController.stopAll()
             AgentForegroundService.stop(this)
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // 悬浮球转屏重排直调（2026-11-11 成宇「悬浮球收缩后，旋转屏幕会乱跑」）：
+        // 本壳声明了 configChanges，转屏回调这里必收到；app 级注册的服务回调在部分
+        // ROM 上不保证派发，改由主界面在场时保底推一次。内部幂等：尺寸没变是空跑。
+        com.allperiph.ui.FloatingBallService.reflowNow()
     }
 
     override fun onResume() {
