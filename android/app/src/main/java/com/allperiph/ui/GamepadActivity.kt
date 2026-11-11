@@ -439,7 +439,10 @@ private fun Pad(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
                     pressCount++
-                    if (currentOnDown != null) currentOnDown() else GamepadController.setButton(effBit, true)
+                    // 回调先取局部快照：delegated 属性不能智能转换（CI 编译错实修），
+                    // 局部 val 的 null 判断才生效；rememberUpdatedState 保证快照是最新值
+                    val onDownNow = currentOnDown
+                    if (onDownNow != null) onDownNow() else GamepadController.setButton(effBit, true)
                     val longPressMs = viewConfiguration.longPressTimeoutMillis
                     var configured = false
                     var lastX = 0f
@@ -450,19 +453,21 @@ private fun Pad(
                             val mine = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!mine.pressed) break
                             mine.consume()
-                            if (!configured && currentOnConfigure != null && slot != null &&
+                            val onCfgNow = currentOnConfigure
+                            val onMoveNow = currentOnMoveBy
+                            if (!configured && onCfgNow != null && slot != null &&
                                 mine.uptimeMillis - down.uptimeMillis >= longPressMs
                             ) {
                                 configured = true
                                 lastX = mine.position.x
                                 lastY = mine.position.y
                                 Feedback.haptic(ctx)   // 编辑/拖动模式起振一次，手感有确认
-                                currentOnConfigure()
-                            } else if (configured && currentOnMoveBy != null) {
+                                onCfgNow()
+                            } else if (configured && onMoveNow != null) {
                                 // 长按后继续拖：按钮实时跟手（面板层改 offset），松手落盘
                                 val x = mine.position.x
                                 val y = mine.position.y
-                                currentOnMoveBy((x - lastX) / density, (y - lastY) / density)
+                                onMoveNow((x - lastX) / density, (y - lastY) / density)
                                 lastX = x
                                 lastY = y
                             }

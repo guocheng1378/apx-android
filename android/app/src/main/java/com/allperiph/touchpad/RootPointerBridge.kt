@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.input.InputManager
 import android.os.Handler
 import android.os.Looper
+import android.view.InputDevice
 import com.allperiph.R
 import com.allperiph.core.ModuleId
 import com.allperiph.core.Uplink

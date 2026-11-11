@@ -1527,8 +1527,9 @@ class FloatingBallService : Service() {
         val screenH = dm.heightPixels
         // 菜单尺寸档（2026-11-07）：项直径与扇形半径一起按用户选的三档缩放，
         // 见 BallConfig.itemDp / arcRadiusDp（设置页「悬浮栏 → 菜单大小」）。
-        val itemPx = dp(BallConfig.itemDp(this))
-        val gapPx = dp(FAN_GAP_DP)
+        // itemPx/gapPx 需为 Float：placeArcRing 的半径/间隙参数都是浮点（CI 编译错实修）
+        val itemPx = dp(BallConfig.itemDp(this)).toFloat()
+        val gapPx = dp(FAN_GAP_DP).toFloat()
         val half = itemPx / 2f
         val designR = dp(BallConfig.arcRadiusDp(this)).toFloat()
 
@@ -1591,8 +1592,10 @@ class FloatingBallService : Service() {
         minY -= pad
         maxX += pad
         maxY += pad
-        val boxW = (maxX - minX).toInt().coerceAtLeast(itemPx)
-        val boxH = (maxY - minY).toInt().coerceAtLeast(itemPx)
+        // 布局与像素参数走整数 px（itemPx 浮点版仅供 placeArcRing 半径计算）
+        val itemIpx = itemPx.toInt()
+        val boxW = (maxX - minX).toInt().coerceAtLeast(itemIpx)
+        val boxH = (maxY - minY).toInt().coerceAtLeast(itemIpx)
         val wx = minX.toInt()
         val wy = minY.toInt()
 
@@ -1613,7 +1616,7 @@ class FloatingBallService : Service() {
         fanItems.clear()
         centres.forEachIndexed { i, (x, y) ->
             val cell = buildFanItem(items[i])
-            val lpItem = FrameLayout.LayoutParams(itemPx, itemPx).apply {
+            val lpItem = FrameLayout.LayoutParams(itemIpx, itemIpx).apply {
                 leftMargin = (x - wx - half).toInt()
                 topMargin = (y - wy - half).toInt()
             }

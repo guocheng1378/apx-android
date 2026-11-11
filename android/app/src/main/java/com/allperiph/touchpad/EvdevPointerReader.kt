@@ -126,6 +126,35 @@ class EvdevPointerReader(
         }
 
         /**
+         * 起 su 子进程跑单条命令并取 stdout（全审查条 9；companion 内供
+         * [readDevicesText] 复用，实例侧 [hasRoot] 同样可用）：输出由后台线程
+         * 排空 —— 个别 su 实现输出管道满会卡住不退出，先 waitFor 永远超时。
+         * 超时返回 null。
+         */
+        private fun suCapture(cmd: String, timeoutSec: Long): String? = try {
+            val pr = ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
+            var out: ByteArray? = null
+            val drain = Thread {
+                out = try {
+                    pr.inputStream.readBytes()
+                } catch (_: Throwable) {
+                    null
+                }
+            }.apply { isDaemon = true; start() }
+            if (!pr.waitFor(timeoutSec, TimeUnit.SECONDS)) {
+                runCatching { pr.destroy() }
+                runCatching { drain.interrupt() }
+                null
+            } else {
+                runCatching { drain.join(1000) }
+                out?.toString(Charsets.UTF_8)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "su 执行失败：$cmd ${t.message}")
+            null
+        }
+
+        /**
          * 从设备表挑出指针设备的 event 节点。
          *
          * 判据（对 REL 鼠标 / ABS 触控板分别适用）：
@@ -326,34 +355,7 @@ class EvdevPointerReader(
         false
     }
 
-    /**
-     * 起 su 子进程跑单条命令并取 stdout（全审查条 9）：输出由后台线程排空 ——
-     * 个别 su 实现输出管道满会卡住不退出，先 waitFor 永远超时。超时返回 null。
-     */
-    private fun suCapture(cmd: String, timeoutSec: Long): String? = try {
-        val pr = ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
-        var out: ByteArray? = null
-        val drain = Thread {
-            out = try {
-                pr.inputStream.readBytes()
-            } catch (_: Throwable) {
-                null
-            }
-        }.apply { isDaemon = true; start() }
-        if (!pr.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-            runCatching { pr.destroy() }
-            runCatching { drain.interrupt() }
-            null
-        } else {
-            runCatching { drain.join(1000) }
-            out?.toString(Charsets.UTF_8)
-        }
-    } catch (t: Throwable) {
-        Log.w(TAG, "su 执行失败：$cmd ${t.message}")
-        null
-    }
-
-    /** 起一个 root 子进程跑单条命令（放/收设备节点权限用）：只等结束，不取输出 */
+    /** 起 su 子进程跑单条命令（放/收设备节点权限用）：只等结束，不取输出 */
     private fun runSu(cmd: String) {
         try {
             val pr = ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
