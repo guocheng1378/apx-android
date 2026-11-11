@@ -35,6 +35,13 @@ object BallConfig {
     const val CLIPBOARD = "clipboard"
     const val SCREEN = "screen"
 
+    /**
+     * 遥控器（2026-11-11 悬浮栏整合补挂）：原服务层悬浮栏四入口之一（拉起
+     * [com.allperiph.ui.RemoteActivity] 完整页）—— 栏拆除后由球菜单承接，
+     * 不丢入口。与 [SCREEN] 同属「拉起完整页」类。
+     */
+    const val REMOTE = "remote"
+
     /** 摄像头：手机画面回传本机（CameraPushActivity）。此前只能由 PC 面板或通知栏拉起，
      *  应用内没有任何入口 —— 用户「找不到摄像头」就是这里缺的。 */
     const val CAMERA = "camera"
@@ -51,7 +58,7 @@ object BallConfig {
 
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
-        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, CAMERA,
+        TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, REMOTE, CAMERA,
         MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, POINTER_READ, QUIT,
     )
 
@@ -62,8 +69,10 @@ object BallConfig {
      */
     const val PHOTO_CARD = "photo_card"
 
-    /** 首次打开时的默认四项 —— 与旧版写死菜单的主干一致 */
-    val DEFAULT: List<String> = listOf(TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, QUIT)
+    /** 首次打开时的默认项 —— 与旧版写死菜单的主干一致 + 遥控器（悬浮栏整合后承接其入口） */
+    val DEFAULT: List<String> = listOf(
+        TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, REMOTE, QUIT,
+    )
 
     /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏 */
     const val ITEM_DP = 52
@@ -123,6 +132,7 @@ object BallConfig {
         GAMEPAD -> R.string.ui_ball_fn_gamepad
         CLIPBOARD -> R.string.ui_ball_fn_clipboard
         SCREEN -> R.string.ui_ball_fn_screen
+        REMOTE -> R.string.ui_remote_text_remote
         CAMERA -> R.string.ui_ball_fn_camera
         KB_FORWARD -> R.string.ui_ball_fn_kb_forward
         POINTER_READ -> R.string.ui_main_label_root_pointer
@@ -142,6 +152,7 @@ object BallConfig {
         GAMEPAD -> R.drawable.ic_apx_gamepad
         CLIPBOARD -> R.drawable.ic_apx_clipboard
         SCREEN -> R.drawable.ic_apx_screen
+        REMOTE -> R.drawable.ic_apx_remote
         CAMERA -> R.drawable.ic_apx_camera
         KB_FORWARD -> R.drawable.ic_apx_kb_fwd
         POINTER_READ -> R.drawable.ic_apx_pointer
@@ -188,6 +199,9 @@ object BallConfig {
 
     /** 双开关项（全局转发 / root 直读）加入菜单后的补挂标记（同样只补一次） */
     private const val KEY_MIGRATED_V5 = "migrated_v5"
+
+    /** 遥控器项（悬浮栏整合）加入菜单后的补挂标记（同样只补一次） */
+    private const val KEY_MIGRATED_V6 = "migrated_v6"
 
     /**
      * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
@@ -243,6 +257,19 @@ object BallConfig {
                 }
             }
             p.edit().putBoolean(KEY_MIGRATED_V4, true).apply()
+        }
+
+        // 遥控器项（悬浮栏整合 V6，2026-11-11）：服务层悬浮栏拆除后其「遥控器」入口
+        // 由球菜单承接 —— 老用户已存过勾选清单的话，不补就永远看不到这一项
+        if (!p.getBoolean(KEY_MIGRATED_V6, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                if (REMOTE !in kept) {
+                    p.edit().putString(KEY_ITEMS, (kept + REMOTE).joinToString(",")).apply()
+                }
+            }
+            p.edit().putBoolean(KEY_MIGRATED_V6, true).apply()
         }
     }
 }

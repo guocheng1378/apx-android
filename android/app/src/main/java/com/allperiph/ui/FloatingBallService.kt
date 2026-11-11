@@ -133,15 +133,6 @@ class FloatingBallService : Service() {
         private const val DOCK_H_DP = 64
 
         /**
-         * 服务层悬浮栏尺寸（dp，issue#168 2026-11-10 22:46）：四枚页签图标的胶囊。
-         * 与球同理**给死尺寸**：底图 shape 基元没有 intrinsic size，WRAP_CONTENT 会塌
-         * （球 66px 的同一坑）。宽 = 4 × 38dp 图标 + 2 × 8dp 横向内边距（布局里 weight
-         * 平分余量），高 = 38dp + 2 × 6dp。
-         */
-        private const val BAR_W_DP = 168
-        private const val BAR_H_DP = 50
-
-        /**
          * 隐藏态「三分之一圆弧」几何（issue#168 第 12 条三追）：圆心放在**屏幕外**
          * r/2 处，屏内只能看到正对屏幕的 120°（整圆的三分之一），弧的凸面朝屏幕内、
          * 开口朝屏幕外 —— 比发丝线好点按得多。
@@ -315,28 +306,7 @@ class FloatingBallService : Service() {
                 s.undock(b)
                 acted = true
             }
-            val bar = s.dockBar
-            if (s.barDocked && bar != null) {
-                s.undockBar(bar)
-                acted = true
-            }
             return acted
-        }
-
-        /**
-         * 主壳前后台通知（issue#168 2026-11-10 22:46）：主壳在前台时收起服务层悬浮栏 ——
-         * 壳内低栏承担同一职能（导航 + 快捷入口），两套栏同屏只会互相打架。
-         * 三追（2026-11-11 06:10）：「退出 App 自动显示」的方案归悬浮球 —— 球本来就
-         * 常驻（面板收起即还），退壳（fg=false）**不再**自动还栏，否则用户每次退出
-         * 应用都被悬浮栏顶上来；进壳（fg=true）仍收栏。悬浮栏退为服务起点 / 面板
-         * 收起时的桌面快捷入口。由 ApShellActivity 的 onResume/onPause 调。
-         * 服务不在（球没开）时 no-op —— 栏与球同服务同生命周期，用户侧没有独立开关。
-         */
-        fun notifyShellForeground(fg: Boolean) {
-            val svc = live ?: return
-            svc.shellForeground = fg
-            if (!fg) return
-            svc.updateBarVisibility()
         }
 
         /** 自愈冷却：进程被反复拉起时不要把球切成一条闪烁的动画 */
@@ -529,51 +499,15 @@ class FloatingBallService : Service() {
     /** 待执行的隐藏任务；取消与重排都经它，避免残留回调在错误状态里把球收没 */
     private var dockHidePending: Runnable? = null
 
-    // ————————————— 服务层悬浮栏（issue#168 2026-11-10 22:46） —————————————
-    // 「悬浮栏拖动卡顿不跟手，改为和悬浮球一个实现方案；4 个页面为悬浮栏展开菜单样式；
-    // 手势同步悬浮球手势（不要长按关闭功能，悬浮栏禁止关闭或者隐藏）」——
-    // 壳内低栏是 Activity 窗口里的 Compose 节点，拖动靠每帧重组 offset，真机卡顿；
-    // 跟手版本只能住 WindowManager overlay，与球共用同一套「按下记录 → 移动跟手 →
-    // 松手贴边吸附 / 停靠态单击恢复」的手势（见 [setupDockBarTouch]）。
+    // ————————————— 服务层悬浮栏整合（issue#168 2026-11-11「先把大事做了」） —————————————
     //
-    // 与球的两点差异（按反馈原话）：
-    //  · 没有长按动作，更没有长按关闭 —— 栏不可关闭；
-    //  · 不收「三分之一圆弧」隐藏态（禁止隐藏）—— 贴边即停在半透明停靠形态。
-    //
-    // 展开菜单即栏本体：四枚页签图标 = 外设模式全屏操控四页
-    //（触控板 / 键盘 → 就地展开悬浮面板；副屏 / 遥控器 → 拉起完整页，与球扇形菜单同口径）。
-    private var dockBar: View? = null
-    private var dockBarAttached = false
-
-    /** 悬浮栏停靠态（贴边半透明）与左右侧：与球的 [docked] 分开记，两套状态互不污染 */
-    private var barDocked = false
-    private var barDockLeft = false
-
-    /** 悬浮栏的贴边滑入动画（与球 [dockAnim] 分开，触摸按下即取消） */
-    private var barAnim: android.animation.ValueAnimator? = null
-
-    /** 主壳在前台时收栏：壳内低栏承担同一职能，两套栏同屏只会互相打架（见 ApShellActivity） */
-    @Volatile
-    private var shellForeground = false
-
-    /** 悬浮栏位置落盘键（PREFS 内）：拖完 / 恢复时写，旋转、重进后回到用户摆的位置 */
-    private val keyBarX = "bar.x"
-    private val keyBarY = "bar.y"
-
-    /** 悬浮栏手势的按帧状态（与球的那组字段分开：两个 overlay 各自独立拖动） */
-    private class BarTouch {
-        var downRawX = 0f
-        var downRawY = 0f
-        var downWindowX = 0
-        var downWindowY = 0
-        var downAt = 0L
-        var moved = false
-
-        /** 按下时命中的页签序号（0..3；-1 = 点在胶囊空白处）：松手未拖动时按它分发 */
-        var hitIcon = -1
-    }
-
-    private val barTouch = BarTouch()
+    // 栏整层拆除了。原独立的常驻长条（view_dock_bar）与球是两个 overlay，同屏只互相
+    // 打架（用户反复报「两个悬浮窗」）；栏的四个入口（触控板 / 键盘面板就地展开、
+    // 副屏 / 遥控器拉起完整页）全部由球的扇形菜单承接——触控板 / 键盘 / 副屏本就是
+    // 菜单项，遥控器本次补挂（BallConfig.REMOTE + 补挂迁移 V6）。
+    // 从此桌面与任意应用里只悬浮**一个**控件：拖动即挪位（球），单击展开菜单（原栏
+    // 的入口都在里面），长按关闭。主壳前后台通知 API（notifyShellForeground）随栏
+    // 一并移除，调用点见 ApShellActivity / TouchpadActivity。
 
 
     /**
@@ -603,9 +537,6 @@ class FloatingBallService : Service() {
     }
 
     private fun reflowForScreenChange() {
-        // 悬浮栏先行重排：下面球的分支在球未挂（面板展开期间）时提前返回，
-        // 栏不能跟着丢 —— 两个 overlay 各自独立（issue#168 22:46）
-        reflowBarForScreenChange()
         val v = ball ?: return
         if (!ballAttached) return
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
@@ -729,10 +660,7 @@ class FloatingBallService : Service() {
         } else {
             Log.w(TAG, "悬浮球挂载失败：开关位保持 true，设置页会显示「已开启但未显示」")
         }
-        // 服务层悬浮栏（issue#168 22:46）：与球同服务、同生命周期，用户侧没有关闭开关；
-        // 主壳前台时由 [notifyShellForeground] 收（壳内低栏顶班）。三追（2026-11-11
-        // 06:10）：退壳不再自动还栏（「自动显示」归球），栏只在服务起点挂上。
-        if (addDockBar()) updateBarVisibility()
+        // 服务层悬浮栏已随整合拆除（见类顶注释）：桌面只悬浮球一个控件。
         val (sw0, sh0) = realScreenSize()
         lastScreenW = sw0
         lastScreenH = sh0
@@ -779,14 +707,11 @@ class FloatingBallService : Service() {
         detach(ball)
         detach(panel)
         detach(menu)
-        detach(dockBar)
         panelHost?.destroy()
         panelHost = null
         ball = null
         panel = null
         menu = null
-        dockBar = null
-        dockBarAttached = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -1069,206 +994,6 @@ class FloatingBallService : Service() {
             .onFailure { Log.w(TAG, "悬浮球站位回写失败：${it.message}") }
     }
 
-    // ————————————————————————— 服务层悬浮栏（issue#168 22:46） —————————————————————————
-    //
-    // 手势与球同一套（按下记录 → 移动跟手 → 松手贴边吸附 / 停靠态单击恢复），
-    // 但没有长按关闭、没有隐藏态 ——「悬浮栏禁止关闭或者隐藏」。位置拖完落盘。
-    // 主壳前后台通知入口见 companion 的 [notifyShellForeground]。
-
-    /** @return 是否真的把栏挂上了（失败不影响球；栏挂不上只丢一个入口，不冒进） */
-    private fun addDockBar(): Boolean {
-        if (dockBarAttached) return true
-        // 与球同坑：themed 上下文 inflate，深色取色才对（issue#44）
-        val v = dockBar
-            ?: LayoutInflater.from(themed).inflate(R.layout.view_dock_bar, null).also { dockBar = it }
-        setupDockBarTouch(v)
-        val (sw, sh) = realScreenSize()
-        val lp = WindowManager.LayoutParams(
-            dp(BAR_W_DP),
-            dp(BAR_H_DP),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            // 恢复上次摆的位置；没存过（首次）落到底部居中，与壳内低栏的原锚位一致
-            val p = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            x = if (p.contains(keyBarX)) p.getInt(keyBarX, 0)
-            else (sw - dp(BAR_W_DP)) / 2
-            y = if (p.contains(keyBarY)) p.getInt(keyBarY, 0)
-            else sh - dp(BAR_H_DP) - dp(28)
-        }
-        runCatching { wm.addView(v, lp) }.onFailure {
-            Log.w(TAG, "悬浮栏挂载失败：${it.message}")
-            dockBar = null
-            return false
-        }
-        dockBarAttached = true
-        return true
-    }
-
-    private fun setupDockBarTouch(v: View) {
-        v.setOnTouchListener { view, ev ->
-            val lp = view.layoutParams as? WindowManager.LayoutParams
-                ?: return@setOnTouchListener false
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    // 坐标口径与球一致（见球 DOWN 注释）：记 raw + 窗口坐标，不混算世界坐标
-                    barTouch.downRawX = ev.rawX
-                    barTouch.downRawY = ev.rawY
-                    barTouch.downWindowX = lp.x
-                    barTouch.downWindowY = lp.y
-                    barTouch.downAt = System.currentTimeMillis()
-                    barTouch.moved = false
-                    barTouch.hitIcon = iconIndexAt(view, ev)
-                    barAnim?.cancel()
-                    view.animate().scaleX(0.94f).scaleY(0.94f).setDuration(90).start()
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = ev.rawX - barTouch.downRawX
-                    val dy = ev.rawY - barTouch.downRawY
-                    if (!barTouch.moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
-                        barTouch.moved = true
-                    }
-                    if (barTouch.moved) moveBall(view, barTouch.downWindowX + dx, barTouch.downWindowY + dy)
-                }
-                MotionEvent.ACTION_UP -> {
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
-                    when {
-                        barTouch.moved -> settleBarAfterDrag(view)
-                        barDocked -> undockBar(view)
-                        barTouch.hitIcon >= 0 -> onDockBarIcon(barTouch.hitIcon)
-                        // 点在胶囊空白处：什么都不做（没有关闭语义，防误触收起）
-                    }
-                }
-            }
-            true
-        }
-    }
-
-    /** 按下点落在第几枚页签图标上（0..3；-1 = 空白处）—— 直接对子 View 做命中测试 */
-    private fun iconIndexAt(v: View, ev: MotionEvent): Int {
-        val icons = listOf(
-            R.id.ivBarTouchpad, R.id.ivBarKeyboard, R.id.ivBarScreen, R.id.ivBarRemote,
-        )
-        icons.forEachIndexed { i, id ->
-            val c = v.findViewById<View>(id) ?: return@forEachIndexed
-            if (ev.x >= c.left && ev.x <= c.right && ev.y >= c.top && ev.y <= c.bottom) return i
-        }
-        return -1
-    }
-
-    /** 页签分发：四页 = 触控板 / 键盘（就地悬浮面板）+ 副屏 / 遥控器（完整页，与球扇形同口径） */
-    private fun onDockBarIcon(i: Int) {
-        when (i) {
-            0 -> expand()
-            1 -> expandKeyboard()
-            2 -> runCatching {
-                startActivity(
-                    Intent(this, com.allperiph.screen.ScreenActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
-            else -> runCatching {
-                startActivity(
-                    Intent(this, com.allperiph.ui.RemoteActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
-        }
-    }
-
-    /**
-     * 拖动结束落位：贴左右边即吸附停靠（半透明），否则保持原样。
-     * 与球 [settleAfterDrag] 同一套判边口径（边贴边 + 2dp 容差）；**没有** 5 秒收弧
-     * ——「悬浮栏禁止隐藏」，停靠就是最收敛的形态。
-     */
-    private fun settleBarAfterDrag(v: View) {
-        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = realDisplayMetrics()
-        val (left, top) = parentOffset(v)
-        lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
-        val cx = left + lp.x + v.width / 2f
-        val nearLeft = v.width > 0 && cx - v.width / 2f < dockSnapPx
-        val nearRight = v.width > 0 && dm.widthPixels - (cx + v.width / 2f) < dockSnapPx
-        if (nearLeft || nearRight) {
-            barDocked = true
-            barDockLeft = nearLeft
-            val edgeX = if (nearLeft) -left else dm.widthPixels - left - v.width
-            val fromX = lp.x
-            barAnim?.cancel()
-            barAnim = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = 160
-                addUpdateListener { a ->
-                    lp.x = (fromX + (edgeX - fromX) * a.animatedFraction).toInt()
-                    lp.alpha = DOCK_ALPHA
-                    runCatching { wm.updateViewLayout(v, lp) }
-                }
-            }
-            barAnim?.start() // barAnim 可空（barAnim?: 上方 cancel 已用 ?.），收束口径与 1164 一致
-        }
-        publishBarPosition(v)
-    }
-
-    /** 停靠态单击 = 恢复正常显示（与球 `docked -> undock` 同一条路），往回挪 8dp 不再贴边 */
-    private fun undockBar(v: View) {
-        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = realDisplayMetrics()
-        val (left, top) = parentOffset(v)
-        barDocked = false
-        lp.x = (lp.x + if (barDockLeft) dp(8) else -dp(8))
-            .coerceIn(0, (dm.widthPixels - left - v.width).coerceAtLeast(0))
-        lp.alpha = 1f
-        publishBarPosition(v)
-    }
-
-    private fun publishBarPosition(v: View) {
-        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putInt(keyBarX, lp.x)
-            .putInt(keyBarY, lp.y)
-            .apply()
-        runCatching { wm.updateViewLayout(v, lp) }
-            .onFailure { Log.w(TAG, "悬浮栏站位回写失败：${it.message}") }
-    }
-
-    /**
-     * 栏的显隐收口：主壳前台（壳内低栏顶班）/ 面板展开（栏会被面板压住）时收；
-     * 三追（issue#168 2026-11-11 06:10）后，退壳不再经这里自动还栏 —— 本函数的
-     * 还栏只剩服务起点与面板收起两条路。「禁止关闭或隐藏」的口径是**用户侧**
-     * 没有开关，这里的收放都由状态驱动，不提供任何手动关闭入口。
-     */
-    private fun updateBarVisibility() {
-        val want = !shellForeground && panel == null && menu == null
-        if (want == dockBarAttached) return
-        if (want) {
-            addDockBar()
-        } else {
-            barAnim?.cancel()
-            detach(dockBar)
-            dockBarAttached = false
-        }
-    }
-
-    /** 转屏重排（[reflowForScreenChange] 同一批触发）：钳回屏内，停靠态保持贴边半透明 */
-    private fun reflowBarForScreenChange() {
-        val v = dockBar ?: return
-        if (!dockBarAttached) return
-        barAnim?.cancel()
-        val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = realDisplayMetrics()
-        val (left, top) = parentOffset(v)
-        lp.x = lp.x.coerceIn(0, (dm.widthPixels - left - v.width).coerceAtLeast(0))
-        lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
-        if (barDocked) {
-            lp.x = if (barDockLeft) -left else dm.widthPixels - left - v.width
-            lp.alpha = DOCK_ALPHA
-        }
-        publishBarPosition(v)
-    }
-
-
     // ————————————————————— 停靠隐藏态维护（issue#168 三追） —————————————————————
 
     /**
@@ -1420,10 +1145,6 @@ class FloatingBallService : Service() {
         }
         if (!attachFan(fan)) return
         menu = fan.root
-        // issue#168 四追（2026-11-11 15:50「App 外点球展开时悬浮栏还会显示」）：
-        // 上面 collapse() 在 panel/menu 均为空的瞬间把栏还了回来，而菜单此刻才刚挂上，
-        // 栏就没再被收走 —— 菜单展开后重跑一次显隐收口，把栏按口径收掉。
-        updateBarVisibility()
     }
 
     /** 扇形菜单的「一屏」：包围盒尺寸的根容器 + 它的窗口参数 */
@@ -1883,8 +1604,6 @@ class FloatingBallService : Service() {
         detach(menu)
         menu = null
         fanItems.clear()
-        // 与展开对称：菜单收起后重跑显隐收口（主壳不在前台且没有面板时栏按原口径还回来）
-        updateBarVisibility()
     }
 
     /** 快捷项分发：触控板 / 键盘 / 手柄 / 设备 = 浮窗面板（就地完成）；文件与被控台 = 完整页面（startActivity）；退出与连接模式 = 服务内处理 */
@@ -1936,6 +1655,17 @@ class FloatingBallService : Service() {
                 runCatching {
                     startActivity(
                         Intent(this, com.allperiph.screen.ScreenActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.REMOTE -> {
+                closeMenu()
+                // 遥控器（悬浮栏整合补挂，2026-11-11）：原服务层悬浮栏四入口之一，
+                // 栏拆除后由菜单承接 —— 与副屏同口径拉起完整页。
+                runCatching {
+                    startActivity(
+                        Intent(this, com.allperiph.ui.RemoteActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 }
@@ -2359,8 +2089,6 @@ class FloatingBallService : Service() {
         panelSizeKey = resizable
         // 展开时收起球（与触控板面板同口径，避免叠在面板上）
         ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
-        // 面板会压住悬浮栏：收起面板时再还（updateBarVisibility 按 panel == null 判断）
-        updateBarVisibility()
         return true
     }
 
@@ -2574,8 +2302,6 @@ class FloatingBallService : Service() {
         // 收起就走延迟还原（1.2s 内又展开就不用白跑两次 su）
         com.allperiph.touchpad.GestureShield.releaseSoon(this, HOLDER_BALL)
         addBall()
-        // 面板收起：悬浮栏还回来（主壳不在前台且没有别的面板时）
-        updateBarVisibility()
     }
 }
 

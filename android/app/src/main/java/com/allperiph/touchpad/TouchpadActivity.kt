@@ -252,18 +252,14 @@ class TouchpadActivity : ComponentActivity() {
         // 与主页同口径：每次回前台复核转发桥（窗口回调被换掉就重新包上）
         physKeyBridge?.ensureAttached(window)
         GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
-        // 服务层悬浮栏收起（同主壳 notifyShellForeground 口径）：操控面（全屏触摸板
-        // 三页签）自带顶栏与页签，球 + 栏两套悬浮层同屏只互相打架（用户报「两个窗
-        // 同时出来」）。球保留 —— 它有长按关闭与菜单，栏没有。
-        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(true) }
+        // 注：服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）——
+        // 此前进本页球+栏双窗同屏的问题从根上消失，桌面只悬浮球一个控件。
     }
 
     override fun onPause() {
         GestureShield.release(this, HOLDER_CONSOLE)
         // 退后台会丢掉后续的「按键抬起」：放掉仍按住的键，避免电脑侧 Ctrl / Shift 粘住
         physKeyBridge?.releaseStuckKeys()
-        // 离开操控面还栏（同主壳：退前台不自动还，由球侧口径管显隐）
-        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(false) }
         super.onPause()
     }
 

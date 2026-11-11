@@ -891,17 +891,12 @@ class ApShellActivity : ComponentActivity() {
         // startForegroundService 可能被系统拒，服务不在的球就在回前台这一刻补拉
         // （前台启动无限制）。内部幂等：服务活着 / 意愿位关着都是 no-op。
         runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
-        // 服务层悬浮栏（issue#168 2026-11-10 22:46）：主壳在前台期间收栏 ——
-        // 壳内已有同职能的低栏（导航 + 快捷入口），两套栏同屏只会互相打架。
-        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(true) }
     }
 
     override fun onPause() {
         com.allperiph.ui.ClipboardSync.unregister(this)
-        // 进壳收栏（见 onResume）；三追（issue#168 2026-11-11 06:10）后退壳不再
-        // 自动还栏 —— 「退出 App 自动显示」归悬浮球（onStop 的 restoreBallIfNeeded
-        // 已兜底），栏退为服务起点 / 面板收起时的桌面快捷入口。
-        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(false) }
+        // 服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）：桌面只悬浮球一个控件，
+        // 主壳前后台收栏通知随之移除。
         super.onPause()
     }
 
