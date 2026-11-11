@@ -175,9 +175,11 @@ class HidDevice(
         }
     }
 
-    /** 结构性错误 = fd 已失效，重开才有救；EAGAIN/EALREADY 属正常丢帧 */
+    /** 结构性错误 = fd 已失效，重开才有救；EAGAIN/EALREADY 属正常丢帧。
+     *  ESHUTDOWN(108) 在 Android 的 OsConstants 不暴露（CI 实测 Unresolved reference），
+     *  按 Linux 通用数值直接写死，其余三个平台有常量。 */
     private fun isStaleFdErrno(errno: Int): Boolean = when (errno) {
-        OsConstants.ENODEV, OsConstants.ESHUTDOWN, OsConstants.EBADF, OsConstants.EINVAL -> true
+        OsConstants.ENODEV, 108 /* ESHUTDOWN */, OsConstants.EBADF, OsConstants.EINVAL -> true
         else -> false
     }
 
