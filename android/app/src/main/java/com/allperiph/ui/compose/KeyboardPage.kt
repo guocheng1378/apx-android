@@ -66,7 +66,6 @@ import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
-import com.allperiph.ui.miuix.rememberApInsets
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -118,15 +117,17 @@ fun ApKeyboardPage(topBar: Dp = 0.dp, bottomGap: Dp = 0.dp) {
         else -> 12.dp              // 手机：保留本页既有 12dp，不改（稿 01 只管内容页 16）
     }
     val limited = false  // issue#168 第 2 条追补：平板横屏不再限宽 680 居中，撑满整屏（原稿 04 口径废止）
-    // 稿 02：左右按**实际** cutout 垫边（不写死 26dp 示意值），竖屏无 cutout 时为 0
-    val insets = rememberApInsets()
+    // 2026-11-12 反馈「键盘没有撑满屏幕」（真机 17 Pro Max 横屏实测：左侧挖孔安全边
+    // 约 75dp 全数垫给了键区，横屏键区比屏宽少约 11%）：整页键盘没有一粒文字紧贴屏缘，
+    // 键位自身的间隙与圆角足以让开居中挖孔，「刘海侧按键不被遮」的稿 02 口径废止 ——
+    // 左右只保留 hPad 基础边距，不再叠加挖孔 insets（竖屏挖孔在顶/底，本来就不进 left/right）。
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             // widthIn 在 fillMaxSize **外层**：先把 max 夹到 680，再填满夹后的约束；
             // 反过来写 fillMaxSize().widthIn(max=680) 夹不住（min 已被 fillMaxSize 钉死）。
             modifier = (if (limited) Modifier.widthIn(max = 680.dp) else Modifier)
                 .fillMaxSize()
-                .padding(start = hPad + insets.left, end = hPad + insets.right),
+                .padding(start = hPad, end = hPad),
         ) {
             Spacer(modifier = Modifier.height(topBar))
             ApFullKeyboard(bottomGap = bottomGap)
