@@ -88,6 +88,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
 
 /**
@@ -590,6 +594,86 @@ class ApShellActivity : ComponentActivity() {
                     }
                 }
             }
+            // 页面切换胶囊（issue#168 2026-11-11 追加反馈「点开不要弹窗，要悬浮胶囊样式」）：
+            // 原先是居中 DialogCard——打断式弹窗与「轻量切页」的诉求不搭，改贴着球悬浮的
+            // 横排胶囊：四页直达，落点挂在球旁（上方优先，顶部放不下换下方），横向钳在屏内；
+            // 点胶囊外任意处收起（接住手势的透明层画在球之下，球的单击/拖动不受影响），
+            // 再点球同样收起（开关语义）。画在球 Box 之前，z 序压在球下面。
+            var pillW by remember { mutableIntStateOf(0) }
+            if (pageSwitchOpen) {
+                val pillGapPx = with(ballDensity) { 10.dp.toPx() }
+                val pillHPx = with(ballDensity) { 44.dp.toPx() }
+                val pillMarginPx = with(ballDensity) { 12.dp.toPx() }
+                // 纵向：优先球上方，贴顶放不下改球下方
+                val pillYPx = if (navBallY - pillGapPx - pillHPx >= 0f) {
+                    navBallY - pillGapPx - pillHPx
+                } else {
+                    navBallY + navBallPx + pillGapPx
+                }
+                // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
+                val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
+                    .coerceIn(pillMarginPx, (dmBall.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) { detectTapGestures { pageSwitchOpen = false } },
+                )
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(pillXPx.roundToInt(), pillYPx.roundToInt()) }
+                        .onSizeChanged { pillW = it.width }
+                        .clip(CircleShape)
+                        .background(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.98f))
+                        .border(
+                            width = 1.dp,
+                            brush = Brush.verticalGradient(
+                                listOf(
+                                    Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
+                                    Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
+                                ),
+                            ),
+                            shape = CircleShape,
+                        )
+                        .height(44.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        listOf(
+                            0 to R.string.ui_nav_status,
+                            1 to R.string.ui_nav_touchpad,
+                            2 to R.string.ui_nav_keyboard,
+                            3 to R.string.ui_nav_settings,
+                        ).forEach { (target, labelRes) ->
+                            Text(
+                                text = stringResource(labelRes),
+                                fontSize = 14.sp,
+                                // 当前页用主题强调色点亮，其余保持常规文字色
+                                color = if (page == target) {
+                                    MiuixTheme.colorScheme.primary
+                                } else {
+                                    MiuixTheme.colorScheme.onSurface
+                                },
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        pageSwitchOpen = false
+                                        page = target
+                                        pageState = target
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 11.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -619,18 +703,22 @@ class ApShellActivity : ComponentActivity() {
                     // 点按 = 页面切换菜单；长按 = 快捷入口（原低栏长按语义原样迁移）
                     .pointerInput(Unit) {
                         detectTapGestures(
-                            onTap = { pageSwitchOpen = true },
+                            // 胶囊开着时再点球 = 收起（开关语义，与旧菜单口径一致）
+                            onTap = { pageSwitchOpen = !pageSwitchOpen },
                             onLongPress = {
                                 com.allperiph.ui.Feedback.haptic(this@ApShellActivity)
                                 quickActionsOpen = true
                             },
                         )
                     }
+                    // 低栏导航球配色加深（issue#168 2026-11-11 追加反馈「低栏的悬浮球颜色太浅」）：
+                    // 原先是 0.66/0.46 的半透明玻璃，浅色内容上一晃就找不着 —— 改近实底
+                    //（0.97/0.88），描边同步加浓，任何主题下都有清晰的球轮廓。
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
-                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.97f),
+                                MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.88f),
                             ),
                         ),
                     )
@@ -638,8 +726,8 @@ class ApShellActivity : ComponentActivity() {
                         width = 1.dp,
                         brush = Brush.verticalGradient(
                             listOf(
-                                Color.White.copy(alpha = if (navDarkBall) 0.16f else 0.52f),
-                                Color.White.copy(alpha = if (navDarkBall) 0.05f else 0.14f),
+                                Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
+                                Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
                             ),
                         ),
                         shape = CircleShape,
@@ -647,30 +735,6 @@ class ApShellActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center,
             ) {
                 Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
-            }
-
-            // 页面切换菜单（issue#168 2026-11-11 第 2 条「点开出个页面切换」）：
-            // 四页直达，点选后菜单收起、球留在原位（页面内容随 page 切换）。
-            if (pageSwitchOpen) {
-                ApComponents.DialogCard(onDismiss = { pageSwitchOpen = false }) {
-                    Text(text = stringResource(R.string.ui_nav_switch_title), fontSize = 17.sp)
-                    listOf(
-                        0 to R.string.ui_nav_status,
-                        1 to R.string.ui_nav_touchpad,
-                        2 to R.string.ui_nav_keyboard,
-                        3 to R.string.ui_nav_settings,
-                    ).forEach { (target, labelRes) ->
-                        ApComponents.ActionButton(
-                            text = stringResource(labelRes),
-                            onClick = {
-                                pageSwitchOpen = false
-                                page = target
-                                pageState = target
-                            },
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
-                }
             }
         }
     }

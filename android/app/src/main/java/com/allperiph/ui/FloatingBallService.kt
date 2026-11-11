@@ -374,6 +374,33 @@ class FloatingBallService : Service() {
         }
 
         /**
+         * App 前台让位（issue#168 2026-11-11 追加反馈「悬浮球进入后隐藏，出来后显示没做」）：
+         * 低栏改成壳内导航球后，两枚球在 App 前台期间同屏打架 —— 本 app 任一界面可见
+         * （生命周期计数 ≥1）就把桌面球收起来；全部退到后台（桌面 / 切其它应用）再自动回屏。
+         * 由 [com.allperiph.App] 的 Activity 生命周期计数驱动，进程内只有一份服务实例。
+         *
+         * 服务保持活着（前台通知、剪贴板监听、保活闹钟都不动），只摘挂窗口的球视图；
+         * 让位期间展开的菜单 / 面板一并收起（[collapse] 内部的还球会被让位挡住）。
+         */
+        @Volatile
+        private var appForegroundHidden = false
+
+        /** @param hidden true = App 进前台，收球让位；false = 退后台，把球放回屏上 */
+        fun setAppForegroundHidden(c: Context, hidden: Boolean) {
+            if (appForegroundHidden == hidden) return
+            appForegroundHidden = hidden
+            val svc = live ?: return
+            if (hidden) {
+                svc.hideBallForApp()
+            } else {
+                if (!isOn(c)) return
+                if (svc.panel != null || svc.menu != null) return
+                runCatching { svc.addBall() }
+                    .onFailure { Log.w(TAG, "退后台还球失败：${it.message}") }
+            }
+        }
+
+        /**
          * 转屏重排的进程内直调入口（2026-11-11 成宇「悬浮球收缩后，旋转屏幕会乱跑」）。
          *
          * ApShellActivity 声明了 configChanges，转屏回调它**必收到**；由它在
@@ -720,11 +747,30 @@ class FloatingBallService : Service() {
         v?.let { runCatching { wm.removeView(it) } }
     }
 
+    /**
+     * App 前台让位的就地收球（[setAppForegroundHidden] 的 hidden 分支）：
+     * 展开层一起收（[collapse] 内部的还球已被让位挡住，不会把球挂回来），
+     * 球本体摘下但服务保持活着；停靠态一并复位 —— 还球走 addBall 重挂，
+     * 回来是完整圆球，落点仍是共享存档的最后一处（低栏导航球同位衔接）。
+     */
+    private fun hideBallForApp() {
+        cancelDockHide()
+        closeMenu()
+        panel?.let { collapse() }
+        detach(ball)
+        ballAttached = false
+        ballAttachedGlobal = false
+        docked = false
+        dockHidden = false
+    }
+
     // ————————————————————————— 小球 —————————————————————————
 
     /** @return 是否真的把球挂上了（失败时调用方不能对外宣称「已开启」） */
     private fun addBall(): Boolean {
         if (ballAttached) return true
+        // App 前台让位期间不挂球（壳内导航球在屏上，两枚球不打架）；退后台由还球路径补挂。
+        if (appForegroundHidden) return false
         // issue#44：悬浮球此前用 Service 自带（亮色）上下文 inflate，深色下取色永远是亮的
         val v = ball ?: LayoutInflater.from(themed).inflate(R.layout.view_floating_ball, null).also { ball = it }
         // issue#168 第 9 条：球面图标按设置页的选择来（布局里 src 是默认触控板，

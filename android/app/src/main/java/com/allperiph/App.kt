@@ -73,6 +73,8 @@ class App : Application() {
         com.allperiph.shared.accessibility.ApxAccessibilityService.keyForwarder =
             com.allperiph.ui.GlobalKeyForwarder::forward
         registerActivityLifecycleCallbacks(ShieldLifecycle)
+        // 桌面悬浮球的前后台让位（见 [BallForegroundGate]）：App 前台收球、退后台还球。
+        registerActivityLifecycleCallbacks(BallForegroundGate)
         // 后台启前台服务被拒（Android 12+）时的补启钩子 —— 与 ShieldLifecycle 分开注册，
         // 职责不同：那个管手势还原，这个只管「界面第一次可见时把被拒的服务补起来」。
         registerActivityLifecycleCallbacks(AgentStartRetry)
@@ -147,6 +149,45 @@ class App : Application() {
         override fun onActivityStopped(activity: Activity) = Unit
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
         override fun onActivityDestroyed(activity: Activity) = Unit
+    }
+
+    /**
+     * 桌面悬浮球的前后台让位（issue#168 2026-11-11 追加反馈「悬浮球进入后隐藏，出来后显示没做」）：
+     * 低栏改成壳内导航球后，两枚球在 App 前台期间同屏打架 —— 本 app 任一界面可见
+     * （started 计数 ≥1）就把桌面球收起来，全部退到后台（计数归 0，桌面 / 切其它应用）
+     * 再自动放回。收放都走 [FloatingBallService.setAppForegroundHidden]。
+     *
+     * 用计数而不是「某个 Activity 的暂停/恢复」：应用内跳页时新页 onStart 先于旧页 onStop
+     * （onPause → 新页 onCreate/onStart/onResume → 旧页 onStop），计数不会中途归零，
+     * 球不会在页间跳一下。锁屏 / 弹系统页等同为退后台，同样还球 —— 桌面球的承载对象
+     * 本来就只在「本 App 之外」。
+     */
+    private object BallForegroundGate : ActivityLifecycleCallbacks {
+        private var started = 0
+
+        override fun onActivityStarted(activity: Activity) {
+            started++
+            if (started == 1) {
+                runCatching {
+                    com.allperiph.ui.FloatingBallService.setAppForegroundHidden(activity, true)
+                }
+            }
+        }
+
+        override fun onActivityStopped(activity: Activity) {
+            started--
+            if (started == 0) {
+                runCatching {
+                    com.allperiph.ui.FloatingBallService.setAppForegroundHidden(activity, false)
+                }
+            }
+        }
+
+        override fun onActivityCreated(a: Activity, s: Bundle?) = Unit
+        override fun onActivityResumed(a: Activity) = Unit
+        override fun onActivityPaused(a: Activity) = Unit
+        override fun onActivitySaveInstanceState(a: Activity, outState: Bundle) = Unit
+        override fun onActivityDestroyed(a: Activity) = Unit
     }
 
     /**
