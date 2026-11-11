@@ -17,9 +17,10 @@ import androidx.activity.result.contract.ActivityResultContracts
  * Activity 发起）。
  *
  * 这里刻意做薄：进来就用 [ActivityResultContracts.GetMultipleContents] 拉
- * 系统多选（"image/*"），拿到结果（无论几张、取消与否）投回
- * [BallLatestPhoto.onPicked] 即 finish。取消 / 没选任何一张时不回调 ——
- * 卡维持原状（待发为空，下次点按重新进选图）。
+ * 系统多选（MIME 限图片；注意 Kotlin 块注释可嵌套，文案里不写「image 斜杠星」
+ * 原样，避免把注释闭合吃掉 —— 这个坑 CI 真的红过一回），拿到结果（无论几张、
+ * 取消与否）投回 [BallLatestPhoto.onPicked] 即 finish。取消 / 没选任何一张时
+ * 不回调 —— 卡维持原状（待发为空，下次点按重新进选图）。
  *
  * 结果 URI 是系统临时授权（持续到本进程结束），发送与缩略图解码都在同一会话内
  * 完成；进程被杀待发作废，卡自然回落「最新照片」占位，不会假装还有图。

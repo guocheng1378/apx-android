@@ -263,7 +263,7 @@ object BallLatestPhoto {
         return controlled.currentPeerHost()?.takeIf { it.isNotBlank() }
     }
 
-    private fun toast(ctx: Context, res: Int, arg: Int) {
+    private fun toast(ctx: Context, res: Int, arg: Int = 0) {
         Toast2.show(ctx, res, arg)
     }
 }
