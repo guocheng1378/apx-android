@@ -104,6 +104,14 @@ class FloatingBallService : Service() {
     companion object {
         private const val TAG = "FloatingBall"
         private const val NOTIFICATION_ID = 700
+
+        // 面板种类标识（issue#168 2026-11-12「很多界面都有这样的问题」系统性排查）：
+        // 转屏时展开中的面板要按新屏重开，这里统一登记每种面板的重开入口（见 reExpandPanel）。
+        private const val KIND_TOUCHPAD = "touchpad"
+        private const val KIND_KEYBOARD = "keyboard"
+        private const val KIND_GAMEPAD = "gamepad"
+        private const val KIND_DEVICES = "devices"
+        private const val KIND_CLIPBOARD = "clipboard"
         private const val PREFS = "apx_floating_ball"
         private const val KEY_ON = "on"
         const val ACTION_TOGGLE = "com.allperiph.ui.floating_ball.toggle"
@@ -407,7 +415,7 @@ class FloatingBallService : Service() {
          * ApShellActivity 声明了 configChanges，转屏回调它**必收到**；由它在
          * onConfigurationChanged 里调这里，把球重排从「app 级回调碰运气」改成
          * 「主界面在场就一定触发」。服务不在（球没开）时静默跳过；面板 / 菜单
-         * 展开期间球是收起的，[reflowForScreenChange] 内部按 ballAttached 自行空跑。
+         * 展开期间的分支（面板按新屏重开、菜单关停）由 [reflowForScreenChange] 内部处理。
          */
         fun reflowNow() {
             runCatching { live?.reflowForScreenChange() }
@@ -489,6 +497,14 @@ class FloatingBallService : Service() {
 
     /** [panel] 对应的 [PanelSize] 键（null = 这块面板不可调高）；松手落盘时用它 */
     private var panelSizeKey: String? = null
+
+    /**
+     * [panel] 的种类（[KIND_TOUCHPAD] 等）：转屏重开面板时按它找回原来的展开入口 ——
+     * 面板的高度/横竖布局都在展开那一刻按当时的整屏尺寸算死（issue#168 返工的多块面板
+     * 都是「展开时算一次」），转屏后若不重开，竖屏开的键盘转成横屏还是竖屏布局、
+     * 触控板面板高度停在旧比例。2026-11-12 系统性排查「很多界面都有转屏落位问题」。
+     */
+    private var panelKind: String? = null
 
     /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
@@ -581,17 +597,32 @@ class FloatingBallService : Service() {
     }
 
     private fun reflowForScreenChange() {
+        val dm = realDisplayMetrics()
+        // 幂等闸门：本轮重排是否真换了屏幕尺寸。多条通道（reflowCb / onConfigurationChanged /
+        // DisplayListener / reflowNow）重复触发时，只有第一条会干活，后面的空跑。
+        // 注意先把 lastScreen 更新掉再走各分支，保证「换算过的位置不会被再次换算」。
+        val sizeChanged = lastScreenW > 0 && lastScreenH > 0 &&
+            (lastScreenW != dm.widthPixels || lastScreenH != dm.heightPixels)
+        lastScreenW = dm.widthPixels
+        lastScreenH = dm.heightPixels
+
+        // 面板展开期间球是收起的：转屏时面板的高度/横竖布局都在展开那一刻按旧屏算死，
+        // 这里按登记的 [panelKind] 原样重开一遍，所有派生参数按新整屏重算
+        //（issue#168 2026-11-12「很多界面都有这样的问题」系统性排查：此前 reflow 一进
+        //  面板态就整段空跑，是历次单点修复都绕开的结构缺口）。
+        if (panel != null) {
+            if (sizeChanged) reExpandPanel()
+            return
+        }
+
         val v = ball ?: return
         if (!ballAttached) return
         val lp = v.layoutParams as? WindowManager.LayoutParams ?: return
-        val dm = realDisplayMetrics()
         val (left, top) = parentOffset(v)
         dockAnim?.cancel()
         dockAnim = null
         closeMenu()
-        if (lastScreenW > 0 && lastScreenH > 0 &&
-            (lastScreenW != dm.widthPixels || lastScreenH != dm.heightPixels)
-        ) {
+        if (sizeChanged) {
             // 比例换算保住相对位置：贴边的球换算后仍在边缘附近，再由 applyDockShape 精确吸边
             lp.x = (lp.x.toFloat() / lastScreenW * dm.widthPixels).toInt()
                 .coerceIn(0, (dm.widthPixels - left - lp.width).coerceAtLeast(0))
@@ -599,12 +630,30 @@ class FloatingBallService : Service() {
                 .coerceIn(0, (dm.heightPixels - top - lp.height).coerceAtLeast(0))
             publishBallPosition(v)
         }
-        lastScreenW = dm.widthPixels
-        lastScreenH = dm.heightPixels
         // 隐藏态（圆弧）重排后要保持隐藏形态，不能借机变回停靠条 ——
         // 「旋转偷偷把收起的条放出来」看着就像球自己跑了（issue#168 建议 12）
         if (docked) {
             if (dockHidden) hideDockShape(v) else applyDockShape(v, dockLeft)
+        }
+    }
+
+    /**
+     * 按新整屏重开展开中的面板（转屏重排的面板分支，见 [reflowForScreenChange]）。
+     *
+     * 做法：收起再原路展开。收起会把球还回来、展开又把球收走，中间一瞬球会闪一下 ——
+     * 比「面板停在旧方向」可接受得多；键盘面板的页签状态会复位，
+     * 属已知代价。展开入口与 [panelKind] 一一对应，面板被外部换过（比如还没登记）
+     * 就只收不重开，绝不猜。
+     */
+    private fun reExpandPanel() {
+        val kind = panelKind ?: run { collapse(); return }
+        collapse()
+        when (kind) {
+            KIND_TOUCHPAD -> expand()
+            KIND_KEYBOARD -> expandKeyboard()
+            KIND_GAMEPAD -> expandGamepad()
+            KIND_DEVICES -> expandDevices()
+            KIND_CLIPBOARD -> expandClipboard()
         }
     }
 
@@ -764,6 +813,7 @@ class FloatingBallService : Service() {
         detach(menu)
         panelHost?.destroy()
         panelHost = null
+        panelKind = null
         ball = null
         panel = null
         menu = null
@@ -2042,7 +2092,7 @@ class FloatingBallService : Service() {
             (hpx * frac).toInt().coerceIn(dp(220), dp(360))
         }
         closeMenu()   // 菜单与面板互斥
-        val ok = expandComposePanel(height, resizable = PanelSize.TOUCHPAD, paintBg = true) {
+        val ok = expandComposePanel(height, kind = KIND_TOUCHPAD, resizable = PanelSize.TOUCHPAD, paintBg = true) {
             // 底色由 expandComposePanel 的外框统一铺（paintBg = true）——
             // 这里再画一层 surfaceContainer 会和把手那条带子在接缝处叠出两种色差。
             Column(
@@ -2121,6 +2171,7 @@ class FloatingBallService : Service() {
      */
     private fun expandComposePanel(
         height: Int,
+        kind: String,
         keepScreenOn: Boolean = false,
         resizable: String? = null,
         paintBg: Boolean = false,
@@ -2184,6 +2235,7 @@ class FloatingBallService : Service() {
         panelHost = host
         panelLp = lp
         panelSizeKey = resizable
+        panelKind = kind
         // 展开时收起球（与触控板面板同口径，避免叠在面板上）
         ball?.let { if (ballAttached) { detach(it); ballAttached = false } }
         return true
@@ -2208,7 +2260,7 @@ class FloatingBallService : Service() {
         // 不铺 paintBg，悬浮键盘直接叠在原应用上，键帽标签与底下的内容混在一起看不清
         //（用户原话「加一个背景，避免上方文字对比度过低看不清」）。铺底让整块键盘
         // 有 surfaceContainer 实底，对比度回归正常；把手仍在顶部（resizable 面板同款）。
-        expandComposePanel(height, resizable = PanelSize.KEYBOARD, paintBg = true) {
+        expandComposePanel(height, kind = KIND_KEYBOARD, resizable = PanelSize.KEYBOARD, paintBg = true) {
             // ★ issue#168 返工（2026-11-12「横竖屏切换布局回归」）：overlay 的 ComposeView
             //  挂在 WindowManager 上，LocalWindowInfo.containerSize / LocalConfiguration
             //  给的是小窗/服务竖屏配置，横屏时 ApFullKeyboard 拿到 portraitPhone=true，
@@ -2270,8 +2322,13 @@ class FloatingBallService : Service() {
      * 容器在竖屏时把内容按横屏尺寸布局并旋转 90°，与主屏 [GamepadActivity] 的横屏观感一致。
      */
     private fun expandGamepad() {
-        expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, keepScreenOn = true) {
-            LandscapePanel { GamepadPanel(onExit = { collapse() }) }
+        // 转屏重开（issue#168 2026-11-12 系统性排查）：横竖判定由 LandscapePanel 自己按
+        // 服务上下文的 Configuration 拿 —— overlay 的配置滞后/冻结不可信（老问题，
+        // 见 rememberApAdaptiveLayout 的注释），改由这里按整屏实测传入；面板转屏即重开，
+        // 重开时这个值自然按新方向重算。
+        val (wpx, hpx) = realScreenSize()
+        expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, kind = KIND_GAMEPAD, keepScreenOn = true) {
+            LandscapePanel(landscape = wpx > hpx) { GamepadPanel(onExit = { collapse() }) }
         }
     }
 
@@ -2285,7 +2342,7 @@ class FloatingBallService : Service() {
         // 传入（约 0.55 屏，给左栏操作区留足空间）；竖屏单列不限高（传 0）。
         val density = resources.displayMetrics.density
         val listMaxDp = if (wpx > hpx) ((hpx / density) * 0.55f).toInt() else 0
-        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
+        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT, kind = KIND_DEVICES) {
             ApDevicePanel(
                 onClose = { collapse() },
                 landscape = wpx > hpx,
@@ -2312,7 +2369,7 @@ class FloatingBallService : Service() {
         // 取值口径与后台监听同一处（ClipboardSync）：此前这里内联读一遍、ClipboardSync
         // 里又读一遍，两处的「程序性写入抑制 / 空串判定」迟早会跑偏。
         val text = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
-        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
+        expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT, kind = KIND_CLIPBOARD) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2396,6 +2453,7 @@ class FloatingBallService : Service() {
         panelHost = null
         panelLp = null
         panelSizeKey = null
+        panelKind = null   // 种类与面板同生命周期：收起即清，避免残留误触发重开
         // 收起就走延迟还原（1.2s 内又展开就不用白跑两次 su）
         com.allperiph.touchpad.GestureShield.releaseSoon(this, HOLDER_BALL)
         addBall()
