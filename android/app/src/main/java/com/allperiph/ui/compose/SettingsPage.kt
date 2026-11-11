@@ -89,7 +89,7 @@ import com.allperiph.ui.BallIcon
  *    这三项在迁 Compose 之前只有实现、没有入口，2026-11-01 补回；
  *  · 音频方向：USB（UAC2）与 Wi‑Fi 两套音频的麦克风 / 音箱方向开关 —— 同理补回，
  *    模块在跑就热切换，没跑就只落盘；
- *  · 输入与外设：虚拟手柄（`GamepadActivity`）、外接触控板 root 直读（`RootPointerBridge`）；
+ *  · 输入与外设：虚拟手柄（`GamepadActivity`）（root 直读已于 2026-11-11 整体移除）；
  *  · 关于：版本行 + 检查更新 + 意见反馈。
  *
  * 「补回入口」的判据与把关由 `scripts/check_entrypoints.py` 守（CI 的 protocol job）：
@@ -1237,42 +1237,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 输入与外设 ————————————————
             // GamepadActivity 整页（双虚拟摇杆 + 常用按键，出口 USB HID / 蓝牙 HID / 无线 0x07）
             // 此前**全仓零 startActivity**：Manifest 声明在、代码在，用户永远打不开。
-            // 外接触控板 root 直读（RootPointerBridge）同理 —— 开关只存在于偏好里。
-            var rootPointer by remember {
-                mutableStateOf(com.allperiph.touchpad.RootPointerBridge.isEnabled(
-                    com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
-                ))
-            }
+            // （issue#168 2026-11-11：外接触控板 root 直读开关已随 RootPointerBridge 移除）
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_input)) {
                 Column {
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.ui_set_btn_gamepad),
                         onClick = {
                             ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
-                        },
-                    )
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_main_label_root_pointer),
-                        summary = ctx.getString(R.string.ui_set_sum_root_pointer),
-                        checked = rootPointer,
-                        onCheckedChange = { on ->
-                            rootPointer = on
-                            Feedback.haptic(ctx)
-                            // 全审查条 1：起停在后台线程跑（su 扫描/独占每节点最坏 3–5 秒，
-                            // 同步等必 ANR），完成后在回调里如实告知接管结果并按失败回弹
-                            // 开关（全审查条 6）—— issue #52 问题 5 的教训：界面状态必须与实际一致
-                            com.allperiph.touchpad.RootPointerBridge.setEnabled(
-                                ctx,
-                                com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
-                                on,
-                            ) { ok ->
-                                if (on && !ok) rootPointer = false
-                                if (on) {
-                                    com.allperiph.touchpad.RootPointerBridge.lastStatus?.let {
-                                        android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            }
                         },
                     )
                 }

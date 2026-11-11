@@ -62,7 +62,6 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.allperiph.R
 import com.allperiph.shared.util.Log
-import com.allperiph.touchpad.RootPointerBridge
 import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
 import com.allperiph.ui.compose.ApFullKeyboard
@@ -75,6 +74,7 @@ import com.allperiph.wireless.TvDiscovery
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.abs
+import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
@@ -154,20 +154,18 @@ class FloatingBallService : Service() {
         /** 长按关闭的判定时长（ms）。旧值是 400，比系统长按阈值还短，拖动时极易误触 */
         private const val LONG_PRESS_MS = 800L
 
-        /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项 */
-        private const val FAN_GAP_DP = 10
+        /** 扇形里快捷项之间的最小间隙（dp）：球贴边时全靠它撑开相邻两项（六追：10→6 收紧间距） */
+        private const val FAN_GAP_DP = 6
 
-        /** 圈层首圈容量（issue#168）：内圈最多 5 个，外圈依次 6、7…… */
+        /**
+         * 圈层首圈容量与递增步长（issue#168 六追：「1 圈最多 5 个，每层递增 3 个」）——
+         * 内圈 5、外圈 8、再外 11……（旧版 +1 递增的 5/6/7 太散，用户实测后改口径）。
+         */
         private const val FAN_RING_FIRST = 5
+        private const val FAN_RING_STEP = 3
 
         /** 照片卡「待发数量」角标的 view tag：渲染时按 tag 找回（发版后字段名稳定，不参与混淆） */
         private const val BADGE_TAG = "photoCardBadge"
-
-        /** 扇形张角的搜索下限（°）。再小就挤成一条线，不如让邻项略叠一点 */
-        private const val FAN_SPAN_MIN = 10f
-
-        /** 张角搜索步进（°）：从上限往下退，退到能放下为止 */
-        private const val FAN_SPAN_STEP = 2.5f
 
         /**
          * 服务**实际存活**（onCreate 起到了 onDestroy 之间）。设置行据此显示 ——
@@ -1153,34 +1151,26 @@ class FloatingBallService : Service() {
     /**
      * 按 [BallConfig.enabled] 生成扇形：球心为圆心、朝**屏幕内侧**铺开。
      *
-     * 上一版真机表现是「图标散着、还叠在一起」，三个错都在这儿纠：
-     * 1. **张角不能拍脑袋取 44°×n**：球停在边缘／角落时，朝外那半边根本没空间。
-     *    这里改成从上限往下退（[FAN_SPAN_STEP] 一档），退到「每项都完整落在屏内」为止；
-     *    issue#168 起改为**圈层**：内圈最多 [FAN_RING_FIRST] 项，超出进外圈（外圈比内圈
-     *    多容 1 项，5/6/7 递增），每圈独立跑同一套「从宽到窄」搜索（[placeArcRing]）；
-     * 2. **圆心角不能硬取「朝屏心」那个角**：球在角上时它并不是可行区间的中点，
-     *    弧的一半会甩出屏。改成在 0.5° 粒度上搜遍一周，取**离朝屏心方向最近**的可行角；
-     * 3. **半径按弦长定**：相邻两项的弦长（2R·sin(step/2)）必须容得下「图标 + 间隙」，
-     *    不能按「球到屏幕边缘的余量」缩 —— 球贴边时后者会把半径压到比图标还小
-     *    （实测 102px < 156px），相邻两项必然互相盖住。
+     * 六追（issue#168 2026-11-11，用户实测后重新定口径）：
+     * 1. **圈层容量递增 3**：内圈 5、外圈 8、再外 11……（旧版 +1 的 5/6/7 排得太稀疏）；
+     * 2. **统一固定间距**：相邻两项的弦长恒为「图标 + 间隙」，角距由几何反解
+     *    （2R·sin(step/2) = chord），不再按「张角从宽到窄」搜索 —— 未排满的圈也按同一
+     *    角度步进聚拢排布，不摊满整圈（用户原话「未排满时不分散布局」）；
+     * 3. **逆时针排列**：屏幕坐标 y 轴向下，角度增大视觉上是顺时针，所以逆时针 =
+     *    角度递减，第一项落在参考方向逆时针一侧（用户原话「逆时针排列」）；
+     * 4. **缩短与球距离、收紧行间距**：半径与间隙整档下调（见 [BallConfig.arcRadiusDp] /
+     *    [FAN_GAP_DP]）。
+     * 兜底逻辑不变：极端贴边时逐项钳进屏内（含可绘制区上沿），宁可邻项略叠，
+     * 不摆到看不见的地方（HyperOS 会裁掉窗口负坐标，见五追口径）。
      *
      * 窗口取**所有快捷项外扩一圈的矩形**，而不是固定的正方形包围盒：球贴边时正方形
      * 有一角在屏外，被裁的那块虽是空白，却会让「点空白收起菜单」的手感莫名其妙。
      */
     /**
-     * 单圈摆位（圈层版 [buildFan] 每圈调用一次）：
-     * 先试「张角从宽到窄」，整圈完整落在屏内就取离参考方向最近的可行角；
-     * 一档都放不下（球被挤在角落）就退化为逐项钳进屏内——宁可邻项略叠，也不摆到看不见的地方。
-     * m == 1 时直接落在参考方向上。
-     *
-     * 参数口径（2026-11-11 五追，用户报「展开后有时排到界面外、有时乱排」）：
-     *  - [topMin]：**窗口可绘制区**的屏幕 y 上界（父框被状态栏顶下去，真机 144px）。
-     *    可行性检查与兜底钳位都以它为上沿——此前只按整屏夹，球贴上沿时菜单项会摆进
-     *    状态栏那段，窗口坐标落负值，在部分 ROM（HyperOS 实测）上被裁掉，看着就是
-     *    「有图标排到界面外」；
-     *  - 返回值带出本圈选中的**圆心角**：外圈以它为参考方向——此前每圈各自朝屏心搜，
-     *    两圈可能选中相背的两段弧，观感就是「图标乱排」。外圈自身放不下时仍退回兜底，
-     *    不强跟内圈。
+     * 单圈摆位（圈层版 [buildFan] 每圈调用一次）：全部圈层共用**朝屏心**的参考方向，
+     * 逆时针、固定角距（见上方类注释）；[topMin] 仍是可绘制区 y 上沿，兜底钳位沿用
+     * 五追口径。返回值第二位带出参考角 —— 旧版每圈各搜各的圆心角会相背，现在圈层
+     * 朝向天然一致，原样传回。
      */
     private fun placeArcRing(
         m: Int,
@@ -1204,63 +1194,28 @@ class FloatingBallService : Service() {
                     (cy + baseR * sin(a).toFloat()).coerceIn(yTop, screenH - half),
             ) to refDirDeg
         }
-        var span = min(180f, 44f * (m - 1))
-        while (span >= FAN_SPAN_MIN) {
-            val step = span / (m - 1)
-            // 不重叠所需半径：相邻弦长 2R·sin(step/2) ≥ 图标 + 间隙
-            val r = maxOf(
-                baseR,
-                (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
-            )
-            var best: List<Pair<Float, Float>>? = null
-            var bestDev = Float.MAX_VALUE
-            var bestAngle = refDirDeg
-            var k = 0
-            while (k < 720) {                       // 0.5° 粒度扫一周
-                val c = refDirDeg - 180f + k * 0.5f
-                val pts = ArrayList<Pair<Float, Float>>(m)
-                var ok = true
-                var i = 0
-                while (i < m) {
-                    val a = Math.toRadians((c - span / 2f + step * i).toDouble())
-                    val x = cx + r * cos(a).toFloat()
-                    val y = cy + r * sin(a).toFloat()
-                    if (x < half || x > screenW - half || y < yTop || y > screenH - half) {
-                        ok = false
-                        break
-                    }
-                    pts.add(x to y)
-                    i++
-                }
-                if (ok) {
-                    var dev = ((c - refDirDeg) % 360f + 360f) % 360f
-                    if (dev > 180f) dev = 360f - dev
-                    if (dev < bestDev) {
-                        bestDev = dev
-                        best = pts
-                        bestAngle = c
-                    }
-                }
-                k++
-            }
-            if (best != null) return best to bestAngle
-            span -= FAN_SPAN_STEP
-        }
-        // 极端兜底：保持最小张角，逐项夹进屏内（含可绘制区上沿）
-        val step = 24f / (m - 1)
-        val r = maxOf(
-            baseR,
-            (itemPx + gapPx) / (2f * sin(Math.toRadians((step / 2f).toDouble())).toFloat()),
-        )
-        val out = ArrayList<Pair<Float, Float>>(m)
+        // 六追新口径（issue#168 2026-11-11）：固定间距、逆时针、未排满不分散 ——
+        // 相邻两项的**弦长**恒为「图标 + 间隙」，由 2R·sin(step/2) = chord 几何反解出
+        // 角距 step；整段弧以朝屏心方向为正中对称展开，第一项落在参考方向**逆时针**
+        // 一侧（屏幕坐标 y 轴向下，角度增大是视觉顺时针，所以逆时针 = 角度递减）。
+        val chord = itemPx + gapPx
+        val step = Math.toDegrees(
+            2.0 * asin(min(chord / (2.0 * baseR), 1.0)),
+        ).toFloat()
+        val spanDeg = step * (m - 1)
+        val startDeg = refDirDeg + spanDeg / 2f
+        val pts = ArrayList<Pair<Float, Float>>(m)
         for (i in 0 until m) {
-            val a = Math.toRadians((refDirDeg - 12f + step * i).toDouble())
-            out.add(
-                (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
-                    (cy + r * sin(a).toFloat()).coerceIn(yTop, screenH - half),
+            // 逆时针排列：角度随序号递减
+            val a = Math.toRadians((startDeg - step * i).toDouble())
+            // 极端贴边时逐项钳进屏内（含可绘制区上沿），宁可邻项略叠，不摆到看不见的地方
+            pts.add(
+                (cx + baseR * cos(a).toFloat()).coerceIn(half, screenW - half) to
+                    (cy + baseR * sin(a).toFloat()).coerceIn(yTop, screenH - half),
             )
         }
-        return out to refDirDeg
+        // 参考方向原样传回：所有圈层共用朝屏心角，圈层朝向天然一致
+        return pts to refDirDeg
     }
 
     private fun buildFan(ballView: View): Fan {
@@ -1306,8 +1261,9 @@ class FloatingBallService : Service() {
                     (cy + designR * sin(a).toFloat()).coerceIn(parentTop + half, screenH - half),
             )
         } else {
-            // 圈层分配（issue#168：「1 圈最多 5 个，多了自动进外圈，外圈比内圈多 1 个」）：
-            // 内圈 5、外圈 6、再外 7…… 从内往外依次装满；≤5 项时只有内圈，行为与旧版一致
+            // 圈层分配（issue#168 六追 2026-11-11：「单圈层样式改为每层递增 3 个」）：
+            // 内圈 5、外圈 8、再外 11…… 从内往外依次装满；≤5 项时只有内圈，
+            // 未排满的圈按固定角距聚拢（见 placeArcRing），不摊满整圈
             val ringCounts = ArrayList<Int>()
             var rem = n
             var cap = FAN_RING_FIRST
@@ -1315,7 +1271,7 @@ class FloatingBallService : Service() {
                 val m = minOf(rem, cap)
                 ringCounts.add(m)
                 rem -= m
-                cap++
+                cap += FAN_RING_STEP
             }
             // 五追：外圈以**内圈选中的圆心角**为参考方向（内圈放不下则仍是朝屏心角）——
             // 圈与圈朝向一致，不再各搜各的导致两段弧相背；上界传可绘制区顶（状态栏之下）
@@ -1695,7 +1651,7 @@ class FloatingBallService : Service() {
                 closeMenu()
                 quitApp()
             }
-            BallConfig.KB_FORWARD, BallConfig.POINTER_READ -> onFanToggle(id)
+            BallConfig.KB_FORWARD -> onFanToggle(id)
             else -> BallConfig.transportOf(id)?.let { onMenuTransport(it) }
         }
     }
@@ -1703,7 +1659,6 @@ class FloatingBallService : Service() {
     /** 双开关项的当前态：与设置页同一读点（各自的 prefs 出口），两处状态不会打架 */
     private fun fanToggleOn(id: String): Boolean = when (id) {
         BallConfig.KB_FORWARD -> GlobalKeyForwarder.isEnabled(GlobalKeyForwarder.prefs(this))
-        BallConfig.POINTER_READ -> RootPointerBridge.isEnabled(RootPointerBridge.prefs(this))
         else -> false
     }
 
@@ -1725,12 +1680,11 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 双开关项（成宇 2026-11-07「悬浮球菜单加上物理键盘全局转发 / 外接触控板直读的
-     * 切换开关，方便不用的时候关闭」）。
-     *
-     * 语义与连接模式项一致：就地翻转、Toast 报态、**不收菜单** —— 两个开关相邻，
-     * 用户可能连着切。写点与设置页完全同一条 prefs；开不起来时（无障碍没启用 /
-     * 没 root、没指针设备）**如实回退并提示**，绝不让球上显示假的「已开启」。
+     * 双开关项（成宇 2026-11-07「悬浮球菜单加上物理键盘全局转发的切换开关，方便不用
+     * 的时候关闭」）。语义与连接模式项一致：就地翻转、Toast 报态、**不收菜单**。
+     * 写点与设置页完全同一条 prefs；开不起来时（无障碍没启用）**如实回退并提示**，
+     * 绝不让球上显示假的「已开启」。
+     * （root 直读项已随功能整体移除 —— issue#168 2026-11-11 用户报开关闪退且实测无效。）
      */
     private fun onFanToggle(id: String) {
         val label = getString(BallConfig.labelRes(id))
@@ -1744,25 +1698,6 @@ class FloatingBallService : Service() {
                     renderFanStates()
                     return
                 }
-            }
-            BallConfig.POINTER_READ -> {
-                // 全审查条 1：起停改后台（su 扫描最坏 3–5 秒/节点，同步等必 ANR），
-                // 结果在主线程回调里处理 —— 不再同步读 active（异步下必然竞态）。
-                RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), next) { ok ->
-                    if (next && !ok) {
-                        // 拿不到 root / 没接指针设备：start() 自己降级了，这里如实回退，不显示假开启
-                        RootPointerBridge.setEnabled(this, RootPointerBridge.prefs(this), false)
-                        Toast.makeText(this, getString(R.string.ui_ball_toggle_pointer_fail), Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(
-                            this,
-                            getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                    renderFanStates()
-                }
-                return
             }
         }
         Toast.makeText(

@@ -72,11 +72,6 @@ class App : Application() {
         )
         com.allperiph.shared.accessibility.ApxAccessibilityService.keyForwarder =
             com.allperiph.ui.GlobalKeyForwarder::forward
-        // issue #52 建议 6 第二条腿：外接触控板的 root 直读（默认关）—— 同样在进程
-        // 起点恢复；模块起来后由 RootPointerBridge.start() 实际接管。
-        com.allperiph.touchpad.RootPointerBridge.loadPref(
-            com.allperiph.touchpad.RootPointerBridge.prefs(this)
-        )
         registerActivityLifecycleCallbacks(ShieldLifecycle)
         // 后台启前台服务被拒（Android 12+）时的补启钩子 —— 与 ShieldLifecycle 分开注册，
         // 职责不同：那个管手势还原，这个只管「界面第一次可见时把被拒的服务补起来」。

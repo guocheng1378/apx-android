@@ -34,10 +34,6 @@ import com.allperiph.shared.util.Log
  *                                                       jlong uptimeMs, jint lastSeq) -> jbyteArray
  *   Java_com_allperiph_core_ApxNative_parseVendorOut(JNIEnv*, jobject, jbyteArray report) -> jintArray
  *   Java_com_allperiph_core_ApxNative_crc32(JNIEnv*, jobject, jbyteArray data) -> jint
- *   Java_com_allperiph_core_ApxNative_evdevGrab(JNIEnv*, jobject, jstring path) -> jint
- *   Java_com_allperiph_core_ApxNative_evdevRead(JNIEnv*, jobject, jint fd,
- *                                               jbyteArray buf, jint off, jint len) -> jint
- *   Java_com_allperiph_core_ApxNative_evdevRelease(JNIEnv*, jobject, jint fd) -> jint
  *
  * 若 L1 更希望静态方法（`jclass`），请把这些声明改为顶层 external 并给文件加
  * `@file:JvmName("ApxNative")`；**两种写法符号名相同、仅第二参数不同**，改动前请同步本注释。
@@ -183,32 +179,6 @@ object ApxNative {
 
     /** §3 帧 CRC32（M4 bulk 通道用） */
     external fun crc32(data: ByteArray): Int
-
-    // ————————————————————————— evdev 独占拦截（touchpad 直读）————————————————————————
-
-    /**
-     * 打开 evdev 节点并独占（EVIOCGRAB）：内核从此不再把该设备事件派给其它读者
-     * （安卓输入子系统在内）。成功返回 fd（保持打开、独占中）；失败返回 -errno；
-     * libapx 不可用返回 [INT_UNAVAILABLE]（用 [evdevGrabOrNull] 免判）。
-     */
-    external fun evdevGrab(path: String): Int
-
-    /** [evdevGrab] 的安全包装：libapx 不可用或调用异常返回 [INT_UNAVAILABLE] */
-    fun evdevGrabOrNull(path: String): Int =
-        if (isAvailable) runCatching { evdevGrab(path) }.getOrDefault(INT_UNAVAILABLE)
-        else INT_UNAVAILABLE
-
-    /**
-     * 从独占中的 fd 读事件字节：成功返回字节数；对端关闭 / EINTR / EAGAIN 返回 0；
-     * 其它错误 -errno。与 [evdevGrab] 配对，用 [evdevRelease] 收尾。
-     */
-    external fun evdevRead(fd: Int, buf: ByteArray, off: Int, len: Int): Int
-
-    /** 解除独占并关闭 fd（尽力而为；重复调用安全） */
-    external fun evdevRelease(fd: Int): Int
-
-    /** evdev 出口不可用的哨兵返回值（libapx 缺失 / 调用抛异常） */
-    const val INT_UNAVAILABLE = Int.MIN_VALUE
 
     // ————————————————————————— 生命周期 —————————————————————————
 

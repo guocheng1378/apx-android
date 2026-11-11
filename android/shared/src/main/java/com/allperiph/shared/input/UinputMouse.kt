@@ -12,7 +12,7 @@ import com.allperiph.shared.util.Log
  * 与 [UinputGamepad] 同款约定：
  *  - 拿不到 `/dev/uinput`（权限）时 [ready] 为 false，调用方退回蓝点浮层，不会有任何异常；
  *    有 root 时会顺手 `chmod 666 /dev/uinput` 再重试一次；
- *  - 设备名 "APX Virtual Mouse" —— EvdevPointerReader 扫描时按名字排除含 apx/allperiph
+ *  - 设备名 "APX Virtual Mouse" —— evdev 扫描类工具按名字排除含 apx/allperiph
  *    的设备，防止把自己当成真实鼠标产生自激；
  *  - 手机端原生库名为 `apx`，TV 端为 `apxtv` —— 加载时都试一遍。
  *

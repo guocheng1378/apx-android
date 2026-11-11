@@ -647,6 +647,8 @@ class FilePanelActivity : ComponentActivity() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "*/*"
+            // issue#168 2026-11-11 六追：文件面板支持多选（此前每次只能挑 1 个文件）
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         try {
             startActivityForResult(intent, REQ_PICK)
@@ -659,26 +661,46 @@ class FilePanelActivity : ComponentActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQ_PICK || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        // 收集 clipData 里的全部 uri + 单选兜底 data.data（issue#168：多选支持）
+        val uris = ArrayList<Uri>()
+        data?.clipData?.let { clip ->
+            for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) }
+        }
+        if (uris.isEmpty()) data?.data?.let { uris.add(it) }
+        if (uris.isEmpty()) return
         val host = currentTarget() ?: return
         if (!busy.compareAndSet(false, true)) return
         status(getString(R.string.ui_filepanel_status_send_2), false)
-        // 选择器拿到的只有 content://（授权随本 Activity 结束失效），落不了盘就重试不了
-        // —— 记录 file=null，失败不显示重试按钮（类头 TransferRec 注释有口径）。
-        val rec = TransferRec(uri.lastPathSegment ?: "file", 0L, outgoing = true, file = null)
-        records.add(0, rec)
         Thread({
-            val ok = FileSender.send(this, host, uri) { p ->
-                mainHandler.post { rec.progress = p; status(getString(R.string.ui_filepanel_sending, p), false) }
+            // 逐个发：每张各记一条 TransferRec（进度各自走），共用 busy 标志，
+            // 结束后统一汇总「成功 x/y」（y=1 时与旧单选口径一致）
+            var ok = 0
+            val total = uris.size
+            for (uri in uris) {
+                val recName = runCatching { uri.lastPathSegment ?: "file" }.getOrNull() ?: "file"
+                // 选择器拿到的只有 content://（授权随本 Activity 结束失效），落不了盘就重试不了
+                // —— 记录 file=null，失败不显示重试按钮（类头 TransferRec 注释有口径）。
+                val rec = TransferRec(recName, 0L, outgoing = true, file = null)
+                mainHandler.post { records.add(0, rec) }
+                val okThis = FileSender.send(this, host, uri) { p ->
+                    mainHandler.post { rec.progress = p; status(getString(R.string.ui_filepanel_sending, p), false) }
+                }
+                mainHandler.post {
+                    rec.state = if (okThis) REC_OK else REC_FAIL
+                    if (!okThis) rec.error = getString(R.string.ui_filepanel_text_send_failed_2)
+                }
+                if (okThis) ok++
             }
             mainHandler.post {
                 busy.set(false)
-                rec.state = if (ok) REC_OK else REC_FAIL
-                if (!ok) rec.error = getString(R.string.ui_filepanel_text_send_failed_2)
+                // 单个沿用旧句式；多选汇总「成功 x/y」；有失败统一报「发送失败」
                 status(
-                    if (ok) getString(R.string.ui_filepanel_text_send_done_2, host)
-                    else getString(R.string.ui_filepanel_text_send_failed_2),
-                    !ok,
+                    when {
+                        ok == total && total == 1 -> getString(R.string.ui_filepanel_text_send_done_2, host)
+                        ok == total -> getString(R.string.ui_filepanel_multi_done, ok, total, host)
+                        else -> getString(R.string.ui_filepanel_text_send_failed_2)
+                    },
+                    ok != total,
                 )
             }
         }, "apx-file-panel-pick").start()

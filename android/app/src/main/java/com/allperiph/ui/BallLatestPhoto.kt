@@ -232,10 +232,7 @@ object BallLatestPhoto {
         Thread({
             var ok = 0
             list.forEach { uri ->
-                if (runCatching { FileSender.send(ctx, host, uri) }
-                        .onFailure { Log.w(TAG, "发照片失败：${it.message}") }
-                        .getOrDefault(false)
-                ) ok++
+                if (sendOne(ctx, host, uri)) ok++
             }
             val total = list.size
             // ③ 发完重置：待发清空 + 缩略图作废，卡回到「最新照片」占位 ——
@@ -261,6 +258,43 @@ object BallLatestPhoto {
         val controlled = com.allperiph.controlled.ControlledService.server ?: return null
         if (!controlled.ready) return null
         return controlled.currentPeerHost()?.takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * 单张发送，带「假流」兜底（issue#168 2026-11-11 六追：悬浮球相册按钮发到 Mac
+     * 收到的是 1157B 的 file.bin —— FileSender.queryName 查不到 DISPLAY_NAME、
+     * openInputStream 只吐 1KB 假数据；文件面板正常说明 9512 链路本身通）。
+     *
+     * 流程：先 openFileDescriptor 探真实大小 ——
+     *  · 大小正常（>2KB）→ 原样走 [FileSender.send]（Context+Uri 版）；
+     *  · 打不开或 0..2047B（假流特征）→ 退 [ContentResolver.loadThumbnail] 4K 缩略图
+     *    （媒体库有缓存，不依赖原始流），压 JPEG 90 后用流版 [FileSender.send] 发出，
+     *    文件名取 MediaStore DISPLAY_NAME，查不到落 `IMG_<时间戳>.jpg`。
+     */
+    private fun sendOne(ctx: Context, host: String, uri: Uri): Boolean {
+        val cr = ctx.contentResolver
+        val size = runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }
+            .onFailure { Log.w(TAG, "探大小失败：${it.message}") }
+            .getOrNull()
+        if (size != null && size > 2047L) {
+            return runCatching { FileSender.send(ctx, host, uri) }
+                .onFailure { Log.w(TAG, "发照片失败：${it.message}") }
+                .getOrDefault(false)
+        }
+        // 假流兜底：缩略图重压缩成真流再发
+        val name = runCatching {
+            cr.query(uri, arrayOf(MediaStore.Images.Media.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }.getOrNull() ?: "IMG_${System.currentTimeMillis()}.jpg"
+        val bmp = runCatching {
+            cr.loadThumbnail(uri, android.util.Size(4096, 4096), null)
+        }.onFailure { Log.w(TAG, "缩略图兜底失败：${it.message}") }.getOrNull() ?: return false
+        val bytes = java.io.ByteArrayOutputStream().use { bos ->
+            bmp.compress(Bitmap.CompressFormat.JPEG, 90, bos)
+            bmp.recycle()
+            bos.toByteArray()
+        }
+        return FileSender.send(host, name, bytes.size.toLong(), bytes.inputStream())
     }
 
     private fun toast(ctx: Context, res: Int, arg: Int = 0) {

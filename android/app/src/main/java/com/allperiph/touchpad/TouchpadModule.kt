@@ -161,16 +161,14 @@ class TouchpadModule : Module {
         }
         engineRef.set(eng)
         state = ModuleState.RUNNING
-        // issue #52 建议 6：外接触控板 root 直读（默认关；开启了才真正接管，
-        // 拿不到 root 时 RootPointerBridge 自己会如实降级回窗口 hover 通路；
-        // 带上应用上下文是为了注册热插拔监听 —— 外设晚插上也能自动重试）
-        com.allperiph.touchpad.RootPointerBridge.start(ctx.appContext)
+        // issue#168 2026-11-11：外接触控板 root 直读（RootPointerBridge）整体移除 ——
+        // v223.29.69 直读升级为 EVIOCGRAB 独占拦截后用户点开就闪退，按用户建议删掉整条通路，
+        // 触控板统一走窗口 hover 通路。
         Log.i(TAG, "触控板模块已启动")
     }
 
     override fun stop() {
         stopPtpStream()
-        com.allperiph.touchpad.RootPointerBridge.stop()
         engineRef.set(null)
         state = ModuleState.STOPPED
     }

@@ -53,13 +53,10 @@ object BallConfig {
      */
     const val KB_FORWARD = "kb_forward"
 
-    /** 外接触控板 root 直读 —— 同上；写点与设置页同一份 prefs（RootPointerBridge.prefs） */
-    const val POINTER_READ = "pointer_read"
-
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
         TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, REMOTE, CAMERA,
-        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, POINTER_READ, QUIT,
+        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, QUIT,
     )
 
     /**
@@ -69,16 +66,18 @@ object BallConfig {
      */
     const val PHOTO_CARD = "photo_card"
 
-    /** 首次打开时的默认项 —— 与旧版写死菜单的主干一致 + 遥控器（悬浮栏整合后承接其入口） */
+    /** 首次打开时的默认项 —— 与旧版写死菜单的主干一致 + 遥控器（悬浮栏整合后承接其入口）。
+     * 直读项已随功能整体移除（issue#168 2026-11-11：开关闪退且实测无效，用户要求移除），
+     * 老清单里存有的 pointer_read 会在 [enabled] 的白名单过滤里自然掉落。 */
     val DEFAULT: List<String> = listOf(
-        TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, POINTER_READ, REMOTE, QUIT,
+        TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, REMOTE, QUIT,
     )
 
     /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏 */
     const val ITEM_DP = 52
 
-    /** 扇形半径（dp）：球心到快捷项中心的距离 */
-    const val ARC_RADIUS_DP = 96
+    /** 扇形半径（dp）：球心到快捷项中心的距离（六追 2026-11-11 整档下调，缩短与球距离） */
+    const val ARC_RADIUS_DP = 80
 
     // ———————————————— 菜单尺寸档（2026-11-07 成宇「悬浮球弹出的窗口要能调节大小」） ————————————————
     //
@@ -111,10 +110,10 @@ object BallConfig {
         else -> ITEM_DP
     }
 
-    /** 扇形半径（dp），随尺寸档 —— 与 [itemDp] 同涨同缩，项之间的间距才不会被拉散 */
+    /** 扇形半径（dp），随尺寸档 —— 与 [itemDp] 同涨同缩，项之间的间距才不会被拉散（六追 2026-11-11 整档下调） */
     fun arcRadiusDp(ctx: Context): Int = when (menuScale(ctx)) {
-        MENU_COMPACT -> 82
-        MENU_LARGE -> 118
+        MENU_COMPACT -> 62
+        MENU_LARGE -> 88
         else -> ARC_RADIUS_DP
     }
     /** v223.25 升级补挂标记：键盘/手柄两项加入菜单后只补一次，尊重用户之后的手工增删 */
@@ -135,7 +134,6 @@ object BallConfig {
         REMOTE -> R.string.ui_remote_text_remote
         CAMERA -> R.string.ui_ball_fn_camera
         KB_FORWARD -> R.string.ui_ball_fn_kb_forward
-        POINTER_READ -> R.string.ui_main_label_root_pointer
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
@@ -155,13 +153,12 @@ object BallConfig {
         REMOTE -> R.drawable.ic_apx_remote
         CAMERA -> R.drawable.ic_apx_camera
         KB_FORWARD -> R.drawable.ic_apx_kb_fwd
-        POINTER_READ -> R.drawable.ic_apx_pointer
         QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
 
     /** 开关类快捷项（球上点一下翻转状态、不开面板）—— 与 [transportOf] 互斥 */
-    fun isToggle(id: String): Boolean = id == KB_FORWARD || id == POINTER_READ
+    fun isToggle(id: String): Boolean = id == KB_FORWARD
 
     /** 连接模式类快捷项对应的出口标识（[AgentController.TRANSPORTS] 同口径）；非模式类返回 null */
     fun transportOf(id: String): String? = when (id) {
@@ -197,7 +194,7 @@ object BallConfig {
     /** 摄像头项加入菜单后的补挂标记（同样只补一次，之后尊重用户增删） */
     private const val KEY_MIGRATED_V4 = "migrated_v4"
 
-    /** 双开关项（全局转发 / root 直读）加入菜单后的补挂标记（同样只补一次） */
+    /** 全局转发开关项加入菜单后的补挂标记（同样只补一次；V5 历史上还含已移除的直读项） */
     private const val KEY_MIGRATED_V5 = "migrated_v5"
 
     /** 遥控器项（悬浮栏整合）加入菜单后的补挂标记（同样只补一次） */
@@ -234,12 +231,14 @@ object BallConfig {
             }
             p.edit().putBoolean(KEY_MIGRATED_V3, true).apply()
         }
-        // 双开关项：同样只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到这两项
+        // 全局转发开关项：只补一次 —— 老用户已存过勾选清单的话，不补就永远看不到。
+        // （root 直读项随功能移除，V5 迁移只剩转发一项；历史上 V5 只补过这两项，
+        // 直读从未进过清单的老用户 V5 标记可能已置位，这里维持原判断不变即可。）
         if (!p.getBoolean(KEY_MIGRATED_V5, false)) {
             val cur = p.getString(KEY_ITEMS, null)
             if (cur != null) {
                 val kept = cur.split(",").map { it.trim() }
-                val add = listOf(KB_FORWARD, POINTER_READ).filter { it !in kept }
+                val add = listOf(KB_FORWARD).filter { it !in kept }
                 if (add.isNotEmpty()) {
                     p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
                 }

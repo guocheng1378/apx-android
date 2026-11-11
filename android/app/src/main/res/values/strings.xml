@@ -66,14 +66,8 @@
     <string name="ui_main_item_link">链接 TV / PC…</string>
     <string name="ui_main_item_screen">加入副屏</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
-    <string name="ui_main_label_root_pointer">外接触控板直读（需 root）</string>
-    <string name="ui_rootpointer_status_on">已独占拦截并转发外接指针设备：%1$s（不再操作手机屏幕；断开电脑期间触控板会暂不响应）</string>
-    <string name="ui_rootpointer_status_forward_only">已转发外接指针输入：%1$s（未能独占拦截，安卓侧仍会收到移动）</string>
-    <string name="ui_rootpointer_status_no_root">未取得 root，退回前台窗口通路</string>
-    <string name="ui_rootpointer_status_no_device">未找到外接指针设备，插上或连上后会自动重试</string>
     <string name="ui_ball_fn_kb_forward">物理键盘全局转发</string>
     <string name="ui_ball_toggle_kb_a11y">全局转发需先在系统「无障碍」里启用本应用，已保持关闭</string>
-    <string name="ui_ball_toggle_pointer_fail">直读未生效（缺 root 或未接指针设备），已保持关闭</string>
     <string name="ui_common_close">关闭</string>
     <!-- 读屏用：长按可调序的行，给一句带标题的说明（v223.29.4 悬浮球顺序改长按） -->
     <string name="ui_common_long_press_reorder">%1$s，长按可调整顺序</string>
@@ -205,6 +199,8 @@
     <string name="ui_filepanel_status_send_2">发送中…</string>
     <string name="ui_filepanel_text_send_done_2">已发送 → %1$s</string>
     <string name="ui_filepanel_text_send_failed_2">发送失败</string>
+    <!-- issue#168 2026-11-11：文件面板多选，成功汇总「成功 x/y」 -->
+    <string name="ui_filepanel_multi_done">已发送 %1$d/%2$d 个 → %3$s</string>
     <!-- 2026-11-04 文件面板数据层 5 处硬编码资源化（C3 同款病灶）：
          refreshTargets() 直接拼 "目标：…" 中文行（三分支）+ 初始值 + 发送按钮 ——
          与状态页 snapshot() 一样，数据层写死文案，改措辞要同时记得 Kotlin 与 strings。 -->
@@ -528,7 +524,6 @@
     <string name="ui_home_quick_hint">长按底部悬浮栏唤出这一排</string>
     <string name="ui_set_btn_remote">遥控器（虚拟遥控 / 输入）</string>
     <string name="ui_set_btn_camera">摄像头（手机画面回传本机）</string>
-    <string name="ui_set_sum_root_pointer">直接读 /dev/input，App 不在前台也能用；拿不到 root 时自动退回窗口通路</string>
     <string name="ui_set_toast_a11y_no_settings">打不开系统无障碍设置</string>
     <string name="ui_set_cat_theme">主题与外观</string>
     <string name="ui_set_cat_keys">快捷键与外设</string>

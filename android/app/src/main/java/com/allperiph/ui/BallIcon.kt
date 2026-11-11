@@ -3,7 +3,9 @@ package com.allperiph.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
+import android.os.Build
 import com.allperiph.R
 import java.io.File
 
@@ -92,20 +94,45 @@ object BallIcon {
      * 相册取图落盘：中心裁方 + 下采样到 [SKIN_PX]，写进私有目录并选中 [CUSTOM]。
      * 立即拷贝副本而不是存 URI —— 相册授权不持久化，重启后原 URI 就读不到了。
      *
-     * @return true = 拷贝成功（已选中相册皮肤）；false = 解码失败（保持原选择）
+     * 解码三级退化（issue#168 2026-11-11 六追：用户选云图/HEIF 报「读取图片失败」）：
+     * ① API 28+ 优先走 ImageDecoder（支持 HEIF/AVIF/动图首帧，云图/受限图宽容度最高）；
+     * ② 退回 BitmapFactory 两遍解码（读尺寸定 inSampleSize 后再真解）；
+     * ③ 再退 ContentResolver.loadThumbnail 直接取缩略图（元数据库有缓存，最后兜底）。
+     *
+     * @return true = 拷贝成功（已选中相册皮肤）；false = 三级都失败（保持原选择）
      */
     fun setPhoto(c: Context, uri: Uri): Boolean = runCatching {
         val resolver = c.contentResolver
-        // 两遍解码：第一遍只读尺寸定 inSampleSize，第二遍按比例下采样
-        // —— 原图直解（动辄 12MP）只为出一张 192px 方图，内存与时间都白花
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        // ① ImageDecoder（API 28+）：对 HEIF/AVIF/云图最宽容
+        val src = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching {
+                ImageDecoder.decodeBitmap(
+                    ImageDecoder.createSource(resolver, uri),
+                ) { decoder, info, _ ->
+                    // 原图直解（动辄 12MP）只为出一张 192px 方图：解码时按比例下采样
+                    // 到边长不小于 SKIN_PX 的最小整倍数，再走中心裁方，内存与时间都省
+                    val factor = maxOf(1, minOf(info.size.width, info.size.height) / (SKIN_PX * 2))
+                    decoder.setTargetSampleSize(factor)
+                }
+            }.getOrNull()
+        } else null
+            // ② BitmapFactory 两遍解码：第一遍只读尺寸定 inSampleSize，第二遍按比例下采样
+            ?: run {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                resolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                } ?: return false
+                var sample = 1
+                while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= SKIN_PX) sample *= 2
+                resolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(
+                        it, null, BitmapFactory.Options().apply { inSampleSize = sample },
+                    )
+                }
+            }
+            // ③ 缩略图兜底：云图/受限图在元数据库里有现成缓存，直接取
+            ?: resolver.loadThumbnail(uri, android.util.Size(SKIN_PX, SKIN_PX), null)
             ?: return false
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= SKIN_PX) sample *= 2
-        val src = resolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        } ?: return false
         val side = minOf(src.width, src.height)
         val square = Bitmap.createBitmap(
             src, (src.width - side) / 2, (src.height - side) / 2, side, side,
