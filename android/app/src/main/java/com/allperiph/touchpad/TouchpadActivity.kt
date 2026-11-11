@@ -21,6 +21,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -719,11 +727,17 @@ private fun ConsoleRoot(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) 
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 when (ui.page) {
                     TouchpadActivity.PAGE_TOUCHPAD -> ConsoleTouchpadPage(ui, host)
-                    TouchpadActivity.PAGE_KEYBOARD -> ConsoleKeyboardPage(ui, host)
+                    // 键盘页同步主键盘页样式（issue#168 2026-11-11 第 3 条）：直接渲染主壳 KeyboardPage
+                    // 的 ApFullKeyboard —— 8 页签同名同序、KeyLayouts / KeyPref 数据源共用，
+                    // 按键同走 HidKeys 静态链；旧 ConsoleKeyboardPage 与其八套自建组件退役
+                    // （代码暂留防牵连，无调用点后随下批清理）。
+                    TouchpadActivity.PAGE_KEYBOARD -> com.allperiph.ui.compose.ApFullKeyboard()
                     else -> ConsoleDisplayPage(ui, host)
                 }
             }
-            if (!ui.fullscreen) ConsoleTabBar(ui, host)
+            // 低栏整改成可拖悬浮球（issue#168 2026-11-11 第 3 条，与主壳低栏同批口径）：
+            // 点球弹三页切换菜单；全屏态不渲染（球会被触控手势层误触，退出全屏即回）
+            if (!ui.fullscreen) ConsoleNavBall(ui, host)
         }
         if (ui.fullscreen) FullscreenOverlay(host)
     }
@@ -1642,41 +1656,118 @@ private fun LinkCard(host: TouchpadActivity, modifier: Modifier = Modifier) {
 
 /** 底部页签栏（矢量图标 + 文字，选中染主色）：三页签，全屏时整条收起 */
 @Composable
-private fun ConsoleTabBar(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
-    val ctx = LocalContext.current
+/**
+ * 操控面导航球（issue#168 2026-11-11 第 3 条）：与主壳低栏同批整改 —— 底部页签条
+ * 整条退场，换成一枚 48dp 可拖玻璃球；点按弹三页切换菜单（触控板 / 键盘 / 副屏）。
+ * 落点走 [com.allperiph.ui.BallPos] 共享存档：操控面、主壳、桌面三处悬浮球同位衔接。
+ */
+@Composable
+private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
     val view = LocalView.current
-    Column(Modifier.fillMaxWidth().background(colorResource(R.color.miuix_card))) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colorResource(R.color.miuix_divider)))
-        Row(Modifier.fillMaxWidth()) {
-            CONSOLE_PAGES.forEachIndexed { i, p ->
-                val on = ui.page == i
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clickable {
-                            com.allperiph.ui.Feedback.tap(view)
-                            host.showPage(i)
-                        }
-                        .padding(top = 9.dp, bottom = 9.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(
-                        painter = painterResource(p.iconRes),
-                        contentDescription = null,
-                        colorFilter = ColorFilter.tint(
-                            if (on) MiuixTheme.colorScheme.primary else colorResource(R.color.state_idle),
-                        ),
-                        modifier = Modifier.size(24.dp),
-                    )
+    val density = LocalDensity.current
+    val navBallPx = with(density) { 48.dp.toPx() }
+    var navBallX by remember { mutableFloatStateOf(-1f) }
+    var navBallY by remember { mutableFloatStateOf(-1f) }
+    var menuOpen by remember { mutableStateOf(false) }
+    val dm = host.resources.displayMetrics
+    // 首次组合 / 转屏：读共享落点（球左上角比例）；无档落右上角（操控面大标题头在
+    // 左上，右上既有退出胶囊……避开标题行，落**右下**与拇指区一致）
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (navBallX < 0f) {
+            val loaded = com.allperiph.ui.BallPos.load(host, dm.widthPixels, dm.heightPixels, navBallPx.toInt())
+            if (loaded != null) {
+                navBallX = loaded.first.toFloat()
+                navBallY = loaded.second.toFloat()
+            } else {
+                navBallX = dm.widthPixels - navBallPx - with(density) { 20.dp.toPx() }
+                navBallY = dm.heightPixels - navBallPx - with(density) { 32.dp.toPx() }
+            }
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 页签切换菜单：居中卡片，三项直达（点选即切页、菜单收起、球留原位）
+        if (menuOpen) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .pointerInput(Unit) { detectTapGestures(onTap = { menuOpen = false }) },
+            )
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colorResource(R.color.miuix_card))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = host.getString(R.string.ui_nav_switch_title),
+                    fontSize = 17.sp,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                CONSOLE_PAGES.forEachIndexed { i, p ->
                     Text(
-                        text = ctx.getString(p.titleRes),
-                        fontSize = 10.sp,
-                        color = if (on) MiuixTheme.colorScheme.primary else colorResource(R.color.state_idle),
-                        modifier = Modifier.padding(top = 4.dp),
-                        maxLines = 1,
+                        text = host.getString(p.titleRes),
+                        fontSize = 15.sp,
+                        color = if (ui.page == i) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clickable {
+                                com.allperiph.ui.Feedback.tap(view)
+                                menuOpen = false
+                                host.showPage(i)
+                            }
+                            .padding(horizontal = 28.dp, vertical = 12.dp),
                     )
                 }
             }
+        }
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(navBallX.roundToInt(), navBallY.roundToInt()) }
+                .size(48.dp)
+                .clip(CircleShape)
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDrag = { change, drag ->
+                            change.consume()
+                            navBallX = (navBallX + drag.x)
+                                .coerceIn(0f, dm.widthPixels - navBallPx)
+                            navBallY = (navBallY + drag.y)
+                                .coerceIn(0f, dm.heightPixels - navBallPx)
+                        },
+                        onDragEnd = {
+                            com.allperiph.ui.BallPos.save(
+                                host, navBallX, navBallY, dm.widthPixels, dm.heightPixels,
+                            )
+                        },
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { menuOpen = !menuOpen })
+                }
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.66f),
+                            MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.46f),
+                        ),
+                    ),
+                )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = 0.3f),
+                            Color.White.copy(alpha = 0.1f),
+                        ),
+                    ),
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = "≡", fontSize = 17.sp, color = MiuixTheme.colorScheme.onSurface)
         }
     }
 }
