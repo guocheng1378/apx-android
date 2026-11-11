@@ -73,11 +73,11 @@ object BallConfig {
         TOUCHPAD, KEYBOARD, DEVICES, CLIPBOARD, FILES, KB_FORWARD, REMOTE, QUIT,
     )
 
-    /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏 */
-    const val ITEM_DP = 52
+    /** 快捷项直径（dp）：够手指点，又不至于把扇形撑得满屏（2026-11-11 用户「展开比例不对太大了」再降一档） */
+    const val ITEM_DP = 46
 
-    /** 扇形半径（dp）：球心到快捷项中心的距离（六追 2026-11-11 整档下调，缩短与球距离） */
-    const val ARC_RADIUS_DP = 80
+    /** 扇形半径（dp）：球心到快捷项中心的距离（v70 整档下调后用户仍嫌大，2026-11-11 再降） */
+    const val ARC_RADIUS_DP = 66
 
     // ———————————————— 菜单尺寸档（2026-11-07 成宇「悬浮球弹出的窗口要能调节大小」） ————————————————
     //
@@ -103,17 +103,17 @@ object BallConfig {
             .apply()
     }
 
-    /** 快捷项直径（dp），随尺寸档 */
+    /** 快捷项直径（dp），随尺寸档（2026-11-11 三档同步下调，展开比例更收敛） */
     fun itemDp(ctx: Context): Int = when (menuScale(ctx)) {
-        MENU_COMPACT -> 44
-        MENU_LARGE -> 62
+        MENU_COMPACT -> 40
+        MENU_LARGE -> 54
         else -> ITEM_DP
     }
 
-    /** 扇形半径（dp），随尺寸档 —— 与 [itemDp] 同涨同缩，项之间的间距才不会被拉散（六追 2026-11-11 整档下调） */
+    /** 扇形半径（dp），随尺寸档 —— 与 [itemDp] 同涨同缩，项之间的间距才不会被拉散 */
     fun arcRadiusDp(ctx: Context): Int = when (menuScale(ctx)) {
-        MENU_COMPACT -> 62
-        MENU_LARGE -> 88
+        MENU_COMPACT -> 54
+        MENU_LARGE -> 78
         else -> ARC_RADIUS_DP
     }
     /** v223.25 升级补挂标记：键盘/手柄两项加入菜单后只补一次，尊重用户之后的手工增删 */
