@@ -67,6 +67,9 @@
     <string name="ui_main_item_screen">加入副屏</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
     <string name="ui_main_label_root_pointer">外接触控板直读（需 root）</string>
+    <string name="ui_rootpointer_status_on">已接管外接指针设备：%1$s</string>
+    <string name="ui_rootpointer_status_no_root">未取得 root，退回前台窗口通路</string>
+    <string name="ui_rootpointer_status_no_device">未找到外接指针设备，插上或连上后会自动重试</string>
     <string name="ui_ball_fn_kb_forward">物理键盘全局转发</string>
     <string name="ui_ball_toggle_kb_a11y">全局转发需先在系统「无障碍」里启用本应用，已保持关闭</string>
     <string name="ui_ball_toggle_pointer_fail">直读未生效（缺 root 或未接指针设备），已保持关闭</string>

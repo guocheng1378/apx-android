@@ -162,8 +162,9 @@ class TouchpadModule : Module {
         engineRef.set(eng)
         state = ModuleState.RUNNING
         // issue #52 建议 6：外接触控板 root 直读（默认关；开启了才真正接管，
-        // 拿不到 root 时 RootPointerBridge 自己会如实降级回窗口 hover 通路）
-        com.allperiph.touchpad.RootPointerBridge.start()
+        // 拿不到 root 时 RootPointerBridge 自己会如实降级回窗口 hover 通路；
+        // 带上应用上下文是为了注册热插拔监听 —— 外设晚插上也能自动重试）
+        com.allperiph.touchpad.RootPointerBridge.start(ctx.appContext)
         Log.i(TAG, "触控板模块已启动")
     }
 

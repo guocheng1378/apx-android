@@ -1,11 +1,14 @@
 package com.allperiph.touchpad
 
 import android.content.Context
+import android.hardware.input.InputManager
+import com.allperiph.R
 import com.allperiph.core.ModuleId
 import com.allperiph.core.Uplink
 import com.allperiph.shared.util.Log
 import com.allperiph.ui.AgentController
 import com.allperiph.wireless.ControlTarget
+import java.util.concurrent.Executors
 
 /**
  * 外接触控板的 **root 直读桥**（issue #52 建议 6 第二条腿）。
@@ -25,6 +28,12 @@ import com.allperiph.wireless.ControlTarget
  *   - 拿不到 root / 找不到设备时如实返回「不可用」，不假装成功
  *     （issue #52 问题 5 的教训：界面状态必须与实际一致）；
  *   - 与键盘转发各自独立开关（键盘不需要 root，不该被连坐）。
+ *
+ * v223.29.63 补「实测未生效」的第三块（issue #52 二轮反馈）：
+ *   **热插拔重试**。旧实现只在开关打开 / 模块启动那一刻试一次 —— 外接设备
+ *   要是晚一点才插上（或蓝牙才连上），扫描扑空、开关白白退回窗口通路，
+ *   用户只能反复开开关。现在注册 InputManager 设备监听：外接指针设备
+ *   插入 / 拔出时自动重扫重试（在后台线程做，su 扫描不能上主线程）。
  */
 object RootPointerBridge {
 
@@ -50,6 +59,15 @@ object RootPointerBridge {
      */
     private var buttons = 0
 
+    /** 最近一次启动尝试的用户可读结果（null = 尚未尝试）；设置页 / 悬浮球如实展示 */
+    var lastStatus: String? = null
+        private set
+
+    /** 热插拔重扫在后台做：su 扫描最坏 3–5 秒，上主线程会卡界面 */
+    private val rescanExecutor = Executors.newSingleThreadExecutor()
+    private var hotplugRegistered = false
+    private var appCtx: Context? = null
+
     /**
      * 偏好文件出口：`apx_root_pointer` 只由本对象打开。
      *
@@ -70,12 +88,19 @@ object RootPointerBridge {
     fun setEnabled(ctx: Context, store: android.content.SharedPreferences, on: Boolean) {
         enabled = on
         store.edit().putBoolean(KEY_ENABLED, on).apply()
-        if (on) start() else stop()
+        if (on) {
+            ensureHotplug(ctx.applicationContext)
+            start()
+        } else {
+            stop()
+        }
     }
 
     /** 由设置页 / 模块启动时调用；未开启或没 root 时安全返回（page 上会显示不可用） */
-    fun start() {
+    fun start(appContext: Context? = null) {
         if (!enabled || active) return
+        appContext?.let { ensureHotplug(it) }
+        val c = appContext ?: appCtx
         val mod = AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule ?: return
         val r = EvdevPointerReader(
             onMove = { dx, dy -> feed(mod, dx.toFloat(), dy.toFloat(), 0f, 0f) },
@@ -85,10 +110,25 @@ object RootPointerBridge {
         if (r.start()) {
             reader = r
             active = true
+            lastStatus = c?.getString(
+                R.string.ui_rootpointer_status_on,
+                r.startedNodes.joinToString("、"),
+            )
             Log.i(TAG, "root 直读接管外接触控板（窗口 hover 通路让位）")
         } else {
             active = false
-            Log.w(TAG, "root 直读启动失败（无指针设备或没 root）—— 退回窗口 hover 通路")
+            lastStatus = when (r.lastReason) {
+                EvdevPointerReader.REASON_NO_ROOT ->
+                    c?.getString(R.string.ui_rootpointer_status_no_root)
+                EvdevPointerReader.REASON_NO_DEVICE ->
+                    c?.getString(R.string.ui_rootpointer_status_no_device)
+                else -> null
+            }
+            if (lastStatus == null) {
+                Log.w(TAG, "root 直读启动失败（无指针设备或没 root）—— 退回窗口 hover 通路")
+            } else {
+                Log.w(TAG, "root 直读启动失败：$lastStatus")
+            }
         }
     }
 
@@ -98,6 +138,37 @@ object RootPointerBridge {
         active = false
         buttons = 0
         Log.i(TAG, "root 直读已停止")
+    }
+
+    /**
+     * 外接指针设备插入 / 拔出 → 重扫重试（只在已开启时）。
+     * 重扫含 su 子进程，**必须后台线程**；起停都有幂等守卫，重复触发无副作用。
+     */
+    private fun ensureHotplug(appContext: Context) {
+        appCtx = appContext.applicationContext ?: appContext
+        if (hotplugRegistered) return
+        hotplugRegistered = true
+        val im = appContext.getSystemService(Context.INPUT_SERVICE) as? InputManager ?: return
+        im.registerInputDeviceListener(
+            object : InputManager.InputDeviceListener {
+                override fun onInputDeviceAdded(deviceId: Int) = rescan()
+                override fun onInputDeviceRemoved(deviceId: Int) = rescan()
+                override fun onInputDeviceChanged(deviceId: Int) = Unit
+            },
+            null,
+        )
+    }
+
+    private fun rescan() {
+        if (!enabled) return
+        rescanExecutor.execute {
+            if (!enabled) return@execute
+            reader?.stop()
+            reader = null
+            active = false
+            buttons = 0
+            start()
+        }
     }
 
     /** 出口就绪判据与其余输入通路同口径（Uplink.resolve） */

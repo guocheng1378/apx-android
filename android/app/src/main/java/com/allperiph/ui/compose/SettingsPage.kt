@@ -1252,6 +1252,13 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 com.allperiph.touchpad.RootPointerBridge.prefs(ctx),
                                 on,
                             )
+                            // 开关后如实告知接管结果（成功/没 root/没设备），不装成功
+                            // —— issue #52 问题 5 的教训：界面状态必须与实际一致
+                            if (on) {
+                                com.allperiph.touchpad.RootPointerBridge.lastStatus?.let {
+                                    android.widget.Toast.makeText(ctx, it, android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }
                             Feedback.haptic(ctx)
                         },
                     )
