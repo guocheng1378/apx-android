@@ -414,7 +414,8 @@ class HotkeyBoard(
             .setTitle(act.getString(R.string.ui_common_restore_default))
             .setMessage(act.getString(R.string.ui_hotkey_reset_msg))
             .setPositiveButton(act.getString(R.string.ui_common_restore)) { _, _ ->
-                shortcuts = HidKeys.DEFAULTS.toMutableList()
+                // issue#168 第 14 条：恢复到「当前被控机系统」的出厂行——选 macOS 时即 ⌘ 系
+                shortcuts = com.allperiph.hid.PeerOs.defaults(act).toMutableList()
                 saveStore()
                 markCustomStore()
                 render()
