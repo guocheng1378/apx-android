@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -1695,7 +1696,8 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
         }
     }
     // 记上一次观测到的内容区尺寸：转屏 / 分屏变化时按它判定「该重读落点了」
-    var lastBounds by remember { mutableStateOf<android.util.Size?>(null) }
+    // （类型是 Compose 的 IntSize——onSizeChanged 回调的入参就是它，别换成 android.util.Size）
+    var lastBounds by remember { mutableStateOf<IntSize?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
