@@ -296,6 +296,9 @@ object ApComponents {
      *    见审查条 1.2 —— `ApSkin.HOTKEY` 此前全仓零消费者，设置项承诺了不存在的效果）。
      * 高度下限 44dp：页签是**手指**目标（不是键帽，键帽另按 48dp 基线处理）。
      */
+    /** [TabChip] 的高度下限（dp）：快捷键栏算「固定 3 排」总高时与这里同一口径，改一处即两处同步。 */
+    const val TAB_CHIP_MIN_HEIGHT_DP = 44
+
     @Composable
     fun TabChip(
         text: String,
@@ -325,7 +328,7 @@ object ApComponents {
                     onClick = onClick,
                 )
                 .then(Modifier.keyFx(chipFx, tint))
-                .heightIn(min = 44.dp)
+                .heightIn(min = TAB_CHIP_MIN_HEIGHT_DP.dp)
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {

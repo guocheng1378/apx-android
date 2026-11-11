@@ -30,6 +30,7 @@ import com.allperiph.ui.miuix.ApMotion
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -120,15 +121,17 @@ fun TouchpadPage(
             onGesture = onGesture,
             onLongPressArmDrag = onLongPressArmDrag,
             onLongPressRightDrag = onLongPressRightDrag,
-            // issue#168（2026-11-11 触控板页清单）：竖屏手势面固定占上方 2/3，快捷键区
-            // 从屏幕下方 1/3 处起步 —— 此前快捷键区按内容高、手势面吃剩下的，快捷键
-            // 常常贴到屏幕最底边；比例定死后手势面也不会再被快捷键数量挤小。
+            // issue#168（2026-11-11 触控板页清单）：竖屏快捷键区此前按屏高固定吃 1/3，
+            // 3 排内容只占其中一半，底下剩一大块空档（2026-11-12 用户「切换后底下留了
+            // 空地方」）。现改为快捷键栏高度固定 3 排（见 HotkeyGrid.fixedRows 与
+            // HOTKEY_FIXED_ROWS），手势面吃剩下的全部高度；切换模板条数变化时，
+            // 栏高不变、手势面也不再跟着跳。
             // 横屏双栏（wide）不动：手势面整高、快捷键在右列。
-            modifier = Modifier.fillMaxWidth().weight(2f),
+            modifier = Modifier.fillMaxWidth().weight(1f),
         )
 
-        if (!wide) Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap)
+        if (!wide) {
+            HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap, fixedRows = HOTKEY_FIXED_ROWS)
         }
       }
       if (wide) {
@@ -140,7 +143,7 @@ fun TouchpadPage(
 }
 
 @Composable
-private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
+private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp, fixedRows: Int = 0) {
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
     val subTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
@@ -206,7 +209,22 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
     // 用户要求放在**左侧**（与全屏触控板页右列的滚动条同侧）。芯片区的竖向拖动仍归
     // 长按排序（Initial pass 消费优先于滚动），滚动主要走滚动条拖动与空隙处滑动。
     val gridScroll = androidx.compose.foundation.rememberScrollState()
-    Box(modifier = Modifier.fillMaxWidth()) {
+    // 2026-11-12（用户「固定成3排，可以上下滑动」）：fixedRows > 0 时整块快捷键区
+    // 固定为该行数的高度 —— 不足 3 排也占满（切换模板时条数变化不再引起整页跳动、
+    // 也不再剩一块跟着屏高放大的空档），超过时上方 verticalScroll 照常滚动。
+    // 总高 = 行数 × 芯片高（TabChip 的 TAB_CHIP_MIN_HEIGHT_DP 下限）+ 行间距
+    // （与下方 spacedBy(6.dp) 同一口径）+ 自身边距（上 8+topBar / 下 8+bottomGap）。
+    // fixedRows = 0（横屏右列）保持原样：高度随内容、超出滚外层给的高度。
+    val hostModifier = if (fixedRows > 0) {
+        Modifier.height(
+            ApComponents.TAB_CHIP_MIN_HEIGHT_DP.dp * fixedRows +
+                6.dp * (fixedRows - 1) +
+                8.dp * 2 + topBar + bottomGap,
+        )
+    } else {
+        Modifier
+    }
+    Box(modifier = Modifier.fillMaxWidth().then(hostModifier)) {
         Column(
             modifier = Modifier.fillMaxWidth()
                 .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap)
@@ -356,6 +374,13 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
 
 /** 一行总按钮位数：与旧 4 枚等宽的每行个数一致，自适应只改每枚占几位。 */
 private const val SLOTS_PER_ROW = 4
+
+/**
+ * 竖屏快捷键栏固定行数（2026-11-12 用户「固定成3排，可以上下滑动」）：
+ * 不足 3 排也占满 3 排高，超过 3 排出竖向滚动 —— 换模板时栏高恒定，
+ * 底下不再剩一块跟着屏高放大的空档。
+ */
+private const val HOTKEY_FIXED_ROWS = 3
 
 /**
  * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
