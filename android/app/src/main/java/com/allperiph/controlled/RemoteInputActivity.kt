@@ -186,7 +186,8 @@ class RemoteInputActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp)
                             .widthIn(max = 680.dp)
-                            .align(androidx.compose.ui.Alignment.CenterHorizontally),
+                            // Box 内整体居中（CenterHorizontally 是 Column 的横向对齐类型，Box 不收）。
+                            .align(androidx.compose.ui.Alignment.Center),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
