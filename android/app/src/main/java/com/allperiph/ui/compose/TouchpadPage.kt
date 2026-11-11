@@ -50,6 +50,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -118,10 +120,16 @@ fun TouchpadPage(
             onGesture = onGesture,
             onLongPressArmDrag = onLongPressArmDrag,
             onLongPressRightDrag = onLongPressRightDrag,
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            // issue#168（2026-11-11 触控板页清单）：竖屏手势面固定占上方 2/3，快捷键区
+            // 从屏幕下方 1/3 处起步 —— 此前快捷键区按内容高、手势面吃剩下的，快捷键
+            // 常常贴到屏幕最底边；比例定死后手势面也不会再被快捷键数量挤小。
+            // 横屏双栏（wide）不动：手势面整高、快捷键在右列。
+            modifier = Modifier.fillMaxWidth().weight(2f),
         )
 
-        if (!wide) HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap)
+        if (!wide) Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap)
+        }
       }
       if (wide) {
           Box(modifier = Modifier.width(sideWidth).fillMaxHeight()) {
@@ -194,14 +202,20 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
             newBoard(it).managerDialog()
         }
     }
-    Column(
-        modifier = Modifier.fillMaxWidth()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap)
-            .pointerInput(items.size) {
-                detectTapGestures(onLongPress = { openManager() })
-            },
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
+    // issue#168（2026-11-11 触控板页清单）：快捷键多到显示不下时可竖向滚动，滚动条按
+    // 用户要求放在**左侧**（与全屏触控板页右列的滚动条同侧）。芯片区的竖向拖动仍归
+    // 长按排序（Initial pass 消费优先于滚动），滚动主要走滚动条拖动与空隙处滑动。
+    val gridScroll = androidx.compose.foundation.rememberScrollState()
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap)
+                .verticalScroll(gridScroll)
+                .pointerInput(items.size) {
+                    detectTapGestures(onLongPress = { openManager() })
+                },
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
         if (items.isEmpty()) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Box(
@@ -218,17 +232,20 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                 repeat(3) { Box(modifier = Modifier.weight(1f)) }
             }
         }
-        items.chunked(4).forEachIndexed { rowIdx, row ->
+        // issue#168（2026-11-11 触控板页清单）：按钮宽按文字长度自适应 —— 每 2 个字占一个
+        // 按钮位（4 个字占 2 位），一行总位数仍是 4 位、装不下折行；不再 4 枚等宽把长
+        // 文案截断。packBySlots 返回 (条目下标, 占位数)，拖拽排序的 cells / drop 仍按
+        // 条目下标走，排序逻辑零改动。
+        packBySlots(items).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                row.forEachIndexed { colIdx, combo ->
-                    val index = rowIdx * 4 + colIdx
+                row.forEach { (index, slots) ->
                     val dragging = dragIndex == index
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(slots.toFloat())
                             .zIndex(if (dragging) 1f else 0f)
                             .offset {
                                 if (dragging) IntOffset(dragDx.toInt(), dragDy.toInt())
@@ -316,12 +333,48 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                         HotkeyChip(ctx = ctx, combo = combo, modifier = Modifier.fillMaxWidth())
                     }
                 }
-                repeat(4 - row.size) {
+                repeat(SLOTS_PER_ROW - row.sumOf { it.second }) {
                     Box(modifier = Modifier.weight(1f))
                 }
             }
         }
+        }
+        // 左侧竖向滚动条：内容不超高时不画（VScrollbar 内部 maxValue<=0 直接返回）
+        ApComponents.VScrollbar(
+            scrollState = gridScroll,
+            alignEnd = false,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 2.dp)
+                .fillMaxHeight(),
+        )
     }
+}
+
+/** 一行总按钮位数：与旧 4 枚等宽的每行个数一致，自适应只改每枚占几位。 */
+private const val SLOTS_PER_ROW = 4
+
+/**
+ * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
+ * 每条占 ceil(字数 / 2) 位（至少 1 位、至多整行），一行装不下就折到下一行。
+ * 返回的条目下标与 [HotkeyStore.load] 列表对齐，拖拽排序按它落位。
+ */
+private fun packBySlots(list: List<HidKeys.Combo>): List<List<Pair<Int, Int>>> {
+    val rows = mutableListOf<List<Pair<Int, Int>>>()
+    var cur = mutableListOf<Pair<Int, Int>>()
+    var used = 0
+    list.forEachIndexed { idx, combo ->
+        val slots = ((combo.label.length + 1) / 2).coerceIn(1, SLOTS_PER_ROW)
+        if (used + slots > SLOTS_PER_ROW && cur.isNotEmpty()) {
+            rows.add(cur)
+            cur = mutableListOf()
+            used = 0
+        }
+        cur.add(idx to slots)
+        used += slots
+    }
+    if (cur.isNotEmpty()) rows.add(cur)
+    return rows
 }
 
 @Composable

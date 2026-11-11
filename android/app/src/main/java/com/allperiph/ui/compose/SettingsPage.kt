@@ -168,7 +168,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // 宽屏（≥600dp，ApAdaptiveLayout.twoPane）：分类竖排在左侧当「列表」，内容在右当「详情」。
     // 这一步只重排外壳，16 个 Section 的代码位置与前一轮完全一致；同类目内再分两栏需要把
     // 每段拆成可组合函数，属另一轮。
-    val twoPane = rememberApAdaptiveLayout().twoPane
+    val adaptive = rememberApAdaptiveLayout()
+    val twoPane = adaptive.twoPane
+    // 页签行的横竖判断与 twoPane 同源（issue#168 2026-11-11：竖屏四签改 2×2 两行）。
+    val landscape = adaptive.landscape
     // 一指横滑切分组（成宇 2026-11-10「设置页的分组切换不方便」+「就按这套做」；
     // 2026-11-10「鼠标调节高度，键盘高度，这两个和滑动切分组冲突，界面调节调节时界面会跑」修正）：
     // 向左滑 = 下一组、向右滑 = 上一组（与横屏四指切页同方向），页签保留不动。
@@ -241,6 +244,31 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     // issue#168 第 4 条（2026-11-11）：竖屏四签改**紧凑居中**。horizontalScroll 的 Row 实测宽度
     // 是「内容宽夹外层约束」—— 窄屏装不下时 Row 占满并保留横滑兜底，装得下时 Row 等于内容宽，
     // 外层 Box 居中即可；间距 6→4dp 收紧，四签更聚拢。
+    // v223.29.58（issue#168 2026-11-11 键盘页清单末条）：竖屏四签进一步改 **2×2 两行**，
+    // 每签在本行 weight(1f) 均分——宽名（快捷键与外设 / 工具与传输）有足够宽度不再被压，
+    // 也不用横滑找签；四签正好两行两签，无尾行补位问题。横屏仍单行紧凑居中 + 横滑兜底。
+    if (!landscape) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp + insets.left, end = 12.dp + insets.right, top = 4.dp + topBar),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            catLabels.indices.chunked(2).forEach { rowIdxs ->
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    rowIdxs.forEach { idx ->
+                        // 审查条 2.1：加选中态（此前四个页签一模一样，切完看不出在哪一类）
+                        ApComponents.TabChip(
+                            text = catLabels[idx],
+                            selected = idx == cat,
+                            onClick = { cat = idx },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    } else {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
     Row(
         modifier = Modifier
@@ -252,6 +280,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 审查条 2.1：加选中态（此前四个页签一模一样，切完看不出在哪一类）
             ApComponents.TabChip(text = name, selected = idx == cat, onClick = { cat = idx })
         }
+    }
     }
     }
 

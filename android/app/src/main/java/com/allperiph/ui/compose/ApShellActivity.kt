@@ -11,11 +11,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import android.content.res.Configuration
@@ -1090,9 +1094,24 @@ internal fun connectControlledDevice(
  * 设备选择器的内容体（v223.25 从 ApDevicePicker 抽出）：主屏弹窗与悬浮球 overlay
  * 面板共用同一份列表与连接逻辑 —— 选中即 [connectControlledDevice] 连入 9511，
  * 「本机 / PC」= clear()。
+ *
+ * 设备选择器主体（本机 / 被控开关 / 最近连接 / 扫描列表）。三处共用：状态页、
+ * 低栏快捷弹窗、悬浮球设备面板。
+ *
+ * @param landscape 横屏双栏（issue#168 2026-11-11 悬浮球清单）：左=本机 + 被控模式开关
+ *   （[footer] 里的关闭按钮也落在左栏底），右=最近连接 + 扫描列表（超高可滚 + 右侧
+ *   滚动条）。主屏调用不传参，保持原来的单列竖排。
+ * @param listMaxHeightDp 双栏右列的限高（dp）：悬浮球 overlay 是 WRAP_CONTENT 窗口，
+ *   没有可靠的窗口高度可依，由调用方按屏幕实高折算传入；≤0 不限高。
+ * @param footer 附加在左栏底部的内容（悬浮面板的「关闭」按钮）；竖排模式忽略。
  */
 @Composable
-internal fun ApDevicePickerBody(onDone: () -> Unit) {
+internal fun ApDevicePickerBody(
+    onDone: () -> Unit,
+    landscape: Boolean = false,
+    listMaxHeightDp: Int = 0,
+    footer: (@Composable () -> Unit)? = null,
+) {
     val ctx = LocalContext.current
     var devices by remember { mutableStateOf(emptyList<com.allperiph.wireless.TvDiscovery.TvDevice>()) }
     var connecting by remember { mutableStateOf("") }
@@ -1119,141 +1138,196 @@ internal fun ApDevicePickerBody(onDone: () -> Unit) {
             kotlinx.coroutines.delay(1000L)
         }
     }
-    Text(
-        text = ctx.getString(R.string.ui_pick_device_title),
-        fontSize = 17.sp,
-        modifier = Modifier.padding(bottom = 8.dp),
-    )
-    ApComponents.ActionButton(
-        text = ctx.getString(R.string.ui_pick_device_local),
-        onClick = {
-            com.allperiph.wireless.ControlTarget.clear()
-            onDone()
-        },
-    )
-    // —— 外设模式（本机被控）——
-    // 此前这个开关只在设置页「快捷键与外设」与触控板页出现，选设备这条动线上没有，
-    // 用户要「这台被对方控」时得先离开选择器。这里给一行就地切换（服务启停走
-    // ControlledService 自己的开关位，与那些入口是同一条链路）。
-    ApComponents.ActionButton(
-        text = ctx.getString(R.string.ui_pick_device_controlled) + "：" +
-            ctx.getString(
-                if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
-            ),
-        onClick = {
-            // 震动已由 ApComponents.ActionButton 统一给（2026-11-04 一整套手感），这里不再叠
-            if (controlledOn) {
-                com.allperiph.controlled.ControlledService.stop(ctx)
-            } else {
-                com.allperiph.controlled.ControlledService.start(ctx)
-            }
-            controlledOn = com.allperiph.controlled.ControlledService.running
-            android.widget.Toast.makeText(
-                ctx,
+    // v223.29.58（issue#168 2026-11-11 悬浮球清单「选择设备页横屏双栏」）：拆左右两栏。
+    // 左栏 = 标题 + 本机 + 被控开关（悬浮面板的关闭按钮经 [footer] 也落左栏底）；
+    // 右栏 = 最近连接 + 连接中/失败提示 + 扫描列表，超高可滚并挂右侧滚动条；竖屏
+    // 保持原有单列竖排，内容与顺序不变。两栏内容各内收 6dp，避免贴边文字被卡片
+    // 圆角裁掉（同批「子页面文字内收」）。
+    val listScroll = rememberScrollState()
+    val leftPane: @Composable () -> Unit = {
+        Text(
+            text = ctx.getString(R.string.ui_pick_device_title),
+            fontSize = 17.sp,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_pick_device_local),
+            onClick = {
+                com.allperiph.wireless.ControlTarget.clear()
+                onDone()
+            },
+        )
+        // —— 外设模式（本机被控）——
+        // 此前这个开关只在设置页「快捷键与外设」与触控板页出现，选设备这条动线上没有，
+        // 用户要「这台被对方控」时得先离开选择器。这里给一行就地切换（服务启停走
+        // ControlledService 自己的开关位，与那些入口是同一条链路）。
+        ApComponents.ActionButton(
+            text = ctx.getString(R.string.ui_pick_device_controlled) + "：" +
                 ctx.getString(
                     if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
                 ),
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        },
-    )
-    // —— 最近连接：点一下就连（不必等广播重新发现）——
-    if (recent.isNotEmpty()) {
-        Text(
-            text = ctx.getString(R.string.ui_pick_device_recent),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+            onClick = {
+                // 震动已由 ApComponents.ActionButton 统一给（2026-11-04 一整套手感），这里不再叠
+                if (controlledOn) {
+                    com.allperiph.controlled.ControlledService.stop(ctx)
+                } else {
+                    com.allperiph.controlled.ControlledService.start(ctx)
+                }
+                controlledOn = com.allperiph.controlled.ControlledService.running
+                android.widget.Toast.makeText(
+                    ctx,
+                    ctx.getString(
+                        if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
+                    ),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            },
         )
-        recent.forEach { h ->
+        // 悬浮面板的「关闭」按钮落左栏底（横屏时与被控开关同列）。
+        footer?.invoke()
+    }
+    val rightPane: @Composable () -> Unit = {
+        // —— 最近连接：点一下就连（不必等广播重新发现）——
+        if (recent.isNotEmpty()) {
+            Text(
+                text = ctx.getString(R.string.ui_pick_device_recent),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+            )
+            recent.forEach { h ->
+                ApComponents.ActionButton(
+                    text = "${h.name}  ${h.host}",
+                    onClick = {
+                        connecting = h.host
+                        val dev = com.allperiph.wireless.TvDiscovery.TvDevice(
+                            name = h.name,
+                            ip = h.host,
+                            port = h.port,
+                            lastSeen = h.lastConnected,
+                            type = h.type,
+                        )
+                        connectControlledDevice(ctx, dev) { ok, _ ->
+                            connecting = ""
+                            lastFailed = if (ok) null else dev
+                            if (ok) onDone()
+                        }
+                    },
+                )
+            }
+        }
+        if (connecting.isNotEmpty()) {
+            Text(
+                text = ctx.getString(R.string.ui_pick_device_connecting, connecting),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
+        // 连接失败：内联提示 + 就地重试（提示与真实原因对齐，不弹打断式弹窗）
+        lastFailed?.let { failed ->
+            Text(
+                text = ctx.getString(R.string.ui_pick_device_connect_failed, failed.ip),
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                modifier = Modifier.padding(top = 8.dp),
+            )
             ApComponents.ActionButton(
-                text = "${h.name}  ${h.host}",
+                text = ctx.getString(R.string.ui_pick_device_retry) + " · " + failed.name,
                 onClick = {
-                    connecting = h.host
-                    val dev = com.allperiph.wireless.TvDiscovery.TvDevice(
-                        name = h.name,
-                        ip = h.host,
-                        port = h.port,
-                        lastSeen = h.lastConnected,
-                        type = h.type,
-                    )
-                    connectControlledDevice(ctx, dev) { ok, _ ->
+                    connecting = failed.ip
+                    lastFailed = null
+                    connectControlledDevice(ctx, failed) { ok, _ ->
                         connecting = ""
-                        lastFailed = if (ok) null else dev
+                        lastFailed = if (ok) null else failed
                         if (ok) onDone()
                     }
                 },
             )
         }
+        devices.forEach { d ->
+            ApComponents.ActionButton(
+                text = "${d.name} ${d.typeLabel}  ${d.ip}",
+                onClick = {
+                    connecting = d.ip
+                    connectControlledDevice(ctx, d) { ok, _ ->
+                        connecting = ""
+                        lastFailed = if (ok) null else d
+                        if (ok) onDone()
+                    }
+                },
+            )
+        }
+        if (devices.isEmpty()) {
+            Text(
+                text = ctx.getString(R.string.ui_pick_device_scanning),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        }
     }
-    if (connecting.isNotEmpty()) {
-        Text(
-            text = ctx.getString(R.string.ui_pick_device_connecting, connecting),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
-    }
-    // 连接失败：内联提示 + 就地重试（提示与真实原因对齐，不弹打断式弹窗）
-    lastFailed?.let { failed ->
-        Text(
-            text = ctx.getString(R.string.ui_pick_device_connect_failed, failed.ip),
-            fontSize = 13.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        ApComponents.ActionButton(
-            text = ctx.getString(R.string.ui_pick_device_retry) + " · " + failed.name,
-            onClick = {
-                connecting = failed.ip
-                lastFailed = null
-                connectControlledDevice(ctx, failed) { ok, _ ->
-                    connecting = ""
-                    lastFailed = if (ok) null else failed
-                    if (ok) onDone()
+    if (!landscape) {
+        // 竖屏：沿用原单列竖排，内容与顺序不变。
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp)) {
+            leftPane()
+            rightPane()
+        }
+    } else {
+        // 横屏：左右双栏等宽；右列超高（listMaxHeightDp>0）时滚动，右缘贴滚动条。
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f).padding(horizontal = 6.dp)) {
+                leftPane()
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp)
+                        .let { if (listMaxHeightDp > 0) it.heightIn(max = listMaxHeightDp.dp) else it }
+                        .verticalScroll(listScroll),
+                ) {
+                    rightPane()
                 }
-            },
-        )
-    }
-    devices.forEach { d ->
-        ApComponents.ActionButton(
-            text = "${d.name} ${d.typeLabel}  ${d.ip}",
-            onClick = {
-                connecting = d.ip
-                connectControlledDevice(ctx, d) { ok, _ ->
-                    connecting = ""
-                    lastFailed = if (ok) null else d
-                    if (ok) onDone()
-                }
-            },
-        )
-    }
-    if (devices.isEmpty()) {
-        Text(
-            text = ctx.getString(R.string.ui_pick_device_scanning),
-            fontSize = 13.sp,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
+                // 滚动条贴右缘；内容不超高时组件自己不画（VScrollbar 内部判 maxValue）。
+                ApComponents.VScrollbar(
+                    scrollState = listScroll,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 2.dp),
+                    alignEnd = true,
+                )
+            }
+        }
     }
 }
 
 /**
  * 悬浮球的「设备」面板（成宇 2026-11-02「应该在悬浮窗完成」）：同一份选择器内容
  * 装进 overlay 卡片，不再拉起主 Activity。卡片与按钮照走 ApComponents（UI Kit 口径）。
+ * v223.29.58：透传横屏双栏参数（issue#168 2026-11-11 悬浮球清单），「关闭」按钮
+ * 经 [ApDevicePickerBody.footer] 落到左栏底，不再独自占整行。
  */
 @Composable
-internal fun ApDevicePanel(onClose: () -> Unit) {
+internal fun ApDevicePanel(
+    onClose: () -> Unit,
+    landscape: Boolean = false,
+    listMaxHeightDp: Int = 0,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
     ) {
         ApComponents.Card {
-            Column {
-                ApDevicePickerBody(onDone = onClose)
-                ApComponents.NarrowButton(
-                    text = stringResource(R.string.ui_help_close),
-                    onClick = onClose,
-                )
-            }
+            ApDevicePickerBody(
+                onDone = onClose,
+                landscape = landscape,
+                listMaxHeightDp = listMaxHeightDp,
+                footer = {
+                    ApComponents.NarrowButton(
+                        text = stringResource(R.string.ui_help_close),
+                        onClick = onClose,
+                    )
+                },
+            )
         }
     }
 }

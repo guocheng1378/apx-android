@@ -21,11 +21,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.applyEdgeToEdge
 
 /**
@@ -69,6 +71,10 @@ class SendActivity : ComponentActivity() {
                                 } else {
                                     "点一台设备，然后选要发送的文件（${devices.size} 台在线）"
                                 },
+                                // v223.29.58（issue#168 2026-11-11）：提示居中换行 + 字色与
+                                // 全局次级文案同口径（此前默认色偏黑，和其余页面观感不一）。
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                             )
                             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {

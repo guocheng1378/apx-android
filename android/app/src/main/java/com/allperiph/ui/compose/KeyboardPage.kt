@@ -17,6 +17,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -260,6 +262,7 @@ private fun flipSticky(sticky: Int, bit: Int): Int =
  * @param bottomGap 底部额外让出的高度：浮动底栏（或悬浮键盘面板下沿）盖在键盘上，
  *   最底行的按键必须仍可点。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp) {
     val ctx = LocalContext.current
@@ -319,7 +322,14 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
     // 6 行 × 80dp 封顶居中，余出的整块高度给底部工具行（剪贴板 / 语音 / 灯效）。
     // Compact / Medium（手机竖横屏）行为完全不变：键位区照旧 weight 占满，不画工具行。
     // 走窗口实测宽度（与 ApKeyboardPage 同源判定），不读 configuration（旋转回写滞后一拍）。
-    val expanded = rememberApAdaptiveLayout().width >= 840.dp
+    // issue#168（2026-11-11 手机竖屏清单）：竖屏手机键位区不再 weight 占满整页 ——
+    // 键帽被整页高度拉成巨块（「拉伸变形」）。改为「下方 2/3 键位 + 上方 1/3
+    // 常用快捷键与自定义按键」：键位区 weight 2f，顶部常驻一排快捷键（HotkeyStore，
+    // 与触控板页同一份数据）和一排自定义键（customRows 展平，与「自定义」页签同源），
+    // 都是点击即发的活键，不吃静态占位。横屏与 Medium/Expanded 全部保持原行为。
+    val adaptive = rememberApAdaptiveLayout()
+    val expanded = adaptive.width >= 840.dp
+    val portraitPhone = !adaptive.landscape && adaptive.width < 600.dp
     // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
     var voiceText by remember { mutableStateOf<String?>(null) }
     // 系统语音识别拉起器：主屏键盘页有宿主 Activity 可用；悬浮球 overlay（Service 窗口）
@@ -363,10 +373,13 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
             // 所以 onClick 里给一次 [Feedback.tap]（震 + 声）—— 与 ActionButton / NarrowButton
             // 同口径。此前用的 [Feedback.release] 只出声不震（那是给「已有按下震」的键帽
             // 准备的），页签成了全页手感最弱的可点面（皮肤审查 #2）。
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 2.dp),
+            //
+            // issue#168（2026-11-11 手机竖屏清单）：页签行从「横向滚动」改 **FlowRow 自动换行** ——
+            // 8 个页签 + 灯效芯片在 400dp 宽的竖屏里装不下一行，横滑要「先划再点」两步；
+            // 换行后全部芯片一屏可见、直接点。宽屏一行装得下时 FlowRow 自然仍是单行，
+            // 横屏观感不变。
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 KB_TABS.forEachIndexed { i, res ->
@@ -449,11 +462,14 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                 }
             }
 
-            // —— 第 3 行：当前页签键位（weight 占满剩余高度，行内均分）——
+            // —— 竖屏手机：上方 1/3 给「常用快捷键 + 自定义按键」（点击即发，不吃静态占位）——
+            if (portraitPhone) PortraitQuickStrip(fx = fx)
+
+            // —— 键位区：竖屏手机 weight 2f（下方 2/3），其余形态 weight 占满剩余高度，行内均分 ——
             // §6.3：Expanded 时键位区 heightIn 封顶（480dp ≈ 6 行 × 80dp），外层 Box 垂直居中，
             // 超出封顶的高度留在键位区下方，由下面的工具行占住 —— 键帽不再被拉成巨块。
             Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier.weight(if (portraitPhone) 2f else 1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
@@ -536,6 +552,91 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
                         voiceText = null
                     },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * 竖屏手机键盘页上方 1/3（issue#168 2026-11-11 清单）：「常用快捷键」+「自定义按键」各一行。
+ *
+ * 数据源与动作链路：
+ *  · 快捷键 = [HotkeyStore.load]（与触控板页 HotkeyGrid 同一份 HotkeyStore），
+ *    点击 `HidKeys.combo` 直发组合键 + `bump` 记使用频次 —— 与触控板页点芯片同语义；
+ *  · 自定义按键 = [KeyPref.customRows] 展平（与「自定义」页签同一份行表），
+ *    点击 `HidKeys.tapLabel` 直发 —— 与键位区键帽同一条发送链路。
+ *
+ * 两组各占一行、横向滚动（高度恒定两行文字 + 两行芯片，不随内容数量膨胀，
+ * 否则会反过来把下方 2/3 的键位区吃掉）。空态给既有引导文案，不画假按钮。
+ * 键位区改 2/3 的动机见 [ApFullKeyboard] 里的 portraitPhone 注释。
+ */
+@Composable
+private fun PortraitQuickStrip(fx: Int) {
+    val ctx = LocalContext.current
+    val hotkeys = remember { com.allperiph.hid.HotkeyStore.load(ctx) }
+    val customKeys = remember { KeyPref.customRows(ctx).flatten() }
+    val subColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = ctx.getString(R.string.ui_touchpad_text_hotkey),
+            fontSize = 12.sp,
+            color = subColor,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (hotkeys.isEmpty()) {
+                Text(
+                    text = ctx.getString(R.string.ui_hotkey_empty),
+                    fontSize = 12.sp,
+                    color = subColor,
+                )
+            } else {
+                hotkeys.forEach { combo ->
+                    ApComponents.TabChip(
+                        text = combo.label,
+                        selected = false,
+                        onClick = {
+                            Feedback.tap(ctx)
+                            HidKeys.combo(combo)
+                            com.allperiph.hid.HotkeyStore.bump(ctx, combo)
+                        },
+                        fx = fx,
+                    )
+                }
+            }
+        }
+        Text(
+            text = ctx.getString(R.string.ui_kb_tab_custom),
+            fontSize = 12.sp,
+            color = subColor,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (customKeys.isEmpty()) {
+                Text(
+                    text = ctx.getString(R.string.ui_kb_custom_empty_hint),
+                    fontSize = 12.sp,
+                    color = subColor,
+                )
+            } else {
+                customKeys.forEach { label ->
+                    ApComponents.TabChip(
+                        text = label,
+                        selected = false,
+                        onClick = {
+                            Feedback.tap(ctx)
+                            HidKeys.tapLabel(label)
+                        },
+                        fx = fx,
+                    )
+                }
             }
         }
     }

@@ -97,7 +97,10 @@ class CameraPushActivity : ComponentActivity() {
         statusView = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 14f
-            setPadding(36, 26, 36, 26)
+            // v223.29.58（issue#168 2026-11-11）：提示文字居中，左右加厚留白——
+            // 圆角屏边角会裁到贴边长句，居中 + 更宽 padding 都避开。
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(48, 26, 48, 26)
             setBackgroundColor(0x99000000.toInt())
         }
         setContentView(FrameLayout(this).apply {

@@ -1919,7 +1919,11 @@ class FloatingBallService : Service() {
             val fraction = if (wpx > hpx) 0.66f else 0.52f
             (hpx * fraction).toInt()
         }
-        expandComposePanel(height, resizable = PanelSize.KEYBOARD) {
+        // issue#168（2026-11-11 悬浮球清单）：悬浮键盘**铺底**。此前按「键帽浮在透明上」
+        // 不铺 paintBg，悬浮键盘直接叠在原应用上，键帽标签与底下的内容混在一起看不清
+        //（用户原话「加一个背景，避免上方文字对比度过低看不清」）。铺底让整块键盘
+        // 有 surfaceContainer 实底，对比度回归正常；把手仍在顶部（resizable 面板同款）。
+        expandComposePanel(height, resizable = PanelSize.KEYBOARD, paintBg = true) {
             ApFullKeyboard(onClose = { collapse() }, bottomGap = 0.dp)
         }
     }
@@ -1975,8 +1979,16 @@ class FloatingBallService : Service() {
 
     /** 悬浮设备选择：[ApDevicePanel] 与主屏选择器同一份内容（TvDiscovery 广播列表），选中即连。 */
     private fun expandDevices() {
+        // issue#168（2026-11-11 悬浮球清单）：横屏改左右双栏 —— 左=被控模式开关 + 关闭，
+        // 右=最近连接 + 扫描列表（超高可滚 + 右侧滚动条）。横竖按**屏幕实宽实高**判，
+        // overlay 窗口没有 Configuration 可依赖。
+        val (wpx, hpx) = realScreenSize()
+        // 右列限高：overlay 是 WRAP_CONTENT 窗口，面板拿不到可靠窗高，按屏幕实高折算
+        // 传入（约 0.55 屏，给左栏操作区留足空间）；竖屏单列不限高（传 0）。
+        val density = resources.displayMetrics.density
+        val listMaxDp = if (wpx > hpx) ((hpx / density) * 0.55f).toInt() else 0
         expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT) {
-            ApDevicePanel(onClose = { collapse() })
+            ApDevicePanel(onClose = { collapse() }, landscape = wpx > hpx, listMaxHeightDp = listMaxDp)
         }
     }
 

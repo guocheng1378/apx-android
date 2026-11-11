@@ -6,12 +6,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,7 +41,10 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -594,6 +602,52 @@ object ApComponents {
                 fontSize = textSize,
                 color = if (tint != null) Color.White else fg,
                 textAlign = TextAlign.Center,
+            )
+        }
+    }
+
+    /**
+     * 竖向滚动条（issue#168 2026-11-11「显示不下时加滑动条」）：贴在滚动区左缘或右缘的
+     * 细滚动条，thumb 长度按「可视 / 总内容」比例，拖动 thumb 直接驱动 [scrollState]。
+     * 内容不超高（maxValue ≤ 0）时整根不画，调用方无需自己判断是否显示。
+     *
+     * 为什么自己画而不是用 Modifier.verticalScrollbar 之类的现成件：Compose 1.7 没有
+     * 稳定的竖向滚动条 API（ScrollbarStyle 只在桌面端），而触控板页快捷键区 / 设备
+     * 面板都要「看得见的滑动条」，这里收成一个最小组件供两处共用。
+     */
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    fun VScrollbar(
+        scrollState: androidx.compose.foundation.ScrollState,
+        modifier: Modifier = Modifier,
+        alignEnd: Boolean,
+    ) {
+        if (scrollState.maxValue <= 0) return
+        val density = LocalDensity.current
+        BoxWithConstraints(modifier = modifier) {
+            val trackPx = with(density) { maxHeight.toPx() }
+            val range = scrollState.maxValue.toFloat()
+            // thumb 高度 = 轨道 × 可视占比（viewport / (viewport + 可滚范围)）
+            val thumbPx = (trackPx * trackPx / (trackPx + range)).coerceAtLeast(24f)
+            val yMax = (trackPx - thumbPx).coerceAtLeast(1f)
+            Box(
+                modifier = Modifier
+                    .then(
+                        if (alignEnd) Modifier.align(Alignment.CenterEnd)
+                        else Modifier.align(Alignment.CenterStart),
+                    )
+                    .offset { IntOffset(0, ((scrollState.value / range) * yMax).toInt()) }
+                    .width(4.dp)
+                    .height(with(density) { thumbPx.toDp() })
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.30f))
+                    .pointerInput(range, yMax) {
+                        // 拖 thumb 换算成滚动量；dispatchRawDelta 不挂协程，拖动零延迟
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            scrollState.dispatchRawDelta(drag.y * range / yMax)
+                        }
+                    },
             )
         }
     }

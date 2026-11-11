@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
@@ -86,8 +87,12 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
                                 text = hintText,
                                 color = Color(0xFFEAEAEA),
                                 fontSize = 12.sp,
+                                // v223.29.58（issue#168 2026-11-11）：提示整行居中换行，
+                                // 长句不再从中间截成左对齐的两段。
+                                textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
                                     .padding(8.dp),
                             )
                         }
