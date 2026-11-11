@@ -145,8 +145,12 @@ class FloatingBallService : Service() {
          * 隐藏态「三分之一圆弧」几何（issue#168 第 12 条三追）：圆心放在**屏幕外**
          * r/2 处，屏内只能看到正对屏幕的 120°（整圆的三分之一），弧的凸面朝屏幕内、
          * 开口朝屏幕外 —— 比发丝线好点按得多。
+         *
+         * 四追（2026-11-11 15:50「弧度调低一点，圆弧高度为悬浮球直径一致」）：120° 弧段
+         * 的可见高 ≈ 1.732r，加描边与 6dp 窗口余量后要正好等于一颗球的直径（48dp），
+         * 反解 r = (48 − 5 − 6) / 1.732 ≈ 21 —— 比旧值（26）更扁更矮，弧占的高度与球一致。
          */
-        private const val ARC_RADIUS_DP = 26
+        private const val ARC_RADIUS_DP = 21
         private const val ARC_STROKE_DP = 5
 
         /**
@@ -1312,6 +1316,11 @@ class FloatingBallService : Service() {
         dockHidden = true
         v.background = ArcPeekDrawable(dockLeft)
         v.alpha = DOCK_HIDDEN_ALPHA
+        // issue#168 四追（2026-11-11 15:50「贴边成圆弧时不要显示皮肤」）：v223.29.65 起
+        // 拨边**直接**落圆弧、不再经竖条中间态，applyDockShape 里藏图标的那一步被跳过 ——
+        // 球面照片/图标会原样叠在圆弧上。这里与 applyDockShape 同口径补藏；
+        // 恢复圆球走 applyBallShape 的 VISIBLE，不受影响。
+        v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.GONE
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "停靠条收成圆弧失败：${it.message}") }
     }
@@ -1411,6 +1420,10 @@ class FloatingBallService : Service() {
         }
         if (!attachFan(fan)) return
         menu = fan.root
+        // issue#168 四追（2026-11-11 15:50「App 外点球展开时悬浮栏还会显示」）：
+        // 上面 collapse() 在 panel/menu 均为空的瞬间把栏还了回来，而菜单此刻才刚挂上，
+        // 栏就没再被收走 —— 菜单展开后重跑一次显隐收口，把栏按口径收掉。
+        updateBarVisibility()
     }
 
     /** 扇形菜单的「一屏」：包围盒尺寸的根容器 + 它的窗口参数 */
@@ -1849,6 +1862,8 @@ class FloatingBallService : Service() {
         detach(menu)
         menu = null
         fanItems.clear()
+        // 与展开对称：菜单收起后重跑显隐收口（主壳不在前台且没有面板时栏按原口径还回来）
+        updateBarVisibility()
     }
 
     /** 快捷项分发：触控板 / 键盘 / 手柄 / 设备 = 浮窗面板（就地完成）；文件与被控台 = 完整页面（startActivity）；退出与连接模式 = 服务内处理 */

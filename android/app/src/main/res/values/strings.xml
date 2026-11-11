@@ -224,6 +224,8 @@
     <string name="ui_ball_menu_mode_on">已开启 %1$s</string>
     <string name="ui_ball_menu_mode_off">已关闭 %1$s</string>
     <string name="ui_ball_menu_quit_done">外设服务已停止</string>
+    <!-- 相册皮肤落盘失败（云端图 / 受限图解码不成功）的可见反馈，不再静默（issue#168 四追） -->
+    <string name="ui_ball_skin_photo_fail">图片读取失败，请换一张本机图片试试</string>
 
     <!--
       v223.15 MIUI 快捷球：扇形菜单的快捷项文案 + 设置页「悬浮球功能」多选。

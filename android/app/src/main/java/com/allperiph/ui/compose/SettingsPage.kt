@@ -828,6 +828,12 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             ballIcon = BallIcon.CUSTOM
                             FloatingBallService.applyIcon(ctx)
                             Feedback.haptic(ctx)
+                        } else if (uri != null) {
+                            // 相册皮肤落盘失败（云端图 / 受限图解码不成功）：此前静默返回，
+                            // 用户看到的就是「选了没反应、皮肤没生效」—— 给个可见反馈
+                            android.widget.Toast.makeText(
+                                ctx, R.string.ui_ball_skin_photo_fail, Toast.LENGTH_SHORT,
+                            ).show()
                         }
                     }
                     Text(
