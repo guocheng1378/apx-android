@@ -41,6 +41,7 @@ import com.allperiph.shared.net.FileSender
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import top.yukonga.miuix.kmp.basic.Text
@@ -140,7 +141,16 @@ class FilePanelActivity : ComponentActivity() {
                 setContent {
                     ApMiuixTheme {
                         val adaptive = rememberApAdaptiveLayout()
-                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        // issue#168 三追（2026-11-11 06:10「文件面板没避开状态栏」）：
+                        // edge-to-edge 后内容自垫 —— 顶部垫状态栏（此前标题顶进状态栏）、
+                        // 底部垫手势条（下方按钮不再压着小白条）。
+                        val insets = rememberApInsets()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = insets.top, bottom = insets.bottom)
+                                .padding(12.dp),
+                        ) {
                             Text(
                                 text = getString(R.string.ui_filepanel_text_file),
                                 fontSize = 20.sp,
@@ -408,24 +418,33 @@ class FilePanelActivity : ComponentActivity() {
         }
     }
 
-    /** 底部「发本机其它文件」大按钮（v1 原样，仅抽成函数给两种布局共用） */
+    /**
+     * 底部「发本机其它文件」大按钮（v1 原样，仅抽成函数给两种布局共用）。
+     * issue#168 三追（2026-11-11 06:10）：按钮此前拉满整行，按用户要求改为
+     * **按文字长度自适应宽**（内容包一行内边距，不再 fillMaxWidth），居中摆放；
+     * 「抬高避小白条」由根 Column 的底部 insets 垫边统一完成（见 onCreate）。
+     */
     @androidx.compose.runtime.Composable
     private fun pickButton() {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(colorResource(R.color.overlay_accent))
-                .clickable { pickFromSystem() }
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = getString(R.string.ui_filepanel_send_pick),
-                fontSize = 14.sp,
-                color = colorResource(R.color.overlay_on_accent),
-            )
+            Box(
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(colorResource(R.color.overlay_accent))
+                    .clickable { pickFromSystem() }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = getString(R.string.ui_filepanel_send_pick),
+                    fontSize = 14.sp,
+                    color = colorResource(R.color.overlay_on_accent),
+                )
+            }
         }
     }
 

@@ -142,13 +142,6 @@ class FloatingBallService : Service() {
         private const val BAR_H_DP = 50
 
         /**
-         * 停靠自动隐藏（issue#168 建议 12）：停靠条 **5 秒无操作**后自动收成
-         * 「三分之一圆弧」—— 比停靠条更小更透，几乎不占视觉，但热区仍是这段弧，
-         * 点击能把球找回来。（第 12 条三追：发丝线不好点按，按用户要求改圆弧。）
-         */
-        private const val DOCK_HIDE_DELAY_MS = 5_000L
-
-        /**
          * 隐藏态「三分之一圆弧」几何（issue#168 第 12 条三追）：圆心放在**屏幕外**
          * r/2 处，屏内只能看到正对屏幕的 120°（整圆的三分之一），弧的凸面朝屏幕内、
          * 开口朝屏幕外 —— 比发丝线好点按得多。
@@ -325,13 +318,17 @@ class FloatingBallService : Service() {
 
         /**
          * 主壳前后台通知（issue#168 2026-11-10 22:46）：主壳在前台时收起服务层悬浮栏 ——
-         * 壳内低栏承担同一职能（导航 + 快捷入口），两套栏同屏只会互相打架；
-         * 离开主壳（桌面 / 其它应用）即还栏。由 ApShellActivity 的 onResume/onPause 调。
+         * 壳内低栏承担同一职能（导航 + 快捷入口），两套栏同屏只会互相打架。
+         * 三追（2026-11-11 06:10）：「退出 App 自动显示」的方案归悬浮球 —— 球本来就
+         * 常驻（面板收起即还），退壳（fg=false）**不再**自动还栏，否则用户每次退出
+         * 应用都被悬浮栏顶上来；进壳（fg=true）仍收栏。悬浮栏退为服务起点 / 面板
+         * 收起时的桌面快捷入口。由 ApShellActivity 的 onResume/onPause 调。
          * 服务不在（球没开）时 no-op —— 栏与球同服务同生命周期，用户侧没有独立开关。
          */
         fun notifyShellForeground(fg: Boolean) {
             val svc = live ?: return
             svc.shellForeground = fg
+            if (!fg) return
             svc.updateBarVisibility()
         }
 
@@ -726,7 +723,8 @@ class FloatingBallService : Service() {
             Log.w(TAG, "悬浮球挂载失败：开关位保持 true，设置页会显示「已开启但未显示」")
         }
         // 服务层悬浮栏（issue#168 22:46）：与球同服务、同生命周期，用户侧没有关闭开关；
-        // 主壳前台时由 [notifyShellForeground] 收（壳内低栏顶班），离开主壳即还。
+        // 主壳前台时由 [notifyShellForeground] 收（壳内低栏顶班）。三追（2026-11-11
+        // 06:10）：退壳不再自动还栏（「自动显示」归球），栏只在服务起点挂上。
         if (addDockBar()) updateBarVisibility()
         val (sw0, sh0) = realScreenSize()
         lastScreenW = sw0
@@ -949,19 +947,13 @@ class FloatingBallService : Service() {
                     private var canceled = false
                     override fun onAnimationCancel(a: android.animation.Animator) { canceled = true }
                     override fun onAnimationEnd(a: android.animation.Animator) {
-                        // 按下取消 / 中途改停靠侧都不再收条
+                        // 按下取消 / 中途改停靠侧都不再收
                         if (canceled || !docked || dockLeft != nearLeft) return
-                        applyDockShape(v, nearLeft)
-                        if (wasDocked) {
-                            // issue#168 建议 12：停靠条被**再次**拨向边缘 = 用户明确
-                            // 说「收起来」—— 不等 5 秒，落位即收成圆弧；从隐藏态
-                            // 拖回边缘也走这，保持隐藏不闪一下。
-                            hideDockShape(v)
-                        } else {
-                            // 首次停靠：半透明立条 + 排 5 秒无操作自动隐藏
-                            v.alpha = DOCK_ALPHA
-                            scheduleDockHide()
-                        }
+                        // issue#168 三追（2026-11-11 06:10）：拨到边缘**直接**收成圆弧，
+                        // 取消「半透明竖条 + 5 秒排程」中间态 —— 用户要的是贴边即圆弧
+                        //（参考截图见该条）。首次停靠与从隐藏态再拨回边缘走同一条路，
+                        // 观感一致；竖条形态只剩拖离边缘归位时的兜底（见下方 wasDocked）。
+                        hideDockShape(v)
                     }
                 })
                 start()
@@ -1235,9 +1227,10 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 栏的显隐收口：主壳前台（壳内低栏顶班）/ 面板展开（栏会被面板压住）时收，
-     * 其余时候在 ——「禁止关闭或隐藏」的口径是**用户侧**没有开关，这里的收放
-     * 都由状态驱动，不提供任何手动关闭入口。
+     * 栏的显隐收口：主壳前台（壳内低栏顶班）/ 面板展开（栏会被面板压住）时收；
+     * 三追（issue#168 2026-11-11 06:10）后，退壳不再经这里自动还栏 —— 本函数的
+     * 还栏只剩服务起点与面板收起两条路。「禁止关闭或隐藏」的口径是**用户侧**
+     * 没有开关，这里的收放都由状态驱动，不提供任何手动关闭入口。
      */
     private fun updateBarVisibility() {
         val want = !shellForeground && panel == null && menu == null
@@ -1269,40 +1262,29 @@ class FloatingBallService : Service() {
     }
 
 
-    // ————————————————————— 停靠自动隐藏（issue#168 建议 12） —————————————————————
+    // ————————————————————— 停靠隐藏态维护（issue#168 三追） —————————————————————
 
     /**
-     * 排一次「5 秒无操作收成圆弧」。
+     * 撤掉待执行的隐藏任务。
      *
-     * 只有两条路进这里：首次停靠落位（[settleAfterDrag] 动画结束）。任何一次触摸
-     * 都在 ACTION_DOWN 先撤（[cancelDockHide]），所以「无操作」由触摸驱动自然成立；
-     * 菜单 / 面板展开期间球已被收起（addBall 未挂），回调里的多重条件保证不误伤。
+     * v223.29.65 起贴边即圆弧（issue#168 三追 2026-11-11 06:10），「5 秒无操作
+     * 自动收弧」的排程已随竖条中间态一起取消；本函数保留为空跑安全网 ——
+     * 触摸（ACTION_DOWN）、恢复圆球、形态切换前照常先撤，万一将来再引入
+     * 排程也不会漏撤。
      */
-    private fun scheduleDockHide() {
-        cancelDockHide()
-        val task = Runnable {
-            dockHidePending = null
-            val v = ball ?: return@Runnable
-            if (docked && !dockHidden && ballAttached && menu == null && panel == null) {
-                hideDockShape(v)
-            }
-        }
-        dockHidePending = task
-        dockHideHandler.postDelayed(task, DOCK_HIDE_DELAY_MS)
-    }
-
-    /** 撤掉待执行的隐藏任务；触摸、恢复圆球、形态切换前都要先撤，防状态错乱 */
     private fun cancelDockHide() {
         dockHidePending?.let { dockHideHandler.removeCallbacks(it) }
         dockHidePending = null
     }
 
     /**
-     * 停靠条 → 三分之一圆弧（issue#168 第 12 条三追）。
+     * 停靠 → 三分之一圆弧（issue#168 第 12 条三追；2026-11-11 06:10 再追）。
      *
      * 用户反馈发丝线太难点按、对比度太低，改为：弧心在**屏幕外** r/2 处，屏内只露出
      * 正对屏幕的 120°（整圆的三分之一），凸面朝屏幕内、开口朝屏幕外，点按热区比发丝
-     * 线大得多。条心（圆弧中心）不动：按当前条中心换算新窗口 y，收拢一瞬不会上下跳。
+     * 线大得多。再追（同日 06:10）：贴边停靠不再经竖条中间态，拨到边缘**直接**落成
+     * 本形态；弧的最近可见点离屏幕边缘留 **2px** 缝，不再贴死（用户参考图口径）。
+     * 弧心（原条心）高度不动：按当前中心换算新窗口 y，收拢一瞬不会上下跳。
      * 找回只认**单击**（直落 `docked -> undock`）；「往屏内拖」已按第 12 条三追取消。
      */
     private fun hideDockShape(v: View) {
@@ -1316,9 +1298,12 @@ class FloatingBallService : Service() {
         val w = r / 2 + stroke + dp(4)
         // 可见弧高 = 2·r·sin(60°) ≈ 1.73r，加描边余量
         val h = (2 * r * 0.866f).toInt() + stroke + dp(6)
+        // issue#168 三追：窗口整体往屏内让 2px，弧两端（可见描边离屏缘最近的点）
+        // 与屏幕边缘之间留出这道缝；右侧镜像同口径。
+        val gap = dp(2)
         lp.width = w
         lp.height = h
-        lp.x = if (dockLeft) 0 else (dm.widthPixels - left - w).coerceAtLeast(0)
+        lp.x = if (dockLeft) gap else ((dm.widthPixels - left - w) - gap).coerceAtLeast(0)
         // 同 applyDockShape：cy 是屏幕坐标，lp.y 是父框坐标，先减 top（v223.29.49 修）
         lp.y = (cy - top - h / 2f).toInt().coerceIn(0, (dm.heightPixels - top - h).coerceAtLeast(0))
         dockHidden = true

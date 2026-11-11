@@ -898,7 +898,9 @@ class ApShellActivity : ComponentActivity() {
 
     override fun onPause() {
         com.allperiph.ui.ClipboardSync.unregister(this)
-        // 离开主壳即还栏：服务层悬浮栏是「桌面 / 其它应用里」的操控面入口（见 onResume）。
+        // 进壳收栏（见 onResume）；三追（issue#168 2026-11-11 06:10）后退壳不再
+        // 自动还栏 —— 「退出 App 自动显示」归悬浮球（onStop 的 restoreBallIfNeeded
+        // 已兜底），栏退为服务起点 / 面板收起时的桌面快捷入口。
         runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(false) }
         super.onPause()
     }
