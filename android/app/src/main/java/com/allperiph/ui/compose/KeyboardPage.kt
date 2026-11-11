@@ -573,8 +573,10 @@ internal fun ApFullKeyboard(onClose: (() -> Unit)? = null, bottomGap: Dp = 0.dp)
 @Composable
 private fun PortraitQuickStrip(fx: Int) {
     val ctx = LocalContext.current
+    // Feedback.tap 收 View 不收 Context（与 ApFullKeyboard 的 host 同口径）
+    val host = LocalView.current
     val hotkeys = remember { com.allperiph.hid.HotkeyStore.load(ctx) }
-    val customKeys = remember { KeyPref.customRows(ctx).flatten() }
+    val customKeys = remember { KeyPref.customRows(ctx).orEmpty().flatten() }
     val subColor = MiuixTheme.colorScheme.onSurfaceVariantSummary
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
@@ -601,7 +603,7 @@ private fun PortraitQuickStrip(fx: Int) {
                         text = combo.label,
                         selected = false,
                         onClick = {
-                            Feedback.tap(ctx)
+                            Feedback.tap(host)
                             HidKeys.combo(combo)
                             com.allperiph.hid.HotkeyStore.bump(ctx, combo)
                         },
@@ -631,7 +633,7 @@ private fun PortraitQuickStrip(fx: Int) {
                         text = label,
                         selected = false,
                         onClick = {
-                            Feedback.tap(ctx)
+                            Feedback.tap(host)
                             HidKeys.tapLabel(label)
                         },
                         fx = fx,

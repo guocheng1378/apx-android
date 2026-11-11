@@ -242,6 +242,9 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 row.forEach { (index, slots) ->
+                    // packBySlots 只回「条目下标 + 占位数」；芯片本体仍取 items[index]，
+                    // 与拖拽 cells / drop 用同一份下标，排序逻辑零改动。
+                    val combo = items[index]
                     val dragging = dragIndex == index
                     Box(
                         modifier = Modifier
