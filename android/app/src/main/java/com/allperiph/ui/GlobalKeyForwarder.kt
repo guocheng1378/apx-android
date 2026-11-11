@@ -98,6 +98,7 @@ internal object GlobalKeyForwarder {
      */
     fun resetKeys() {
         heldMods = 0
+        PhysKeyRepeat.cancel()
         if (ready()) HidKeys.releaseNow()
     }
 
@@ -147,22 +148,18 @@ internal object GlobalKeyForwarder {
         val usage = HidKeyOverrides.resolve(event.keyCode, HidKeyMap.usageOf(event.keyCode))
         if (usage == 0) return false
 
-        // ④ 发送：与 PhysKeyBridge ⑤ 逐条对齐 —— 首次按下「按住不放」，抬起才释放；
-        //    无线 9511 下对端不会自己重复，每次自动重复补一对「释放 → 按下」造边沿；
-        //    USB / 蓝牙 HID 下对端是真键盘设备，重复由对端系统负责，这里忽略。
-        //    （此前这里写的是 HidKeys.combo：60ms 自动释放被重复事件续期，
-        //     只能出第一个字符，且永远不发抬起 —— issue #52「无线长按只出一个字符」。）
+        // ④ 发送：与 PhysKeyBridge ⑤ 逐条对齐 —— 长按连发改用自驱节奏（PhysKeyRepeat，
+        //    与屏上键帽同套：400ms 起、55ms 一拍、先清再发），不再依赖无障碍通路把
+        //    系统重复帧送上门（实测会丢，退后台时尤其如此）；
+        //    系统重复帧（repeatCount > 0）只消费不处理，避免与自驱节奏叠加翻倍。
         val combo = HidKeys.Combo("", heldMods or HidKeyMap.metaMod(event.metaState), usage)
         if (action == KeyEvent.ACTION_DOWN) {
             if (event.repeatCount == 0) {
-                HidKeys.hold(combo)
-            } else if (Uplink.current == Uplink.WIRELESS) {
-                HidKeys.releaseNow()
-                HidKeys.hold(combo)
+                PhysKeyRepeat.start(combo)
             }
         } else {
             // issue#168 第 7 条：只松开抬起的这颗键，快速打字两键交叠不再互相顶掉
-            HidKeys.releaseHold(usage)
+            PhysKeyRepeat.stop(usage)
         }
         return true
     }

@@ -110,11 +110,14 @@ object RootPointerBridge {
         if (r.start()) {
             reader = r
             active = true
+            // 独占拦截与否在 start() 内已同步见分晓：全部节点拿到 EVIOCGRAB 才算
+            // 「拦截转发」；有节点落到只转发就如实说明（安卓侧仍会收到移动）。
             lastStatus = c?.getString(
-                R.string.ui_rootpointer_status_on,
+                if (r.interceptedAll) R.string.ui_rootpointer_status_on
+                else R.string.ui_rootpointer_status_forward_only,
                 r.startedNodes.joinToString("、"),
             )
-            Log.i(TAG, "root 直读接管外接触控板（窗口 hover 通路让位）")
+            Log.i(TAG, "root 直读接管外接触控板（窗口 hover 通路让位；拦截=${r.interceptedAll}）")
         } else {
             active = false
             lastStatus = when (r.lastReason) {

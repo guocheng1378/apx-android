@@ -2,9 +2,11 @@ package com.allperiph.touchpad
 
 import android.os.Handler
 import android.os.HandlerThread
+import android.system.Os
 import com.allperiph.shared.util.Log
 import java.io.DataInputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
@@ -17,10 +19,17 @@ import java.util.concurrent.TimeUnit
  *   （App 不在前台时窗口根本收不到 MotionEvent）。要拿一手相对位移只能读
  *   `/dev/input/eventN`（evdev），而那是 root 才能读的字符设备。
  *
- * ⚠️ 读法必须是 `su -c cat <节点>`：App 进程本身即使拿到了 root 授权，也只是
- *   「可以调用 su」，并不等于自己拥有打开该字符设备的权限 —— 直接
- *   `File("/dev/input/eventN").inputStream()` 会 EACCES。所以从 su 子进程的
- *   stdout 读裸二进制流（struct input_event 固定 24 字节）。
+ * ⚠️ 打开节点需要权限：App 进程本身即使拿到了 root 授权，也只是「可以调用 su」，
+ *   并不等于自己拥有打开该字符设备的权限 —— 直接 `File("/dev/input/eventN").inputStream()`
+ *   会 EACCES。所以先 `su -c chmod 666` 放权限，再本进程打开。
+ *
+ * v223.29.66 补「输入没拦截」的大头（issue#168 三追第 4 条）：
+ *   **EVIOCGRAB 独占**。旧通路 `su -c cat <节点>` 只是抄一份事件 —— 内核照样把
+ *   事件派给安卓输入子系统，触控板一边转发一边操作手机屏幕，用户根本没法验证。
+ *   现在启动时 root 放权限 → 本进程打开 → `ioctl(EVIOCGRAB)` 独占：内核从此不再
+ *   把该设备的事件派给其它读者（安卓光标在内），输入只走本进程 → 电脑。
+ *   独占失败（如 SELinux 拦打开）的节点落回 root-cat 通路（只转发、不拦截），
+ *   界面按 [interceptedAll] 如实区分两种状态，不装成功。
  *
  * v223.29.63 修「实测未生效」（issue #52 二轮反馈）的两个硬缺口：
  *   1. **设备表读取也走 su**：`/proc/bus/input/devices` 在不少系统上对普通进程
@@ -79,6 +88,21 @@ class EvdevPointerReader(
 
         /** struct input_event 在 64 位 Android 上：8B timeval + 2B type + 2B code + 4B value */
         private const val EVENT_SIZE = 24
+
+        /**
+         * EVIOCGRAB 的 ioctl 号（issue#168 三追第 4 条「拦截转发」的核心）：
+         * `_IOC(_IOC_WRITE, 'E', 0x90, sizeof(int))` = 0x40044590。对一个已打开的
+         * evdev 节点发它，内核从此**不再把该设备的事件派给其它读者** —— 安卓输入
+         * 子系统（光标、点击）在内。这就是「读 ≠ 消费」问题的解：旧通路 `su -c cat`
+         * 只是抄一份事件，安卓照收，触控板照样操作手机屏幕。
+         */
+        private const val EVIOCGRAB = 0x40044590
+        private const val GRAB_ON = 1
+        private const val GRAB_OFF = 0
+
+        /** 设备节点的标准权限（root:input 660）：拦截开始前放成 666、停止时还原 */
+        private const val NODE_MODE_OPEN = "666"
+        private const val NODE_MODE_RESTORE = "660"
 
         /** 启动失败原因（[RootPointerBridge] 翻成用户可读的提示，界面不装成功） */
         const val REASON_NO_ROOT = "no_root"
@@ -192,6 +216,18 @@ class EvdevPointerReader(
     private var handler: Handler? = null
     private val procs = ArrayList<Process>()
 
+    /**
+     * 已独占拦截的节点与打开流（EVIOCGRAB 持有中；stop 时逐个解除并还原权限）。
+     * 独占后内核不再把该设备派给安卓输入子系统 —— 触控板不再操作手机屏幕。
+     * 注意代价：拦截是「全程」的，电脑侧出口没就绪时 [RootPointerBridge.feed] 会
+     * 丢弃事件，触控板在「开启直读但没连电脑」期间不会有任何反应 —— 重连即恢复。
+     */
+    private val grabbed = ArrayList<Pair<File, FileInputStream>>()
+
+    /** 全部节点都拿到独占拦截（true）= 真正的「拦截转发」；false = 有节点落到只转发 */
+    var interceptedAll: Boolean = false
+        private set
+
     /** 启动失败原因（null = 启动成功或还没试过）；设置页据此如实提示 */
     var lastReason: String? = null
         private set
@@ -220,9 +256,23 @@ class EvdevPointerReader(
         val ht = HandlerThread("apx-evdev").also { it.start() }
         thread = ht
         handler = Handler(ht.looper)
-        for (f in found) handler?.post { readLoop(f.path) }
+        // 拦截走同步（启动一次每节点约 1s 的 su chmod + open + ioctl，设置页本来就在
+        // 等扫描的 su 返回，可接受）：拿到的流交后台线程读；拿不到的节点落回旧
+        // root-cat 通路（只转发、不拦截，安卓侧仍会收到 —— 界面会如实说明）。
+        val grabbedNow = ArrayList<File>()
+        for (f in found) {
+            val stream = grabDevice(f.path)
+            if (stream != null) {
+                synchronized(grabbed) { grabbed.add(f.path to stream) }
+                grabbedNow.add(f.path)
+                handler?.post { parseStream(stream, f.path.name) }
+            } else {
+                handler?.post { readRootCat(f.path) }
+            }
+        }
         startedNodes = found.map { it.path.name }
-        Log.i(TAG, "evdev 直读启动：${startedNodes.joinToString()}")
+        interceptedAll = grabbedNow.size == found.size
+        Log.i(TAG, "evdev 直读启动：${startedNodes.joinToString()}（${if (interceptedAll) "全部独占拦截" else "部分/全部仅转发，未独占"}）")
         return true
     }
 
@@ -232,6 +282,20 @@ class EvdevPointerReader(
             for (p in procs) runCatching { p.destroy() }
             procs.clear()
         }
+        // 逐个解除独占、关流、还原设备权限（重启也会还原，但主动还原不留尾巴）
+        synchronized(grabbed) {
+            for ((f, stream) in grabbed) {
+                try {
+                    Os.ioctl(stream.fd, EVIOCGRAB, GRAB_OFF)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "解除独占失败（关流后内核会自行释放）：${t.message}")
+                }
+                runCatching { stream.close() }
+                runSu("chmod $NODE_MODE_RESTORE ${f.absolutePath}")
+            }
+            grabbed.clear()
+        }
+        interceptedAll = false
         thread?.quitSafely()
         thread = null
         handler = null
@@ -249,17 +313,68 @@ class EvdevPointerReader(
         false
     }
 
-    /** 起 `su -c cat <节点>`，从其 stdout 阻塞读事件 */
-    private fun readLoop(f: File) {
+    /** 起一个 root 子进程跑单条命令（放/收设备节点权限用）：只等结束，不取输出 */
+    private fun runSu(cmd: String) {
+        try {
+            val pr = ProcessBuilder("su", "-c", cmd).redirectErrorStream(false).start()
+            if (!pr.waitFor(3, TimeUnit.SECONDS)) {
+                runCatching { pr.destroy() }
+            } else {
+                runCatching { pr.inputStream.readBytes() } // 排空管道，防个别 su 实现卡写端
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "su 执行失败：$cmd ${t.message}")
+        }
+    }
+
+    /**
+     * 独占拦截通路：root 放节点权限 → 本进程打开 → EVIOCGRAB 抢占。
+     * 抢占成功返回保持打开的流（内核从此不把该设备派给其它读者，含安卓光标）；
+     * 失败（SELinux 拦打开、设备被别人占着等）返回 null，由调用方落到
+     * [readRootCat] 兜底 —— 那条能转发、不能拦截，界面会如实区分。
+     */
+    private fun grabDevice(f: File): FileInputStream? {
+        try {
+            runSu("chmod $NODE_MODE_OPEN ${f.absolutePath}")
+            val stream = FileInputStream(f)
+            try {
+                Os.ioctl(stream.fd, EVIOCGRAB, GRAB_ON)
+            } catch (t: Throwable) {
+                runCatching { stream.close() }
+                throw t
+            }
+            Log.i(TAG, "已独占拦截 ${f.name}（安卓侧不再收到该设备事件）")
+            return stream
+        } catch (t: Throwable) {
+            Log.i(TAG, "独占拦截不可用，退回只转发：${f.name} ${t.message}")
+            runSu("chmod $NODE_MODE_RESTORE ${f.absolutePath}")
+            return null
+        }
+    }
+
+    /** 旧通路：`su -c cat <节点>` 只抄一份事件（能转发、不能拦截）—— 拦截失败时的兜底 */
+    private fun readRootCat(f: File) {
         var proc: Process? = null
-        var stream: InputStream? = null
         try {
             proc = ProcessBuilder("su", "-c", "cat ${f.absolutePath}")
                 .redirectErrorStream(false)
                 .start()
             synchronized(procs) { procs.add(proc) }
-            stream = proc.inputStream
-            DataInputStream(stream.buffered()).use { ins ->
+            parseStream(proc.inputStream, f.name)
+        } finally {
+            runCatching { proc?.destroy() }
+            synchronized(procs) { procs.remove(proc) }
+        }
+    }
+
+    /**
+     * 事件解析主循环（两条通路共用）：从 [ins] 阻塞读 24 字节 struct input_event，
+     * 拆出位移 / 按键 / 滚轮。拦截通路读的是本进程 fd，root-cat 通路读的是子进程 stdout，
+     * 字节排布相同（见 [EVENT_SIZE]）。
+     */
+    private fun parseStream(ins: InputStream, nodeName: String) {
+        try {
+            DataInputStream(ins.buffered()).use { stream ->
                 val buf = ByteArray(EVENT_SIZE)
                 // REL 通路（鼠标）：mickey 直接累加
                 var pdx = 0; var pdy = 0; var pwheel = 0; var ppan = 0
@@ -274,7 +389,7 @@ class EvdevPointerReader(
                 while (running) {
                     var read = 0
                     while (read < EVENT_SIZE) {
-                        val n = ins.read(buf, read, EVENT_SIZE - read)
+                        val n = stream.read(buf, read, EVENT_SIZE - read)
                         if (n < 0) return
                         read += n
                     }
@@ -337,11 +452,7 @@ class EvdevPointerReader(
                 }
             }
         } catch (t: Throwable) {
-            if (running) Log.w(TAG, "evdev 读取结束 ${f.name}：${t.message}")
-        } finally {
-            runCatching { proc?.destroy() }
-            synchronized(procs) { procs.remove(proc) }
-            runCatching { stream?.close() }
+            if (running) Log.w(TAG, "evdev 读取结束 $nodeName：${t.message}")
         }
     }
 

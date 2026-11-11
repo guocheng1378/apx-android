@@ -103,6 +103,7 @@ internal class PhysKeyBridge(private val act: Activity) {
      */
     fun releaseStuckKeys() {
         heldMods = 0
+        PhysKeyRepeat.cancel()
         HidKeys.releaseNow()
     }
 
@@ -155,22 +156,17 @@ internal class PhysKeyBridge(private val act: Activity) {
         val usage = usageOf(event.keyCode)
         if (usage == 0) return false
 
-        // ⑤ 发送
+        // ⑤ 发送（长按连发自驱：与屏上键帽同一套 400ms 起 / 55ms 一拍的节奏，
+        //    不再依赖系统重复事件与对端原生重复 —— 见 PhysKeyRepeat 类注释）
         val combo = HidKeys.Combo("", heldMods or metaMod(event.metaState), usage)
         if (action == KeyEvent.ACTION_DOWN) {
             if (event.repeatCount == 0) {
-                // 首次按下：按住不放，直到 ACTION_UP 才释放（长按/按住 Shift 连续选字都对）
-                HidKeys.hold(combo)
-            } else if (Uplink.current == Uplink.WIRELESS) {
-                // 无线：对端收到的是合成注入事件，不会自己重复 —— 每来一次自动重复，
-                // 先清一次再按下，造出真实的边沿 = 对端出一个字符。
-                HidKeys.releaseNow()
-                HidKeys.hold(combo)
+                PhysKeyRepeat.start(combo)
             }
-            // USB / 蓝牙 HID：对端是真实键盘设备，按住不放它自己就会重复，这里什么都不做
+            // 系统重复帧（repeatCount > 0）只消费不处理：节奏统一由 PhysKeyRepeat 驱动，
+            // 两套一起跑会翻倍
         } else {
-            // issue#168 第 7 条：只松开抬起的这颗键，快速打字两键交叠不再互相顶掉
-            HidKeys.releaseHold(usage)
+            PhysKeyRepeat.stop(usage)
         }
         return true
     }
