@@ -32,6 +32,7 @@
 // UsbBulkChannel / HidFeature / AlsaPcm 的原生实现需要 POSIX 文件描述符
 #if !defined(_WIN32)
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #define APX_HAVE_POSIX_IO 1
@@ -884,8 +885,11 @@ Java_com_allperiph_core_FfsChannel_nativeClose(JNIEnv*, jclass) {
 //                     成功返回 fd（>0，保持打开且独占中）；失败返回 -errno（<0）。
 //                     注意：open 受 SELinux 约束（chmod 666 只解决 DAC 一半），
 //                     被拦返回 -EACCES，由 Kotlin 侧决定补 sepolicy 规则重试或退回只转发。
-//   evdevRead(fd, buf, off, len) = read(fd, buf+off, len)
-//                     成功返回字节数；对端关闭 / EINTR / EAGAIN 返回 0；其它错误 -errno。
+//   evdevRead(fd, buf, off, len) = poll(fd, POLLIN, 1s) → read(fd, buf+off, len)
+//                     成功返回字节数；超时 / EINTR / EAGAIN 返回 0（读线程借此每秒
+//                     醒一次查退出标志 —— 全审查条 2：原来 read 无限阻塞，stop()
+//                     从另一线程 close fd 是未定义行为，读线程会永久卡死、
+//                     EVIOCGRAB 不解除）；其它错误 -errno。
 //   evdevRelease(fd) = ioctl(EVIOCGRAB, 0) + close(fd)，尽力而为返回 0。
 //
 #if defined(APX_HAVE_POSIX_IO) && defined(APX_HAVE_EVDEV_UAPI)
@@ -913,6 +917,20 @@ Java_com_allperiph_core_ApxNative_evdevRead(JNIEnv* env, jobject, jint fd,
   if (len <= 0) return 0;
   const jsize cap = env->GetArrayLength(buf);
   if (off < 0 || len > cap - off) return -EINVAL;
+  // 先 poll（1s 超时）再 read：读线程每秒醒一次，Kotlin 侧 stop() 置 running=false
+  // 后最多 1s 内退出循环，quitSafely 能收尾、EVIOCGRAB 能解除（见上方契约注释）。
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLIN;
+  pfd.revents = 0;
+  const int pr = ::poll(&pfd, 1, 1000);
+  if (pr == 0) return 0;          // 超时：无数据，调用方循环重入
+  if (pr < 0) {
+    const int e = errno;
+    if (e == EINTR) return 0;
+    return -e;
+  }
+  if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) return -EIO;
   jbyte* p = env->GetByteArrayElements(buf, nullptr);
   if (p == nullptr) return -ENOMEM;
   const ssize_t r = ::read(fd, p + off, static_cast<size_t>(len));
