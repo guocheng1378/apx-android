@@ -3,10 +3,29 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- 物理键盘全局转发（批 U-6，成宇 2026-11-07）：键盘外框 + 键位点 + 空格条。
-         evenOdd：外框与内框之间为实体，内框内除键点/空格条外透空。 -->
+    <!-- 物理键盘全局转发：键盘 + 右上外发箭头（2026-11-12 返工）。
+         旧版与 ic_apx_keyboard 同为纯键盘造型，46dp 快捷项圆里是双胞胎——用户点它
+         想开键盘，弹的却是转发开关（还会提示去无障碍授权），看着像链路断了。
+         新版沿用家族口径（24 视口 / 描边 1.7 / 圆角圆头 / 黑白单色由 tint 着色），
+         机身略收窄给箭头让位，箭头取「分享」语义：从机身右上角指向右上。 -->
+    <!-- 键盘机身：圆角描边矩形（收窄到 x 2.5..16.5） -->
     <path
-        android:fillColor="#FF000000"
-        android:fillType="evenOdd"
-        android:pathData="M3,7 H21 C22.1,7 23,7.9 23,9 V15 C23,16.1 22.1,17 21,17 H3 C1.9,17 1,16.1 1,15 V9 C1,7.9 1.9,7 3,7 Z M4,9 H20 V15 H4 Z M5.5,10.5 H7.5 V12 H5.5 Z M9,10.5 H11 V12 H9 Z M12.5,10.5 H14.5 V12 H12.5 Z M16,10.5 H18 V12 H16 Z M6.5,12.8 H17.5 V14 H6.5 Z" />
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M4.5,8 H14.5 A2,2 0 0 1 16.5,10 V15.5 A2,2 0 0 1 14.5,17.5 H4.5 A2,2 0 0 1 2.5,15.5 V10 A2,2 0 0 1 4.5,8 Z" />
+    <!-- 键位一行（圆帽点）+ 空格条 -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M5.75,11.25 h.01 M8.25,11.25 h.01 M10.75,11.25 h.01 M13.25,11.25 h.01 M5.5,14.75 h8" />
+    <!-- 外发箭头：轴 + 右上角尖（不与机身相接，避开圆角） -->
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M15.8,6.7 L21,1.5 M17.4,1.5 H21 V5.1" />
 </vector>
