@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.ColorStateList
 import android.graphics.PixelFormat
+import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
@@ -549,6 +550,22 @@ class FloatingBallService : Service() {
     }
 
     /**
+     * 转屏重排的第三条通道（2026-11-12「贴边弧悬在第三方应用内容上方」）。
+     *
+     * 前两条通道（[reflowCb] 应用级回调 + [onConfigurationChanged] 组件直调）都挂在
+     * **配置派发**链路上 —— 真机（HyperOS）实测：应用退到后台（本服务是前台服务、
+     * overlay 还亮着）后旋转屏幕，这条派发不保证到达，于是球的绝对像素停在旧方向，
+     * 贴边弧整体悬在第三方应用内容上方。DisplayListener 挂在 DisplayManager 上，
+     * 只要进程活着就随显示器变化直接回调，不经过配置派发链路 —— 这正是它补上的缺口。
+     * 与 [reflowForScreenChange] 的幂等性配合，重复触发无副作用。
+     */
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = reflowForScreenChange()
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) = reflowForScreenChange()
+    }
+
+    /**
      * 服务自身的转屏回调（2026-11-11 成宇「悬浮球收缩后，旋转屏幕会乱跑」）。
      *
      * 原来只依赖 [reflowCb] 这条 app 级注册通道：它挂在应用上下文的回调清单里，
@@ -694,6 +711,12 @@ class FloatingBallService : Service() {
         // v223.29.11：旋转后重新落位（旧版无旋转监听，贴边的球转横屏会漂到屏幕中间）
         runCatching { registerComponentCallbacks(reflowCb) }
             .onFailure { Log.w(TAG, "rotation callback register failed: ${it.message}") }
+        // 2026-11-12：第三条转屏通道（见 [displayListener] 注释）——配置派发在后台不保证
+        // 到达，这里直接听显示器变化。注册失败只降级为「少一条通道」，不挡启动。
+        runCatching {
+            (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                .registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        }.onFailure { Log.w(TAG, "display listener register failed: ${it.message}") }
         isRunning = true
     }
 
@@ -710,6 +733,11 @@ class FloatingBallService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
         runCatching { unregisterComponentCallbacks(reflowCb) }
+        // 与 onCreate 的注册配对（见 [displayListener]）：runCatching 兜住「未注册先注销」
+        runCatching {
+            (getSystemService(Context.DISPLAY_SERVICE) as DisplayManager)
+                .unregisterDisplayListener(displayListener)
+        }
         dockAnim?.cancel()
         live = null
         shutdown()
@@ -819,6 +847,15 @@ class FloatingBallService : Service() {
             }
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    // 自愈兜底（2026-11-12「贴边弧悬在第三方应用内容上方」）：三条转屏通道
+                    // （应用级回调 / 组件直调 / DisplayListener）理论上总有到达的，但
+                    // ROM 冻结或派发缺失没有绝对保证 —— 按住球的那一下必然走到这里，
+                    // 实测尺寸对不上就当场重排，弧/条立刻吸回当前方向的边缘。
+                    // 必须在记录 downWindowX 之前跑：重排会改 lp，落点基准要拿新值。
+                    val (wNow, hNow) = realScreenSize()
+                    if (lastScreenW > 0 && (lastScreenW != wNow || lastScreenH != hNow)) {
+                        reflowForScreenChange()
+                    }
                     // ⚠️ 记录「按下瞬间手指相对窗口左上角」而不是窗口的世界坐标：
                     //    overlay 窗口的 x/y 不带状态栏偏移，rawX/rawY 却带 ——
                     //    直接拿 rawY - y 当偏移，球会一路往屏幕外飘。
