@@ -36,6 +36,7 @@ import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.ApTwoPaneScaffold
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -453,34 +454,41 @@ fun StatusPage(
     }
 
     if (adaptive.twoPane) {
-        // 平板/宽屏双栏：左右各占一半、各自独立滚动；外层统一垫 hPad 边距（与本页
-        // 单栏口径同源），两栏间距 12dp 分隔。右栏 = 模块详情卡 + 链路诊断 + 帮助。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = hPad + insets.left,
-                    end = hPad + insets.right,
-                    top = 8.dp + topBar,
-                    bottom = bottomGap + insets.bottom,
-                ),
-        ) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) { opsSections() }
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(start = 12.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) { detailSections() }
-        }
+        // 平板/宽屏双栏（v223.29.73 统一骨架）：改走 ApTwoPaneScaffold —— 左栏（操作）
+        // 固定 180dp 与设置页同口径、内容竖直居中，右栏（模块详情卡 + 链路诊断 + 帮助）
+        // 吃掉剩余宽度；两栏各自滚动保留，外层统一垫 hPad 边距（与本页单栏口径同源）。
+        // 此前是自拼 weight(1f) 左右各半，与设置页的骨架不一致。
+        ApTwoPaneScaffold(
+            left = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            start = hPad + insets.left,
+                            end = 8.dp,
+                            top = 8.dp + topBar,
+                            bottom = bottomGap + insets.bottom,
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) { opsSections() }
+            },
+            right = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(
+                            start = 12.dp,
+                            end = hPad + insets.right,
+                            top = 8.dp + topBar,
+                            bottom = bottomGap + insets.bottom,
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) { detailSections() }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
     } else {
         // 窄屏单栏：原排版原样（Box + 限宽 + 滚动 + 边距），内容改为两块顺序复用
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

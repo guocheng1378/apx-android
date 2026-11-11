@@ -451,7 +451,7 @@
     <string name="ui_set_adv_expand">展开进阶设置（分模块皮肤 / 键帽密度 / 键位排列）</string>
     <string name="ui_set_adv_collapse">收起进阶设置</string>
     <string name="ui_set_sec_general">通用</string>
-    <string name="ui_set_sec_ball">悬浮栏</string>
+    <string name="ui_set_sec_ball">悬浮球</string>
     <string name="ui_set_sec_tpl">快捷键模板</string>
     <string name="ui_set_sec_files">文件与传输</string>
     <string name="ui_set_sec_remote">键盘与无障碍</string>
@@ -656,4 +656,93 @@
     <string name="ui_module_wifi_audio">Wi‑Fi 音频（音箱 / 麦克风）</string>
     <string name="ui_module_screen">副屏（把电脑画面显示到手机）</string>
     <string name="ui_env_probe_failed">自检失败：%1$s</string>
+    <!-- v223.29.73 UI 审查批次 2：SettingsPage.kt 中文字面量迁移至此 -->
+    <string name="ui_set_bg_updated">背景图已更新</string>
+    <string name="ui_set_label_theme_lightdark">主题明暗</string>
+    <string name="ui_set_pick_image">选择图片</string>
+    <string name="ui_set_clear_bg">清除背景图</string>
+    <string name="ui_set_bg_cleared">已清除</string>
+    <string name="ui_set_skin_follow_theme">跟随主题</string>
+    <string name="ui_set_cursor_lock_title">光标锁定</string>
+    <string name="ui_set_cursor_lock_summary">触控板光标锁定在屏幕内，不贴边滑出</string>
+    <string name="ui_set_shield_title">三指手势遮蔽</string>
+    <string name="ui_set_shield_summary">触控板里三指滑动不再被系统截屏（需 root，退出即还原）</string>
+    <string name="ui_set_localsend_title">LocalSend 互传</string>
+    <string name="ui_set_localsend_summary">开启后在局域网内接收文件</string>
+    <string name="ui_set_localsend_diag">发现通道未就绪（电脑可能看不到这台设备）：关掉再打开一次即可重建</string>
+    <string name="ui_set_ball_show_title">显示悬浮球</string>
+    <string name="ui_set_ball_show_summary">关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响</string>
+    <string name="ui_set_overlay_title">悬浮窗权限</string>
+    <string name="ui_set_overlay_granted">已授予，切后台自动唤起悬浮球可正常生效</string>
+    <string name="ui_set_overlay_denied">未授予：切后台自动唤起悬浮球会被系统拦截，点这里去系统设置授权</string>
+    <string name="ui_set_ball_icons">球面图标</string>
+    <string name="ui_set_album">相册</string>
+    <string name="ui_set_album_btn_title">相册按钮</string>
+    <string name="ui_set_album_btn_summary">悬浮球菜单顶部显示照片按钮：点一次选图（可多选），再点一次发送到电脑，发完自动重置</string>
+    <string name="ui_set_ball_selected">已勾选 %1$d / %2$d</string>
+    <string name="ui_set_hotkey_unset">未设置（默认）</string>
+    <string name="ui_set_file_panel">文件面板</string>
+    <string name="ui_set_send_files">发送文件（LocalSend）</string>
+    <string name="ui_set_screen_ctrl">屏幕（投屏 / 被控）</string>
+    <string name="ui_set_kb_forward_title">物理键盘全局转发</string>
+    <string name="ui_set_kb_forward_summary">接上蓝牙键盘后，按键直接转给被控端（需已连接设备）</string>
+    <string name="ui_set_notify_title">通知同步到电脑</string>
+    <string name="ui_set_notify_summary">手机来通知时，电脑托盘弹出气泡（连接 PC 且对方支持时生效）</string>
+    <string name="ui_set_notify_settings">通知使用权设置</string>
+    <string name="ui_set_open_settings_failed">打开系统设置失败</string>
+    <string name="ui_set_theme_export">导出当前主题（复制到剪贴板）</string>
+    <string name="ui_set_theme_copied">已复制 %1$d 字符</string>
+    <string name="ui_set_theme_none">没有可导出的主题</string>
+    <string name="ui_set_theme_import">从剪贴板导入主题</string>
+    <string name="ui_set_theme_imported">已导入 %1$d 套主题</string>
+    <string name="ui_set_theme_import_empty">剪贴板里没有可识别的主题 JSON</string>
+    <string name="ui_set_tpl_none">还没有自定义模板</string>
+    <string name="ui_set_tpl_none_hint">点下面按钮从内置模板复制一份</string>
+    <string name="ui_set_tpl_apply">应用「%1$s」</string>
+    <string name="ui_set_tpl_applied">已应用：%1$s</string>
+    <string name="ui_set_tpl_move_up">「%1$s」上移</string>
+    <string name="ui_set_tpl_delete">删除「%1$s」</string>
+    <string name="ui_set_tpl_new">从内置模板新建一份可改的</string>
+    <string name="ui_set_tpl_all_copied">内置模板都已经复制过了</string>
+    <string name="ui_set_tpl_custom_suffix">（自定义）</string>
+    <string name="ui_set_tpl_created">已新建：%1$s</string>
+    <string name="ui_set_tpl_copied_desc">由内置模板「%1$s」复制，可改</string>
+    <string name="ui_set_hotkey_default">默认（不转发）</string>
+    <string name="ui_set_hotkey_default_hex">默认（0x%1$02X）</string>
+    <string name="ui_set_hotkey_changed">已改（0x%1$02X）</string>
+    <string name="ui_set_log_buffer_title">缓冲</string>
+    <string name="ui_set_log_buffer_value">%1$d 条（上限 512，超出滚动丢弃）</string>
+    <string name="ui_set_log_level_title">级别筛选</string>
+    <string name="ui_set_log_span_title">时间范围</string>
+    <string name="ui_set_log_view_recent">查看最近日志（当前筛选）</string>
+    <string name="ui_set_log_custom_toggle">自定义文件名 / 子目录（可选）</string>
+    <string name="ui_set_log_file_label">文件名（留空用 apx-logs-log@型号-时间.txt）</string>
+    <string name="ui_set_log_dir_label">子目录（留空用 下载/AllPeriph）</string>
+    <string name="ui_set_log_export_btn">导出日志</string>
+    <string name="ui_set_log_empty">该条件下没有日志</string>
+    <string name="ui_set_log_export_failed">导出失败：%1$s</string>
+    <string name="ui_set_log_clear_btn">清空日志缓冲</string>
+    <string name="ui_set_log_cleared">已清空</string>
+    <string name="ui_set_log_recent_title">最近日志（%1$d 条，上限 200）</string>
+    <string name="ui_set_about_version">当前版本</string>
+    <string name="ui_set_update_dialog_title">检查更新失败</string>
+    <string name="ui_set_update_dialog_msg">网络可能不通（GitHub 直连与镜像均失败）。可手动打开 Release 页下载安装包。</string>
+    <string name="ui_set_update_mirror">国内镜像打开</string>
+    <string name="ui_set_update_github">GitHub 原页</string>
+    <string name="ui_set_update_later">稍后</string>
+    <string name="ui_set_update_latest">已是最新：%1$s</string>
+    <string name="ui_theme_preset_sec_presets">一键主题（命名搭配）</string>
+    <string-array name="ui_set_log_levels">
+        <item>全部（含调试）</item>
+        <item>Debug 以上</item>
+        <item>Info 以上</item>
+        <item>只看警告</item>
+        <item>只看错误</item>
+    </string-array>
+    <string-array name="ui_set_log_spans">
+        <item>最近 5 分钟</item>
+        <item>最近 15 分钟</item>
+        <item>最近 1 小时</item>
+        <item>全部缓冲</item>
+    </string-array>
 </resources>

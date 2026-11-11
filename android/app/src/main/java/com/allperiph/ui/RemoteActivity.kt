@@ -298,10 +298,11 @@ private class RemoteKey(
 private fun RemotePanel(host: RemoteActivity) {
     val insets = rememberApInsets()
     val ctx = LocalContext.current
-    // 方向由 LocalConfiguration 驱动：清单声明了 configChanges（旋转不重建 Activity），
-    // 旋转后 Compose 按新 configuration 重组，整页自动切分栏/竖排（issue#168 第 6 条）。
-    val land = LocalConfiguration.current.orientation ==
-        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // 方向由 ApAdaptive 统一判据驱动（v223.29.73，UI 审查发现 6）：清单声明了 configChanges
+    // （旋转不重建 Activity），此前读 LocalConfiguration 的 orientation 有「回写滞后一拍」的
+    // 已知问题（见 ApAdaptive.kt:72-83 注释），旋转瞬间会按旧方向排一帧 —— 改用
+    // rememberApAdaptiveLayout（LocalWindowInfo 实测窗口尺寸，与布局测量同源）。
+    val land = com.allperiph.ui.miuix.rememberApAdaptiveLayout().landscape
     val tick = host.resumeTick.value
     // 目标行：正在控制谁 / 有没有出口。读内存即时值，随 resumeTick（回前台）刷新。
     val targetText = remember(tick) {
@@ -387,7 +388,7 @@ private fun RemotePanel(host: RemoteActivity) {
             // 依次是电源行 + 三行圆钮 + 提示 + 触摸条（触摸条按屏高 1/4 放大，三追）。
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                    Dial(host = host, modifier = Modifier.fillMaxSize())
+                    Dial(host = host, modifier = Modifier.fillMaxSize(), landIn = land)
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     KeyRow(rows[0], plate = true, modifier = Modifier.fillMaxWidth().weight(0.78f))
@@ -418,7 +419,7 @@ private fun RemotePanel(host: RemoteActivity) {
             // 竖屏：拨盘比功能行高一大截（旧口径 1.7 vs 0.85），剩给三行圆钮与触摸条；
             // 电源行不在竖屏出现（空间被 1/4 屏高触摸条挤占后的三行口径，见类注释）。
             Box(Modifier.fillMaxWidth().weight(1.7f), contentAlignment = Alignment.Center) {
-                Dial(host = host, modifier = Modifier.fillMaxSize())
+                Dial(host = host, modifier = Modifier.fillMaxSize(), landIn = land)
             }
             rows.drop(1).forEachIndexed { i, row ->
                 KeyRow(
@@ -450,7 +451,12 @@ private fun RemotePanel(host: RemoteActivity) {
  * （宽高不等），这里强制正方形兜底。
  */
 @Composable
-private fun Dial(host: RemoteActivity, modifier: Modifier = Modifier) {
+private fun Dial(
+    host: RemoteActivity,
+    modifier: Modifier = Modifier,
+    // v223.29.73：方向由调用方传同一 ApAdaptive 判据（land），不再单独读滞后的 Configuration
+    landIn: Boolean = false,
+) {
     val view = LocalView.current
     BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
         val side = minOf(maxWidth, maxHeight)
@@ -462,9 +468,7 @@ private fun Dial(host: RemoteActivity, modifier: Modifier = Modifier) {
         ) {
             // 四向箭头：贴着环内缘，背景透明（圆环本身就是"按键"的形状）；
             // 点击区固定 44/50dp（issue#168 第 6 条三追后的口径），够手指戳。
-            val arrow = if (LocalConfiguration.current.orientation ==
-                android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            ) 44.dp else 50.dp
+            val arrow = if (landIn) 44.dp else 50.dp
             Arrow(
                 glyph = "▲",
                 tint = MiuixTheme.colorScheme.onSurface,

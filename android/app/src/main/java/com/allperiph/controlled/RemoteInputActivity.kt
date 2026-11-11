@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.LaunchedEffect
@@ -171,11 +172,21 @@ class RemoteInputActivity : ComponentActivity() {
         return ComposeView(this).apply {
             setContent {
                 ApMiuixTheme {
+                    // v223.29.73（UI 审查发现：宽屏适配清单）：本页原来是单列拉满整屏宽，
+                    // 平板/折叠展开上就是被拉宽的竖屏列，触控面巨大难用 —— 宽屏（≥600dp，
+                    // 与 ApAdaptive 的 Medium 起点同口径）限宽 680dp 并水平居中；
+                    // 手机宽度本来 <680dp，限宽不生效，观感与之前一致。
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color(bg)),
+                    ) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color(bg))
-                            .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp),
+                            .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 16.dp)
+                            .widthIn(max = 680.dp)
+                            .align(androidx.compose.ui.Alignment.CenterHorizontally),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -239,6 +250,7 @@ class RemoteInputActivity : ComponentActivity() {
                             Spacer(Modifier.width(12.dp))
                             ActionPill(getString(R.string.ui_common_send), accent) { sendCurrent() }
                         }
+                    }
                     }
                 }
             }

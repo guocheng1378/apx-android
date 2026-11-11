@@ -99,7 +99,11 @@ R_USE = re.compile(
 #   后续新文案仍应优先走 strings.xml。
 # 658 -> 660（issue#168 二轮，未发版）：设置页「相册按钮」开关行内嵌标题与摘要 2 处
 #   （SettingsPage 悬浮球分组，与同组「球面图标」「相册」等既有行内文案同口径）。
-TEXT_BASELINE = 660
+# 660 -> 582（v223.29.73 UI 审查批次 2）：SettingsPage.kt 的 73 处中文字面量全部迁进
+#   strings.xml（ui_set_* 74 条 + 日志筛选两个档位数组）—— 设置页是最后一块大存量，
+#   迁完即锁住战果。日志导出文件头（appendLine 的 # 时间：等）是落盘文件内容而非 UI 文案，
+#   按 v223.18 口径留在 Kotlin，不追求清零。
+TEXT_BASELINE = 582
 
 
 def strip_comments(text):

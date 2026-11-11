@@ -136,7 +136,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
             ApBackdrop.setBgImage(ctx, uri.toString())
             bgUri = uri.toString()
-            Toast.makeText(ctx, "背景图已更新", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, ctx.getString(R.string.ui_set_bg_updated), Toast.LENGTH_SHORT).show()
             // v223.29.6：**不再 onRecreate()**。背景层现在以 `ApBackdrop.rev` 为 key
             // 重读偏好与重新解码（见 rememberApBackdrop），选完图当场就换 —— 不必再把
             // 整个界面重建一遍（成宇 2026-11-04「背景图选择后没反映，要重启」的根治）。
@@ -324,7 +324,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec)) {
                 Column {
                     WindowDropdownPreference(
-                        title = "主题明暗",
+                        title = ctx.getString(R.string.ui_set_label_theme_lightdark),
                         summary = ThemePref.LABELS.getOrElse(themeMode) { "" },
                         items = ThemePref.LABELS,
                         selectedIndex = themeMode,
@@ -356,7 +356,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 皮肤 / 键帽 / 特效 / 震动 / 音效 分散在下面三个分组，换「整体感觉」要改五项。
             // 这里给四套命名搭配，一键写进同一批偏好（ApThemePresets.apply 是唯一写入口，
             // 不新造状态）。套完仍可逐项微调，微调后这里显示「自定义」。
-            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec_presets)) {
                 Column {
                     // 以 applyRev 为 key：套完主题当场重算「当前是这套」，下面的
                     // 键帽/特效/震动/音效四个下拉也一并重读到新档（各自 remember 的 key 同源）。
@@ -493,16 +493,16 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         ),
                     )
                     ApComponents.ActionButton(
-                        text = "选择图片",
+                        text = ctx.getString(R.string.ui_set_pick_image),
                         onClick = { bgPicker.launch(arrayOf("image/*")) },
                     )
                     if (bgUri.isNotBlank()) {
                         ApComponents.ActionButton(
-                            text = "清除背景图",
+                            text = ctx.getString(R.string.ui_set_clear_bg),
                             onClick = {
                                 ApBackdrop.setBgImage(ctx, null)
                                 bgUri = ""
-                                Toast.makeText(ctx, "已清除", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_bg_cleared), Toast.LENGTH_SHORT).show()
                                 // 不再 onRecreate()：背景层以 ApBackdrop.rev 为 key 自动重读偏好
                                 // （v223.29.6「选图/换底色/开关动态当场生效」）。
                             },
@@ -563,7 +563,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 .coerceAtLeast(0)
                             WindowDropdownPreference(
                                 title = title,
-                                summary = if (ApSkin.picked(ctx, scope).isBlank()) "跟随主题" else current.name,
+                                summary = if (ApSkin.picked(ctx, scope).isBlank()) ctx.getString(R.string.ui_set_skin_follow_theme) else current.name,
                                 items = names,
                                 selectedIndex = selected,
                                 onSelectedIndexChange = { i ->
@@ -601,6 +601,35 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             title = ctx.getString(R.string.ui_set_label_apply_when),
                             value = ctx.getString(R.string.ui_set_value_kb_apply_when),
                         )
+                        // ————————————— 界面缩放（2026-11-07 成宇「无极自定义 dpi 缩放」） —————————————
+                        // steps=0 = 连续滑条（无极）；80%~125%：再小字不可读，再大就失去
+                        // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
+                        // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
+                        // v223.29.73：从工具分组（cat2）搬进外观的进阶折叠 —— 缩放属外观项。
+                        // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局
+                        // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按
+                        // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层
+                        // 已改 animate 150ms 平滑，不再跳变）。
+                        val uiScaleSd = LocalDensity.current
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            androidx.compose.ui.platform.LocalDensity provides
+                                androidx.compose.ui.unit.Density(
+                                    uiScaleSd.density / com.allperiph.ui.UiScalePref.current.floatValue,
+                                    uiScaleSd.fontScale,
+                                ),
+                        ) {
+                            SliderPreference(
+                                value = com.allperiph.ui.UiScalePref.current.floatValue,
+                                // 拖动中只改内存（setLive），松手才落盘（persist）——每帧写
+                                // SharedPreferences 是「界面调节卡着」的来源，见 UiScalePref.setLive。
+                                onValueChange = { com.allperiph.ui.UiScalePref.setLive(it) },
+                                onValueChangeFinished = { com.allperiph.ui.UiScalePref.persist(ctx) },
+                                title = ctx.getString(R.string.ui_set_label_ui_scale),
+                                valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
+                                valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
+                                steps = 0,
+                            )
+                        }
                     }
                 }
             }
@@ -611,7 +640,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
 
             var ballVisible by remember { mutableStateOf(FloatingBallService.isOn(ctx)) }
 
-            // ———————————————— 悬浮栏 ————————————————
+            // ———————————————— 悬浮球 ————————————————
             // 成宇 2026-11-01：悬浮球与悬浮菜单要能隐藏。这里不新造状态，
             // 读写的还是 FloatingBallService 自己的 on/off（isOn + 启停服务），
             // 开关只是同一份状态的另一个入口 —— 避免"设置里关了球还在"这类不一致。
@@ -652,8 +681,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         },
                     )
                     ApComponents.SwitchRow(
-                        title = "光标锁定",
-                        summary = "触控板光标锁定在屏幕内，不贴边滑出",
+                        title = ctx.getString(R.string.ui_set_cursor_lock_title),
+                        summary = ctx.getString(R.string.ui_set_cursor_lock_summary),
                         checked = cursorLock,
                         onCheckedChange = { on ->
                             cursorLock = on
@@ -690,8 +719,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         },
                     )
                     ApComponents.SwitchRow(
-                        title = "三指手势遮蔽",
-                        summary = "触控板里三指滑动不再被系统截屏（需 root，退出即还原）",
+                        title = ctx.getString(R.string.ui_set_shield_title),
+                        summary = ctx.getString(R.string.ui_set_shield_summary),
                         checked = shield,
                         onCheckedChange = { on ->
                             shield = on
@@ -700,7 +729,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         },
                     )
                     ApComponents.SwitchRow(
-                        title = "LocalSend 互传",
+                        title = ctx.getString(R.string.ui_set_localsend_title),
                         summary = when {
                             localSendWanted && !localSend ->
                                 ctx.getString(R.string.ui_set_sum_localsend_stale)
@@ -708,8 +737,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             // 「附近设备」会一直是空的 —— 这里必须说出来，否则用户只会觉得
                             // 「开关明明开着却用不了」（v223.29.32 现场就是这个状态）。
                             localSend && !com.allperiph.localsend.LocalSendService.discoveryUp ->
-                                "发现通道未就绪（电脑可能看不到这台设备）：关掉再打开一次即可重建"
-                            else -> "开启后在局域网内接收文件"
+                                ctx.getString(R.string.ui_set_localsend_diag)
+                            else -> ctx.getString(R.string.ui_set_localsend_summary)
                         },
                         checked = localSend,
                         onCheckedChange = { on ->
@@ -763,8 +792,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
                 Column {
                     ApComponents.SwitchRow(
-                        title = "显示悬浮球",
-                        summary = "关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响",
+                        title = ctx.getString(R.string.ui_set_ball_show_title),
+                        summary = ctx.getString(R.string.ui_set_ball_show_summary),
                         checked = ballVisible,
                         onCheckedChange = { on ->
                             ballVisible = on
@@ -797,9 +826,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                     }
                     ApComponents.ClickRow(
-                        title = "悬浮窗权限",
-                        summary = if (overlayGranted) "已授予，切后台自动唤起悬浮球可正常生效"
-                        else "未授予：切后台自动唤起悬浮球会被系统拦截，点这里去系统设置授权",
+                        title = ctx.getString(R.string.ui_set_overlay_title),
+                        summary = if (overlayGranted) ctx.getString(R.string.ui_set_overlay_granted)
+                        else ctx.getString(R.string.ui_set_overlay_denied),
                         onClick = {
                             if (!overlayGranted) {
                                 runCatching {
@@ -837,7 +866,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         }
                     }
                     Text(
-                        text = "球面图标",
+                        text = ctx.getString(R.string.ui_set_ball_icons),
                         fontSize = 16.sp,
                         modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
                     )
@@ -898,7 +927,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
-                                text = "相册",
+                                text = ctx.getString(R.string.ui_set_album),
                                 fontSize = 11.sp,
                                 color = if (skinSelected) MiuixTheme.colorScheme.primary
                                 else MiuixTheme.colorScheme.onSurfaceSecondary,
@@ -910,8 +939,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // BallLatestPhoto 的偏好文件，菜单每次现建，关掉下次展开即生效。
                     var photoCardOn by remember { mutableStateOf(BallLatestPhoto.photoCardEnabled(ctx)) }
                     ApComponents.SwitchRow(
-                        title = "相册按钮",
-                        summary = "悬浮球菜单顶部显示照片按钮：点一次选图（可多选），再点一次发送到电脑，发完自动重置",
+                        title = ctx.getString(R.string.ui_set_album_btn_title),
+                        summary = ctx.getString(R.string.ui_set_album_btn_summary),
                         checked = photoCardOn,
                         onCheckedChange = { on ->
                             photoCardOn = on
@@ -924,7 +953,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     var ballItemsOpen by remember { mutableStateOf(false) }
                     ApComponents.FoldGroup(
                         title = ctx.getString(R.string.ui_ball_items_title),
-                        countText = "已勾选 " + ballItems.size + " / " + BallConfig.ALL.size,
+                        countText = ctx.getString(R.string.ui_set_ball_selected, ballItems.size, BallConfig.ALL.size),
                         open = ballItemsOpen,
                         onToggleOpen = { ballItemsOpen = !ballItemsOpen },
                     ) {
@@ -1116,7 +1145,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         summary = if (tplIdx >= 0) {
                             "${tplAll[tplIdx].name} · ${tplAll[tplIdx].desc}"
                         } else {
-                            "未设置（默认）"
+                            ctx.getString(R.string.ui_set_hotkey_unset)
                         },
                         items = tplAll.map { "${it.name} · ${it.desc}" },
                         selectedIndex = if (tplIdx >= 0) tplIdx else 0,
@@ -1138,11 +1167,11 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files)) {
                 Column {
                     ApComponents.ActionButton(
-                        text = "文件面板",
+                        text = ctx.getString(R.string.ui_set_file_panel),
                         onClick = { ctx.startActivity(Intent(ctx, com.allperiph.ui.FilePanelActivity::class.java)) },
                     )
                     ApComponents.ActionButton(
-                        text = "发送文件（LocalSend）",
+                        text = ctx.getString(R.string.ui_set_send_files),
                         onClick = {
                             ctx.startActivity(
                                 Intent(ctx, com.allperiph.localsend.SendActivity::class.java),
@@ -1153,7 +1182,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // 且「发送文件」与本节重复（两个文案指向同一个 SendActivity）。合并后本节
                     // 名副其实：文件面板 / 发送文件 / 屏幕，各一枚，文案不重复。
                     ApComponents.ActionButton(
-                        text = "屏幕（投屏 / 被控）",
+                        text = ctx.getString(R.string.ui_set_screen_ctrl),
                         onClick = {
                             ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
                         },
@@ -1185,8 +1214,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote)) {
                 Column {
                     ApComponents.SwitchRow(
-                        title = "物理键盘全局转发",
-                        summary = "接上蓝牙键盘后，按键直接转给被控端（需已连接设备）",
+                        title = ctx.getString(R.string.ui_set_kb_forward_title),
+                        summary = ctx.getString(R.string.ui_set_kb_forward_summary),
                         checked = globalKeys,
                         onCheckedChange = { on ->
                             globalKeys = on
@@ -1201,8 +1230,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         mutableStateOf(com.allperiph.notify.NotificationSyncPref.isEnabled(ctx))
                     }
                     ApComponents.SwitchRow(
-                        title = "通知同步到电脑",
-                        summary = "手机来通知时，电脑托盘弹出气泡（连接 PC 且对方支持时生效）",
+                        title = ctx.getString(R.string.ui_set_notify_title),
+                        summary = ctx.getString(R.string.ui_set_notify_summary),
                         checked = notifySync,
                         onCheckedChange = { on ->
                             notifySync = on
@@ -1211,14 +1240,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         },
                     )
                     ApComponents.ActionButton(
-                        text = "通知使用权设置",
+                        text = ctx.getString(R.string.ui_set_notify_settings),
                         onClick = {
                             runCatching {
                                 ctx.startActivity(
                                     Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS),
                                 )
                             }.onFailure {
-                                Toast.makeText(ctx, "打开系统设置失败", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_open_settings_failed), Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
@@ -1261,54 +1290,24 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
 
             // ———————————————— 主题数据 ————————————————
-            // ————————————— 界面缩放（2026-11-07 成宇「无极自定义 dpi 缩放」） —————————————
-            // steps=0 = 连续滑条（无极）；80%~125%：再小字不可读，再大就失去
-            // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
-            // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ui_scale)) {
-                // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局
-                // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按
-                // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层
-                // 已改 animate 150ms 平滑，不再跳变）。
-                val __sd = LocalDensity.current
-                androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.ui.platform.LocalDensity provides
-                        androidx.compose.ui.unit.Density(
-                            __sd.density / com.allperiph.ui.UiScalePref.current.floatValue,
-                            __sd.fontScale,
-                        ),
-                ) {
-                SliderPreference(
-                    value = com.allperiph.ui.UiScalePref.current.floatValue,
-                    // 拖动中只改内存（setLive），松手才落盘（persist）——每帧写
-                    // SharedPreferences 是「界面调节卡着」的来源，见 UiScalePref.setLive。
-                    onValueChange = { com.allperiph.ui.UiScalePref.setLive(it) },
-                    onValueChangeFinished = { com.allperiph.ui.UiScalePref.persist(ctx) },
-                    title = ctx.getString(R.string.ui_set_label_ui_scale),
-                    valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
-                    valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
-                    steps = 0,
-                )
-                }
-            }
-
+            // v223.29.73：界面缩放已搬进外观分组的进阶折叠（缩放属外观项，见 cat0）。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme)) {
                 Column {
                     ApComponents.ActionButton(
-                        text = "导出当前主题（复制到剪贴板）",
+                        text = ctx.getString(R.string.ui_set_theme_export),
                         onClick = {
                             val json = runCatching { ApSkin.exportJson(ctx) }.getOrNull().orEmpty()
                             val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                             if (json.isNotBlank()) {
                                 cm?.setPrimaryClip(android.content.ClipData.newPlainText("apx-theme", json))
-                                Toast.makeText(ctx, "已复制 ${json.length} 字符", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_theme_copied, json.length), Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(ctx, "没有可导出的主题", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_theme_none), Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
                     ApComponents.ActionButton(
-                        text = "从剪贴板导入主题",
+                        text = ctx.getString(R.string.ui_set_theme_import),
                         onClick = {
                             val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
                             val text = cm?.primaryClip?.takeIf { it.itemCount > 0 }
@@ -1316,7 +1315,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             val n = if (text.isBlank()) 0 else runCatching { ApSkin.importJson(ctx, text) }.getOrDefault(0)
                             Toast.makeText(
                                 ctx,
-                                if (n > 0) "已导入 $n 套主题" else "剪贴板里没有可识别的主题 JSON",
+                                if (n > 0) ctx.getString(R.string.ui_set_theme_imported, n)
+                                else ctx.getString(R.string.ui_set_theme_import_empty),
                                 Toast.LENGTH_SHORT,
                             ).show()
                         },
@@ -1332,59 +1332,69 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl_custom)) {
                 Column {
                     if (customs.isEmpty()) {
-                        ApComponents.ValueRow(title = "还没有自定义模板", value = "点下面按钮从内置模板复制一份")
+                        ApComponents.ValueRow(
+                            title = ctx.getString(R.string.ui_set_tpl_none),
+                            value = ctx.getString(R.string.ui_set_tpl_none_hint),
+                        )
                     }
                     customs.forEachIndexed { index, t ->
                         ApComponents.ValueRow(title = "${index + 1}. ${t.name}", value = t.desc)
-                        ApComponents.NarrowButton(
-                            text = "应用「${t.name}」",
-                            onClick = {
-                                HotkeyStore.applyTemplate(ctx, t)
-                                Toast.makeText(ctx, "已应用：${t.name}", Toast.LENGTH_SHORT).show()
-                                Feedback.haptic(ctx)
-                            },
-                        )
-                        if (index > 0) {
+                        // v223.29.73（UI 审查发现 10）：应用/上移/删除三个按钮原是纵向堆叠，
+                        // 一条模板占三行太冗长 —— 改行内横排，等分宽度（weight=1f）。
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ApComponents.NarrowButton(
-                                text = "「${t.name}」上移",
+                                text = ctx.getString(R.string.ui_set_tpl_apply, t.name),
+                                onClick = {
+                                    HotkeyStore.applyTemplate(ctx, t)
+                                    Toast.makeText(ctx, ctx.getString(R.string.ui_set_tpl_applied, t.name), Toast.LENGTH_SHORT).show()
+                                    Feedback.haptic(ctx)
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (index > 0) {
+                                ApComponents.NarrowButton(
+                                    text = ctx.getString(R.string.ui_set_tpl_move_up, t.name),
+                                    onClick = {
+                                        val l = customs.toMutableList()
+                                        val v = l.removeAt(index)
+                                        l.add(index - 1, v)
+                                        customs = l
+                                        HotkeyStore.saveCustom(ctx, l)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            ApComponents.NarrowButton(
+                                text = ctx.getString(R.string.ui_set_tpl_delete, t.name),
                                 onClick = {
                                     val l = customs.toMutableList()
-                                    val v = l.removeAt(index)
-                                    l.add(index - 1, v)
+                                    l.removeAt(index)
                                     customs = l
                                     HotkeyStore.saveCustom(ctx, l)
                                 },
+                                modifier = Modifier.weight(1f),
                             )
                         }
-                        ApComponents.NarrowButton(
-                            text = "删除「${t.name}」",
-                            onClick = {
-                                val l = customs.toMutableList()
-                                l.removeAt(index)
-                                customs = l
-                                HotkeyStore.saveCustom(ctx, l)
-                            },
-                        )
                     }
                     // issue#168 第 3 条：这是模板管理区唯一的页级动作按钮，别的动作按钮都是
                     // 整行居中，就它随文字宽靠左 —— 升级成 ActionButton 与周围对齐。
                     ApComponents.ActionButton(
-                        text = "从内置模板新建一份可改的",
+                        text = ctx.getString(R.string.ui_set_tpl_new),
                         onClick = {
                             val used = customs.map { it.name }.toSet()
                             val src = com.allperiph.hid.HotkeyTemplates.ALL.firstOrNull { it.name !in used }
                             if (src == null) {
-                                Toast.makeText(ctx, "内置模板都已经复制过了", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_tpl_all_copied), Toast.LENGTH_SHORT).show()
                             } else {
                                 val copy = src.copy(
                                     key = "custom_" + System.currentTimeMillis(),
-                                    name = src.name + "（自定义）",
-                                    desc = "由内置模板「${src.name}」复制，可改",
+                                    name = src.name + ctx.getString(R.string.ui_set_tpl_custom_suffix),
+                                    desc = ctx.getString(R.string.ui_set_tpl_copied_desc, src.name),
                                 )
                                 val l = customs.toMutableList().also { it.add(copy) }
                                 customs = l
                                 HotkeyStore.saveCustom(ctx, l)
-                                Toast.makeText(ctx, "已新建：${copy.name}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_tpl_created, copy.name), Toast.LENGTH_SHORT).show()
                             }
                         },
                     )
@@ -1418,7 +1428,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         // 成宇 2026-11-02「能用下拉列表的不用」：一个键位原来是三行
                         // （值行 + 换下一个候选 + 恢复默认），11 个键位就是 33 行。
                         // 候选本身是枚举，改成一行下拉：第 0 项是「恢复默认」，其余是 20 个 usage。
-                        val defLabel = if (def == 0) "默认（不转发）" else "默认（0x%02X）".format(def)
+                        val defLabel = if (def == 0) ctx.getString(R.string.ui_set_hotkey_default)
+                                else ctx.getString(R.string.ui_set_hotkey_default_hex, def)
                         val items = listOf(defLabel) + HidKeyOverrides.USAGE_CHOICES.map {
                             "${it.first}（0x%02X）".format(it.second)
                         }
@@ -1427,7 +1438,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         }
                         WindowDropdownPreference(
                             title = label,
-                            summary = if (cur == null) defLabel else "已改（0x%02X）".format(cur),
+                            summary = if (cur == null) defLabel else ctx.getString(R.string.ui_set_hotkey_changed, cur),
                             items = items,
                             selectedIndex = curIdx.coerceAtLeast(0),
                             onSelectedIndexChange = { i ->
@@ -1460,8 +1471,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             var logMin by remember { mutableIntStateOf(1) }
             var logSpan by remember { mutableIntStateOf(1) }
             var showLogViewer by remember { mutableStateOf(false) }
-            val logLevels = listOf("全部（含调试）", "Debug 以上", "Info 以上", "只看警告", "只看错误")
-            val logSpans = listOf("最近 5 分钟", "最近 15 分钟", "最近 1 小时", "全部缓冲")
+            val logLevels = ctx.resources.getStringArray(R.array.ui_set_log_levels).toList()
+            val logSpans = ctx.resources.getStringArray(R.array.ui_set_log_spans).toList()
             val logNameState = androidx.compose.foundation.text.input.rememberTextFieldState()
             val logDirState = androidx.compose.foundation.text.input.rememberTextFieldState()
             fun filteredLogs(): List<com.allperiph.shared.util.Log.Entry> {
@@ -1485,43 +1496,52 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_log)) {
                 Column {
                     ApComponents.ValueRow(
-                        title = "缓冲",
-                        value = "${com.allperiph.shared.util.Log.snapshot().size} 条（上限 512，超出滚动丢弃）",
+                        title = ctx.getString(R.string.ui_set_log_buffer_title),
+                        value = ctx.getString(R.string.ui_set_log_buffer_value, com.allperiph.shared.util.Log.snapshot().size),
                     )
                     WindowDropdownPreference(
-                        title = "级别筛选",
+                        title = ctx.getString(R.string.ui_set_log_level_title),
                         summary = logLevels.getOrElse(logMin) { logLevels[0] },
                         items = logLevels,
                         selectedIndex = logMin,
                         onSelectedIndexChange = { logMin = it },
                     )
                     WindowDropdownPreference(
-                        title = "时间范围",
+                        title = ctx.getString(R.string.ui_set_log_span_title),
                         summary = logSpans.getOrElse(logSpan) { logSpans[0] },
                         items = logSpans,
                         selectedIndex = logSpan,
                         onSelectedIndexChange = { logSpan = it },
                     )
                     ApComponents.ActionButton(
-                        text = "查看最近日志（当前筛选）",
+                        text = ctx.getString(R.string.ui_set_log_view_recent),
                         onClick = { showLogViewer = true },
                     )
-                    top.yukonga.miuix.kmp.basic.TextField(
-                        state = logNameState,
-                        label = "文件名（留空用 apx-logs-log@型号-时间.txt）",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    top.yukonga.miuix.kmp.basic.TextField(
-                        state = logDirState,
-                        label = "子目录（留空用 下载/AllPeriph）",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    // v223.29.73（UI 审查发现 11）：文件名/子目录两个输入框原是平铺正文，
+                    // 大多数人用不到 —— 收进一个可展开的小折叠区，默认收起。
+                    var logFormOpen by remember { mutableStateOf(false) }
                     ApComponents.ActionButton(
-                        text = "导出日志",
+                        text = ctx.getString(R.string.ui_set_log_custom_toggle),
+                        onClick = { logFormOpen = !logFormOpen },
+                    )
+                    if (logFormOpen) {
+                        top.yukonga.miuix.kmp.basic.TextField(
+                            state = logNameState,
+                            label = ctx.getString(R.string.ui_set_log_file_label),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        top.yukonga.miuix.kmp.basic.TextField(
+                            state = logDirState,
+                            label = ctx.getString(R.string.ui_set_log_dir_label),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_log_export_btn),
                         onClick = {
                             val rows = filteredLogs()
                             if (rows.isEmpty()) {
-                                Toast.makeText(ctx, "该条件下没有日志", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, ctx.getString(R.string.ui_set_log_empty), Toast.LENGTH_SHORT).show()
                             } else {
                                 val body = buildString {
                                     appendLine("# apx-android 日志导出")
@@ -1543,17 +1563,17 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 }
                                 Toast.makeText(
                                     ctx,
-                                    saved.getOrElse { "导出失败：${it.message}" },
+                                    saved.getOrElse { ctx.getString(R.string.ui_set_log_export_failed, it.message) },
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
                         },
                     )
                     ApComponents.ActionButton(
-                        text = "清空日志缓冲",
+                        text = ctx.getString(R.string.ui_set_log_clear_btn),
                         onClick = {
                             com.allperiph.shared.util.Log.clear()
-                            Toast.makeText(ctx, "已清空", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(ctx, ctx.getString(R.string.ui_set_log_cleared), Toast.LENGTH_SHORT).show()
                         },
                     )
                 }
@@ -1570,7 +1590,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         padding = 12.dp,
                     ) {
                         Text(
-                            text = "最近日志（${rows.size} 条，上限 200）",
+                            text = ctx.getString(R.string.ui_set_log_recent_title, rows.size),
                         )
                         Column(
                             modifier = Modifier
@@ -1629,7 +1649,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
                 Column {
                     ApComponents.ValueRow(
-                        title = "当前版本",
+                        title = ctx.getString(R.string.ui_set_about_version),
                         value = UpdateChecker.currentTag(),
                     )
                     ApComponents.ActionButton(
@@ -1647,16 +1667,16 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                     // v223.29.32：失败不再只吐一行『检查失败』就结束（上一版
                                     // 『在线更新不了』的体验根因）—— 弹出两个手动出口。
                                     com.allperiph.ui.ApDialog.builder(ctx)
-                                        .setTitle("检查更新失败")
-                                        .setMessage("网络可能不通（GitHub 直连与镜像均失败）。可手动打开 Release 页下载安装包。")
-                                        .setPositiveButton("国内镜像打开") { _, _ -> UpdateChecker.openReleaseMirror(ctx) }
-                                        .setNeutralButton("GitHub 原页") { _, _ -> UpdateChecker.openReleasePage(ctx) }
-                                        .setNegativeButton("稍后", null)
+                                        .setTitle(ctx.getString(R.string.ui_set_update_dialog_title))
+                                        .setMessage(ctx.getString(R.string.ui_set_update_dialog_msg))
+                                        .setPositiveButton(ctx.getString(R.string.ui_set_update_mirror)) { _, _ -> UpdateChecker.openReleaseMirror(ctx) }
+                                        .setNeutralButton(ctx.getString(R.string.ui_set_update_github)) { _, _ -> UpdateChecker.openReleasePage(ctx) }
+                                        .setNegativeButton(ctx.getString(R.string.ui_set_update_later), null)
                                         .show()
                                     return@check
                                 }
                                 val msg = when (r) {
-                                    is UpdateChecker.Result.UpToDate -> "已是最新：${r.tag}"
+                                    is UpdateChecker.Result.UpToDate -> ctx.getString(R.string.ui_set_update_latest, r.tag)
                                     else -> ""
                                 }
                                 Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
