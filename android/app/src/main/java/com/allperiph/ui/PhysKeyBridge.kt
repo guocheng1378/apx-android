@@ -118,15 +118,27 @@ internal class PhysKeyBridge(private val act: Activity) {
             val isPointer = event.source and android.view.InputDevice.SOURCE_MOUSE != 0 ||
                 event.source and android.view.InputDevice.SOURCE_TOUCHPAD != 0
             if (isPointer) applyCursorLock(handled)
-            android.util.Log.d("ApxBridge", "MOTION isPointer=$isPointer handled=$handled src=${event.source} act=${event.actionMasked}")
+            dbgThrottled { "MOTION isPointer=$isPointer handled=$handled src=${event.source} act=${event.actionMasked}" }
             return if (handled) true else delegate.dispatchGenericMotionEvent(event)
         }
+    }
+
+    /**
+     * 全审查条 8：逐事件 Log.d 在键盘/指针通路是每秒上百条的日志洪泛（主线程
+     * 格式化 + logd 挤占，卡顿可见）。改为节流：连续事件每 2 秒最多记一条摘要。
+     */
+    private var lastDbgMs = 0L
+    private fun dbgThrottled(msg: () -> String) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastDbgMs < 2000) return
+        lastDbgMs = now
+        android.util.Log.d("ApxBridge", msg())
     }
 
     /** @return true = 已转发/已消费；false = 放行给手机本地 */
     private fun forward(event: KeyEvent): Boolean {
         val ret = forwardImpl(event)
-        android.util.Log.d("ApxBridge", "KEY kc=${event.keyCode} act=${event.action} rep=${event.repeatCount} usage=${usageOf(event.keyCode)} etFocus=${act.currentFocus is EditText} ret=$ret")
+        dbgThrottled { "KEY kc=${event.keyCode} act=${event.action} rep=${event.repeatCount} usage=${usageOf(event.keyCode)} etFocus=${act.currentFocus is EditText} ret=$ret" }
         return ret
     }
 
@@ -207,7 +219,7 @@ internal class PhysKeyBridge(private val act: Activity) {
      */
     private fun forwardPointer(event: android.view.MotionEvent): Boolean {
         val ret = forwardPointerImpl(event)
-        android.util.Log.d("ApxBridge", "PTR src=${event.source} act=${event.actionMasked} x=${event.x} y=${event.y} v=${event.getAxisValue(android.view.MotionEvent.AXIS_VSCROLL)} h=${event.getAxisValue(android.view.MotionEvent.AXIS_HSCROLL)} etFocus=${act.currentFocus is EditText} ret=$ret")
+        dbgThrottled { "PTR src=${event.source} act=${event.actionMasked} x=${event.x} y=${event.y} v=${event.getAxisValue(android.view.MotionEvent.AXIS_VSCROLL)} h=${event.getAxisValue(android.view.MotionEvent.AXIS_HSCROLL)} etFocus=${act.currentFocus is EditText} ret=$ret" }
         return ret
     }
 

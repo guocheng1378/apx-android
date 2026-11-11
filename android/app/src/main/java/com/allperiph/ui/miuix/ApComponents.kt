@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -184,13 +185,20 @@ object ApComponents {
         val host = androidx.compose.ui.platform.LocalView.current
         // 长按可达性那一条描述要带标题，所以这个组件需要 Context（文案走 strings.xml）
         val ctx = androidx.compose.ui.platform.LocalContext.current
-        val gesture = Modifier.pointerInput(onLongClick) {
-            if (onLongClick == null) {
-                detectTapGestures { com.allperiph.ui.Feedback.tap(host); onClick() }
+        // 全审查条 11：手势里经 rememberUpdatedState 读最新回调 —— 旧实现把
+        // onClick 写进 pointerInput(onLongClick) 的 key 捕获，调用方每次重组新建
+        // lambda（如 500ms 状态轮询）都会重启手势协程，长按按到一半就被掐断。
+        // key 只留结构性的 hasLong（有/无长按决定手势形态），回调走状态直读。
+        val currentOnClick by rememberUpdatedState(onClick)
+        val currentOnLongClick by rememberUpdatedState(onLongClick)
+        val hasLong = onLongClick != null
+        val gesture = Modifier.pointerInput(hasLong) {
+            if (!hasLong) {
+                detectTapGestures { com.allperiph.ui.Feedback.tap(host); currentOnClick() }
             } else {
                 detectTapGestures(
-                    onLongPress = { com.allperiph.ui.Feedback.haptic(host); onLongClick() },
-                    onTap = { com.allperiph.ui.Feedback.tap(host); onClick() },
+                    onLongPress = { com.allperiph.ui.Feedback.haptic(host); currentOnLongClick?.invoke() },
+                    onTap = { com.allperiph.ui.Feedback.tap(host); currentOnClick() },
                 )
             }
         }
