@@ -120,7 +120,8 @@
     <string name="ui_touchpad_dialog_no_only_need">会直接对那台设备执行「%1$s」（需要它有 root；没有 root 只会退回待机）。</string>
     <string name="ui_touchpad_toast_send_done">已发送「%1$s」指令</string>
     <string name="ui_touchpad_dialog_selftest_channel_inject">权限自检</string>
-    <string name="ui_touchpad_text_edit_longpress">长按「自定义」页签编辑布局</string>
+    <!-- 审计批4清理（2026-11-12）：原操控面退役键盘 CustomLayout 的占位提示，随死代码删除后零引用；
+         主壳自定义布局空态用的是 ui_kb_custom_empty_hint（仍在用）。 -->
     <string name="ui_touchpad_text_screen">副屏（显示）</string>
     <string name="ui_touchpad_text_screen_recv_fullscreen_local">把手机当电脑副屏：电脑端打开「副屏」，手机全屏显示电脑画面。</string>
     <string name="ui_touchpad_text_device">链接设备</string>
