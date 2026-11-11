@@ -1448,28 +1448,40 @@ class FloatingBallService : Service() {
      */
     /**
      * 单圈摆位（圈层版 [buildFan] 每圈调用一次）：
-     * 先试「张角从宽到窄」，整圈完整落在屏内就取离朝屏心方向最近的可行角；
+     * 先试「张角从宽到窄」，整圈完整落在屏内就取离参考方向最近的可行角；
      * 一档都放不下（球被挤在角落）就退化为逐项钳进屏内——宁可邻项略叠，也不摆到看不见的地方。
-     * m == 1 时直接落在朝屏心方向上。
+     * m == 1 时直接落在参考方向上。
+     *
+     * 参数口径（2026-11-11 五追，用户报「展开后有时排到界面外、有时乱排」）：
+     *  - [topMin]：**窗口可绘制区**的屏幕 y 上界（父框被状态栏顶下去，真机 144px）。
+     *    可行性检查与兜底钳位都以它为上沿——此前只按整屏夹，球贴上沿时菜单项会摆进
+     *    状态栏那段，窗口坐标落负值，在部分 ROM（HyperOS 实测）上被裁掉，看着就是
+     *    「有图标排到界面外」；
+     *  - 返回值带出本圈选中的**圆心角**：外圈以它为参考方向——此前每圈各自朝屏心搜，
+     *    两圈可能选中相背的两段弧，观感就是「图标乱排」。外圈自身放不下时仍退回兜底，
+     *    不强跟内圈。
      */
     private fun placeArcRing(
         m: Int,
         baseR: Float,
         cx: Float,
         cy: Float,
-        dirDeg: Float,
+        refDirDeg: Float,
         itemPx: Float,
         gapPx: Float,
         screenW: Int,
         screenH: Int,
-    ): List<Pair<Float, Float>> {
+        topMin: Int,
+    ): Pair<List<Pair<Float, Float>>, Float> {
         val half = itemPx / 2f
+        // 可行区的屏幕坐标上下沿：下沿就是屏幕底，上沿是可绘制区顶（父框原点之下）
+        val yTop = topMin + half
         if (m <= 1) {
-            val a = Math.toRadians(dirDeg.toDouble())
+            val a = Math.toRadians(refDirDeg.toDouble())
             return listOf(
                 (cx + baseR * cos(a).toFloat()).coerceIn(half, screenW - half) to
-                    (cy + baseR * sin(a).toFloat()).coerceIn(half, screenH - half),
-            )
+                    (cy + baseR * sin(a).toFloat()).coerceIn(yTop, screenH - half),
+            ) to refDirDeg
         }
         var span = min(180f, 44f * (m - 1))
         while (span >= FAN_SPAN_MIN) {
@@ -1481,9 +1493,10 @@ class FloatingBallService : Service() {
             )
             var best: List<Pair<Float, Float>>? = null
             var bestDev = Float.MAX_VALUE
+            var bestAngle = refDirDeg
             var k = 0
             while (k < 720) {                       // 0.5° 粒度扫一周
-                val c = dirDeg - 180f + k * 0.5f
+                val c = refDirDeg - 180f + k * 0.5f
                 val pts = ArrayList<Pair<Float, Float>>(m)
                 var ok = true
                 var i = 0
@@ -1491,7 +1504,7 @@ class FloatingBallService : Service() {
                     val a = Math.toRadians((c - span / 2f + step * i).toDouble())
                     val x = cx + r * cos(a).toFloat()
                     val y = cy + r * sin(a).toFloat()
-                    if (x < half || x > screenW - half || y < half || y > screenH - half) {
+                    if (x < half || x > screenW - half || y < yTop || y > screenH - half) {
                         ok = false
                         break
                     }
@@ -1499,19 +1512,20 @@ class FloatingBallService : Service() {
                     i++
                 }
                 if (ok) {
-                    var dev = ((c - dirDeg) % 360f + 360f) % 360f
+                    var dev = ((c - refDirDeg) % 360f + 360f) % 360f
                     if (dev > 180f) dev = 360f - dev
                     if (dev < bestDev) {
                         bestDev = dev
                         best = pts
+                        bestAngle = c
                     }
                 }
                 k++
             }
-            if (best != null) return best
+            if (best != null) return best to bestAngle
             span -= FAN_SPAN_STEP
         }
-        // 极端兜底：保持最小张角，逐项夹进屏内
+        // 极端兜底：保持最小张角，逐项夹进屏内（含可绘制区上沿）
         val step = 24f / (m - 1)
         val r = maxOf(
             baseR,
@@ -1519,13 +1533,13 @@ class FloatingBallService : Service() {
         )
         val out = ArrayList<Pair<Float, Float>>(m)
         for (i in 0 until m) {
-            val a = Math.toRadians((dirDeg - 12f + step * i).toDouble())
+            val a = Math.toRadians((refDirDeg - 12f + step * i).toDouble())
             out.add(
                 (cx + r * cos(a).toFloat()).coerceIn(half, screenW - half) to
-                    (cy + r * sin(a).toFloat()).coerceIn(half, screenH - half),
+                    (cy + r * sin(a).toFloat()).coerceIn(yTop, screenH - half),
             )
         }
-        return out
+        return out to refDirDeg
     }
 
     private fun buildFan(ballView: View): Fan {
@@ -1568,7 +1582,7 @@ class FloatingBallService : Service() {
             val a = Math.toRadians(dirDeg.toDouble())
             centres.add(
                 (cx + designR * cos(a).toFloat()).coerceIn(half, screenW - half) to
-                    (cy + designR * sin(a).toFloat()).coerceIn(half, screenH - half),
+                    (cy + designR * sin(a).toFloat()).coerceIn(parentTop + half, screenH - half),
             )
         } else {
             // 圈层分配（issue#168：「1 圈最多 5 个，多了自动进外圈，外圈比内圈多 1 个」）：
@@ -1582,10 +1596,17 @@ class FloatingBallService : Service() {
                 rem -= m
                 cap++
             }
+            // 五追：外圈以**内圈选中的圆心角**为参考方向（内圈放不下则仍是朝屏心角）——
+            // 圈与圈朝向一致，不再各搜各的导致两段弧相背；上界传可绘制区顶（状态栏之下）
+            var refDir = dirDeg
             ringCounts.forEachIndexed { ringIdx, m ->
                 // 外圈半径逐圈外移一圈「图标 + 间隙」，保证相邻圈不叠
                 val ringR = designR + ringIdx * (itemPx + gapPx)
-                centres.addAll(placeArcRing(m, ringR, cx, cy, dirDeg, itemPx, gapPx, screenW, screenH))
+                val (pts, chosen) = placeArcRing(
+                    m, ringR, cx, cy, refDir, itemPx, gapPx, screenW, screenH, parentTop,
+                )
+                centres.addAll(pts)
+                refDir = chosen
             }
         }
 
