@@ -675,20 +675,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    // 横持自动切页（成宇 2026-11-04「横竖屏切换好像被你强制了」）：
-                    // 默认关。旧行为是「一转手机就换页」，读加速度计、不看系统方向锁，
-                    // 用户开着竖屏锁定也会被翻走。这里给它一个显式开关注释，别再默认抢方向。
-                    var autoSwap by remember { mutableStateOf(OrientLock.autoSwapEnabled(ctx)) }
-                    ApComponents.SwitchRow(
-                        title = ctx.getString(R.string.ui_set_auto_swap_title),
-                        summary = ctx.getString(R.string.ui_set_auto_swap_sum),
-                        checked = autoSwap,
-                        onCheckedChange = { on ->
-                            autoSwap = on
-                            OrientLock.setAutoSwap(ctx, on)
-                            Feedback.haptic(ctx)
-                        },
-                    )
+                    // （「横持自动切到键盘页」开关已随首页触控板/键盘页移除删除
+                    //  （issue#168 第 1 条五页整合）：该开关只在壳内那两页之间切换，
+                    //  操控面独立成 Activity 后无处可切，见 ApShellActivity 的同段注释。）
                     ApComponents.SwitchRow(
                         title = "三指手势遮蔽",
                         summary = "触控板里三指滑动不再被系统截屏（需 root，退出即还原）",

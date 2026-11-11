@@ -17,12 +17,12 @@ import android.content.pm.ActivityInfo
  * `requestedOrientation`，用户无法把界面钉在某个朝向。
  *
  * ## 与「重力判读自动切页」的关系（这一条容易搞混，写清楚）
- * 两者管的是**不同东西**，`b6dbdca` 恢复的重力判读就是为「系统开着方向锁」的场景准备的：
- *  · 方向锁定 = 版式（横/竖排、顶栏是否盖状态栏）钉住，`configuration.orientation` 不再翻转；
- *  · 重力判读 = 页面在「触控板 ↔ 键盘」之间自动切换，读的是加速度计，**不看**
- *    `configuration`，所以系统方向锁关不住它。
- * 因此本开关打开时**同时暂停重力切页**：用户按下「锁定」的意图是「别动」，只钉版式却让
- * 页面被重力翻走，等于锁了个寂寞。关闭后版式回到 `sensor`、重力切页恢复（旧行为）。
+ * 自动切页是主壳（ApShellActivity）的另一个开关（「横持自动切到键盘页」，读加速度计、
+ * 不看 `configuration`，所以系统方向锁关不住它），因此方向锁定打开时**同时暂停自动切页**：
+ * 用户按下「锁定」的意图是「别动」，只钉版式却让页面被重力翻走，等于锁了个寂寞。
+ * （该开关及其 API 已随首页触控板/键盘页移除删除 —— issue#168 第 1 条五页整合：
+ *  操控面独立成 Activity 后壳内无处可切。此处存档历史口径：关锁后切页逻辑随
+ *  触控板/键盘页一起消失，方向锁定本体不受影响。）
  *
  * 偏好沿用壳级那一个 `apx` 文件（与 `cursor_lock` 同处），不新开文件、不新造状态机。
  */
@@ -35,22 +35,6 @@ object OrientLock {
     fun prefs(ctx: Context): SharedPreferences = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
     fun isOn(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY, false)
-
-    /**
-     * 横持自动切到键盘页（成宇 2026-11-04「横竖屏切换好像被你强制了」）。
-     *
-     * 默认**关**：旧行为是「一转手机就换页」，与系统「竖屏锁定」直接冲突（重力判读不看
-     * 系统方向锁），用户体感就是被强制。需要边走边用手势面的人可以显式打开。
-     * 与 [isOn] 正交：开锁时不管这个开关都不切页。
-     */
-    private const val KEY_AUTO_SWAP = "orient_auto_swap"
-
-    fun autoSwapEnabled(ctx: Context): Boolean =
-        prefs(ctx).getBoolean(KEY_AUTO_SWAP, false)
-
-    fun setAutoSwap(ctx: Context, on: Boolean) {
-        prefs(ctx).edit().putBoolean(KEY_AUTO_SWAP, on).apply()
-    }
 
     fun set(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean(KEY, on).apply()

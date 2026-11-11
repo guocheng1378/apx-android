@@ -33,12 +33,14 @@ import kotlin.math.abs
  * · 「编辑」一屏管理：上移 / 下移 / 改 / 删 / 新建 / 恢复默认
  *
  * ⚠️ 2026-11-04：**形状参数再收敛一次** —— v1.31 收的是行为（render / reorder / 弹窗），
- * 但**主页皮肤的形状参数仍被两处宿主各自硬编码**（[com.allperiph.ui.compose.TouchpadPage]
- * 的 `HotkeyGrid.kbStyle` 与 `ApShellActivity` 的 QuickActionsDialog.style，各写一份
+ * 但**主页皮肤的形状参数曾被两处宿主各自硬编码**（旧壳内触控板页的 `HotkeyGrid.kbStyle`
+ * 与 `ApShellActivity` 的 QuickActionsDialog.style，各写一份
  * `chipRadiusDp = 12 / padVDp = 12 / perRow = 4`）—— 想改圆角或每行个数得记着改两处，
  * 漏一处就两屏长得不一样（与本类开头文档说的「只改一边的返工」同一类问题，只是换了层）。
- * 现在这三个值归到 [HOME_*] 常量，两处宿主引用它；颜色仍由宿主传 —— 主壳与操控面
+ * 现在这三个值归到 [HOME_*] 常量，宿主引用它；颜色仍由宿主传 —— 主壳与操控面
  * 本来就该不同色（前者主题主色、后者中性色），那不是重复。
+ * （旧壳内触控板页已随 issue#168 第 1 条五页整合移除：壳内只剩 QuickActionsDialog
+ * 一个宿主用 HOME_* 常量，操控面走自己的中性色档。）
  */
 class HotkeyBoard(
     private val act: Activity,
