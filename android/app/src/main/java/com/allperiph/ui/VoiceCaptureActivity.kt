@@ -80,6 +80,12 @@ class VoiceCaptureActivity : ComponentActivity() {
         private const val MODEL_DIR = "vosk-model-small-cn-0.22"
 
         /**
+         * 解压总量上限（全审查条 14）：模型包解压后实际 ~40MB，留 6 倍余量 ——
+         * 上游 zip 被换成 zip 炸弹时，解压到上限即抛错，不写满内部存储。
+         */
+        private const val MAX_UNZIP_BYTES = 256L * 1024 * 1024
+
+        /**
          * 识别结果投递口：KeyboardPage 的键盘面板在组合期挂上（DisposableEffect 挂 / 摘，
          * 防 Service 面板重建后旧回调滞留）。传 null = 没听清 / 用户取消 / 识别不可用，
          * 由订阅方决定提示与清态。
@@ -267,16 +273,22 @@ class VoiceCaptureActivity : ComponentActivity() {
 
     /** 下载语音包（后台线程，进度回主线程）→ 解压 → 打 .ok 标记 → 直接进识别 */
     private fun downloadAndPrepare() {
+        // 全审查条 3：进行中守卫 —— 按钮连点 / 重试竞态不再并发写同一个 zip（会损坏）。
+        // offlineState 在主线程同步检查、同步置位，下载线程启动前就挡住二次进入。
+        if (offlineState is Offline.Downloading) return
         offlineState = Offline.Downloading(0)
         Thread {
             try {
                 val zip = File(cacheDir, "$MODEL_DIR.zip")
+                // 全审查条 3：先写 .tmp 再改名 —— 断网 / 杀进程留下的半个包不会被
+                // 当成完整 zip 拿去解压；也只有改名成功（下载完整）才继续。
+                val tmp = File(cacheDir, "$MODEL_DIR.zip.tmp")
                 val conn = URL(MODEL_URL).openConnection() as HttpURLConnection
                 conn.connectTimeout = 15_000
                 conn.readTimeout = 30_000
                 conn.connect()
                 val total = conn.contentLengthLong
-                zip.outputStream().use { out ->
+                tmp.outputStream().use { out ->
                     conn.inputStream.use { inp ->
                         val buf = ByteArray(64 * 1024)
                         var got = 0L
@@ -298,12 +310,16 @@ class VoiceCaptureActivity : ComponentActivity() {
                         }
                     }
                 }
+                if (!tmp.renameTo(zip)) throw IOException("下载产物改名失败")
                 unzipModel(zip, modelDir())
                 File(modelDir(), ".ok").writeText(MODEL_DIR)
                 zip.delete()
                 runOnUiThread { startOfflineListening() }
             } catch (e: Exception) {
                 Log.w(TAG, "离线语音包下载/解压失败：${e.message}")
+                // 清掉半截下载产物，重试从零开始（全审查条 3 的另一半）
+                runCatching { File(cacheDir, "$MODEL_DIR.zip.tmp").delete() }
+                runCatching { File(cacheDir, "$MODEL_DIR.zip").delete() }
                 runOnUiThread { offlineState = Offline.Failed }
             }
         }.start()
@@ -315,6 +331,7 @@ class VoiceCaptureActivity : ComponentActivity() {
         val targetPath = target.canonicalPath
         ZipInputStream(BufferedInputStream(FileInputStream(zip))).use { zis ->
             val buf = ByteArray(64 * 1024)
+            var written = 0L
             while (true) {
                 val e = zis.nextEntry ?: break
                 val out = File(target, e.name)
@@ -330,6 +347,11 @@ class VoiceCaptureActivity : ComponentActivity() {
                             val n = zis.read(buf)
                             if (n < 0) break
                             f.write(buf, 0, n)
+                            // 全审查条 14：解压总量上限，防 zip 炸弹写满内部存储
+                            written += n
+                            if (written > MAX_UNZIP_BYTES) {
+                                throw IOException("解压总量超限（疑似 zip 炸弹）")
+                            }
                         }
                     }
                 }
