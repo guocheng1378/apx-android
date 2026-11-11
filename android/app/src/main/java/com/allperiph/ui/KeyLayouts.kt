@@ -142,9 +142,9 @@ object KeyLayouts {
     )
 
     // —————————————————————————— 游戏键盘 4×6 键位表 ——————————————————————————
-    // 审计批3（2026-11-12）：主壳键盘页 GameLayout 与操控面 GameKeyboard 原先各自写同一份
-    // 4×6 表，只靠注释互相引用「同款」—— 改一边忘一边迟早分叉。抽成共享常量，
-    // 两边只保留各自的键帽渲染（主壳灯效/密度，操控面连发/主题色），键位只此一份。
+    // 审计批3（2026-11-12）：主壳键盘页 GameLayout 的键位数据落这里——布局只此一份，改键位不用
+    // 再去找第二处。批4（2026-11-12）操控面旧自建键盘组件（GameKeyboard 等）随键盘页并到
+    // ApFullKeyboard 整体删除后，本表即主壳 GameLayout 唯一数据源。
     val GAME_ROWS: List<List<String>> = listOf(
         listOf("Esc", "1", "2", "3", "4", "Tab"),
         listOf("Q", "W", "E", "R", "F", "B"),
@@ -153,12 +153,10 @@ object KeyLayouts {
     )
 
     // —————————————————————————— 遥控（媒体 / 电源）行表 ——————————————————————————
-    // 审计批3（2026-11-12）：主壳 RemoteLayout 与操控面 RemoteKeyboard 原先各自手写同一份
-    // 「媒体两行 + 电源行」键表，历史上就发生过两边能力不一致（操控面找不到关机键，后补齐）。
-    // 抽成共享数据：键位与文案只此一份，渲染与交互各留各的 —— bit 键按下即发（主壳
-    // press/release 60ms，操控面图块自带连发），powerAction >= 0 的走关机/重启确认弹窗
-    //（0=关机，1=重启，均需被控端 root，opcode 0x22 与操控面 confirmPower 同语义）。
-    // label 统一用操控面一套文案资源（图块大、带空格更易读）；主壳原 ui_kb_* 六条仅此引用，随批删除。
+    // 审计批3（2026-11-12）：主壳 RemoteLayout 的键位数据落这里。bit 键按下即发（press/release
+    // 60ms），powerAction >= 0 的走关机/重启确认弹窗（0=关机，1=重启，均需被控端 root，opcode 0x22）。
+    // 批4（2026-11-12）操控面旧 RemoteKeyboard 等退役组件删除后，本表即主壳遥控布局唯一数据源。
+    // label 统一用操控面一套文案资源（图块大、带空格更易读）；主壳原 ui_kb_* 六条已随批删除。
     data class RemoteKey(val labelRes: Int, val bit: Int, val powerAction: Int = -1)
 
     val REMOTE_ROWS: List<List<RemoteKey>> = listOf(

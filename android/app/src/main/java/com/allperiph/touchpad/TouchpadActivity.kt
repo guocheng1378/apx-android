@@ -81,7 +81,6 @@ import com.allperiph.ui.AgentController
 import com.allperiph.ui.ApPalette
 import com.allperiph.ui.HotkeyBoard
 import com.allperiph.ui.HotkeyController
-import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.compose.ApTouchpadSurface
 import com.allperiph.ui.compose.rememberApBackdrop
@@ -131,7 +130,8 @@ class TouchpadActivity : ComponentActivity() {
     internal class ConsoleUi {
         var page by mutableIntStateOf(0)
         var fullscreen by mutableStateOf(false)
-        var kbTab by mutableIntStateOf(0)
+        // 审计批4（2026-11-12）：原 kbTab 随退役键盘组件（ConsoleKeyboardPage 等）一并删除
+        // —— 键盘页现直接渲染主壳 ApFullKeyboard，页签由其自管。
         var hidReady by mutableStateOf(false)
         /** 顶部状态胶囊：HID 状态 / 触摸帧数 / 发文件进度共用一行 */
         var statusText by mutableStateOf("")
@@ -731,8 +731,8 @@ private fun ConsoleRoot(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) 
                     TouchpadActivity.PAGE_TOUCHPAD -> ConsoleTouchpadPage(ui, host)
                     // 键盘页同步主键盘页样式（issue#168 2026-11-11 第 3 条）：直接渲染主壳 KeyboardPage
                     // 的 ApFullKeyboard —— 8 页签同名同序、KeyLayouts / KeyPref 数据源共用，
-                    // 按键同走 HidKeys 静态链；旧 ConsoleKeyboardPage 与其八套自建组件退役
-                    // （代码暂留防牵连，无调用点后随下批清理）。
+                    // 按键同走 HidKeys 静态链；旧 ConsoleKeyboardPage 与其八套自建组件已随
+                    // 审计批4（2026-11-12）整体删除 —— 两套操控面的键盘自此只有一份实现。
                     TouchpadActivity.PAGE_KEYBOARD -> com.allperiph.ui.compose.ApFullKeyboard()
                     else -> ConsoleDisplayPage(ui, host)
                 }
@@ -979,7 +979,7 @@ private fun HotkeyGridView(host: TouchpadActivity) {
 
 /**
  * v208：方向键叠层——十字方向键 + 中心 OK，居中覆盖手势面；
- * 箭头 usage 与 [KeyLayouts] 方向布局一致（USB HID Keyboard Page 0x07），
+ * 箭头 usage 与 KeyLayouts 方向布局一致（USB HID Keyboard Page 0x07），
  * 中心 OK = Enter（0x28），与方向布局的确认键同 usage。
  * 仅键帽区域消费触摸，键间空隙和手势面其余区域仍走触控引擎。
  */
@@ -1010,296 +1010,6 @@ private fun DpadKey(label: String, usage: Int) {
         accent = Color(kbAccent(ctx)),
         accentSoft = Color(kbAccentSoft(ctx)),
     )
-}
-
-// —————————————————————————— 第 1 页：键盘（8 套键位） ——————————————————————————
-
-private val KB_TABS = listOf(
-    R.string.ui_kb_tab_quick,
-    R.string.ui_kb_tab_remote,
-    R.string.ui_kb_tab_game,
-    R.string.ui_kb_tab_num,
-    R.string.ui_kb_tab_grid9,
-    R.string.ui_kb_tab_arrow,
-    R.string.ui_kb_tab_fn,
-    R.string.ui_kb_tab_custom,
-)
-
-/** 键盘页：顶部 8 页签横滑（长按「自定义」进编辑）+ 当前布局（ViewFlipper 时代的 8 页逐一对齐） */
-@Composable
-private fun ConsoleKeyboardPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
-    val ctx = LocalContext.current
-    val view = LocalView.current
-    Column(Modifier.fillMaxSize().padding(start = 10.dp, end = 10.dp, bottom = 12.dp)) {
-        Row(
-            Modifier.fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 10.dp),
-        ) {
-            KB_TABS.forEachIndexed { i, res ->
-                val selected = ui.kbTab == i
-                // 长按「自定义」：进 CustomKeyboardDialog 编辑整套行表（其余页签无长按）
-                val longPress: ((androidx.compose.ui.geometry.Offset) -> Unit)? =
-                    if (i == KB_TABS.lastIndex) {
-                        {
-                            com.allperiph.ui.Feedback.haptic(host)
-                            com.allperiph.ui.CustomKeyboardDialog.show(host) {
-                                ui.kbTab = KB_TABS.lastIndex
-                            }
-                        }
-                    } else {
-                        null
-                    }
-                Box(
-                    Modifier
-                        .padding(horizontal = 3.dp)
-                        .width(76.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (selected) MiuixTheme.colorScheme.primary
-                            else MiuixTheme.colorScheme.primary.copy(alpha = 0.14f),
-                        )
-                        .pointerInput(i) {
-                            detectTapGestures(
-                                onTap = {
-                                    com.allperiph.ui.Feedback.tap(view)
-                                    ui.kbTab = i
-                                },
-                                onLongPress = longPress,
-                            )
-                        }
-                        .padding(vertical = 9.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = ctx.getString(res),
-                        fontSize = 13.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.primary,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            when (ui.kbTab) {
-                0 -> QuickKeyboard(ui)
-                1 -> RemoteKeyboard(host)
-                2 -> GameKeyboard(ui)
-                3 -> KeyGridLayout(KeyLayouts.NUMPAD, ui)
-                4 -> KeyGridLayout(KeyLayouts.GRID9, ui)
-                5 -> KeyGridLayout(KeyLayouts.ARROWS, ui)
-                6 -> KeyGridLayout(KeyLayouts.FN, ui)
-                else -> CustomLayout(ui)
-            }
-        }
-    }
-}
-
-/** 快捷键盘：sticky 修饰排 + 6 行 letterRows（横屏不切 FULL —— 操控面横屏高度只有竖屏一半，
- *  FULL 的 8 行每行摊不到 30dp；b64 结论原样保留）。 */
-@Composable
-private fun QuickKeyboard(ui: TouchpadActivity.ConsoleUi) {
-    val ctx = LocalContext.current
-    val dens = KeyPref.density(ctx)
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().weight(1f)) {
-            HidKeys.MOD_LABELS.forEach { (text, bit) ->
-                KeyCap(
-                    label = text,
-                    isModifier = true,
-                    modBit = bit,
-                    modVersion = ui.modVersion,
-                    onTap = {
-                        HidKeys.toggleSticky(bit)
-                        ui.modVersion++
-                    },
-                    accent = Color(kbAccent(ctx)),
-                    accentSoft = Color(kbAccentSoft(ctx)),
-                    modifier = Modifier.weight(1f).padding(
-                        start = 2.dp, top = 2.dp, end = 2.dp, bottom = 6.dp,
-                    ),
-                )
-            }
-        }
-        KeyPref.letterRows(ctx).forEach { labels ->
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                val g = dens.gapDp.dp
-                labels.forEach { text ->
-                    KeyCap(
-                        label = text,
-                        modVersion = ui.modVersion,
-                        onTap = {
-                            // letterRows 含符号行，按 label 反查更全（b16 符号走 tapLabel）
-                            HidKeys.tapLabel(text)
-                            ui.modVersion++ // tap 会清 sticky，同步熄灭修饰键
-                        },
-                        accent = Color(kbAccent(ctx)),
-                        accentSoft = Color(kbAccentSoft(ctx)),
-                        modifier = Modifier.weight(1f).padding(g),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 遥控键盘：媒体 / 音量（音量键按住连发）+ 电源三键（关机 / 重启走 0x22，弹确认）。
- *  键位与文案走 KeyLayouts.REMOTE_ROWS 共享表（审计批3 2026-11-12：与主壳键盘页同源，只此一份）；
- *  图标是操控面渲染细节，按 bit 在此映射，共享表不背 UI 细节。 */
-@Composable
-private fun RemoteKeyboard(host: TouchpadActivity) {
-    val ctx = LocalContext.current
-    Column(
-        Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        KeyLayouts.REMOTE_ROWS.forEach { defs ->
-            Row(Modifier.fillMaxWidth()) {
-                defs.forEach { key ->
-                    val label = ctx.getString(key.labelRes)
-                    val m = Modifier.weight(1f).padding(6.dp)
-                    when {
-                        // 位图键（媒体 / 音量 / 电源）：图块自带按下即发与音量连发
-                        key.bit >= 0 -> MediaTile(
-                            label = label,
-                            icon = remoteIcon(key.bit),
-                            bit = key.bit,
-                            host = host,
-                            modifier = m,
-                        )
-                        // 关机（0）/ 重启（1）：不直接发，先经 host.confirmPower 二次确认
-                        key.powerAction == 0 -> ActionTile(
-                            label = label,
-                            tint = colorResource(R.color.miuix_danger),
-                            modifier = m,
-                        ) { host.confirmPower(0, label) }
-                        else -> ActionTile(
-                            label = label,
-                            tint = colorResource(R.color.state_warn),
-                            modifier = m,
-                        ) { host.confirmPower(1, label) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** 操控面媒体图块图标：按共享表的 bit 映射（关机 / 重启无 bit，走 ActionTile 分支不进这里） */
-private fun remoteIcon(bit: Int): Int = when (bit) {
-    HotkeyController.BIT_PREV_TRACK -> R.drawable.ic_apx_prev
-    HotkeyController.BIT_PLAY_PAUSE -> R.drawable.ic_apx_play
-    HotkeyController.BIT_NEXT_TRACK -> R.drawable.ic_apx_next
-    HotkeyController.BIT_VOLUME_DOWN -> R.drawable.ic_apx_vol_down
-    HotkeyController.BIT_MUTE -> R.drawable.ic_apx_mute
-    HotkeyController.BIT_VOLUME_UP -> R.drawable.ic_apx_vol_up
-    else -> R.drawable.ic_apx_power
-}
-
-/**
- * 游戏键盘：4×6 高频键位。
- * 第 1 行技能数字、第 2/3 行左手技能区（Q W E R F B / A S D + 修饰）、
- * 第 4 行方向键与确认键 —— 覆盖 MOBA / FPS 的默认手位。
- */
-@Composable
-private fun GameKeyboard(ui: TouchpadActivity.ConsoleUi) {
-    val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize()) {
-        // 键位表走 KeyLayouts.GAME_ROWS 共享表（审计批3 2026-11-12：与主壳键盘页同源，只此一份）
-        val layout = KeyLayouts.GAME_ROWS
-        layout.forEach { labels ->
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                labels.forEach { text ->
-                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == text }?.second
-                    KeyCap(
-                        label = text,
-                        isModifier = bit != null,
-                        modBit = bit ?: 0,
-                        modVersion = ui.modVersion,
-                        onTap = {
-                            if (bit != null) {
-                                HidKeys.toggleSticky(bit)
-                            } else {
-                                HidKeys.tapLabel(text)
-                            }
-                            ui.modVersion++
-                        },
-                        accent = Color(kbAccent(ctx)),
-                        accentSoft = Color(kbAccentSoft(ctx)),
-                        modifier = Modifier.weight(1f).padding(2.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 按 [KeyLayouts] 的行列渲染：行高等分、列宽按权重（数字 / 九宫格 / 方向 / F 区共用） */
-@Composable
-private fun KeyGridLayout(rows: List<List<KeyLayouts.Key>>, ui: TouchpadActivity.ConsoleUi) {
-    val ctx = LocalContext.current
-    Column(Modifier.fillMaxSize()) {
-        rows.forEach { row ->
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                row.forEach { k ->
-                    // FULL 的 Shift/Ctrl/Alt → toggleSticky（与快捷键盘修饰排同口径）
-                    val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
-                    KeyCap(
-                        label = k.label,
-                        isModifier = bit != null,
-                        modBit = bit ?: 0,
-                        modVersion = ui.modVersion,
-                        onTap = {
-                            if (bit != null) HidKeys.toggleSticky(bit) else HidKeys.tap(k.usage)
-                            ui.modVersion++
-                        },
-                        accent = Color(kbAccent(ctx)),
-                        accentSoft = Color(kbAccentSoft(ctx)),
-                        modifier = Modifier.weight(k.weight).padding(3.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 自定义布局（v1.33）：用户在 CustomKeyboardDialog 编辑的整套行表；未配置时给占位提示 */
-@Composable
-private fun CustomLayout(ui: TouchpadActivity.ConsoleUi) {
-    val ctx = LocalContext.current
-    val rows = KeyPref.customRows(ctx)
-    if (rows.isNullOrEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = ctx.getString(R.string.ui_touchpad_text_edit_longpress),
-                fontSize = 14.sp,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary,
-            )
-        }
-        return
-    }
-    val dens = KeyPref.density(ctx)
-    Column(Modifier.fillMaxSize()) {
-        rows.forEach { labels ->
-            Row(Modifier.fillMaxWidth().weight(1f)) {
-                val g = dens.gapDp.dp
-                labels.forEach { text ->
-                    KeyCap(
-                        label = text,
-                        modVersion = ui.modVersion,
-                        onTap = {
-                            HidKeys.tapLabel(text)
-                            ui.modVersion++ // tap 会清 sticky，同步熄灭修饰键
-                        },
-                        accent = Color(kbAccent(ctx)),
-                        accentSoft = Color(kbAccentSoft(ctx)),
-                        modifier = Modifier.weight(1f).padding(g),
-                    )
-                }
-            }
-        }
-    }
 }
 
 /**
