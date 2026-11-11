@@ -378,8 +378,9 @@ class VoiceCaptureActivity : ComponentActivity() {
                         Offline.NeedDownload -> {
                             BodyText(getString(R.string.ui_voice_offline_intro), 15.sp)
                             ApComponents.ActionButton(
-                                getString(R.string.ui_voice_offline_go),
-                            ) { downloadAndPrepare() }
+                                text = getString(R.string.ui_voice_offline_go),
+                                onClick = { downloadAndPrepare() },
+                            )
                         }
                         is Offline.Downloading -> {
                             BodyText(
@@ -390,16 +391,18 @@ class VoiceCaptureActivity : ComponentActivity() {
                         Offline.Failed -> {
                             BodyText(getString(R.string.ui_voice_offline_retry), 15.sp)
                             ApComponents.ActionButton(
-                                getString(R.string.ui_voice_offline_retry),
-                            ) { downloadAndPrepare() }
+                                text = getString(R.string.ui_voice_offline_retry),
+                                onClick = { downloadAndPrepare() },
+                            )
                         }
                         Offline.NoMicPerm -> {
                             BodyText(getString(R.string.ui_voice_offline_no_perm), 15.sp)
                             ApComponents.ActionButton(
-                                getString(R.string.ui_voice_offline_grant),
-                            ) {
-                                micPerm.launch(Manifest.permission.RECORD_AUDIO)
-                            }
+                                text = getString(R.string.ui_voice_offline_grant),
+                                onClick = {
+                                    micPerm.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                            )
                         }
                         Offline.Preparing -> {
                             BodyText(getString(R.string.ui_voice_offline_preparing), 15.sp)
@@ -411,8 +414,8 @@ class VoiceCaptureActivity : ComponentActivity() {
                                 18.sp,
                             )
                             ApComponents.ActionButton(
-                                getString(R.string.ui_voice_offline_stop),
-                            ) {
+                                text = getString(R.string.ui_voice_offline_stop),
+                                onClick = {
                                 // stop 让采集线程收束，onResult 会带终态 JSON 回来；
                                 // 引擎与投递统一在那边处理，这里不动句柄
                                 runCatching { speech?.stop() }

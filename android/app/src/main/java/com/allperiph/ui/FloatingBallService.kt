@@ -1170,7 +1170,7 @@ class FloatingBallService : Service() {
                     runCatching { wm.updateViewLayout(v, lp) }
                 }
             }
-            barAnim.start()
+            barAnim?.start() // barAnim 可空（barAnim?: 上方 cancel 已用 ?.），收束口径与 1164 一致
         }
         publishBarPosition(v)
     }
