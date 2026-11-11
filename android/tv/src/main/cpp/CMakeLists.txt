@@ -14,6 +14,10 @@ add_library(apxtv SHARED apx_uinput.c)
 # TV 端虚拟手柄自 v1.8 起静默不可用。
 target_compile_definitions(apxtv PRIVATE APX_JNI_CLASS=com_allperiph_shared_input_UinputGamepad)
 
+# 虚拟鼠标（uinput）走同一份 apx_uinput.c，但 JNI 符号挂在 UinputMouse 类下；
+# 类名宏由这里传入，避免与手柄的符号冲突。
+target_compile_definitions(apxtv PRIVATE APX_JNI_CLASS_MOUSE=com_allperiph_shared_input_UinputMouse)
+
 find_library(APX_LOG_LIB log)
 if(APX_LOG_LIB)
   target_link_libraries(apxtv PRIVATE ${APX_LOG_LIB})

@@ -17,6 +17,7 @@ import com.allperiph.shared.ime.ApxImeService
 import com.allperiph.shared.input.EvdevInjector
 import com.allperiph.shared.input.RootInput
 import com.allperiph.shared.input.UinputGamepad
+import com.allperiph.shared.input.UinputMouse
 import com.allperiph.shared.util.Log
 
 /**
@@ -103,6 +104,16 @@ object TvInjector {
      * 浮层被控制端关掉时不再画，并保证收起过一次 —— 不做这个门，开关就是假的。
      */
     private fun paintOverlay() {
+        if (UinputMouse.ready) {
+            // 虚拟鼠标就绪：系统原生光标取代我们的蓝点 —— 不再画，并保证已收起。
+            // 不做这个分支，被控端会同时存在系统光标和蓝点两个"光标"。
+            // 借用 hiddenWhileDisabled 当"已收起过"标记，别在每个移动帧上重复 hide()。
+            if (!hiddenWhileDisabled) {
+                hiddenWhileDisabled = true
+                overlay?.hide()
+            }
+            return
+        }
         if (overlayEnabled) {
             hiddenWhileDisabled = false
             overlay?.move(cursorX, cursorY)
@@ -136,6 +147,9 @@ object TvInjector {
         Thread({ runCatching { EvdevInjector.tryStart() } }, "${platform.threadPrefix}-evdev").start()
         //  ④ uinput 虚拟手柄：手柄**摇杆**只有它能注入（见 gamepad()）
         Thread({ runCatching { UinputGamepad.tryStart() } }, "${platform.threadPrefix}-uinput").start()
+        //  ⑤ uinput 虚拟鼠标：被控端新建内核鼠标设备，系统原生光标随 REL 位移真动；
+        //    就绪后蓝点浮层退场（见 paintOverlay），点/长按/滚动仍走原注入通道
+        Thread({ runCatching { UinputMouse.tryStart() } }, "${platform.threadPrefix}-uinput-mouse").start()
         RootInput.tryStart()
         initialized = true
     }
@@ -155,6 +169,8 @@ object TvInjector {
      */
     fun channelText(): String {
         val p = platform ?: return "未开启 · 只能看到光标，点不动"
+        // uinput 虚拟鼠标优先展示：系统出现原生光标是能力的显著变化（点/长按/滚动仍走原注入）
+        if (UinputMouse.ready) return p.channelTextUinputMouse()
         p.channelTextUinputGamepad()?.let { txt -> if (UinputGamepad.ready) return txt }
         if (RootInput.available) return p.channelTextFullKey()
         if (EvdevInjector.available) return p.channelTextEvdev()
@@ -182,6 +198,7 @@ object TvInjector {
                 "overlay" -> overlay?.isReady ?: false
                 "ime" -> ApxImeService.isActive()
                 "uinput" -> UinputGamepad.ready
+                "umouse" -> UinputMouse.ready
                 else -> false
             }
             out.add(Triple(name, ready, how))
@@ -249,12 +266,19 @@ object TvInjector {
     fun cursorMove(x: Float, y: Float, absolute: Boolean) {
         refreshScreen()
         cursorMovedByPeer = true   // 建议 1：有了真实移动帧，之后才允许画点
+        val prevX = cursorX
+        val prevY = cursorY
         if (absolute) {
             cursorX = (x * screenW).coerceIn(0f, screenW.toFloat())
             cursorY = (y * screenH).coerceIn(0f, screenH.toFloat())
         } else {
             cursorX = (cursorX + x).coerceIn(0f, screenW.toFloat())
             cursorY = (cursorY + y).coerceIn(0f, screenH.toFloat())
+        }
+        // 虚拟鼠标就绪：把逻辑坐标的位移换算成 REL 事件，系统原生光标真动。
+        // 逻辑坐标照常累积 —— 点击/长按/滚动的落点仍与现注入通道完全一致（混合方案）。
+        if (UinputMouse.ready) {
+            UinputMouse.move((cursorX - prevX).toInt(), (cursorY - prevY).toInt())
         }
         paintOverlay()   // 走门：浮层被控制端关掉时不画（0x32）
         // P1-5：拖拽中（真实触摸流已开）每个移动帧同步注入 MOVE —— 对端实时跟随，
@@ -535,8 +559,14 @@ object TvInjector {
 
     /** 在当前光标处做相对位移（也供平台的 handleExtraKey 使用，如 PageUp/Down / MoveHome/End） */
     fun nudge(dx: Float, dy: Float) {
+        val prevX = cursorX
+        val prevY = cursorY
         cursorX = (cursorX + dx).coerceIn(0f, screenW.toFloat())
         cursorY = (cursorY + dy).coerceIn(0f, screenH.toFloat())
+        // 与 cursorMove 同款：虚拟鼠标就绪时方向键微移也让系统光标真动
+        if (UinputMouse.ready) {
+            UinputMouse.move((cursorX - prevX).toInt(), (cursorY - prevY).toInt())
+        }
         paintOverlay()   // 走门：浮层被控制端关掉时不画（0x32）
     }
 

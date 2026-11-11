@@ -43,6 +43,10 @@ target_link_libraries(apx PRIVATE apx_shared)
 # 虚拟手柄（摇杆）静默不可用（真机被控日志 UinputGamepad W 已复现）。
 target_compile_definitions(apx PRIVATE APX_JNI_CLASS=com_allperiph_shared_input_UinputGamepad)
 
+# 虚拟鼠标（uinput）走同一份 apx_uinput.c，但 JNI 符号挂在 UinputMouse 类下；
+# 类名宏由这里传入，避免与手柄的符号冲突。
+target_compile_definitions(apx PRIVATE APX_JNI_CLASS_MOUSE=com_allperiph_shared_input_UinputMouse)
+
 find_library(APX_LOG_LIB log)
 if(APX_LOG_LIB)
   target_link_libraries(apx PRIVATE ${APX_LOG_LIB})

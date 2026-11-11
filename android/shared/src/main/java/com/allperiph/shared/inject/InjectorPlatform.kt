@@ -52,6 +52,9 @@ interface InjectorPlatform {
     /** root + 虚拟手柄同时可用时的合并文案；返回 null 表示不在 channelText 里展示这一档（TV） */
     fun channelTextUinputGamepad(): String? = null
 
+    /** 虚拟鼠标就绪时的 channelText 档位；两端含义一致，给默认文案（移动真鼠标、点击走原注入） */
+    fun channelTextUinputMouse(): String = "uinput 虚拟鼠标 · 系统原生光标（移动真动，点击走原通道）"
+
     fun channelTextFullKey(): String = "root 注入 · 全键可用"
 
     fun channelTextEvdev(): String = "evdev 内核注入 · 免 root，全键可用"
@@ -94,6 +97,11 @@ interface InjectorPlatform {
         Triple(
             "uinput",
             "虚拟手柄（摇杆）",
+            "需要 root（会自动尝试 chmod /dev/uinput）",
+        ),
+        Triple(
+            "umouse",
+            "虚拟鼠标（系统原生光标）",
             "需要 root（会自动尝试 chmod /dev/uinput）",
         ),
     )
