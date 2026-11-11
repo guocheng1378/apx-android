@@ -1452,12 +1452,20 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                     detectDragGestures(
                         onDrag = { change, drag ->
                             change.consume()
+                            // 2026-11-12 反馈「旋转后悬浮栏不能往右移动，只能到中间」在壳内球
+                            //（ApShellActivity 97408a3）同病根的操控面残留：拖拽边界此前用的
+                            // 是本组合首帧捕获的 dm —— 本页转屏不重建（configChanges），转屏后
+                            // 旧对象仍停在旧朝向尺寸，横向被夹在旧屏宽。d5d700d 只修了落位重读
+                            //（onSizeChanged），拖拽夹边与存档两处漏网；改为每次事件现读，
+                            // 转屏后边界与存档口径立刻换新。
+                            val dm = host.resources.displayMetrics
                             navBallX = (navBallX + drag.x)
                                 .coerceIn(0f, dm.widthPixels - navBallPx)
                             navBallY = (navBallY + drag.y)
                                 .coerceIn(0f, dm.heightPixels - navBallPx)
                         },
                         onDragEnd = {
+                            val dm = host.resources.displayMetrics
                             com.allperiph.ui.BallPos.save(
                                 host, navBallX, navBallY, dm.widthPixels, dm.heightPixels,
                             )
