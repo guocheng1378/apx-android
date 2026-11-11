@@ -8,8 +8,7 @@
 而现有 7 个关卡与编译器**都报不出来**：
 
 - **有实现、无入口**：`GamepadActivity` 整页（含虚拟手柄两个出口）只有 Manifest 声明，
-  全仓零 `startActivity`；`RootPointerBridge.setEnabled`（root 直读外接触控板）、
-  `AudioModule.applyMic` / `applySpeaker`（麦克风 / 扬声器方向开关）、
+  全仓零 `startActivity`；`AudioModule.applyMic` / `applySpeaker`（麦克风 / 扬声器方向开关）、
   `KeyPref.setDensity` / `setKeycapStyle` / `setLayout`（键帽密度 / 材质 / 键位排列）零调用 ——
   功能完整，用户永远碰不到。
 - **提示与实际不符**：设置页把「物理键盘全局转发」的开关写进了 `apx` 偏好，而
@@ -30,7 +29,7 @@
 3. **偏好键名不许手写**：禁止页面代码直接 `getSharedPreferences("apx_ime_bridge")` /
    `getBoolean("kb_forward_enabled")` 一类字面量，必须经所属组件自己的读值出口
    （如 `GlobalKeyForwarder.isEnabled`）—— 键名写在两处必然有一天对不上。
-   覆盖 `kb_forward_enabled` / `apx_key_overrides` / `apx_root_pointer` / `apx_usb_audio` /
+   覆盖 `kb_forward_enabled` / `apx_key_overrides` / `apx_usb_audio` /
    `apx_wifi_audio` / `apx_kb` 这几组已踩过坑或即将踩坑的键。
 
 只做静态文本分析，不需要编译器。退出码非 0 = 有违规。
@@ -57,10 +56,10 @@ ACTIVITY_EXEMPT = {
 
 # ② 必须有人调用的能力 API：说明 -> 限定调用名（`类型.方法`）
 #    只认限定名：同名方法在别的类上很常见（applyMic 在 USB / Wi‑Fi 两个模块里都有，
-#    setEnabled 在 GestureShield / BallConfig / RootPointerBridge 里都有），
+#    setEnabled 在 GestureShield / BallConfig 里都有），
 #    按裸方法名核对会互相顶替，把「某一路没入口」漏掉。
+#    （issue#168 2026-11-11：外接触控板 root 直读开关随功能整体移除，登记项删去）
 CAPABILITY_APIS = {
-    "外接触控板 root 直读开关": "RootPointerBridge.setEnabled",
     "USB 麦克风方向开关": "AudioDirections.setUsbMic",
     "USB 扬声器方向开关": "AudioDirections.setUsbSpeaker",
     "Wi‑Fi 音频麦克风方向开关": "AudioDirections.setWifiMic",
@@ -80,11 +79,11 @@ ACCEPTED_NO_UI = {
 }
 
 # ③ 必须经组件读值出口、不许页面手写的偏好键
+#    （apx_root_pointer 随直读功能移除，2026-11-11）
 FORBIDDEN_LITERAL_KEYS = (
     ("apx_ime_bridge", "GlobalKeyForwarder.prefs / isEnabled"),
     ("kb_forward_enabled", "GlobalKeyForwarder.prefs / isEnabled"),
     ("apx_key_overrides", "HidKeyOverrides.prefs / load / set / clear"),
-    ("apx_root_pointer", "RootPointerBridge.prefs / isEnabled / setEnabled"),
     ("apx_usb_audio", "AudioModule.isMicOn / setMicPref"),
     ("apx_wifi_audio", "WirelessAudioModule.isMicOn / setMicPref"),
     ("apx_kb", "KeyPref.keycapStyleIndex / densityIndex / layoutIndex"),
@@ -93,7 +92,6 @@ FORBIDDEN_LITERAL_KEYS = (
 LITERAL_ALLOWED = {
     "android/app/src/main/java/com/allperiph/ui/GlobalKeyForwarder.kt",
     "android/app/src/main/java/com/allperiph/ui/HidKeyOverrides.kt",
-    "android/app/src/main/java/com/allperiph/touchpad/RootPointerBridge.kt",
     "android/app/src/main/java/com/allperiph/audio/AudioModule.kt",
     "android/app/src/main/java/com/allperiph/audio/WirelessAudioModule.kt",
     "android/app/src/main/java/com/allperiph/ui/KeyPref.kt",

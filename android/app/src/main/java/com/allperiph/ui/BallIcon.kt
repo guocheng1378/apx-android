@@ -104,7 +104,8 @@ object BallIcon {
     fun setPhoto(c: Context, uri: Uri): Boolean = runCatching {
         val resolver = c.contentResolver
         // ① ImageDecoder（API 28+）：对 HEIF/AVIF/云图最宽容
-        val src = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        //    （显式声明 Bitmap?：链尾是平台类型，隐式声明会挡住后续智能转换，CI 编译红过一回）
+        val srcOrNull: Bitmap? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             runCatching {
                 ImageDecoder.decodeBitmap(
                     ImageDecoder.createSource(resolver, uri),
@@ -132,7 +133,7 @@ object BallIcon {
             }
             // ③ 缩略图兜底：云图/受限图在元数据库里有现成缓存，直接取
             ?: resolver.loadThumbnail(uri, android.util.Size(SKIN_PX, SKIN_PX), null)
-            ?: return false
+        val src = srcOrNull ?: return false
         val side = minOf(src.width, src.height)
         val square = Bitmap.createBitmap(
             src, (src.width - side) / 2, (src.height - side) / 2, side, side,
