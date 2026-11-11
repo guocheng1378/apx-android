@@ -1,21 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 快捷项图标：副屏 / 投屏（显示器 + 底座）
+<!-- 快捷项图标：副屏 / 投屏（屏幕 + 左下角信号弧，cast 标准造型）
+     2026-11-12 返工：旧版「显示器 + 底座」与 ic_apx_devices（显示器 + 手机）同为
+     一台显示器，46dp 快捷项圆里撞形（用户「还有一样图标」）。改投屏语义：保留
+     屏幕外框，去掉底座，框内左下角画两级信号弧 + 圆点 —— 一眼与「设备」区分。
      单色遮罩（strokeColor 固定 #FF000000），实际颜色由使用处 tint 决定。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
+    <!-- 屏幕外框（位置与旧版一致） -->
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="1.7"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M2.8,5.4 a1.6,1.6 0 0 1 1.6,-1.6 h15.2 a1.6,1.6 0 0 1 1.6,1.6 v9.2 a1.6,1.6 0 0 1 -1.6,1.6 h-15.2 a1.6,1.6 0 0 1 -1.6,-1.6 z" />
+    <!-- 左下角两级信号弧 + 圆点（圆心取外框左下角，投屏语义） -->
     <path
         android:strokeColor="#FF000000"
         android:strokeWidth="1.7"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M9,20 h6 M12,16.2 v3.8" />
+        android:pathData="M2.8,12.7 a3.5,3.5 0 0 1 3.5,3.5 M2.8,9.7 a6.5,6.5 0 0 1 6.5,6.5 M3.4,15.6 h.01" />
 </vector>
