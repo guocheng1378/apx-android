@@ -81,10 +81,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 
 /**
  * 新主壳（唯一 launcher 入口：状态 / 触控板 / 键盘 / 设置四页）。
@@ -242,41 +238,13 @@ class ApShellActivity : ComponentActivity() {
         // 悬浮栏收/展状态（成宇 2026-11-07 第 4 条「上滑收起成球、下滑或点球展开」）。
         // 根 Box 的单指观察手势写它；低栏内容按它在胶囊/小球之间切换。
         var barCollapsed by remember { mutableStateOf(false) }
-        // —— 低栏拖动移位（issue#168 第 1 条追补，2026-11-11「拖动悬浮栏时自动缩小为球状，
-        // 支持按住移动位置」）——
-        // offset 相对低栏默认锚位（竖屏底部居中 / 横屏右上角），按方向各存一份（px）；
-        // 落盘在拖动结束那一刻写，旋转/重进后仍回到用户摆的位置。
-        // barDragging 供根 Box 的收/展滑动手势让路：父级 Initial pass 先于本层，
-        // 消费拦不住它，只能靠这个旗子让根手势在拖动期间闭嘴。
-        var barDragging by remember { mutableStateOf(false) }
-        val dockPrefs = remember { getSharedPreferences("apx_dock", MODE_PRIVATE) }
-        val dockMetrics = resources.displayMetrics
-        // 留 48dp 球径 + 24dp 边距的屏内钳制，防止球被拖出可视区；钳制按当前方向：
-        // 竖屏锚在底部居中（x 对称可挪、y 只能往上），横屏锚在右上（x 往左、y 往下）。
-        val dockHalf = 48f * dockMetrics.density
-        fun clampDockX(dx: Float, land: Boolean): Float {
-            val span = if (land) dockMetrics.widthPixels - dockHalf - 24f * dockMetrics.density
-                       else dockMetrics.widthPixels / 2f - dockHalf * 2f
-            return if (land) dx.coerceIn(-span, 0f) else dx.coerceIn(-span, span)
-        }
-        fun clampDockY(dy: Float, land: Boolean): Float {
-            val span = dockMetrics.heightPixels - dockHalf - 32f * dockMetrics.density
-            return if (land) dy.coerceIn(0f, span) else dy.coerceIn(-span, 0f)
-        }
-        var barOffsetX by remember(landscape) {
-            mutableFloatStateOf(dockPrefs.getFloat(if (landscape) "dock.ox.l" else "dock.ox.p", 0f))
-        }
-        var barOffsetY by remember(landscape) {
-            mutableFloatStateOf(dockPrefs.getFloat(if (landscape) "dock.oy.l" else "dock.oy.p", 0f))
-        }
-        // 转屏后把另一方向存的偏移钳回当前可视区（2026-11-11 成宇「底栏旋转屏幕会乱跑」）：
-        // 偏移按方向各存一份，但钳制只发生在拖动里 —— 旋转加载的另一方向值没人管，
-        // 极端情况下会停在锚位外侧（贴边越界）。落盘保持用户摆的原位，只改显示态；
-        // 下次拖动结束仍按原值落盘，不污染另一方向的记忆。
-        androidx.compose.runtime.LaunchedEffect(landscape) {
-            barOffsetX = clampDockX(barOffsetX, landscape)
-            barOffsetY = clampDockY(barOffsetY, landscape)
-        }
+        // —— 低栏拖动移位已迁往服务层悬浮栏（issue#168 2026-11-10 22:46「悬浮栏拖动卡顿
+        // 不跟手，改为和悬浮球一个实现方案」）——
+        // 壳内低栏是 Activity 窗口里的 Compose 节点，拖动靠每帧重组 offset，真机上就是
+        // 「卡顿不跟手」；与球同一套实现的移位只能住 WindowManager overlay（见
+        // FloatingBallService 的悬浮栏：同一套按住跟手 / 贴边吸附 / 单击恢复，位置落盘）。
+        // 壳内低栏保留：收/展 + 进操控页自动收起（导航语义不变）+ 长按快捷入口；
+        // 主壳在前台期间服务层悬浮栏会自行收起，两套栏不会同屏。
         // 进入触屏/键盘页自动收起低栏（成宇 2026-11-10「悬浮低栏进入触屏页或键盘页要自动
         // 隐藏」）：这两页是全屏操控面，胶囊压着最常用的操作区 —— 切进来就自动收成球，
         // 回到状态/设置页再自动展开。手动收展仍然可用：本 effect 只在页码变化时落一次，
@@ -448,10 +416,6 @@ class ApShellActivity : ComponentActivity() {
                                 val dy = c.position.y - sy
                                 val dx = c.position.x - sx
                                 if (ev.changes.count { it.pressed } == 1 &&
-                                    // 低栏拖动移位期间让路（issue#168 第 1 条追补）：父级 Initial
-                                    // pass 先于低栏自己的手势，消费拦不住它 —— 拖着低栏上下滑
-                                    // 不能同时触发整页收/展，否则球会一边跟手一边被抢收。
-                                    !barDragging &&
                                     kotlin.math.abs(dy) > 96f * density &&
                                     kotlin.math.abs(dy) > 2f * kotlin.math.abs(dx)
                                 ) {
@@ -667,9 +631,6 @@ class ApShellActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .align(barAlign)
-                    // 拖动移位（issue#168 第 1 条追补）：offset 相对默认锚位，按方向落盘；
-                    // offset 用 lambda 版逐帧读 px，拖动跟手不重算布局。
-                    .offset { IntOffset(barOffsetX.roundToInt(), barOffsetY.roundToInt()) }
                     // 横屏顶栏贴到屏幕上沿时，8dp 会落进大圆角/挖孔的弧内（真机横屏截图里
                     // 胶囊左上角被屏幕弧切掉一截）。这里叠上挖孔让位量 topPad。
                     .then(if (landscape) Modifier.padding(top = 8.dp + topPad) else Modifier)
@@ -681,17 +642,10 @@ class ApShellActivity : ComponentActivity() {
                         scaleY = v
                     }
                     .pointerInput(landscape) {
-                        // 低栏手势（2026-11-11 重写，issue#168 第 1 条追补）：
-                        //  · 按住不动 650ms → 长按弹快捷入口（原语义不变）；
-                        //  · 按住后移动超 slop → 拖动移位：立即收成球、球跟手，松手落位
-                        //    并按方向落盘（「拖动悬浮栏时自动缩小为球状，支持按住移动位置」）。
-                        // 两种手势都只认单指；事件全程在 Initial pass 观察与消费，
-                        // 页签的正常点击不受影响。
-                        // ⚠️ key 必须挂 landscape（2026-11-11 成宇「底栏旋转屏幕会乱跑」）：
-                        // 原来 key=Unit，转屏后协程不重启，闭包里捕获的还是旧方向的
-                        // clampDockX/Y / dockMetrics / landscape —— 拖动按旧方向钳制、
-                        // 偏移还会写进旧方向的偏好键，球在新方向上落点全错（「捕获旧值」家族④）。
-                        // 挂上 key 后转屏即重启，闭包重取当前方向的值。
+                        // 低栏手势（2026-11-11 收敛）：只剩「按住不动 650ms → 长按弹快捷入口」。
+                        // 拖动移位已迁往服务层悬浮栏（本文件上方注释）：壳内 Compose 节点拖动
+                        // 靠每帧重组 offset，真机卡顿不跟手 —— 跟手版本只能住 WindowManager
+                        // overlay（与球同一套实现）。移动超 slop 直接放行，不拦事件。
                         awaitEachGesture {
                             val down = awaitFirstDown(
                                 requireUnconsumed = false,
@@ -700,10 +654,9 @@ class ApShellActivity : ComponentActivity() {
                             val start = down.position
                             val startMs = System.currentTimeMillis()
                             var longPressFired = false
-                            var handled = false
-                            while (!handled) {
+                            while (true) {
                                 val ev = awaitPointerEvent(PointerEventPass.Initial)
-                                // ⚠️ 长按/拖动只在**单指**下成立（成宇 2026-11-04「挡了两个按键
+                                // ⚠️ 长按只在**单指**下成立（成宇 2026-11-04「挡了两个按键
                                 // 不能用」）：这根 pointerInput 挂在低栏外层 Box 上，且
                                 // `requireUnconsumed = false` —— 横屏低栏的命中区正好贴着修饰键
                                 // 排，键盘按键的按下它**也会收到**（不消费，键帽照常能按）。
@@ -716,30 +669,10 @@ class ApShellActivity : ComponentActivity() {
                                 if ((c.position - start).getDistance() >
                                     viewConfiguration.touchSlop
                                 ) {
-                                    // —— 拖动移位：先收成球再跟手 ——
-                                    barDragging = true
-                                    barCollapsed = true
-                                    var last = c.position
-                                    while (true) {
-                                        val e2 = awaitPointerEvent(PointerEventPass.Initial)
-                                        e2.changes.forEach { it.consume() }
-                                        val c2 = e2.changes.firstOrNull { it.id == down.id }
-                                            ?: e2.changes.firstOrNull()
-                                        if (c2 == null) continue
-                                        if (!c2.pressed) break
-                                        val delta = c2.position - last
-                                        last = c2.position
-                                        barOffsetX = clampDockX(barOffsetX + delta.x, landscape)
-                                        barOffsetY = clampDockY(barOffsetY + delta.y, landscape)
-                                    }
-                                    // 松手落位：按当前方向写偏好，旋转/重进后位置不丢
-                                    dockPrefs.edit()
-                                        .putFloat(if (landscape) "dock.ox.l" else "dock.ox.p", barOffsetX)
-                                        .putFloat(if (landscape) "dock.oy.l" else "dock.oy.p", barOffsetY)
-                                        .apply()
-                                    barDragging = false
-                                    handled = true
-                                } else if (System.currentTimeMillis() - startMs >= 650L) {
+                                    // 按住后移动：不是长按（拖动语义归服务层悬浮栏），整个手势放弃
+                                    break
+                                }
+                                if (System.currentTimeMillis() - startMs >= 650L) {
                                     // 长按成立：把剩余序列在 Initial pass 里标记消费，
                                     // 页签的 clickable 在 Main pass 看到已消费就不会再当点击
                                     longPressFired = true
@@ -748,7 +681,7 @@ class ApShellActivity : ComponentActivity() {
                                         e2.changes.forEach { it.consume() }
                                         if (e2.changes.none { it.pressed }) break
                                     }
-                                    handled = true
+                                    break
                                 }
                             }
                             if (longPressFired) {
@@ -957,10 +890,15 @@ class ApShellActivity : ComponentActivity() {
         // startForegroundService 可能被系统拒，服务不在的球就在回前台这一刻补拉
         // （前台启动无限制）。内部幂等：服务活着 / 意愿位关着都是 no-op。
         runCatching { com.allperiph.ui.FloatingBallService.ensureRunningIfWanted(this, force = true) }
+        // 服务层悬浮栏（issue#168 2026-11-10 22:46）：主壳在前台期间收栏 ——
+        // 壳内已有同职能的低栏（导航 + 快捷入口），两套栏同屏只会互相打架。
+        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(true) }
     }
 
     override fun onPause() {
         com.allperiph.ui.ClipboardSync.unregister(this)
+        // 离开主壳即还栏：服务层悬浮栏是「桌面 / 其它应用里」的操控面入口（见 onResume）。
+        runCatching { com.allperiph.ui.FloatingBallService.notifyShellForeground(false) }
         super.onPause()
     }
 

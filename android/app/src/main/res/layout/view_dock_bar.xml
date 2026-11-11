@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  服务层悬浮栏（issue#168 2026-11-10 22:46）：「4 个页面为悬浮栏展开菜单样式」——
+  外设模式的全屏操控四页（触控板 / 键盘 / 副屏 / 遥控器）直接排进这根栏，
+  桌面与任意应用里点图标即达，不必再进主壳。
+  尺寸给死（BAR_W_DP / BAR_H_DP，见 FloatingBallService）：胶囊底图是 shape 基元，
+  没有 intrinsic size，WRAP_CONTENT 会塌到子 View（悬浮球当年 66px 的同一坑）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="168dp"
+    android:layout_height="50dp"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="@drawable/bg_dock_bar"
+    android:paddingHorizontal="@dimen/space_8">
+
+    <ImageView
+        android:id="@+id/ivBarTouchpad"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_apx_touchpad"
+        android:contentDescription="@string/ui_nav_touchpad" />
+
+    <ImageView
+        android:id="@+id/ivBarKeyboard"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_apx_keyboard"
+        android:contentDescription="@string/ui_nav_keyboard" />
+
+    <ImageView
+        android:id="@+id/ivBarScreen"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_apx_screen"
+        android:contentDescription="@string/ui_home_quick_screen" />
+
+    <ImageView
+        android:id="@+id/ivBarRemote"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_apx_remote"
+        android:contentDescription="@string/ui_remote_text_remote" />
+</LinearLayout>
