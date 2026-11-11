@@ -220,7 +220,7 @@ class EvdevPointerReader(
         val ht = HandlerThread("apx-evdev").also { it.start() }
         thread = ht
         handler = Handler(ht.looper)
-        for (f in found) handler?.post { readLoop(f) }
+        for (f in found) handler?.post { readLoop(f.path) }
         startedNodes = found.map { it.path.name }
         Log.i(TAG, "evdev 直读启动：${startedNodes.joinToString()}")
         return true
