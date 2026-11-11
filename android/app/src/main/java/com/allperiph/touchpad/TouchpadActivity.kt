@@ -60,6 +60,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -1693,7 +1694,34 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
             }
         }
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 记上一次观测到的内容区尺寸：转屏 / 分屏变化时按它判定「该重读落点了」
+    var lastBounds by remember { mutableStateOf<android.util.Size?>(null) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // 转屏重读落点（2026-11-12「很多界面都有这样的问题」系统性排查）：主壳导航球
+            // （ApShellActivity）有 LaunchedEffect(landscape) 兜转屏，这里此前只落一次位，
+            // 旋转后球停在旧方向的绝对像素上（可能悬在半空或出屏）。挂在 onSizeChanged
+            // 而不是 LaunchedEffect(orientation)：Compose 测量与布局同源、不等
+            // Configuration 回写，转屏瞬间必然触发（老坑见 rememberApAdaptiveLayout 注释）。
+            .onSizeChanged { size ->
+                if (size.width <= 0 || size.height <= 0) return@onSizeChanged
+                val prev = lastBounds
+                lastBounds = size
+                // 首次测量交给下方 LaunchedEffect 落位；此后尺寸一变就按共享比例重读
+                if (prev == null || navBallX < 0f || (size.width == prev.width && size.height == prev.height)) {
+                    return@onSizeChanged
+                }
+                com.allperiph.ui.BallPos.load(host, size.width, size.height, navBallPx.toInt())?.let {
+                    navBallX = it.first.toFloat()
+                    navBallY = it.second.toFloat()
+                } ?: run {
+                    // 没有存档（异常清除等）：至少把球夹回当前屏内，别悬在屏外
+                    navBallX = navBallX.coerceIn(0f, (size.width - navBallPx).coerceAtLeast(0f))
+                    navBallY = navBallY.coerceIn(0f, (size.height - navBallPx).coerceAtLeast(0f))
+                }
+            }
+    ) {
         // 页签切换菜单：居中卡片，三项直达（点选即切页、菜单收起、球留原位）
         if (menuOpen) {
             Box(
