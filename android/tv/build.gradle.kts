@@ -48,10 +48,12 @@ android {
     }
     buildTypes {
         release {
-            // 2026-11-12 体积优化轮：与手机端同批开 R8 + 资源收缩（TV 无 JNI，规则更简，
-            // 见 tv/proguard-rules.pro）。
+            // 2026-11-12 体积优化轮：与手机端同批开 R8 代码裁剪（TV 无 JNI，规则更简，
+            // 见 tv/proguard-rules.pro）。资源收缩同日撤销（v223.29.80 真机反馈）：
+            // 手机端有 getIdentifier 动态取资源路径，收缩器静态分析看不到会误删，
+            // 与手机端保持同口径先关；恢复前须补齐 keep 白名单。
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

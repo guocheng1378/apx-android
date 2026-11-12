@@ -52,11 +52,15 @@ android {
     }
     buildTypes {
         release {
-            // 2026-11-12 体积优化轮：开 R8 裁剪 + 资源收缩（此前 release 全量打包，
-            // 未用到的库代码/资源全进包）。keep 规则见 proguard-rules.pro：JNI 静态
+            // 2026-11-12 体积优化轮：开 R8 代码裁剪（此前 release 全量打包，
+            // 未用到的库代码全进包）。keep 规则见 proguard-rules.pro：JNI 静态
             // 绑定的两个类 + 崩溃栈行号；Manifest 组件由 AGP 自动登记。
+            // 资源收缩同日撤销（v223.29.80 真机反馈「好多东西没了」）：代码里有
+            // getIdentifier 动态取资源的路径（BallIcon 悬浮球图标按资源名查表），
+            // 资源收缩器静态分析看不到这类引用，会把还在用的资源当垃圾删掉。
+            // 想恢复时必须先给全部动态引用补 res/raw/keep.xml 白名单再开。
             isMinifyEnabled = true
-            isShrinkResources = true
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
