@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
@@ -112,38 +113,39 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                     AnimatedContent(
                         targetState = sec,
                         transitionSpec = {
-                            if (ApMotion.enabled(ctx)) {
-                                (
-                                    fadeIn(
-                                        tween(
-                                            durationMillis = ApMotion.durationMs(ctx, 150),
-                                            easing = ApMotion.EnterEasing,
-                                        ),
-                                    ) + slideInVertically(
-                                        tween(
-                                            durationMillis = ApMotion.durationMs(ctx, 150),
-                                            easing = ApMotion.EnterEasing,
-                                        ),
-                                    ) { it / 8 }
-                                    ) togetherWith (
-                                    fadeOut(
-                                        tween(
-                                            durationMillis = ApMotion.durationMs(ctx, 150),
-                                            easing = ApMotion.ExitEasing,
-                                        ),
-                                    ) + slideOutVertically(
-                                        tween(
-                                            durationMillis = ApMotion.durationMs(ctx, 150),
-                                            easing = ApMotion.ExitEasing,
-                                        ),
-                                    ) { -it / 8 }
-                                    )
+                            // 尺寸变化用 snap 瞬落（默认 SizeTransform 走弹簧，与「禁弹簧禁过冲」
+                            // 口径冲突，故显式给 snap 规格）—— 只过渡淡入淡出与位移，高度不逐帧动画。
+                            val enter = if (ApMotion.enabled(ctx)) {
+                                fadeIn(
+                                    tween(
+                                        durationMillis = ApMotion.durationMs(ctx, 150),
+                                        easing = ApMotion.EnterEasing,
+                                    ),
+                                ) + slideInVertically(
+                                    tween(
+                                        durationMillis = ApMotion.durationMs(ctx, 150),
+                                        easing = ApMotion.EnterEasing,
+                                    ),
+                                ) { it / 8 }
                             } else {
-                                fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                                fadeIn(tween(0))
                             }
-                        },
-                        sizeTransform = { _, _ ->
-                            SizeTransform(clip = true) { _, _ -> snap() }
+                            val exit = if (ApMotion.enabled(ctx)) {
+                                fadeOut(
+                                    tween(
+                                        durationMillis = ApMotion.durationMs(ctx, 150),
+                                        easing = ApMotion.ExitEasing,
+                                    ),
+                                ) + slideOutVertically(
+                                    tween(
+                                        durationMillis = ApMotion.durationMs(ctx, 150),
+                                        easing = ApMotion.ExitEasing,
+                                    ),
+                                ) { -it / 8 }
+                            } else {
+                                fadeOut(tween(0))
+                            }
+                            (enter togetherWith exit) using SizeTransform(clip = true) { _, _ -> snap() }
                         },
                         label = "helpBody",
                     ) { s ->

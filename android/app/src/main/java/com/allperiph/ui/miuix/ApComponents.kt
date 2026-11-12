@@ -590,12 +590,12 @@ object ApComponents {
                         easing = ApMotion.EnterEasing,
                     ),
                 ),
-                exit = androidx.compose.animation.collapseVertically(
+                exit = androidx.compose.animation.shrinkVertically(
                     animationSpec = androidx.compose.animation.core.tween(
                         durationMillis = ApMotion.durationMs(fgHost.context, 150),
                         easing = ApMotion.ExitEasing,
                     ),
-                    collapseFrom = Alignment.Top,
+                    shrinkFrom = Alignment.Top,
                 ) + androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core.tween(
                         durationMillis = ApMotion.durationMs(fgHost.context, 150),
