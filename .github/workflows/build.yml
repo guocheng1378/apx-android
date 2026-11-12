@@ -1,7 +1,9 @@
 name: Build
 
 # 触发：
-#   push master        —— 只做构建验证（Android + PC + 协议关卡），不发 release
+#   push master        —— 只做构建验证（Android 编译 + PC + 协议关卡），不打包不发 release
+#                          2026-11-12 起普通提交不再组 APK/上传产物，打包与 R8/JNI 自检
+#                          只在 tag 构建兜底（普通提交时长省一大半，artifact 不再堆积）
 #   push tag v*        —— 构建三端产物并自动创建 GitHub Release
 #   pull_request→master—— PR 上先构建验证，编译错误在合入前拦下
 #   workflow_dispatch  —— 手动构建验证（分支已合走后需要单独跑一次时用它）
@@ -131,8 +133,17 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build release APKs (app + tv)
-        run: ./gradlew :app:assembleRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+      # 打包只在发版（tag v*）时做：普通 master 提交只跑 compileReleaseKotlin
+      # 做编译验证（完整 Kotlin/AGP 编译，但不跑 R8 混淆与 APK 组包，时长省一大半）。
+      # R8 / 包体 / JNI 链接类问题由 tag 构建兜底 —— tag 跑完整 assembleRelease，
+      # release job 又依赖同一 run 的 apk-app/apk-tv artifact，链路不变。
+      - name: "Build: tag runs release APKs, push runs compile check"
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ./gradlew :app:assembleRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+          else
+            ./gradlew :app:compileReleaseKotlin :tv:compileReleaseKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+          fi
         shell: bash
 
       - name: Show build errors
@@ -218,7 +229,9 @@ jobs:
       # 原生符号自检（真机教训）：只 enable CXX 的 CMake 工程会静默跳过 .c 源文件，
       # 编译链接与 CI 全绿、运行期才报 "No implementation found ... UinputGamepad"，
       # 虚拟手柄/摇杆静默不可用。所以构建后必须验**产物**，别信"编译通过"。
+      # 只在 tag 时跑：本步读的是 assembleRelease 产物，普通提交已改为仅编译验证。
       - name: Verify native JNI symbols in APKs
+        if: success() && startsWith(github.ref, 'refs/tags/v')
         run: |
           python3 - <<'PY'
           import sys, zipfile
@@ -269,8 +282,10 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      # 只在 tag 时上传：release job 从同一 run 下载 apk-app/apk-tv 出包，
+      # 普通提交不产包也就不必占 artifact 存储。
       - name: Upload app APK
-        if: success()
+        if: success() && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: apk-app
@@ -278,7 +293,7 @@ jobs:
           retention-days: 14
 
       - name: Upload tv APK
-        if: success()
+        if: success() && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: apk-tv
@@ -382,8 +397,10 @@ jobs:
         run: ctest --test-dir build_host -C Release --output-on-failure
 
       # --- Artifacts ---
+      # 只在 tag 时上传：PC 编译 + ctest 是门禁照常跑，产物（exe/dll/web 前端）
+      # 只有发版才需要 —— release job 从同一 run 下载 pc-exes-webview2 出包。
       - name: Upload PC exes + bundled UI
-        if: success()
+        if: success() && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: pc-exes-webview2
@@ -397,7 +414,7 @@ jobs:
           retention-days: 14
 
       - name: Upload web frontend dist
-        if: success()
+        if: success() && startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
