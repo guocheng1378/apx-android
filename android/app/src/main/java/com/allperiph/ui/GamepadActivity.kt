@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -214,10 +215,19 @@ internal fun GamepadPanel(onExit: () -> Unit) {
     // 区域里点不到。整个根盒垫上状态栏 insets —— 悬浮球 overlay 宿主 insets 为 0，不受影响。
     // BoxWithConstraints 只为取本盒实宽：本面板可能套在 LandscapePanel 的旋转盒里，
     // LocalWindowInfo 的宽度是竖屏原窗宽，判定不了「横过来之后有多宽」。
+    //
+    // 状态栏安全垫（成宇 2026-11-12 22:1x「手柄页按钮不够也没有覆盖到状态栏」）：上一行
+    // 的「overlay 不受影响」判断错了 —— overlay 宿主 insets 恒 0，windowInsetsPadding
+    // 等于没垫，悬浮手柄顶部 ✕/✎ 两键（y=8dp）正好压进状态栏里点不动；主屏 Activity
+    // 宿主则有真实 insets。这里取「真实状态栏」与 32dp 安全下限的较大者补足顶部：
+    // 悬浮手柄是强制横屏，横屏状态栏 24~28dp 居多，32dp 下限在 overlay 宿主也够让出；
+    // Activity 宿主真实 insets ≥ 下限时补足量为 0，不产生双重垫边。
+    val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(top = maxOf(32.dp - sbTop, 0.dp))
             .background(colorResource(R.color.overlay_scrim))
     ) {
         val W = maxWidth
