@@ -1357,6 +1357,16 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     var navBallY by remember { mutableFloatStateOf(-1f) }
     var menuOpen by remember { mutableStateOf(false) }
     val dm = host.resources.displayMetrics
+    // issue#168 2026-11-12 #9「禁止移动到状态栏和小白条区域」（与主壳导航球同规矩）：
+    // 拖拽纵界 = 顶部 ApInsets.top（状态栏/挖孔）、底部 ApInsets.bottom（手势条）。
+    val ballInsets = com.allperiph.ui.miuix.rememberApInsets()
+    val ballTopLimitPx = with(density) { ballInsets.top.toPx() }
+    val ballBottomGapPx = with(density) { ballInsets.bottom.toPx() }
+    // 纵向钳进系统栏带（极矮屏兜底 max≥min）；落位与拖拽共用。
+    fun clampBallY(y: Float, screenH: Int): Float {
+        val maxY = (screenH - navBallPx - ballBottomGapPx).coerceAtLeast(ballTopLimitPx)
+        return y.coerceIn(ballTopLimitPx, maxY)
+    }
     // 主题明暗判（与主壳 navDarkBall 同一算式）：反色球用 —— 深色主题白球 / 浅色主题黑球
     val navDarkBall = run {
         val bg = MiuixTheme.colorScheme.background
@@ -1369,10 +1379,10 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
             val loaded = com.allperiph.ui.BallPos.load(host, dm.widthPixels, dm.heightPixels, navBallPx.toInt())
             if (loaded != null) {
                 navBallX = loaded.first.toFloat()
-                navBallY = loaded.second.toFloat()
+                navBallY = clampBallY(loaded.second.toFloat(), dm.heightPixels)
             } else {
                 navBallX = dm.widthPixels - navBallPx - with(density) { 20.dp.toPx() }
-                navBallY = dm.heightPixels - navBallPx - with(density) { 32.dp.toPx() }
+                navBallY = clampBallY(dm.heightPixels - navBallPx - with(density) { 32.dp.toPx() }, dm.heightPixels)
             }
         }
     }
@@ -1405,41 +1415,71 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                 }
             }
     ) {
-        // 页签切换菜单：居中卡片，三项直达（点选即切页、菜单收起、球留原位）
+        // 页签切换菜单（issue#168 2026-11-12 #9「展开样式对齐 app 首页横排胶囊」）：
+        // 原先是居中卡片（标题 + 纵排三项），改为与主壳 pageSwitchOpen 胶囊同款的
+        // **横排胶囊** —— 页签名一行排开、当前页主色点亮，落点挂在球旁（上方优先，
+        // 贴顶放不下换下方），横向钳在屏内；点胶囊外任意处收起（透明接手势层画在
+        // 球之前，球的点按/拖动不受影响），再点球同样收起（开关语义）。
         if (menuOpen) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.35f))
                     .pointerInput(Unit) { detectTapGestures(onTap = { menuOpen = false }) },
             )
-            Column(
-                Modifier
-                    .align(Alignment.Center)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colorResource(R.color.miuix_card))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = host.getString(R.string.ui_nav_switch_title),
-                    fontSize = 17.sp,
-                    color = MiuixTheme.colorScheme.onSurface,
-                )
-                CONSOLE_PAGES.forEachIndexed { i, p ->
-                    Text(
-                        text = host.getString(p.titleRes),
-                        fontSize = 15.sp,
-                        color = if (ui.page == i) MiuixTheme.colorScheme.primary
-                                else MiuixTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clickable {
-                                com.allperiph.ui.Feedback.tap(view)
-                                menuOpen = false
-                                host.showPage(i)
-                            }
-                            .padding(horizontal = 28.dp, vertical = 12.dp),
+            var pillW by remember { mutableIntStateOf(0) }
+            val pillGapPx = with(density) { 10.dp.toPx() }
+            val pillHPx = with(density) { 44.dp.toPx() }
+            val pillMarginPx = with(density) { 12.dp.toPx() }
+            // 纵向：优先球上方，贴顶放不下改球下方（与主壳同口径）
+            val pillYPx = if (navBallY - pillGapPx - pillHPx >= 0f) {
+                navBallY - pillGapPx - pillHPx
+            } else {
+                navBallY + navBallPx + pillGapPx
+            }
+            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
+            val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
+                .coerceIn(pillMarginPx, (dm.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(pillXPx.roundToInt(), pillYPx.roundToInt()) }
+                    .onSizeChanged { pillW = it.width }
+                    .clip(CircleShape)
+                    .background(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.98f))
+                    .border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
+                                Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
+                            ),
+                        ),
+                        shape = CircleShape,
                     )
+                    .height(44.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    CONSOLE_PAGES.forEachIndexed { i, p ->
+                        Text(
+                            text = host.getString(p.titleRes),
+                            fontSize = 14.sp,
+                            // 当前页主色点亮（与主壳胶囊同款）
+                            color = if (ui.page == i) MiuixTheme.colorScheme.primary
+                                    else MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable {
+                                    com.allperiph.ui.Feedback.tap(view)
+                                    menuOpen = false
+                                    host.showPage(i)
+                                }
+                                .padding(horizontal = 10.dp, vertical = 11.dp),
+                        )
+                    }
                 }
             }
         }
@@ -1461,8 +1501,8 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                             val dm = host.resources.displayMetrics
                             navBallX = (navBallX + drag.x)
                                 .coerceIn(0f, dm.widthPixels - navBallPx)
-                            navBallY = (navBallY + drag.y)
-                                .coerceIn(0f, dm.heightPixels - navBallPx)
+                            // 纵向钳进系统栏带：上不过状态栏/挖孔、下不过小白条（#9 同规矩）
+                            navBallY = clampBallY(navBallY + drag.y, dm.heightPixels)
                         },
                         onDragEnd = {
                             val dm = host.resources.displayMetrics

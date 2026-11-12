@@ -590,6 +590,12 @@ class ApShellActivity : ComponentActivity() {
             }
             val navBallPx = with(LocalDensity.current) { 48.dp.toPx() }
             val ballDensity = LocalDensity.current
+            // issue#168 2026-11-12 #9「禁止移动到状态栏和小白条区域」：拖拽上下边界 =
+            // 顶部 ApInsets.top（状态栏/挖孔垫，与 topPad 同源）、底部 ApInsets.bottom
+            // （手势条高度）。横边界不动 —— 用户只点名了上下两条系统栏带。
+            val ballInsets = com.allperiph.ui.miuix.rememberApInsets()
+            val ballTopLimitPx = with(ballDensity) { ballInsets.top.toPx() }
+            val ballBottomGapPx = with(ballDensity) { ballInsets.bottom.toPx() }
             var navBallX by remember { mutableFloatStateOf(-1f) }
             var navBallY by remember { mutableFloatStateOf(-1f) }
             val dmBall = resources.displayMetrics
@@ -600,9 +606,15 @@ class ApShellActivity : ComponentActivity() {
                 val loaded = com.allperiph.ui.BallPos.load(
                     this@ApShellActivity, dmBall.widthPixels, dmBall.heightPixels, navBallPx.toInt(),
                 )
+                // 档位落点也钳进系统栏带（上/下界夹不出负区间时才钳，极矮屏兜底）
+                fun clampY(y: Float): Float {
+                    val maxY = (dmBall.heightPixels - navBallPx - ballBottomGapPx)
+                        .coerceAtLeast(ballTopLimitPx)
+                    return y.coerceIn(ballTopLimitPx, maxY)
+                }
                 if (loaded != null) {
                     navBallX = loaded.first.toFloat()
-                    navBallY = loaded.second.toFloat()
+                    navBallY = clampY(loaded.second.toFloat())
                 } else {
                     navBallX = if (landscape) {
                         dmBall.widthPixels - navBallPx - with(ballDensity) { 20.dp.toPx() }
@@ -719,8 +731,13 @@ class ApShellActivity : ComponentActivity() {
                                 val dm = resources.displayMetrics
                                 navBallX = (navBallX + drag.x)
                                     .coerceIn(0f, dm.widthPixels - navBallPx)
-                                navBallY = (navBallY + drag.y)
-                                    .coerceIn(0f, dm.heightPixels - navBallPx)
+                                // 纵向钳进系统栏带：上不过状态栏/挖孔、下不过小白条
+                                //（issue#168 2026-11-12 #9；极矮屏兜底 max≥min）
+                                navBallY = (navBallY + drag.y).coerceIn(
+                                    ballTopLimitPx,
+                                    (dm.heightPixels - navBallPx - ballBottomGapPx)
+                                        .coerceAtLeast(ballTopLimitPx),
+                                )
                             },
                             onDragEnd = {
                                 val dm = resources.displayMetrics

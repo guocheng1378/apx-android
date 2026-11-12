@@ -31,11 +31,15 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -67,6 +71,7 @@ import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
 import com.allperiph.ui.compose.ApFullKeyboard
 import com.allperiph.ui.compose.ApTouchpadSurface
+import com.allperiph.ui.compose.FloatingHotkeyCard
 import com.allperiph.ui.compose.ApShellActivity
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
@@ -2121,22 +2126,52 @@ class FloatingBallService : Service() {
                         onClick = { collapse() },
                     )
                 }
-                ApTouchpadSurface(
-                    onGesture = { ev ->
-                        // 与触控板页同一条链路：feed → GestureEngine → 三出口（USB / 蓝牙 / 无线）
-                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
-                            ?.feed(ev)
-                    },
-                    onLongPressArmDrag = {
-                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
-                            ?.armDrag()
-                    },
-                    onLongPressRightDrag = {
-                        (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
-                            ?.armRightDrag()
-                    },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                )
+                // issue#168 2026-11-12 #8「悬浮球打开的悬浮触控板布局对齐 app 内触控板
+                // 横竖屏布局」：横屏 = 左手势面 + 右列快捷键卡；竖屏 = 手势面(2/3) +
+                // 下方快捷键卡(1/3)。快捷键卡走 FloatingHotkeyCard —— 与 app 内触控板页
+                // 同一份 HotkeyStore 数据、同一套点击直发 / 拖拽排序 / 卡内滚动；
+                // 悬浮面板宿主是 Service，编辑弹窗开不了，编辑去 app 内（卡里不画编辑钮）。
+                if (wpx > hpx) {
+                    Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        ApTouchpadSurface(
+                            onGesture = { ev ->
+                                (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                    ?.feed(ev)
+                            },
+                            onLongPressArmDrag = {
+                                (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                    ?.armDrag()
+                            },
+                            onLongPressRightDrag = {
+                                (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                    ?.armRightDrag()
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Box(modifier = Modifier.width(240.dp).fillMaxHeight().padding(start = 8.dp)) {
+                            FloatingHotkeyCard(ctx = this@FloatingBallService, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                } else {
+                    ApTouchpadSurface(
+                        onGesture = { ev ->
+                            (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                ?.feed(ev)
+                        },
+                        onLongPressArmDrag = {
+                            (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                ?.armDrag()
+                        },
+                        onLongPressRightDrag = {
+                            (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                                ?.armRightDrag()
+                        },
+                        modifier = Modifier.fillMaxWidth().weight(2f),
+                    )
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp)) {
+                        FloatingHotkeyCard(ctx = this@FloatingBallService, modifier = Modifier.fillMaxSize())
+                    }
+                }
             }
         }
         // 悬浮球的触控板同样是三指滑动面：展开期间一并遮蔽系统三指截屏，
@@ -2145,7 +2180,6 @@ class FloatingBallService : Service() {
         // 面板没挂上就不能遮蔽，否则三指手势被永久关着。
         if (ok) com.allperiph.touchpad.GestureShield.acquireWithHint(this, HOLDER_BALL)
     }
-
     // ————————————————————————— Compose 悬浮面板（键盘 / 手柄 / 设备） —————————————————————————
 
     /**
@@ -2393,15 +2427,16 @@ class FloatingBallService : Service() {
         // 里又读一遍，两处的「程序性写入抑制 / 空串判定」迟早会跑偏。
         val text = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
         expandComposePanel(WindowManager.LayoutParams.WRAP_CONTENT, kind = KIND_CLIPBOARD) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-            ) {
-                ApComponents.Card {
+            // issue#168 2026-11-12 #10「剪贴板悬浮窗改左右布局：左侧文字提示 + 按钮，
+            // 右侧剪贴板内容，宽度不够加滚动条」：面板是整宽 WRAP_CONTENT 底部卡，
+            // 左右分栏正好 —— 左栏提示与操作、右栏内容；内容长时右栏竖向滚动 +
+            // VScrollbar 滚动条（内容不超高时滚动条自动不画）。
+            val scroll = rememberScrollState()
+            ApComponents.Card {
+                Row(modifier = Modifier.padding(12.dp)) {
+                    // —— 左栏：标题 + 提示 + 操作按钮（居中，与旧竖排同观感）——
                     Column(
-                        // issue#168 返工（2026-11-12「悬浮球剪贴板/设备页文字与关闭按钮居中」）：
-                        // 面板窄，标题/提示/内容左对齐挤在左半边不好看，整列水平居中。
+                        modifier = Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
@@ -2414,16 +2449,6 @@ class FloatingBallService : Service() {
                             text = stringResource(R.string.ui_ball_fn_clipboard_hint),
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                        Text(
-                            text = if (text.isEmpty()) stringResource(R.string.ui_ball_fn_clipboard_empty)
-                            else stringResource(
-                                R.string.ui_ball_fn_clipboard_now,
-                                text.take(120) + if (text.length > 120) "…" else "",
-                            ),
-                            fontSize = 13.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 8.dp),
                         )
@@ -2462,6 +2487,36 @@ class FloatingBallService : Service() {
                         ApComponents.NarrowButton(
                             text = stringResource(R.string.ui_help_close),
                             onClick = { collapse() },
+                        )
+                    }
+                    // —— 右栏：剪贴板内容（整段全文，超高滚动；旧版只截 120 字，左右布局后
+                    //    滚动条接住长度，全文可看）——
+                    Box(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .heightIn(max = 240.dp)
+                            .padding(start = 12.dp),
+                    ) {
+                        Column(
+                            // 不用 Arrangement.Center：verticalScroll + 居中在内容超高时
+                            // 会把顶部裁出「滚不到」的盲区（Compose 已知坑），短内容顶对齐即可。
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scroll),
+                        ) {
+                            Text(
+                                text = if (text.isEmpty()) stringResource(R.string.ui_ball_fn_clipboard_empty)
+                                else text,
+                                fontSize = 13.sp,
+                            )
+                        }
+                        ApComponents.VScrollbar(
+                            scrollState = scroll,
+                            alignEnd = true,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .padding(horizontal = 2.dp),
                         )
                     }
                 }

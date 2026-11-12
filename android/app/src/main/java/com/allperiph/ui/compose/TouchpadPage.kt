@@ -195,6 +195,9 @@ private fun HotkeyGrid(
      * 在卡顶，不随网格滚动。
      */
     showHead: Boolean = false,
+    /** 标题行的「编辑」按钮：HotkeyBoard 管理弹窗要 Activity 宿主，悬浮触控板面板
+     * （Service overlay，FloatingHotkeyCard）开不了 —— 传 false 只画标题，编辑去 app 内。 */
+    showEdit: Boolean = true,
 ) {
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
@@ -282,14 +285,16 @@ private fun HotkeyGrid(
                         color = MiuixTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        text = stringResource(R.string.ui_common_edit),
-                        fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .clickable { openManager() }
-                            .padding(horizontal = 4.dp, vertical = 4.dp),
-                    )
+                    if (showEdit) {
+                        Text(
+                            text = stringResource(R.string.ui_common_edit),
+                            fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { openManager() }
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    }
                 }
             }
             Column(
@@ -485,4 +490,23 @@ private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = 
             .apKeyFeel(downFeel = false),
         fx = chipFx,
     )
+}
+
+/**
+ * 悬浮触控板面板（FloatingBallService.expand）用的快捷键卡：[HotkeyGrid] 的公共入口。
+ *
+ * issue#168 2026-11-12 #8「悬浮球打开的悬浮触控板布局对齐 app 内触控板横竖屏布局」：
+ * 面板里补上 app 内同款的「常用快捷键」卡 —— 同一份 [HotkeyStore] 数据、同一套
+ * 点击直发 / 拖拽排序 / 卡内滚动。悬浮面板宿主是 Service（无 Activity），HotkeyBoard
+ * 管理弹窗开不了，编辑按钮不画（长按同样空操作已由 openManager 兜住），编辑去 app 内触控板页。
+ */
+@Composable
+fun FloatingHotkeyCard(ctx: Context, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainer),
+    ) {
+        HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = 0.dp, showHead = true, showEdit = false)
+    }
 }
