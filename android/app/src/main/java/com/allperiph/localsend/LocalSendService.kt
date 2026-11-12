@@ -60,8 +60,9 @@ class LocalSendService : Service() {
          * issue#169 第 22 条：改成 Compose 快照状态（`mutableStateOf`）—— 此前是普通
          * `@Volatile`，设置页 summary 读它不触发重组，「发现通道未就绪」提示会滞留
          * （通道早就重建好了，文案还挂着）；跨线程写快照状态是安全的，语义不变。
+         * 注意：Kotlin 不允许 `@Volatile` 修饰委托属性（编译器直接报错，
+         * v223.29.88 前的 CI 曾栽在这），快照状态自身跨线程写安全，无需叠加。
          */
-        @Volatile
         var isRunning: Boolean by androidx.compose.runtime.mutableStateOf(false)
             private set
 
@@ -79,9 +80,9 @@ class LocalSendService : Service() {
          *    家用 AP 的 IGMP snooping 无 querier 时会静默丢弃组播；openclash 等 TUN/规则
          *    类工具也可能拦组播。App 侧已做多播组 + 受限广播 + 网段广播三路兜底（见
          *    [buildAnnounceTargets]），仍不通时请在路由器放行 224.0.0.0/4 或关掉 TUN；
-         *  · 同时改成 Compose 快照状态，设置页 summary 随通道起落即时刷新，不再滞留。
+         *  · 同时改成 Compose 快照状态，设置页 summary 随通道起落即时刷新，不再滞留
+         *    （同理不加 `@Volatile`：委托属性不适用该注解，快照状态跨线程写安全）。
          */
-        @Volatile
         var discoveryUp: Boolean by androidx.compose.runtime.mutableStateOf(false)
             private set
 
