@@ -266,11 +266,22 @@ internal class PhysKeyBridge(private val act: Activity) {
         val y = event.y
         var dx = 0f
         var dy = 0f
-        if (!lastGX.isNaN()) {
+        // issue#169 第 14 条「外接触控板无限边界」：Android 13+ 的触摸板
+        // （SOURCE_TOUCHPAD）事件同时带原生相对轴（AXIS_RELATIVE_X/Y）与光标绝对坐标。
+        // 绝对坐标被系统光标钳在手机屏幕边缘 —— 手指划到头增量恒为 0，PC 光标
+        // 就停了（用户说的「边界」）；相对轴不受钳制，直接喂 PC 就是无边界滑动。
+        // 触摸板优先相对轴；鼠标（SOURCE_MOUSE，无相对轴）保持绝对差分不变。
+        val rdx = event.getAxisValue(android.view.MotionEvent.AXIS_RELATIVE_X)
+        val rdy = event.getAxisValue(android.view.MotionEvent.AXIS_RELATIVE_Y)
+        if (rdx != 0f || rdy != 0f) {
+            // 相对轴通路：不记账 lastGX/GY（此刻的 x/y 只是光标位置，没有差分意义）
+            dx = rdx; dy = rdy
+        } else if (!lastGX.isNaN()) {
             dx = x - lastGX; dy = y - lastGY
             if (kotlin.math.abs(dx) > 800f || kotlin.math.abs(dy) > 800f) { dx = 0f; dy = 0f } // 重入不甩
         }
-        lastGX = x; lastGY = y
+        // 仅绝对差分路径维护基准（相对轴通路下基准没有意义）
+        if (rdx == 0f && rdy == 0f) { lastGX = x; lastGY = y }
         // buttonState 位与 TouchpadFrame 约定天然一致：primary=1 secondary=2 tertiary=4
         val btn = event.buttonState and 0x07
         val v = event.getAxisValue(android.view.MotionEvent.AXIS_VSCROLL)

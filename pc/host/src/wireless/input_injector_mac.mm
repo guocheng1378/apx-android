@@ -1,7 +1,8 @@
 // ============================================================================
 // macOS 输入注入 + 剪贴板（9511 受控端）
 // 注入走 CoreGraphics CGEvent（C API，免驱）；剪贴板走 NSPasteboard（Objective-C）。
-// 编译为 Objective-C++（.mm）。多媒体键在 macOS 需 NXSystemDefined 事件，本实现暂忽略。
+// 编译为 Objective-C++（.mm）。多媒体键在 macOS 需 NXSystemDefined 事件，仍忽略；
+// 捏合缩放位已降级为 Ctrl+滚轮（injectConsumer，issue#169 #11）。
 // ============================================================================
 #include "apxpc/wireless/ctrl9511.hpp"
 // 相对位移 → 目标坐标 / 拖动类型：纯算术抽出来给用例盯着（issue #47 第 6 条）。
@@ -362,8 +363,26 @@ public:
         CGEventPost(kCGHIDEventTap, e); CFRelease(e);
     }
 
-    void injectConsumer(uint16_t) override {
-        // macOS 多媒体键需 NXSystemDefined，跨版本不稳定，暂忽略（不影响鼠标/键盘/触摸）。
+    /// Ctrl+滚轮一格：捏合缩放的 macOS 降级通道（issue#169 #11）。
+    /// dir 正 = 向上滚（放大），负 = 向下滚（缩小）；带 kCGEventFlagMaskControl，
+    /// 各 app 把「Ctrl+滚动」解释成自己的缩放（Safari/预览/看图原生支持）。
+    void postCtrlScroll(int dir) {
+        CGEventRef e = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine, 1, dir);
+        CGEventSetFlags(e, kCGEventFlagMaskControl);
+        CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+    }
+
+    void injectConsumer(uint16_t bitmap) override {
+        // issue#169 #11：双指捏合缩放（手机端发 Consumer 位 0x0080 放大 / 0x0100 缩小，
+        // 跨阈一次发一帧 + 紧跟一帧空位图复位）。macOS 没有「系统级 pinch」的 CGEvent
+        // 通道（真正的捏合要 NXSystemDefined 手势事件，跨版本不稳定，见文件头注释），
+        // 这里降级成 macOS 通用缩放语义 **Ctrl+滚轮**——浏览器 / 预览 / 看图都认：
+        //   位 0x0080（放大）→ Ctrl + 向上滚一格；位 0x0100（缩小）→ Ctrl + 向下滚一格。
+        // 多媒体位（HotkeyController 用 0..9 位）仍忽略——那些要 NXSystemDefined，老问题不动。
+        const uint16_t pressed = static_cast<uint16_t>(bitmap & ~consumerBm_);
+        if (pressed & 0x0080) postCtrlScroll(+1);   // 放大
+        if (pressed & 0x0100) postCtrlScroll(-1);   // 缩小
+        consumerBm_ = bitmap;
     }
 
     /* 手柄（网络帧 0x07）。
@@ -421,6 +440,7 @@ public:
     uint8_t mouseButtons_ = 0;
     uint8_t kbMod_ = 0;
     uint8_t kbKeys_[6] = {0, 0, 0, 0, 0, 0};
+    uint16_t consumerBm_ = 0;     ///< Consumer 位图上一帧（捏合缩放边沿检测，issue#169 #11）
     uint16_t gpButtons_ = 0;      ///< 手柄按钮上一帧位图（降级注入要算边沿）
     uint64_t lastWheelMs_ = 0;    ///< 右摇杆滚轮限速时间戳
     bool gpWarned_ = false;       ///< 手柄降级告警只打一次
