@@ -571,6 +571,12 @@ object ApComponents {
         modifier: Modifier = Modifier,
         shape: androidx.compose.ui.graphics.Shape,
         label: String,
+        /**
+         * 键帽副文字（KeyLayouts FULL 的 F 键「F1\n静音」拆出的第二行，2026-11-12 图4
+         * 「文字缺失」修复）：非空时在主行下方以 0.6 倍字号渲染 —— 与 KeyBox.capText
+         * 同一倍率口径，横屏行高装不下两行全尺寸字，缩副行救回可读性。
+         */
+        subLabel: String? = null,
         textSize: androidx.compose.ui.unit.TextUnit,
         fg: Color,
         tint: Color?,
@@ -619,13 +625,37 @@ object ApComponents {
                 .then(fxMod),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = label,
-                modifier = labelMod,
-                fontSize = textSize,
-                color = if (tint != null) Color.White else fg,
-                textAlign = TextAlign.Center,
-            )
+            // 副文字行：与 KeyBox.capText 同口径（主行全尺寸、副行 0.6 倍、各限单行）
+            if (subLabel == null) {
+                Text(
+                    text = label,
+                    modifier = labelMod,
+                    fontSize = textSize,
+                    color = if (tint != null) Color.White else fg,
+                    textAlign = TextAlign.Center,
+                )
+            } else {
+                androidx.compose.foundation.layout.Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = label,
+                        modifier = labelMod,
+                        fontSize = textSize,
+                        color = if (tint != null) Color.White else fg,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = subLabel,
+                        modifier = labelMod,
+                        fontSize = textSize * 0.6f,
+                        color = if (tint != null) Color.White else fg,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 

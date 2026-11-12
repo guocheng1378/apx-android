@@ -1429,6 +1429,33 @@ private fun KeyBox(
     LaunchedEffect(pressed) {
         if (pressed && rgbOn && rgb.mode == KeyPref.RGB_TOUCH) TouchFx.add(rgbC.x, rgbC.y)
     }
+    // 副文字键帽（KeyLayouts FULL 的 F 键「F1\n静音」双行标签，2026-11-12 图4「文字
+    // 缺失」修复）：主行用正常字号、副行缩到 0.6 倍。横屏键位区 6 行均分，行高只有
+    // 30dp 出头，两行全尺寸字放不下、被键帽边界裁掉副行；缩副行后两行合计约 23dp，
+    // 各档键帽都装得下。三档渲染（玻璃/普通/机械）共用 capText，不再各写一份。
+    val labelLines = label.split('\n')
+    val capText: @Composable () -> Unit = {
+        if (labelLines.size == 1) {
+            Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg)
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = labelLines[0],
+                    modifier = labelMod,
+                    fontSize = dens.textSize.sp,
+                    color = fg,
+                    maxLines = 1,
+                )
+                Text(
+                    text = labelLines[1],
+                    modifier = labelMod,
+                    fontSize = (dens.textSize * 0.6f).sp,
+                    color = fg,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
     // —— #6 长按连发：按住 400ms 起、每 55ms 一拍重发，松手即停；连发只送键不出声
     //（声/震在按下那一下已给）。修饰键走 ModKey、遥控走 MediaTile，均不连发。
     LaunchedEffect(pressed) {
@@ -1468,7 +1495,9 @@ private fun KeyBox(
             // 液态玻璃键帽同样要按下即震（各材质一致，别让玻璃档掉队）
             modifier = km.padding(horizontal = dens.gapDp.dp).heightIn(min = h).apKeyFeel(),
             shape = shape,
-            label = label,
+            label = labelLines[0],
+            // 副行单独传（玻璃档里由 GlassKeycap 缩小渲染，见 capText 注释）
+            subLabel = labelLines.getOrNull(1),
             textSize = dens.textSize.sp,
             fg = fg,
             // 只喂 active 的染色（primary）；灯效走 faceMod/labelMod（绘制期），
@@ -1495,7 +1524,7 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg) }
+        ) { capText() }
         return
     }
     val side = lerp(bg, Color.Black, 0.35f)
@@ -1530,7 +1559,7 @@ private fun KeyBox(
                 .apKeyFeel()
                 .then(fxMod),
             contentAlignment = Alignment.Center,
-        ) { Text(text = label, modifier = labelMod, fontSize = dens.textSize.sp, color = fg) }
+        ) { capText() }
     }
 }
 
