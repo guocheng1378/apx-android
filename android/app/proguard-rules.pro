@@ -13,3 +13,9 @@
 # ---- 崩溃栈可读 ----
 # mapping.txt 随 CI 归档，但真机现场拿到的是运行栈；保留行号让栈直接对到源码行。
 -keepattributes SourceFile,LineNumberTable
+
+# ---- 依赖库里的桌面残留（CI 首跑 R8 实测 2026-11-12）----
+# 传递依赖里带了 com.sun.jna，其 Native.getWindowHandle0 引用 java.awt.Component；
+# 安卓上两者都不会被调用到，但 R8 缺类校验直接 FAIL。登记 dontwarn 让 R8 安心裁掉。
+-dontwarn java.awt.**
+-dontwarn com.sun.jna.**
