@@ -9,6 +9,9 @@ import android.content.Context
  * 位置走：长按某颗按钮改完键位 / 尺寸后，下次进面板仍生效。这里只存本端的
  * 「槽位 → 按钮」换算表 —— 发送侧 [GamepadController] 收到的还是标准按钮位，
  * 协议与报告格式都不动。
+ *
+ * 2026-11-12 手柄页重画（用户「手柄ui 重画大小，ps5布局」）：槽位扩到 L2/R2 与
+ * 十字键四向；摇杆也可拖动移位（槽位 LStick / RStick，只存偏移不改键）。
  */
 object GamepadPadConfig {
 
@@ -20,32 +23,45 @@ object GamepadPadConfig {
 
     /** 可选键位（bit → 显示名）：与 [GamepadController] 的按钮位一一对应 */
     val KEY_CHOICES: List<Pair<Int, String>> = listOf(
-        GamepadController.BTN_A to "A",
-        GamepadController.BTN_B to "B",
-        GamepadController.BTN_X to "X",
-        GamepadController.BTN_Y to "Y",
+        GamepadController.BTN_A to "✕",
+        GamepadController.BTN_B to "○",
+        GamepadController.BTN_X to "□",
+        GamepadController.BTN_Y to "△",
         GamepadController.BTN_L1 to "L1",
         GamepadController.BTN_R1 to "R1",
         GamepadController.BTN_L2 to "L2",
         GamepadController.BTN_R2 to "R2",
-        GamepadController.BTN_SELECT to "Sel",
-        GamepadController.BTN_START to "Start",
+        GamepadController.BTN_SELECT to "Create",
+        GamepadController.BTN_START to "Options",
+        GamepadController.BTN_DUP to "▲",
+        GamepadController.BTN_DDOWN to "▼",
+        GamepadController.BTN_DLEFT to "◀",
+        GamepadController.BTN_DRIGHT to "▶",
     )
 
     /** 尺寸三档（dp）：小 / 中 / 大 */
     val SIZE_CHOICES = listOf(44, 58, 76)
 
-    /** 各槽位的默认键位与尺寸（dp）：没改过配置时观感与旧版完全一致 */
+    /** 各槽位的默认键位与尺寸（dp）：没改过配置时与重画后的 PS5 版一致 */
     val SLOT_DEFAULTS = mapOf(
         "A" to (GamepadController.BTN_A to 58),
         "B" to (GamepadController.BTN_B to 58),
         "X" to (GamepadController.BTN_X to 58),
         "Y" to (GamepadController.BTN_Y to 58),
-        "L1" to (GamepadController.BTN_L1 to 78),
-        "R1" to (GamepadController.BTN_R1 to 78),
-        "Sel" to (GamepadController.BTN_SELECT to 64),
-        "Start" to (GamepadController.BTN_START to 64),
+        "L1" to (GamepadController.BTN_L1 to 64),
+        "R1" to (GamepadController.BTN_R1 to 64),
+        "L2" to (GamepadController.BTN_L2 to 68),
+        "R2" to (GamepadController.BTN_R2 to 68),
+        "Sel" to (GamepadController.BTN_SELECT to 76),
+        "Start" to (GamepadController.BTN_START to 76),
+        "DUp" to (GamepadController.BTN_DUP to 58),
+        "DDown" to (GamepadController.BTN_DDOWN to 58),
+        "DLeft" to (GamepadController.BTN_DLEFT to 58),
+        "DRight" to (GamepadController.BTN_DRIGHT to 58),
     )
+
+    /** 摇杆槽位：只支持拖动移位（存偏移），不进键位/尺寸配置卡 */
+    val STICK_SLOTS = listOf("LStick", "RStick")
 
     /** 读某槽位的键位（bit）；没改过返回默认值 */
     fun bit(ctx: Context, slot: String, default: Int): Int =
@@ -65,7 +81,7 @@ object GamepadPadConfig {
 
     /**
      * 读某槽位的拖动偏移（dp，相对面板默认位置）；没拖过返回 (0, 0)。
-     * issue#168 追补：「长按拖动移动位置」——偏移随键位 / 尺寸一起落盘，下次进面板仍生效。
+     * 编辑模式下拖动实时改、松手落盘，下次进面板仍生效。
      */
     fun offset(ctx: Context, slot: String): Pair<Float, Float> =
         prefs(ctx).getFloat(KEY_OFF_X + slot, 0f) to prefs(ctx).getFloat(KEY_OFF_Y + slot, 0f)
@@ -78,7 +94,7 @@ object GamepadPadConfig {
             .apply()
     }
 
-    /** bit 的显示名（配置界面用） */
+    /** bit 的显示名（配置界面用）：面键按 PlayStation 符号显示，与 PS5 布局对应 */
     fun labelOf(bit: Int): String =
         KEY_CHOICES.firstOrNull { it.first == bit }?.second ?: "?"
 

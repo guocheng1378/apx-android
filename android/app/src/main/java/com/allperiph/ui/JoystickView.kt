@@ -65,6 +65,9 @@ class JoystickView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 编辑模式（2026-11-12 手柄页重画）：isEnabled=false 时交出触摸，由外层
+        // 拖拽面接管挪位手势；不加这行，挪摇杆会同时扳动摇杆轴值。
+        if (!isEnabled) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 // 认领第一根落进摇杆的手指；已经有手指在操作时新手指不接管
