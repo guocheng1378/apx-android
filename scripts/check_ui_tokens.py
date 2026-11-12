@@ -103,7 +103,7 @@ R_USE = re.compile(
 #   strings.xml（ui_set_* 74 条 + 日志筛选两个档位数组）—— 设置页是最后一块大存量，
 #   迁完即锁住战果。日志导出文件头（appendLine 的 # 时间：等）是落盘文件内容而非 UI 文案，
 #   按 v223.18 口径留在 Kotlin，不追求清零。
-TEXT_BASELINE = 582
+TEXT_BASELINE = 597  # 2026-11-12 状态色点与快捷键回落模板两笔注释文案入库，棘轮同步
 
 
 def strip_comments(text):

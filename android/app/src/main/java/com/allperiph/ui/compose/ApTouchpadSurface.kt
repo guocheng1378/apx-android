@@ -4,9 +4,12 @@ import android.os.Handler
 import android.os.Looper
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
@@ -111,11 +115,6 @@ fun ApTouchpadSurface(
     // 模块在跑也未必有出口：没选受控设备、USB 没挂上、蓝牙没连 —— 手势同样发不出去。
     // [HidMouse.exit] 只是预计出口（读内存，不发送），正是这里要的判据。
     val noExit = !serviceOff && !com.allperiph.hid.HidMouse.available()
-    val autoHint = when {
-        serviceOff -> ctx.getString(R.string.ui_touchpad_hint_service_off)
-        noExit -> ctx.getString(R.string.ui_touchpad_hint_no_uplink)
-        else -> ctx.getString(R.string.ui_touchpad_text_cursor_swipe)
-    }
 
     Box(
         modifier = modifier.pointerInteropFilter { ev ->
@@ -163,25 +162,37 @@ fun ApTouchpadSurface(
             true
         },
     ) {
-        val shown = hint ?: autoHint
-        val forceShow = hint != null || (showFallbackHint && (serviceOff || noExit))
-        if (hintVisible || forceShow) {
-            Text(
-                text = shown,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                // 颜色代替长句（成宇 2026-11-07）：服务没开 / 没出口 = 红色
-                // 阻断警示，正常手势说明保持灰 —— 不读字也能分辨能不能用。
-                color = if (serviceOff || noExit)
-                    androidx.compose.ui.res.colorResource(R.color.module_state_error)
-                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                // 2026-11-12 图2/图3「界面空白」：阻断提示（服务未启动 / 没出口）原先
-                // 贴顶一行 12sp 小字，手势面下方整块空着，看着就像白屏。阻断态没有
-                // 可手势的内容，提示改居中放置 —— 一眼可见、也不再显得面板是空的；
-                // 正常手势说明（有内容可操作）仍贴顶，不挡手势区。
+        if (hint != null) {
+            // 宿主自定义常驻提示（悬浮面板标题说明等）仍走文字；现无调用方传非空，
+            // 参数保留兼容旧签名（RemoteInputActivity 注释还引用「红色提示」语义）。
+            if (hintVisible) {
+                Text(
+                    text = hint,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp, start = 16.dp, end = 16.dp),
+                )
+            }
+        } else {
+            // 状态改纯颜色指示（2026-11-12 用户原话「状态用颜色表示，不要用文字，
+            // 把文字删除」）：面板整面无文字，右上角一枚状态点 —— 阻断态（服务
+            // 未启动 / 没出口）红点、可用绿点，取值沿用状态页 module_state 色令牌，
+            // 深浅色各有覆盖；点只标状态不挡手势，长按弹说明的需求如有再加。
+            Box(
                 modifier = Modifier
-                    .align(if (serviceOff || noExit) Alignment.Center else Alignment.TopCenter)
-                    .padding(top = 8.dp, start = 16.dp, end = 16.dp),
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .size(8.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(
+                        androidx.compose.ui.res.colorResource(
+                            if (serviceOff || noExit) R.color.module_state_error
+                            else R.color.module_state_running
+                        )
+                    ),
             )
         }
         Canvas(modifier = Modifier.fillMaxSize()) {

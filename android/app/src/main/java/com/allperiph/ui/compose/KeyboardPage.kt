@@ -692,24 +692,26 @@ private fun PortraitQuickStrip(
     val host = LocalView.current
     val hotkeys = remember {
         val loaded = com.allperiph.hid.HotkeyStore.load(ctx)
+        val base = if (loaded.isNotEmpty()) loaded else {
+            // 2026-11-12 用户反馈「竖屏中间空了一大块 / 快捷键没有跟快捷模版」：
+            // 存档清空后中段只剩一行空态小字、整块留白。改为跟模板走 —— 套过
+            // 模板用模板键位（与触控板页同一份存档），没套用出厂行；只回显不
+            // 落库，触控板页的清空状态不受影响。
+            val tpl = com.allperiph.hid.HotkeyTemplates.byKey(
+                com.allperiph.hid.HotkeyStore.loadTemplate(ctx)
+            )
+            (tpl?.combos ?: HidKeys.DEFAULTS).toMutableList()
+        }
         if (com.allperiph.hid.HotkeyStore.isAutoSort(ctx)) {
             val usage = com.allperiph.hid.HotkeyStore.loadUsage(ctx)
-            loaded.sortedByDescending { usage[com.allperiph.hid.HotkeyStore.comboKey(it)] ?: 0 }
+            base.sortedByDescending { usage[com.allperiph.hid.HotkeyStore.comboKey(it)] ?: 0 }
         } else {
-            loaded
+            base
         }
     }
     // 每行 perRow 枚、最多 2 行（issue#168「按钮限 2 行」；perRow=2 时即 2 栏 × 4 行 = 8 枚）
+    // 存档空已回落模板/出厂行（见上），正常不再有空白中段；行数兜底为空时直接不画。
     val rows = hotkeys.take(8).chunked(perRow)
-    if (rows.isEmpty()) {
-        Text(
-            text = ctx.getString(R.string.ui_hotkey_empty),
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        )
-        return
-    }
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
