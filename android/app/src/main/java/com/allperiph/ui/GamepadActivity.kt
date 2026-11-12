@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -274,13 +273,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— 扳机 L2 / R2（顶部第一排，真机在肩键后面，屏上画成药丸） ——
         val l2Drag = padDrag("L2")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 104.dp + l2Drag.first, y = H * 0.02f + l2Drag.second)) {
-            Pad(label = "L2", width = 68.dp, height = 32.dp, pill = true, slot = "L2", editing = padEditing,
+            Pad(label = "L2", bit = GamepadController.BTN_L2, width = 68.dp, height = 32.dp, pill = true, slot = "L2", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "L2" },
                 onMoveBy = { dx, dy -> padMoveBy("L2", dx, dy) }, onMoveEnd = { padMoveEnd("L2") })
         }
         val r2Drag = padDrag("R2")
         Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-104).dp + r2Drag.first, y = H * 0.02f + r2Drag.second)) {
-            Pad(label = "R2", width = 68.dp, height = 32.dp, pill = true, slot = "R2", editing = padEditing,
+            Pad(label = "R2", bit = GamepadController.BTN_R2, width = 68.dp, height = 32.dp, pill = true, slot = "R2", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "R2" },
                 onMoveBy = { dx, dy -> padMoveBy("R2", dx, dy) }, onMoveEnd = { padMoveEnd("R2") })
         }
@@ -359,13 +358,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— Create / Options（顶部中轴两侧，PS5 的 Share/Options 位） ——
         val selDrag = padDrag("Sel")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.40f - W / 2 + selDrag.first, y = H * 0.05f + selDrag.second)) {
-            Pad(label = "Create", width = 76.dp, height = 30.dp, pill = true, slot = "Sel", editing = padEditing,
+            Pad(label = "Create", bit = GamepadController.BTN_SELECT, width = 76.dp, height = 30.dp, pill = true, slot = "Sel", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "Sel" },
                 onMoveBy = { dx, dy -> padMoveBy("Sel", dx, dy) }, onMoveEnd = { padMoveEnd("Sel") })
         }
         val startDrag = padDrag("Start")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.60f - W / 2 + startDrag.first, y = H * 0.05f + startDrag.second)) {
-            Pad(label = "Options", width = 76.dp, height = 30.dp, pill = true, slot = "Start", editing = padEditing,
+            Pad(label = "Options", bit = GamepadController.BTN_START, width = 76.dp, height = 30.dp, pill = true, slot = "Start", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "Start" },
                 onMoveBy = { dx, dy -> padMoveBy("Start", dx, dy) }, onMoveEnd = { padMoveEnd("Start") })
         }
