@@ -1,6 +1,5 @@
 package com.allperiph.ui.compose
 
-import android.view.MotionEvent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Size
@@ -104,12 +103,6 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 fun ApKeyboardPage(
     topBar: Dp = 0.dp,
     bottomGap: Dp = 0.dp,
-    // 竖屏三段方案（issue#168 2026-11-12 #4「竖屏键盘页：上 1/3 触控板 + 2 栏快捷键 +
-    // 键盘按键区域」）里的触控板手势接线 —— 与触控板页同一条 TouchpadModule.feed 链路。
-    // 主壳传入；悬浮键盘按 fullPortrait 决定是否要触控板（小窗不加，拉伸全屏才加）。
-    onGesture: ((MotionEvent) -> Unit)? = null,
-    onLongPressArmDrag: (() -> Unit)? = null,
-    onLongPressRightDrag: (() -> Unit)? = null,
 ) {
     // 页面标题与面板切换按钮一并去除（成宇 2026-11-02「键盘页不需要快捷键和虚拟键盘按钮，
     // 去除」）：这一页本来就是整块虚拟键盘，正文与按钮重复表达同一件事；
@@ -141,12 +134,7 @@ fun ApKeyboardPage(
                 .padding(start = hPad, end = hPad),
         ) {
             Spacer(modifier = Modifier.height(topBar))
-            ApFullKeyboard(
-                bottomGap = bottomGap,
-                onGesture = onGesture,
-                onLongPressArmDrag = onLongPressArmDrag,
-                onLongPressRightDrag = onLongPressRightDrag,
-            )
+            ApFullKeyboard(bottomGap = bottomGap)
         }
     }
 }
@@ -291,18 +279,6 @@ internal fun ApFullKeyboard(
     landscapeOverride: Boolean? = null,
     widthDpOverride: Float? = null,
     heightDpOverride: Float? = null,
-    // ————— 竖屏三段方案（issue#168 2026-11-12 #4）—————
-    /** 悬浮键盘是否吃「上 1/3 触控板 + 2 栏快捷键 + 键盘」竖屏方案：只有用户把悬浮窗
-     *  拉伸至接近全屏（FloatingBallService 传 height ≥ 95% 屏高）才启用，默认小窗不加
-     *  （2026-11-12 用户原话「只有拉伸至全屏时启用该方案，默认打开不加」）。
-     *  主屏键盘页整页就是全屏，走默认 true。 */
-    fullPortrait: Boolean = true,
-    /** 触控板手势接线（与触控板页同一条 TouchpadModule.feed 链路）。null = 本面板
-     *  没有可用的触控板链路（如悬浮键盘小窗），竖屏方案退回纯键盘布局 ——
-     *  宁可不画触控板，也不画一块划了没反应的死面板。 */
-    onGesture: ((MotionEvent) -> Unit)? = null,
-    onLongPressArmDrag: (() -> Unit)? = null,
-    onLongPressRightDrag: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val host = LocalView.current
@@ -371,14 +347,14 @@ internal fun ApFullKeyboard(
     // 当成平板 —— 436dp 高的横屏里键位区 heightIn(480dp) 封顶，6 行键每行只剩 ≈48dp，
     // F 键两行标签直接被裁掉。Expanded 收窄为「宽 ≥840 且短边 ≥600」：真平板
     // （两个维度都够大）才收，手机横屏（短边 <600）恢复 weight 占满的 Compact 行为。
-    // 竖屏手机键位区改 2/3 的口径见上面 portraitPhone 注释（不变）。
+    // 竖屏键位区始终 weight 占满剩余高度（成宇 2026-11-12 19:31「所有键盘区不要手势控制面」
+    // 触控板撤出后，不再有 1/3 / 2/3 配比）。
     val expanded = adaptive.width >= 840.dp && minOf(adaptive.width.value, adaptive.height.value) >= 600f
-    val portraitPhone = !adaptive.landscape && adaptive.width < 600.dp
-    // 竖屏三段方案（issue#168 2026-11-12 #4「竖屏键盘页：上 1/3 触控板 + 2 栏快捷键 +
-    // 键盘按键区域」）：pad 和手机同步此方案（用户原话），所以只按「竖屏 + 有触控板
-    // 链路 + fullPortrait」判定，不再按屏宽 600dp 分手机/平板 —— 旧 portraitPhone
-    // 快捷条只在「竖屏但没有触控板链路」（悬浮键盘小窗）时兜底。
-    val portraitPlan = !adaptive.landscape && fullPortrait && onGesture != null
+    // 竖屏键盘布局（成宇 2026-11-12 19:31「所有键盘区不要手势控制面」）：issue#168
+    // 2026-11-12 #4 的「上 1/3 触控板 + 2 栏快捷键 + 键盘」竖屏三段方案整块废止 ——
+    // 键盘页（主屏 / 悬浮键盘全形态）一律不再画触控板手势面，只留页签行 + 快捷键条 +
+    // 键位区；触控板手势面只保留在触控板页 / 悬浮触控板面板 / 远程输入页。
+    val portraitQuick = !adaptive.landscape
     // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
     var voiceText by remember { mutableStateOf<String?>(null) }
     // 识别结果回投（2026-11-11 成宇「语音按键链路不能用」）：主屏与悬浮键盘统一走
@@ -536,37 +512,17 @@ internal fun ApFullKeyboard(
                 }
             }
 
-            // —— 竖屏三段方案（issue#168 2026-11-12 #4）：上 1/3 触控板 + 2 栏快捷键 + 键盘区。
-            // 触控板手势与触控板页同一条 TouchpadModule.feed 链路（ApShellActivity /
-            // FloatingBallService 拉伸全屏时传入）；快捷键 2 栏（每行 2 枚）复用竖屏快捷条，
-            // 点击即发 + 长按弹编辑，与触控板页同一份 HotkeyStore。
-            if (portraitPlan) {
-                // ApTouchpadSurface 的三个手势参数是非空类型，而键盘页对外声明可空
-                //（悬浮键盘等宿主可不传长按回调）。portraitPlan 本身要求 onGesture
-                // 非空才会成立，长按两个回调缺了就给空实现兜底（宁可不响应也不崩）。
-                ApTouchpadSurface(
-                    onGesture = onGesture ?: {},
-                    onLongPressArmDrag = onLongPressArmDrag ?: {},
-                    onLongPressRightDrag = onLongPressRightDrag ?: {},
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // weight(1f) vs 键位区 weight(2f)：触控板 ≈ 上 1/3（中间夹的快捷条
-                        // 不参与配比，实际略小于 1/3 屏高，换来键位区不被压瘪）。
-                        .weight(1f),
-                )
-                PortraitQuickStrip(fx = fx, perRow = 2)
-            } else if (portraitPhone) {
-                // —— 竖屏手机（无触控板链路的兜底，悬浮键盘小窗）：上方给「常用快捷键 + 自定义按键」——
+            // —— 竖屏快捷键条（成宇 2026-11-12 19:31「所有键盘区不要手势控制面」）：
+            // issue#168 2026-11-12 #4 三段方案里的触控板整块删掉，快捷条改回每行 4 枚
+            // 原口径，键位区拿回全部剩余高度；横屏不画（页签行 + 键位区吃满）。
+            if (portraitQuick) {
                 PortraitQuickStrip(fx = fx)
             }
 
-            // —— 键位区：三段方案 weight 2f（触控板 1/3 之外的 2/3），其余形态 weight 占满剩余高度，行内均分 ——
+            // —— 键位区：weight 占满剩余高度（触控板已从键盘区整块撤出），行内均分 ——
             // §6.3：Expanded 时键位区 heightIn 封顶（480dp ≈ 6 行 × 80dp），外层 Box 垂直居中，
             // 超出封顶的高度留在键位区下方，由下面的工具行占住 —— 键帽不再被拉成巨块。
-            Box(
-                modifier = Modifier.weight(if (portraitPlan || portraitPhone) 2f else 1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Box(
                     modifier = Modifier.fillMaxWidth()
                         .then(if (expanded) Modifier.heightIn(max = 480.dp) else Modifier),
@@ -666,26 +622,23 @@ internal fun ApFullKeyboard(
 }
 
 /**
- * 竖屏手机键盘页上方 1/3（issue#168 返工 2026-11-11「要触控板页常用快捷键栏样式、
- * 按钮限 2 行，不是加两个标题行」）：不再有「常用快捷键 / 自定义」两行标题，
+ * 竖屏键盘页的快捷键条（issue#168 返工 2026-11-11「要触控板页常用快捷键栏样式、
+ * 按钮限 2 行，不是加两个标题行」；2026-11-12 19:31「所有键盘区不要手势控制面」后
+ * 成为竖屏键盘页唯一的非键盘区块）：不再有「常用快捷键 / 自定义」两行标题，
  * 也不再放自定义按键 chips（自定义键位在键位区「自定义」页签里本来就有一份）。
  *
  * 数据源与动作链路：快捷键 = [HotkeyStore.load]（与触控板页 HotkeyGrid 同一份
  * HotkeyStore），点击 `HidKeys.combo` 直发组合键 + `bump` 记使用频次 —— 与触控板页
  * 点芯片同语义；自动排序开启时按使用频次排（与 HotkeyBoard.render 同口径）。
  *
- * 视觉对齐触控板页快捷键栏：芯片一行 [perRow] 枚、上限 8 枚（装不下的快捷键去触控板页用，
+ * 视觉对齐触控板页快捷键栏：芯片一行 4 枚、上限 8 枚（装不下的快捷键去触控板页用，
  * 那里有编辑入口可增删调序），行尾不足补空位保持网格稳定 —— 与 HotkeyBoard 的
  * 补空格同思路。空态给既有引导文案，不画假按钮。
- * 键位区占 2/3 的动机见 [ApFullKeyboard] 里的 portraitPhone 注释。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PortraitQuickStrip(
     fx: Int,
-    /** 每行几枚：默认 4（原竖屏手机快捷条口径）；键盘页竖屏三段方案传 2（issue#168
-     *  2026-11-12 #4「2 栏快捷键」—— 每行 2 枚，纵向更多行，与上方触控板 / 下方键盘同列）。 */
-    perRow: Int = 4,
 ) {
     val ctx = LocalContext.current
     // Feedback.tap 收 View 不收 Context（与 ApFullKeyboard 的 host 同口径）
@@ -709,9 +662,9 @@ private fun PortraitQuickStrip(
             base
         }
     }
-    // 每行 perRow 枚、最多 2 行（issue#168「按钮限 2 行」；perRow=2 时即 2 栏 × 4 行 = 8 枚）
+    // 每行 4 枚、最多 2 行（issue#168「按钮限 2 行」—— 2 行 × 4 列 = 8 枚）
     // 存档空已回落模板/出厂行（见上），正常不再有空白中段；行数兜底为空时直接不画。
-    val rows = hotkeys.take(8).chunked(perRow)
+    val rows = hotkeys.take(8).chunked(4)
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -732,8 +685,8 @@ private fun PortraitQuickStrip(
                         com.allperiph.hid.HotkeyStore.bump(ctx, combo)
                     }
                 }
-                // 行尾补空位占位：最后一行不满 perRow 个时保持与上一行同宽的网格
-                repeat(perRow - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
+                // 行尾补空位占位：最后一行不满 4 枚时保持与上一行同宽的网格
+                repeat(4 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
     }

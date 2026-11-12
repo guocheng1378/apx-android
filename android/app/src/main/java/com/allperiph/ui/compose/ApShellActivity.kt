@@ -517,12 +517,11 @@ class ApShellActivity : ComponentActivity() {
                         // 留空白」：横屏顶让位至少保持 24dp（低栏避让旧口径），且**不低于状态栏
                         // inset** —— 内容抬高后顶部不得贴进状态栏；工具行（剪贴板/语音/灯效）
                         // 在横屏常显后，底部完整可见优先。
+                        // 成宇 2026-11-12 19:31「所有键盘区不要手势控制面」：键盘页不再接
+                        // TouchpadModule 手势链路，触控板手势面只在触控板页（page 1）。
                         2 -> ApKeyboardPage(
                             topBar = if (landscape) maxOf(24.dp, topPad) else topGap,
                             bottomGap = bottomGap,
-                            onGesture = { ev -> touchpadModule()?.feed(ev) },
-                            onLongPressArmDrag = { touchpadModule()?.armDrag() },
-                            onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                         )
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,
