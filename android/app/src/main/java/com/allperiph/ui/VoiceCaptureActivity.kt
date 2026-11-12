@@ -73,11 +73,16 @@ class VoiceCaptureActivity : ComponentActivity() {
         /**
          * 离线语音包来源（Vosk 官方模型仓库，Apache-2.0；小模型体积/精度权衡最佳）。
          * 成宇 2026-11-12「语音包下不了，是没有加速源」：官方源在境内网络常年连不上，
-         * 第二路加国内镜像（hf-mirror 中转的社区同款模型包）—— 下载按顺序逐路直连，
-         * 官方不通自动落镜像；镜像包解压后按必备文件清单校验（见 [MODEL_REQUIRED_FILES]），
+         * 第一版加 hf-mirror 镜像——但成宇 2026-11-12 21:2x「语音链路还是不行，下载不下来」
+         * 复查发现 hf-mirror 对 xet 仓库的 resolve 请求 302 跳海外 CDN（cas-bridge.xethub.hf.co，
+         * us-east-1），境内到最后一跳照样不通，镜像等于没绕出去；官方源实测慢到 20KB/s 量级。
+         * 现改用魔搭 ModelScope 的同内容镜像仓库（真·国内 CDN，零跳转；zip 与官方同结构同体积
+         * 43898754 字节，必备文件逐一核对），置于首位；官方与 hf-mirror 留作后备。
+         * 任一路走通都过「非 2xx / 包过小 / 必备文件齐全」三道关（见 [MODEL_REQUIRED_FILES]），
          * 不是同一份模型就判失败，不给残包/换包上机加载的机会。
          */
         private val MODEL_URLS = listOf(
+            "https://modelscope.cn/models/Bovin12/vosk-model-small-cn-0.22/resolve/master/vosk-model-small-cn-0.22.zip",
             "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip",
             "https://hf-mirror.com/guloooovoooo/vosk-model-small-cn/resolve/main/vosk-model-small-cn.zip",
         )
@@ -313,9 +318,8 @@ class VoiceCaptureActivity : ComponentActivity() {
         Thread {
             // issue#168 2026-11-12 #6「下载语音包还是失败」+ 同日成宇「没有加速源」：
             // 官方源在用户网络直连常年失败（跨境链路抖动 / DNS 污染）。逐路直连
-            // [MODEL_URLS]（官方 → 国内镜像），任一路走通即收；官方两路（直连 +
-            // 系统下载器）都失败再试镜像的直连 + 系统下载器 —— 每一路都要过
-            // 「非 2xx / 包过小 / 必备文件齐全」三道关才算成功。
+            // [MODEL_URLS]（魔搭国内 CDN → 官方 → hf-mirror），任一路走通即收；
+            // 每一路都要过「非 2xx / 包过小 / 必备文件齐全」三道关才算成功。
             val ok = MODEL_URLS.any { url -> tryDownloadDirect(url) } ||
                 MODEL_URLS.any { url -> tryDownloadViaManager(url) }
             if (!ok) {
