@@ -495,9 +495,16 @@ class ApShellActivity : ComponentActivity() {
                         // 40dp 让修饰键排的顶部落到 40 + 30（页签行）= 70dp > 低栏下沿 56dp，
                         // 留出 14dp 呼吸；40 - 24 = 16dp 的代价摊到 6 行键位，每行只少 2.7dp，
                         // 仍在 48dp 命中下限之上（横屏 400dp 高时每行约 48dp）。
+                        // issue#168 2026-11-12 #5「键盘页手机横屏整体向上抬高，上方距状态栏
+                        // 留空白」：横屏顶让位至少保持 24dp（低栏避让旧口径），且**不低于状态栏
+                        // inset** —— 内容抬高后顶部不得贴进状态栏；工具行（剪贴板/语音/灯效）
+                        // 在横屏常显后，底部完整可见优先。
                         2 -> ApKeyboardPage(
-                            topBar = if (landscape) 24.dp else topGap,
+                            topBar = if (landscape) maxOf(24.dp, topPad) else topGap,
                             bottomGap = bottomGap,
+                            onGesture = { ev -> touchpadModule()?.feed(ev) },
+                            onLongPressArmDrag = { touchpadModule()?.armDrag() },
+                            onLongPressRightDrag = { touchpadModule()?.armRightDrag() },
                         )
                         else -> SettingsPage(
                             ctx = this@ApShellActivity,

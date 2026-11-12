@@ -2256,6 +2256,13 @@ class FloatingBallService : Service() {
             val fraction = if (wpx > hpx) 0.66f else 0.52f
             (hpx * fraction).toInt()
         }
+        // issue#168 2026-11-12 #4「悬浮球键盘悬浮窗只有拉伸至全屏时启用该方案（竖屏三段：
+        // 上 1/3 触控板 + 2 栏快捷键 + 键盘），默认打开不加」：全屏判定 = 面板高 ≥ 95% 屏高
+        //（拉伸到底也留一点拖拽把手余量）；小窗（默认 52%/66%）不画触控板和快捷键。
+        val fullPortrait = height >= (hpx * 0.95f).toInt()
+        // 三段方案里触控板手势要有活着的模块才动 —— 与悬浮触控板面板同一条就绪检查
+        //（用户关掉过触控板模块就只画键盘，绝不替用户开他明确关掉的外设）。
+        if (fullPortrait) ensureTouchpadReady()
         // issue#168（2026-11-11 悬浮球清单）：悬浮键盘**铺底**。此前按「键帽浮在透明上」
         // 不铺 paintBg，悬浮键盘直接叠在原应用上，键帽标签与底下的内容混在一起看不清
         //（用户原话「加一个背景，避免上方文字对比度过低看不清」）。铺底让整块键盘
@@ -2274,6 +2281,22 @@ class FloatingBallService : Service() {
                 landscapeOverride = wpx > hpx,
                 widthDpOverride = wpx / den,
                 heightDpOverride = hpx / den,
+                fullPortrait = fullPortrait,
+                // 触控板接线与 expand()（悬浮触控板面板）同一条链路：feed → GestureEngine
+                // → 三出口；fullPortrait=false（小窗）时 ApFullKeyboard 不画触控板，这些
+                // 回调闲置无副作用。
+                onGesture = { ev ->
+                    (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                        ?.feed(ev)
+                },
+                onLongPressArmDrag = {
+                    (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                        ?.armDrag()
+                },
+                onLongPressRightDrag = {
+                    (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
+                        ?.armRightDrag()
+                },
             )
         }
     }
