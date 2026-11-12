@@ -2187,7 +2187,11 @@ class FloatingBallService : Service() {
                         },
                         modifier = Modifier.fillMaxWidth().weight(2f),
                     )
-                    Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 8.dp)) {
+                    // issue#169 #8「悬浮球竖屏时快捷键只显示一行」：竖屏面板总高 30% 夹
+                    // 220~360dp，1/3 权重分给热键卡往往只剩 ~100dp，只够画一行芯片。
+                    // 给热键卡加 188dp 下限（≈3 行芯片 + 间距 + 标题/内边距），竖屏时
+                    // 快捷键至少能露出 3 行；空间不足时手势面按 weight 让位。
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 188.dp).padding(top = 8.dp)) {
                         FloatingHotkeyCard(ctx = this@FloatingBallService, modifier = Modifier.fillMaxSize())
                     }
                 }

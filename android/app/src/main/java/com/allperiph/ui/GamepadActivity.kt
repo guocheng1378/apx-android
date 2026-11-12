@@ -55,6 +55,7 @@ import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
 import com.allperiph.R
 import kotlin.math.abs
 
@@ -281,6 +282,19 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     fontSize = 10.5.sp,
                     textAlign = TextAlign.Center, // 同上
                     color = colorResource(R.color.overlay_pad_text_dim),
+                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
+                )
+            }
+            // issue#169 #15「Mac 不支持手柄需提示注明」：被控机系统选了 macOS 时常驻提示
+            // （macOS 拿不到虚拟 HID 手柄的 Apple 受限授权，无线出口只能降级成鼠标/键盘；
+            // 蓝牙/USB 是系统级 HID 手柄，部分应用不认）。读设置页「被控机系统」下拉，
+            // 默认 Windows 不弹，存量用户零打扰。
+            if (com.allperiph.hid.PeerOs.current(padCtx) == com.allperiph.hid.PeerOs.MACOS) {
+                Text(
+                    text = stringResource(R.string.ui_gamepad_hint_macos),
+                    fontSize = 10.5.sp,
+                    textAlign = TextAlign.Center,
+                    color = colorResource(R.color.overlay_pad_warn),
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                 )
             }

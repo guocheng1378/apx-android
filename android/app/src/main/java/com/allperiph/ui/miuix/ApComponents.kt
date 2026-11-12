@@ -759,9 +759,12 @@ object ApComponents {
                         else Modifier.align(Alignment.CenterStart),
                     )
                     .offset { IntOffset(0, ((scrollState.value / range) * yMax).toInt()) }
-                    .width(4.dp)
+                    // issue#169 #9「滑动条太细，所有滑动条加宽至一个字符宽度」：
+                    // 4dp 细条手指捏不住，加宽到 ≈ 一个中文字符宽（16dp），圆角同步放大；
+                    // 拖动换算不变（按轨道占比 dispatchRawDelta）。
+                    .width(16.dp)
                     .height(with(density) { thumbPx.toDp() })
-                    .clip(RoundedCornerShape(2.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.30f))
                     .pointerInput(range, yMax) {
                         // 拖 thumb 换算成滚动量；dispatchRawDelta 不挂协程，拖动零延迟

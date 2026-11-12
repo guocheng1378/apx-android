@@ -35,7 +35,13 @@
         <item name="apPrimaryContainer">@color/md_primary_container</item>
         <item name="apOnPrimary">@color/md_on_primary</item>
         <item name="android:colorAccent">@color/md_primary</item>
-        <item name="android:windowBackground">@color/md_surface</item>
+        <!-- issue#169 #13（与 values 版同口径）：透明窗底 + 24dp 圆角面板，
+             最小窗宽归零让弹窗宽贴内容（横屏不再拉到 95% 留空白）。 -->
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@color/md_surface</item>
+        <item name="android:dialogCornerRadius">24dp</item>
+        <item name="android:windowMinWidthMajor">0%</item>
+        <item name="android:windowMinWidthMinor">0%</item>
     </style>
 
     <!--

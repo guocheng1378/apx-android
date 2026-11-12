@@ -166,8 +166,11 @@ class TouchpadActivity : ComponentActivity() {
         HotkeyBoard(this, hotkeyContainerView, ::boardStyle)
     }
 
-    /** 操控面版皮肤：中性色（与主页的模板色区分开）。每行个数随横竖屏走（issue#168 第 1 条）：
-     *  竖屏 4 个/行；横屏热键栏变成右侧窄列，改 2 个/行。渲染随整页重建走。 */
+    /** 操控面版皮肤：中性色（与主页的模板色区分开）。每行个数随横竖屏走（issue#168 第 1 条；
+     *  issue#169 #10「横屏所有快捷键区域统一每行 3 键、每键占 2 字符」）：
+     *  竖屏 4 个/行；横屏热键栏变成右侧窄列，与主壳/键盘页/悬浮面板同口径改 3 个/行
+     *  （1 位 ≈ 2 个中文字符，即 packBySlots 的「每 2 字占 1 位」），长文案照旧末尾省略。
+     *  渲染随整页重建走。 */
     internal fun boardStyle(): HotkeyBoard.Style {
         val land = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -177,7 +180,7 @@ class TouchpadActivity : ComponentActivity() {
             chipStroke = getColor(R.color.miuix_stroke),
             chipRadiusDp = 14,
             padVDp = 13,
-            perRow = if (land) 2 else 4,
+            perRow = if (land) 3 else 4,
             accent = kbAccent(this),
             textPrimary = getColor(R.color.miuix_text),
             textSecondary = getColor(R.color.miuix_text_secondary),

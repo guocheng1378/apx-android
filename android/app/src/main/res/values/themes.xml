@@ -41,7 +41,17 @@
         <item name="apPrimaryContainer">@color/md_primary_container</item>
         <item name="apOnPrimary">@color/md_on_primary</item>
         <item name="android:colorAccent">@color/md_primary</item>
-        <item name="android:windowBackground">@color/md_surface</item>
+        <!-- issue#169 #13「弹窗补圆角」：原先 windowBackground 是纯色矩形，把圆角面板的
+             四个角垫成了直角（自定义键盘布局 / 快捷键管理弹窗尤其明显）。改透明窗底 +
+             圆角半径 24dp，面板圆角直接可见；面板本身的底色仍走 colorBackground。 -->
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackground">@color/md_surface</item>
+        <item name="android:dialogCornerRadius">24dp</item>
+        <!-- issue#169 #13「弹窗根据内容自适应长宽」：framework 对浮动窗口的默认最小宽
+             是竖屏 65% / 横屏 95%，横屏短内容也被拉成近满宽、两侧全是空白。
+             归零后窗口宽贴内容；按钮行 / 标题行的固有内边距保证不至于窄成一条。 -->
+        <item name="android:windowMinWidthMajor">0%</item>
+        <item name="android:windowMinWidthMinor">0%</item>
     </style>
 
     <!--

@@ -764,4 +764,7 @@
         <item>最近 1 小时</item>
         <item>全部缓冲</item>
     </string-array>
+    <!-- issue#169 #15：macOS 拿不到虚拟 HID 手柄授权（Apple 受限 entitlement），进手柄页
+         时按被控机系统选择提示；文案走 strings.xml（UI 中文文案棘轮约定）。 -->
+    <string name="ui_gamepad_hint_macos">被控机系统是 macOS：手柄不支持完整功能——无线出口降级为鼠标/键盘；蓝牙、USB 出口是系统级 HID 手柄，部分应用不响应。要完整手柄请改用 Windows / Linux 被控端。</string>
 </resources>

@@ -395,8 +395,11 @@ private fun RemotePanel(host: RemoteActivity) {
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp, start = 2.dp),
         )
         if (land) {
-            // 横屏：旋转 90° 的左右分栏（issue#168 第 6 条二追口径）——左拨盘，右列
-            // 依次是电源行 + 三行圆钮 + 提示 + 触摸条（触摸条按屏高 1/4 放大，三追）。
+            // 横屏：三栏（issue#169 #16「方向键、跨界按钮、触控板/鼠标键左右 3 栏显示，
+            // 所有按钮显示完整不拉伸变形」）——旧两栏里右列既塞快捷键行又塞鼠标键 +
+            // 1/4 屏高触摸条，快捷键被挤到显示不全；现在各归各栏：
+            //   左栏 = 方向拨盘（正圆，弹性居中）；中栏 = 跨界快捷按钮（电源行 + 三行
+            //   圆钮 + 提示）；右栏 = 触摸板/鼠标键（触摸条吃满剩余高度，鼠标键行固定在底）。
             Row(Modifier.fillMaxWidth().weight(1f)) {
                 Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                     Dial(host = host, modifier = Modifier.fillMaxSize(), landIn = land)
@@ -418,13 +421,13 @@ private fun RemotePanel(host: RemoteActivity) {
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp, end = 2.dp),
                     )
-                    MouseKeyRow(host = host)
+                }
+                Column(Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp)) {
                     TouchStrip(
                         host = host,
-                        modifier = Modifier.fillMaxWidth()
-                            .height(LocalConfiguration.current.screenHeightDp.dp / 4)
-                            .padding(top = 6.dp),
+                        modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 6.dp),
                     )
+                    MouseKeyRow(host = host)
                 }
             }
         } else {

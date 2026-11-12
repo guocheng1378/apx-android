@@ -525,7 +525,17 @@ internal fun ApFullKeyboard(
             // —— 键位区：weight 占满剩余高度（触控板已从键盘区整块撤出），行内均分 ——
             // §6.3：Expanded 时键位区 heightIn 封顶（480dp ≈ 6 行 × 80dp），外层 Box 垂直居中，
             // 超出封顶的高度留在键位区下方，由下面的工具行占住 —— 键帽不再被拉成巨块。
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            // issue#169 建议 3：pad 横屏时键帽不足整屏高，居中会让页签行与键位区隔出
+            // 一大段空白（「模板栏离按键区太远」）。横屏改顶对齐 —— 键位区上沿贴住
+            // 页签行，模板行与按键区视觉相邻；竖屏口径不变（仍居中）。
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = if (landscapeOverride == true || (landscapeOverride == null && adaptive.landscape)) {
+                    Alignment.Top
+                } else {
+                    Alignment.Center
+                },
+            ) {
                 Box(
                     modifier = Modifier.fillMaxWidth()
                         .then(if (expanded) Modifier.heightIn(max = 480.dp) else Modifier),

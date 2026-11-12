@@ -117,25 +117,24 @@ import androidx.compose.ui.graphics.graphicsLayer
  */
 class ApShellActivity : ComponentActivity() {
 
-    /** 四指切页的中间状态（dispatchTouchEvent 在 Compose 之外，只能用字段传） */
-    private var pickOnStart = false
-    private var fourStartX = -1f
-    private var fourSwiped = false
+    // 四指切页已删（issue#169 建议 12：与系统手势冲突，悬浮胶囊在场后属冗余）。
+    // 此前横屏四指左右滑改 pageState 的 dispatchTouchEvent 整段移除；
+    // pageState 仍是 Compose 侧页签的单一真相，只是不再有分发层写入方。
 
-    /** 当前页签的"单一真相"：Compose 侧写、dispatchTouchEvent 读/写。
-     *  必须是快照状态（成宇 2026-11-10「横屏的四指切页好像不能用」）：此前是普通
-     *  `@Volatile` 字段，四指滑在 dispatchTouchEvent 里只改它、不同时写 `page`，
-     *  而 `LaunchedEffect(pageState)` 的 key 是组合期读到的值 —— 改普通字段不会
-     *  触发重组，同步 effect 永远不再跑，界面纹丝不动。改成 snapshot state 后
-     *  任何一处写它都会让读它的组合失效，四指切页即时生效。 */
+    /** 启动参数：直接打开受控设备选择器（通知点击等入口带 EXTRA_PICK_DEVICE 时） */
+    private var pickOnStart = false
+
+    /** 当前页签的"单一真相"：Compose 侧读/写。
+     *  必须是快照状态：`LaunchedEffect(page)` 的 key 是组合期读到的值，改普通字段
+     *  不会触发重组，同步 effect 永远不再跑，界面纹丝不动。快照状态任何一处写它
+     *  都会让读它的组合失效。 */
     private var pageState by androidx.compose.runtime.mutableStateOf(0)
 
     /** 退出确认弹窗开关（v223.28 补回旧 MainActivity 迁移时整块丢掉的那份） */
     private val showExitAsk = androidx.compose.runtime.mutableStateOf(false)
 
-    /** 横竖屏标志（Compose 侧写入，dispatchTouchEvent 读） */
-    @Volatile
-    private var adaptiveState: com.allperiph.ui.miuix.ApAdaptiveLayout? = null
+    // 横竖屏标志 adaptiveState 随四指切页一并移除（此前唯一读方在 dispatchTouchEvent），
+    // 横竖屏布局分支仍由 Compose 侧 rememberApAdaptiveLayout 自行判定。
 
     /**
      * 实体键盘 / 实体触板转发桥（issue#168 2026-11-11 15:12 反馈「只有全面触控板页面里
@@ -226,7 +225,6 @@ class ApShellActivity : ComponentActivity() {
         // 竖屏 88dp（底栏自身高度 + 一点呼吸）
         // 上游 v223.13 对旧 Views 版本就是按 96dp 修的，这里保持同一口径
         val adaptive = rememberApAdaptiveLayout()
-        adaptiveState = adaptive
         val landscape = adaptive.landscape
         // 成宇 2026-11-02「横屏后悬浮低栏可以悬浮在右上角」：低栏挪到右上角之后，
         // 给它预留的空档也得跟着从底部搬到顶部 —— 否则页面顶部内容被低栏压住、
@@ -294,7 +292,7 @@ class ApShellActivity : ComponentActivity() {
             drawContent()
         }
         var page by remember { mutableIntStateOf(pageState) }
-        // 四指切页在 dispatchTouchEvent 里改 pageState，这里双向同步
+        // 页签同步：page 是组合内可写副本，写回 pageState 供偏好等非组合方读取
         androidx.compose.runtime.LaunchedEffect(page) {
             pageState = page
             // 页面切了就换该模块的皮肤（成宇 2026-11-03「看看为什么不能映射触摸页和键盘页」）：
@@ -677,7 +675,12 @@ class ApShellActivity : ComponentActivity() {
                     return y.coerceIn(ballTopLimitPx, maxY)
                 }
                 if (loaded != null) {
+                    // issue#169 建议 4「转横屏后悬浮胶囊丢失」：共享档位是壳内球与服务球
+                    // 共用的，转屏后旧屏宽存的 X 可能落在新屏外（横→竖变窄最明显）。
+                    // 此前只钳 Y，X 照单全收 —— 球停在屏右边界之外，看着就是「丢了」。
+                    // 转屏重读时一并钳 X：左 0、右 屏宽-球径，与拖拽钳制同一口径。
                     navBallX = loaded.first.toFloat()
+                        .coerceIn(0f, (dmBall.widthPixels - navBallPx).coerceAtLeast(0f))
                     navBallY = clampY(loaded.second.toFloat())
                 } else {
                     navBallX = if (landscape) {
@@ -971,44 +974,6 @@ class ApShellActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    /**
-     * 四指左右滑切页（横屏换页方式，避开触控板自身一到三指手势）。
-     *
-     * 走 [dispatchTouchEvent] 而不是 Compose 的 pointerInput：键盘页是 AndroidView 包着的
-     * `KeyboardPanels`，按键会吃掉事件序列，只有分发第一站能稳定看到四指。
-     * 与旧 `MainActivity` 同一套阈值（56dp）与循环顺序。
-     */
-    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
-        if (adaptiveState?.landscape == true) {
-            when (ev.actionMasked) {
-                android.view.MotionEvent.ACTION_DOWN -> {
-                    fourStartX = -1f
-                    fourSwiped = false
-                }
-                android.view.MotionEvent.ACTION_POINTER_DOWN ->
-                    if (ev.pointerCount >= 4 && fourStartX < 0f) {
-                        fourStartX = ev.x
-                        fourSwiped = false
-                    }
-                android.view.MotionEvent.ACTION_MOVE ->
-                    if (fourStartX >= 0f && !fourSwiped && ev.pointerCount >= 4) {
-                        val dx = ev.x - fourStartX
-                        if (kotlin.math.abs(dx) > 56f * resources.displayMetrics.density) {
-                            fourSwiped = true
-                            val order = intArrayOf(1, 2, 3)   // 触控板 → 键盘 → 设置
-                            val cur = order.indexOf(pageState).coerceAtLeast(0)
-                            pageState = if (dx < 0) {
-                                order[(cur + 1) % order.size]
-                            } else {
-                                order[(cur + order.size - 1) % order.size]
-                            }
-                        }
-                    }
-            }
-        }
-        return super.dispatchTouchEvent(ev)
     }
 
     private fun touchpadModule(): TouchpadModule? =
