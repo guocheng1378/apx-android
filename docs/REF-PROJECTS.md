@@ -15,8 +15,18 @@
 | [Sunshine / Moonlight](https://github.com/LizardByte/Sunshine) | 游戏串流（PC→客户端） | 已在用：mac 副屏出路、音频采集参考 | GPL-3.0 |
 | [NectarLink](https://github.com/thtbee/nectarlink) | Android↔Windows/Linux 互通全家桶（通知/剪贴板/文件/相册投影/投屏/摄像头） | **重叠最高**的同类：能力表与缺口直接对齐（见下） | GPL-3.0（app）/ MPL-2.0（core） |
 | [Vosk](https://github.com/alphacephei/vosk-api) | 开源离线语音识别（Kaldi 封装，中文模型 small-cn） | 语音键的**已验证依赖**（2026-11-11）：国内 ROM 无系统识别引擎，内置离线识别兜底（库+模型均 Apache-2.0） | Apache-2.0 |
+| [Key Mapper](https://github.com/keymapperorg/KeyMapper) | Android 按键重映射 + 屏幕浮动按钮 | 浮动按钮属性编辑、撤销/重做参考 | GPL-3.0（只借鉴思路） |
+| [AntiMicroX](https://github.com/AntiMicroX/antimicrox) | PC 图形化手柄映射，所见即所得 | 改键选择器（点槽位弹指派窗）参考 | GPL-3.0（只借鉴思路） |
+| [NEXPAD](https://github.com/parmarsanket/NEXPAD) | 安卓虚拟手柄 for PC（与本项目最接近） | 虚拟手柄 overlay 全程序化矢量控件佐证 | Apache-2.0 |
+| [scrcpy-touchmap](https://github.com/kuuldor/scrcpy-touchmap) | scrcpy 触控映射 HUD | 编辑态抑制输出、拖心=移动/拖缘=缩放、改键范式参考 | 以仓库为准 |
 
 ## 逐项分析：已验证、值得借鉴的点
+
+### 手柄编辑器范式（issue#169 编辑逻辑调研，2026-11-13，上表四仓）
+
+- **改键交互**：AntiMicroX=点槽位弹指派选择器（键盘/鼠标/宏，可发现性最好）；scrcpy-touchmap=选中后直接按实体键绑定（最快，但依赖实体手柄在线）。我们手机端无实体键可按，选 AntiMicroX 式选择网格更合适。
+- **编辑态硬要求**（scrcpy-touchmap）：编辑中抑制正常输出防误触游戏——我们编辑态已不发 HID，口径一致；「退出编辑无撤销、每帧落盘」是当前短板，Key Mapper v4.6.2 的撤销/重做与 touchmap「丢弃=从盘重载」可借鉴。
+- **手势分区**：touchmap 拖中心=移动、拖边缘=缩放，与我们 issue#169 第 18 条的捏边缩放方向一致，属外部佐证。
 
 ### scrcpy（Apache-2.0，与 pc/ 许可兼容，代码可直接吸收）
 
