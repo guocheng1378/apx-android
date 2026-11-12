@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -162,6 +163,21 @@ fun ApTouchpadSurface(
             true
         },
     ) {
+        // 阻断原因（2026-11-12 用户「看看怎么回事 / 有些功能隐藏太深了」）：
+        // 状态点只报颜色不报原因，真机上只剩「一片空白 + 一颗红点」猜不着为什么。
+        // 现补一条按需通路 —— 进入阻断态自动给一次原因（2.5s 后收起），
+        // 之后点按手势面任意处再唤出；平时整面仍然无字。状态放在分支外
+        //（Compose 条件内 remember 会随分支切换丢状态）。
+        var blockShown by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(hint, serviceOff, noExit) {
+            if (hint == null && (serviceOff || noExit)) blockShown = true
+        }
+        androidx.compose.runtime.LaunchedEffect(blockShown) {
+            if (blockShown) {
+                kotlinx.coroutines.delay(2500L)
+                blockShown = false
+            }
+        }
         if (hint != null) {
             // 宿主自定义常驻提示（悬浮面板标题说明等）仍走文字；现无调用方传非空，
             // 参数保留兼容旧签名（RemoteInputActivity 注释还引用「红色提示」语义）。
@@ -180,7 +196,7 @@ fun ApTouchpadSurface(
             // 状态改纯颜色指示（2026-11-12 用户原话「状态用颜色表示，不要用文字，
             // 把文字删除」）：面板整面无文字，右上角一枚状态点 —— 阻断态（服务
             // 未启动 / 没出口）红点、可用绿点，取值沿用状态页 module_state 色令牌，
-            // 深浅色各有覆盖；点只标状态不挡手势，长按弹说明的需求如有再加。
+            // 深浅色各有覆盖。原因说明不再常驻：进页给一次，点按手势面再唤出。
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -194,6 +210,31 @@ fun ApTouchpadSurface(
                         )
                     ),
             )
+            if (serviceOff || noExit) {
+                // 阻断态手势本来就发不出去，整面点按让位给「为什么不可用」：
+                // 事件仍在，模块照样收（丢弃），不改变事件路由。
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .pointerInput(serviceOff, noExit) {
+                            androidx.compose.foundation.gestures.detectTapGestures {
+                                blockShown = true
+                            }
+                        },
+                )
+                if (blockShown) {
+                    Text(
+                        text = if (serviceOff) ctx.getString(R.string.ui_touchpad_hint_service_off)
+                        else ctx.getString(R.string.ui_touchpad_hint_no_uplink),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center,
+                        color = androidx.compose.ui.res.colorResource(R.color.module_state_error),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(horizontal = 24.dp),
+                    )
+                }
+            }
         }
         Canvas(modifier = Modifier.fillMaxSize()) {
             // 尾迹：越旧越淡越细，用来体现滑动方向与速度
