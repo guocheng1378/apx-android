@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.using
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
@@ -145,7 +144,9 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                             } else {
                                 fadeOut(tween(0))
                             }
-                            (enter togetherWith exit) using SizeTransform(clip = true) { _, _ -> snap() }
+                            (enter togetherWith exit).using(
+                                SizeTransform(clip = true) { _, _ -> snap() },
+                            )
                         },
                         label = "helpBody",
                     ) { s ->

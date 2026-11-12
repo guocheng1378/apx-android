@@ -595,7 +595,7 @@ object ApComponents {
                         durationMillis = ApMotion.durationMs(fgHost.context, 150),
                         easing = ApMotion.ExitEasing,
                     ),
-                    shrinkFrom = Alignment.Top,
+                    shrinkTowards = Alignment.Top,
                 ) + androidx.compose.animation.fadeOut(
                     androidx.compose.animation.core.tween(
                         durationMillis = ApMotion.durationMs(fgHost.context, 150),
