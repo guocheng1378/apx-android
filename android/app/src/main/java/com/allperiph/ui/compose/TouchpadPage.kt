@@ -30,7 +30,6 @@ import com.allperiph.ui.miuix.ApMotion
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -56,6 +55,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.basic.Text
 
@@ -115,6 +116,14 @@ fun TouchpadPage(
         label = "sideWidth",
     )
     val insets = rememberApInsets()
+    // 背景框分栏（issue#168 2026-11-12 #2「触控板和快捷键要分别加上背景框分栏，
+    // 触控只在触控框内起作用」）：手势面与快捷键区各自包一张 surfaceContainer 圆角卡，
+    // 中间留缝 —— 两块区域边界一眼可辨，触控引擎只在手势卡内吃事件（ApTouchpadSurface
+    // 本来就只在自己 bounds 内消费 MotionEvent，卡片化不改变事件路由）。
+    // 横屏手势面不加框：e7c917d 用户拍板「手势区也改撑满」，框会把左右又缩回去；
+    // 框只给竖屏手势卡与两处快捷键区。
+    val cardColor = MiuixTheme.colorScheme.surfaceContainer
+    val cardShape = RoundedCornerShape(16.dp)
     Row(
         modifier = Modifier.fillMaxSize(),
         // 2026-11-12 用户拍板「手势区也改撑满，其他页不动」：此前 Row 级左右挖孔
@@ -123,36 +132,70 @@ fun TouchpadPage(
         // 给快捷键栏（有文字，维持原垫边不变），手势面左右铺到屏缘。
     ) {
       Column(modifier = Modifier.weight(1f)) {
-        ApTouchpadSurface(
-            onGesture = onGesture,
-            onLongPressArmDrag = onLongPressArmDrag,
-            onLongPressRightDrag = onLongPressRightDrag,
-            // issue#168（2026-11-11 触控板页清单）：竖屏快捷键区此前按屏高固定吃 1/3，
-            // 3 排内容只占其中一半，底下剩一大块空档（2026-11-12 用户「切换后底下留了
-            // 空地方」）。现改为快捷键栏高度固定 3 排（见 HotkeyGrid.fixedRows 与
-            // HOTKEY_FIXED_ROWS），手势面吃剩下的全部高度；切换模板条数变化时，
-            // 栏高不变、手势面也不再跟着跳。
-            // 横屏双栏（wide）不动：手势面整高、快捷键在右列。
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
-
-        if (!wide) {
-            Box(modifier = Modifier.padding(start = insets.left, end = insets.right)) {
-                HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = bottomGap, fixedRows = HOTKEY_FIXED_ROWS)
+        if (wide) {
+            // 横屏：手势面整高撑满（e7c917d 口径，无框）、快捷键在右列卡片里。
+            ApTouchpadSurface(
+                onGesture = onGesture,
+                onLongPressArmDrag = onLongPressArmDrag,
+                onLongPressRightDrag = onLongPressRightDrag,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
+        } else {
+            // 竖屏（issue#168 2026-11-12 #2）：下方 1/3 给快捷键区 —— 手势卡 weight(2f) +
+            // 快捷键卡 weight(1f)，不再用「固定 3 排高」的旧口径（用户本条原话
+            // 「竖屏时，快捷键占下方三分之一区域」为准）；快捷键多于一卡时卡内滚动
+            //（见 HotkeyGrid），标题行固定在卡顶不随网格滚。
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(2f)
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp)
+                    .clip(cardShape)
+                    .background(cardColor),
+            ) {
+                ApTouchpadSurface(
+                    onGesture = onGesture,
+                    onLongPressArmDrag = onLongPressArmDrag,
+                    onLongPressRightDrag = onLongPressRightDrag,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            Box(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+                    // 「抬高快捷键区域，目前过低太靠近小白条」：底部垫到手势导航条之上
+                    //（ insets.bottom = 导航条/小白条让出的高度，竖屏非零）。
+                    .padding(start = insets.left, end = insets.right, bottom = insets.bottom)
+                    .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                    .clip(cardShape)
+                    .background(cardColor),
+            ) {
+                HotkeyGrid(ctx = ctx, topBar = 0.dp, bottomGap = 0.dp, showHead = true)
             }
         }
       }
       if (wide) {
+          // 横屏右列（issue#168 2026-11-12 #2）：与全屏触控板（操控面）的右列同款 ——
+          // 「常用快捷键 / 编辑」标题行固定在顶、网格超出滚动；整列包背景框与手势面分栏。
           Box(modifier = Modifier.width(sideWidth).fillMaxHeight()
-              .padding(end = insets.right)) {
-              HotkeyGrid(ctx = ctx, topBar = topBar, bottomGap = bottomGap)
+              .padding(start = 8.dp, end = insets.right, top = 8.dp, bottom = 8.dp)
+              .clip(cardShape)
+              .background(cardColor)) {
+              HotkeyGrid(ctx = ctx, topBar = topBar, bottomGap = bottomGap, showHead = true)
           }
       }
     }
 }
 
 @Composable
-private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp, fixedRows: Int = 0) {
+private fun HotkeyGrid(
+    ctx: Context,
+    topBar: Dp,
+    bottomGap: Dp,
+    /**
+     * 顶部「常用快捷键 / 编辑」标题行（issue#168 2026-11-12 #2：与全屏触控板
+     * HotkeyHead 同款样式，编辑入口同一套 HotkeyBoard 管理弹窗）——标题行固定
+     * 在卡顶，不随网格滚动。
+     */
+    showHead: Boolean = false,
+) {
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
     val subTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
@@ -218,31 +261,46 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp, fixedRows: Int =
     // 用户要求放在**左侧**（与全屏触控板页右列的滚动条同侧）。芯片区的竖向拖动仍归
     // 长按排序（Initial pass 消费优先于滚动），滚动主要走滚动条拖动与空隙处滑动。
     val gridScroll = androidx.compose.foundation.rememberScrollState()
-    // 2026-11-12（用户「固定成3排，可以上下滑动」）：fixedRows > 0 时整块快捷键区
-    // 固定为该行数的高度 —— 不足 3 排也占满（切换模板时条数变化不再引起整页跳动、
-    // 也不再剩一块跟着屏高放大的空档），超过时上方 verticalScroll 照常滚动。
-    // 总高 = 行数 × 芯片高（TabChip 的 TAB_CHIP_MIN_HEIGHT_DP 下限）+ 行间距
-    // （与下方 spacedBy(6.dp) 同一口径）+ 自身边距（上 8+topBar / 下 8+bottomGap）。
-    // fixedRows = 0（横屏右列）保持原样：高度随内容、超出滚外层给的高度。
-    val hostModifier = if (fixedRows > 0) {
-        Modifier.height(
-            ApComponents.TAB_CHIP_MIN_HEIGHT_DP.dp * fixedRows +
-                6.dp * (fixedRows - 1) +
-                8.dp * 2 + topBar + bottomGap,
-        )
-    } else {
-        Modifier
-    }
-    Box(modifier = Modifier.fillMaxWidth().then(hostModifier)) {
-        Column(
-            modifier = Modifier.fillMaxWidth()
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 8.dp + bottomGap)
-                .verticalScroll(gridScroll)
-                .pointerInput(items.size) {
-                    detectTapGestures(onLongPress = { openManager() })
-                },
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+    // 2026-11-12（issue#168 #2「快捷键占下方三分之一，显示不全加滑动条」）：
+    // 高度改由外层卡片决定（竖屏 weight(1f) = 屏高 1/3、横屏右列整列），
+    // 标题行固定在顶（showHead）、网格区 weight 吃剩余高度并竖向滚动 ——
+    // 「固定 3 排高」的旧口径随竖屏 1/3 布局废止（HOTKEY_FIXED_ROWS 已删）。
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (showHead) {
+                // 标题行样式对齐全屏触控板 HotkeyHead：粗体标题 + primary「编辑」，
+                // 点击弹 HotkeyBoard 管理弹窗（与网格长按同一入口）。
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, top = 8.dp + topBar, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.ui_touchpad_text_hotkey),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MiuixTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = stringResource(R.string.ui_common_edit),
+                        fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clickable { openManager() }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp + bottomGap)
+                    .verticalScroll(gridScroll)
+                    .pointerInput(items.size) {
+                        detectTapGestures(onLongPress = { openManager() })
+                    },
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
         if (items.isEmpty()) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Box(
@@ -369,6 +427,7 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp, fixedRows: Int =
             }
         }
         }
+        } // 标题行之外的内容列（fillMaxSize）闭合：滚动条要画在 Box 层（盖在标题+网格上）
         // 左侧竖向滚动条：内容不超高时不画（VScrollbar 内部 maxValue<=0 直接返回）
         ApComponents.VScrollbar(
             scrollState = gridScroll,
@@ -383,13 +442,6 @@ private fun HotkeyGrid(ctx: Context, topBar: Dp, bottomGap: Dp, fixedRows: Int =
 
 /** 一行总按钮位数：与旧 4 枚等宽的每行个数一致，自适应只改每枚占几位。 */
 private const val SLOTS_PER_ROW = 4
-
-/**
- * 竖屏快捷键栏固定行数（2026-11-12 用户「固定成3排，可以上下滑动」）：
- * 不足 3 排也占满 3 排高，超过 3 排出竖向滚动 —— 换模板时栏高恒定，
- * 底下不再剩一块跟着屏高放大的空档。
- */
-private const val HOTKEY_FIXED_ROWS = 3
 
 /**
  * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
