@@ -15,9 +15,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +63,7 @@ import com.allperiph.ui.miuix.applyEdgeToEdge
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import com.allperiph.R
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.hypot
 
@@ -240,6 +244,17 @@ internal fun GamepadPanel(onExit: () -> Unit) {
     // 编辑模式（Moonlight 式三态里取两态：普通 / 编辑；改尺寸走配置卡不做整面缩放）：
     // 普通模式所有键 = 纯游戏输入，长按按住不放即长按键；编辑模式 = 拖动移位 + 点按配置。
     var padEditing by remember { mutableStateOf(false) }
+
+    // 编辑说明（REQ 手柄编辑器 本批 4）：进编辑态首次自动弹操作提示（看过落盘不再自动弹），
+    // 显示 6 秒或点任意按钮后淡出；面板左下「？」随时可重看。画在顶部提示列里，与出口
+    // 状态文字同列顺序排布 —— 永不叠字，也不拦截手势。
+    var showEditingTip by remember { mutableStateOf(false) }
+    LaunchedEffect(showEditingTip, padEditing) {
+        if (showEditingTip && padEditing) {
+            delay(6000L)
+            showEditingTip = false
+        }
+    }
 
     // 配置卡目标槽位：编辑态点某颗按钮弹出；保存后 bump padConfigVersion 让所有按钮重读。
     // 卡片画在面板里，不开 Compose Dialog：悬浮球 overlay 宿主是 Service 挂的窗口，
@@ -427,6 +442,44 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                 )
             }
+            // 编辑操作说明（REQ 本批 4）：首次进编辑态自动弹一行，6 秒或点按钮后淡出；
+            // 画在提示列内顺序排布，不与任何元素叠字，不拦截手势（无 clickable）。
+            AnimatedVisibility(visible = padEditing && showEditingTip) {
+                Text(
+                    text = stringResource(R.string.ui_gamepad_editing_tip),
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    color = colorResource(R.color.overlay_pad_ok),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .background(
+                            colorResource(R.color.overlay_scrim).copy(alpha = 0.72f),
+                            RoundedCornerShape(percent = 50),
+                        )
+                        .border(
+                            1.dp,
+                            colorResource(R.color.overlay_pad_stroke_idle),
+                            RoundedCornerShape(percent = 50),
+                        )
+                        .padding(horizontal = 14.dp, vertical = 5.dp),
+                )
+            }
+        }
+
+        // 「？」重看编辑说明（REQ 本批 4）：只在编辑态出现，点一下重新弹顶部的操作提示。
+        // 放左下角：该角空着（双摇杆锚在 27% / 73% 宽），40dp 触点与既有任何元素都不相交。
+        if (padEditing) {
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+                Pad(
+                    label = stringResource(R.string.ui_gamepad_btn_tip_help),
+                    bit = 0, width = 40.dp, height = 40.dp,
+                    onDown = {
+                        showEditingTip = true
+                        Feedback.haptic(padCtx)
+                    },
+                )
+            }
         }
 
         // 退出（issue#169 第 21 条：编辑态也可拖可配；普通态仍直接退出）
@@ -455,9 +508,14 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     padEditing = !padEditing
                     if (!padEditing) {
                         padConfiguring = null
-                        // 退出编辑顺带散组（issue#169 第 20 条）
+                        // 退出编辑顺带散组（issue#169 第 20 条），并撤操作提示
                         padGroupMode = false
                         padGroupSel = emptySet()
+                        showEditingTip = false
+                    } else if (!GamepadPadConfig.tipShown(padCtx)) {
+                        // 进编辑态首次自动弹操作说明（REQ 本批 4）：看过落盘，不再自动弹
+                        GamepadPadConfig.markTipShown(padCtx)
+                        showEditingTip = true
                     }
                     Feedback.haptic(padCtx)
                 },
@@ -469,6 +527,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         padConfiguring = null
                         padGroupMode = false
                         padGroupSel = emptySet()
+                        showEditingTip = false
                         Feedback.haptic(padCtx)
                     },
                     onMoveBy = { dx, dy -> padMoveBy("Edit", dx, dy) },
@@ -620,12 +679,20 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             buttonBit = GamepadController.BTN_R3,
         )
 
-        // —— 配置卡（编辑态点按钮弹出）：键位、尺寸各一行，行高 44dp 起好点按 ——
+        // —— 配置卡（编辑态点按钮弹出）：行高 44dp 起好点按 ——
+        // REQ 手柄编辑器 本批 1/2/3：键位行 / 尺寸行改为点开式选择（14 键网格、四档横条，
+        // 替换 nextBit/nextSize 循环 —— 14 键改到目标平均要 7 下、点过头还得绕圈）；
+        // 新增「恢复默认」行，一键回落键位/尺寸/偏移四维。
         AnimatedVisibility(
             visible = padConfiguring != null,
             modifier = Modifier.align(Alignment.Center),
         ) {
             val slot = padConfiguring ?: return@AnimatedVisibility
+            // 读一次 padConfigVersion 订阅重组：点选落盘后 curBit/curSize 才会刷新
+            val cfgVer = padConfigVersion
+            // 展开态记忆在槽位上：换目标槽位自动收起，重开同一槽位也从头收起
+            var keyPickerOpen by remember(slot) { mutableStateOf(false) }
+            var sizePickerOpen by remember(slot) { mutableStateOf(false) }
             Column(
                 modifier = Modifier
                     .background(colorResource(R.color.overlay_scrim), RoundedCornerShape(14.dp))
@@ -637,47 +704,148 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     ?: (GamepadController.BTN_A to 58)
                 val curBit = GamepadPadConfig.bit(cfgCtx, slot, defaults.first)
                 val curSize = GamepadPadConfig.sizeDp(cfgCtx, slot, defaults.second)
-                // issue#169 第 21 条：功能键（✕/✎）没有键位可改，只出「尺寸」行 ——
+                // issue#169 第 21 条：功能键（✕/✎）没有键位可改，只出「尺寸」行与「恢复默认」——
                 // 键位行对着 0 号位显示「?」反而让用户误以为坏了
                 val isFunc = GamepadPadConfig.FUNC_SLOTS.contains(slot)
-                Text(text = "自定义：$slot", fontSize = 16.sp, color = colorResource(R.color.overlay_pad_text))
+                Text(
+                    text = stringResource(R.string.ui_gamepad_cfg_title, slot),
+                    fontSize = 16.sp,
+                    color = colorResource(R.color.overlay_pad_text),
+                )
                 if (!isFunc) {
+                    // 键位行：点开 / 收起 14 键网格（点选即落盘，保持展开方便连改多颗）
                     Text(
-                        text = "键位：${GamepadPadConfig.labelOf(curBit)}（点按切换）",
+                        text = stringResource(R.string.ui_gamepad_cfg_key, GamepadPadConfig.labelOf(curBit)),
                         fontSize = 15.sp,
                         color = colorResource(R.color.overlay_pad_text),
                         modifier = Modifier
                             .padding(top = 14.dp)
                             .height(40.dp)
                             .clickable {
-                                GamepadPadConfig.set(cfgCtx, slot, GamepadPadConfig.nextBit(curBit), curSize)
-                                padConfigVersion++
+                                keyPickerOpen = !keyPickerOpen
+                                sizePickerOpen = false
                                 Feedback.haptic(cfgCtx)
                             },
                     )
+                    if (keyPickerOpen) {
+                        PadKeyPicker(
+                            currentBit = curBit,
+                            onPick = { newBit ->
+                                GamepadPadConfig.set(cfgCtx, slot, newBit, curSize)
+                                padConfigVersion++
+                                Feedback.haptic(cfgCtx)
+                            },
+                        )
+                    }
                 }
+                // 尺寸行：点开 / 收起四档横条（捏边无级缩放不变，实时值优先于配置档）
                 Text(
-                    text = "尺寸：${curSize}dp（点按切换）",
+                    text = stringResource(R.string.ui_gamepad_cfg_size, "${curSize}dp"),
                     fontSize = 15.sp,
                     color = colorResource(R.color.overlay_pad_text),
                     modifier = Modifier
                         .padding(top = 10.dp)
                         .height(40.dp)
                         .clickable {
-                            GamepadPadConfig.set(cfgCtx, slot, curBit, GamepadPadConfig.nextSize(curSize))
+                            sizePickerOpen = !sizePickerOpen
+                            keyPickerOpen = false
+                            Feedback.haptic(cfgCtx)
+                        },
+                )
+                if (sizePickerOpen) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        GamepadPadConfig.SIZE_CHOICES.forEach { sz ->
+                            val picked = sz == curSize
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 36.dp)
+                                    .background(colorResource(R.color.overlay_pad_key_idle), RoundedCornerShape(10.dp))
+                                    .border(
+                                        if (picked) 2.dp else 1.dp,
+                                        colorResource(if (picked) R.color.overlay_pad_ok else R.color.overlay_pad_stroke_idle),
+                                        RoundedCornerShape(10.dp),
+                                    )
+                                    .clickable {
+                                        GamepadPadConfig.set(cfgCtx, slot, curBit, sz)
+                                        padConfigVersion++
+                                        Feedback.haptic(cfgCtx)
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(text = "$sz", fontSize = 13.sp, color = colorResource(R.color.overlay_pad_text))
+                            }
+                        }
+                    }
+                }
+                // 恢复默认（REQ 本批 3）：清该槽位键位/尺寸/偏移四键，不弹确认 ——
+                // 改动可再调回来，且编辑态本身不发光标。内存里的偏移 state 也要归零，
+                // 否则按钮不回到默认位（存档清了、画面还在原地）。
+                Text(
+                    text = stringResource(R.string.ui_gamepad_cfg_reset),
+                    fontSize = 15.sp,
+                    color = colorResource(R.color.overlay_pad_text),
+                    modifier = Modifier
+                        .padding(top = 14.dp)
+                        .height(40.dp)
+                        .clickable {
+                            GamepadPadConfig.reset(cfgCtx, slot)
+                            padOffsets = padOffsets + (slot to (0f to 0f))
                             padConfigVersion++
                             Feedback.haptic(cfgCtx)
                         },
                 )
+                // 完成：收起配置卡，顺带收起两处展开态
                 Text(
-                    text = "完成",
+                    text = stringResource(R.string.ui_gamepad_cfg_done),
                     fontSize = 15.sp,
                     color = colorResource(R.color.overlay_pad_ok),
                     modifier = Modifier
                         .padding(top = 14.dp)
                         .height(40.dp)
-                        .clickable { padConfiguring = null },
+                        .clickable {
+                            keyPickerOpen = false
+                            sizePickerOpen = false
+                            padConfiguring = null
+                        },
                 )
+            }
+            // cfgVer 仅作订阅占位，避免未使用告警：下方不再直接引用
+            @Suppress("UNUSED_EXPRESSION")
+            cfgVer
+        }
+    }
+}
+
+/**
+ * 14 键位选择网格（REQ 手柄编辑器 本批 1，借鉴 AntiMicroX 指派选择器的可发现性）：
+ * 5 键一行的圆钮格子，当前键位用 [R.color.overlay_pad_ok] 描边高亮；点任一键即落盘
+ * （onPick），卡不收起 —— 连改多颗不用重开。不引第三方布局库，纯 Row + chunked。
+ */
+@Composable
+private fun PadKeyPicker(currentBit: Int, onPick: (Int) -> Unit) {
+    Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        GamepadPadConfig.KEY_CHOICES.chunked(5).forEach { rowChoices ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowChoices.forEach { (choice, label) ->
+                    val picked = choice == currentBit
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp) // 44dp 起步的既有点按热区口径
+                            .background(colorResource(R.color.overlay_pad_key_idle), CircleShape)
+                            .border(
+                                if (picked) 2.dp else 1.dp,
+                                colorResource(if (picked) R.color.overlay_pad_ok else R.color.overlay_pad_stroke_idle),
+                                CircleShape,
+                            )
+                            .clickable { onPick(choice) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = label, fontSize = 14.sp, color = colorResource(R.color.overlay_pad_text))
+                    }
+                }
             }
         }
     }

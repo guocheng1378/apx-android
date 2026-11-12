@@ -25,6 +25,13 @@ object GamepadPadConfig {
     private const val KEY_OFF_X = "offx."
     private const val KEY_OFF_Y = "offy."
 
+    /**
+     * 编辑说明的「看过」标记（REQ 手柄编辑器 本批 4）：进编辑态首次弹操作提示
+     * 「拖动移动 · 捏边缩放 · 点按改键」，看过就不再自动弹 —— 编辑面板的「？」
+     * 仍可随时重看。独立 tip. 前缀，不进槽位四键体系。
+     */
+    private const val KEY_TIP_SHOWN = "tip.editing_shown"
+
     /** 可选键位（bit → 显示名）：与 [GamepadController] 的按钮位一一对应 */
     val KEY_CHOICES: List<Pair<Int, String>> = listOf(
         GamepadController.BTN_A to "✕",
@@ -112,21 +119,32 @@ object GamepadPadConfig {
             .apply()
     }
 
+    /**
+     * 恢复某槽位默认（REQ 手柄编辑器 本批 3，配置卡「恢复默认」行）：清掉该槽位的
+     * 键位 / 尺寸 / 偏移 x / 偏移 y 四个键，读端自动回落 [SLOT_DEFAULTS] 与 (0,0) ——
+     * 不新增 key、不迁移，老配置直接兼容。注意：这只清存档，调用方要自己把
+     * 内存里的偏移 state 一并归零（padOffsets 不在本对象管辖内）。
+     */
+    fun reset(ctx: Context, slot: String) {
+        prefs(ctx).edit()
+            .remove(KEY_BIT + slot)
+            .remove(KEY_SIZE + slot)
+            .remove(KEY_OFF_X + slot)
+            .remove(KEY_OFF_Y + slot)
+            .apply()
+    }
+
+    /** 编辑说明是否已经自动弹过（true = 不再自动弹，「？」入口不受影响） */
+    fun tipShown(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_TIP_SHOWN, false)
+
+    /** 标记编辑说明已看过（首次自动弹时置位，只置一次） */
+    fun markTipShown(ctx: Context) {
+        prefs(ctx).edit().putBoolean(KEY_TIP_SHOWN, true).apply()
+    }
+
     /** bit 的显示名（配置界面用）：面键按 PlayStation 符号显示，与 PS5 布局对应 */
     fun labelOf(bit: Int): String =
         KEY_CHOICES.firstOrNull { it.first == bit }?.second ?: "?"
-
-    /** 键位循环切换的下一个 bit */
-    fun nextBit(bit: Int): Int {
-        val idx = KEY_CHOICES.indexOfFirst { it.first == bit }
-        return KEY_CHOICES[(idx + 1).mod(KEY_CHOICES.size)].first
-    }
-
-    /** 尺寸循环切换的下一档（dp） */
-    fun nextSize(sizeDp: Int): Int {
-        val idx = SIZE_CHOICES.indexOf(sizeDp)
-        return SIZE_CHOICES[(idx + 1).mod(SIZE_CHOICES.size)]
-    }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 }

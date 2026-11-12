@@ -773,4 +773,13 @@
     <!-- issue#169 #20：编辑态多选按钮组开关（「组」进多选，「组✓」退出）。 -->
     <string name="ui_gamepad_btn_group">组</string>
     <string name="ui_gamepad_btn_group_on">组✓</string>
+    <!-- 手柄编辑器改版（REQ docs/REQ-手柄编辑器.md 本批）：配置卡点开式键位网格 / 尺寸档条
+         替换循环切换、恢复默认行、编辑态操作提示。文案走 strings.xml（UI 中文文案棘轮约定）。 -->
+    <string name="ui_gamepad_cfg_title">自定义：%1$s</string>
+    <string name="ui_gamepad_cfg_key">键位：%1$s</string>
+    <string name="ui_gamepad_cfg_size">尺寸：%1$s</string>
+    <string name="ui_gamepad_cfg_reset">恢复默认</string>
+    <string name="ui_gamepad_cfg_done">完成</string>
+    <string name="ui_gamepad_editing_tip">拖动移动 · 捏边缩放 · 点按改键</string>
+    <string name="ui_gamepad_btn_tip_help">？</string>
 </resources>
