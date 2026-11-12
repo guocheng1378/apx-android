@@ -175,8 +175,12 @@ fun ApTouchpadSurface(
                 color = if (serviceOff || noExit)
                     androidx.compose.ui.res.colorResource(R.color.module_state_error)
                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                // 2026-11-12 图2/图3「界面空白」：阻断提示（服务未启动 / 没出口）原先
+                // 贴顶一行 12sp 小字，手势面下方整块空着，看着就像白屏。阻断态没有
+                // 可手势的内容，提示改居中放置 —— 一眼可见、也不再显得面板是空的；
+                // 正常手势说明（有内容可操作）仍贴顶，不挡手势区。
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(if (serviceOff || noExit) Alignment.Center else Alignment.TopCenter)
                     .padding(top = 8.dp, start = 16.dp, end = 16.dp),
             )
         }
