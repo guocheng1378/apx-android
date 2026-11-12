@@ -33,14 +33,12 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.allperiph.R
 import com.allperiph.ui.miuix.ApComponents
-import java.io.BufferedInputStream
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
@@ -74,10 +72,26 @@ class VoiceCaptureActivity : ComponentActivity() {
 
         /**
          * 离线语音包来源（Vosk 官方模型仓库，Apache-2.0；小模型体积/精度权衡最佳）。
-         * 下载失败有「重试」入口，不换源（保持来源单一可审计）。
+         * 成宇 2026-11-12「语音包下不了，是没有加速源」：官方源在境内网络常年连不上，
+         * 第二路加国内镜像（hf-mirror 中转的社区同款模型包）—— 下载按顺序逐路直连，
+         * 官方不通自动落镜像；镜像包解压后按必备文件清单校验（见 [MODEL_REQUIRED_FILES]），
+         * 不是同一份模型就判失败，不给残包/换包上机加载的机会。
          */
-        private const val MODEL_URL =
-            "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+        private val MODEL_URLS = listOf(
+            "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip",
+            "https://hf-mirror.com/guloooovoooo/vosk-model-small-cn/resolve/main/vosk-model-small-cn.zip",
+        )
+
+        /**
+         * 模型包必备文件（解压后统一校验，官方源/镜像/SAF 导入共用）：任一缺失判失败。
+         * 这几项是 Vosk Model() 起识别的硬依赖，缺了加载必崩 —— 与其带残模型进识别，
+         * 不如当场报失败让用户重试/换源。
+         */
+        private val MODEL_REQUIRED_FILES = listOf(
+            "conf/model.conf",
+            "am/final.mdl",
+            "graph/Gr.fst",
+        )
 
         /** 离线模型落盘目录名（内部存储；目录内有 .ok 标记 = 下载+解压完整） */
         private const val MODEL_DIR = "vosk-model-small-cn-0.22"
@@ -297,12 +311,13 @@ class VoiceCaptureActivity : ComponentActivity() {
         if (offlineState is Offline.Downloading || offlineState is Offline.Importing) return
         offlineState = Offline.Downloading(0)
         Thread {
-            // issue#168 2026-11-12 #6「下载语音包还是失败」：沙箱实测源站可达，用户手机
-            // 网络直连 alphacephei 却常年失败（跨境链路抖动 / DNS 污染）。直连失败
-            // （连不上 / 非 2xx / 包过小）自动落系统 DownloadManager 再试一路 —— 系统
-            // 下载器自带重试与网络策略，部分网络环境下能走通；两路都不行才给 Failed
-            //（另有 SAF「从本地导入」兜底，见 [importZipLauncher]）。
-            val ok = tryDownloadDirect() || tryDownloadViaManager()
+            // issue#168 2026-11-12 #6「下载语音包还是失败」+ 同日成宇「没有加速源」：
+            // 官方源在用户网络直连常年失败（跨境链路抖动 / DNS 污染）。逐路直连
+            // [MODEL_URLS]（官方 → 国内镜像），任一路走通即收；官方两路（直连 +
+            // 系统下载器）都失败再试镜像的直连 + 系统下载器 —— 每一路都要过
+            // 「非 2xx / 包过小 / 必备文件齐全」三道关才算成功。
+            val ok = MODEL_URLS.any { url -> tryDownloadDirect(url) } ||
+                MODEL_URLS.any { url -> tryDownloadViaManager(url) }
             if (!ok) {
                 // 清掉半截下载产物，重试从零开始（全审查条 3 的另一半）
                 runCatching { File(cacheDir, "$MODEL_DIR.zip.tmp").delete() }
@@ -318,11 +333,11 @@ class VoiceCaptureActivity : ComponentActivity() {
      * 当成下载内容写进文件，解压必炸还看不出原因。现在非 2xx 直接判失败，包过小
      * （模型压缩包 ~40MB，10MB 以下必不是它）同样判失败。
      */
-    private fun tryDownloadDirect(): Boolean {
+    private fun tryDownloadDirect(url: String): Boolean {
         val zip = File(cacheDir, "$MODEL_DIR.zip")
         val tmp = File(cacheDir, "$MODEL_DIR.zip.tmp")
         return try {
-            val conn = URL(MODEL_URL).openConnection() as HttpURLConnection
+            val conn = URL(url).openConnection() as HttpURLConnection
             conn.connectTimeout = 15_000
             conn.readTimeout = 30_000
             conn.connect()
@@ -373,12 +388,12 @@ class VoiceCaptureActivity : ComponentActivity() {
      * 策略（双卡、Wi-Fi/蜂窝偏好都由系统裁决），与 App 内直连走的是同一批下载节点但
      * 连接生命周期更稳。成功（解压 + 打标完成）返回 true。
      */
-    private fun tryDownloadViaManager(): Boolean {
+    private fun tryDownloadViaManager(url: String): Boolean {
         val dm = getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return false
         val extZip = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "$MODEL_DIR.zip")
         val id = try {
             dm.enqueue(
-                DownloadManager.Request(Uri.parse(MODEL_URL)).apply {
+                DownloadManager.Request(Uri.parse(url)).apply {
                     setTitle(MODEL_DIR)
                     setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                     // 落 app 私有外部目录：不需要存储权限，卸载即清
@@ -465,16 +480,43 @@ class VoiceCaptureActivity : ComponentActivity() {
         }.start()
     }
 
-    /** 解压到内部存储；zip-slip 防御：解压结果必须落在模型目录内 */
+    /**
+     * 解压到内部存储；zip-slip 防御：解压结果必须落在模型目录内。
+     * 2026-11-12 修双层嵌套：官方 zip（镜像包同构）条目自带顶层目录
+     * vosk-model-small-cn-0.22/，原样落盘会变成 modelDir()/顶层目录/… 套两层，
+     * Model() 按 modelDir() 找 am/conf 必落空 —— 下载再成功也起不来识别。
+     * 现在统一剥掉公共顶层目录再落盘；镜像包里的 __MACOSX/ 元数据与 .DS_Store、
+     * ._* 打包垃圾一并丢弃。解压完按 [MODEL_REQUIRED_FILES] 校验必备文件，
+     * 缺一抛错 —— 官方源/镜像/SAF 导入三条路共用同一道收口。
+     */
     private fun unzipModel(zip: File, target: File) {
         target.mkdirs()
         val targetPath = target.canonicalPath
-        ZipInputStream(BufferedInputStream(FileInputStream(zip))).use { zis ->
+        ZipFile(zip).use { zf ->
+            val entries = zf.entries().asSequence().toList()
+            // 公共顶层目录：排除打包垃圾后所有条目共享同一段、且包内确有子层级才剥除
+            // —— 散装 zip（am/、conf/ 直接在根）的顶层各不相同，不能剥。
+            val tops = entries.map { it.name.trimStart('/').substringBefore('/') }
+                .filter { it.isNotEmpty() && it != "__MACOSX" }
+                .distinct()
+            val stripTop = tops.singleOrNull()?.takeIf { top ->
+                entries.any { it.name.trimStart('/').removePrefix("$top/").contains('/') }
+            }
             val buf = ByteArray(64 * 1024)
             var written = 0L
-            while (true) {
-                val e = zis.nextEntry ?: break
-                val out = File(target, e.name)
+            for (e in entries) {
+                var name = e.name.trimStart('/')
+                if (name.isEmpty()) continue
+                if (stripTop != null && name.startsWith("$stripTop/")) {
+                    name = name.removePrefix("$stripTop/")
+                    if (name.isEmpty()) continue
+                }
+                // 打包垃圾（macOS 元数据 / Finder 副本）：可能出现在任意层级，逐条丢弃
+                val fileName = name.substringAfterLast('/')
+                if (name.startsWith("__MACOSX/") || name == "__MACOSX" ||
+                    fileName == ".DS_Store" || fileName.startsWith("._")
+                ) continue
+                val out = File(target, name)
                 if (!out.canonicalPath.startsWith(targetPath + File.separator)) {
                     throw IOException("zip-slip: ${e.name}")
                 }
@@ -482,21 +524,26 @@ class VoiceCaptureActivity : ComponentActivity() {
                     out.mkdirs()
                 } else {
                     out.parentFile?.mkdirs()
-                    FileOutputStream(out).use { f ->
-                        while (true) {
-                            val n = zis.read(buf)
-                            if (n < 0) break
-                            f.write(buf, 0, n)
-                            // 全审查条 14：解压总量上限，防 zip 炸弹写满内部存储
-                            written += n
-                            if (written > MAX_UNZIP_BYTES) {
-                                throw IOException("解压总量超限（疑似 zip 炸弹）")
+                    zf.getInputStream(e).use { inp ->
+                        FileOutputStream(out).use { f ->
+                            while (true) {
+                                val n = inp.read(buf)
+                                if (n < 0) break
+                                f.write(buf, 0, n)
+                                // 全审查条 14：解压总量上限，防 zip 炸弹写满内部存储
+                                written += n
+                                if (written > MAX_UNZIP_BYTES) {
+                                    throw IOException("解压总量超限（疑似 zip 炸弹）")
+                                }
                             }
                         }
                     }
                 }
-                zis.closeEntry()
             }
+        }
+        // 收口校验：必备文件缺一即判失败（残包不留 .ok，重试从零开始）
+        MODEL_REQUIRED_FILES.forEach { rel ->
+            if (!File(target, rel).isFile) throw IOException("模型包缺少必备文件：$rel")
         }
     }
 
