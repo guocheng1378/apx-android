@@ -267,7 +267,15 @@ private fun HotkeyGrid(
     // 高度改由外层卡片决定（竖屏 weight(1f) = 屏高 1/3、横屏右列整列），
     // 标题行固定在顶（showHead）、网格区 weight 吃剩余高度并竖向滚动 ——
     // 「固定 3 排高」的旧口径随竖屏 1/3 布局废止（HOTKEY_FIXED_ROWS 已删）。
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 2026-11-12 图2「…」修复：BoxWithConstraints 量卡片实际宽，窄列（横屏右列
+    // 268dp、悬浮面板横屏 240dp 定宽）每行从 4 位降到 3 位 —— 4 位时 1-slot 芯片
+    // 只有 50dp 出头，扣掉 TabChip 内边距后放不下两个 14sp 汉字，整排省略成「…」
+    //（第 4 排起 2-slot 芯片反而正常，同源同宽却两副面孔即由此来）。宽卡片
+    //（竖屏整宽、悬浮面板竖屏）仍是 4 位不减密度。
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // 窄列判定：内容宽 280dp 以下降密度。280 = 4 位 × 60dp（两字 14sp 加内边距
+        // 的舒适下限）+ 行距余量，卡在 280 附近的边界值真机观感需要在 v76 验证。
+        val slotsPerRow = if (maxWidth < 280.dp) 3 else SLOTS_PER_ROW
         Column(modifier = Modifier.fillMaxSize()) {
             if (showHead) {
                 // 标题行样式对齐全屏触控板 HotkeyHead：粗体标题 + primary「编辑」，
@@ -318,14 +326,15 @@ private fun HotkeyGrid(
                 ) {
                     Text(text = "＋", fontSize = 20.sp, color = Color(chipTextColor))
                 }
-                repeat(3) { Box(modifier = Modifier.weight(1f)) }
+                repeat(slotsPerRow - 1) { Box(modifier = Modifier.weight(1f)) }
             }
         }
         // issue#168（2026-11-11 触控板页清单）：按钮宽按文字长度自适应 —— 每 2 个字占一个
         // 按钮位（4 个字占 2 位），一行总位数仍是 4 位、装不下折行；不再 4 枚等宽把长
-        // 文案截断。packBySlots 返回 (条目下标, 占位数)，拖拽排序的 cells / drop 仍按
+        // 文案截断。2026-11-12 图2 修复：窄列一行降到 3 位（见上方 slotsPerRow）。
+        // packBySlots 返回 (条目下标, 占位数)，拖拽排序的 cells / drop 仍按
         // 条目下标走，排序逻辑零改动。
-        packBySlots(items).forEach { row ->
+        packBySlots(items, slotsPerRow).forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -425,7 +434,7 @@ private fun HotkeyGrid(
                         HotkeyChip(ctx = ctx, combo = combo, modifier = Modifier.fillMaxWidth())
                     }
                 }
-                repeat(SLOTS_PER_ROW - row.sumOf { it.second }) {
+                repeat(slotsPerRow - row.sumOf { it.second }) {
                     Box(modifier = Modifier.weight(1f))
                 }
             }
@@ -450,15 +459,19 @@ private const val SLOTS_PER_ROW = 4
 /**
  * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
  * 每条占 ceil(字数 / 2) 位（至少 1 位、至多整行），一行装不下就折到下一行。
+ * [slotsPerRow] 一行总位数：宽卡 4、窄列 3（图2「…」修复，见 HotkeyGrid 注释）。
  * 返回的条目下标与 [HotkeyStore.load] 列表对齐，拖拽排序按它落位。
  */
-private fun packBySlots(list: List<HidKeys.Combo>): List<List<Pair<Int, Int>>> {
+private fun packBySlots(
+    list: List<HidKeys.Combo>,
+    slotsPerRow: Int = SLOTS_PER_ROW,
+): List<List<Pair<Int, Int>>> {
     val rows = mutableListOf<List<Pair<Int, Int>>>()
     var cur = mutableListOf<Pair<Int, Int>>()
     var used = 0
     list.forEachIndexed { idx, combo ->
-        val slots = ((combo.label.length + 1) / 2).coerceIn(1, SLOTS_PER_ROW)
-        if (used + slots > SLOTS_PER_ROW && cur.isNotEmpty()) {
+        val slots = ((combo.label.length + 1) / 2).coerceIn(1, slotsPerRow)
+        if (used + slots > slotsPerRow && cur.isNotEmpty()) {
             rows.add(cur)
             cur = mutableListOf()
             used = 0
@@ -480,6 +493,10 @@ private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = 
         text = combo.label,
         selected = false,
         accent = tint,
+        // 内边距减到 10dp：1-slot 芯片在窄列里每 slot 只有 50–60dp，14dp×2 的
+        // 内边距会把两个字挤出文字区（图2 前三排整排「…」的直接原因）；
+        // 网格窄列同时降到 3 位（见 HotkeyGrid slotsPerRow），两边一起把字救回来。
+        chipHPad = 10.dp,
         onClick = {
             ApMotion.tap(ctx)
             HidKeys.combo(combo)

@@ -319,6 +319,12 @@ object ApComponents {
         modifier: Modifier = Modifier,
         accent: Color? = null,
         fx: Int = com.allperiph.ui.KeyPref.FX_NONE,
+        /**
+         * 水平内边距（2026-11-12 图2「…」修复开放给调用方）：默认 14dp 不动老观感；
+         * 快捷键网格的 1-slot 芯片在窄列里减到 10dp —— 窄列下（横屏右列 268dp）每
+         * slot 只有 50dp 出头，14dp×2 的内边距把两个 14sp 汉字挤出文字区，省略成「…」。
+         */
+        chipHPad: Dp = 14.dp,
     ) {
         val tint = accent ?: MiuixTheme.colorScheme.primary
         val active = selected || accent != null
@@ -341,7 +347,7 @@ object ApComponents {
                 )
                 .then(Modifier.keyFx(chipFx, tint))
                 .heightIn(min = TAB_CHIP_MIN_HEIGHT_DP.dp)
-                .padding(horizontal = 14.dp, vertical = 8.dp),
+                .padding(horizontal = chipHPad, vertical = 8.dp),
             contentAlignment = Alignment.Center,
         ) {
             Text(
