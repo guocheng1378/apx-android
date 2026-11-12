@@ -228,6 +228,31 @@ class ApShellActivity : ComponentActivity() {
         // 开始（状态栏高度已天然盖住孔区）；横屏状态栏 inset 落在侧边、top≈0 不变；
         // 圆角不再参与垫边（四角由系统 UI 避让，垫半径会把顶部内容整块推走）。
         val topPad = com.allperiph.ui.miuix.rememberApInsets().top
+
+        // 横屏隐藏状态栏（2026-11-12 用户原话「横屏时把状态栏屏蔽了，布局避开状态栏
+        // 触发区域，可以在设置里加开关」）：开关在设置 → 通用（apx 偏好
+        // landscape_hide_status，默认开）。只藏状态栏、不碰导航栏 —— 横屏时误触
+        // 屏顶不再拉开通知栏；从屏顶下滑按 TRANSIENT_BY_SWIPE 短暂呼出半透明层，
+        // insets 随隐藏归零，布局自动让位（顶部不再重复垫状态栏高度）。
+        val hideStatusBar = remember {
+            getSharedPreferences("apx", MODE_PRIVATE)
+                .getBoolean("landscape_hide_status", true)
+        }
+        androidx.compose.runtime.DisposableEffect(landscape, hideStatusBar) {
+            val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+            if (landscape && hideStatusBar) {
+                ctrl.systemBarsBehavior =
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                ctrl.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            } else {
+                ctrl.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            }
+            onDispose {
+                // 离开组合（销毁重建）时恢复显示，下一宿主自己按它的开关再定。
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                    .show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+            }
+        }
         // 特效：顶栏渐进模糊（Android 13+ 有 RuntimeShader 才开，老机器退化为纯色底）
         val hazeState = rememberApHazeState()
         // 底栏 textureBlur 的采样源：内容层注册进 LayerBackdrop。

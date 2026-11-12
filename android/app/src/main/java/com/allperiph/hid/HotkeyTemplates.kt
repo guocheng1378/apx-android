@@ -45,11 +45,17 @@ object HotkeyTemplates {
 
     private fun c(label: String, mod: Int, usage: Int) = HidKeys.Combo(label, mod, usage)
 
+    // —————————————————————————— 模板清单（2026-11-12 扩到 12 枚/套） ——————————————————————————
+    // 用户原话「模版按钮都太少了，每个模版扩充到 12 个」「默认模版也优化下布局两个字最好，
+    // 12 个正好 4 排」：每套 12 枚、两字标签为主，按触控板竖屏网格的 3 列口径恰好 4 排铺满；
+    // usage 全部取自 [HidKeys.KEY_CHOICES] 覆盖的键位（字母 / 数字 / 功能键 / 方向 / 编辑键），
+    // 不会出现「模板里选了但编辑器下拉里没有」的错位。存量存档不动 —— 套用模板才落新键位。
+
     val ALL: List<Template> = listOf(
         Template(
             key = "office",
             name = "办公通用",
-            desc = "复制 / 粘贴 / 撤销 / 保存 / 查找",
+            desc = "复制 / 粘贴 / 撤销 / 保存 / 查找 / 替换 / 切窗",
             color = 0,
             colorRes = R.color.hotkey_tpl_office,
             combos = listOf(
@@ -61,45 +67,58 @@ object HotkeyTemplates {
                 c("保存", HidKeys.MOD_CTRL, 0x16),
                 c("全选", HidKeys.MOD_CTRL, 0x04),
                 c("查找", HidKeys.MOD_CTRL, 0x09),
+                c("替换", HidKeys.MOD_CTRL, 0x0B),
+                c("关闭", HidKeys.MOD_CTRL, 0x1A),
+                c("切窗", HidKeys.MOD_ALT, 0x2B),
+                c("刷新", 0, 0x3E),                             // F5
             ),
         ),
         Template(
             key = "ai",
             name = "AI 对话",
-            desc = "发送 / 换行 / 复制回答 / 重开对话 / 停止生成",
+            desc = "发送 / 换行 / 停止 / 新对话 / 复制 / 截屏 / 搜索",
             color = 0,
             colorRes = R.color.hotkey_tpl_ai,
             combos = listOf(
                 c("发送", 0, KEY_ENTER),
                 c("换行", HidKeys.MOD_SHIFT, KEY_ENTER),
-                c("复制回答", HidKeys.MOD_CTRL, 0x06),
-                c("重新生成", HidKeys.MOD_CTRL, 0x15),          // Ctrl+R
-                c("新对话", HidKeys.MOD_CTRL, 0x11),            // Ctrl+N
                 c("停止", 0, KEY_ESC),
-                c("清空输入", HidKeys.MOD_CTRL, 0x04),           // Ctrl+A → 再按退格清空
+                c("新对话", HidKeys.MOD_CTRL, 0x11),            // Ctrl+N
+                c("重新生成", HidKeys.MOD_CTRL, 0x15),          // Ctrl+R
+                c("复制", HidKeys.MOD_CTRL, 0x06),
+                c("粘贴", HidKeys.MOD_CTRL, 0x19),
+                c("清空", HidKeys.MOD_CTRL, 0x04),              // Ctrl+A（再按退格清空输入）
+                c("截屏", HidKeys.MOD_WIN or HidKeys.MOD_SHIFT, 0x16), // Win+Shift+S
+                c("搜索", HidKeys.MOD_CTRL, 0x09),
+                c("切窗", HidKeys.MOD_ALT, 0x2B),
+                c("关闭", HidKeys.MOD_CTRL, 0x1A),
             ),
         ),
         Template(
             key = "code",
             name = "编程开发",
-            desc = "运行 / 调试 / 终端 / 注释 / 格式化 / 补全",
+            desc = "运行 / 调试 / 终端 / 注释 / 格式化 / 补全 / 跳转",
             color = 0,
             colorRes = R.color.hotkey_tpl_code,
             combos = listOf(
                 c("运行", 0, 0x3E),                             // F5
-                c("调试", HidKeys.MOD_CTRL, 0x3D),               // Ctrl+F4（先断点再 F5 亦可）
+                c("调试", HidKeys.MOD_CTRL, 0x3D),               // Ctrl+F4
                 c("终端", HidKeys.MOD_CTRL, 0x35),               // Ctrl+`
                 c("注释", HidKeys.MOD_CTRL, 0x38),               // Ctrl+/
                 c("格式化", HidKeys.MOD_CTRL or HidKeys.MOD_ALT, 0x0F), // Ctrl+Alt+L
                 c("查找", HidKeys.MOD_CTRL, 0x09),
                 c("补全", HidKeys.MOD_CTRL, KEY_SPACE),
-                c("跳转定义", 0, 0x42),                          // F9（VS 系默认）
+                c("跳转", 0, 0x42),                             // F9（VS 系跳转定义）
+                c("保存", HidKeys.MOD_CTRL, 0x16),
+                c("撤销", HidKeys.MOD_CTRL, 0x1D),
+                c("关闭", HidKeys.MOD_CTRL, 0x1A),
+                c("切窗", HidKeys.MOD_ALT, 0x2B),
             ),
         ),
         Template(
             key = "video",
             name = "视频剪辑",
-            desc = "播放 / 切割 / 撤销 / 保存 / 导出",
+            desc = "播放 / 切割 / 撤销 / 导出 / 入点 / 出点 / 快进快退",
             color = 0,
             colorRes = R.color.hotkey_tpl_video,
             combos = listOf(
@@ -108,63 +127,82 @@ object HotkeyTemplates {
                 c("撤销", HidKeys.MOD_CTRL, 0x1D),
                 c("保存", HidKeys.MOD_CTRL, 0x16),
                 c("导出", HidKeys.MOD_CTRL, 0x10),               // Ctrl+M
-                c("入点", 0, 0x0C),                              // I
-                c("出点", 0, 0x12),                              // O
-                c("整段选择", HidKeys.MOD_CTRL, 0x04),
+                c("入点", 0, 0x0C),                             // I
+                c("出点", 0, 0x12),                             // O
+                c("全选", HidKeys.MOD_CTRL, 0x04),
+                c("快进", 0, KEY_RIGHT),
+                c("快退", 0, KEY_LEFT),
+                c("放大", 0, 0x2E),                             // =（时间线放大）
+                c("缩小", 0, 0x2D),                             // -（时间线缩小）
             ),
         ),
         Template(
             key = "slide",
             name = "演示放映",
-            desc = "开始放映 / 翻页 / 黑屏 / 结束",
+            desc = "放映 / 翻页 / 黑白屏 / 首末页 / 激光笔 / 结束",
             color = 0,
             colorRes = R.color.hotkey_tpl_slide,
             combos = listOf(
-                c("放映", 0, 0x3E),                              // F5
-                c("下一页", 0, KEY_RIGHT),
-                c("上一页", 0, KEY_LEFT),
-                c("黑屏", 0, 0x05),                              // B
-                c("白屏", 0, 0x1A),                              // W
+                c("放映", 0, 0x3E),                             // F5 从头放映
+                c("本页", HidKeys.MOD_SHIFT, 0x3E),              // Shift+F5 从当前页
+                c("上页", 0, KEY_LEFT),
+                c("下页", 0, KEY_RIGHT),
+                c("黑屏", 0, 0x05),                             // B
+                c("白屏", 0, 0x1A),                             // W
+                c("首页", 0, 0x4A),                             // Home
+                c("末页", 0, 0x4D),                             // End
                 c("激光笔", HidKeys.MOD_CTRL, 0x0F),             // Ctrl+L
+                c("保存", HidKeys.MOD_CTRL, 0x16),
+                c("撤销", HidKeys.MOD_CTRL, 0x1D),
                 c("结束", 0, KEY_ESC),
             ),
         ),
         Template(
             key = "design",
             name = "设计制图",
-            desc = "新建图层 / 画笔 / 移动 / 缩放 / 复制图层 / 导出",
+            desc = "图层 / 画笔 / 取色 / 文字 / 填充 / 复制 / 导出",
             color = 0,
             colorRes = R.color.hotkey_tpl_design,
             combos = listOf(
-                c("新建图层", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x11), // Ctrl+Shift+N
-                c("复制图层", HidKeys.MOD_CTRL, 0x0D),                       // Ctrl+J
-                c("画笔", 0, 0x05),                                          // B
-                c("移动", 0, 0x19),                                          // V
-                c("缩放", 0, 0x1D),                                          // Z
+                c("图层", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x11), // Ctrl+Shift+N 新建图层
+                c("复制", HidKeys.MOD_CTRL, 0x0D),              // Ctrl+J 复制图层
+                c("画笔", 0, 0x05),                             // B
+                c("移动", 0, 0x19),                             // V
+                c("缩放", 0, 0x1D),                             // Z
+                c("取色", 0, 0x0C),                             // I
+                c("文字", 0, 0x1A),                             // T
+                c("填充", HidKeys.MOD_ALT, 0x2A),                // Alt+Backspace 前景填充
                 c("撤销", HidKeys.MOD_CTRL, 0x1D),
-                c("导出", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x08),      // Ctrl+Shift+E
+                c("保存", HidKeys.MOD_CTRL, 0x16),
+                c("导出", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x08), // Ctrl+Shift+E
+                c("新建", HidKeys.MOD_CTRL, 0x11),              // Ctrl+N
             ),
         ),
         Template(
             key = "browser",
             name = "浏览网页",
-            desc = "新标签 / 关标签 / 刷新 / 地址栏 / 前进后退 / 控制台",
+            desc = "新标签 / 关标签 / 刷新 / 地址 / 前进后退 / 控制台",
             color = 0,
             colorRes = R.color.hotkey_tpl_browser,
             combos = listOf(
                 c("新标签", HidKeys.MOD_CTRL, 0x17),             // Ctrl+T
                 c("关标签", HidKeys.MOD_CTRL, 0x1A),             // Ctrl+W
                 c("刷新", HidKeys.MOD_CTRL, 0x15),               // Ctrl+R
-                c("地址栏", HidKeys.MOD_CTRL, 0x0F),             // Ctrl+L
+                c("地址", HidKeys.MOD_CTRL, 0x0F),               // Ctrl+L
                 c("后退", HidKeys.MOD_ALT, KEY_LEFT),
                 c("前进", HidKeys.MOD_ALT, KEY_RIGHT),
                 c("控制台", 0, 0x45),                            // F12
+                c("收藏", HidKeys.MOD_CTRL, 0x07),               // Ctrl+D
+                c("历史", HidKeys.MOD_CTRL, 0x0B),               // Ctrl+H
+                c("搜索", HidKeys.MOD_CTRL, 0x09),               // Ctrl+F
+                c("无痕", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x11), // Ctrl+Shift+N
+                c("撤销", HidKeys.MOD_CTRL, 0x1D),              // 误关标签找回
             ),
         ),
         Template(
             key = "chat",
             name = "聊天社交",
-            desc = "发送 / 换行 / 截图 / 搜索 / 关闭 / 回到底部",
+            desc = "发送 / 换行 / 截屏 / 搜索 / 新聊 / 回到底部",
             color = 0,
             colorRes = R.color.hotkey_tpl_chat,
             combos = listOf(
@@ -173,13 +211,19 @@ object HotkeyTemplates {
                 c("截屏", HidKeys.MOD_ALT, 0x04),                // Alt+A
                 c("搜索", HidKeys.MOD_CTRL, 0x09),               // Ctrl+F
                 c("关闭", HidKeys.MOD_CTRL, 0x1A),               // Ctrl+W
-                c("回到底部", HidKeys.MOD_CTRL, KEY_DOWN),
+                c("回底", HidKeys.MOD_CTRL, KEY_DOWN),
+                c("粘贴", HidKeys.MOD_CTRL, 0x19),
+                c("撤销", HidKeys.MOD_CTRL, 0x1D),
+                c("新聊", HidKeys.MOD_CTRL, 0x11),              // Ctrl+N
+                c("切窗", HidKeys.MOD_ALT, 0x2B),
+                c("锁屏", HidKeys.MOD_WIN, 0x0F),               // Win+L
+                c("复制", HidKeys.MOD_CTRL, 0x06),
             ),
         ),
         Template(
             key = "term",
             name = "终端运维",
-            desc = "中断 / 退出 / 清屏 / 补全 / 历史 / 上下条",
+            desc = "中断 / 退出 / 清屏 / 补全 / 历史 / 行首行尾",
             color = 0,
             colorRes = R.color.hotkey_tpl_term,
             combos = listOf(
@@ -190,28 +234,38 @@ object HotkeyTemplates {
                 c("历史", HidKeys.MOD_CTRL, 0x15),               // Ctrl+R
                 c("上一条", 0, KEY_UP),
                 c("下一条", 0, KEY_DOWN),
+                c("行首", HidKeys.MOD_CTRL, 0x04),               // Ctrl+A
+                c("行尾", HidKeys.MOD_CTRL, 0x08),               // Ctrl+E
+                c("挂起", HidKeys.MOD_CTRL, 0x1D),               // Ctrl+Z
+                c("查找", HidKeys.MOD_CTRL, 0x09),               // Ctrl+F
+                c("新窗", HidKeys.MOD_CTRL, 0x11),              // Ctrl+N
             ),
         ),
         Template(
             key = "sheet",
             name = "表格数据",
-            desc = "编辑单元格 / 筛选 / 求和 / 插行 / 跳边缘 / 换行",
+            desc = "编辑 / 筛选 / 求和 / 插行 / 换行 / 加粗斜体",
             color = 0,
             colorRes = R.color.hotkey_tpl_sheet,
             combos = listOf(
-                c("编辑单元格", 0, 0x3B),                        // F2
+                c("编辑", 0, 0x3B),                             // F2
                 c("筛选", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x0F), // Ctrl+Shift+L
-                c("自动求和", HidKeys.MOD_ALT, 0x2E),            // Alt+=
-                c("插入行", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x2E),
-                c("跳到边缘", HidKeys.MOD_CTRL, KEY_RIGHT),
-                c("单元格内换行", HidKeys.MOD_ALT, KEY_ENTER),
+                c("求和", HidKeys.MOD_ALT, 0x2E),                // Alt+=
+                c("插行", HidKeys.MOD_CTRL or HidKeys.MOD_SHIFT, 0x2E),
+                c("跳边", HidKeys.MOD_CTRL, KEY_RIGHT),
+                c("换行", HidKeys.MOD_ALT, KEY_ENTER),
                 c("保存", HidKeys.MOD_CTRL, 0x16),
+                c("加粗", HidKeys.MOD_CTRL, 0x05),               // Ctrl+B
+                c("斜体", HidKeys.MOD_CTRL, 0x0C),               // Ctrl+I
+                c("下划", HidKeys.MOD_CTRL, 0x18),               // Ctrl+U
+                c("撤销", HidKeys.MOD_CTRL, 0x1D),
+                c("删行", HidKeys.MOD_CTRL, 0x2D),               // Ctrl+- 删除整行/行
             ),
         ),
         Template(
             key = "tv",
             name = "TV 遥控",
-            desc = "方向 / OK / 返回 / 主页 / 电源（TV 与 PC 通用）",
+            desc = "方向 / OK / 返回 / 主页 / 菜单 / 电源（TV 与 PC 通用）",
             color = 0,
             colorRes = R.color.hotkey_tpl_tv,
             combos = listOf(
@@ -222,10 +276,14 @@ object HotkeyTemplates {
                 c("OK", 0, KEY_ENTER),
                 c("返回", 0, KEY_ESC),
                 c("主页", 0, 0x4A),
-                // ★ 电源/关机：原先这一套里只有 7 个键，**没有电源**（真机反馈"关机键你没加"）。
-                //   usage 0x66 = 键盘 Power，被控端 HID_MAP 映射成 KEYCODE_POWER，
+                // ★ 电源/关机：usage 0x66 = 键盘 Power，被控端 HID_MAP 映射成 KEYCODE_POWER，
                 //   evdev / root 通道下就是一颗真电源键（待机 / 唤醒），与实体遥控一致。
                 c("电源", 0, 0x66),
+                // 0x65 = 键盘 Application，被控端映射 KEYCODE_MENU(82) —— 电视上就是「菜单」键。
+                c("菜单", 0, 0x65),
+                c("频道+", 0, 0x4B),                            // PageUp：多数 TV 应用当「上一频道」
+                c("频道-", 0, 0x4E),                            // PageDown：当「下一频道」
+                c("暂停", 0, KEY_SPACE),
             ),
         ),
     )

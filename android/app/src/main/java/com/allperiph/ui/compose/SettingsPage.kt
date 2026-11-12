@@ -718,6 +718,25 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
+
+                    // 横屏隐藏状态栏（2026-11-12 用户原话「横屏时把状态栏屏蔽了，布局避开
+                    // 状态栏触发区域，可以在设置里加开关」）：默认开。开着时横屏隐藏状态栏
+                    // —— 误触顶边不再拉开通知栏；从屏顶下滑按 TRANSIENT_BY_SWIPE 短暂
+                    // 呼出半透明状态栏，松手即收，不占布局。应用在 ApShellActivity.Shell
+                    // 的 LaunchedEffect 里（同一份 apx 偏好 landscape_hide_status）。
+                    var hideStatusBar by remember {
+                        mutableStateOf(apxPrefs.getBoolean("landscape_hide_status", true))
+                    }
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_hide_status_title),
+                        summary = ctx.getString(R.string.ui_set_hide_status_sum),
+                        checked = hideStatusBar,
+                        onCheckedChange = { on ->
+                            hideStatusBar = on
+                            apxPrefs.edit().putBoolean("landscape_hide_status", on).apply()
+                            Feedback.haptic(ctx)
+                        },
+                    )
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_shield_title),
                         summary = ctx.getString(R.string.ui_set_shield_summary),

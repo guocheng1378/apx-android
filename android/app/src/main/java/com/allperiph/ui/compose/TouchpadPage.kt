@@ -273,9 +273,9 @@ private fun HotkeyGrid(
     //（第 4 排起 2-slot 芯片反而正常，同源同宽却两副面孔即由此来）。宽卡片
     //（竖屏整宽、悬浮面板竖屏）仍是 4 位不减密度。
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        // 窄列判定：内容宽 280dp 以下降密度。280 = 4 位 × 60dp（两字 14sp 加内边距
-        // 的舒适下限）+ 行距余量，卡在 280 附近的边界值真机观感需要在 v76 验证。
-        val slotsPerRow = if (maxWidth < 280.dp) 3 else SLOTS_PER_ROW
+        // 2026-11-12 统一 3 列（见 SLOTS_PER_ROW）：窄列旧判定（<280dp 降 3 列）随
+        // 宽卡改 3 列一并废止 —— 横屏右列 268dp 与竖屏整宽现在同一口径。
+        val slotsPerRow = SLOTS_PER_ROW
         Column(modifier = Modifier.fillMaxSize()) {
             if (showHead) {
                 // 标题行样式对齐全屏触控板 HotkeyHead：粗体标题 + primary「编辑」，
@@ -453,13 +453,15 @@ private fun HotkeyGrid(
     }
 }
 
-/** 一行总按钮位数：与旧 4 枚等宽的每行个数一致，自适应只改每枚占几位。 */
-private const val SLOTS_PER_ROW = 4
+/** 一行总按钮位数：2026-11-12 用户原话「12 个正好 4 排」——统一 3 列，12 枚两字
+ * 模板（1 字位/枚）恰好铺满 4 排；旧「宽卡 4 列」口径随模板扩容废止（4 列时 12 枚
+ * 只凑 3 排，下 1/3 卡总差一截空白，即「换了模版还是占那么大地方」的观感来源）。 */
+private const val SLOTS_PER_ROW = 3
 
 /**
  * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
  * 每条占 ceil(字数 / 2) 位（至少 1 位、至多整行），一行装不下就折到下一行。
- * [slotsPerRow] 一行总位数：宽卡 4、窄列 3（图2「…」修复，见 HotkeyGrid 注释）。
+ * [slotsPerRow] 一行总位数：统一 3（2026-11-12 模板扩到 12 枚后 3 列 × 4 排恰好铺满）。
  * 返回的条目下标与 [HotkeyStore.load] 列表对齐，拖拽排序按它落位。
  */
 private fun packBySlots(

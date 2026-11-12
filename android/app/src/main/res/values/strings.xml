@@ -551,6 +551,8 @@
     <string name="ui_theme_preset_bouncy_desc">暮紫 · 机械键帽 · 弹跳 · 强震动 · 点击音</string>
     <string name="ui_set_auto_swap_title">横持自动切到键盘页</string>
     <string name="ui_set_auto_swap_sum">关闭后页面不随重力自动切换（默认关）</string>
+    <string name="ui_set_hide_status_title">横屏隐藏状态栏</string>
+    <string name="ui_set_hide_status_sum">横屏时屏蔽状态栏，从屏顶下滑可短暂呼出</string>
     <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
     <string name="ui_pick_device_controlled">外设模式（本机被控）</string>
     <string name="ui_pick_device_connecting">正在连 %1$s …</string>

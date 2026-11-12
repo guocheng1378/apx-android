@@ -44,11 +44,12 @@ object HidKeys {
 
     /** 常驻第 2 排：窗口/系统类 */
     val ROW2 = listOf(
+        // 2026-11-12 用户原话「默认模版也优化下布局两个字最好，12 个正好 4 排」：
+        // 砍掉「资源(Win+E) / 任务(Ctrl+Shift+Esc)」两枚冷门，三行改 7+5 = 12，
+        // 恰好铺满触控板竖屏网格的 3 列 × 4 排；标签维持两字口径。
         Combo("切窗", MOD_ALT, 0x2B),                // Alt+Tab
         Combo("桌面", MOD_WIN, 0x07),                // Win+D
-        Combo("资源", MOD_WIN, 0x08),                // Win+E
         Combo("锁屏", MOD_WIN, 0x0F),                // Win+L
-        Combo("任务", MOD_CTRL or MOD_SHIFT, 0x29),  // Ctrl+Shift+Esc
         Combo("刷新", 0, 0x3E),                      // F5
         Combo("关闭", MOD_ALT, 0x3D),                // Alt+F4
     )
