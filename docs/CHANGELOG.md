@@ -13,6 +13,7 @@
 - **功能批（手柄编辑 + 悬浮球菜单 + 遥控 + LocalSend）**：悬浮球菜单三新项「回到 App / 被控机系统 / 停止并退出」（老用户 KEY_MIGRATED_V7 自动追加，退出为停服务后收尾退出）；手柄编辑态四件套——关闭/编辑键编辑态可拖可配（FuncDragOverlay）、编辑吸附 7dp + 坐标轴参考线、捏边缘无级缩放 36–120dp 实时落盘、多选按钮组整组平移（Pad/Stick 选中 3dp 亮白描边）；摇杆点住未拖=L3/R3（位 10/11 启用）、拖出 slop=轴值，双摇杆可同时操控；遥控 macOS 适配（菜单→右键、电源→⌃⌘Q 锁屏）；LocalSend isRunning/discoveryUp 改 Compose 快照状态（「发现通道未就绪」提示不再滞留）+ 诊断文案补路由器组播/TUN 拦截指引。
 - **Mac 侧拍板批**：Mac 三指手势/双指缩放无效——injectConsumer 捏合位（0x0080 放大 / 0x0100 缩小）降级为 Ctrl+滚轮一格（kCGEventFlagMaskControl，带边沿检测，逐帧翻译）；外接触控板「无限边界」——SOURCE_TOUCHPAD 单指分支优先读原生相对轴 AXIS_RELATIVE_X/Y，绕开系统光标钳制，相对轴非零直接喂 PC，为零回退原绝对差分路径；外接触控板直读（EVIOCGRAB）按结论不做（高风险）。
 - **追评批（TurnOfAPage 追评三条）**：语音到说话环节马上「未识别到声音」——系统识别器秒败死循环，加连败计数（用户取消不计/成功清零），2 连败落盘后直接走离线引擎；pad 上 app 手柄+悬浮球手柄缺 ABXY——簇锚点在窄屏裁出屏外，锚点钳进可见范围（摇杆同防）；手机悬浮球手柄未切横屏却显示横屏布局——加 1×1 透明横屏锚点窗口（lp.screenOrientation），跨转屏重开周期存活。
+- **深色模式两处文字修复**：键盘「遥控」布局图块文字无显式色、默认渲染黑字（深色底上看不清）——补 onSurface 与键帽取色同口径（浅色黑字/深色白字）；全屏触控板右下角「退出全屏」小胶囊取次级灰字、叠深色手势面看不清——同口径改 onSurface，「3 秒后降透明度」节奏不变。
 - **构建修复**：五批首次合编译实锤清掉 7 处编译红——LocalSend 委托属性缺 getValue/setValue 扩展导入且误用 @Volatile（Kotlin 不允许修饰委托属性）；FuncDragOverlay 的 matchParentSize 是 BoxScope 成员，改 BoxScope 扩展函数；Pad 编辑态捏边缘 slot 可空收窄；键盘页键位区顶对齐改 TopCenter（顶对齐 + 水平中置，语义等价）。
 
 ## v223.29.87（2026-11-13）
