@@ -519,10 +519,13 @@ internal fun ApFullKeyboard(
             // FloatingBallService 拉伸全屏时传入）；快捷键 2 栏（每行 2 枚）复用竖屏快捷条，
             // 点击即发 + 长按弹编辑，与触控板页同一份 HotkeyStore。
             if (portraitPlan) {
+                // ApTouchpadSurface 的三个手势参数是非空类型，而键盘页对外声明可空
+                //（悬浮键盘等宿主可不传长按回调）。portraitPlan 本身要求 onGesture
+                // 非空才会成立，长按两个回调缺了就给空实现兜底（宁可不响应也不崩）。
                 ApTouchpadSurface(
-                    onGesture = onGesture,
-                    onLongPressArmDrag = onLongPressArmDrag,
-                    onLongPressRightDrag = onLongPressRightDrag,
+                    onGesture = onGesture ?: {},
+                    onLongPressArmDrag = onLongPressArmDrag ?: {},
+                    onLongPressRightDrag = onLongPressRightDrag ?: {},
                     modifier = Modifier
                         .fillMaxWidth()
                         // weight(1f) vs 键位区 weight(2f)：触控板 ≈ 上 1/3（中间夹的快捷条
