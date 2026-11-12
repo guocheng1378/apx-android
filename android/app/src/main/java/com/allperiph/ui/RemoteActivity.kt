@@ -279,6 +279,16 @@ class RemoteActivity : ComponentActivity() {
         const val TOUCH_GAIN = 1.5f   // 手指位移 → 光标位移的增益
         const val TAP_MS = 350L       // 单点判定：最长按压时长
         const val TAP_SLOP_DP = 18    // 单点判定：最大位移（dp）
+
+        /**
+         * 长按确定（成宇 2026-11-12 23:1x「遥控器触控板的长按确定滑动也没有」）：
+         * 原触摸条只做「移动 + 单点确认」，长按住不动没有任何反馈。现补长按语义 ——
+         * 按住超过 [HOLD_MS] 且没滑出单点位移阈值，就当作「确定键按下」：光标处
+         * 按下（左键按下沿），继续滑动 = 按住拖拽（被控端 finishStroke 判拖拽/长按），
+         * 抬起沿补左键抬起。被控端按下沿/抬起沿链路（TvControlServer.onMouse
+         * bit0 → TvInjector.pressDown/pressUp）本就支持，控制端只需要把这条流发全。
+         */
+        const val HOLD_MS = 500L
     }
 }
 
@@ -675,35 +685,57 @@ private fun TouchStrip(host: RemoteActivity, modifier: Modifier = Modifier) {
                     var last = start
                     var fracX = 0f
                     var fracY = 0f
+                    // 长按确定：按住不动超过 HOLD_MS 即「确定按下」——此后滑动是按住拖拽，
+                    // 抬起沿补左键抬起（成宇 2026-11-12 23:1x「长按确定滑动也没有」）。
+                    // 触发用 handler 定时器而不是事件循环里查表：原地按住时往往没有新的
+                    // 指针事件，循环里的判断永远轮不到；定时器到点时复核「仍在单点位移
+                    // 阈值内」才补按，滑出去过的手不算。抬起 / 换路时回收定时器。
+                    var holdArmed = false
+                    val armHold = Runnable {
+                        if (holdArmed) return@Runnable
+                        val still = kotlin.math.hypot(
+                            (last.x - start.x).toDouble(),
+                            (last.y - start.y).toDouble(),
+                        ) < RemoteActivity.TAP_SLOP_DP.dp.toPx()
+                        if (still && HidMouse.move(1, 0, 0)) {
+                            holdArmed = true
+                            Feedback.tap(view)
+                        }
+                    }
+                    view.postDelayed(armHold, RemoteActivity.HOLD_MS)
                     while (true) {
                         val ev = awaitPointerEvent()
                         val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                         if (!ch.pressed) break
                         ch.consume()
-                        // P1-4：每轴独立累计亚像素 + 钳位。整数位移发出后余数留在
-                        // frac 里下一帧续发；没出口就丢余数，别攒着等出口出现。
                         fracX += (ch.position.x - last.x) * RemoteActivity.TOUCH_GAIN
                         fracY += (ch.position.y - last.y) * RemoteActivity.TOUCH_GAIN
                         last = ch.position
                         val dx = fracX.toInt().coerceIn(-127, 127)
                         val dy = fracY.toInt().coerceIn(-127, 127)
                         if (dx != 0 || dy != 0) {
-                            // 三条链路（无线 9511 / USB HID / 蓝牙 HID）由 HidMouse 统一择路
-                            if (HidMouse.move(0, dx, dy)) {
+                            // 三条链路（无线 9511 / USB HID / 蓝牙 HID）由 HidMouse 统一择路；
+                            // 长按补按后位移动比特 1 置位 = 按住拖拽流
+                            if (HidMouse.move(if (holdArmed) 1 else 0, dx, dy)) {
                                 fracX -= dx; fracY -= dy
                             } else {
                                 fracX = 0f; fracY = 0f
                             }
                         }
                     }
-                    // 单点判定：位移与时长都在阈值内 = 确认。同样走 HidMouse：
-                    // 按下 → 40ms 后抬起，被控端按边沿识别单击。
+                    // 抬起收尾：先撤长按定时器，再按三态收尾——
+                    // 长按过 = 补左键抬起（结束拖拽/触发被控端长按判定）；
+                    // 单点（位移与时长都在阈值内）= 确认——按下 → 40ms 后抬起；
+                    // 其余（移动后松手）= 什么都不发。
+                    view.removeCallbacks(armHold)
                     val dur = android.os.SystemClock.uptimeMillis() - downAt
                     val moved = kotlin.math.hypot(
                         (last.x - start.x).toDouble(),
                         (last.y - start.y).toDouble(),
                     )
-                    if (moved < RemoteActivity.TAP_SLOP_DP.dp.toPx() && dur < RemoteActivity.TAP_MS) {
+                    if (holdArmed) {
+                        if (HidMouse.move(0, 0, 0)) Feedback.tap(view)
+                    } else if (moved < RemoteActivity.TAP_SLOP_DP.dp.toPx() && dur < RemoteActivity.TAP_MS) {
                         if (HidMouse.move(1, 0, 0)) {
                             host.postConfirmRelease()
                             Feedback.tap(view)
