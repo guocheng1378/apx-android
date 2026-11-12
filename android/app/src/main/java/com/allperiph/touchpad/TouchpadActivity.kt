@@ -886,8 +886,14 @@ private fun FeedbackTap(view: android.view.View) = com.allperiph.ui.Feedback.tap
 // —————————————————————————— 第 0 页：触控板 ——————————————————————————
 
 /**
- * 手势面占满剩余空间；横屏（issue#168 第 1 条）左右分栏：手势面在左占满整高，
- * 快捷键网格在右一列（竖排则网格在下方）。旋转由 LocalConfiguration 驱动重组生效。
+ * 手势面占满剩余空间；布局与 app 首页触控板页同一套口径（issue#168 第 7 条
+ * 「横竖屏布局和 app 首页的触控板统一」）：
+ * · 竖屏：手势卡 weight(2f) + 快捷键卡 weight(1f)，各自包 surfaceContainer 圆角背景框，
+ *   触控只在手势卡内生效（ApTouchpadSurface 只消费自身 bounds）；快捷键标题行固定卡顶，
+ *   网格超出滚动、滚动条置左（与首页 HotkeyGrid 同款）。
+ * · 横屏：手势面撑满不加框（e7c917d 用户拍板「手势区撑满」口径），右列快捷键卡
+ *   宽度走 ApComponents.touchpadSideWidth 共用口径、整列包框、标题行固定 + 网格滚动。
+ * 旋转由 LocalConfiguration 驱动重组生效。
  * 全屏（v223.2）：整块屏幕只剩手势面，方向键叠层、快捷键网格一起收起。
  */
 @Composable
@@ -896,6 +902,12 @@ private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
     // 旋转后 HotkeyBoard 的每行个数要按新方向取值（横屏 2 / 竖屏 4），重画一次
     LaunchedEffect(land) { host.hotkeyBoard.render() }
+    // 背景框分栏的卡底色与圆角：与首页 TouchpadPage 同值（surfaceContainer + 16dp），
+    // 两处快捷键区/手势卡看起来是同一个设计。
+    val cardColor = MiuixTheme.colorScheme.surfaceContainer
+    val cardShape = RoundedCornerShape(16.dp)
+    // 右列宽度共用口径（见 ApComponents.touchpadSideWidth 注释），本页横屏竖屏各算一次
+    val screenWidth = LocalConfiguration.current.screenWidthDp.toFloat()
     val surface: @Composable (Modifier) -> Unit = { m ->
         ApTouchpadSurface(
             onGesture = { host.onSurfaceGesture(it) },
@@ -917,23 +929,72 @@ private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
                 // 键帽只消费自身区域，键外照常走触控引擎，滑动与方向同屏。
                 DpadOverlay(Modifier.align(Alignment.Center))
             }
-            Column(Modifier.width(190.dp).fillMaxHeight().padding(start = 10.dp)) {
-                HotkeyHead(host)
-                // 横屏追补（issue#168 第 1 条）：热键多于一屏时装不下 —— 右列包一层滚动，
-                // 滚动范围只包按钮网格（标题行固定在外，编辑按钮摸得着）。
-                Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
-                    HotkeyGridView(host)
-                }
+            // 横屏右列（issue#168 第 7 条）：与首页横屏右列同款 —— 整列包背景框，
+            // 宽度走共用口径（此前固定 190dp，平板上太窄、快捷键挤成一竖条）。
+            Box(
+                Modifier
+                    .width(ApComponents.touchpadSideWidth(screenWidth))
+                    .fillMaxHeight()
+                    .padding(start = 10.dp)
+                    .clip(cardShape)
+                    .background(cardColor),
+            ) {
+                HotkeyCard(host)
             }
         }
     } else {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            // 竖屏手势卡（issue#168 第 7 条）：占上方 2/3 并包框，与首页触控板页同口径 ——
+            // 此前手势面吃满、快捷键区无框无滚动，热键一多就顶出屏幕（「显示不全」）。
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(2f)
+                    .clip(cardShape)
+                    .background(cardColor),
+            ) {
                 surface(Modifier.fillMaxSize())
                 DpadOverlay(Modifier.align(Alignment.Center))
             }
-            HotkeyHead(host)
-            HotkeyGridView(host)
+            // 快捷键卡：占下方 1/3（首页同比例），标题行固定卡顶、网格超出滚动。
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(top = 10.dp)
+                    .clip(cardShape)
+                    .background(cardColor),
+            ) {
+                HotkeyCard(host)
+            }
+        }
+    }
+}
+
+/**
+ * 快捷键卡内容（issue#168 第 7 条与首页统一）：「常用快捷键 / 编辑」标题行固定卡顶
+ * （编辑入口弹 HotkeyBoard 管理弹窗，与首页同一份实现），网格区吃剩余高度、超出竖向
+ * 滚动，滚动条按首页口径放在**左侧**（内容不超高时不画，VScrollbar 内部自行判空）。
+ */
+@Composable
+private fun HotkeyCard(host: TouchpadActivity) {
+    val gridScroll = rememberScrollState()
+    Column(Modifier.fillMaxSize()) {
+        HotkeyHead(host)
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(gridScroll),
+            ) {
+                HotkeyGridView(host)
+            }
+            ApComponents.VScrollbar(
+                scrollState = gridScroll,
+                alignEnd = false,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = 2.dp)
+                    .fillMaxHeight(),
+            )
         }
     }
 }

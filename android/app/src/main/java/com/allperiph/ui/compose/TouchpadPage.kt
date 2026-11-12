@@ -102,11 +102,10 @@ fun TouchpadPage(
     // 回落单栏后走与手机竖屏同一套「手势面 + 下方快捷键区」布局。
     // 手机竖屏本就 twoPane=false，不受影响。
     val wide = adaptive.twoPane && adaptive.landscape
-    val sideTarget = when {
-        screenWidthDp >= 840f -> 268.dp
-        screenWidthDp >= 600f -> 292.dp
-        else -> (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
-    }
+    // 横屏右列宽度收口到共用口径（issue#168 第 7 条「操控面与首页统一」）：
+    // ApComponents.touchpadSideWidth 是唯一一份（平板 268/292 定宽、手机 38% 夹取 180–320），
+    // 操控面 ConsoleTouchpadPage 的右列同调这里，宽度不再各写各的。
+    val sideTarget = ApComponents.touchpadSideWidth(screenWidthDp)
     val sideWidth by androidx.compose.animation.core.animateDpAsState(
         targetValue = sideTarget,
         animationSpec = androidx.compose.animation.core.tween(

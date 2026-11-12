@@ -299,6 +299,18 @@ object ApComponents {
     /** [TabChip] 的高度下限（dp）：快捷键栏算「固定 3 排」总高时与这里同一口径，改一处即两处同步。 */
     const val TAB_CHIP_MIN_HEIGHT_DP = 44
 
+    /**
+     * 触控板横屏右列宽度（issue#168 第 7 条「横竖屏布局和 app 首页的触控板统一」）：
+     * 首页 TouchpadPage 与操控面 ConsoleTouchpadPage 共用同一口径 ——
+     * 宽屏（≥840dp）定宽 268、中板（≥600dp）定宽 292、手机按屏宽 38% 夹取 180–320。
+     * 宽度口径只留这一份，改这里即两处同步，避免再长出第二份。
+     */
+    fun touchpadSideWidth(screenWidthDp: Float): Dp = when {
+        screenWidthDp >= 840f -> 268.dp
+        screenWidthDp >= 600f -> 292.dp
+        else -> (screenWidthDp * 0.38f).coerceIn(180f, 320f).dp
+    }
+
     @Composable
     fun TabChip(
         text: String,
