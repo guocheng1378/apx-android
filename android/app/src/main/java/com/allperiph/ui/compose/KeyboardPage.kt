@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -398,15 +399,14 @@ internal fun ApFullKeyboard(
     }
 
     CompositionLocalProvider(LocalRgb provides rgbSpec, LocalMatPhase provides matPhase) {
-        // 横屏底部避让（issue#168 2026-11-12 #5「整体向上抬高，保证 3 按钮显示完整」）：
-        // 工具行贴底时会被手势条（小白条）压住 —— 横屏把 insets.bottom 叠进底部垫边，
-        // 内容整体上抬；竖屏不改（bottomGap 已够，避免竖屏键位区无谓变矮）。
-        val insets = com.allperiph.ui.miuix.rememberApInsets()
+        // 横屏底部避让已撤（2026-11-12 随工具行并入页签行）：原先横屏把 insets.bottom
+        // 叠进底部垫边，是给贴底的工具行让手势条 —— 工具行不在底部了，让位一并撤回，
+        // 键位区拿回整块高度；竖屏口径不变（bottomGap 已够）。
         Column(
             modifier = Modifier.fillMaxSize()
                 .padding(
                     start = 8.dp, end = 8.dp, top = 2.dp,
-                    bottom = 8.dp + bottomGap + if (adaptive.landscape) insets.bottom else 0.dp,
+                    bottom = 8.dp + bottomGap,
                 ),
         ) {
             // —— 关闭行：只在悬浮球面板形态画（主屏键盘页 onClose = null，一个按钮都不占位）——
@@ -450,12 +450,39 @@ internal fun ApFullKeyboard(
                         fx = fx,
                     )
                 }
+                // 工具分组（成宇 2026-11-12「进页签里不再单独用，作为页签的一个分组」）：
+                // 剪贴板/语音/灯效从独立工具行并入页签行，作页签行尾部的**一组** ——
+                // 组前加一段加宽间隔与页面页签区隔开，不再单独占一行（横屏底部整行
+                // 只有三个小圆块的松散布局由此收掉）。灯效芯片仍在组尾：只开
+                // [ledPickOpen] 弹窗直选（规划 v2 口径），「调色」在弹窗里给。
+                Spacer(Modifier.width(10.dp))
+                ApComponents.TabChip(
+                    text = ctx.getString(R.string.ui_ball_fn_clipboard),
+                    selected = false,
+                    onClick = {
+                        Feedback.tap(host)
+                        sendClipboardToPc(ctx)
+                    },
+                    fx = fx,
+                )
+                ApComponents.TabChip(
+                    text = ctx.getString(R.string.ui_kb_tool_voice),
+                    selected = false,
+                    onClick = {
+                        Feedback.tap(host)
+                        // 统一走透明宿主页拉系统识别（2026-11-11「语音按键链路不能用」）：
+                        // 悬浮键盘没有 Activity 宿主，主屏同样可用 —— 识别器挑选、
+                        // Google-only 提示都在 VoiceCaptureActivity 内（同 v223.29.33 口径），
+                        // 结果经伴生回调回到本面板的确认卡。
+                        com.allperiph.ui.VoiceCaptureActivity.start(ctx)
+                    },
+                    fx = fx,
+                )
                 // 灯效入口（成宇 2026-11-08「能让键盘有rgb灯的效果吗」；2026-11-12 按规划
                 // v2 口径「快切改一键直选不再循环」改造）：芯片只开 [ledPickOpen] 弹窗，
-                // 四档灯效在弹窗里直选。文案用现成的两字资源 ui_kb_tool_rgb（工具行同款
-                // 「灯效」），不再拼「ui_set_label_rgb · 档位名」长串 —— 长串正是
-                // 2026-11-12 图1 竖屏页签行折成三行、图4 横屏挤成一条的元凶。选中态 =
-                // 开灯；当前是哪档在弹窗里高亮，芯片本身不再背档位文案。
+                // 四档灯效在弹窗里直选。文案用现成的两字资源 ui_kb_tool_rgb，不再拼
+                // 「ui_set_label_rgb · 档位名」长串 —— 长串正是 2026-11-12 图1 竖屏页签行
+                // 折成三行的元凶。选中态 = 开灯；当前档位在弹窗里高亮。
                 ApComponents.TabChip(
                     text = ctx.getString(R.string.ui_kb_tool_rgb),
                     selected = rgbMode != KeyPref.RGB_OFF,
@@ -558,42 +585,9 @@ internal fun ApFullKeyboard(
                     }
                 }
             }
-            // —— 工具行（剪贴板补发 / 语音输入 / 灯效循环）：§6.3 平板之外，issue#168
-            // 2026-11-12 #5 手机横屏也要这排 ——「保证剪贴板/语音/灯效 3 按钮显示完整」。
-            // 三个改动都来自用户原话：
-            //  · 高度与键盘按键一致 = 键帽同款 (44f * keyScale).coerceAtLeast(48f)（KeyBox:1089 同式），
-            //    不再写死 72dp；
-            //  · 长度按文字宽度自适应：去掉 weight(1f)（等分拉宽），图块包住文字自然宽；
-            //  · 整行居中（Arrangement.Center），不再撑满。
-            val showTools = expanded || adaptive.landscape
-            if (showTools) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val tileHeight = (44f * dens.keyScale).coerceAtLeast(48f).dp
-                    MediaTile(ctx.getString(R.string.ui_ball_fn_clipboard), Modifier.height(tileHeight)) {
-                        Feedback.tap(host)
-                        sendClipboardToPc(ctx)
-                    }
-                    MediaTile(ctx.getString(R.string.ui_kb_tool_voice), Modifier.height(tileHeight)) {
-                        Feedback.tap(host)
-                        // 统一走透明宿主页拉系统识别（2026-11-11「语音按键链路不能用」）：
-                        // 悬浮键盘没有 Activity 宿主，主屏同样可用 —— 识别器挑选、
-                        // Google-only 提示都在 VoiceCaptureActivity 内（同 v223.29.33 口径），
-                        // 结果经伴生回调回到本面板的确认卡。
-                        com.allperiph.ui.VoiceCaptureActivity.start(ctx)
-                    }
-                    MediaTile(ctx.getString(R.string.ui_kb_tool_rgb), Modifier.height(tileHeight)) {
-                        Feedback.tap(host)
-                        // 直选不循环（规划 v2 口径，2026-11-12）：工具行灯效图块同样开
-                        // [ledPickOpen] 弹窗直选档位，不再就地循环 —— 页签行/工具行两处
-                        // 入口行为保持一致，用户不用背「点一下换一档」的顺序。
-                        ledPickOpen = true
-                    }
-                }
-            }
+            // —— 工具行（剪贴板/语音/灯效）已撤（成宇 2026-11-12「进页签里不再单独用，
+            // 作为页签的一个分组」）：三键并入上方页签行尾部分组，横屏底部不再单独占行
+            // —— 原先整行只有三个居中小圆块、两侧大片留白的松散布局由此收掉。
         }
     }
 
