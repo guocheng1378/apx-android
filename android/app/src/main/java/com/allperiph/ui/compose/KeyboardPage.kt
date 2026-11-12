@@ -531,7 +531,11 @@ internal fun ApFullKeyboard(
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = if (landscapeOverride == true || (landscapeOverride == null && adaptive.landscape)) {
-                    Alignment.Top
+                    // 顶对齐（pad 横屏「模板栏贴按键区」）。注意 contentAlignment
+                    // 参数是完整 Alignment：Top/CenterVertically 是 Vertical（垂直
+                    // 分量），喂进去类型对不上 —— 上一版用 Alignment.Top 正是
+                    // CI 编译红的根因之一；顶对齐的水平中置语义 = TopCenter。
+                    Alignment.TopCenter
                 } else {
                     Alignment.Center
                 },

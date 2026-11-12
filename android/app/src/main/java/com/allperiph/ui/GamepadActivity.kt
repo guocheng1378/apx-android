@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -691,8 +692,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
  *   唯一的退出口，不能被拖拽面吞掉）。
  * 只有编辑态才挂这层面（父级 `if (padEditing)` 控制），普通态 ✕ / ✎ 照常响应点按。
  */
+// BoxScope 扩展：调用点都在父 Box 的内容 lambda 里（✕ / ✎ 两处），
+// matchParentSize 是 BoxScope 成员 —— 不带接收者时裸 Modifier 链上
+// 引不到它（fd842c1 的 CI 实锤 Unresolved reference）。
+// 语义也不能换成 fillMaxSize：这里要的是「贴住父 Box 的内容盒」
+// （= 40dp 功能键大小），fillMaxSize 会吃满父级约束（整屏）。
 @Composable
-private fun FuncDragOverlay(
+private fun BoxScope.FuncDragOverlay(
     onTap: () -> Unit,
     onMoveBy: (Float, Float) -> Unit,
     onMoveEnd: () -> Unit,
@@ -931,6 +937,11 @@ private fun Pad(
                         val edgePx = 12.dp.toPx()
                         var resizing = !slot.isNullOrEmpty() &&
                             hypot(down.position.x - cx, down.position.y - cy) > radiusPx - edgePx
+                        // resizing 成立 = slot 非空（见上一行的 isNullOrEmpty 判定），
+                        // 但那是 var 初始化处的判定，编译器不会跨语句 smart cast；
+                        // setSize 形参是非空 String —— 取一份局部非空副本落盘，
+                        // 否则 CI 编译红（fd842c1 实锤「String? 但 String expected」）。
+                        val slotKey = if (slot.isNullOrEmpty()) null else slot
                         var lastX = down.position.x
                         var lastY = down.position.y
                         val slopPx = viewConfiguration.touchSlop
@@ -949,7 +960,7 @@ private fun Pad(
                                 val d = (2f * hypot(x - cx, y - cy) / density)
                                     .coerceIn(PAD_RESIZE_MIN_DP, PAD_RESIZE_MAX_DP)
                                 liveSize = d
-                                GamepadPadConfig.setSize(ctx, slot, d.toInt())
+                                slotKey?.let { GamepadPadConfig.setSize(ctx, it, d.toInt()) }
                             } else if (moved) {
                                 // 按住拖动：按钮实时跟手（面板层改 offset），松手落盘
                                 val onMoveNow = currentOnMoveBy

@@ -18,6 +18,11 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import org.json.JSONObject
+// `var x by mutableStateOf(...)` 需要 getValue/setValue 两个扩展在作用域内，
+// 缺了编译器报「cannot serve as a delegate」（fd842c1 的 CI 实锤：fully-qualified
+// mutableStateOf 只解决了初始化表达式，委托转换仍要这两个 import）。
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import java.io.File
 import java.io.OutputStream
 import java.net.DatagramPacket
