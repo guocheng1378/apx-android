@@ -1071,7 +1071,18 @@ class ApShellActivity : ComponentActivity() {
             layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        applyEdgeToEdge()
+        applyEdgeToEdge(hideSystemBars =
+            // v223.29.90 同模式排查（成宇 2026-11-13「以后在修，你要看看同模版是否有
+            // 同样的问题」）：本壳 DisposableEffect(landscape, hideStatusBar) 的横屏隐藏
+            // 与手柄页是同一个竞态 —— post 跑在首帧组合之后，竖屏进入时两接口径一致
+            // 无感；**横屏直接打开 App** 时，首帧的 hide(statusBars()) 会被 post 的
+            // show 打穿，状态栏亮到下一次横竖切换才被压回。post 只跑一次，把进入
+            // 那一刻的口径对齐即可；之后的横竖切换仍由 DisposableEffect 兜。
+            // 横屏判定与 rememberApAdaptiveLayout 同口径（screenWidthDp > screenHeightDp；
+            // onCreate 时窗口尺寸还没法读，Configuration 是此刻唯一同源来源）。
+            resources.configuration.screenWidthDp > resources.configuration.screenHeightDp &&
+                getSharedPreferences("apx", MODE_PRIVATE)
+                    .getBoolean("landscape_hide_status", true))
     }
 }
 
