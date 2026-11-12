@@ -16,15 +16,12 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -211,23 +208,17 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
     }
 
-    // b64（issue#168 第 5 条）：面板从 edge-to-edge 起是贴屏顶画的，L1 / R1 顶到状态栏
-    // 区域里点不到。整个根盒垫上状态栏 insets —— 悬浮球 overlay 宿主 insets 为 0，不受影响。
+    // b64（issue#168 第 5 条）：曾给整个根盒垫状态栏 insets 避让，v84 又叠了 32dp 安全垫 ——
+    // 方向反了：成宇 2026-11-12 22:4x「我要的是所有覆盖到状态栏」—— 他要的不是「让开状态栏」
+    // 而是「盖住状态栏」：面板顶格画、✕/✎ 落在原状态栏带里，状态栏不再占住面板顶上一条。
+    // overlay 宿主 insets 恒 0 且悬浮窗口层高于状态栏，面板本来就能盖上去；Activity 宿主
+    // 横屏默认开「横屏隐藏状态栏」，insets 归零同样顶格。所以顶部任何让位都不留，铺满整屏。
+    //
     // BoxWithConstraints 只为取本盒实宽：本面板可能套在 LandscapePanel 的旋转盒里，
     // LocalWindowInfo 的宽度是竖屏原窗宽，判定不了「横过来之后有多宽」。
-    //
-    // 状态栏安全垫（成宇 2026-11-12 22:1x「手柄页按钮不够也没有覆盖到状态栏」）：上一行
-    // 的「overlay 不受影响」判断错了 —— overlay 宿主 insets 恒 0，windowInsetsPadding
-    // 等于没垫，悬浮手柄顶部 ✕/✎ 两键（y=8dp）正好压进状态栏里点不动；主屏 Activity
-    // 宿主则有真实 insets。这里取「真实状态栏」与 32dp 安全下限的较大者补足顶部：
-    // 悬浮手柄是强制横屏，横屏状态栏 24~28dp 居多，32dp 下限在 overlay 宿主也够让出；
-    // Activity 宿主真实 insets ≥ 下限时补足量为 0，不产生双重垫边。
-    val sbTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(top = maxOf(32.dp - sbTop, 0.dp))
             .background(colorResource(R.color.overlay_scrim))
     ) {
         val W = maxWidth

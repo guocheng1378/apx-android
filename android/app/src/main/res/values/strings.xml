@@ -422,6 +422,16 @@
     <string name="ui_voice_offline_go">下载语音包并开始</string>
     <string name="ui_voice_offline_progress">正在下载语音包 %1$d%%</string>
     <string name="ui_voice_offline_retry">语音包下载失败，点此重试</string>
+    <string name="ui_voice_fail_reason">原因：%1$s</string>
+    <string name="ui_voice_fail_all_sources">所有下载来源都未走通</string>
+    <string name="ui_voice_fail_direct">直连下载失败（%1$s）：%2$s</string>
+    <string name="ui_voice_fail_dm_missing">系统下载器不可用</string>
+    <string name="ui_voice_fail_enqueue">系统下载器入队失败：%1$s</string>
+    <string name="ui_voice_fail_dm">系统下载器失败（错误码 %1$d）</string>
+    <string name="ui_voice_fail_unzip">下载完成但解压校验失败：%1$s</string>
+    <string name="ui_voice_fail_interrupt">页面退出，下载中断</string>
+    <string name="ui_voice_fail_load">识别引擎初始化失败：%1$s</string>
+    <string name="ui_voice_fail_import">语音包导入失败：%1$s</string>
     <string name="ui_voice_offline_import">从本地导入语音包</string>
     <string name="ui_voice_offline_importing">正在导入语音包…</string>
     <string name="ui_voice_offline_preparing">正在准备识别引擎…</string>

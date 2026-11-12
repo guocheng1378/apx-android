@@ -214,8 +214,13 @@ class VoiceCaptureActivity : ComponentActivity() {
         /** 下载中：百分比进度（0–100） */
         data class Downloading(val percent: Int) : Offline()
 
-        /** 下载/解压失败：给「重试」入口 */
-        data object Failed : Offline()
+        /**
+         * 下载/解压/加载失败：给「重试」入口。成宇 2026-11-12 22:4x「语音模型下载完了说
+         * 下载失败，是否链路有问题」——此前三类失败（下载链路 / 解压校验 / 引擎加载）
+         * 共用一个「下载失败」文案，下载满格后报失败分不清是哪一环；Failed 改带具体
+         * 原因显示在面板上，链路哪一环断了当场可见。
+         */
+        data class Failed(val reason: String) : Offline()
 
         /** SAF 导入中（issue#168 2026-11-12 #6 兜底：本地 zip 拷入 + 解压需要几秒到十几秒） */
         data object Importing : Offline()
@@ -272,7 +277,11 @@ class VoiceCaptureActivity : ComponentActivity() {
                 // Error 一旦漏出会杀线程而不走 Failed，页面卡死在「加载中」
                 Log.w(TAG, "离线识别初始化失败：${e.message}")
                 releaseEngine()
-                runOnUiThread { offlineState = Offline.Failed }
+                runOnUiThread {
+                    offlineState = Offline.Failed(
+                        getString(R.string.ui_voice_fail_load, e.message ?: e.javaClass.simpleName),
+                    )
+                }
             }
         }.start()
     }
@@ -320,24 +329,28 @@ class VoiceCaptureActivity : ComponentActivity() {
             // 官方源在用户网络直连常年失败（跨境链路抖动 / DNS 污染）。逐路直连
             // [MODEL_URLS]（魔搭国内 CDN → 官方 → hf-mirror），任一路走通即收；
             // 每一路都要过「非 2xx / 包过小 / 必备文件齐全」三道关才算成功。
-            val ok = MODEL_URLS.any { url -> tryDownloadDirect(url) } ||
-                MODEL_URLS.any { url -> tryDownloadViaManager(url) }
+            val ok = MODEL_URLS.any { url -> tryDownloadDirect(url) != null } ||
+                MODEL_URLS.any { url -> tryDownloadViaManager(url) != null }
             if (!ok) {
                 // 清掉半截下载产物，重试从零开始（全审查条 3 的另一半）
                 runCatching { File(cacheDir, "$MODEL_DIR.zip.tmp").delete() }
                 runCatching { File(cacheDir, "$MODEL_DIR.zip").delete() }
-                runOnUiThread { offlineState = Offline.Failed }
+                runOnUiThread { offlineState = Offline.Failed(lastFailReason.ifBlank { getString(R.string.ui_voice_fail_all_sources) }) }
             }
         }.start()
     }
 
+    /** 最近一次失败的具体原因（downloadAndPrepare 收口时带给 Failed 态显示） */
+    @Volatile
+    private var lastFailReason: String = ""
+
     /**
-     * 直连下载：成功（解压 + 打标完成）返回 true；失败返回 false 交给下一路。
+     * 直连下载：成功（解压 + 打标完成）返回 null；失败返回原因字符串交给下一路。
      * #6「检测实际是否下载」—— 旧实现不读响应码：运营商劫持页 / CDN 错误页会被
      * 当成下载内容写进文件，解压必炸还看不出原因。现在非 2xx 直接判失败，包过小
      * （模型压缩包 ~40MB，10MB 以下必不是它）同样判失败。
      */
-    private fun tryDownloadDirect(url: String): Boolean {
+    private fun tryDownloadDirect(url: String): String? {
         val zip = File(cacheDir, "$MODEL_DIR.zip")
         val tmp = File(cacheDir, "$MODEL_DIR.zip.tmp")
         return try {
@@ -378,22 +391,24 @@ class VoiceCaptureActivity : ComponentActivity() {
             File(modelDir(), ".ok").writeText(MODEL_DIR)
             zip.delete()
             runOnUiThread { startOfflineListening() }
-            true
+            null
         } catch (e: Exception) {
             Log.w(TAG, "直连下载失败：${e.message}")
             runCatching { tmp.delete() }
             runCatching { zip.delete() }
-            false
+            getString(R.string.ui_voice_fail_direct, url.substringAfterLast('/'), e.message ?: e.javaClass.simpleName)
+                .also { lastFailReason = it }
         }
     }
 
     /**
      * DownloadManager 兜底（#6 第二路）：走系统下载器 —— 自带断点续传 / 重试 / 网络
      * 策略（双卡、Wi-Fi/蜂窝偏好都由系统裁决），与 App 内直连走的是同一批下载节点但
-     * 连接生命周期更稳。成功（解压 + 打标完成）返回 true。
+     * 连接生命周期更稳。成功（解压 + 打标完成）返回 null；失败返回原因字符串。
      */
-    private fun tryDownloadViaManager(url: String): Boolean {
-        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return false
+    private fun tryDownloadViaManager(url: String): String? {
+        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+            ?: return getString(R.string.ui_voice_fail_dm_missing).also { lastFailReason = it }
         val extZip = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "$MODEL_DIR.zip")
         val id = try {
             dm.enqueue(
@@ -408,7 +423,8 @@ class VoiceCaptureActivity : ComponentActivity() {
             )
         } catch (e: Exception) {
             Log.w(TAG, "DownloadManager 入队失败：${e.message}")
-            return false
+            return getString(R.string.ui_voice_fail_enqueue, e.message ?: e.javaClass.simpleName)
+                .also { lastFailReason = it }
         }
         // 轮询到终态（面板上有进度条可看，这里不需要回调粒度更细）
         while (!isFinishing) {
@@ -427,7 +443,13 @@ class VoiceCaptureActivity : ComponentActivity() {
                 runOnUiThread { if (offlineState is Offline.Downloading) offlineState = Offline.Downloading(pct) }
             }
             when (status) {
-                DownloadManager.STATUS_FAILED -> return false
+                // COLUMN_REASON 带系统给出的失败码（如存储不足 / 网络不可用），一并透出
+                DownloadManager.STATUS_FAILED -> {
+                    val reason = q.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON).let {
+                        runCatching { q.getInt(it) }.getOrNull() ?: -1
+                    }
+                    return getString(R.string.ui_voice_fail_dm, reason).also { lastFailReason = it }
+                }
                 DownloadManager.STATUS_SUCCESSFUL -> {
                     return runCatching {
                         val zip = File(cacheDir, "$MODEL_DIR.zip")
@@ -438,16 +460,17 @@ class VoiceCaptureActivity : ComponentActivity() {
                         zip.delete()
                         extZip.delete()
                         runOnUiThread { startOfflineListening() }
-                        true
+                        null
                     }.getOrElse {
                         Log.w(TAG, "DownloadManager 产物处理失败：${it.message}")
                         runCatching { extZip.delete() }
-                        false
+                        getString(R.string.ui_voice_fail_unzip, it.message ?: it.javaClass.simpleName)
+                            .also { lastFailReason = it }
                     }
                 }
             }
         }
-        return false
+        return getString(R.string.ui_voice_fail_interrupt).also { lastFailReason = it }
     }
 
     /**
@@ -479,7 +502,11 @@ class VoiceCaptureActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.w(TAG, "语音包导入失败：${e.message}")
                 runCatching { File(cacheDir, "$MODEL_DIR.zip").delete() }
-                runOnUiThread { offlineState = Offline.Failed }
+                runOnUiThread {
+                    offlineState = Offline.Failed(
+                        getString(R.string.ui_voice_fail_import, e.message ?: e.javaClass.simpleName),
+                    )
+                }
             }
         }.start()
     }
@@ -612,8 +639,13 @@ class VoiceCaptureActivity : ComponentActivity() {
                         Offline.Importing -> {
                             BodyText(getString(R.string.ui_voice_offline_importing), 15.sp)
                         }
-                        Offline.Failed -> {
+                        is Offline.Failed -> {
                             BodyText(getString(R.string.ui_voice_offline_retry), 15.sp)
+                            // 成宇 2026-11-12 22:4x「下载完了说下载失败，是否链路有问题」：
+                            // 失败原因当场可见 —— 下载链路 / 解压校验 / 引擎加载哪一环断了一目了然
+                            if (s.reason.isNotBlank()) {
+                                BodyText(getString(R.string.ui_voice_fail_reason, s.reason), 13.sp)
+                            }
                             ApComponents.ActionButton(
                                 text = getString(R.string.ui_voice_offline_retry),
                                 onClick = { downloadAndPrepare() },
