@@ -2241,6 +2241,11 @@ class FloatingBallService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                // 2026-11-13 用户截图（悬浮手柄时钟/电池叠在 L2/R2 上）：overlay 窗口默认
+                // 被排在「状态栏以下」的可用区里，面板顶部会让出一条，系统状态栏图标
+                // 画在面板顶上。加 IN_SCREEN 让窗口按整屏铺到状态栏带 —— 与面板内容
+                // 已铺满不留顶部让位的口径（issue#168「所有覆盖到状态栏」）对齐。
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 (if (keepScreenOn) WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON else 0),
             PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.BOTTOM }

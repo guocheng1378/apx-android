@@ -88,15 +88,10 @@ class GamepadActivity : ComponentActivity() {
         // —— 同一份 apx 偏好，主壳横屏隐藏状态栏、这里却一直显示。补上同 Shell 的隐藏
         // 逻辑（默认开）：按 TRANSIENT_BY_SWIPE 短暂呼出半透明层，退出时随窗口销毁
         // 自然恢复，无需手动 show。悬浮手柄宿主是 Service overlay，层高状态栏，不受影响。
-        val prefs = getSharedPreferences("apx", MODE_PRIVATE)
-        val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
-        if (prefs.getBoolean("landscape_hide_status", true)) {
-            ctrl.systemBarsBehavior =
-                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            ctrl.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-        } else {
-            ctrl.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
-        }
+        // v223.29.87 追补：隐藏只在 onCreate 压一次不够 —— 厂商系统在通知/系统面板
+        // 交互后会自行把状态栏抬回来，此后没人再压（2026-11-13 用户截图时钟叠在 L2 上）。
+        // 抽成 applyLandscapeBarPref，onResume 再压一次，回前台即恢复隐藏。
+        applyLandscapeBarPref()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(
             ComposeView(this).apply {
@@ -107,6 +102,25 @@ class GamepadActivity : ComponentActivity() {
                 }
             },
         )
+    }
+
+    /** 回前台重压一次横屏状态栏（设置开关读实时偏好，隐藏/显示都跟着开关走） */
+    override fun onResume() {
+        super.onResume()
+        applyLandscapeBarPref()
+    }
+
+    /** v223.29.86 从 onCreate 内联抽出的横屏状态栏口径，onResume 复用（见上注释） */
+    private fun applyLandscapeBarPref() {
+        val prefs = getSharedPreferences("apx", MODE_PRIVATE)
+        val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        if (prefs.getBoolean("landscape_hide_status", true)) {
+            ctrl.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ctrl.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        } else {
+            ctrl.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        }
     }
 }
 
@@ -247,7 +261,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 12.dp, start = 170.dp, end = 170.dp),
+                // 2026-11-13 用户截图「Create/Options 与说明文字互相压字」：两组芯片挂在
+                // H*0.05（药丸高 30dp），提示从 12dp 起排多行折行正好叠进芯片带。整体
+                // 下移到芯片带以下：芯片底 = H*0.05 + 30dp，这里留 4dp 间隙起排；
+                // 左右 170dp 让位不变（避开两肩 L1/R1）。
+                .padding(top = H * 0.05f + 34.dp, start = 170.dp, end = 170.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(

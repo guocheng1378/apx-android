@@ -604,7 +604,12 @@ object ApComponents {
                 ),
             ) {
                 HorizontalDivider()
-                content()
+                // 2026-11-13 用户截图「未加入菜单的功能」一整组标题互相压字成乱码：
+                // AnimatedVisibility 的内容槽是单槽（Box 语义），content 里平铺多行会把
+                // 所有行叠在同一格渲染 —— 上一个版本把 `if (open)` 硬切换成展开动效时引入，
+                // 同样中招的还有键位映射组（11 行）、字号组（4 行）与状态页音频组（2 行）。
+                // 包一层 Column 恢复纵向排列；单行组与外层自带 Column 的组不受影响。
+                Column { content() }
             }
         }
     }
