@@ -18,4 +18,11 @@
 # 传递依赖里带了 com.sun.jna，其 Native.getWindowHandle0 引用 java.awt.Component；
 # 安卓上两者都不会被调用到，但 R8 缺类校验直接 FAIL。登记 dontwarn 让 R8 安心裁掉。
 -dontwarn java.awt.**
+
+# ---- JNA 结构体映射（v86 修复：语音引擎加载崩溃）----
+# 现象：真机加载 Vosk Model() 时报 Can't obtain peer field ID for class com.sun.jna.Pointer。
+# 原因：JNA 的 Structure 靠反射按字段名对齐 native 内存布局，R8 裁剪/改名后 JNI 反查 peer 字段落空；
+#       因此 -dontwarn 不够，必须整体保留 JNA 本体。
+# 措辞依据：用户截图原话「识别引擎初始化失败：Can't obtain peer field ID for class com.sun.jna.Pointer」。
+-keep class com.sun.jna.** { *; }
 -dontwarn com.sun.jna.**

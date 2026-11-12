@@ -657,17 +657,25 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // summary 在「自动」时写成「自动（当前：手机）」—— 让用户看见自动判断的结论，
                     // 否则只写「自动」他不知道自己现在到底按哪个形态在排。
                     var formIdx by remember { mutableStateOf(DeviceFormPref.formIndex(ctx)) }
-                    // 宽度取窗口实测像素（容器宽），0 时退回 Configuration —— 便携屏 / 分屏下
-                    // Configuration.screenWidthDp 说的是「屏幕」不是「窗口」，会偏大。
-                    val formWinPx = LocalWindowInfo.current.containerSize.width
-                    val formWidthDp = if (formWinPx > 0) {
-                        with(LocalDensity.current) { formWinPx.toDp().value }
+                    // 宽高取窗口实测像素（容器尺寸），0 时退回 Configuration —— 便携屏 /
+                    // 分屏下 Configuration.screenWidthDp 说的是「屏幕」不是「窗口」，会偏大。
+                    // v223.29.86：自动档形态改按窗口短边判定（手机横屏宽可过 840dp 被误判平板），
+                    // 这里把高度一并传给 describe → resolve。
+                    val formWinPxW = LocalWindowInfo.current.containerSize.width
+                    val formWinPxH = LocalWindowInfo.current.containerSize.height
+                    val formWidthDp = if (formWinPxW > 0) {
+                        with(LocalDensity.current) { formWinPxW.toDp().value }
                     } else {
                         ctx.resources.configuration.screenWidthDp.toFloat()
                     }
+                    val formHeightDp = if (formWinPxH > 0) {
+                        with(LocalDensity.current) { formWinPxH.toDp().value }
+                    } else {
+                        ctx.resources.configuration.screenHeightDp.toFloat()
+                    }
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_form_title),
-                        summary = DeviceFormPref.describe(ctx, formWidthDp),
+                        summary = DeviceFormPref.describe(ctx, formWidthDp, formHeightDp),
                         items = DeviceFormPref.labels(ctx),
                         selectedIndex = formIdx,
                         onSelectedIndexChange = { i ->

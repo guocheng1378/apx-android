@@ -108,7 +108,7 @@ fun rememberApAdaptiveLayout(
             height = oh,
             landscape = oLandscape,
             twoPane = ow.value >= 600,
-            form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, ow.value),
+            form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, ow.value, oh.value),
             padCutout = oLandscape,
         )
     }
@@ -120,9 +120,10 @@ fun rememberApAdaptiveLayout(
     // 横屏 = 窗口实测宽 > 高：与布局测量同源、永不滞后；「宽 > 高」与
     // [ApAdaptiveLayout.landscape] 的语义自洽。
     val isLandscape = w > h
-    // 形态：优先用户手动选择，否则按实测宽度 + 系统 uiMode 电视判据（v223.29.9）。
-    // 传的是**实测宽度**而不是 cfg —— 理由同上面横屏判定。
-    val form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, w.value)
+    // 形态：优先用户手动选择，否则按实测窗口**短边** + 系统 uiMode 电视判据
+    // （v223.29.9 引入；v223.29.86 改短边口径，理由见 DeviceFormPref.resolve 注释 ——
+    // 手机横屏宽可过 840dp，按当前宽判会把手机误判成平板）。
+    val form = com.allperiph.ui.DeviceFormPref.resolve(LocalContext.current, w.value, h.value)
     return ApAdaptiveLayout(
         widthClass = cls,
         width = w,

@@ -86,15 +86,22 @@ object DeviceFormPref {
      * 判定顺序：
      *   1. 用户手动指定了形态 → 直接用（**不看** uiMode，用户说了算）；
      *   2. 系统报告 `UI_MODE_TYPE_TELEVISION` → [Form.Tv]；
-     *   3. 否则按窗口宽度分级（与 [com.allperiph.ui.miuix.ApAdaptiveLayout.widthClass]
-     *      同一条断点）：≥840dp 判平板，其余判手机。
+     *   3. 否则按窗口尺寸分级（与 [com.allperiph.ui.miuix.ApAdaptiveLayout.widthClass]
+     *      同一族断点）：自动档按**短边**判定，≥600dp 判平板，其余判手机。
      *
-     * ⚠️ 第 3 步的宽度由调用方传入 `widthDp`（实测窗口宽度），**不要**在这里自己读
+     * ⚠️ 第 3 步的尺寸由调用方传入（实测窗口宽高），**不要**在这里自己读
      * `resources.configuration.screenWidthDp` —— 本壳 Activity 声明了
      * `configChanges=orientation|screenSize`，旋转不回写时那个值会滞后一拍
      * （v223.29.8 / v223.29.9 修的就是这个坑）。
+     *
+     * v223.29.86 修复（用户原话「设备选自动怎么识别成平板了」）：自动档此前只看
+     * **当前窗口宽度**—— 手机横屏时窗口宽可达 ~900dp，一过 840dp 就被误判成平板。
+     * 形态是**设备语义**而不是瞬时窗口状态：自动档改按窗口**短边**（≈竖屏宽度）判定，
+     * 手机任何朝向短边都远小于 600dp，不会再横屏翻车；平板竖屏宽度 ≥600dp 也能
+     * 稳定认出（此前 840dp 阈值对 600–840dp 的小平板横竖屏判定还会自相矛盾）。
+     * [heightDp] 传空时退回只看宽度的旧口径（兼容老调用点）。
      */
-    fun resolve(ctx: Context, widthDp: Float): Form {
+    fun resolve(ctx: Context, widthDp: Float, heightDp: Float? = null): Form {
         when (formIndex(ctx)) {
             PHONE -> return Form.Phone
             TABLET -> return Form.Tablet
@@ -102,14 +109,18 @@ object DeviceFormPref {
         }
         val mode = ctx.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
         if (mode == Configuration.UI_MODE_TYPE_TELEVISION) return Form.Tv
-        return if (widthDp >= 840f) Form.Tablet else Form.Phone
+        val shortSide = heightDp?.let { minOf(widthDp, it) } ?: widthDp
+        return if (shortSide >= 600f) Form.Tablet else Form.Phone
     }
 
     /** 设置页显示用的当前值描述（「自动（当前：手机）」这种写法） */
-    fun describe(ctx: Context, widthDp: Float): String {
+    fun describe(ctx: Context, widthDp: Float, heightDp: Float? = null): String {
         val i = formIndex(ctx)
         return if (i == AUTO) {
-            ctx.getString(R.string.ui_form_auto_now, labels(ctx)[formToLabelIndex(resolve(ctx, widthDp))])
+            ctx.getString(
+                R.string.ui_form_auto_now,
+                labels(ctx)[formToLabelIndex(resolve(ctx, widthDp, heightDp))],
+            )
         } else {
             labels(ctx)[i]
         }

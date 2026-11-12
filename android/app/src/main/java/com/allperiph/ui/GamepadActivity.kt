@@ -83,6 +83,20 @@ class GamepadActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyEdgeToEdge()
+        // v223.29.86 修复（用户原话「手柄页没有屏蔽状态栏」）：手柄页是强制横屏的独立
+        // Activity 宿主，此前只 applyEdgeToEdge、从未读设置里的 landscape_hide_status
+        // —— 同一份 apx 偏好，主壳横屏隐藏状态栏、这里却一直显示。补上同 Shell 的隐藏
+        // 逻辑（默认开）：按 TRANSIENT_BY_SWIPE 短暂呼出半透明层，退出时随窗口销毁
+        // 自然恢复，无需手动 show。悬浮手柄宿主是 Service overlay，层高状态栏，不受影响。
+        val prefs = getSharedPreferences("apx", MODE_PRIVATE)
+        val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        if (prefs.getBoolean("landscape_hide_status", true)) {
+            ctrl.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ctrl.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        } else {
+            ctrl.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+        }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(
             ComposeView(this).apply {

@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -417,6 +418,7 @@ private fun RemotePanel(host: RemoteActivity) {
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp, end = 2.dp),
                     )
+                    MouseKeyRow(host = host)
                     TouchStrip(
                         host = host,
                         modifier = Modifier.fillMaxWidth()
@@ -445,6 +447,7 @@ private fun RemotePanel(host: RemoteActivity) {
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 6.dp, start = 2.dp),
             )
+            MouseKeyRow(host = host)
             TouchStrip(
                 host = host,
                 modifier = Modifier.fillMaxWidth()
@@ -751,5 +754,55 @@ private fun TouchStrip(host: RemoteActivity, modifier: Modifier = Modifier) {
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             textAlign = TextAlign.Center,
         )
+    }
+}
+
+/**
+ * 鼠标左右键行（v223.29.86 修复，用户原话「有蓝标，有root，就是没鼠标键」）：
+ * 触摸条只有「移动 + 确认」，被控端要右键（返回 / 长按菜单）或独立左键时没有入口。
+ * 左键 = 比特 1 按下 → 40ms 后抬起（与触摸条单点确认同口径）；右键 = 比特 2。
+ * 没有可用出口时按下只提示，不发帧（与触摸条 / 按键行同口径）。
+ */
+@Composable
+private fun MouseKeyRow(host: RemoteActivity, modifier: Modifier = Modifier) {
+    val view = LocalView.current
+    val ctx = LocalContext.current
+    Row(
+        modifier.fillMaxWidth().padding(top = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        fun click(bit: Int) {
+            if (!HidMouse.available()) {
+                Toast.makeText(ctx, ctx.getString(R.string.ui_remote_toast_no_exit), Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (HidMouse.move(bit, 0, 0)) {
+                host.postConfirmRelease()
+                Feedback.tap(view)
+            }
+        }
+        // 两键等宽（各 weight 1f）、高 44dp 够点按；卡片观感与触摸条同一套。
+        listOf(
+            R.string.ui_remote_mouse_left to 1,
+            R.string.ui_remote_mouse_right to 2,
+        ).forEach { (labelRes, bit) ->
+            val shape = RoundedCornerShape(12.dp)
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .clip(shape)
+                    .background(colorResource(R.color.md_surface), shape)
+                    .border(1.dp, colorResource(R.color.card_stroke), shape)
+                    .clickable { click(bit) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = ctx.getString(labelRes),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }

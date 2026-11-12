@@ -247,9 +247,25 @@ class ApShellActivity : ComponentActivity() {
         // landscape_hide_status，默认开）。只藏状态栏、不碰导航栏 —— 横屏时误触
         // 屏顶不再拉开通知栏；从屏顶下滑按 TRANSIENT_BY_SWIPE 短暂呼出半透明层，
         // insets 随隐藏归零，布局自动让位（顶部不再重复垫状态栏高度）。
-        val hideStatusBar = remember {
-            getSharedPreferences("apx", MODE_PRIVATE)
-                .getBoolean("landscape_hide_status", true)
+        // v223.29.86 修复（用户原话「设置里的控制横屏状态栏没用了吗」）：开关改了不生效。
+        // 原因：此前 remember 一次性读偏好，设置页切换只写偏好不触发 Shell 重读；
+        // 现改为 Compose 状态 + OnSharedPreferenceChangeListener 实时跟随，
+        // DisposableEffect(landscape, hideStatusBar) 里的系统栏控制随状态重跑。
+        val apxPrefs = getSharedPreferences("apx", MODE_PRIVATE)
+        var hideStatusBar by remember {
+            androidx.compose.runtime.mutableStateOf(
+                apxPrefs.getBoolean("landscape_hide_status", true),
+            )
+        }
+        androidx.compose.runtime.DisposableEffect(apxPrefs) {
+            val l =
+                android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                    if (key == "landscape_hide_status") {
+                        hideStatusBar = apxPrefs.getBoolean(key, true)
+                    }
+                }
+            apxPrefs.registerOnSharedPreferenceChangeListener(l)
+            onDispose { apxPrefs.unregisterOnSharedPreferenceChangeListener(l) }
         }
         androidx.compose.runtime.DisposableEffect(landscape, hideStatusBar) {
             val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
