@@ -1649,7 +1649,11 @@ private fun FullscreenOverlay(host: TouchpadActivity) {
             Text(
                 text = ctx.getString(R.string.ui_touchpad_fullscreen_exit),
                 fontSize = 11.sp,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                // 成宇 2026-11-13 05:0x「全屏触控板右下角退出按钮文字没有反色，看不清」：
+                // 原取 onSurfaceSecondary（次级灰），叠在全屏深色手势面上再降到 25% 不
+                // 透明度，字基本没影。对齐键帽 fg 走 onSurface（亮=黑字/暗=白字），
+                // 不透明度节奏不变，只让字在两种日夜下都有足够对比。
+                color = MiuixTheme.colorScheme.onSurface,
             )
         }
         // 一次性说明：进全屏弹一次，2.6s 后自己淡出（中途退出全屏则随覆盖层一起消失）

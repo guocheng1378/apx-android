@@ -1052,6 +1052,10 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
             modifier = tileLabelMod,
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
+            // 成宇 2026-11-13 05:0x「深色模式下遥控布局按钮字体是黑色，看不清」：图块文字
+            // 此前没显式给色，落到默认渲染成黑字 —— 深色 surface 上直接没影。对齐键帽
+            // fg 的取法走 onSurface（亮=黑字/暗=白字，跟系统日夜自动切换）。
+            color = MiuixTheme.colorScheme.onSurface,
             // 图块宽度按文字自适应（issue#168 2026-11-12 #5「长度按文字宽度自适应」）：
             // 不再由外层 weight 拉宽 —— 文字单行排，标签长就宽、短就窄。
             maxLines = 1,
