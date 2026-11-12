@@ -287,13 +287,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— 肩键 L1 / R1（第二排） ——
         val l1Drag = padDrag("L1")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 110.dp + l1Drag.first, y = H * 0.125f + l1Drag.second)) {
-            Pad(label = "L1", width = 64.dp, slot = "L1", editing = padEditing,
+            Pad(label = "L1", bit = GamepadController.BTN_L1, width = 64.dp, slot = "L1", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "L1" },
                 onMoveBy = { dx, dy -> padMoveBy("L1", dx, dy) }, onMoveEnd = { padMoveEnd("L1") })
         }
         val r1Drag = padDrag("R1")
         Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-110).dp + r1Drag.first, y = H * 0.125f + r1Drag.second)) {
-            Pad(label = "R1", width = 64.dp, slot = "R1", editing = padEditing,
+            Pad(label = "R1", bit = GamepadController.BTN_R1, width = 64.dp, slot = "R1", editing = padEditing,
                 configVersion = padConfigVersion, onConfigure = { padConfiguring = "R1" },
                 onMoveBy = { dx, dy -> padMoveBy("R1", dx, dy) }, onMoveEnd = { padMoveEnd("R1") })
         }
