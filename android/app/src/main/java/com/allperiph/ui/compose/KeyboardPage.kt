@@ -605,10 +605,18 @@ internal fun ApFullKeyboard(
     voiceText?.let { t ->
         ApComponents.DialogCard(onDismiss = { voiceText = null }) {
             Text(text = ctx.getString(R.string.ui_kb_voice_result_title), fontSize = 16.sp)
-            Text(
-                text = t,
-                fontSize = 18.sp,
-                modifier = Modifier.padding(vertical = 8.dp),
+            // 成宇 2026-11-13 04:0x「不能修改，没有识别窗」：识别结果原来是死的 Text，
+            // 离线小模型听错字很常见，用户只能取消重来。改用可编辑输入框，默认填上
+            // 识别结果，发送前可就地增删；remember(t) 按结果重建 —— 取消后再识别出
+            // 新结果，输入框内容跟着换，不残留上一轮的字。
+            val editState = remember(t) {
+                androidx.compose.foundation.text.input.TextFieldState(t)
+            }
+            top.yukonga.miuix.kmp.basic.TextField(
+                state = editState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ApComponents.NarrowButton(
@@ -618,9 +626,11 @@ internal fun ApFullKeyboard(
                 ApComponents.NarrowButton(
                     text = ctx.getString(R.string.ui_kb_voice_send),
                     onClick = {
+                        // 发送取编辑后的文本（用户改过什么发什么），不再是识别原样
+                        val text = editState.text.toString()
                         val client = com.allperiph.wireless.ControlTarget.controlClient
                         val ok = client != null && client.ready &&
-                            runCatching { client.sendClipboard(t) }.getOrDefault(false)
+                            runCatching { client.sendClipboard(text) }.getOrDefault(false)
                         android.widget.Toast.makeText(
                             ctx,
                             if (ok) R.string.ui_kb_voice_sent else R.string.ui_ball_fn_clipboard_nolink,

@@ -153,6 +153,12 @@ class VoiceCaptureActivity : ComponentActivity() {
             launchSpeech()
         } else {
             setContent { OfflinePanel() }
+            // 成宇 2026-11-13 04:0x「再次点又回到了第一张图」：offlineState 初值是
+            // NeedDownload，此前重进本页只画面板、没推状态机 —— 语音包明明已就绪，
+            // 第二次进来仍停在下载引导卡，要再走一遍下载/导入才能用。补统一入口
+            // startOfflineListening()：模型好了直接进识别，没好时该入口本身会置回
+            // NeedDownload（行为与旧面板一致），有权限问题也按既有分支给出引导。
+            startOfflineListening()
         }
     }
 
