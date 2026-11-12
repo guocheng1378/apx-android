@@ -554,6 +554,7 @@
     <string name="ui_set_hide_status_title">横屏隐藏状态栏</string>
     <string name="ui_touchpad_hint_service_off">服务未启动 · 先到「状态」页打开开关</string>
     <string name="ui_touchpad_hint_no_uplink">没有出口 · 先选受控设备，或接 USB / 蓝牙</string>
+    <string name="ui_touchpad_text_cursor_swipe">滑动这块区域，控制电脑光标</string>
     <string name="ui_set_hide_status_sum">横屏时屏蔽状态栏，从屏顶下滑可短暂呼出</string>
     <string name="ui_pick_device_recent">最近连接（点一下就连）</string>
     <string name="ui_pick_device_controlled">外设模式（本机被控）</string>

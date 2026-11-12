@@ -235,6 +235,20 @@ fun ApTouchpadSurface(
                             .padding(horizontal = 24.dp),
                     )
                 }
+            } else if (hintVisible) {
+                // 2026-11-12 用户圈图反馈「键盘页这块是空白区域」：手势面空闲时整面
+                // 无字，看着就像坏了的空卡。可用态补一条浅灰说明（这整块就是触控板，
+                // 连上设备即可滑动控光标），一碰即隐（ACTION_DOWN 置 hintVisible=false，
+                // 既有机制）——阻断态红字原因照旧走上面的分支，两者互不叠加。
+                Text(
+                    text = ctx.getString(R.string.ui_touchpad_text_cursor_swipe),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp),
+                )
             }
         }
         Canvas(modifier = Modifier.fillMaxSize()) {
