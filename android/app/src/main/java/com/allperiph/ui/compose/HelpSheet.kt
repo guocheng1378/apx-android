@@ -1,5 +1,14 @@
 package com.allperiph.ui.compose
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
 import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.ApMotion
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -92,7 +102,53 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                         .verticalScroll(rememberScrollState())
                         .padding(top = 8.dp),
                 ) {
-                    HelpBlock(sections[sec].first, sections[sec].second)
+                    // 正文段切换动效（成宇 2026-11-12 20:14「优化动效heui界面，让界面看起来更有质感」）：
+                    // 此前点页签后正文硬切，观感生硬。改 AnimatedContent：新段淡入并轻微上滑
+                    // （进入曲线 150ms），旧段淡出（退出曲线 150ms）—— 滑距取自身高度的 1/8，
+                    // 轻微即可。容器在 verticalScroll 里高度无界，正文各段长短不一，
+                    // 尺寸变化用 snap 瞬落（默认 SizeTransform 走弹簧，与「禁弹簧禁过冲」
+                    // 口径冲突，故显式给 snap 规格）—— 只过渡淡入淡出与位移，高度不逐帧动画。
+                    // 动效关闭时 durationMs 返回 0，切换直接落位。
+                    AnimatedContent(
+                        targetState = sec,
+                        transitionSpec = {
+                            if (ApMotion.enabled(ctx)) {
+                                (
+                                    fadeIn(
+                                        tween(
+                                            durationMillis = ApMotion.durationMs(ctx, 150),
+                                            easing = ApMotion.EnterEasing,
+                                        ),
+                                    ) + slideInVertically(
+                                        tween(
+                                            durationMillis = ApMotion.durationMs(ctx, 150),
+                                            easing = ApMotion.EnterEasing,
+                                        ),
+                                    ) { it / 8 }
+                                    ) togetherWith (
+                                    fadeOut(
+                                        tween(
+                                            durationMillis = ApMotion.durationMs(ctx, 150),
+                                            easing = ApMotion.ExitEasing,
+                                        ),
+                                    ) + slideOutVertically(
+                                        tween(
+                                            durationMillis = ApMotion.durationMs(ctx, 150),
+                                            easing = ApMotion.ExitEasing,
+                                        ),
+                                    ) { -it / 8 }
+                                    )
+                            } else {
+                                fadeIn(tween(0)) togetherWith fadeOut(tween(0))
+                            }
+                        },
+                        sizeTransform = { _, _ ->
+                            SizeTransform(clip = true) { _, _ -> snap() }
+                        },
+                        label = "helpBody",
+                    ) { s ->
+                        HelpBlock(sections[s].first, sections[s].second)
+                    }
                 }
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.ui_help_close),

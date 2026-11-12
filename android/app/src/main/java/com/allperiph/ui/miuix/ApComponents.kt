@@ -519,10 +519,36 @@ object ApComponents {
         content: @Composable () -> Unit,
     ) {
         Column {
+            // 折叠头按压反馈（成宇 2026-11-12 20:14「让界面看起来更有质感」）：此前裸
+            // clickable，按下去既不缩也不震。补按压缩放（ApMotion.pressScale 同口径）+
+            // 点击轻震（震动档位关时一声不震），与状态页开关、动作按钮对齐。
+            val fgHost = androidx.compose.ui.platform.LocalView.current
+            val fgInteraction = remember { MutableInteractionSource() }
+            val fgPressed by fgInteraction.collectIsPressedAsState()
+            val fgScale by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = if (fgPressed) ApMotion.pressScale(fgHost.context) else 1f,
+                animationSpec = if (ApMotion.enabled(fgHost.context)) {
+                    androidx.compose.animation.core.tween(
+                        durationMillis = 110,
+                        easing = ApMotion.EnterEasing,
+                    )
+                } else {
+                    androidx.compose.animation.core.tween(0)
+                },
+                label = "foldGroupPress",
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onToggleOpen)
+                    .graphicsLayer { scaleX = fgScale; scaleY = fgScale }
+                    .clickable(
+                        interactionSource = fgInteraction,
+                        indication = null,
+                        onClick = {
+                            com.allperiph.ui.Feedback.tap(fgHost)
+                            onToggleOpen()
+                        },
+                    )
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -544,7 +570,39 @@ object ApComponents {
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
-            if (open) {
+            // 展开/收起动效（成宇 2026-11-12 20:14「优化动效heui界面，让界面看起来更有质感」）：
+            // 此前 `if (open)` 硬切 —— 内容瞬间撑开/瞬间消失，行高跳变。改 AnimatedVisibility：
+            // 展开从顶向下撑开 + 淡入（进入曲线 150ms），收起向上收拢 + 淡出（退出曲线 150ms）；
+            // 设置页动效关闭时 durationMs 返回 0，直接落位。状态页音频方向与设置页分组共用本实现。
+            androidx.compose.animation.AnimatedVisibility(
+                visible = open,
+                enter = androidx.compose.animation.expandVertically(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = ApMotion.durationMs(
+                            fgHost.context, 150,
+                        ),
+                        easing = ApMotion.EnterEasing,
+                    ),
+                    expandFrom = Alignment.Top,
+                ) + androidx.compose.animation.fadeIn(
+                    androidx.compose.animation.core.tween(
+                        durationMillis = ApMotion.durationMs(fgHost.context, 150),
+                        easing = ApMotion.EnterEasing,
+                    ),
+                ),
+                exit = androidx.compose.animation.collapseVertically(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = ApMotion.durationMs(fgHost.context, 150),
+                        easing = ApMotion.ExitEasing,
+                    ),
+                    collapseFrom = Alignment.Top,
+                ) + androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core.tween(
+                        durationMillis = ApMotion.durationMs(fgHost.context, 150),
+                        easing = ApMotion.ExitEasing,
+                    ),
+                ),
+            ) {
                 HorizontalDivider()
                 content()
             }
