@@ -32,6 +32,11 @@ android {
         manifestPlaceholders["foregroundServiceType"] = "connectedDevice"
     }
 
+    // 2026-11-12 体积优化轮：与手机端同批裁语言资源（TV 端中文文案，库资源只留中英）。
+    androidResources {
+        localeFilters += listOf("zh", "en")
+    }
+
     // 复用主工程自签 keystore
     signingConfigs {
         create("release") {
@@ -43,7 +48,14 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 2026-11-12 体积优化轮：与手机端同批开 R8 + 资源收缩（TV 无 JNI，规则更简，
+            // 见 tv/proguard-rules.pro）。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.getByName("release")
         }
         debug {

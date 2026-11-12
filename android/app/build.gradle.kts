@@ -35,6 +35,12 @@ android {
         buildConfigField("String", "RELEASE_TAG", "\"${releaseTag}\"")
     }
 
+    // 2026-11-12 体积优化轮：资源只留中英文。app 默认串即中文，依赖库（miuix 等）
+    // 带着几十种语言的全集，不裁就整包进 APK。AGP 9 起用 localeFilters（resourceConfigurations 已废弃）。
+    androidResources {
+        localeFilters += listOf("zh", "en")
+    }
+
     // v1.7：Release 签名（自签 30 年证书，keystore 在版本库外仅本机；密码内联仅开发期）
     signingConfigs {
         create("release") {
@@ -46,7 +52,15 @@ android {
     }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 2026-11-12 体积优化轮：开 R8 裁剪 + 资源收缩（此前 release 全量打包，
+            // 未用到的库代码/资源全进包）。keep 规则见 proguard-rules.pro：JNI 静态
+            // 绑定的两个类 + 崩溃栈行号；Manifest 组件由 AGP 自动登记。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
