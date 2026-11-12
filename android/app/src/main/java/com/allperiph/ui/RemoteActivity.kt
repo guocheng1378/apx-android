@@ -335,10 +335,25 @@ private fun RemotePanel(host: RemoteActivity) {
             }
         }
     }
+    // issue#169 第 16 条：遥控器按键按被控机系统适配（沿用 PeerOs.adapt 的「发送侧换键」思路）。
+    // 方向 / OK / 返回 / 主页各系统通用，不换；「菜单」「电源」两颗在 macOS 上换语义：
+    //  · 菜单（HID Application 0x65）：macOS 没有这颗键（App 键在 Mac 上无响应），
+    //    右键就是 macOS 的语境菜单 —— 发一帧右键（buttons bit1）+ 40ms 抬起，
+    //    节奏与触摸条单点确认（postConfirmRelease）一致；
+    //  · 电源（Keyboard Power 0x66）：macOS 对该 usage 无响应，改发 ⌃⌘Q（锁屏组合，
+    //    与 PeerOs「锁屏」特判同一对键），遥控器电源键在 Mac 上有个真实去处。
+    val macPeer = com.allperiph.hid.PeerOs.current(ctx) == com.allperiph.hid.PeerOs.MACOS
     // 按键行清单（顺序即屏幕顺序；语义色随行定义，见 [RemoteKey]）
     val rows = listOf(
         listOf(
-            RemoteKey(ctx.getString(R.string.ui_touchpad_label_power), RemoteKeyTint.Power) { HidKeys.tap(RemoteActivity.U_POWER) },
+            RemoteKey(ctx.getString(R.string.ui_touchpad_label_power), RemoteKeyTint.Power) {
+                if (macPeer) {
+                    // macOS：Power usage 无响应 → 锁屏 ⌃⌘Q（Q = 0x14）
+                    HidKeys.combo(HidKeys.Combo("锁屏", HidKeys.MOD_CTRL or HidKeys.MOD_WIN, 0x14))
+                } else {
+                    HidKeys.tap(RemoteActivity.U_POWER)
+                }
+            },
             RemoteKey(ctx.getString(R.string.ui_touchpad_label_poweroff), RemoteKeyTint.Danger) {
                 host.confirmPower(0, ctx.getString(R.string.ui_touchpad_label_poweroff))
             },
@@ -349,7 +364,15 @@ private fun RemotePanel(host: RemoteActivity) {
         listOf(
             RemoteKey(ctx.getString(R.string.ui_common_back)) { HidKeys.tap(RemoteActivity.U_ESC) },
             RemoteKey(ctx.getString(R.string.ui_remote_item_home)) { HidKeys.tap(RemoteActivity.U_HOME) },
-            RemoteKey(ctx.getString(R.string.ui_remote_item_menu)) { HidKeys.tap(RemoteActivity.U_MENU) },
+            RemoteKey(ctx.getString(R.string.ui_remote_item_menu)) {
+                if (macPeer) {
+                    // macOS：App 键无响应 → 右键 = 语境菜单（bit1 = 右键，40ms 后抬起）
+                    HidMouse.move(2, 0, 0)
+                    host.postConfirmRelease()
+                } else {
+                    HidKeys.tap(RemoteActivity.U_MENU)
+                }
+            },
             RemoteKey(ctx.getString(R.string.ui_remote_item_voice)) { host.startVoiceInput() },
         ),
         listOf(

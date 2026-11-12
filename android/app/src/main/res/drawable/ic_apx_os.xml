@@ -1,0 +1,10 @@
+<!-- 被控机系统（悬浮球菜单「被控机系统」项，issue#169 第 5 条）：电脑/显示器形，单色遮罩 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4,4.5 h16 c0.55,0 1,0.45 1,1 V15 c0,0.55 -0.45,1 -1,1 h-6 v1.6 l2.3,1.53 c0.46,0.31 0.22,1.02 -0.33,1.02 H8.03 c-0.55,0 -0.79,-0.71 -0.33,-1.02 L10,17.6 V16 H4 c-0.55,0 -1,-0.45 -1,-1 V5.5 c0,-0.55 0.45,-1 1,-1 Z M4.7,5.9 V14.3 h14.6 V5.9 Z M11.2,16.7 V17.9 h1.6 V16.7 Z" />
+</vector>

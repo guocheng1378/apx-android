@@ -30,10 +30,13 @@ object GamepadController {
     const val BTN_SELECT = 8
     const val BTN_START = 9
     // 2026-11-12 手柄页重画（用户「手柄ui 重画大小，ps5布局」）：补十字键。
-    // 报告仍是一个 uint16 键位图 + 4 轴（packGamepad 格式不动），位 10/11 留空，
+    // 报告仍是一个 uint16 键位图 + 4 轴（packGamepad 格式不动），位 10/11 原留空，
+    // issue#169 #17 起用作 L3/R3（摇杆按下）——「点击摇杆中心=LS/RS 键」；
     // 十字键四向占位 12..15 —— 描述符里是普通按钮 13..16，没有 HAT/POV；
     // 走 DirectInput/XInput 按钮路径的游戏都认，只读 HAT 的游戏收不到（协议侧
     // 加 HAT 要动 f_hid 描述符与报告长度，风险大，此处不做）。
+    const val BTN_L3 = 10
+    const val BTN_R3 = 11
     const val BTN_DUP = 12
     const val BTN_DDOWN = 13
     const val BTN_DLEFT = 14

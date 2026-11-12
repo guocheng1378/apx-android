@@ -1,0 +1,10 @@
+<!-- 回到 App（悬浮球菜单「回到 App」项，issue#169 第 5 条）：房子/主页形，单色遮罩 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,3.2 L2.8,10.6 c-0.42,0.33 -0.49,0.95 -0.16,1.36 0.33,0.42 0.94,0.49 1.36,0.16 L4.4,11.8 V20 c0,0.55 0.45,1 1,1 H9.5 c0.28,0 0.5,-0.22 0.5,-0.5 V15.5 h4 V20.5 c0,0.28 0.22,0.5 0.5,0.5 h4.1 c0.55,0 1,-0.45 1,-1 V11.8 l0.4,0.32 c0.42,0.33 1.03,0.26 1.36,-0.16 0.33,-0.42 0.26,-1.03 -0.16,-1.36 Z M14,14.5 h-4 c-0.55,0 -1,0.45 -1,1 V20 H6.4 V10.9 L12,6.4 17.6,10.9 V20 H15 V15.5 C15,14.95 14.55,14.5 14,14.5 Z" />
+</vector>

@@ -66,6 +66,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.allperiph.R
+import com.allperiph.hid.PeerOs
 import com.allperiph.shared.util.Log
 import com.allperiph.touchpad.TouchpadModule
 import com.allperiph.ui.compose.ApDevicePanel
@@ -1883,6 +1884,18 @@ class FloatingBallService : Service() {
                     )
                 }
             }
+            BallConfig.BACK_APP -> {
+                closeMenu()
+                // 回到 App（issue#169 第 5 条）：与前台通知点击同一条路 —— 主壳在栈里
+                // 就地翻回前一个实例，不在就冷启；不经过退出确认，服务照常跑。
+                runCatching {
+                    startActivity(
+                        Intent(this, ApShellActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            }
+            BallConfig.PEER_OS -> onFanPeerOs()
             BallConfig.QUIT -> {
                 closeMenu()
                 quitApp()
@@ -1968,10 +1981,29 @@ class FloatingBallService : Service() {
     }
 
     /**
-     * 退出：把所有外设服务停掉，最后收悬浮球自己。
+     * 被控机系统项（issue#169 第 5 条）：就地循环 Windows → macOS → Linux → Android，
+     * 与设置页「快捷键模板」的下拉同一写点（[PeerOs.setCurrent]）—— 两处状态不会打架。
+     * 开关类语义：翻转、Toast 报态、**不收菜单**，连按即逐档切换。
+     */
+    private fun onFanPeerOs() {
+        val labels = PeerOs.labels(this)
+        val next = PeerOs.fromIndex((PeerOs.indexOf(PeerOs.current(this)) + 1) % PeerOs.entries.size)
+        PeerOs.setCurrent(this, next)
+        Toast.makeText(
+            this,
+            getString(R.string.ui_ball_menu_peer_os, labels[PeerOs.indexOf(next)]),
+            Toast.LENGTH_SHORT,
+        ).show()
+        renderFanStates()
+    }
+
+    /**
+     * 退出：把所有外设服务停掉，最后收悬浮球自己（issue#169 第 5 条改为**同时退出 App**）。
      *
      * 顺序不能反 —— 悬浮球是前台服务，先关它进程就可能被回收，后面的清理就跑不完。
-     * 与主界面返回键的退出确认同义（那里是 finish + 服务自停，这里是后台直接清）。
+     * 与主界面返回键的退出确认同义（那里是 finish + 服务自停，这里是后台直接清）；
+     * 服务层没有 android:process 隔离、与主壳同进程，收尾完成后结束进程即可把
+     * 主界面一起带走 —— 延迟半秒只为了 Toast 来得及浮现。
      */
     private fun quitApp() {
         runCatching {
@@ -1982,6 +2014,11 @@ class FloatingBallService : Service() {
         stopService(Intent(this, AgentForegroundService::class.java))
         Toast.makeText(this, getString(R.string.ui_ball_menu_quit_done), Toast.LENGTH_SHORT).show()
         shutdown()
+        // issue#169 第 5 条：菜单「退出」的语义从「只停外设服务」升级为「停服务 + 退 App」，
+        // 与主壳「停止外设并退出」按钮对齐 —— 同进程，清理完后直接结束进程。
+        Handler(Looper.getMainLooper()).postDelayed({
+            runCatching { android.os.Process.killProcess(android.os.Process.myPid()) }
+        }, 500L)
     }
 
     // ————————————————————————— 面板调高（拖拽把手 / 偏好） —————————————————————————

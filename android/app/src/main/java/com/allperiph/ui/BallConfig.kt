@@ -48,6 +48,19 @@ object BallConfig {
     const val QUIT = "quit"
 
     /**
+     * 回到 App（issue#169 第 5 条）：从任意应用/桌面上点这一格直接把主界面拉回前台，
+     * 不必先退外设再翻启动器。与照片卡同属「不依赖连接状态」的常驻动作类。
+     */
+    const val BACK_APP = "back_app"
+
+    /**
+     * 被控机系统（issue#169 第 5 条）：球上就地循环切换 Windows/macOS/Linux/Android
+     * （[com.allperiph.hid.PeerOs] 同一写点），快捷键/遥控器的组合键翻译跟着变。
+     * 开关类语义（就地翻转、不开面板），与连接模式项互斥。
+     */
+    const val PEER_OS = "peer_os"
+
+    /**
      * 物理键盘全局转发（无障碍，无需 root）—— 成宇 2026-11-07「悬浮球菜单加上
      * 切换开关，方便不用的时候关闭」。开关类快捷项：点一下就地翻转，不开面板。
      */
@@ -56,7 +69,9 @@ object BallConfig {
     /** 全部可选项（设置页勾选列表按此顺序排，也是菜单顺序） */
     val ALL: List<String> = listOf(
         TOUCHPAD, KEYBOARD, GAMEPAD, DEVICES, FILES, CLIPBOARD, SCREEN, REMOTE, CAMERA,
-        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD, QUIT,
+        MODE_WIFI, MODE_BT, MODE_USB, CONSOLE, KB_FORWARD,
+        // issue#169 第 5 条：回到 App / 被控机系统两项与「退出」归到尾部动作组
+        BACK_APP, PEER_OS, QUIT,
     )
 
     /**
@@ -148,6 +163,8 @@ object BallConfig {
         REMOTE -> R.string.ui_remote_text_remote
         CAMERA -> R.string.ui_ball_fn_camera
         KB_FORWARD -> R.string.ui_ball_fn_kb_forward
+        BACK_APP -> R.string.ui_ball_fn_back_app
+        PEER_OS -> R.string.ui_ball_fn_peer_os
         QUIT -> R.string.ui_ball_fn_quit
         else -> R.string.ui_ball_fn_touchpad
     }
@@ -167,6 +184,8 @@ object BallConfig {
         REMOTE -> R.drawable.ic_apx_remote
         CAMERA -> R.drawable.ic_apx_camera
         KB_FORWARD -> R.drawable.ic_apx_kb_fwd
+        BACK_APP -> R.drawable.ic_apx_home
+        PEER_OS -> R.drawable.ic_apx_os
         QUIT -> R.drawable.ic_apx_power
         else -> R.drawable.ic_apx_touchpad
     }
@@ -213,6 +232,9 @@ object BallConfig {
 
     /** 遥控器项（悬浮栏整合）加入菜单后的补挂标记（同样只补一次） */
     private const val KEY_MIGRATED_V6 = "migrated_v6"
+
+    /** 回到 App / 被控机系统两项（issue#169 第 5 条）加入菜单后的补挂标记（只补一次） */
+    private const val KEY_MIGRATED_V7 = "migrated_v7"
 
     /**
      * 升级补挂（v223.25）：键盘 / 手柄两项加入菜单后，老用户已存过勾选清单的话看不见新项。
@@ -283,6 +305,20 @@ object BallConfig {
                 }
             }
             p.edit().putBoolean(KEY_MIGRATED_V6, true).apply()
+        }
+
+        // 回到 App / 被控机系统（issue#169 第 5 条，V7）：老用户已存过勾选清单的话，
+        // 同样只补一次；删掉就尊重用户，不再回补
+        if (!p.getBoolean(KEY_MIGRATED_V7, false)) {
+            val cur = p.getString(KEY_ITEMS, null)
+            if (cur != null) {
+                val kept = cur.split(",").map { it.trim() }
+                val add = listOf(BACK_APP, PEER_OS).filter { it !in kept }
+                if (add.isNotEmpty()) {
+                    p.edit().putString(KEY_ITEMS, (kept + add).joinToString(",")).apply()
+                }
+            }
+            p.edit().putBoolean(KEY_MIGRATED_V7, true).apply()
         }
     }
 }

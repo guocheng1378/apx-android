@@ -12,6 +12,10 @@ import android.content.Context
  *
  * 2026-11-12 手柄页重画（用户「手柄ui 重画大小，ps5布局」）：槽位扩到 L2/R2 与
  * 十字键四向；摇杆也可拖动移位（槽位 LStick / RStick，只存偏移不改键）。
+ *
+ * issue#169 第 21 条：✕ / ✎ 功能键也进编辑体系（槽位 Exit / Edit）——
+ * 拖动移位 + 尺寸配置都可用，只是**没有键位**（[KEY_CHOICES] 里没有它们对应的
+ * 游戏按钮），配置卡里对这两个槽位隐藏「键位」行（见 [FUNC_SLOTS]）。
  */
 object GamepadPadConfig {
 
@@ -39,8 +43,8 @@ object GamepadPadConfig {
         GamepadController.BTN_DRIGHT to "▶",
     )
 
-    /** 尺寸三档（dp）：小 / 中 / 大 */
-    val SIZE_CHOICES = listOf(44, 58, 76)
+    /** 尺寸档（dp）：功能键 40 起，按键三档小 / 中 / 大（issue#169 第 21 条补 40 给 ✕/✎） */
+    val SIZE_CHOICES = listOf(40, 44, 58, 76)
 
     /** 各槽位的默认键位与尺寸（dp）：没改过配置时与重画后的 PS5 版一致 */
     val SLOT_DEFAULTS = mapOf(
@@ -58,7 +62,16 @@ object GamepadPadConfig {
         "DDown" to (GamepadController.BTN_DDOWN to 58),
         "DLeft" to (GamepadController.BTN_DLEFT to 58),
         "DRight" to (GamepadController.BTN_DRIGHT to 58),
+        // issue#169 第 21 条：✕ / ✎ 功能键也占槽位（偏移 + 尺寸），bit=0 表示不发 HID
+        "Exit" to (0 to 40),
+        "Edit" to (0 to 40),
     )
+
+    /**
+     * 功能键槽位（issue#169 第 21 条）：✕ / ✎ 同样可拖可配，但没有键位 ——
+     * 配置卡对这两个槽位只出「尺寸」行，不出「键位」行（0 号位不在 [KEY_CHOICES]）。
+     */
+    val FUNC_SLOTS = listOf("Exit", "Edit")
 
     /** 摇杆槽位：只支持拖动移位（存偏移），不进键位/尺寸配置卡 */
     val STICK_SLOTS = listOf("LStick", "RStick")
@@ -77,6 +90,11 @@ object GamepadPadConfig {
             .putInt(KEY_BIT + slot, newBit)
             .putInt(KEY_SIZE + slot, newSizeDp)
             .apply()
+    }
+
+    /** 只落盘尺寸（issue#169 第 18 条：编辑态捏边缘无级调整，键位不动） */
+    fun setSize(ctx: Context, slot: String, newSizeDp: Int) {
+        prefs(ctx).edit().putInt(KEY_SIZE + slot, newSizeDp).apply()
     }
 
     /**

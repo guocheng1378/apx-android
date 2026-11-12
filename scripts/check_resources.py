@@ -67,6 +67,9 @@ NAME_ATTR = re.compile(r'\bname\s*=\s*"([^"]+)"')
 def walk(root):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        # NFS 原子写会留下 .nfs* 残影（与正式文件同 inode 的 silly rename），
+        # 不是资源也不该判死资源 —— 一律跳过（2026-11-13 功能批遇到的实际案例）
+        filenames = [f for f in filenames if not f.startswith(".")]
         yield dirpath, filenames
 
 

@@ -67,6 +67,9 @@
     <string name="ui_main_item_screen">加入副屏</string>
     <string name="ui_main_btn_a11y_settings">无障碍设置</string>
     <string name="ui_ball_fn_kb_forward">物理键盘全局转发</string>
+    <string name="ui_ball_fn_back_app">回到 App</string>
+    <string name="ui_ball_fn_peer_os">被控机系统</string>
+    <string name="ui_ball_menu_peer_os">被控机系统已切换：%1$s</string>
     <string name="ui_ball_toggle_kb_a11y">全局转发需先在系统「无障碍」里启用本应用，已保持关闭</string>
     <string name="ui_common_close">关闭</string>
     <!-- 读屏用：长按可调序的行，给一句带标题的说明（v223.29.4 悬浮球顺序改长按） -->
@@ -219,7 +222,7 @@
     <string name="ui_ball_menu_usb">USB</string>
     <string name="ui_ball_menu_mode_on">已开启 %1$s</string>
     <string name="ui_ball_menu_mode_off">已关闭 %1$s</string>
-    <string name="ui_ball_menu_quit_done">外设服务已停止</string>
+    <string name="ui_ball_menu_quit_done">外设服务已停止，App 即将退出</string>
     <!-- 相册皮肤落盘失败（云端图 / 受限图解码不成功）的可见反馈，不再静默（issue#168 四追） -->
     <string name="ui_ball_skin_photo_fail">图片读取失败，请换一张本机图片试试</string>
 
@@ -241,7 +244,7 @@
     <string name="ui_ball_fn_camera">摄像头</string>
     <string name="ui_ball_fn_files">文件</string>
     <string name="ui_ball_fn_console">全屏触控板</string>
-    <string name="ui_ball_fn_quit">退出</string>
+    <string name="ui_ball_fn_quit">停止并退出</string>
     <!-- 悬浮球「照片卡」（ROADMAP §5.2 ①；issue#168 二轮改「点选 → 再点发」：点按多选，再点发送，发完重置） -->
     <string name="ui_ball_photo_card_desc">照片 · 点按选图，再点发送</string>
     <string name="ui_ball_photo_target_none">还没连上电脑 —— 连上后再发照片</string>
@@ -686,7 +689,7 @@
     <string name="ui_set_shield_summary">触控板里三指滑动不再被系统截屏（需 root，退出即还原）</string>
     <string name="ui_set_localsend_title">LocalSend 互传</string>
     <string name="ui_set_localsend_summary">开启后在局域网内接收文件</string>
-    <string name="ui_set_localsend_diag">发现通道未就绪（电脑可能看不到这台设备）：关掉再打开一次即可重建</string>
+    <string name="ui_set_localsend_diag">发现通道未就绪（电脑可能看不到这台设备）：关掉再打开一次即可重建；仍不通请检查路由器是否放行组播 224.0.0.0/4，TUN/代理类工具也会拦组播</string>
     <string name="ui_set_ball_show_title">显示悬浮球</string>
     <string name="ui_set_ball_show_summary">关掉后悬浮球与悬浮菜单一起隐藏，外设连接不受影响</string>
     <string name="ui_set_overlay_title">悬浮窗权限</string>
@@ -767,4 +770,7 @@
     <!-- issue#169 #15：macOS 拿不到虚拟 HID 手柄授权（Apple 受限 entitlement），进手柄页
          时按被控机系统选择提示；文案走 strings.xml（UI 中文文案棘轮约定）。 -->
     <string name="ui_gamepad_hint_macos">被控机系统是 macOS：手柄不支持完整功能——无线出口降级为鼠标/键盘；蓝牙、USB 出口是系统级 HID 手柄，部分应用不响应。要完整手柄请改用 Windows / Linux 被控端。</string>
+    <!-- issue#169 #20：编辑态多选按钮组开关（「组」进多选，「组✓」退出）。 -->
+    <string name="ui_gamepad_btn_group">组</string>
+    <string name="ui_gamepad_btn_group_on">组✓</string>
 </resources>

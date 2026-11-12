@@ -56,9 +56,13 @@ class LocalSendService : Service() {
          * 设置页此前只看 `localsend_enabled` 这个**意愿位**，于是重启后开关还是「开」，
          * 服务却早就没了；这一位给它一个能对账的事实来源（审查 v5 §9.3 的补丁 0004）。
          * 与 `FloatingBallService.isRunning` 同一套写法：意愿位、实况位分开。
+         *
+         * issue#169 第 22 条：改成 Compose 快照状态（`mutableStateOf`）—— 此前是普通
+         * `@Volatile`，设置页 summary 读它不触发重组，「发现通道未就绪」提示会滞留
+         * （通道早就重建好了，文案还挂着）；跨线程写快照状态是安全的，语义不变。
          */
         @Volatile
-        var isRunning: Boolean = false
+        var isRunning: Boolean by androidx.compose.runtime.mutableStateOf(false)
             private set
 
         /**
@@ -67,9 +71,18 @@ class LocalSendService : Service() {
          * 必须和 [isRunning] 分开：服务在前台、HTTP 53317 在听、收文件也正常，但发现线程
          * 可能已经死了 —— v223.29.32 现场就是这台机器 40 分钟没往 PC 发过一条 announce，
          * 面板「附近设备」永远空，开关却显示「开」。
+         *
+         * issue#169 第 22 条排查结论（mac.log + phone.log 佐证）：
+         *  · Mac 接收端正常（HTTP 53317 在听，能收 register/announce）；
+         *  · 用户看到的「发现通道未就绪」多数不是 App 判定错误，而是**链路被路由器挡掉**：
+         *    224.0.0.167 是 LocalSend 协议固定组播组地址（不是路由器 IP，用户无需疑惑），
+         *    家用 AP 的 IGMP snooping 无 querier 时会静默丢弃组播；openclash 等 TUN/规则
+         *    类工具也可能拦组播。App 侧已做多播组 + 受限广播 + 网段广播三路兜底（见
+         *    [buildAnnounceTargets]），仍不通时请在路由器放行 224.0.0.0/4 或关掉 TUN；
+         *  · 同时改成 Compose 快照状态，设置页 summary 随通道起落即时刷新，不再滞留。
          */
         @Volatile
-        var discoveryUp: Boolean = false
+        var discoveryUp: Boolean by androidx.compose.runtime.mutableStateOf(false)
             private set
 
         /** 本机 HTTP 监听端口（53317 被占时回退 53318/53319），register 自报用 */
