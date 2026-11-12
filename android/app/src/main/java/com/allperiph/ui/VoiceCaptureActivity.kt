@@ -1,10 +1,13 @@
 package com.allperiph.ui
 
 import android.Manifest
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -84,6 +87,12 @@ class VoiceCaptureActivity : ComponentActivity() {
          * 上游 zip 被换成 zip 炸弹时，解压到上限即抛错，不写满内部存储。
          */
         private const val MAX_UNZIP_BYTES = 256L * 1024 * 1024
+
+        /**
+         * 语音包 zip 的最小可信体积（#6「检测实际是否下载」）：模型压缩包 ~40MB，
+         * 劫持页/错误页/半截包都远小于它 —— 低于阈值判失败，不浪费解压与用户时间。
+         */
+        private const val MIN_ZIP_BYTES = 10L * 1024 * 1024
 
         /**
          * 识别结果投递口：KeyboardPage 的键盘面板在组合期挂上（DisposableEffect 挂 / 摘，
@@ -189,6 +198,9 @@ class VoiceCaptureActivity : ComponentActivity() {
         /** 下载/解压失败：给「重试」入口 */
         data object Failed : Offline()
 
+        /** SAF 导入中（issue#168 2026-11-12 #6 兜底：本地 zip 拷入 + 解压需要几秒到十几秒） */
+        data object Importing : Offline()
+
         /** 麦克风权限被拒：给「允许麦克风」入口 */
         data object NoMicPerm : Offline()
 
@@ -282,50 +294,171 @@ class VoiceCaptureActivity : ComponentActivity() {
     private fun downloadAndPrepare() {
         // 全审查条 3：进行中守卫 —— 按钮连点 / 重试竞态不再并发写同一个 zip（会损坏）。
         // offlineState 在主线程同步检查、同步置位，下载线程启动前就挡住二次进入。
-        if (offlineState is Offline.Downloading) return
+        if (offlineState is Offline.Downloading || offlineState is Offline.Importing) return
         offlineState = Offline.Downloading(0)
         Thread {
-            try {
-                val zip = File(cacheDir, "$MODEL_DIR.zip")
-                // 全审查条 3：先写 .tmp 再改名 —— 断网 / 杀进程留下的半个包不会被
-                // 当成完整 zip 拿去解压；也只有改名成功（下载完整）才继续。
-                val tmp = File(cacheDir, "$MODEL_DIR.zip.tmp")
-                val conn = URL(MODEL_URL).openConnection() as HttpURLConnection
-                conn.connectTimeout = 15_000
-                conn.readTimeout = 30_000
-                conn.connect()
-                val total = conn.contentLengthLong
-                tmp.outputStream().use { out ->
-                    conn.inputStream.use { inp ->
-                        val buf = ByteArray(64 * 1024)
-                        var got = 0L
-                        var lastPct = -1
-                        while (true) {
-                            val n = inp.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            got += n
-                            if (total > 0) {
-                                val pct = (got * 100 / total).toInt()
-                                if (pct != lastPct) {
-                                    lastPct = pct
-                                    runOnUiThread {
-                                        offlineState = Offline.Downloading(pct)
-                                    }
+            // issue#168 2026-11-12 #6「下载语音包还是失败」：沙箱实测源站可达，用户手机
+            // 网络直连 alphacephei 却常年失败（跨境链路抖动 / DNS 污染）。直连失败
+            // （连不上 / 非 2xx / 包过小）自动落系统 DownloadManager 再试一路 —— 系统
+            // 下载器自带重试与网络策略，部分网络环境下能走通；两路都不行才给 Failed
+            //（另有 SAF「从本地导入」兜底，见 [importZipLauncher]）。
+            val ok = tryDownloadDirect() || tryDownloadViaManager()
+            if (!ok) {
+                // 清掉半截下载产物，重试从零开始（全审查条 3 的另一半）
+                runCatching { File(cacheDir, "$MODEL_DIR.zip.tmp").delete() }
+                runCatching { File(cacheDir, "$MODEL_DIR.zip").delete() }
+                runOnUiThread { offlineState = Offline.Failed }
+            }
+        }.start()
+    }
+
+    /**
+     * 直连下载：成功（解压 + 打标完成）返回 true；失败返回 false 交给下一路。
+     * #6「检测实际是否下载」—— 旧实现不读响应码：运营商劫持页 / CDN 错误页会被
+     * 当成下载内容写进文件，解压必炸还看不出原因。现在非 2xx 直接判失败，包过小
+     * （模型压缩包 ~40MB，10MB 以下必不是它）同样判失败。
+     */
+    private fun tryDownloadDirect(): Boolean {
+        val zip = File(cacheDir, "$MODEL_DIR.zip")
+        val tmp = File(cacheDir, "$MODEL_DIR.zip.tmp")
+        return try {
+            val conn = URL(MODEL_URL).openConnection() as HttpURLConnection
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 30_000
+            conn.connect()
+            val code = conn.responseCode
+            if (code !in 200..299) throw IOException("HTTP $code")
+            val total = conn.contentLengthLong
+            tmp.outputStream().use { out ->
+                conn.inputStream.use { inp ->
+                    val buf = ByteArray(64 * 1024)
+                    var got = 0L
+                    var lastPct = -1
+                    while (true) {
+                        val n = inp.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        got += n
+                        if (total > 0) {
+                            val pct = (got * 100 / total).toInt()
+                            if (pct != lastPct) {
+                                lastPct = pct
+                                runOnUiThread {
+                                    offlineState = Offline.Downloading(pct)
                                 }
                             }
                         }
                     }
                 }
-                if (!tmp.renameTo(zip)) throw IOException("下载产物改名失败")
+            }
+            // 全审查条 3：先写 .tmp 再改名 —— 断网 / 杀进程留下的半个包不会被
+            // 当成完整 zip 拿去解压；也只有改名成功（下载完整）才继续。
+            if (!tmp.renameTo(zip)) throw IOException("下载产物改名失败")
+            if (zip.length() < MIN_ZIP_BYTES) throw IOException("下载产物过小（${zip.length()}B）")
+            unzipModel(zip, modelDir())
+            File(modelDir(), ".ok").writeText(MODEL_DIR)
+            zip.delete()
+            runOnUiThread { startOfflineListening() }
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "直连下载失败：${e.message}")
+            runCatching { tmp.delete() }
+            runCatching { zip.delete() }
+            false
+        }
+    }
+
+    /**
+     * DownloadManager 兜底（#6 第二路）：走系统下载器 —— 自带断点续传 / 重试 / 网络
+     * 策略（双卡、Wi-Fi/蜂窝偏好都由系统裁决），与 App 内直连走的是同一批下载节点但
+     * 连接生命周期更稳。成功（解压 + 打标完成）返回 true。
+     */
+    private fun tryDownloadViaManager(): Boolean {
+        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return false
+        val extZip = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "$MODEL_DIR.zip")
+        val id = try {
+            dm.enqueue(
+                DownloadManager.Request(Uri.parse(MODEL_URL)).apply {
+                    setTitle(MODEL_DIR)
+                    setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+                    // 落 app 私有外部目录：不需要存储权限，卸载即清
+                    setDestinationInExternalFilesDir(
+                        this@VoiceCaptureActivity, Environment.DIRECTORY_DOWNLOADS, "$MODEL_DIR.zip",
+                    )
+                },
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "DownloadManager 入队失败：${e.message}")
+            return false
+        }
+        // 轮询到终态（面板上有进度条可看，这里不需要回调粒度更细）
+        while (!isFinishing) {
+            Thread.sleep(1_000)
+            val q = dm.query(DownloadManager.Query().setFilterById(id)) ?: continue
+            if (!q.moveToFirst()) {
+                q.close()
+                continue
+            }
+            val status = q.getInt(q.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val got = q.getLong(q.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+            val total = q.getLong(q.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+            q.close()
+            if (total > 0) {
+                val pct = (got * 100 / total).toInt().coerceIn(0, 100)
+                runOnUiThread { if (offlineState is Offline.Downloading) offlineState = Offline.Downloading(pct) }
+            }
+            when (status) {
+                DownloadManager.STATUS_FAILED -> return false
+                DownloadManager.STATUS_SUCCESSFUL -> {
+                    return runCatching {
+                        val zip = File(cacheDir, "$MODEL_DIR.zip")
+                        extZip.copyTo(zip, overwrite = true)
+                        if (zip.length() < MIN_ZIP_BYTES) throw IOException("下载产物过小（${zip.length()}B）")
+                        unzipModel(zip, modelDir())
+                        File(modelDir(), ".ok").writeText(MODEL_DIR)
+                        zip.delete()
+                        extZip.delete()
+                        runOnUiThread { startOfflineListening() }
+                        true
+                    }.getOrElse {
+                        Log.w(TAG, "DownloadManager 产物处理失败：${it.message}")
+                        runCatching { extZip.delete() }
+                        false
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * SAF 导入语音包（#6「是否需要调用第三方 app 支持」的另一条兜底）：手机网络到
+     * 源站走不通时，任何途径拿到的官方 zip（电脑下载后传过来、网盘、浏览器）都能
+     * 从文件选择器选进来 —— 校验大小、复用 [unzipModel]（zip-slip 防御同源）。
+     */
+    private val importZipLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importZipFrom(uri)
+        }
+
+    private fun importZipFrom(uri: Uri) {
+        if (offlineState is Offline.Downloading || offlineState is Offline.Importing) return
+        offlineState = Offline.Importing
+        Thread {
+            try {
+                val zip = File(cacheDir, "$MODEL_DIR.zip")
+                contentResolver.openInputStream(uri)?.use { inp ->
+                    zip.outputStream().use { out -> inp.copyTo(out, 64 * 1024) }
+                } ?: throw IOException("选中文件读不到")
+                if (zip.length() < MIN_ZIP_BYTES) throw IOException("文件过小（${zip.length()}B），不是语音包")
+                // 残目录先清再解压：半途失败的解压残骸会与新 zip 的条目混在一起
+                runCatching { modelDir().deleteRecursively() }
                 unzipModel(zip, modelDir())
                 File(modelDir(), ".ok").writeText(MODEL_DIR)
                 zip.delete()
                 runOnUiThread { startOfflineListening() }
             } catch (e: Exception) {
-                Log.w(TAG, "离线语音包下载/解压失败：${e.message}")
-                // 清掉半截下载产物，重试从零开始（全审查条 3 的另一半）
-                runCatching { File(cacheDir, "$MODEL_DIR.zip.tmp").delete() }
+                Log.w(TAG, "语音包导入失败：${e.message}")
                 runCatching { File(cacheDir, "$MODEL_DIR.zip").delete() }
                 runOnUiThread { offlineState = Offline.Failed }
             }
@@ -410,6 +543,14 @@ class VoiceCaptureActivity : ComponentActivity() {
                                 text = getString(R.string.ui_voice_offline_go),
                                 onClick = { downloadAndPrepare() },
                             )
+                            // issue#168 2026-11-12 #6：手机网络到源站走不通时的兜底 ——
+                            // 电脑/网盘下载的官方 zip 从文件选择器直接导入
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_voice_offline_import),
+                                onClick = {
+                                    importZipLauncher.launch(arrayOf("*/*"))
+                                },
+                            )
                         }
                         is Offline.Downloading -> {
                             BodyText(
@@ -417,11 +558,21 @@ class VoiceCaptureActivity : ComponentActivity() {
                                 15.sp,
                             )
                         }
+                        Offline.Importing -> {
+                            BodyText(getString(R.string.ui_voice_offline_importing), 15.sp)
+                        }
                         Offline.Failed -> {
                             BodyText(getString(R.string.ui_voice_offline_retry), 15.sp)
                             ApComponents.ActionButton(
                                 text = getString(R.string.ui_voice_offline_retry),
                                 onClick = { downloadAndPrepare() },
+                            )
+                            // 失败态同样给导入口：重试再不通，换个来源立刻能用
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_voice_offline_import),
+                                onClick = {
+                                    importZipLauncher.launch(arrayOf("*/*"))
+                                },
                             )
                         }
                         Offline.NoMicPerm -> {

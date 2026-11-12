@@ -275,6 +275,32 @@ bool TrayIcon::create(const std::string& tip) {
     // 查找手机（0x38，2026-11-11）：手机静音也响（闹钟流），30s 自动停。
     // 与 Win 同口径：菜单常驻，没连手机时点了没反应。
     if (onFindPhone_) plan->items.emplace_back("查找手机（手机响铃 30 秒）", onFindPhone_);
+    // 签名与授权说明（issue#168 用户反馈）：mac 包是 ad-hoc 签名（无开发者账号，
+    // 免费能跑的前提），代价是每次更新换一个 Mach-O 身份，TCC 会把上一个版本
+    // 授权给本 bundle id（com.guocheng.alliph，见 .github/workflows/macos.yml
+    // 的 Info.plist）的麦克风/系统音频权限一并重置——用户侧表现就是
+    // 「更新完突然不能用了」。给个固定说明项把来龙去脉和再授权步骤讲清，
+    // 省得每次更新都要翻 issue 找答案。固定常驻（不跟回调注册走）：
+    // ad-hoc 是打包既定事实，不是哪个回调可选的。
+    plan->items.emplace_back("签名与授权说明…", [] {
+        @autoreleasepool {
+            NSAlert* alert = [[NSAlert alloc] init];
+            alert.messageText = @"关于“更新后需要重新授权”";
+            alert.informativeText =
+                @"全能外设 macOS 版是 ad-hoc 签名（未公证），这是它不依赖付费开发者账号就能运行的前提。\n\n"
+                @"代价：每次更新软件，macOS 都把它当作“新的程序”，上一版授权过的麦克风、系统音频等隐私权限会被重置。所以更新后如果“手机当电脑麦克风”等功能突然没权限，这不是坏了，重新允许一次即可。\n\n"
+                @"重新授权：打开 系统设置 → 隐私与安全性 → 麦克风（按缺的功能选对应条目），重新勾选“全能外设”；若系统弹窗提示“已阻止”，点“仍要打开”并按提示放行。\n\n"
+                @"若勾选无效或选项异常，可在终端执行：\n"
+                @"tccutil reset All com.guocheng.alliph\n"
+                @"该命令清空本应用的全部隐私授权，下次使用时会重新询问。";
+            [alert addButtonWithTitle:@"知道了"];
+            // 托盘菜单动作本就在主线程（本文件 create/run 都跑在主线程泵上），
+            // runModal 自带模态事件泵，弹窗期间外层 0.2s 泵暂停属预期（通知会
+            // 在关掉弹窗后下一拍补发）；丢后台线程反而踩跨线程 AppKit 的坑
+            // （issue#47 同类），不做。
+            [alert runModal];
+        }
+    });
     // 捕 onQuit_ 的**副本**，不捕 this：菜单由 NSStatusItem 持有，生命周期可能长过
     // TrayIcon 本身（析构 → quit() 摘图标是异步的），捕 this 就是野指针。
     auto quitFn = onQuit_;

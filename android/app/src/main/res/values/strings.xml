@@ -421,6 +421,8 @@
     <string name="ui_voice_offline_go">下载语音包并开始</string>
     <string name="ui_voice_offline_progress">正在下载语音包 %1$d%%</string>
     <string name="ui_voice_offline_retry">语音包下载失败，点此重试</string>
+    <string name="ui_voice_offline_import">从本地导入语音包</string>
+    <string name="ui_voice_offline_importing">正在导入语音包…</string>
     <string name="ui_voice_offline_preparing">正在准备识别引擎…</string>
     <string name="ui_voice_offline_listening">正在听，请说话…</string>
     <string name="ui_voice_offline_stop">结束</string>
