@@ -95,15 +95,22 @@ class GamepadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
+        // v223.29.90（成宇 2026-11-13 截图「顶部被状态栏覆盖」）：applyEdgeToEdge 的
+        // post-show 会打穿下面 applyLandscapeBarPref 的 hide（post 跑在 onResume 之后），
+        // 所以把隐藏口径直接传进去 —— post 的动作与偏好一致，不再先 hide 再被抬回。
+        // 立即再压一次是「不等 post、先按当前口径走」的保险；悬浮手柄宿主是 Service
+        // overlay，层高状态栏，不受影响。
+        val hideBar = getSharedPreferences("apx", MODE_PRIVATE)
+            .getBoolean("landscape_hide_status", true)
+        applyEdgeToEdge(hideSystemBars = hideBar)
         // v223.29.86 修复（用户原话「手柄页没有屏蔽状态栏」）：手柄页是强制横屏的独立
         // Activity 宿主，此前只 applyEdgeToEdge、从未读设置里的 landscape_hide_status
         // —— 同一份 apx 偏好，主壳横屏隐藏状态栏、这里却一直显示。补上同 Shell 的隐藏
         // 逻辑（默认开）：按 TRANSIENT_BY_SWIPE 短暂呼出半透明层，退出时随窗口销毁
-        // 自然恢复，无需手动 show。悬浮手柄宿主是 Service overlay，层高状态栏，不受影响。
+        // 自然恢复，无需手动 show。
         // v223.29.87 追补：隐藏只在 onCreate 压一次不够 —— 厂商系统在通知/系统面板
         // 交互后会自行把状态栏抬回来，此后没人再压（2026-11-13 用户截图时钟叠在 L2 上）。
-        // 抽成 applyLandscapeBarPref，onResume 再压一次，回前台即恢复隐藏。
+        // 抽成 applyLandscapeBarPref，onResume / onWindowFocusChanged 再压，回前台即恢复隐藏。
         applyLandscapeBarPref()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(
@@ -121,6 +128,13 @@ class GamepadActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         applyLandscapeBarPref()
+    }
+
+    /** v223.29.90 追补：焦点回到手柄页时再压一次 —— 通知面板/系统交互后系统会把
+     *  状态栏自行抬回，而页面没退、onResume 不会再跑；这里补上无人再压的空档。 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyLandscapeBarPref()
     }
 
     /** v223.29.86 从 onCreate 内联抽出的横屏状态栏口径，onResume 复用（见上注释） */

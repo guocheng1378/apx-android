@@ -75,15 +75,26 @@ data class ApInsets(
  * （Android 15/16 PhoneWindow.getInsetsController() 读未赋值的 mDecor，v223.20 首启
  * 闪退就是这么来的），所以必须放进 decorView.post 里跑。
  */
-fun android.app.Activity.applyEdgeToEdge() {
+fun android.app.Activity.applyEdgeToEdge(hideSystemBars: Boolean = false) {
     window.setDecorFitsSystemWindows(false)
     window.decorView.post {
         val c = window.insetsController ?: return@post
-        // AOSP 规范（成宇 2026-11-07）：系统栏**显示**且透明，内容经 WindowInsets
-        // 自行垫边；BEHAVIOR_DEFAULT = 系统默认（下滑临时呼出）。
-        c.systemBarsBehavior =
-            android.view.WindowInsetsController.BEHAVIOR_DEFAULT
-        c.show(android.view.WindowInsets.Type.systemBars())
+        if (hideSystemBars) {
+            // v223.29.90（成宇 2026-11-13 截图「顶部被状态栏覆盖」）：手柄页要的是
+            // **隐藏**口径 —— 此前 post 里固定 show(systemBars())，而 post 排在
+            // onCreate/onResume 之后才跑，会把同一次进入里先执行的 hide(statusBars())
+            // 原地打回去：表现就是状态栏图标叠在 ✕/L2/R2 上。post 的动作必须与
+            // 调用页的口径一致，TRANSIENT_BY_SWIPE 保留「下滑临时呼出」。
+            c.systemBarsBehavior =
+                android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            c.hide(android.view.WindowInsets.Type.statusBars())
+        } else {
+            // AOSP 规范（成宇 2026-11-07）：系统栏**显示**且透明，内容经 WindowInsets
+            // 自行垫边；BEHAVIOR_DEFAULT = 系统默认（下滑临时呼出）。
+            c.systemBarsBehavior =
+                android.view.WindowInsetsController.BEHAVIOR_DEFAULT
+            c.show(android.view.WindowInsets.Type.systemBars())
+        }
     }
 }
 
