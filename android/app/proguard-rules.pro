@@ -26,3 +26,10 @@
 # 措辞依据：用户截图原话「识别引擎初始化失败：Can't obtain peer field ID for class com.sun.jna.Pointer」。
 -keep class com.sun.jna.** { *; }
 -dontwarn com.sun.jna.**
+
+# ---- Vosk 引擎本体（v87 修复：JNA 修好后的下一层）----
+# 现象：v86 真机语音报「识别引擎初始化失败: org.vosk.LibVosk」（用户截图 2026-11-13 02:54）——
+#       JNA 通了、轮到引擎类本身：LibVosk 是 JNA 接口映射，native 符号按**方法名**查找，
+#       R8 改名/裁剪方法后符号落空（NoClassDefFoundError / UnsatisfiedLinkError 均可能，
+#       用户侧表现为原因行只剩类名）。与 JNA 同理整体保留，符号名原样在。
+-keep class org.vosk.** { *; }
