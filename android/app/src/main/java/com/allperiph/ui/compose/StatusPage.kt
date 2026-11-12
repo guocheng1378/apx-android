@@ -34,8 +34,10 @@ import com.allperiph.ui.EnvChecks
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
+import com.allperiph.ui.miuix.enterStagger
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.rememberEnterStagger
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Text
@@ -111,7 +113,11 @@ fun StatusPage(
     var selModule by remember { mutableIntStateOf(0) }
     val opsSections: @Composable () -> Unit = {
 
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_transport)) {
+        // 错落入场（2026-11-12 第三批）：单栏 4 节依次落位；双栏左右两列各自错开
+        ApComponents.Section(
+            title = ctx.getString(R.string.ui_home_section_transport),
+            modifier = Modifier.enterStagger(rememberEnterStagger(0)),
+        ) {
             Column {
                 AgentController.TRANSPORTS.forEach { t ->
                     ApComponents.SwitchRow(
@@ -131,7 +137,10 @@ fun StatusPage(
         var usbSpk by remember { mutableStateOf(com.allperiph.audio.AudioModule.isSpeakerOn(ctx)) }
         var wifiMic by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isMicOn(ctx)) }
         var wifiSpk by remember { mutableStateOf(com.allperiph.audio.WirelessAudioModule.isSpeakerOn(ctx)) }
-        ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_audio_dir)) {
+        ApComponents.Section(
+            title = ctx.getString(R.string.ui_set_sec_audio_dir),
+            modifier = Modifier.enterStagger(rememberEnterStagger(1)),
+        ) {
             Column {
                 var micOpen by remember { mutableStateOf(false) }
                 var spkOpen by remember { mutableStateOf(false) }
@@ -200,7 +209,10 @@ fun StatusPage(
         var pickerOpen by remember { mutableStateOf(false) }
         var btGuideOpen by remember { mutableStateOf(false) }
         var btDiagOpen by remember { mutableStateOf(false) }
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_control)) {
+        ApComponents.Section(
+            title = ctx.getString(R.string.ui_home_section_control),
+            modifier = Modifier.enterStagger(rememberEnterStagger(2)),
+        ) {
             Column {
                 ApComponents.ValueRow(
                     title = ctx.getString(R.string.ui_set_label_current_control),
@@ -283,7 +295,10 @@ fun StatusPage(
                 }
             }
         }
-        ApComponents.Section(title = ctx.getString(R.string.ui_home_section_modules)) {
+        ApComponents.Section(
+            title = ctx.getString(R.string.ui_home_section_modules),
+            modifier = Modifier.enterStagger(rememberEnterStagger(3)),
+        ) {
             Column {
                 state.modules.forEachIndexed { mi, row ->
                     // 尾部（状态胶囊 + 启停开关）两种行形一致，抽成局部 trailing 复用
@@ -338,7 +353,10 @@ fun StatusPage(
             // 无新文案 —— 全部复用模块行已有的 label/detail/stateRes，窄屏不显示本卡。
             val sel = state.modules.getOrNull(selModule) ?: state.modules.firstOrNull()
             if (sel != null) {
-                ApComponents.Section(title = sel.label) {
+                ApComponents.Section(
+                    title = sel.label,
+                    modifier = Modifier.enterStagger(rememberEnterStagger(0)),
+                ) {
                     Column {
                         ApComponents.ItemRow(
                             title = sel.label,
@@ -355,7 +373,11 @@ fun StatusPage(
             }
         }
 
-        ApComponents.Section(title = ctx.getString(R.string.card_link)) {
+        // 单栏时详情节排在操作节之后，序号接着 opsSections 的 0–3 往下错
+        ApComponents.Section(
+            title = ctx.getString(R.string.card_link),
+            modifier = Modifier.enterStagger(rememberEnterStagger(if (twoPane) 1 else 4)),
+        ) {
             Column {
                 ApComponents.ActionButton(
                     text = ctx.getString(R.string.ui_home_env_recheck),
@@ -431,7 +453,10 @@ fun StatusPage(
             }
         }
         var helpOpen by remember { mutableStateOf(false) }
-        ApComponents.Section(title = ctx.getString(R.string.ui_main_cat_help)) {
+        ApComponents.Section(
+            title = ctx.getString(R.string.ui_main_cat_help),
+            modifier = Modifier.enterStagger(rememberEnterStagger(if (twoPane) 2 else 5)),
+        ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 // 审计批2（2026-11-12）：页面原本平铺「三步上手」标题 + howto 全文 + hint 三行，
                 // 前两段与 ApHelpSheet 弹层首段完全重复（HelpSheet 第一组就是 title_howto/howto），

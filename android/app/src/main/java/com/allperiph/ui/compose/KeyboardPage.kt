@@ -66,7 +66,9 @@ import com.allperiph.ui.Feedback
 import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.enterStagger
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
+import com.allperiph.ui.miuix.rememberEnterStagger
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -666,9 +668,12 @@ private fun PortraitQuickStrip() {
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        rows.forEach { row ->
+        // 错落入场（2026-11-12 第三批）：芯片排逐行亮起，动画只动 graphicsLayer 不占位跳动
+        rows.forEachIndexed { ri, row ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .enterStagger(rememberEnterStagger(ri)),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 row.forEach { (index, slots) ->
@@ -709,7 +714,8 @@ private fun QuickLayout(
     Column(modifier = Modifier.fillMaxSize()) {
         // 修饰键排（Ctrl / Alt / Shift / Win sticky，与操控面同一份 MOD_LABELS）
         // b19「ctrl 那一排不要了，下面有」：横屏不画 sticky 修饰排（FULL 底排自带 Ctrl/Alt/Shift），竖屏保留
-        if (!wide) Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        // 错落入场（2026-11-12 第三批）：键排按序号依次落位（动画只动 graphicsLayer）
+        if (!wide) Row(modifier = Modifier.weight(1f).fillMaxWidth().enterStagger(rememberEnterStagger(0))) {
             HidKeys.MOD_LABELS.forEach { (text, bit) ->
                 ModKey(
                     label = text,
@@ -730,8 +736,8 @@ private fun QuickLayout(
             Box(modifier = Modifier.weight(6f).fillMaxWidth()) {
                 KeyGridLayout(com.allperiph.ui.KeyLayouts.FULL, dens, keycap, fx)
             }
-        } else rows.forEach { labels ->
-            Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        } else rows.forEachIndexed { ri, labels ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().enterStagger(rememberEnterStagger(ri))) {
                 labels.forEach { label ->
                     KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                         HidKeys.tapLabel(label)
@@ -759,8 +765,9 @@ private fun RemoteLayout() {
     var confirm by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val hk = com.allperiph.ui.HotkeyController
     Column(modifier = Modifier.fillMaxSize()) {
-        KeyLayouts.REMOTE_ROWS.forEach { defs ->
-            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+        // 错落入场（2026-11-12 第三批）：媒体/电源行依次落位（动画只动 graphicsLayer）
+        KeyLayouts.REMOTE_ROWS.forEachIndexed { ri, defs ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp).enterStagger(rememberEnterStagger(ri))) {
                 defs.forEach { key ->
                     val label = ctx.getString(key.labelRes)
                     MediaTile(label, Modifier.weight(1f).fillMaxHeight()) {
@@ -820,8 +827,9 @@ private fun GameLayout(dens: KeyPref.Density, keycap: Int, fx: Int) {
     val layout = KeyLayouts.GAME_ROWS
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
-        layout.forEach { labels ->
-            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
+        // 错落入场（2026-11-12 第三批）：游戏键排依次落位（动画只动 graphicsLayer）
+        layout.forEachIndexed { ri, labels ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp).enterStagger(rememberEnterStagger(ri))) {
                 labels.forEach { text ->
                     val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == text }?.second
                     if (bit != null) {
@@ -859,8 +867,9 @@ private fun KeyGridLayout(
     // b21「按了没长亮」：sticky 本地镜像驱动修饰键高亮（与 GameLayout 同口径：toggle 后 flip、tap 普通键清零）
     var sticky by remember { mutableIntStateOf(stickySnapshot()) }
     Column(modifier = Modifier.fillMaxSize()) {
-        rows.forEach { row ->
-            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp)) {
+        // 错落入场（2026-11-12 第三批）：扩展布局键排依次落位（动画只动 graphicsLayer）
+        rows.forEachIndexed { ri, row ->
+            Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 2.dp).enterStagger(rememberEnterStagger(ri))) {
                 row.forEach { k ->
                     val bit = HidKeys.MOD_LABELS.firstOrNull { it.first == k.label }?.second
                     KeyBox(
@@ -907,8 +916,9 @@ private fun CustomLayout(
                 Text(text = ctx.getString(R.string.ui_kb_custom_empty_hint), fontSize = 14.sp)
             }
         } else {
-            rows.forEach { labels ->
-                Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            // 错落入场（2026-11-12 第三批）：自定义键排依次落位（动画只动 graphicsLayer）
+            rows.forEachIndexed { ri, labels ->
+                Row(modifier = Modifier.weight(1f).fillMaxWidth().enterStagger(rememberEnterStagger(ri))) {
                     labels.forEach { label ->
                         KeyBox(label, Modifier.weight(1f).fillMaxHeight(), dens, keycap, fx) {
                             HidKeys.tapLabel(label)
