@@ -103,7 +103,7 @@ R_USE = re.compile(
 #   strings.xml（ui_set_* 74 条 + 日志筛选两个档位数组）—— 设置页是最后一块大存量，
 #   迁完即锁住战果。日志导出文件头（appendLine 的 # 时间：等）是落盘文件内容而非 UI 文案，
 #   按 v223.18 口径留在 Kotlin，不追求清零。
-TEXT_BASELINE = 648  # 2026-11-13 悬浮手柄横屏锚点的挂载失败日志入库（日志非 UI 文案，棘轮同步）
+TEXT_BASELINE = 644  # 2026-11-13 手柄遮挡批后存量自然下降（本批零新增文案），棘轮同步锁战果
 
 
 def strip_comments(text):

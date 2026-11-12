@@ -78,6 +78,10 @@ import kotlin.math.hypot
  *    十字键在左侧（此前根本没有十字键）、面键 ✕○□△ 在右侧、双摇杆在底部中轴两侧
  *    （PlayStation 系没有「左摇杆在角上」的布局）、Create/Options 在顶部中轴两侧。
  *    尺寸改按屏高比例取（摇杆 ≈ 屏高 38%、按键 58dp 基准），小屏不再挤、大屏不再空。
+ *    2026-11-13 遮挡批（几何自查 + 对齐 Moonlight 分层思路）：手机横屏高度不够把
+ *    肩键排和十字/面键簇上下分开，改横向错开——L1/R1 锚到簇外缘（肩键在簇顶键
+ *    外侧偏下，近似真机前视图的扳机/肩键错位），簇纵向锚点在短宽面板自动下沉；
+ *    「组」开关改编辑态才出现（原常驻位正压 L2）。
  *  · **普通模式 / 编辑模式分离**（借 Moonlight 虚拟手柄的模式设计，github.com/
  *    moonlight-stream/moonlight-android 的 virtual_controller 包）：长按从此只属于
  *    游戏——按多久键就按多久（「有的按键是要长按出效果的」），不再触发配置卡；
@@ -213,34 +217,67 @@ internal fun dpadAnchorX(W: Dp, scale: Float): Dp = (W * 0.13f).coerceAtLeast(10
 internal fun faceAnchorX(W: Dp, scale: Float): Dp = (W * 0.87f).coerceAtMost(W - 103.dp * scale)
 
 /**
+ * 十字/面键簇的纵向锚点：默认 0.37H；但短宽面板（手机横屏 360–411dp 高）上 0.37H
+ * 会把簇顶两键（▲/△）顶进 L1/R1 一行（2026-11-13 几何自查实锤 L1×▲ 达 22×58dp）。
+ * 下移条件：簇顶缘（锚点 − 87dp×scale）至少让开 L1/R1 底缘（0.125H + 64dp×scale）
+ * 再留 8dp。下移后簇侧键（▶/□，底缘 = 锚点 + 29dp×scale）与双摇杆顶缘
+ * （0.78H − stickSize/2）纵向净距 ≥8dp（H≥345dp×scale 时恒成立，再矮的窗口极罕见）。
+ * ⚠️ 与 padBaseCenters 的公式同源（吸附基准必须和实际布局一致，改一处必须同步另一处）。
+ */
+internal fun clusterCy(H: Dp, scale: Float): Dp = maxOf(H * 0.37f, H * 0.125f + 101.dp * scale)
+
+/**
+ * 摇杆横向锚点：默认 0.27W / 0.73W；但极窄面板（W≈640dp 一档）上簇底键（▼/✕，
+ * 底缘 = [clusterCy] + 87dp×scale）与摇杆顶带（0.78H − stickSize/2）纵向相叠、
+ * 横向也吃进摇杆（▼ 右缘 = dpadAnchorX + 29dp×scale > 摇杆左缘），2026-11-13 几何
+ * 自查实锤 16:9 面板 28×21dp。此时摇杆向内让开：左摇杆锚 ≥ dpadAnchorX + 37dp×scale
+ * + stickSize/2（左缘让开 ▼ 右缘 8dp），右摇杆对称。簇与摇杆纵向不叠时不挪
+ * （平板档 anchor 不受影响）。⚠️ 与 padBaseCenters 的公式同源（吸附基准必须和实际
+ * 布局一致，改一处必须同步另一处）。
+ */
+internal fun stickAnchorX(W: Dp, H: Dp, stickSize: Dp, scale: Float, left: Boolean): Dp {
+    val base = if (left) W * 0.27f else W * 0.73f
+    val clusterBottom = clusterCy(H, scale) + 87.dp * scale
+    val stickTop = H * 0.78f - stickSize / 2
+    if (clusterBottom <= stickTop) return base
+    val inner = if (left) dpadAnchorX(W, scale) + 37.dp * scale + stickSize / 2
+    else faceAnchorX(W, scale) - 37.dp * scale - stickSize / 2
+    return if (left) maxOf(base, inner) else minOf(base, inner)
+}
+
+/**
  * 各槽位默认中心坐标（dp 浮点，面板坐标系）—— issue#169 第 19 条对齐吸附用。
  *
  * ⚠️ 与 GamepadPanel 布局代码里的 align/offset 公式一一对应（改布局必须同步这里）：
  * 上左为原点，W/H 为面板整幅。功能键 Exit/Edit 的默认位
  * 也收录（12/60dp 起、40dp 见方，见 ✕/✎ 两格的 offset 公式）。
- * 十字/面键锚点走 [dpadAnchorX]/[faceAnchorX]（窄面板钳制，见函数注释）。
+ * 十字/面键锚点走 [dpadAnchorX]/[faceAnchorX]（窄面板钳制，见函数注释）；
+ * 纵向锚点走 [clusterCy]（短宽面板下移让开肩键排，见函数注释）。
  * 2026-11-13 平板布局批：固定 dp 全部乘 [scale]（[padPanelScale] 的返回值），
  * 摇杆尺寸 [stickSize] 由调用处传入（与布局侧同一表达式），保证吸附基准 = 实际布局。
+ * 2026-11-13 遮挡批：L1/R1 横向锚到簇外缘（L1 左缘 = dpadAnchorX + 34dp×scale、
+ * R1 右缘 = faceAnchorX − 34dp×scale，与簇顶键横向净距 5dp），配合 [clusterCy]
+ * 下移后 L1/R1 与 ▲/△/▶/□ 全脱开。
  */
 private fun padBaseCenters(W: Dp, H: Dp, stickSize: Dp, scale: Float): Map<String, Pair<Float, Float>> = mapOf(
     "L2" to ((138.dp * scale).value to (H * 0.02f + 16.dp * scale).value),
     "R2" to ((W - 138.dp * scale).value to (H * 0.02f + 16.dp * scale).value),
-    "L1" to ((142.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
-    "R1" to ((W - 142.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
-    "DUp" to (dpadAnchorX(W, scale).value to (H * 0.37f - 58.dp * scale).value),
-    "DDown" to (dpadAnchorX(W, scale).value to (H * 0.37f + 58.dp * scale).value),
-    "DLeft" to ((dpadAnchorX(W, scale) - 58.dp * scale).value to (H * 0.37f).value),
-    "DRight" to ((dpadAnchorX(W, scale) + 58.dp * scale).value to (H * 0.37f).value),
-    "Y" to (faceAnchorX(W, scale).value to (H * 0.37f - 58.dp * scale).value),
-    "A" to (faceAnchorX(W, scale).value to (H * 0.37f + 58.dp * scale).value),
-    "X" to ((faceAnchorX(W, scale) - 58.dp * scale).value to (H * 0.37f).value),
-    "B" to ((faceAnchorX(W, scale) + 58.dp * scale).value to (H * 0.37f).value),
+    "L1" to ((dpadAnchorX(W, scale) + 66.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
+    "R1" to ((faceAnchorX(W, scale) - 66.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
+    "DUp" to (dpadAnchorX(W, scale).value to (clusterCy(H, scale) - 58.dp * scale).value),
+    "DDown" to (dpadAnchorX(W, scale).value to (clusterCy(H, scale) + 58.dp * scale).value),
+    "DLeft" to ((dpadAnchorX(W, scale) - 58.dp * scale).value to clusterCy(H, scale).value),
+    "DRight" to ((dpadAnchorX(W, scale) + 58.dp * scale).value to clusterCy(H, scale).value),
+    "Y" to (faceAnchorX(W, scale).value to (clusterCy(H, scale) - 58.dp * scale).value),
+    "A" to (faceAnchorX(W, scale).value to (clusterCy(H, scale) + 58.dp * scale).value),
+    "X" to ((faceAnchorX(W, scale) - 58.dp * scale).value to clusterCy(H, scale).value),
+    "B" to ((faceAnchorX(W, scale) + 58.dp * scale).value to clusterCy(H, scale).value),
     "Sel" to ((W * 0.40f).value to (H * 0.05f + 15.dp * scale).value),
     "Start" to ((W * 0.60f).value to (H * 0.05f + 15.dp * scale).value),
     // 摇杆也要防出屏：摇杆直径 = stickSize（布局侧同式 min(180dp×scale, H*0.38)），
-    // W*0.27 ± 半径在窄面板会越界，锚点钳进「半径 + 8dp×scale 边距」内
-    "LStick" to ((W * 0.27f).coerceAtLeast(stickSize / 2 + 8.dp * scale).value to (H * 0.78f).value),
-    "RStick" to ((W * 0.73f).coerceAtMost(W - stickSize / 2 - 8.dp * scale).value to (H * 0.78f).value),
+    // 锚点走 stickAnchorX（窄面板簇/摇杆相叠时向外让开），再钳进「半径 + 8dp×scale 边距」内
+    "LStick" to (stickAnchorX(W, H, stickSize, scale, left = true).coerceAtLeast(stickSize / 2 + 8.dp * scale).value to (H * 0.78f).value),
+    "RStick" to (stickAnchorX(W, H, stickSize, scale, left = false).coerceAtMost(W - stickSize / 2 - 8.dp * scale).value to (H * 0.78f).value),
     "Exit" to ((32.dp * scale).value to (28.dp * scale).value),
     "Edit" to ((80.dp * scale).value to (28.dp * scale).value),
 )
@@ -426,14 +463,21 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // 出口状态 + 指引（顶部居中；左右各让 170dp —— issue#168 第 8 条追补：
         // 文字整段落在两肩键之间，避让是几何上的不重叠，不靠绘制顺序兜底）
+        // 2026-11-13 遮挡批：让位改随簇锚点自适应——L1/R1 横向挪到簇外缘后，
+        // 窄面板（W≈640dp）上固定 170dp 会探进 L1/R1 带；改取「锚点到中轴距离
+        // − 106dp×scale」（含 8dp 净距 + 键宽余量），常规宽度仍落在 170dp×padScale。
+        val tipSide = run {
+            val toAnchor = minOf(W / 2 - dpadAnchorX(W, padScale), faceAnchorX(W, padScale) - W / 2)
+            (toAnchor - 106.dp * padScale).coerceIn(0.dp, 170.dp * padScale)
+        }
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 // 2026-11-13 用户截图「Create/Options 与说明文字互相压字」：两组芯片挂在
                 // H*0.05（药丸高 30dp），提示从 12dp 起排多行折行正好叠进芯片带。整体
                 // 下移到芯片带以下：芯片底 = H*0.05 + 30dp，这里留 4dp 间隙起排；
-                // 左右 170dp 让位不变（避开两肩 L1/R1）。平板档按 padScale 放大。
-                .padding(top = H * 0.05f + 34.dp * padScale, start = 170.dp * padScale, end = 170.dp * padScale),
+                // 左右让位见上方 tipSide 注释。平板档按 padScale 放大。
+                .padding(top = H * 0.05f + 34.dp * padScale, start = tipSide, end = tipSide),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -561,16 +605,21 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
         // 按钮组开关（issue#169 第 20 条）：「组」进多选模式 —— 编辑态点选槽位成组
         // （亮白描边），拖任意一颗整组平移、保持相对位置；再点一次散组。
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 108.dp * padScale, y = 8.dp * padScale)) {
-            Pad(
-                label = stringResource(if (padGroupMode) R.string.ui_gamepad_btn_group_on else R.string.ui_gamepad_btn_group),
-                bit = 0, width = 40.dp * padScale, height = 40.dp * padScale, scale = padScale,
-                onDown = {
-                    padGroupMode = !padGroupMode
-                    if (!padGroupMode) padGroupSel = emptySet()
-                    Feedback.haptic(padCtx)
-                },
-            )
+        // 2026-11-13 遮挡批：改编辑态才出现（原常驻，顶部 (108,8) 正压 L2 药丸 40×31dp）；
+        // 挪到左下角「？」上方——该角空着（双摇杆锚在 27%/73% 宽，普通键最靠左的 ▼
+        // 左缘 = dpadAnchorX−29dp×scale ≥ 74dp×scale，都碰不到 12–52dp×scale 列）。
+        if (padEditing) {
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp * padScale, bottom = 58.dp * padScale)) {
+                Pad(
+                    label = stringResource(if (padGroupMode) R.string.ui_gamepad_btn_group_on else R.string.ui_gamepad_btn_group),
+                    bit = 0, width = 40.dp * padScale, height = 40.dp * padScale, scale = padScale,
+                    onDown = {
+                        padGroupMode = !padGroupMode
+                        if (!padGroupMode) padGroupSel = emptySet()
+                        Feedback.haptic(padCtx)
+                    },
+                )
+            }
         }
 
         // —— 扳机 L2 / R2（顶部第一排，真机在肩键后面，屏上画成药丸） ——
@@ -587,15 +636,19 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 onMoveBy = { dx, dy -> groupAwareMove("R2", dx, dy) }, onMoveEnd = { groupAwareEnd("R2") })
         }
 
-        // —— 肩键 L1 / R1（第二排） ——
+        // —— 肩键 L1 / R1（第二排，横向锚到十字/面键簇外缘） ——
+        // 2026-11-13 遮挡批：短宽面板上簇顶（▲/△）与肩键同带，纵向错不开（高度不够，
+        // 再往下压就撞摇杆），改横向错开——L1 左缘锚 dpadAnchorX + 34dp×scale（与 ▲ 右缘
+        // 净距 5dp），配合 clusterCy 下移后与 ▲/▶ 均无交叠；R1 对称锚 faceAnchorX − 34dp×scale。
         val l1Drag = padDrag("L1")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 110.dp * padScale + l1Drag.first, y = H * 0.125f + l1Drag.second)) {
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadAnchorX(W, padScale) + 34.dp * padScale + l1Drag.first, y = H * 0.125f + l1Drag.second)) {
             Pad(label = "L1", bit = GamepadController.BTN_L1, width = 64.dp, slot = "L1", scale = padScale, editing = padEditing, selected = padGroupMode && "L1" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("L1") },
                 onMoveBy = { dx, dy -> groupAwareMove("L1", dx, dy) }, onMoveEnd = { groupAwareEnd("L1") })
         }
         val r1Drag = padDrag("R1")
-        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-110).dp * padScale + r1Drag.first, y = H * 0.125f + r1Drag.second)) {
+        // TopEnd 对齐下 offset.x 以右缘起算：右缘 = faceAnchorX − 34dp×scale（与 △ 左缘净距 5dp）
+        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = faceAnchorX(W, padScale) - W - 34.dp * padScale + r1Drag.first, y = H * 0.125f + r1Drag.second)) {
             Pad(label = "R1", bit = GamepadController.BTN_R1, width = 64.dp, slot = "R1", scale = padScale, editing = padEditing, selected = padGroupMode && "R1" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("R1") },
                 onMoveBy = { dx, dy -> groupAwareMove("R1", dx, dy) }, onMoveEnd = { groupAwareEnd("R1") })
@@ -604,8 +657,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— 十字键（左侧中部；此前缺失，占报告位 12..15，见 GamepadController 注释） ——
         // 簇内四键中心间距 = 键径（58dp×padScale），拼成正十字：Up 在上、Down 在下、Left/Right 在侧。
         // 锚点走钳制版（dpadAnchorX）：窄面板上 0.13W−87dp 会越出左缘（见函数注释）
+        // 纵向锚点走 clusterCy：短宽面板下移让开 L1/R1 第二排（见函数注释）
         val dpadCx = dpadAnchorX(W, padScale)
-        val dpadCy = H * 0.37f
+        val dpadCy = clusterCy(H, padScale)
         val dUpDrag = padDrag("DUp")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp * padScale + dUpDrag.first, y = dpadCy - 87.dp * padScale + dUpDrag.second)) {
             Pad(label = "▲", bit = GamepadController.BTN_DUP, slot = "DUp", scale = padScale, editing = padEditing, selected = padGroupMode && "DUp" in padGroupSel,
@@ -633,8 +687,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // —— 面键 ✕○□△（右侧中部，PS5 菱形位：△ 上 / ○ 右 / ✕ 下 / □ 左） ——
         // 锚点走钳制版（faceAnchorX）：窄面板上 0.87W+87dp 越出右缘，ABXY 整簇被裁掉
+        // 纵向锚点走 clusterCy（与十字键簇同一锚，见函数注释）
         val faceCx = faceAnchorX(W, padScale)
-        val faceCy = H * 0.37f
+        val faceCy = clusterCy(H, padScale)
         val yDrag = padDrag("Y")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp * padScale + yDrag.first, y = faceCy - 87.dp * padScale + yDrag.second)) {
             Pad(label = "△", bit = GamepadController.BTN_Y, slot = "Y", scale = padScale, editing = padEditing, selected = padGroupMode && "Y" in padGroupSel,
@@ -677,9 +732,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— 双摇杆（底部中轴两侧；PlayStation 系摇杆不贴角） ——
         // 编辑态：上层盖一块透明拖拽面接管触摸（摇杆本体收不到事件），拖 = 移位落盘；
         // 普通态不盖章，摇杆照常吃输入。JoystickView 自身不动。
-        // 摇杆横向锚点同样钳制（与 padBaseCenters 同式）：窄面板防摇杆越出左右缘
-        val lsCx = (W * 0.27f).coerceAtLeast(stickSize / 2 + 8.dp)
-        val rsCx = (W * 0.73f).coerceAtMost(W - stickSize / 2 - 8.dp)
+        // 摇杆横向锚点走钳制版 stickAnchorX（簇/摇杆相叠时向外让开 + 防越出左右缘，见函数注释）
+        val lsCx = stickAnchorX(W, H, stickSize, padScale, left = true).coerceAtLeast(stickSize / 2 + 8.dp * padScale)
+        val rsCx = stickAnchorX(W, H, stickSize, padScale, left = false).coerceAtMost(W - stickSize / 2 - 8.dp * padScale)
         Stick(
             slot = "LStick",
             modifier = Modifier.align(Alignment.TopStart)
