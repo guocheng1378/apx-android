@@ -455,16 +455,19 @@ private fun HotkeyGrid(
 
 /** 一行总按钮位数：2026-11-12 用户原话「12 个正好 4 排」——统一 3 列，12 枚两字
  * 模板（1 字位/枚）恰好铺满 4 排；旧「宽卡 4 列」口径随模板扩容废止（4 列时 12 枚
- * 只凑 3 排，下 1/3 卡总差一截空白，即「换了模版还是占那么大地方」的观感来源）。 */
-private const val SLOTS_PER_ROW = 3
+ * 只凑 3 排，下 1/3 卡总差一截空白，即「换了模版还是占那么大地方」的观感来源）。
+ * internal：键盘页快捷条（KeyboardPage.PortraitQuickStrip）共用同一位数口径 ——
+ * 成宇 2026-11-12 19:38「触摸板页的快捷键自适应，和键盘页快捷键自适应，两端同步样式同步」。 */
+internal const val SLOTS_PER_ROW = 3
 
 /**
  * 按标签字数把快捷键打包成行（issue#168 2026-11-11「每 2 个字占一个按钮位」）：
  * 每条占 ceil(字数 / 2) 位（至少 1 位、至多整行），一行装不下就折到下一行。
  * [slotsPerRow] 一行总位数：统一 3（2026-11-12 模板扩到 12 枚后 3 列 × 4 排恰好铺满）。
  * 返回的条目下标与 [HotkeyStore.load] 列表对齐，拖拽排序按它落位。
+ * internal：键盘页快捷条共用同一份打包（两端样式同步，见 [SLOTS_PER_ROW] 注）。
  */
-private fun packBySlots(
+internal fun packBySlots(
     list: List<HidKeys.Combo>,
     slotsPerRow: Int = SLOTS_PER_ROW,
 ): List<List<Pair<Int, Int>>> {
@@ -486,7 +489,7 @@ private fun packBySlots(
 }
 
 @Composable
-private fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = Modifier) {
+internal fun HotkeyChip(ctx: Context, combo: HidKeys.Combo, modifier: Modifier = Modifier) {
     val tint = remember(ctx) {
         Color(com.allperiph.ui.ApPalette.accentOf(ctx, com.allperiph.ui.ApSkin.HOTKEY))
     }

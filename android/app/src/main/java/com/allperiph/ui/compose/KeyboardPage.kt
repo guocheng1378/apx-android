@@ -513,10 +513,11 @@ internal fun ApFullKeyboard(
             }
 
             // —— 竖屏快捷键条（成宇 2026-11-12 19:31「所有键盘区不要手势控制面」）：
-            // issue#168 2026-11-12 #4 三段方案里的触控板整块删掉，快捷条改回每行 4 枚
-            // 原口径，键位区拿回全部剩余高度；横屏不画（页签行 + 键位区吃满）。
+            // issue#168 2026-11-12 #4 三段方案里的触控板整块删掉，键位区拿回全部剩余
+            // 高度；横屏不画（页签行 + 键位区吃满）。样式与自适应与触控板页同一套
+            //（19:38「两端同步样式同步」，见 PortraitQuickStrip 注）。
             if (portraitQuick) {
-                PortraitQuickStrip(fx = fx)
+                PortraitQuickStrip()
             }
 
             // —— 键位区：weight 占满剩余高度（触控板已从键盘区整块撤出），行内均分 ——
@@ -624,25 +625,21 @@ internal fun ApFullKeyboard(
 /**
  * 竖屏键盘页的快捷键条（issue#168 返工 2026-11-11「要触控板页常用快捷键栏样式、
  * 按钮限 2 行，不是加两个标题行」；2026-11-12 19:31「所有键盘区不要手势控制面」后
- * 成为竖屏键盘页唯一的非键盘区块）：不再有「常用快捷键 / 自定义」两行标题，
- * 也不再放自定义按键 chips（自定义键位在键位区「自定义」页签里本来就有一份）。
+ * 成为竖屏键盘页唯一的非键盘区块）。
  *
- * 数据源与动作链路：快捷键 = [HotkeyStore.load]（与触控板页 HotkeyGrid 同一份
- * HotkeyStore），点击 `HidKeys.combo` 直发组合键 + `bump` 记使用频次 —— 与触控板页
- * 点芯片同语义；自动排序开启时按使用频次排（与 HotkeyBoard.render 同口径）。
+ * 样式与自适应已与触控板页快捷键栏**同一套**（成宇 2026-11-12 19:38「触摸板页的
+ * 快捷键自适应，和键盘页快捷键自适应，两端同步样式同步」）：打包走触控板页的
+ * [packBySlots]（每 2 字占 1 位、一行 3 位、装不下折行），芯片走同一个 [HotkeyChip]
+ * （TabChip + HOTKEY 皮配色 + 按键特效 + 点击直发）—— 此前键盘页自画的等宽
+ * QuickChip（每行 4 枚、4 列等宽截长文案）整块删除，改一处两边同时变。
  *
- * 视觉对齐触控板页快捷键栏：芯片一行 4 枚、上限 8 枚（装不下的快捷键去触控板页用，
- * 那里有编辑入口可增删调序），行尾不足补空位保持网格稳定 —— 与 HotkeyBoard 的
- * 补空格同思路。空态给既有引导文案，不画假按钮。
+ * 数据源：快捷键 = [HotkeyStore.load]（与触控板页同一份 HotkeyStore）；自动排序
+ * 开启时按使用频次排（与 HotkeyBoard.render 同口径）；存档清空回落模板/出厂行
+ * （只回显不落库）。上限 8 枚 —— 装不下的快捷键去触控板页用（卡内可滚动、可增删调序）。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PortraitQuickStrip(
-    fx: Int,
-) {
+private fun PortraitQuickStrip() {
     val ctx = LocalContext.current
-    // Feedback.tap 收 View 不收 Context（与 ApFullKeyboard 的 host 同口径）
-    val host = LocalView.current
     val hotkeys = remember {
         val loaded = com.allperiph.hid.HotkeyStore.load(ctx)
         val base = if (loaded.isNotEmpty()) loaded else {
@@ -662,66 +659,30 @@ private fun PortraitQuickStrip(
             base
         }
     }
-    // 每行 4 枚、最多 2 行（issue#168「按钮限 2 行」—— 2 行 × 4 列 = 8 枚）
-    // 存档空已回落模板/出厂行（见上），正常不再有空白中段；行数兜底为空时直接不画。
-    val rows = hotkeys.take(8).chunked(4)
+    // 每行 3 位（SLOTS_PER_ROW，与触控板页同口径）、上限 8 枚折 2–3 排；行尾补空位
+    // 占位保持网格稳定（与 HotkeyGrid 的补空格同思路）。
+    val rows = packBySlots(hotkeys.take(8))
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        rows.forEach { chunk ->
+        rows.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                chunk.forEach { combo ->
-                    QuickChip(
-                        label = combo.label,
-                        fx = fx,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Feedback.tap(host)
-                        HidKeys.combo(combo)
-                        com.allperiph.hid.HotkeyStore.bump(ctx, combo)
-                    }
+                row.forEach { (index, slots) ->
+                    HotkeyChip(
+                        ctx = ctx,
+                        combo = hotkeys[index],
+                        modifier = Modifier.weight(slots.toFloat()),
+                    )
                 }
-                // 行尾补空位占位：最后一行不满 4 枚时保持与上一行同宽的网格
-                repeat(4 - chunk.size) { Spacer(modifier = Modifier.weight(1f)) }
+                repeat(SLOTS_PER_ROW - row.sumOf { it.second }) {
+                    Box(modifier = Modifier.weight(1f))
+                }
             }
         }
-    }
-}
-
-/** 触控板页快捷键栏同款芯片（视觉对齐 HotkeyBoard.buildChip）：卡片底 + 圆角 14dp + 居中单行文字 */
-@Composable
-private fun QuickChip(
-    label: String,
-    fx: Int,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val accent = MiuixTheme.colorScheme.primary
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val fxValues = rememberKeyFx(pressed, fx)
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(MiuixTheme.colorScheme.surfaceContainer)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .then(Modifier.keyFx(fxValues, accent))
-            .heightIn(min = 40.dp)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            fontSize = 14.sp,
-            color = MiuixTheme.colorScheme.onSurface,
-            // 芯片恒单行：过长出省略号，不把网格行顶出屏外
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
