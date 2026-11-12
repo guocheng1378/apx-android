@@ -86,11 +86,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.graphicsLayer
 
@@ -656,85 +669,196 @@ class ApShellActivity : ComponentActivity() {
             // 点胶囊外任意处收起（接住手势的透明层画在球之下，球的单击/拖动不受影响），
             // 再点球同样收起（开关语义）。画在球 Box 之前，z 序压在球下面。
             var pillW by remember { mutableIntStateOf(0) }
-            if (pageSwitchOpen) {
-                val pillGapPx = with(ballDensity) { 10.dp.toPx() }
-                val pillHPx = with(ballDensity) { 44.dp.toPx() }
-                val pillMarginPx = with(ballDensity) { 12.dp.toPx() }
-                // 纵向：优先球上方，贴顶放不下改球下方
-                val pillYPx = if (navBallY - pillGapPx - pillHPx >= 0f) {
-                    navBallY - pillGapPx - pillHPx
-                } else {
-                    navBallY + navBallPx + pillGapPx
-                }
-                // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
-                val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
-                    .coerceIn(pillMarginPx, (dmBall.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+            // 胶囊定位现算挪到可见性判断之外：退场动画的 90ms 里 pillW 已有测量值、
+            // 位置必须持续可算，否则胶囊会在淡出的瞬间跳位。
+            val pillGapPx = with(ballDensity) { 10.dp.toPx() }
+            val pillHPx = with(ballDensity) { 44.dp.toPx() }
+            val pillMarginPx = with(ballDensity) { 12.dp.toPx() }
+            // 纵向：优先球上方，贴顶放不下改球下方
+            val pillYPx = if (navBallY - pillGapPx - pillHPx >= 0f) {
+                navBallY - pillGapPx - pillHPx
+            } else {
+                navBallY + navBallPx + pillGapPx
+            }
+            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
+            val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
+                .coerceIn(pillMarginPx, (dmBall.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+
+            // 点胶囊外任意处收起：接住手势的透明层画在球之下（球画在后、z 序压它）。
+            // 这里只做可见性不带过渡（EnterTransition.None）：它本身透明，唯一意义是
+            // 退场动画那 90ms 里胶囊外点击仍被接住，「收起」语义在切页瞬间保持稳定。
+            AnimatedVisibility(
+                visible = pageSwitchOpen,
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .pointerInput(Unit) { detectTapGestures { pageSwitchOpen = false } },
                 )
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(pillXPx.roundToInt(), pillYPx.roundToInt()) }
-                        .onSizeChanged { pillW = it.width }
-                        .clip(CircleShape)
-                        .background(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.98f))
-                        .border(
-                            width = 1.dp,
-                            brush = Brush.verticalGradient(
-                                listOf(
-                                    Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
-                                    Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
-                                ),
-                            ),
-                            shape = CircleShape,
-                        )
-                        .height(44.dp),
-                    contentAlignment = Alignment.Center,
+            }
+            // 胶囊入场/退场动效（成宇 2026-11-12 20:14「优化动效heui界面，让界面看起来更有质感」）：
+            // 此前 `if (pageSwitchOpen)` 是硬弹 —— 胶囊原地瞬现、收起也瞬失，与四页的
+            // 淡入切页不同档。改 AnimatedVisibility 承载：进场 150ms 淡入 + 0.92 放大
+            //（ApMotion 进入曲线，只减速），退场 90ms 淡出 + 0.95 缩小（退出曲线，只加速）；
+            // 设置页动效关闭时 durationMs 返回 0，直接落位。缩放必须挂在胶囊自身节点上：
+            // 若把 scaleIn 包在 offset 外层，会绕父容器左上角（而非胶囊中心）飞入。
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(pillXPx.roundToInt(), pillYPx.roundToInt()) },
+            ) {
+                AnimatedVisibility(
+                    visible = pageSwitchOpen,
+                    enter = fadeIn(
+                        tween(
+                            durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 150),
+                            easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
+                        ),
+                    ) + scaleIn(
+                        initialScale = 0.92f,
+                        animationSpec = tween(
+                            durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 150),
+                            easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
+                        ),
+                    ),
+                    exit = fadeOut(
+                        tween(
+                            durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 90),
+                            easing = com.allperiph.ui.miuix.ApMotion.ExitEasing,
+                        ),
+                    ) + scaleOut(
+                        targetScale = 0.95f,
+                        animationSpec = tween(
+                            durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 90),
+                            easing = com.allperiph.ui.miuix.ApMotion.ExitEasing,
+                        ),
+                    ),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        listOf(
-                            0 to R.string.ui_nav_status,
-                            1 to R.string.ui_nav_touchpad,
-                            2 to R.string.ui_nav_keyboard,
-                            3 to R.string.ui_nav_settings,
-                        ).forEach { (target, labelRes) ->
-                            Text(
-                                text = stringResource(labelRes),
-                                fontSize = 14.sp,
-                                // 当前页用主题强调色点亮，其余保持常规文字色
-                                color = if (page == target) {
-                                    MiuixTheme.colorScheme.primary
-                                } else {
-                                    MiuixTheme.colorScheme.onSurface
-                                },
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                    ) {
-                                        pageSwitchOpen = false
-                                        page = target
-                                        pageState = target
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 11.dp),
+                    Box(
+                        modifier = Modifier
+                            .onSizeChanged { pillW = it.width }
+                            .clip(CircleShape)
+                            .background(MiuixTheme.colorScheme.surfaceContainer.copy(alpha = 0.98f))
+                            .border(
+                                width = 1.dp,
+                                brush = Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (navDarkBall) 0.30f else 0.66f),
+                                        Color.White.copy(alpha = if (navDarkBall) 0.10f else 0.22f),
+                                    ),
+                                ),
+                                shape = CircleShape,
                             )
+                            .height(44.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            listOf(
+                                0 to R.string.ui_nav_status,
+                                1 to R.string.ui_nav_touchpad,
+                                2 to R.string.ui_nav_keyboard,
+                                3 to R.string.ui_nav_settings,
+                            ).forEach { (target, labelRes) ->
+                                // 菜单项按压反馈（成宇 2026-11-12 20:14「让界面看起来更有质感」）：
+                                // 此前是裸 clickable —— 按下不缩不震、选中色两值瞬跳。补齐三件：
+                                // 按压缩到 ApMotion.pressScale（默认 0.97，110ms 进入曲线）、
+                                // 抬手回弹；点击轻震（Feedback.haptic 内部判震动档位，关档一声不震）；
+                                // 选中色走 150ms 颜色过渡，与胶囊入场同档。
+                                val itemInteraction = remember { MutableInteractionSource() }
+                                val itemPressed by itemInteraction.collectIsPressedAsState()
+                                val itemScale by animateFloatAsState(
+                                    targetValue = if (itemPressed) {
+                                        com.allperiph.ui.miuix.ApMotion.pressScale(this@ApShellActivity)
+                                    } else {
+                                        1f
+                                    },
+                                    animationSpec = if (com.allperiph.ui.miuix.ApMotion.enabled(this@ApShellActivity)) {
+                                        tween(durationMillis = 110, easing = com.allperiph.ui.miuix.ApMotion.EnterEasing)
+                                    } else {
+                                        tween(durationMillis = 0)
+                                    },
+                                    label = "navItemPress",
+                                )
+                                val itemColor by animateColorAsState(
+                                    targetValue = if (page == target) {
+                                        MiuixTheme.colorScheme.primary
+                                    } else {
+                                        MiuixTheme.colorScheme.onSurface
+                                    },
+                                    animationSpec = tween(
+                                        durationMillis = com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 150),
+                                    ),
+                                    label = "navItemColor",
+                                )
+                                Text(
+                                    text = stringResource(labelRes),
+                                    fontSize = 14.sp,
+                                    color = itemColor,
+                                    modifier = Modifier
+                                        .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
+                                        .clip(CircleShape)
+                                        .clickable(
+                                            interactionSource = itemInteraction,
+                                            indication = null,
+                                        ) {
+                                            com.allperiph.ui.Feedback.haptic(this@ApShellActivity)
+                                            pageSwitchOpen = false
+                                            page = target
+                                            pageState = target
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 11.dp),
+                                )
+                            }
                         }
                     }
                 }
             }
+
+            // 悬浮球按压微动效（成宇 2026-11-12 20:14「优化动效heui界面，让界面看起来更有质感」）：
+            // 球此前点按只开合菜单、拖动只挪位置，视觉上零反馈 —— 按下去和碰到背景没区别。
+            // 这里自记「按下中」状态（球的点按/拖动走 pointerInput，没有现成 interactionSource
+            // 可借），按下缩到 ApMotion.pressScale（默认 0.97）、松手回弹，与胶囊菜单项同口径；
+            // 设置页动效关闭时直接落位不缩放。观察手势用 Initial pass 且从不 consume，
+            // 点击与拖动仍归下方 detectTapGestures / detectDragGestures 管。
+            var ballPressed by remember { mutableStateOf(false) }
+            val ballScale by animateFloatAsState(
+                targetValue = if (ballPressed) {
+                    com.allperiph.ui.miuix.ApMotion.pressScale(this@ApShellActivity)
+                } else {
+                    1f
+                },
+                animationSpec = if (com.allperiph.ui.miuix.ApMotion.enabled(this@ApShellActivity)) {
+                    tween(durationMillis = 110, easing = com.allperiph.ui.miuix.ApMotion.EnterEasing)
+                } else {
+                    tween(durationMillis = 0)
+                },
+                label = "navBallPress",
+            )
 
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset { IntOffset(navBallX.roundToInt(), navBallY.roundToInt()) }
                     .size(48.dp)
+                    // 按压缩放挂在 clip/background 之前：整个球面（含描边、≡ 字）在
+                    // 同一个渲染层里一起缩，不会出现「底缩了、字没缩」的错位。
+                    .graphicsLayer { scaleX = ballScale; scaleY = ballScale }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                            ballPressed = true
+                            // 只观察「所有手指都离开」即算抬手；期间不消费任何事件
+                            while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) {
+                                // 空转等待：仅用于维持按下态观察
+                            }
+                            ballPressed = false
+                        }
+                    }
                     .clip(CircleShape)
                     .semantics { contentDescription = getString(R.string.ui_dock_ball_desc) }
                     // 拖动跟手（compose 侧靠每帧 offset 重组，球是单节点小控件，
