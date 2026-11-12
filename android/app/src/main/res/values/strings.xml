@@ -413,6 +413,9 @@
     <!-- §6.3 Expanded 工具行（键盘页底部）：剪贴板/语音/灯效 三键及语音链路文案 -->
     <string name="ui_kb_tool_voice">语音</string>
     <string name="ui_kb_tool_rgb">灯效</string>
+    <!-- 灯效直选弹窗里的「调色」项（开灯时出现，展开色相/亮度面板）；
+         原先页签行芯片用的是 Kotlin 字面量，随直选改造一并收进资源 -->
+    <string name="ui_kb_led_tune">调色</string>
     <string name="ui_kb_voice_none">没听清，再试一次</string>
     <string name="ui_kb_voice_unavailable">系统语音识别不可用</string>
     <!-- ui_kb_voice_google_only 已随离线识别方案移除（v223.29.60）：Google-only 不再劝退，改走内置离线识别 -->

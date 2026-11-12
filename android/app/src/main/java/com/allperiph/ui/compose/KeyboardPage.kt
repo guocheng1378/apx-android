@@ -321,6 +321,11 @@ internal fun ApFullKeyboard(
     // 调色：组合期一次性从持久层灌入（此后 RgbTune 只被绘制阶段读）；面板开关
     remember { RgbTune.hueShift = KeyPref.rgbHue(ctx); RgbTune.bright = KeyPref.rgbBright(ctx) }
     var tuneOpen by remember { mutableStateOf(false) }
+    // 灯效直选弹窗（2026-11-12 图1/图4「结构混乱」修复 + 规划 v2 口径「快切改一键直选
+    // 不再循环」）：页签行的灯效芯片只负责开这个弹窗，四档灯效在弹窗里**直选**、
+    // 不再点一下循环一档 —— 原先「RGB 灯效 · 按下扩散」长芯片把页签行顶成三行，
+    // 换成两字短芯片后页签行自然收拢（8 个页签 + 灯效，多数屏两行内装下）。
+    var ledPickOpen by remember { mutableStateOf(false) }
     val rgbSpec = if (rgbMode == KeyPref.RGB_OFF) {
         RgbSpec(rgbMode, null)
     } else {
@@ -445,33 +450,23 @@ internal fun ApFullKeyboard(
                         fx = fx,
                     )
                 }
-                // 灯效快切（成宇 2026-11-08「能让键盘有rgb灯的效果吗」）：点一下循环
-                // 关闭 → 呼吸 → 波浪 → 按下扩散，选中态 = 开灯；与设置项同一份 KeyPref.rgbIndex，
-                // 就地改当场生效（灯效分支随 rgbMode 重组，不用重进键盘页）。
-                // 芯片文案走资源拼接（ui_set_label_rgb + rgbLabels），不加 Kotlin 中文字面量。
+                // 灯效入口（成宇 2026-11-08「能让键盘有rgb灯的效果吗」；2026-11-12 按规划
+                // v2 口径「快切改一键直选不再循环」改造）：芯片只开 [ledPickOpen] 弹窗，
+                // 四档灯效在弹窗里直选。文案用现成的两字资源 ui_kb_tool_rgb（工具行同款
+                // 「灯效」），不再拼「ui_set_label_rgb · 档位名」长串 —— 长串正是
+                // 2026-11-12 图1 竖屏页签行折成三行、图4 横屏挤成一条的元凶。选中态 =
+                // 开灯；当前是哪档在弹窗里高亮，芯片本身不再背档位文案。
                 ApComponents.TabChip(
-                    text = ctx.getString(R.string.ui_set_label_rgb) + " · " +
-                        KeyPref.rgbLabels(ctx).getOrElse(rgbMode) { "" },
+                    text = ctx.getString(R.string.ui_kb_tool_rgb),
                     selected = rgbMode != KeyPref.RGB_OFF,
                     onClick = {
                         Feedback.tap(host)
-                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT
-                        KeyPref.setRgb(ctx, rgbMode)
+                        ledPickOpen = true
                     },
                     fx = fx,
                 )
-                // 调色入口（灯效开着才给；点开 = 展开下方色相/亮度面板）
-                if (rgbMode != KeyPref.RGB_OFF) {
-                    ApComponents.TabChip(
-                        text = "调色",
-                        selected = tuneOpen,
-                        onClick = {
-                            Feedback.tap(host)
-                            tuneOpen = !tuneOpen
-                        },
-                        fx = fx,
-                    )
-                }
+                // 「调色」芯片从页签行撤下（2026-11-12 图1 第三行孤行）：入口挪进
+                // 灯效直选弹窗（灯效开着才给），页签行不再为它单独占一行。
             }
 
             // —— 调色面板：色相名直选 + 亮度三档（灯效开着且点了「调色」才展开；横滑防溢出）
@@ -592,10 +587,53 @@ internal fun ApFullKeyboard(
                     }
                     MediaTile(ctx.getString(R.string.ui_kb_tool_rgb), Modifier.height(tileHeight)) {
                         Feedback.tap(host)
-                        rgbMode = (rgbMode + 1) % KeyPref.RGB_COUNT
-                        KeyPref.setRgb(ctx, rgbMode)
+                        // 直选不循环（规划 v2 口径，2026-11-12）：工具行灯效图块同样开
+                        // [ledPickOpen] 弹窗直选档位，不再就地循环 —— 页签行/工具行两处
+                        // 入口行为保持一致，用户不用背「点一下换一档」的顺序。
+                        ledPickOpen = true
                     }
                 }
+            }
+        }
+    }
+
+    // —— 灯效直选弹窗（规划 v2「快切改一键直选不再循环」）：四档点谁亮谁，就地生效 ——
+    // 点档位不关弹窗：用户常想连着试几档看观感，收尾点弹窗外任意处（onDismiss）；
+    // 「调色」项只在灯效开着时出现，点了关弹窗、展开下方色相/亮度面板（tuneOpen 语义不变）。
+    if (ledPickOpen) {
+        ApComponents.DialogCard(onDismiss = { ledPickOpen = false }) {
+            Text(
+                text = ctx.getString(R.string.ui_set_label_rgb),
+                fontSize = 16.sp,
+            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                KeyPref.rgbLabels(ctx).forEachIndexed { i, name ->
+                    ApComponents.TabChip(
+                        text = name,
+                        selected = rgbMode == i,
+                        onClick = {
+                            Feedback.tap(host)
+                            rgbMode = i
+                            KeyPref.setRgb(ctx, i)
+                        },
+                        fx = fx,
+                    )
+                }
+            }
+            if (rgbMode != KeyPref.RGB_OFF) {
+                ApComponents.TabChip(
+                    text = ctx.getString(R.string.ui_kb_led_tune),
+                    selected = tuneOpen,
+                    onClick = {
+                        Feedback.tap(host)
+                        tuneOpen = !tuneOpen
+                        ledPickOpen = false
+                    },
+                    fx = fx,
+                )
             }
         }
     }
