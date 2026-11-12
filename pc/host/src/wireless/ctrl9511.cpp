@@ -1359,9 +1359,14 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 'p') {
                     // pong：清除 pending 标志，记录 RTT
                     im->pingPending_.store(false);
-                    im->missedPongs_.store(0);   // v184：收到 pong，失败计数清零
+                    const int missedBefore = im->missedPongs_.exchange(0);   // v184：连续无 pong 计数清零
+                    // 2026-11-12 体积/日志优化轮：pong 每秒一发，旧实现无条件记 INFO ——
+                    // 测试者 11-11 一天的日志导出里这一条就有 6.4 万行（9.4MB 大头），
+                    // 全是重复噪声。改为**状态边沿才记**：上一轮确实出现过断档
+                    //（missedBefore>0）才补一条「心跳恢复」，健康链路全程静默；
+                    // RTT 采集不变，仍然每发都算。
+                    if (missedBefore > 0) APX_LOGI("9511 收到 pong（心跳恢复，此前断档 {} 轮）", missedBefore);
                     const auto sent = im->pingSentMs_.load();
-                    APX_LOGI("9511 收到 pong（心跳恢复）");
                     if (sent > 0) im->rttMs_.store(im->nowMs() - sent);
                 }
                 off += total;
