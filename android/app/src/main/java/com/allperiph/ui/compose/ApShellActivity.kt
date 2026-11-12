@@ -467,12 +467,22 @@ class ApShellActivity : ComponentActivity() {
                 // 旧实现容器级 padding 让滚动内容也被压缩，设置页底部更是双倍留白）。
                 // 触控板页手势面连 64dp 都不留，直接全屏。
                 // 页切换动效（2026-11-07）：此前 `when(page)` 是硬切 —— 四页之间跳变
-                // 没有任何过渡，观感上像换了个应用。这里只给**新页**做一次 12dp 上浮 + 淡入
+                // 没有任何过渡，观感上像换了个应用。这里只给**新页**做入场 + 淡入
                 // （不做交叉淡出：两页同时在场会让触控板/键盘页的手势订阅短暂翻倍）。
                 // 时长走 ApMotion.durationMs，设置页「动效」关掉时是 0ms（直接落位）；
                 // 200ms（界面稿：时长只用 150/180/200，原 190 归档）。
+                // 切页方向感知（成宇 2026-11-12 21:1x「继续攻切页方向感知」）：入场位移从
+                // 12dp 上浮改为按页序判断的 ±24dp 横向滑入 —— 去往页序更大的页（如状态→
+                // 触控板）新页从右侧滑入，反向则从左，符合「页在一条横向轴上」的空间隐喻；
+                // 纯横向比斜向上更干净。方案上评估过 AnimatedContent 两页同场交叉，
+                // 因过渡期手势订阅翻倍且无法真机验证，维持单页在场架构不采用。
                 val pageIn = remember { Animatable(1f) }
+                // 记住上一页序，用于推算本次切换的方向符号（+1 向右入场 / -1 向左）。
+                var lastPage by remember { mutableIntStateOf(page) }
+                val slideSign = remember { mutableFloatStateOf(1f) }
                 androidx.compose.runtime.LaunchedEffect(page) {
+                    slideSign.floatValue = if (page >= lastPage) 1f else -1f
+                    lastPage = page
                     pageIn.snapTo(0f)
                     pageIn.animateTo(
                         targetValue = 1f,
@@ -493,7 +503,7 @@ class ApShellActivity : ComponentActivity() {
                         .graphicsLayer {
                             val v = pageIn.value
                             alpha = 0.55f + 0.45f * v
-                            translationY = (1f - v) * 12f * density
+                            translationX = (1f - v) * 24f * density * slideSign.floatValue
                         },
                 ) {
                     when (page) {
