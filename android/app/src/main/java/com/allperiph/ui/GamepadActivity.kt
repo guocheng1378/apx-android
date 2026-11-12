@@ -184,17 +184,33 @@ private const val PAD_RESIZE_MIN_DP = 36f
 private const val PAD_RESIZE_MAX_DP = 120f
 
 /**
- * 十字键/面键簇的横向锚点（issue#169 追评 2026-11-13「pad 上 app 手柄和悬浮球手柄都缺
- * ABXY」）：两簇按 0.13W/0.87W 布锚，簇中心到边键外缘最宽 87dp —— 面板宽 W < 669dp 时
- * （pad 高密度屏、分屏/自由窗口都可能出现），B 键右缘 0.87W+87dp 超出面板右缘，整簇
- * 被裁出屏外，看起来就是「缺 4 个键」。锚点先按百分比、再钳进「整簇可见」范围
- * （左右各留 16dp 边距，103dp = 87dp 簇半径 + 16dp）；极窄面板两簇会互相靠近，
- * 但至少键都在屏上、点得到也拖得回来。⚠️ 与 padBaseCenters 的公式同源（吸附基准
- * 必须和实际布局一致，改一处必须同步另一处）。
+ * 手柄面板的屏幕档位缩放系数（2026-11-13 用户「要对手机和平板做不同布局」）：
+ *
+ * 手机档恒为 1（布局与尺寸档完全不变）；平板 / 电视档把整套几何按面板**短边**等比
+ * 放大 —— 键径 58dp、簇内间距、摇杆、功能键、配置卡全部吃同一个系数，观感与手机
+ * 横屏一致，只是整体变大。系数 = 短边 / 360dp，封顶 1.5：超大屏（如 1280dp 高的
+ * 平板横屏）键径到 87dp 封住，不无限放大。判定走 [DeviceFormPref]（短边 600dp
+ * 判平板 + 设置页手动覆盖），不自己造判据。
  */
-internal fun dpadAnchorX(W: Dp): Dp = (W * 0.13f).coerceAtLeast(103.dp)
+internal fun padPanelScale(W: Dp, H: Dp, ctx: android.content.Context): Float =
+    if (DeviceFormPref.resolve(ctx, W.value, H.value) == DeviceFormPref.Form.Phone) {
+        1f
+    } else {
+        (minOf(W.value, H.value) / 360f).coerceIn(1f, 1.5f)
+    }
 
-internal fun faceAnchorX(W: Dp): Dp = (W * 0.87f).coerceAtMost(W - 103.dp)
+/**
+ * 十字键/面键簇的横向锚点（issue#169 追评 2026-11-13「pad 上 app 手柄和悬浮球手柄都缺
+ * ABXY」）：两簇按 0.13W/0.87W 布锚，簇中心到边键外缘最宽 [scale]×87dp —— 面板宽
+ * W 过窄时（pad 高密度屏、分屏/自由窗口都可能出现），B 键右缘越出面板右缘，整簇
+ * 被裁出屏外，看起来就是「缺 4 个键」。锚点先按百分比、再钳进「整簇可见」范围
+ * （左右各留 16dp×scale 边距）；极窄面板两簇会互相靠近，但至少键都在屏上、点得到
+ * 也拖得回来。⚠️ 与 padBaseCenters 的公式同源（吸附基准必须和实际布局一致，改一处
+ * 必须同步另一处）。
+ */
+internal fun dpadAnchorX(W: Dp, scale: Float): Dp = (W * 0.13f).coerceAtLeast(103.dp * scale)
+
+internal fun faceAnchorX(W: Dp, scale: Float): Dp = (W * 0.87f).coerceAtMost(W - 103.dp * scale)
 
 /**
  * 各槽位默认中心坐标（dp 浮点，面板坐标系）—— issue#169 第 19 条对齐吸附用。
@@ -203,28 +219,30 @@ internal fun faceAnchorX(W: Dp): Dp = (W * 0.87f).coerceAtMost(W - 103.dp)
  * 上左为原点，W/H 为面板整幅。功能键 Exit/Edit 的默认位
  * 也收录（12/60dp 起、40dp 见方，见 ✕/✎ 两格的 offset 公式）。
  * 十字/面键锚点走 [dpadAnchorX]/[faceAnchorX]（窄面板钳制，见函数注释）。
+ * 2026-11-13 平板布局批：固定 dp 全部乘 [scale]（[padPanelScale] 的返回值），
+ * 摇杆尺寸 [stickSize] 由调用处传入（与布局侧同一表达式），保证吸附基准 = 实际布局。
  */
-private fun padBaseCenters(W: Dp, H: Dp): Map<String, Pair<Float, Float>> = mapOf(
-    "L2" to (138.dp.value to (H * 0.02f + 16.dp).value),
-    "R2" to ((W - 138.dp).value to (H * 0.02f + 16.dp).value),
-    "L1" to (142.dp.value to (H * 0.125f + 32.dp).value),
-    "R1" to ((W - 142.dp).value to (H * 0.125f + 32.dp).value),
-    "DUp" to (dpadAnchorX(W).value to (H * 0.37f - 58.dp).value),
-    "DDown" to (dpadAnchorX(W).value to (H * 0.37f + 58.dp).value),
-    "DLeft" to ((dpadAnchorX(W) - 58.dp).value to (H * 0.37f).value),
-    "DRight" to ((dpadAnchorX(W) + 58.dp).value to (H * 0.37f).value),
-    "Y" to (faceAnchorX(W).value to (H * 0.37f - 58.dp).value),
-    "A" to (faceAnchorX(W).value to (H * 0.37f + 58.dp).value),
-    "X" to ((faceAnchorX(W) - 58.dp).value to (H * 0.37f).value),
-    "B" to ((faceAnchorX(W) + 58.dp).value to (H * 0.37f).value),
-    "Sel" to ((W * 0.40f).value to (H * 0.05f + 15.dp).value),
-    "Start" to ((W * 0.60f).value to (H * 0.05f + 15.dp).value),
-    // 摇杆也要防出屏：摇杆直径封顶 180dp（与 GamepadPanel 的 stickSize 同式），
-    // W*0.27 ± 半径在窄面板会越界，锚点钳进「半径 + 8dp 边距」内
-    "LStick" to ((W * 0.27f).coerceAtLeast(minOf(180.dp, H * 0.38f) / 2 + 8.dp).value to (H * 0.78f).value),
-    "RStick" to ((W * 0.73f).coerceAtMost(W - minOf(180.dp, H * 0.38f) / 2 - 8.dp).value to (H * 0.78f).value),
-    "Exit" to (32.dp.value to 28.dp.value),
-    "Edit" to (80.dp.value to 28.dp.value),
+private fun padBaseCenters(W: Dp, H: Dp, stickSize: Dp, scale: Float): Map<String, Pair<Float, Float>> = mapOf(
+    "L2" to ((138.dp * scale).value to (H * 0.02f + 16.dp * scale).value),
+    "R2" to ((W - 138.dp * scale).value to (H * 0.02f + 16.dp * scale).value),
+    "L1" to ((142.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
+    "R1" to ((W - 142.dp * scale).value to (H * 0.125f + 32.dp * scale).value),
+    "DUp" to (dpadAnchorX(W, scale).value to (H * 0.37f - 58.dp * scale).value),
+    "DDown" to (dpadAnchorX(W, scale).value to (H * 0.37f + 58.dp * scale).value),
+    "DLeft" to ((dpadAnchorX(W, scale) - 58.dp * scale).value to (H * 0.37f).value),
+    "DRight" to ((dpadAnchorX(W, scale) + 58.dp * scale).value to (H * 0.37f).value),
+    "Y" to (faceAnchorX(W, scale).value to (H * 0.37f - 58.dp * scale).value),
+    "A" to (faceAnchorX(W, scale).value to (H * 0.37f + 58.dp * scale).value),
+    "X" to ((faceAnchorX(W, scale) - 58.dp * scale).value to (H * 0.37f).value),
+    "B" to ((faceAnchorX(W, scale) + 58.dp * scale).value to (H * 0.37f).value),
+    "Sel" to ((W * 0.40f).value to (H * 0.05f + 15.dp * scale).value),
+    "Start" to ((W * 0.60f).value to (H * 0.05f + 15.dp * scale).value),
+    // 摇杆也要防出屏：摇杆直径 = stickSize（布局侧同式 min(180dp×scale, H*0.38)），
+    // W*0.27 ± 半径在窄面板会越界，锚点钳进「半径 + 8dp×scale 边距」内
+    "LStick" to ((W * 0.27f).coerceAtLeast(stickSize / 2 + 8.dp * scale).value to (H * 0.78f).value),
+    "RStick" to ((W * 0.73f).coerceAtMost(W - stickSize / 2 - 8.dp * scale).value to (H * 0.78f).value),
+    "Exit" to ((32.dp * scale).value to (28.dp * scale).value),
+    "Edit" to ((80.dp * scale).value to (28.dp * scale).value),
 )
 
 /**
@@ -335,11 +353,16 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // 尺寸口径（重画）：摇杆 ≈ 屏高 38%（封顶 180dp，小屏等比缩），十字/面键簇
         // 键径 58dp（SIZE_CHOICES 中档），肩键 64dp，扳机 68×32 药丸，中央小件 76×30。
-        val stickSize = minOf(180.dp, H * 0.38f)
+        // 2026-11-13 平板布局批：先按设备形态定缩放系数（手机=1，平板/电视按短边放大
+        // 封顶 1.5），下面所有固定 dp 全部吃它 —— 手机档零变化，平板档整体等比放大。
+        val padScale = padPanelScale(W, H, padCtx)
+        val stickSize = minOf(180.dp * padScale, H * 0.38f)
 
         // —— 编辑对齐吸附（issue#169 第 19 条）：拖动时与其它槽位中心做坐标轴贴合 ——
-        // 吸上的那根轴记进 padGuides，画布层给出加宽轴线提示；吸附半径 7dp 见 PAD_SNAP_DP。
-        val centers = remember(W, H) { padBaseCenters(W, H) }
+        // 吸上的那根轴记进 padGuides，画布层给出加宽轴线提示；吸附半径 7dp 见 PAD_SNAP_DP
+        // （平板档按 padScale 放大，与放大的键径保持同观感）。
+        val centers = remember(W, H, stickSize, padScale) { padBaseCenters(W, H, stickSize, padScale) }
+        val snapRadius = PAD_SNAP_DP.value * padScale
         fun snapMove(slot: String, dx: Float, dy: Float) {
             val base = centers[slot]
             if (base == null) {
@@ -352,8 +375,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             var sx: Float? = null
             var sy: Float? = null
             for ((_, oc) in centers) {
-                if (sx == null && abs(nx - oc.first) <= PAD_SNAP_DP.value) sx = oc.first
-                if (sy == null && abs(ny - oc.second) <= PAD_SNAP_DP.value) sy = oc.second
+                if (sx == null && abs(nx - oc.first) <= snapRadius) sx = oc.first
+                if (sy == null && abs(ny - oc.second) <= snapRadius) sy = oc.second
             }
             padGuides = sx to sy
             // 吸附时把这一帧位移改写为「贴到轴上」的差值；未吸上的轴照常跟手
@@ -409,8 +432,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // 2026-11-13 用户截图「Create/Options 与说明文字互相压字」：两组芯片挂在
                 // H*0.05（药丸高 30dp），提示从 12dp 起排多行折行正好叠进芯片带。整体
                 // 下移到芯片带以下：芯片底 = H*0.05 + 30dp，这里留 4dp 间隙起排；
-                // 左右 170dp 让位不变（避开两肩 L1/R1）。
-                .padding(top = H * 0.05f + 34.dp, start = 170.dp, end = 170.dp),
+                // 左右 170dp 让位不变（避开两肩 L1/R1）。平板档按 padScale 放大。
+                .padding(top = H * 0.05f + 34.dp * padScale, start = 170.dp * padScale, end = 170.dp * padScale),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
@@ -444,15 +467,16 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             }
             // 编辑操作说明（REQ 本批 4）：首次进编辑态自动弹一行，6 秒或点按钮后淡出；
             // 画在提示列内顺序排布，不与任何元素叠字，不拦截手势（无 clickable）。
+            // 平板档字号与内边距同 padScale 放大。
             AnimatedVisibility(visible = padEditing && showEditingTip) {
                 Text(
                     text = stringResource(R.string.ui_gamepad_editing_tip),
-                    fontSize = 11.sp,
+                    fontSize = (11 * padScale).sp,
                     textAlign = TextAlign.Center,
                     color = colorResource(R.color.overlay_pad_ok),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 6.dp)
+                        .padding(top = 6.dp * padScale)
                         .background(
                             colorResource(R.color.overlay_scrim).copy(alpha = 0.72f),
                             RoundedCornerShape(percent = 50),
@@ -462,18 +486,18 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                             colorResource(R.color.overlay_pad_stroke_idle),
                             RoundedCornerShape(percent = 50),
                         )
-                        .padding(horizontal = 14.dp, vertical = 5.dp),
+                        .padding(horizontal = 14.dp * padScale, vertical = 5.dp * padScale),
                 )
             }
         }
 
         // 「？」重看编辑说明（REQ 本批 4）：只在编辑态出现，点一下重新弹顶部的操作提示。
-        // 放左下角：该角空着（双摇杆锚在 27% / 73% 宽），40dp 触点与既有任何元素都不相交。
+        // 放左下角：该角空着（双摇杆锚在 27% / 73% 宽），触点与既有任何元素都不相交。
         if (padEditing) {
-            Box(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp * padScale)) {
                 Pad(
                     label = stringResource(R.string.ui_gamepad_btn_tip_help),
-                    bit = 0, width = 40.dp, height = 40.dp,
+                    bit = 0, width = 40.dp * padScale, height = 40.dp * padScale, scale = padScale,
                     onDown = {
                         showEditingTip = true
                         Feedback.haptic(padCtx)
@@ -484,9 +508,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // 退出（issue#169 第 21 条：编辑态也可拖可配；普通态仍直接退出）
         val exitDrag = padDrag("Exit")
-        val exitSize = remember(padConfigVersion) { GamepadPadConfig.sizeDp(padCtx, "Exit", 40) }
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 12.dp + exitDrag.first, y = 8.dp + exitDrag.second)) {
-            Pad(label = "✕", bit = 0, width = exitSize.dp, height = exitSize.dp, onDown = onExit)
+        val exitSize = remember(padConfigVersion) { GamepadPadConfig.sizeDp(padCtx, "Exit", 40) * padScale }
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 12.dp * padScale + exitDrag.first, y = 8.dp * padScale + exitDrag.second)) {
+            Pad(label = "✕", bit = 0, width = exitSize.dp, height = exitSize.dp, scale = padScale, onDown = onExit)
             if (padEditing) {
                 FuncDragOverlay(
                     onTap = { padConfiguring = "Exit" },
@@ -500,10 +524,10 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // issue#169 第 21 条：编辑态下这颗键也可拖动移位；点按仍保留「收工」语义 ——
         // 它是编辑态唯一的退出口，不能被拖拽面吞掉。
         val editDrag = padDrag("Edit")
-        val editSize = remember(padConfigVersion) { GamepadPadConfig.sizeDp(padCtx, "Edit", 40) }
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 60.dp + editDrag.first, y = 8.dp + editDrag.second)) {
+        val editSize = remember(padConfigVersion) { GamepadPadConfig.sizeDp(padCtx, "Edit", 40) * padScale }
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 60.dp * padScale + editDrag.first, y = 8.dp * padScale + editDrag.second)) {
             Pad(
-                label = if (padEditing) "✓" else "✎", bit = 0, width = editSize.dp, height = editSize.dp,
+                label = if (padEditing) "✓" else "✎", bit = 0, width = editSize.dp, height = editSize.dp, scale = padScale,
                 onDown = {
                     padEditing = !padEditing
                     if (!padEditing) {
@@ -537,10 +561,10 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
         // 按钮组开关（issue#169 第 20 条）：「组」进多选模式 —— 编辑态点选槽位成组
         // （亮白描边），拖任意一颗整组平移、保持相对位置；再点一次散组。
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 108.dp, y = 8.dp)) {
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 108.dp * padScale, y = 8.dp * padScale)) {
             Pad(
                 label = stringResource(if (padGroupMode) R.string.ui_gamepad_btn_group_on else R.string.ui_gamepad_btn_group),
-                bit = 0, width = 40.dp, height = 40.dp,
+                bit = 0, width = 40.dp * padScale, height = 40.dp * padScale, scale = padScale,
                 onDown = {
                     padGroupMode = !padGroupMode
                     if (!padGroupMode) padGroupSel = emptySet()
@@ -551,87 +575,87 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // —— 扳机 L2 / R2（顶部第一排，真机在肩键后面，屏上画成药丸） ——
         val l2Drag = padDrag("L2")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 104.dp + l2Drag.first, y = H * 0.02f + l2Drag.second)) {
-            Pad(label = "L2", bit = GamepadController.BTN_L2, width = 68.dp, height = 32.dp, pill = true, slot = "L2", editing = padEditing, selected = padGroupMode && "L2" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 104.dp * padScale + l2Drag.first, y = H * 0.02f + l2Drag.second)) {
+            Pad(label = "L2", bit = GamepadController.BTN_L2, width = 68.dp, height = 32.dp, pill = true, slot = "L2", scale = padScale, editing = padEditing, selected = padGroupMode && "L2" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("L2") },
                 onMoveBy = { dx, dy -> groupAwareMove("L2", dx, dy) }, onMoveEnd = { groupAwareEnd("L2") })
         }
         val r2Drag = padDrag("R2")
-        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-104).dp + r2Drag.first, y = H * 0.02f + r2Drag.second)) {
-            Pad(label = "R2", bit = GamepadController.BTN_R2, width = 68.dp, height = 32.dp, pill = true, slot = "R2", editing = padEditing, selected = padGroupMode && "R2" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-104).dp * padScale + r2Drag.first, y = H * 0.02f + r2Drag.second)) {
+            Pad(label = "R2", bit = GamepadController.BTN_R2, width = 68.dp, height = 32.dp, pill = true, slot = "R2", scale = padScale, editing = padEditing, selected = padGroupMode && "R2" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("R2") },
                 onMoveBy = { dx, dy -> groupAwareMove("R2", dx, dy) }, onMoveEnd = { groupAwareEnd("R2") })
         }
 
         // —— 肩键 L1 / R1（第二排） ——
         val l1Drag = padDrag("L1")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 110.dp + l1Drag.first, y = H * 0.125f + l1Drag.second)) {
-            Pad(label = "L1", bit = GamepadController.BTN_L1, width = 64.dp, slot = "L1", editing = padEditing, selected = padGroupMode && "L1" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = 110.dp * padScale + l1Drag.first, y = H * 0.125f + l1Drag.second)) {
+            Pad(label = "L1", bit = GamepadController.BTN_L1, width = 64.dp, slot = "L1", scale = padScale, editing = padEditing, selected = padGroupMode && "L1" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("L1") },
                 onMoveBy = { dx, dy -> groupAwareMove("L1", dx, dy) }, onMoveEnd = { groupAwareEnd("L1") })
         }
         val r1Drag = padDrag("R1")
-        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-110).dp + r1Drag.first, y = H * 0.125f + r1Drag.second)) {
-            Pad(label = "R1", bit = GamepadController.BTN_R1, width = 64.dp, slot = "R1", editing = padEditing, selected = padGroupMode && "R1" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopEnd).offset(x = (-110).dp * padScale + r1Drag.first, y = H * 0.125f + r1Drag.second)) {
+            Pad(label = "R1", bit = GamepadController.BTN_R1, width = 64.dp, slot = "R1", scale = padScale, editing = padEditing, selected = padGroupMode && "R1" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("R1") },
                 onMoveBy = { dx, dy -> groupAwareMove("R1", dx, dy) }, onMoveEnd = { groupAwareEnd("R1") })
         }
 
         // —— 十字键（左侧中部；此前缺失，占报告位 12..15，见 GamepadController 注释） ——
-        // 簇内四键中心间距 = 键径（58dp），拼成正十字：Up 在上、Down 在下、Left/Right 在侧。
+        // 簇内四键中心间距 = 键径（58dp×padScale），拼成正十字：Up 在上、Down 在下、Left/Right 在侧。
         // 锚点走钳制版（dpadAnchorX）：窄面板上 0.13W−87dp 会越出左缘（见函数注释）
-        val dpadCx = dpadAnchorX(W)
+        val dpadCx = dpadAnchorX(W, padScale)
         val dpadCy = H * 0.37f
         val dUpDrag = padDrag("DUp")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp + dUpDrag.first, y = dpadCy - 87.dp + dUpDrag.second)) {
-            Pad(label = "▲", bit = GamepadController.BTN_DUP, slot = "DUp", editing = padEditing, selected = padGroupMode && "DUp" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp * padScale + dUpDrag.first, y = dpadCy - 87.dp * padScale + dUpDrag.second)) {
+            Pad(label = "▲", bit = GamepadController.BTN_DUP, slot = "DUp", scale = padScale, editing = padEditing, selected = padGroupMode && "DUp" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("DUp") },
                 onMoveBy = { dx, dy -> groupAwareMove("DUp", dx, dy) }, onMoveEnd = { groupAwareEnd("DUp") })
         }
         val dDownDrag = padDrag("DDown")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp + dDownDrag.first, y = dpadCy + 29.dp + dDownDrag.second)) {
-            Pad(label = "▼", bit = GamepadController.BTN_DDOWN, slot = "DDown", editing = padEditing, selected = padGroupMode && "DDown" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp * padScale + dDownDrag.first, y = dpadCy + 29.dp * padScale + dDownDrag.second)) {
+            Pad(label = "▼", bit = GamepadController.BTN_DDOWN, slot = "DDown", scale = padScale, editing = padEditing, selected = padGroupMode && "DDown" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("DDown") },
                 onMoveBy = { dx, dy -> groupAwareMove("DDown", dx, dy) }, onMoveEnd = { groupAwareEnd("DDown") })
         }
         val dLeftDrag = padDrag("DLeft")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 87.dp + dLeftDrag.first, y = dpadCy - 29.dp + dLeftDrag.second)) {
-            Pad(label = "◀", bit = GamepadController.BTN_DLEFT, slot = "DLeft", editing = padEditing, selected = padGroupMode && "DLeft" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 87.dp * padScale + dLeftDrag.first, y = dpadCy - 29.dp * padScale + dLeftDrag.second)) {
+            Pad(label = "◀", bit = GamepadController.BTN_DLEFT, slot = "DLeft", scale = padScale, editing = padEditing, selected = padGroupMode && "DLeft" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("DLeft") },
                 onMoveBy = { dx, dy -> groupAwareMove("DLeft", dx, dy) }, onMoveEnd = { groupAwareEnd("DLeft") })
         }
         val dRightDrag = padDrag("DRight")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx + 29.dp + dRightDrag.first, y = dpadCy - 29.dp + dRightDrag.second)) {
-            Pad(label = "▶", bit = GamepadController.BTN_DRIGHT, slot = "DRight", editing = padEditing, selected = padGroupMode && "DRight" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx + 29.dp * padScale + dRightDrag.first, y = dpadCy - 29.dp * padScale + dRightDrag.second)) {
+            Pad(label = "▶", bit = GamepadController.BTN_DRIGHT, slot = "DRight", scale = padScale, editing = padEditing, selected = padGroupMode && "DRight" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("DRight") },
                 onMoveBy = { dx, dy -> groupAwareMove("DRight", dx, dy) }, onMoveEnd = { groupAwareEnd("DRight") })
         }
 
         // —— 面键 ✕○□△（右侧中部，PS5 菱形位：△ 上 / ○ 右 / ✕ 下 / □ 左） ——
         // 锚点走钳制版（faceAnchorX）：窄面板上 0.87W+87dp 越出右缘，ABXY 整簇被裁掉
-        val faceCx = faceAnchorX(W)
+        val faceCx = faceAnchorX(W, padScale)
         val faceCy = H * 0.37f
         val yDrag = padDrag("Y")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp + yDrag.first, y = faceCy - 87.dp + yDrag.second)) {
-            Pad(label = "△", bit = GamepadController.BTN_Y, slot = "Y", editing = padEditing, selected = padGroupMode && "Y" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp * padScale + yDrag.first, y = faceCy - 87.dp * padScale + yDrag.second)) {
+            Pad(label = "△", bit = GamepadController.BTN_Y, slot = "Y", scale = padScale, editing = padEditing, selected = padGroupMode && "Y" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Y") },
                 onMoveBy = { dx, dy -> groupAwareMove("Y", dx, dy) }, onMoveEnd = { groupAwareEnd("Y") })
         }
         val bDrag = padDrag("B")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx + 29.dp + bDrag.first, y = faceCy - 29.dp + bDrag.second)) {
-            Pad(label = "○", bit = GamepadController.BTN_B, slot = "B", editing = padEditing, selected = padGroupMode && "B" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx + 29.dp * padScale + bDrag.first, y = faceCy - 29.dp * padScale + bDrag.second)) {
+            Pad(label = "○", bit = GamepadController.BTN_B, slot = "B", scale = padScale, editing = padEditing, selected = padGroupMode && "B" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("B") },
                 onMoveBy = { dx, dy -> groupAwareMove("B", dx, dy) }, onMoveEnd = { groupAwareEnd("B") })
         }
         val aDrag = padDrag("A")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp + aDrag.first, y = faceCy + 29.dp + aDrag.second)) {
-            Pad(label = "✕", bit = GamepadController.BTN_A, slot = "A", editing = padEditing, selected = padGroupMode && "A" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp * padScale + aDrag.first, y = faceCy + 29.dp * padScale + aDrag.second)) {
+            Pad(label = "✕", bit = GamepadController.BTN_A, slot = "A", scale = padScale, editing = padEditing, selected = padGroupMode && "A" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("A") },
                 onMoveBy = { dx, dy -> groupAwareMove("A", dx, dy) }, onMoveEnd = { groupAwareEnd("A") })
         }
         val xDrag = padDrag("X")
-        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 87.dp + xDrag.first, y = faceCy - 29.dp + xDrag.second)) {
-            Pad(label = "□", bit = GamepadController.BTN_X, slot = "X", editing = padEditing, selected = padGroupMode && "X" in padGroupSel,
+        Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 87.dp * padScale + xDrag.first, y = faceCy - 29.dp * padScale + xDrag.second)) {
+            Pad(label = "□", bit = GamepadController.BTN_X, slot = "X", scale = padScale, editing = padEditing, selected = padGroupMode && "X" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("X") },
                 onMoveBy = { dx, dy -> groupAwareMove("X", dx, dy) }, onMoveEnd = { groupAwareEnd("X") })
         }
@@ -639,13 +663,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— Create / Options（顶部中轴两侧，PS5 的 Share/Options 位） ——
         val selDrag = padDrag("Sel")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.40f - W / 2 + selDrag.first, y = H * 0.05f + selDrag.second)) {
-            Pad(label = "Create", bit = GamepadController.BTN_SELECT, width = 76.dp, height = 30.dp, pill = true, slot = "Sel", editing = padEditing, selected = padGroupMode && "Sel" in padGroupSel,
+            Pad(label = "Create", bit = GamepadController.BTN_SELECT, width = 76.dp, height = 30.dp, pill = true, slot = "Sel", scale = padScale, editing = padEditing, selected = padGroupMode && "Sel" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Sel") },
                 onMoveBy = { dx, dy -> groupAwareMove("Sel", dx, dy) }, onMoveEnd = { groupAwareEnd("Sel") })
         }
         val startDrag = padDrag("Start")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.60f - W / 2 + startDrag.first, y = H * 0.05f + startDrag.second)) {
-            Pad(label = "Options", bit = GamepadController.BTN_START, width = 76.dp, height = 30.dp, pill = true, slot = "Start", editing = padEditing, selected = padGroupMode && "Start" in padGroupSel,
+            Pad(label = "Options", bit = GamepadController.BTN_START, width = 76.dp, height = 30.dp, pill = true, slot = "Start", scale = padScale, editing = padEditing, selected = padGroupMode && "Start" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Start") },
                 onMoveBy = { dx, dy -> groupAwareMove("Start", dx, dy) }, onMoveEnd = { groupAwareEnd("Start") })
         }
@@ -695,9 +719,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             var sizePickerOpen by remember(slot) { mutableStateOf(false) }
             Column(
                 modifier = Modifier
-                    .background(colorResource(R.color.overlay_scrim), RoundedCornerShape(14.dp))
-                    .border(1.dp, colorResource(R.color.overlay_pad_stroke_idle), RoundedCornerShape(14.dp))
-                    .padding(18.dp),
+                    .background(colorResource(R.color.overlay_scrim), RoundedCornerShape(14.dp * padScale))
+                    .border(1.dp, colorResource(R.color.overlay_pad_stroke_idle), RoundedCornerShape(14.dp * padScale))
+                    .padding(18.dp * padScale),
             ) {
                 val cfgCtx = LocalContext.current
                 val defaults = GamepadPadConfig.SLOT_DEFAULTS[slot]
@@ -709,18 +733,18 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 val isFunc = GamepadPadConfig.FUNC_SLOTS.contains(slot)
                 Text(
                     text = stringResource(R.string.ui_gamepad_cfg_title, slot),
-                    fontSize = 16.sp,
+                    fontSize = (16 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_text),
                 )
                 if (!isFunc) {
                     // 键位行：点开 / 收起 14 键网格（点选即落盘，保持展开方便连改多颗）
                     Text(
                         text = stringResource(R.string.ui_gamepad_cfg_key, GamepadPadConfig.labelOf(curBit)),
-                        fontSize = 15.sp,
+                        fontSize = (15 * padScale).sp,
                         color = colorResource(R.color.overlay_pad_text),
                         modifier = Modifier
-                            .padding(top = 14.dp)
-                            .height(40.dp)
+                            .padding(top = 14.dp * padScale)
+                            .height(40.dp * padScale)
                             .clickable {
                                 keyPickerOpen = !keyPickerOpen
                                 sizePickerOpen = false
@@ -730,6 +754,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     if (keyPickerOpen) {
                         PadKeyPicker(
                             currentBit = curBit,
+                            scale = padScale,
                             onPick = { newBit ->
                                 GamepadPadConfig.set(cfgCtx, slot, newBit, curSize)
                                 padConfigVersion++
@@ -741,11 +766,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // 尺寸行：点开 / 收起四档横条（捏边无级缩放不变，实时值优先于配置档）
                 Text(
                     text = stringResource(R.string.ui_gamepad_cfg_size, "${curSize}dp"),
-                    fontSize = 15.sp,
+                    fontSize = (15 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_text),
                     modifier = Modifier
-                        .padding(top = 10.dp)
-                        .height(40.dp)
+                        .padding(top = 10.dp * padScale)
+                        .height(40.dp * padScale)
                         .clickable {
                             sizePickerOpen = !sizePickerOpen
                             keyPickerOpen = false
@@ -754,14 +779,14 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 )
                 if (sizePickerOpen) {
                     Row(
-                        modifier = Modifier.padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 8.dp * padScale),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp * padScale),
                     ) {
                         GamepadPadConfig.SIZE_CHOICES.forEach { sz ->
                             val picked = sz == curSize
                             Box(
                                 modifier = Modifier
-                                    .size(width = 44.dp, height = 36.dp)
+                                    .size(width = 44.dp * padScale, height = 36.dp * padScale)
                                     .background(colorResource(R.color.overlay_pad_key_idle), RoundedCornerShape(10.dp))
                                     .border(
                                         if (picked) 2.dp else 1.dp,
@@ -775,7 +800,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(text = "$sz", fontSize = 13.sp, color = colorResource(R.color.overlay_pad_text))
+                                Text(text = "$sz", fontSize = (13 * padScale).sp, color = colorResource(R.color.overlay_pad_text))
                             }
                         }
                     }
@@ -785,11 +810,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // 否则按钮不回到默认位（存档清了、画面还在原地）。
                 Text(
                     text = stringResource(R.string.ui_gamepad_cfg_reset),
-                    fontSize = 15.sp,
+                    fontSize = (15 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_text),
                     modifier = Modifier
-                        .padding(top = 14.dp)
-                        .height(40.dp)
+                        .padding(top = 14.dp * padScale)
+                        .height(40.dp * padScale)
                         .clickable {
                             GamepadPadConfig.reset(cfgCtx, slot)
                             padOffsets = padOffsets + (slot to (0f to 0f))
@@ -800,11 +825,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // 完成：收起配置卡，顺带收起两处展开态
                 Text(
                     text = stringResource(R.string.ui_gamepad_cfg_done),
-                    fontSize = 15.sp,
+                    fontSize = (15 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_ok),
                     modifier = Modifier
-                        .padding(top = 14.dp)
-                        .height(40.dp)
+                        .padding(top = 14.dp * padScale)
+                        .height(40.dp * padScale)
                         .clickable {
                             keyPickerOpen = false
                             sizePickerOpen = false
@@ -825,15 +850,18 @@ internal fun GamepadPanel(onExit: () -> Unit) {
  * （onPick），卡不收起 —— 连改多颗不用重开。不引第三方布局库，纯 Row + chunked。
  */
 @Composable
-private fun PadKeyPicker(currentBit: Int, onPick: (Int) -> Unit) {
-    Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun PadKeyPicker(currentBit: Int, scale: Float, onPick: (Int) -> Unit) {
+    Column(
+        modifier = Modifier.padding(top = 8.dp * scale),
+        verticalArrangement = Arrangement.spacedBy(8.dp * scale),
+    ) {
         GamepadPadConfig.KEY_CHOICES.chunked(5).forEach { rowChoices ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp * scale)) {
                 rowChoices.forEach { (choice, label) ->
                     val picked = choice == currentBit
                     Box(
                         modifier = Modifier
-                            .size(44.dp) // 44dp 起步的既有点按热区口径
+                            .size(44.dp * scale) // 44dp 起步的既有点按热区口径（平板档随 scale 放大）
                             .background(colorResource(R.color.overlay_pad_key_idle), CircleShape)
                             .border(
                                 if (picked) 2.dp else 1.dp,
@@ -843,7 +871,7 @@ private fun PadKeyPicker(currentBit: Int, onPick: (Int) -> Unit) {
                             .clickable { onPick(choice) },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = label, fontSize = 14.sp, color = colorResource(R.color.overlay_pad_text))
+                        Text(text = label, fontSize = (14 * scale).sp, color = colorResource(R.color.overlay_pad_text))
                     }
                 }
             }
@@ -1010,6 +1038,10 @@ private fun Stick(
  *
  * [pill] = true 画药丸形（扳机 / Create / Options），否则圆形；配置里的尺寸档
  * 只作用于宽度（药丸高度固定，圆键宽高一致）。
+ *
+ * 2026-11-13 平板布局批：[scale] = 面板缩放系数（[padPanelScale]）。显示尺寸 =
+ * 配置存档值 × scale（捏边手势的实时值是显示口径，落盘前除回 scale 保持存档口径
+ * 不变 —— 同一份配置在手机与平板上观感一致、互不串档）。
  */
 @Composable
 private fun Pad(
@@ -1021,6 +1053,8 @@ private fun Pad(
     slot: String? = null,
     configVersion: Int = 0,
     editing: Boolean = false,
+    // 2026-11-13 平板布局批：显示缩放系数，手机档恒为 1
+    scale: Float = 1f,
     // issue#169 第 20 条：组模式下被点选中的按钮 —— 亮白描边优先于编辑绿，提示「整组一起动」
     selected: Boolean = false,
     onDown: (() -> Unit)? = null,
@@ -1031,11 +1065,12 @@ private fun Pad(
     val ctx = LocalContext.current
     // 键位 / 尺寸按配置版本重读：保存配置后父级状态变化触发重组，这里就拿到新值
     val effBit = if (slot == null) bit else GamepadPadConfig.bit(ctx, slot, bit)
-    // issue#169 第 18 条：编辑态捏边缘无级调整 —— 手势里实时改的本地尺寸优先于配置档
+    // issue#169 第 18 条：编辑态捏边缘无级调整 —— 手势里实时改的本地尺寸（显示口径）
+    // 优先于配置档；配置档读出的存档口径值乘 scale 变显示口径
     var liveSize by remember { mutableStateOf<Float?>(null) }
     val effW = liveSize?.dp
-        ?: (if (slot == null) width else GamepadPadConfig.sizeDp(ctx, slot, width.value.toInt()).dp)
-    val effH = if (pill) height else effW
+        ?: (if (slot == null) width else GamepadPadConfig.sizeDp(ctx, slot, width.value.toInt()).dp) * scale
+    val effH = if (pill) height * scale else effW
     val effLabel = if (slot == null) label else GamepadPadConfig.labelOf(effBit)
     // 回调经 rememberUpdatedState 桥进手势协程：重组换 lambda 不再重启手势
     val currentOnDown by rememberUpdatedState(onDown)
@@ -1078,10 +1113,10 @@ private fun Pad(
             .size(effW, effH)
             .background(bg, shape)
             .border(
-                width = when {
-                    selected -> 3.dp        // 选中描边加粗一档，和普通按压区分开
-                    pressed || editing -> 2.dp
-                    else -> 1.dp
+                width = when {   // 描边随 scale 放大，平板档与放大的键径保持同观感
+                    selected -> 3.dp * scale       // 选中描边加粗一档，和普通按压区分开
+                    pressed || editing -> 2.dp * scale
+                    else -> 1.dp * scale
                 },
                 color = border,
                 shape = shape,
@@ -1097,14 +1132,14 @@ private fun Pad(
                         // —— 编辑态：不发 HID。捏边缘 = 无级调大，拖 = 移位，tap = 配置。 ——
                         Feedback.haptic(ctx)
                         var moved = false
-                        // issue#169 第 18 条：按下点落在边缘环（外圈 12dp）即进调尺寸手势；
-                        // 直径 = 2 ×（手指到中心距离），拖动全程实时跟随，每帧落盘。
+                        // issue#169 第 18 条：按下点落在边缘环（外圈 12dp×scale）即进调尺寸手势；
+                        // 直径 = 2 ×（手指到中心距离），拖动全程实时跟随，每帧落盘（存档口径）。
                         val cx = size.width / 2f
                         val cy = size.height / 2f
                         val radiusPx = minOf(effW.value, effH.value) / 2f * density
-                        val edgePx = 12.dp.toPx()
+                        val edgePx = 12.dp * scale
                         var resizing = !slot.isNullOrEmpty() &&
-                            hypot(down.position.x - cx, down.position.y - cy) > radiusPx - edgePx
+                            hypot(down.position.x - cx, down.position.y - cy) > radiusPx - edgePx.toPx()
                         // resizing 成立 = slot 非空（见上一行的 isNullOrEmpty 判定），
                         // 但那是 var 初始化处的判定，编译器不会跨语句 smart cast；
                         // setSize 形参是非空 String —— 取一份局部非空副本落盘，
@@ -1124,11 +1159,14 @@ private fun Pad(
                                 moved = true
                             }
                             if (resizing) {
-                                // 边缘无级调大：直径跟着手指到中心的距离走（限制在合理档位内）
+                                // 边缘无级调大：直径跟手指到中心的距离走（显示口径限制在档位内；
+                                // 平板档上下限同乘 scale，落盘时除回 —— 存档口径手机/平板一致）
                                 val d = (2f * hypot(x - cx, y - cy) / density)
-                                    .coerceIn(PAD_RESIZE_MIN_DP, PAD_RESIZE_MAX_DP)
+                                    .coerceIn(PAD_RESIZE_MIN_DP * scale, PAD_RESIZE_MAX_DP * scale)
                                 liveSize = d
-                                slotKey?.let { GamepadPadConfig.setSize(ctx, it, d.toInt()) }
+                                slotKey?.let {
+                                    GamepadPadConfig.setSize(ctx, it, (d / scale).toInt())
+                                }
                             } else if (moved) {
                                 // 按住拖动：按钮实时跟手（面板层改 offset），松手落盘
                                 val onMoveNow = currentOnMoveBy
@@ -1180,7 +1218,8 @@ private fun Pad(
     ) {
         Text(
             text = effLabel,
-            fontSize = if (effLabel.length > 2) 13.sp else 17.sp,
+            // 字号随 scale 放大：平板档的大键配大字，键帽文字不再相对显小
+            fontSize = if (effLabel.length > 2) (13 * scale).sp else (17 * scale).sp,
             color = colorResource(R.color.overlay_pad_text),
         )
     }
