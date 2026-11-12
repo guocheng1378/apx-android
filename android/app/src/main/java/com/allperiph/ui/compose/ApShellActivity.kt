@@ -519,8 +519,13 @@ class ApShellActivity : ComponentActivity() {
                         // 在横屏常显后，底部完整可见优先。
                         // 成宇 2026-11-12 19:31「所有键盘区不要手势控制面」：键盘页不再接
                         // TouchpadModule 手势链路，触控板手势面只在触控板页（page 1）。
+                        // 成宇 2026-11-12 19:58「上下都留8dp」：横屏顶让位从 24dp 收到 8dp，
+                        // 与 bottomGap 同口径 —— 上下各 8dp 呼吸，键区吃回全部剩余高度。
+                        // 已知代价（2026-11-04 实测口径）：低栏胶囊下沿约 56dp，横屏键位区顶部
+                        // 只到 8 + 页签行高 —— 胶囊会盖住页签行尾部（灯效/语音那组）；页签行
+                        // 本身可点区域完整，真机反馈压住再议。
                         2 -> ApKeyboardPage(
-                            topBar = if (landscape) maxOf(24.dp, topPad) else topGap,
+                            topBar = if (landscape) 8.dp else topGap,
                             bottomGap = bottomGap,
                         )
                         else -> SettingsPage(
