@@ -238,7 +238,6 @@
     <string name="ui_ball_fn_clipboard_copied">已发送（%1$d 字符）</string>
     <string name="ui_ball_fn_clipboard_empty">剪贴板没有文字</string>
     <string name="ui_ball_fn_clipboard_nolink">无受控设备 · 先到「状态 → 受控与出口」选一台</string>
-    <string name="ui_ball_fn_clipboard_now">当前剪贴板：%1$s</string>
     <string name="ui_ball_fn_screen">副屏</string>
     <string name="ui_ball_fn_camera">摄像头</string>
     <string name="ui_ball_fn_files">文件</string>
@@ -514,7 +513,6 @@
     <string name="ui_nav_touchpad">触控板</string>
     <string name="ui_nav_keyboard">键盘</string>
     <string name="ui_nav_settings">设置</string>
-    <string name="ui_nav_switch_title">切换页面</string>
     <string name="ui_home_sec_quick">快捷入口</string>
     <!-- 审计批2（2026-11-12）：低栏快捷弹窗拉起的是 LocalSend 互传页（SendActivity），
          原名「发送文件」与设置页「文件面板」（对端协议收发）易混 —— 改「互传发文件」点开区别。 -->
