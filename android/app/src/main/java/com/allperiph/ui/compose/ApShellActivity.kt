@@ -280,17 +280,10 @@ class ApShellActivity : ComponentActivity() {
         // 收到 8dp —— 竖屏多出 80dp、横屏多出 88dp 可用高度。页面侧 bottomGap 只管
         // 低栏让位，手势条避让走 insets.bottom（StatusPage:94），收到 8dp 安全。
         // ⚠️ 键盘页横屏 40dp 特判不动：球与胶囊同角位、下沿高度相近，仍需避让修饰键排。
-        val bottomGap by androidx.compose.animation.core.animateDpAsState(
-            targetValue = 8.dp,
-            // 界面稿 08 质感层：禁弹簧（原 LowBouncy 会回弹），进入曲线 200ms，
-            // 设置页「动效」关掉时 durationMs = 0ms（直接落位）。
-            animationSpec = androidx.compose.animation.core.tween(
-                durationMillis =
-                    com.allperiph.ui.miuix.ApMotion.durationMs(this@ApShellActivity, 200),
-                easing = com.allperiph.ui.miuix.ApMotion.EnterEasing,
-            ),
-            label = "bottomGap",
-        )
+        // 2026-11-12 体积优化轮顺手的死动画清理：v73 拆掉收/展后 bottomGap 的目标值
+        // 只剩常量 8.dp，animateDpAsState 对常量是每帧空转（首帧后即 idle，但仍多一条
+        // 动画状态与 label 重组路径）。降级为普通常量；topGap 目标仍随横竖屏翻转，保留动画。
+        val bottomGap = 8.dp
         val topGap by androidx.compose.animation.core.animateDpAsState(
             targetValue = if (landscape) 8.dp else 0.dp,
             // 同 bottomGap：进入曲线 200ms、无回弹（界面稿 08）。
