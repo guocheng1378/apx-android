@@ -119,6 +119,9 @@ class FloatingBallService : Service() {
         private const val KIND_CLIPBOARD = "clipboard"
         private const val PREFS = "apx_floating_ball"
         private const val KEY_ON = "on"
+
+        /** 转屏复查延迟（reflowForScreenChange）：给系统尺寸回写留余量，见该函数注释 */
+        private const val REFLOW_RETRY_MS = 400L
         const val ACTION_TOGGLE = "com.allperiph.ui.floating_ball.toggle"
         const val ACTION_STOP = "com.allperiph.ui.floating_ball.stop"
 
@@ -545,6 +548,10 @@ class FloatingBallService : Service() {
      */
     private val dockHideHandler = Handler(Looper.getMainLooper())
 
+    /** 转屏复查：reflowForScreenChange 补一拍的排程器（同为主线程 Handler）与待执行任务 */
+    private val reflowHandler = Handler(Looper.getMainLooper())
+    private val reflowRetry = Runnable { reflowForScreenChange(fromRetry = true) }
+
     /** 待执行的隐藏任务；取消与重排都经它，避免残留回调在错误状态里把球收没 */
     private var dockHidePending: Runnable? = null
 
@@ -601,7 +608,7 @@ class FloatingBallService : Service() {
         reflowForScreenChange()
     }
 
-    private fun reflowForScreenChange() {
+    private fun reflowForScreenChange(fromRetry: Boolean = false) {
         val dm = realDisplayMetrics()
         // 幂等闸门：本轮重排是否真换了屏幕尺寸。多条通道（reflowCb / onConfigurationChanged /
         // DisplayListener / reflowNow）重复触发时，只有第一条会干活，后面的空跑。
@@ -610,6 +617,16 @@ class FloatingBallService : Service() {
             (lastScreenW != dm.widthPixels || lastScreenH != dm.heightPixels)
         lastScreenW = dm.widthPixels
         lastScreenH = dm.heightPixels
+
+        // 成宇 2026-11-12 22:4x「好像是没有旋转后重建什么的」+ 本仓 v73 已实证过一次
+        // 「系统配置回写滞后」（遥控器旋转偶发按旧方向排一帧）：三条通道可能在系统
+        // 尺寸尚未翻转时就全部跑完，闸门把 lastScreen 记成旧尺寸、后面的真变化再也没
+        // 人触发 —— 表现就是「旋转后没重建」。补一拍延迟复查：届时尺寸若真变了，
+        // sizeChanged 才为真、幂等不重复重开；重试轮本身不再续排，不会空转。
+        if (!fromRetry) {
+            reflowHandler.removeCallbacks(reflowRetry)
+            reflowHandler.postDelayed(reflowRetry, REFLOW_RETRY_MS)
+        }
 
         // 面板展开期间球是收起的：转屏时面板的高度/横竖布局都在展开那一刻按旧屏算死，
         // 这里按登记的 [panelKind] 原样重开一遍，所有派生参数按新整屏重算
@@ -793,6 +810,8 @@ class FloatingBallService : Service() {
                 .unregisterDisplayListener(displayListener)
         }
         dockAnim?.cancel()
+        // 转屏复查的补拍与停靠隐藏同属窗口拆除后不该再跑的回调，一并撤掉
+        reflowHandler.removeCallbacks(reflowRetry)
         live = null
         shutdown()
         isRunning = false
