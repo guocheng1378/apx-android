@@ -36,11 +36,17 @@ fun ApTwoPaneScaffold(
     modifier: Modifier = Modifier,
     /** 左栏宽度；180dp = 设置页迁移口径 */
     leftWidth: Dp = 180.dp,
+    /**
+     * 左栏**按比例**占宽（issue#168 2026-11-12「状态页横屏左右分栏，左侧过窄，应该分为
+     * 左右各二分之一」）：非空时左栏走 `weight(leftWeight)`（转屏按新窗宽自动重算），
+     * 与 [leftWidth] 二选一 —— 状态页传 1f（左 1/2 + 右 weight(1f) = 各半），
+     * 设置页 / 文件页不传，保持 180dp 固定栏的旧观感。
+     */
+    leftWeight: Float? = null,
 ) {
     Row(modifier = modifier.fillMaxWidth()) {
         Box(
-            modifier = Modifier
-                .width(leftWidth)
+            modifier = (if (leftWeight != null) Modifier.weight(leftWeight) else Modifier.width(leftWidth))
                 .fillMaxHeight(),
             contentAlignment = Alignment.Center,
         ) { left() }

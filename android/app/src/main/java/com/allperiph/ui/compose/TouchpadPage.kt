@@ -96,7 +96,11 @@ fun TouchpadPage(
     val adaptive = rememberApAdaptiveLayout()
     val screenWidthDp = adaptive.width.value
     val shortSide = minOf(screenWidthDp, adaptive.height.value)
-    val wide = adaptive.twoPane
+    // issue#168 2026-11-12「pad 竖屏时触控板页不左右分栏，保持上下布局」：
+    // 双栏只认**横屏** —— 竖屏 pad（宽 ≥600dp）此前也会进 wide 右列，快捷键挤成竖条；
+    // 回落单栏后走与手机竖屏同一套「手势面 + 下方快捷键区」布局。
+    // 手机竖屏本就 twoPane=false，不受影响。
+    val wide = adaptive.twoPane && adaptive.landscape
     val sideTarget = when {
         screenWidthDp >= 840f -> 268.dp
         screenWidthDp >= 600f -> 292.dp

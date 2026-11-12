@@ -101,8 +101,11 @@ fun StatusPage(
 
     // —— 段落抽块（平板适配 §6.2，2026-11-11）——
     // ①②③④=「开关与操作」（传输/音频方向/控制/模块），⑤⑥=「详情与诊断」（链路/帮助）。
-    // 双栏（≥600dp）：左栏=操作块，右栏=详情块 + 所选模块详情卡；窄屏：两块顺序复用，
-    // 与迁移前单栏完全一致 —— 两套观感共用同一份 Section 代码，不维护两份。
+    // 双栏（≥600dp 且**横屏**，issue#168 2026-11-12「pad 竖屏时状态页不左右分栏，
+    // 保持上下布局」）：竖屏即使是宽 pad（≥600dp）也回落单栏 —— 竖屏高度贵，
+    // 左右分栏把每栏都挤成窄条，不如上下铺开；手机竖屏本就 twoPane=false 不受影响。
+    // 本页内所有 twoPane 判定统一走这个值，保证分栏分支与模块行形态同步切换。
+    val twoPane = adaptive.twoPane && adaptive.landscape
     // selModule 是模块在 state.modules 里的下标；快照每秒重建但 AgentController 注册序
     // 不变，下标选择不会漂移；越界（模块列表为空的瞬间）由 getOrNull 兜底。
     var selModule by remember { mutableIntStateOf(0) }
@@ -305,7 +308,7 @@ fun StatusPage(
                             }
                         }
                     }
-                    if (adaptive.twoPane) {
+                    if (twoPane) {
                         // 平板双栏（§6.2）：整行可点选模块，详情/诊断落右栏；
                         // 选中态只在右栏体现，左栏不加高亮（避免行高随选中跳动）
                         ApComponents.ClickRow(
@@ -329,7 +332,7 @@ fun StatusPage(
     }
     val detailSections: @Composable () -> Unit = {
 
-        if (adaptive.twoPane) {
+        if (twoPane) {
             // 右栏详情卡（§6.2「左栏列表，右栏详情」）：展示左栏选中的模块行，
             // 标题用模块名、正文用其实时 detail（状态/链路口径与左栏同一份快照）。
             // 无新文案 —— 全部复用模块行已有的 label/detail/stateRes，窄屏不显示本卡。
@@ -448,12 +451,15 @@ fun StatusPage(
         if (helpOpen) ApHelpSheet(onDismiss = { helpOpen = false })
     }
 
-    if (adaptive.twoPane) {
+    if (twoPane) {
         // 平板/宽屏双栏（v223.29.73 统一骨架）：改走 ApTwoPaneScaffold —— 左栏（操作）
-        // 固定 180dp 与设置页同口径、内容竖直居中，右栏（模块详情卡 + 链路诊断 + 帮助）
-        // 吃掉剩余宽度；两栏各自滚动保留，外层统一垫 hPad 边距（与本页单栏口径同源）。
-        // 此前是自拼 weight(1f) 左右各半，与设置页的骨架不一致。
+        // 内容竖直居中，右栏（模块详情卡 + 链路诊断 + 帮助）吃掉剩余宽度；两栏各自
+        // 滚动保留，外层统一垫 hPad 边距（与本页单栏口径同源）。
+        // issue#168 2026-11-12「状态页横屏左右分栏，左侧过窄，应该分为左右各二分之一」：
+        // 左栏不再固定 180dp（那是设置页左分类列的窄栏口径），改 leftWeight=1f ——
+        // 左 weight(1f) + 右 weight(1f) = 各占一半，转屏自动跟随，无需自己算屏宽。
         ApTwoPaneScaffold(
+            leftWeight = 1f,
             left = {
                 Column(
                     modifier = Modifier
