@@ -101,6 +101,32 @@ class VoiceCaptureActivity : ComponentActivity() {
         /** 离线模型落盘目录名（内部存储；目录内有 .ok 标记 = 下载+解压完整） */
         private const val MODEL_DIR = "vosk-model-small-cn-0.22"
 
+        /** 系统识别器连败计数偏好（只存计数，不存任何识别内容） */
+        private const val VOICE_PREFS = "apx_voice"
+
+        /**
+         * 系统识别器连续空结果阈值（2026-11-13 pad 侧反馈追评：「可以到说话环节，但马上
+         * 就提示未识别到声音…马上又开始重复循环下载语音包」）：部分厂商识别器对第三方
+         * 应用直接秒败（弹了说话环节、立刻空结果返回），用户死循环在坏掉的系统路，永远
+         * 摸不到本就装好的离线识别。连败达到该值就落盘判定「这台设备系统识别器不可用」，
+         * 此后 [hasNonGoogleRecognizer] 即使为真也直接走离线 —— 系统识别成功会清零，
+         * 用户手动取消（RESULT_CANCELED）不计数，误伤面很小。
+         */
+        private const val SYS_FAIL_LIMIT = 2
+
+        private fun sysFailCount(c: Context): Int =
+            c.getSharedPreferences(VOICE_PREFS, Context.MODE_PRIVATE).getInt("sys_fails", 0)
+
+        private fun bumpSysFail(c: Context) {
+            c.getSharedPreferences(VOICE_PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("sys_fails", sysFailCount(c) + 1).apply()
+        }
+
+        private fun resetSysFail(c: Context) {
+            c.getSharedPreferences(VOICE_PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("sys_fails", 0).apply()
+        }
+
         /**
          * 解压总量上限（全审查条 14）：模型包解压后实际 ~40MB，留 6 倍余量 ——
          * 上游 zip 被换成 zip 炸弹时，解压到上限即抛错，不写满内部存储。
@@ -138,6 +164,12 @@ class VoiceCaptureActivity : ComponentActivity() {
     /** 结果只投递一次的闸门：静音收束 / 超时 / 出错 / 手动「结束」可能先后到达 */
     private var delivered = false
 
+    /**
+     * 本次是否走的系统识别路（连败回落判定用，见 [SYS_FAIL_LIMIT]）：
+     * onCreate 定死一次，识别全程不变 —— 离线路的空结果不该拉低系统识别器的信任。
+     */
+    private var sysPath = false
+
     /** 离线路径的界面状态（Compose 驱动；系统识别路径不碰它） */
     private var offlineState by mutableStateOf<Offline>(Offline.NeedDownload)
 
@@ -148,8 +180,10 @@ class VoiceCaptureActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 双路分发：有非 Google 系统识别器走老路（透明无感）；否则进离线面板（可见卡片）
-        if (hasNonGoogleRecognizer()) {
+        // 双路分发：有非 Google 系统识别器走老路（透明无感）；否则进离线面板（可见卡片）。
+        // 系统识别器秒败回落（见 SYS_FAIL_LIMIT 注释）：这台设备连败过就不再信它，直接走离线
+        sysPath = hasNonGoogleRecognizer() && sysFailCount(this) < SYS_FAIL_LIMIT
+        if (sysPath) {
             launchSpeech()
         } else {
             setContent { OfflinePanel() }
@@ -188,6 +222,7 @@ class VoiceCaptureActivity : ComponentActivity() {
             .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
             .firstOrNull { !(it.activityInfo?.packageName ?: "").startsWith("com.google.android") }
         if (pick == null) { // 理论不可达（onCreate 已判过）；防御性兜底进离线面板
+            sysPath = false
             setContent { OfflinePanel() }
             startOfflineListening()
             return
@@ -197,7 +232,7 @@ class VoiceCaptureActivity : ComponentActivity() {
             .onFailure {
                 Log.w(TAG, "识别页拉起失败：${it.message}")
                 toast(R.string.ui_kb_voice_unavailable)
-                finishDeliver(null)
+                finishDeliver(null, sysFail = true)
             }
     }
 
@@ -207,7 +242,9 @@ class VoiceCaptureActivity : ComponentActivity() {
         // EXTRA_RESULTS 字面值与 SpeechRecognizer 源码逐字一致（同旧 launchKeyboardVoice 口径）
         val t = data?.getStringArrayListExtra("android.speech.extra.RESULTS")
             ?.firstOrNull().orEmpty()
-        finishDeliver(t.ifBlank { null })
+        // 用户主动取消（RESULT_CANCELED）不计识别器失败（见 SYS_FAIL_LIMIT 注释）；
+        // OK 但没结果 / 其他码才算秒败证据
+        finishDeliver(t.ifBlank { null }, sysFail = resultCode != RESULT_CANCELED)
     }
 
     // ==================== 路径二：内置离线识别（Vosk） ====================
@@ -584,11 +621,23 @@ class VoiceCaptureActivity : ComponentActivity() {
         }
     }
 
-    /** 唯一出口：投递给订阅方后退出；引擎资源幂等回收（delivered 闸门防二投递） */
-    private fun finishDeliver(text: String?) {
+    /**
+     * 唯一出口：投递给订阅方后退出；引擎资源幂等回收（delivered 闸门防二投递）。
+     * @param sysFail 仅系统识别路：真 = 本次空结果是识别器自己的失败（非用户取消），
+     *   记入连败计数（见 [SYS_FAIL_LIMIT]）；成功结果先清零计数。
+     */
+    private fun finishDeliver(text: String?, sysFail: Boolean = false) {
         if (delivered) return
         delivered = true
         releaseEngine()
+        // 连败只在系统路记账（见 sysPath 注释）：离线路的空结果不改系统识别器的信任
+        if (sysPath) {
+            if (text != null) {
+                resetSysFail(this)
+            } else if (sysFail) {
+                bumpSysFail(this)
+            }
+        }
         runCatching { onResult?.invoke(text) }
             .onFailure { Log.w(TAG, "识别结果投递失败：${it.message}") }
         finish()

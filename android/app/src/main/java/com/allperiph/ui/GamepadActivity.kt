@@ -179,29 +179,45 @@ private const val PAD_RESIZE_MIN_DP = 36f
 private const val PAD_RESIZE_MAX_DP = 120f
 
 /**
+ * 十字键/面键簇的横向锚点（issue#169 追评 2026-11-13「pad 上 app 手柄和悬浮球手柄都缺
+ * ABXY」）：两簇按 0.13W/0.87W 布锚，簇中心到边键外缘最宽 87dp —— 面板宽 W < 669dp 时
+ * （pad 高密度屏、分屏/自由窗口都可能出现），B 键右缘 0.87W+87dp 超出面板右缘，整簇
+ * 被裁出屏外，看起来就是「缺 4 个键」。锚点先按百分比、再钳进「整簇可见」范围
+ * （左右各留 16dp 边距，103dp = 87dp 簇半径 + 16dp）；极窄面板两簇会互相靠近，
+ * 但至少键都在屏上、点得到也拖得回来。⚠️ 与 padBaseCenters 的公式同源（吸附基准
+ * 必须和实际布局一致，改一处必须同步另一处）。
+ */
+internal fun dpadAnchorX(W: Dp): Dp = (W * 0.13f).coerceAtLeast(103.dp)
+
+internal fun faceAnchorX(W: Dp): Dp = (W * 0.87f).coerceAtMost(W - 103.dp)
+
+/**
  * 各槽位默认中心坐标（dp 浮点，面板坐标系）—— issue#169 第 19 条对齐吸附用。
  *
  * ⚠️ 与 GamepadPanel 布局代码里的 align/offset 公式一一对应（改布局必须同步这里）：
  * 上左为原点，W/H 为面板整幅。功能键 Exit/Edit 的默认位
  * 也收录（12/60dp 起、40dp 见方，见 ✕/✎ 两格的 offset 公式）。
+ * 十字/面键锚点走 [dpadAnchorX]/[faceAnchorX]（窄面板钳制，见函数注释）。
  */
 private fun padBaseCenters(W: Dp, H: Dp): Map<String, Pair<Float, Float>> = mapOf(
     "L2" to (138.dp.value to (H * 0.02f + 16.dp).value),
     "R2" to ((W - 138.dp).value to (H * 0.02f + 16.dp).value),
     "L1" to (142.dp.value to (H * 0.125f + 32.dp).value),
     "R1" to ((W - 142.dp).value to (H * 0.125f + 32.dp).value),
-    "DUp" to ((W * 0.13f).value to (H * 0.37f - 58.dp).value),
-    "DDown" to ((W * 0.13f).value to (H * 0.37f + 58.dp).value),
-    "DLeft" to ((W * 0.13f - 58.dp).value to (H * 0.37f).value),
-    "DRight" to ((W * 0.13f + 58.dp).value to (H * 0.37f).value),
-    "Y" to ((W * 0.87f).value to (H * 0.37f - 58.dp).value),
-    "A" to ((W * 0.87f).value to (H * 0.37f + 58.dp).value),
-    "X" to ((W * 0.87f - 58.dp).value to (H * 0.37f).value),
-    "B" to ((W * 0.87f + 58.dp).value to (H * 0.37f).value),
+    "DUp" to (dpadAnchorX(W).value to (H * 0.37f - 58.dp).value),
+    "DDown" to (dpadAnchorX(W).value to (H * 0.37f + 58.dp).value),
+    "DLeft" to ((dpadAnchorX(W) - 58.dp).value to (H * 0.37f).value),
+    "DRight" to ((dpadAnchorX(W) + 58.dp).value to (H * 0.37f).value),
+    "Y" to (faceAnchorX(W).value to (H * 0.37f - 58.dp).value),
+    "A" to (faceAnchorX(W).value to (H * 0.37f + 58.dp).value),
+    "X" to ((faceAnchorX(W) - 58.dp).value to (H * 0.37f).value),
+    "B" to ((faceAnchorX(W) + 58.dp).value to (H * 0.37f).value),
     "Sel" to ((W * 0.40f).value to (H * 0.05f + 15.dp).value),
     "Start" to ((W * 0.60f).value to (H * 0.05f + 15.dp).value),
-    "LStick" to ((W * 0.27f).value to (H * 0.78f).value),
-    "RStick" to ((W * 0.73f).value to (H * 0.78f).value),
+    // 摇杆也要防出屏：摇杆直径封顶 180dp（与 GamepadPanel 的 stickSize 同式），
+    // W*0.27 ± 半径在窄面板会越界，锚点钳进「半径 + 8dp 边距」内
+    "LStick" to ((W * 0.27f).coerceAtLeast(minOf(180.dp, H * 0.38f) / 2 + 8.dp).value to (H * 0.78f).value),
+    "RStick" to ((W * 0.73f).coerceAtMost(W - minOf(180.dp, H * 0.38f) / 2 - 8.dp).value to (H * 0.78f).value),
     "Exit" to (32.dp.value to 28.dp.value),
     "Edit" to (80.dp.value to 28.dp.value),
 )
@@ -503,7 +519,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // —— 十字键（左侧中部；此前缺失，占报告位 12..15，见 GamepadController 注释） ——
         // 簇内四键中心间距 = 键径（58dp），拼成正十字：Up 在上、Down 在下、Left/Right 在侧。
-        val dpadCx = W * 0.13f
+        // 锚点走钳制版（dpadAnchorX）：窄面板上 0.13W−87dp 会越出左缘（见函数注释）
+        val dpadCx = dpadAnchorX(W)
         val dpadCy = H * 0.37f
         val dUpDrag = padDrag("DUp")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = dpadCx - 29.dp + dUpDrag.first, y = dpadCy - 87.dp + dUpDrag.second)) {
@@ -531,7 +548,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
 
         // —— 面键 ✕○□△（右侧中部，PS5 菱形位：△ 上 / ○ 右 / ✕ 下 / □ 左） ——
-        val faceCx = W * 0.87f
+        // 锚点走钳制版（faceAnchorX）：窄面板上 0.87W+87dp 越出右缘，ABXY 整簇被裁掉
+        val faceCx = faceAnchorX(W)
         val faceCy = H * 0.37f
         val yDrag = padDrag("Y")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp + yDrag.first, y = faceCy - 87.dp + yDrag.second)) {
@@ -575,10 +593,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // —— 双摇杆（底部中轴两侧；PlayStation 系摇杆不贴角） ——
         // 编辑态：上层盖一块透明拖拽面接管触摸（摇杆本体收不到事件），拖 = 移位落盘；
         // 普通态不盖章，摇杆照常吃输入。JoystickView 自身不动。
+        // 摇杆横向锚点同样钳制（与 padBaseCenters 同式）：窄面板防摇杆越出左右缘
+        val lsCx = (W * 0.27f).coerceAtLeast(stickSize / 2 + 8.dp)
+        val rsCx = (W * 0.73f).coerceAtMost(W - stickSize / 2 - 8.dp)
         Stick(
             slot = "LStick",
             modifier = Modifier.align(Alignment.TopStart)
-                .offset(x = W * 0.27f - stickSize / 2 + padDrag("LStick").first, y = H * 0.78f - stickSize / 2 + padDrag("LStick").second),
+                .offset(x = lsCx - stickSize / 2 + padDrag("LStick").first, y = H * 0.78f - stickSize / 2 + padDrag("LStick").second),
             size = stickSize, editing = padEditing,
             selected = padGroupMode && "LStick" in padGroupSel,
             onTap = { groupAwareTap("LStick") },
@@ -589,7 +610,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         Stick(
             slot = "RStick",
             modifier = Modifier.align(Alignment.TopStart)
-                .offset(x = W * 0.73f - stickSize / 2 + padDrag("RStick").first, y = H * 0.78f - stickSize / 2 + padDrag("RStick").second),
+                .offset(x = rsCx - stickSize / 2 + padDrag("RStick").first, y = H * 0.78f - stickSize / 2 + padDrag("RStick").second),
             size = stickSize, editing = padEditing,
             selected = padGroupMode && "RStick" in padGroupSel,
             onTap = { groupAwareTap("RStick") },

@@ -670,6 +670,7 @@ class FloatingBallService : Service() {
      */
     private fun reExpandPanel() {
         val kind = panelKind ?: run { collapse(); return }
+        panelReExpanding = true
         collapse()
         when (kind) {
             KIND_TOUCHPAD -> expand()
@@ -678,6 +679,10 @@ class FloatingBallService : Service() {
             KIND_DEVICES -> expandDevices()
             KIND_CLIPBOARD -> expandClipboard()
         }
+        panelReExpanding = false
+        // 手柄横屏锚点跨重开周期存活（见 collapse 注释）；重开没成（窗口挂载失败等）
+        // 就得把锚点拆掉，不能让横屏请求悬空挂着
+        if (kind == KIND_GAMEPAD && panel == null) detachPadOrientAnchor()
     }
 
     /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
@@ -813,6 +818,8 @@ class FloatingBallService : Service() {
         dockAnim?.cancel()
         // 转屏复查的补拍与停靠隐藏同属窗口拆除后不该再跑的回调，一并撤掉
         reflowHandler.removeCallbacks(reflowRetry)
+        // 手柄横屏锚点（若还挂着）：服务销毁必须一并拆除，横屏请求不能悬空
+        detachPadOrientAnchor()
         live = null
         shutdown()
         isRunning = false
@@ -2422,6 +2429,11 @@ class FloatingBallService : Service() {
      * v223.29.6：外面套 [LandscapePanel] —— overlay 没有 `requestedOrientation`，
      * 竖屏打开时此前就是「手柄挤在半屏」（成宇 2026-11-04「悬浮板的手柄，没有强制横屏」）。
      * 容器在竖屏时把内容按横屏尺寸布局并旋转 90°，与主屏 [GamepadActivity] 的横屏观感一致。
+     *
+     * 2026-11-13 pad 侧反馈「屏幕没切横屏，但手柄却竖着显示横屏布局」：旋转画只是权宜，
+     * 用户不转手机看到的就是歪着的横屏布局。补横屏锚点（[attachPadOrientAnchor]）：
+     * overlay 窗口自己带 `screenOrientation` 请求字段（公开 API，非 Activity 专属），
+     * 面板展开期间整屏保持横屏，收起即还 —— 与主屏入口的强制横屏观感一致。
      */
     private fun expandGamepad() {
         // 转屏重开（issue#168 2026-11-12 系统性排查）：横竖判定由 LandscapePanel 自己按
@@ -2429,9 +2441,44 @@ class FloatingBallService : Service() {
         // 见 rememberApAdaptiveLayout 的注释），改由这里按整屏实测传入；面板转屏即重开，
         // 重开时这个值自然按新方向重算。
         val (wpx, hpx) = realScreenSize()
+        // 横屏锚点先挂（面板窗口一挂，屏幕该转的马上转；转完 reflow 会重开一次面板，
+        // 那次起 landscape 入参就是 true，面板直接原样渲染不再旋转）
+        attachPadOrientAnchor()
         expandComposePanel(WindowManager.LayoutParams.MATCH_PARENT, kind = KIND_GAMEPAD, keepScreenOn = true) {
             LandscapePanel(landscape = wpx > hpx) { GamepadPanel(onExit = { collapse() }) }
         }
+    }
+
+    // —— 悬浮手柄的横屏锚点（见 [expandGamepad] 注释） ——
+
+    /** 锚点窗口横跨「重开周期」存活的标记：[reExpandPanel] 先收再开，间隙里不能拆 */
+    private var panelReExpanding = false
+
+    /** 1x1 透明锚点窗口：挂着时对系统说「请保持横屏」，拆掉即还（见 [expandGamepad] 注释） */
+    private var padOrientAnchor: View? = null
+
+    private fun attachPadOrientAnchor() {
+        if (padOrientAnchor != null) return
+        val v = View(this)
+        val lp = WindowManager.LayoutParams(
+            1,
+            1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSPARENT,
+        )
+        // 公开字段（API 1+ 起在 WindowManager.LayoutParams 上）：对可见窗口生效。
+        // 个别 ROM 不认 overlay 的取向请求时行为退回「旋转画」包装，不会更糟。
+        lp.screenOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        val ok = runCatching { wm.addView(v, lp) }.isSuccess
+        if (ok) padOrientAnchor = v else Log.w(TAG, "悬浮手柄横屏锚点挂载失败")
+    }
+
+    private fun detachPadOrientAnchor() {
+        padOrientAnchor?.let { runCatching { wm.removeView(it) } }
+        padOrientAnchor = null
     }
 
     /** 悬浮设备选择：[ApDevicePanel] 与主屏选择器同一份内容（TvDiscovery 广播列表），选中即连。 */
@@ -2570,6 +2617,9 @@ class FloatingBallService : Service() {
     }
 
     private fun collapse() {
+        // 手柄横屏锚点跟面板同生命周期：真正收起才拆。转屏重开（reExpandPanel）的
+        // 先收后开间隙不能拆 —— 拆了系统转回竖屏、下一拍又转回横屏，面板来回跳。
+        if (panelKind == KIND_GAMEPAD && !panelReExpanding) detachPadOrientAnchor()
         detach(panel)
         panel = null
         panelHost?.destroy()
