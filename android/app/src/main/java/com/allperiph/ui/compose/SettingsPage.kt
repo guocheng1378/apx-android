@@ -48,6 +48,8 @@ import com.allperiph.ui.ApTiming
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
 import com.allperiph.ui.miuix.ApType
+import com.allperiph.ui.miuix.enterStagger
+import com.allperiph.ui.miuix.rememberEnterStagger
 import androidx.compose.ui.window.Dialog
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
@@ -322,7 +324,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 明暗 / 取色从原「外观」段并入本段：它们本就是一键主题的一部分，单独占一段
             // 既多一屏又割裂。四套命名搭配一键写进同一批偏好（ApThemePresets.apply 是
             // 唯一写入口，不新造状态），套完仍可逐项微调，微调后这里显示「自定义」。
-            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec), modifier = Modifier.enterStagger(rememberEnterStagger(0))) {
                 Column {
                     WindowDropdownPreference(
                         title = ctx.getString(R.string.ui_set_label_theme_lightdark),
@@ -357,7 +359,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 皮肤 / 键帽 / 特效 / 震动 / 音效 分散在下面三个分组，换「整体感觉」要改五项。
             // 这里给四套命名搭配，一键写进同一批偏好（ApThemePresets.apply 是唯一写入口，
             // 不新造状态）。套完仍可逐项微调，微调后这里显示「自定义」。
-            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec_presets)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_theme_preset_sec_presets), modifier = Modifier.enterStagger(rememberEnterStagger(1))) {
                 Column {
                     // 以 applyRev 为 key：套完主题当场重算「当前是这套」，下面的
                     // 键帽/特效/震动/音效四个下拉也一并重读到新档（各自 remember 的 key 同源）。
@@ -403,7 +405,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             var kbDensity by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.densityIndex(ctx)) }
             var kbLayout by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.layoutIndex(ctx)) }
             var kbFx by remember(lookRev) { mutableIntStateOf(com.allperiph.ui.KeyPref.effectIndex(ctx)) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_fine_tune)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_fine_tune), modifier = Modifier.enterStagger(rememberEnterStagger(2))) {
                 Column {
                     val skinPicks = ApSkin.SCOPES.map { (_, scope) -> ApSkin.picked(ctx, scope) }
                     val wholeSkinSelected = if (skinPicks.toSet().size == 1) {
@@ -510,7 +512,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
 
             // ———————————————— 背景图（成宇 2026-11-03 从「数据与维护」搬来） ————————————————
             // 背景是外观项：预设底色 + 相册图 + 动态背景三件事都在这一段。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_bg)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_bg), modifier = Modifier.enterStagger(rememberEnterStagger(3))) {
                 Column {
                     ApComponents.ValueRow(
                         title = ctx.getString(R.string.ui_set_bg_current),
@@ -574,7 +576,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 默认收起 —— 日常换肤不该在七八个下拉里找入口，需要的人展开一次即可。
             // 生效时机的如实说明保留在展开区内。
             var advOpen by remember { mutableStateOf(false) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_advanced)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_advanced), modifier = Modifier.enterStagger(rememberEnterStagger(4))) {
                 Column {
                     ApComponents.ActionButton(
                         text = ctx.getString(
@@ -648,7 +650,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 整段从「工具与传输」（cat2）搬到「快捷键与外设」（cat1），且**排在悬浮栏之前**
             // —— 光标锁定 / 方向锁定 / 三指手势遮蔽 / 互传 / 震动都是「手机怎么响应输入」，
             // 与「外设」这个分类名相符，放在工具与传输里名不副实。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_general)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_general), modifier = Modifier.enterStagger(rememberEnterStagger(0))) {
                 Column {
                     // ★ v223.29.9 设备形态（成宇 2026-11-05「是否有识别手机，平板，电视的设置」）。
                     // 默认「自动」不改任何现有排版；选手机 / 平板 / 电视才覆盖
@@ -831,7 +833,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
 
 
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_ball), modifier = Modifier.enterStagger(rememberEnterStagger(1))) {
                 Column {
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_ball_show_title),
@@ -1174,7 +1176,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 快捷键模板 ————————————————
             // 从旧 MainActivity 的设置页迁来：模板列表 + 应用 + 当前模板回显。
             // 数据与旧页共用 HotkeyTemplates.ALL / HotkeyStore.loadTemplate|applyTemplate，不另立存储。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl), modifier = Modifier.enterStagger(rememberEnterStagger(2))) {
                 Column {
                     // 成宇 2026-11-02「设置页太多了，能用下拉列表的不用」：
                     // 原来「当前模板」一行 + 六个模板各一枚 ActionButton，七行占满一屏；
@@ -1231,14 +1233,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 文件与传输 ————————————————
             // v223.28：「环境诊断」整块上移到状态页「连接状态」（同一份 EnvChecks 数据
             // 此前两页各显示一半，双源；成宇 2026-11-02「本应该在状态页的内容却在设置页」）。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files), modifier = Modifier.enterStagger(rememberEnterStagger(0))) {
                 Column {
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_file_panel),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_file_panel),
                         onClick = { ctx.startActivity(Intent(ctx, com.allperiph.ui.FilePanelActivity::class.java)) },
                     )
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_send_files),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_send_files),
                         onClick = {
                             ctx.startActivity(
                                 Intent(ctx, com.allperiph.localsend.SendActivity::class.java),
@@ -1248,16 +1250,16 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // 审查条 1.9：原来另有一段叫「传输与投屏」，里面只有两枚跳转按钮、没有分类，
                     // 且「发送文件」与本节重复（两个文案指向同一个 SendActivity）。合并后本节
                     // 名副其实：文件面板 / 发送文件 / 屏幕，各一枚，文案不重复。
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_screen_ctrl),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_screen_ctrl),
                         onClick = {
                             ctx.startActivity(Intent(ctx, com.allperiph.screen.ScreenActivity::class.java))
                         },
                     )
                     // 摄像头此前只有「PC 面板开关 / 通知栏动作」两条拉起路径，
                     // 应用内没有任何入口 —— 用户反馈「手机端没有摄像头的入口」。
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_btn_camera),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_btn_camera),
                         onClick = {
                             runCatching {
                                 ctx.startActivity(
@@ -1278,7 +1280,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 受控设备选择器（v223.28）：「当前控制 / 选择受控设备 / 断开」三行整体上移到
             // 状态页「受控与出口」——链路状态属于运行时信息；本段只留偏好类：
             // 物理键盘全局转发 + 无障碍设置入口。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_remote), modifier = Modifier.enterStagger(rememberEnterStagger(1))) {
                 Column {
                     ApComponents.SwitchRow(
                         title = ctx.getString(R.string.ui_set_kb_forward_title),
@@ -1306,8 +1308,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_notify_settings),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_notify_settings),
                         onClick = {
                             runCatching {
                                 ctx.startActivity(
@@ -1320,14 +1322,14 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                     // 遥控器（审查条 1.6）：此前全仓只有旧控制台 TouchpadActivity 的 pill 能拉起，
                     // 主壳（唯一 launcher 入口）没有任何路径 —— 用户不开悬浮球就进不去。
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_btn_remote),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_btn_remote),
                         onClick = {
                             ctx.startActivity(Intent(ctx, com.allperiph.ui.RemoteActivity::class.java))
                         },
                     )
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_main_btn_a11y_settings),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_main_btn_a11y_settings),
                         onClick = {
                             runCatching {
                                 ctx.startActivity(
@@ -1345,10 +1347,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // GamepadActivity 整页（双虚拟摇杆 + 常用按键，出口 USB HID / 蓝牙 HID / 无线 0x07）
             // 此前**全仓零 startActivity**：Manifest 声明在、代码在，用户永远打不开。
             // （issue#168 2026-11-11：外接触控板 root 直读开关已随 RootPointerBridge 移除）
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_input)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_input), modifier = Modifier.enterStagger(rememberEnterStagger(2))) {
                 Column {
-                    ApComponents.ActionButton(
-                        text = ctx.getString(R.string.ui_set_btn_gamepad),
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_btn_gamepad),
                         onClick = {
                             ctx.startActivity(Intent(ctx, com.allperiph.ui.GamepadActivity::class.java))
                         },
@@ -1359,7 +1361,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 主题数据 ————————————————
             // v223.29.73：界面缩放已搬进外观分组（缩放属外观项，见 cat0）；
             // 2026-11-13 UI 审查：再提入「常用微调」层，进阶折叠不再放缩放。
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme), modifier = Modifier.enterStagger(rememberEnterStagger(3))) {
                 Column {
                     ApComponents.ActionButton(
                         text = ctx.getString(R.string.ui_set_theme_export),
@@ -1397,7 +1399,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 拖动排序留给平板/电视端的手势实现）。数据全部落在 HotkeyStore.loadCustom/saveCustom，
             // 与旧设置页同一份存储，不会出现"两套模板"。
             var customs by remember { mutableStateOf(HotkeyStore.loadCustom(ctx)) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl_custom)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_tpl_custom), modifier = Modifier.enterStagger(rememberEnterStagger(4))) {
                 Column {
                     if (customs.isEmpty()) {
                         ApComponents.ValueRow(
@@ -1480,7 +1482,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 整段是设置页最长的一段。收进默认收起的折叠分组，组头直接回显「已改 N 处」，
             // 不展开也知道改没改过（与悬浮球菜单项那段同一做法，同一份 FoldGroup）。
             var keymapOpen by remember { mutableStateOf(false) }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keymap)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_keymap), modifier = Modifier.enterStagger(rememberEnterStagger(5))) {
                 Column {
                     ApComponents.FoldGroup(
                         title = ctx.getString(R.string.ui_set_keymap_group),
@@ -1561,7 +1563,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                 return com.allperiph.shared.util.Log.snapshot()
                     .filter { it.level.ordinal >= minLevel.ordinal && now - it.wallMs <= windowMs }
             }
-            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_log)) {
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_log), modifier = Modifier.enterStagger(rememberEnterStagger(0))) {
                 Column {
                     ApComponents.ValueRow(
                         title = ctx.getString(R.string.ui_set_log_buffer_title),
@@ -1714,7 +1716,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
 
             // ———————————————— 关于 ————————————————
-            ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about)) {
+            ApComponents.Section(title = ctx.getString(R.string.lay_settings_tab_about), modifier = Modifier.enterStagger(rememberEnterStagger(1))) {
                 Column {
                     ApComponents.ValueRow(
                         title = ctx.getString(R.string.ui_set_about_version),

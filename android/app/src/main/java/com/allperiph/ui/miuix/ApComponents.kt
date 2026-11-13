@@ -192,6 +192,7 @@ object ApComponents {
         title: String,
         summary: String? = null,
         trailing: (@Composable () -> Unit)? = null,
+        arrow: Boolean = false,
         onLongClick: (() -> Unit)? = null,
         onClick: () -> Unit,
     ) {
@@ -246,6 +247,17 @@ object ApComponents {
                 }
             }
             trailing?.invoke()
+            if (arrow) {
+                // 导航箭头（质感对齐批 2，对齐 miuix 官方 SuperArrow 的入口语义）：
+                // 跳到别的界面的行右侧给一枚箭头，提示「点了会去别处」——此前跳转入口
+                // 一律用占满整行的 ActionButton，与官方「行 + 箭头」的设置项形态脱节。
+                // ic_apx_caret 基准朝向即右向（FoldGroup 里 0°=右向），无需旋转。
+                Icon(
+                    resId = R.drawable.ic_apx_caret,
+                    size = 16.dp,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
             if (onLongClick != null) {
                 // 拖动把手（issue#166 第 3 条）：此前「≡」13sp 字符——观感随 ROM 字体漂移。
                 // 改 ic_apx_menu 矢量，16dp 边长贴近原 13sp 视觉高度，染色沿用次文字色。
@@ -256,6 +268,22 @@ object ApComponents {
                 )
             }
         }
+    }
+
+    /**
+     * 导航入口行（质感对齐批 2，对齐 miuix 官方 SuperArrow 语义）：
+     * 「标题 + 摘要 + 右侧箭头」的整行可点形态，专给**跳到另一个界面**的入口用
+     * （应用内 Activity 或系统设置页）；点完留在原页的动作（导出、清空、折叠展开）
+     * 仍用 ActionButton，两种语义不混。行内排版与反馈复用 [ClickRow]，
+     * 这里只锁死「入口必有箭头」这一条形态约束。
+     */
+    @Composable
+    fun NavRow(
+        title: String,
+        summary: String? = null,
+        onClick: () -> Unit,
+    ) {
+        ClickRow(title = title, summary = summary, arrow = true, onClick = onClick)
     }
 
     /** 只读取值行（如「当前版本」「本机地址」）。[modifier] 供调用方挂手势 */
