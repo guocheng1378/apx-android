@@ -142,7 +142,13 @@ object ApComponents {
                             // summaryMinLines（issue#170 #3）：状态文字会随实况换文案的行
                             //（如 LocalSend 互传的 diag 提示），行数一变整行高度跳、页面上下抖。
                             // 调用方给 min 行数即固定占位 —— 文字仍在 3 行上限内换，高度不变。
-                            minLines = summaryMinLines.coerceAtMost(3),
+                            // coerceIn(1,3)：新版 Compose（foundation 1.12）BasicText 校验
+                            // minLines/maxLines 必须都 ≥1，minLines=0 直接崩——澎湃真机黑匣子
+                            // 实锤 v99 启动即崩（"both minLines 0 and maxLines 3 must be
+                            // greater than zero"，主壳首帧组合期抛出）。未指定固定行数时
+                            // 回落默认 1 行（与 miuix Text 默认一致，观感不变）；调用方给 1~3
+                            // 即固定占位，防抖动原意不变。
+                            minLines = summaryMinLines.coerceIn(1, 3),
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
