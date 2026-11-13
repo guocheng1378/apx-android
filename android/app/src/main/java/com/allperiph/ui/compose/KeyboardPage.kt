@@ -359,6 +359,9 @@ internal fun ApFullKeyboard(
     val portraitQuick = !adaptive.landscape
     // 语音工具键的识别结果：先存这里再弹确认卡（用户看清说了什么再发，避免口误直上电脑）
     var voiceText by remember { mutableStateOf<String?>(null) }
+    // 剪贴板待发内容：同语音一个道理（2026-11-13 UI 审查），先弹确认卡亮出内容
+    // 再发 —— 剪贴板里常是用户没看过全文的一大段字，点了立即直发属不可逆误触。
+    var clipConfirm by remember { mutableStateOf<String?>(null) }
     // 识别结果回投（2026-11-11 成宇「语音按键链路不能用」）：主屏与悬浮键盘统一走
     // VoiceCaptureActivity 透明宿主页 —— 语音识别必须有 Activity 宿主，悬浮键盘
     // （Service overlay）没有，旧实现在悬浮键盘里点了只弹「要在主屏使用」，链路断了。
@@ -433,13 +436,27 @@ internal fun ApFullKeyboard(
                 // 组前加一段加宽间隔与页面页签区隔开，不再单独占一行（横屏底部整行
                 // 只有三个小圆块的松散布局由此收掉）。灯效芯片仍在组尾：只开
                 // [ledPickOpen] 弹窗直选（规划 v2 口径），「调色」在弹窗里给。
-                Spacer(Modifier.width(10.dp))
+                // 2026-11-13 UI 审查：8 个页面页签与 3 个动作芯片同为 TabChip 混排，
+                // 分不清哪段是「换页」哪段是「动作」—— 间隔里补一根细竖线，动作组
+                // 一眼可辨（竖线只是装饰，不加任何点击语义）。
+                Spacer(Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(18.dp)
+                        .background(
+                            MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = 0.35f),
+                            RoundedCornerShape(0.5.dp),
+                        ),
+                )
+                Spacer(Modifier.width(6.dp))
                 ApComponents.TabChip(
                     text = ctx.getString(R.string.ui_ball_fn_clipboard),
                     selected = false,
                     onClick = {
                         Feedback.tap(host)
-                        sendClipboardToPc(ctx)
+                        // 预取 + 确认（不可逆直发改确认卡，见 clipConfirm 注）
+                        fetchClipboardForPc(ctx)?.let { clipConfirm = it }
                     },
                     fx = fx,
                 )
@@ -641,6 +658,38 @@ internal fun ApFullKeyboard(
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
                         voiceText = null
+                    },
+                )
+            }
+        }
+    }
+
+    // —— 剪贴板发送确认卡：内容先亮出来再发（2026-11-13 UI 审查，样式与语音卡同构）——
+    clipConfirm?.let { t ->
+        ApComponents.DialogCard(onDismiss = { clipConfirm = null }) {
+            Text(text = ctx.getString(R.string.ui_ball_fn_clipboard_send), fontSize = 16.sp)
+            // 预览只亮 4 行出省略号 —— 剪贴板可能是一大段长文，全亮会撑爆卡片；
+            // 发出去的仍是完整内容，不因预览截断。
+            Text(
+                text = t,
+                fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_common_cancel),
+                    onClick = { clipConfirm = null },
+                )
+                ApComponents.NarrowButton(
+                    text = ctx.getString(R.string.ui_kb_voice_send),
+                    onClick = {
+                        sendClipboardTextToPc(ctx, t)
+                        clipConfirm = null
                     },
                 )
             }
@@ -1512,29 +1561,39 @@ private fun KeyBox(
 }
 
 /**
- * 「剪贴板」工具键（§6.3 Expanded 工具行）：把手机当前剪贴板文字一键发到电脑剪贴板
- * （0x20 通道），与悬浮球剪贴板面板的「一键补发」同一份 ClipboardSync 口径 ——
- * 取值、空串判定、程序性写入抑制都在 ClipboardSync 一处，这里不重复实现。
+ * 「剪贴板」工具键预取（§6.3 页签行动作组，2026-11-13 UI 审查重写）：
+ * 原实现点了立即直发、无确认 —— 剪贴板里常是用户没看过全文的一大段字，
+ * 误触即不可逆。现在只做**预检 + 取值**：无受控设备 / 空串时提示并返回 null，
+ * 有内容交确认卡（[sendClipboardTextToPc] 负责真正发送）。与悬浮球剪贴板面板
+ * 的「一键补发」同一份 ClipboardSync 口径 —— 取值、空串判定、程序性写入抑制
+ * 都在 ClipboardSync 一处，这里不重复实现。
  */
-internal fun sendClipboardToPc(ctx: android.content.Context) {
+internal fun fetchClipboardForPc(ctx: android.content.Context): String? {
     val client = com.allperiph.wireless.ControlTarget.controlClient
     if (client == null || !client.ready) {
         android.widget.Toast.makeText(
             ctx, R.string.ui_ball_fn_clipboard_nolink, android.widget.Toast.LENGTH_SHORT,
         ).show()
-        return
+        return null
     }
     val cur = com.allperiph.ui.ClipboardSync.currentText().orEmpty()
     if (cur.isEmpty()) {
         android.widget.Toast.makeText(
             ctx, R.string.ui_ball_fn_clipboard_empty, android.widget.Toast.LENGTH_SHORT,
         ).show()
-        return
+        return null
     }
-    val ok = runCatching { client.sendClipboard(cur) }.getOrDefault(false)
+    return cur
+}
+
+/** 确认卡「发到电脑」后的真正发送（0x20 通道）：发前再验一次链路，确认期间可能已掉线。 */
+internal fun sendClipboardTextToPc(ctx: android.content.Context, text: String) {
+    val client = com.allperiph.wireless.ControlTarget.controlClient
+    val ok = client != null && client.ready &&
+        runCatching { client.sendClipboard(text) }.getOrDefault(false)
     android.widget.Toast.makeText(
         ctx,
-        if (ok) ctx.getString(R.string.ui_ball_fn_clipboard_copied, cur.length)
+        if (ok) ctx.getString(R.string.ui_ball_fn_clipboard_copied, text.length)
         else ctx.getString(R.string.ui_ball_fn_clipboard_nolink),
         android.widget.Toast.LENGTH_SHORT,
     ).show()
