@@ -38,6 +38,7 @@ import com.allperiph.R
 import com.allperiph.files.PhoneFiles
 import com.allperiph.shared.net.FileReceiver
 import com.allperiph.shared.net.FileSender
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
@@ -281,11 +282,15 @@ class FilePanelActivity : ComponentActivity() {
                     color = colorResource(R.color.overlay_muted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
+                // 2026-11-13 UI 审查：原 actionText 文字按钮无 44dp 命中下限、无按压反馈、
+                // 无震动，颜色走 overlay_* 写死资源 —— 整体换 ApComponents.NarrowButton
+                // （Miuix TextButton 直通：命中/反馈/震/主题色全有）。删除的红色语义由
+                // ApDialog 二次确认兜底（confirmDelete 不变）。
                 Row(modifier = Modifier.padding(top = 10.dp)) {
-                    actionText(getString(R.string.ui_filepanel_text_forward), R.color.overlay_accent) { sendFile(sel) }
-                    actionText(getString(R.string.ui_filepanel_open), R.color.overlay_accent) { openFile(sel) }
-                    actionText(getString(R.string.ui_filepanel_share), R.color.overlay_accent) { shareFile(sel) }
-                    actionText(getString(R.string.ui_common_delete), R.color.overlay_danger) { confirmDelete(sel) }
+                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_text_forward)) { sendFile(sel) }
+                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_open)) { openFile(sel) }
+                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_share)) { shareFile(sel) }
+                    ApComponents.NarrowButton(text = getString(R.string.ui_common_delete)) { confirmDelete(sel) }
                 }
             }
             Text(
@@ -337,32 +342,21 @@ class FilePanelActivity : ComponentActivity() {
                     },
                 )
             }
-            // 重试 = 原样再发一次（新增一条记录，旧记录留着不动 —— 事后能对出「第几次才成功」）
+            // 重试 = 原样再发一次（新增一条记录，旧记录留着不动 —— 事后能对出「第几次才成功」）。
+            // 2026-11-13 UI 审查：原裸 Text 无命中下限/无反馈，换 NarrowButton 同口径。
             if (rec.state == REC_FAIL && rec.file != null) {
-                Text(
+                ApComponents.NarrowButton(
                     text = getString(R.string.ui_filepanel_retry),
-                    fontSize = 13.sp,
-                    color = colorResource(R.color.overlay_accent),
-                    modifier = Modifier
-                        .padding(start = 10.dp)
-                        .clickable { sendFile(rec.file) },
+                    onClick = { sendFile(rec.file) },
+                    modifier = Modifier.padding(start = 6.dp),
                 )
             }
         }
     }
 
-    /** 窄屏行内小动作文字按钮（双栏右栏也用它排动作行）：中色随语义，行为由调用方给 */
-    @androidx.compose.runtime.Composable
-    private fun actionText(label: String, colorRes: Int, onClick: () -> Unit) {
-        Text(
-            text = label,
-            fontSize = 14.sp,
-            color = colorResource(colorRes),
-            modifier = Modifier
-                .padding(end = 18.dp, bottom = 4.dp)
-                .clickable(onClick = onClick),
-        )
-    }
+    // actionText 自建文字按钮已随 2026-11-13 UI 审查下线（见 detailPane / fileRow 内注）：
+    // 裸 Text 无 44dp 命中下限、无按压反馈、无震动，颜色走 overlay_* 写死资源，
+    // 是与 RemoteInputActivity 胶囊同族的旧组件漏网 —— 统一并入 ApComponents.NarrowButton。
 
     @androidx.compose.runtime.Composable
     private fun fileRow(f: File, twoPane: Boolean) {
@@ -388,31 +382,24 @@ class FilePanelActivity : ComponentActivity() {
             }
             if (!twoPane) {
                 // 窄屏行内动作（v2）：转发 / 打开 / 分享 / 删除。tap 整行仍是转发（v1 习惯不变）。
-                Text(
+                // 2026-11-13 UI 审查：四个裸 Text 换 NarrowButton（44dp 命中/按压反馈/震动/
+                // 主题色随迁），行为与详情动作行同源；按钮紧排靠 TextButton 自身内边距分隔。
+                ApComponents.NarrowButton(
                     text = getString(R.string.ui_filepanel_text_forward),
-                    fontSize = 14.sp,
-                    color = colorResource(R.color.overlay_accent),
-                    modifier = Modifier.padding(start = 12.dp).clickable { sendFile(f) },
+                    onClick = { sendFile(f) },
+                    modifier = Modifier.padding(start = 6.dp),
                 )
-                Text(
+                ApComponents.NarrowButton(
                     text = getString(R.string.ui_filepanel_open),
-                    fontSize = 14.sp,
-                    color = colorResource(R.color.overlay_accent),
-                    modifier = Modifier.padding(start = 12.dp).clickable { openFile(f) },
+                    onClick = { openFile(f) },
                 )
-                Text(
+                ApComponents.NarrowButton(
                     text = getString(R.string.ui_filepanel_share),
-                    fontSize = 14.sp,
-                    color = colorResource(R.color.overlay_accent),
-                    modifier = Modifier.padding(start = 12.dp).clickable { shareFile(f) },
+                    onClick = { shareFile(f) },
                 )
-                Text(
+                ApComponents.NarrowButton(
                     text = getString(R.string.ui_common_delete),
-                    fontSize = 14.sp,
-                    color = colorResource(R.color.overlay_danger),
-                    modifier = Modifier
-                        .padding(start = 14.dp)
-                        .clickable { confirmDelete(f) },
+                    onClick = { confirmDelete(f) },
                 )
             }
         }
