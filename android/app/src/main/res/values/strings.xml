@@ -141,10 +141,7 @@
     <string name="ui_main_text_file_send_done">文件已发送</string>
     <string name="ui_main_label_color_source">取色方案</string>
     <string name="ui_main_item_touchpad">触控板</string>
-    <string name="ui_touchpad_label_hotkey_edit_longpress">手势操控 · 常用快捷键长按可编辑</string>
     <string name="ui_touchpad_label_keyboard">键盘</string>
-    <string name="ui_touchpad_label_remote">8 套布局：快捷 / 遥控 / 游戏 / 数字 / 九宫格 / 方向 / F 区 / 自定义</string>
-    <string name="ui_touchpad_label_screen">手机作副屏 / 链接 TV · PC</string>
     <string name="ui_touchpad_text_no_frames">还没收到画面</string>
     <string name="ui_touchpad_text_not">键盘还没就绪</string>
     <string name="ui_touchpad_media_prev">上一曲</string>

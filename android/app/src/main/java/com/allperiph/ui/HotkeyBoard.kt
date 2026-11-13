@@ -97,6 +97,9 @@ class HotkeyBoard(
         reload()
     }
 
+    /** 当前是否在 TV 键位集（操控面换 Compose 网格后，读这个决定走哪份数据源） */
+    internal fun isInTvMode(): Boolean = tvMode
+
     /** 退出 TV 目标：回到本机快捷键套（自动渲染） */
     fun exitTvMode() {
         if (!tvMode) return

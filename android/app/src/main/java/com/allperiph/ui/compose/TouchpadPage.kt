@@ -184,7 +184,7 @@ fun TouchpadPage(
 }
 
 @Composable
-private fun HotkeyGrid(
+internal fun HotkeyGrid(
     ctx: Context,
     topBar: Dp,
     bottomGap: Dp,
@@ -197,15 +197,20 @@ private fun HotkeyGrid(
     /** 标题行的「编辑」按钮：HotkeyBoard 管理弹窗要 Activity 宿主，悬浮触控板面板
      * （Service overlay，FloatingHotkeyCard）开不了 —— 传 false 只画标题，编辑去 app 内。 */
     showEdit: Boolean = true,
+    /** TV 键位集（操控面 ConsoleTouchpadPage）：被控目标是 TV 时读/存 TV 专属键位、
+     * 编辑弹窗进 TV 模式 —— 与原 View 版 HotkeyBoard 的 tvMode 语义一致，
+     * 布局则完全同步主页（成宇 2026-11-14「操控面触摸页常用快捷键没有同步主页」）。 */
+    useTvStore: Boolean = false,
 ) {
     val chipTextColor = MiuixTheme.colorScheme.onSurface.toArgb()
     val chipBgColor = MiuixTheme.colorScheme.surface.toArgb()
     val subTextColor = MiuixTheme.colorScheme.onSurfaceVariantSummary.toArgb()
     val gridFx = com.allperiph.ui.KeyPref.effectIndex(ctx)
     var editVersion by remember { mutableIntStateOf(0) }
-    val items = remember(editVersion) {
-        val list = HotkeyStore.load(ctx)
-        if (HotkeyStore.isAutoSort(ctx)) {
+    val items = remember(editVersion, useTvStore) {
+        // TV 键位集：操控面被控目标为 TV 时与原 View 版同一数据源（HotkeyBoard.load/save 同款分叉）
+        val list = if (useTvStore) HotkeyStore.loadTv(ctx) else HotkeyStore.load(ctx)
+        if (!useTvStore && HotkeyStore.isAutoSort(ctx)) {
             val usage = HotkeyStore.loadUsage(ctx)
             list.sortedByDescending { usage[HotkeyStore.comboKey(it)] ?: 0 }
         } else {
@@ -230,8 +235,9 @@ private fun HotkeyGrid(
         val next = items.toMutableList()
         val moved = next.removeAt(from)
         next.add(target.coerceIn(0, next.size), moved)
-        HotkeyStore.save(ctx, next)
-        if (HotkeyStore.isAutoSort(ctx)) HotkeyStore.setAutoSort(ctx, false)
+        if (useTvStore) HotkeyStore.saveTv(ctx, next) else HotkeyStore.save(ctx, next)
+        // TV 键位集不参与「常用优先」自动排序（与 View 版 tvMode 语义一致）
+        if (!useTvStore && HotkeyStore.isAutoSort(ctx)) HotkeyStore.setAutoSort(ctx, false)
         editVersion++
     }
     val host = ctx as? android.app.Activity
@@ -252,7 +258,8 @@ private fun HotkeyGrid(
         android.widget.LinearLayout(act),
         kbStyle,
         { editVersion++ },
-    )
+        // TV 键位集：编辑弹窗同样进 TV 模式（load/save 分叉在 HotkeyBoard 内部）
+    ).also { board -> if (useTvStore) board.enterTvMode() }
     val openManager: () -> Unit = {
         host?.let {
             ApMotion.tap(ctx)

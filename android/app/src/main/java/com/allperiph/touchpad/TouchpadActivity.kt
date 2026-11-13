@@ -71,7 +71,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.R
 import com.allperiph.controlled.ControlledService
 import com.allperiph.core.ModuleId
@@ -706,12 +705,13 @@ private fun kbAccentSoft(ctx: Context): Int =
         ApPalette.primaryContainer(ctx)
     }
 
-private data class ConsolePage(val titleRes: Int, val subRes: Int, val iconRes: Int)
+/** 操控面页表：标题 + 图标（副行使用说明已按 2026-11-14 反馈移除） */
+private data class ConsolePage(val titleRes: Int, val iconRes: Int)
 
 private val CONSOLE_PAGES = listOf(
-    ConsolePage(R.string.ui_main_item_touchpad, R.string.ui_touchpad_label_hotkey_edit_longpress, R.drawable.ic_apx_touchpad),
-    ConsolePage(R.string.ui_touchpad_label_keyboard, R.string.ui_touchpad_label_remote, R.drawable.ic_apx_keyboard),
-    ConsolePage(R.string.notify_action_screen, R.string.ui_touchpad_label_screen, R.drawable.ic_apx_power),
+    ConsolePage(R.string.ui_main_item_touchpad, R.drawable.ic_apx_touchpad),
+    ConsolePage(R.string.ui_touchpad_label_keyboard, R.drawable.ic_apx_keyboard),
+    ConsolePage(R.string.notify_action_screen, R.drawable.ic_apx_power),
 )
 
 @Composable
@@ -843,12 +843,9 @@ private fun ConsoleHeader(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity
                 )
             }
         }
-        Text(
-            text = ctx.getString(CONSOLE_PAGES[ui.page].subRes),
-            fontSize = 13.sp,
-            color = MiuixTheme.colorScheme.onSurfaceSecondary,
-            modifier = Modifier.padding(top = 6.dp),
-        )
+        // 2026-11-14 成宇「所有被控模式页面标题下面的使用说明文字可以去除」：
+        // 标题下的副行说明（subRes）整段移除 —— 长按编辑快捷键等用法长按即见，
+        // 常驻说明行只会占掉一截标题区高度。CONSOLE_PAGES 的 subRes 字段一并删除。
     }
 }
 
@@ -904,10 +901,10 @@ private fun FeedbackTap(view: android.view.View) = com.allperiph.ui.Feedback.tap
  */
 @Composable
 private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
+    // 快捷键网格已并轨主壳 Compose HotkeyGrid（见 HotkeyCard），旋转自适应网格自己处理，
+    // 不再需要旧 View 版按方向重画（hotkeyBoard 仅剩 TV 键位集状态与编辑弹窗用途）。
     val land = LocalConfiguration.current.orientation ==
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    // 旋转后 HotkeyBoard 的每行个数要按新方向取值（横屏 2 / 竖屏 4），重画一次
-    LaunchedEffect(land) { host.hotkeyBoard.render() }
     // 背景框分栏的卡底色与圆角：与首页 TouchpadPage 同值（surfaceContainer + 16dp），
     // 两处快捷键区/手势卡看起来是同一个设计。
     val cardColor = MiuixTheme.colorScheme.surfaceContainer
@@ -978,71 +975,24 @@ private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
 }
 
 /**
- * 快捷键卡内容（issue#168 第 7 条与首页统一）：「常用快捷键 / 编辑」标题行固定卡顶
- * （编辑入口弹 HotkeyBoard 管理弹窗，与首页同一份实现），网格区吃剩余高度、超出竖向
- * 滚动，滚动条按首页口径放在**左侧**（内容不超高时不画，VScrollbar 内部自行判空）。
+ * 快捷键卡（2026-11-14 成宇「被控模式里触摸页常用快捷键布局没有同步主页」）：
+ * 旧实现是 View 版 HotkeyBoard 塞 AndroidView —— 主页 Compose 网格两轮自适应
+ * （11-12 同步样式、窄列降密度）它全没跟上。现在直接渲染主壳 [com.allperiph.ui.compose.HotkeyGrid]
+ * 同一份实现：标题行 / 芯片样式 / 每行位数 / 拖拽排序全与主页同源；被控目标为 TV 时
+ * 走 TV 键位集（useTvStore，与原 View 版 tvMode 数据源语义一致）。
  */
 @Composable
 private fun HotkeyCard(host: TouchpadActivity) {
-    val gridScroll = rememberScrollState()
-    Column(Modifier.fillMaxSize()) {
-        HotkeyHead(host)
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            Column(
-                Modifier.fillMaxSize().verticalScroll(gridScroll),
-            ) {
-                HotkeyGridView(host)
-            }
-            ApComponents.VScrollbar(
-                scrollState = gridScroll,
-                alignEnd = false,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 2.dp)
-                    .fillMaxHeight(),
-            )
-        }
-    }
-}
-
-/** 「常用快捷键 / 编辑」标题行：编辑入口弹 HotkeyBoard 的管理弹窗（与主页同一份实现） */
-@Composable
-private fun HotkeyHead(host: TouchpadActivity) {
-    val ctx = LocalContext.current
-    val view = LocalView.current
-    Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 14.dp, bottom = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = ctx.getString(R.string.ui_touchpad_text_hotkey),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            color = MiuixTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = ctx.getString(R.string.ui_common_edit),
-            fontSize = 12.sp,
-            color = MiuixTheme.colorScheme.primary,
-            modifier = Modifier
-                .clickable {
-                    com.allperiph.ui.Feedback.tap(view)
-                    host.hotkeyBoard.managerDialog()
-                }
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-        )
-    }
-}
-
-/** View 版快捷键网格（[HotkeyBoard] 渲染）：轻点发送 / 长按编辑 / 拖拽排序全在里面 */
-@Composable
-private fun HotkeyGridView(host: TouchpadActivity) {
-    AndroidView(
-        factory = { host.hotkeyContainerView },
-        modifier = Modifier.fillMaxWidth(),
+    com.allperiph.ui.compose.HotkeyGrid(
+        ctx = host,
+        topBar = 0.dp,
+        bottomGap = 0.dp,
+        showHead = true,
+        showEdit = true,
+        useTvStore = host.hotkeyBoard.isInTvMode(),
     )
 }
+
 
 /**
  * v208：方向键叠层——十字方向键 + 中心 OK，居中覆盖手势面；
