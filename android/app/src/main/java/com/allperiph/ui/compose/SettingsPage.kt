@@ -429,7 +429,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 ApSkin.set(ctx, scope, id)
                             }
                             ApAccentSync.apply(ctx)
-                            onRecreate()
+                            // 2026-11-13 UI 审查：不再 onRecreate() —— 与上方「一键主题」
+                            // 完全同一链路（ApSkin.set + ApAccentSync.apply），那边热切
+                            // 即生效且日常在用；这里整壳重建只会白闪（rev 类状态自会重读）。
                         },
                     )
                     WindowDropdownPreference(
@@ -570,7 +572,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                     Feedback.haptic(ctx)
                                     ApSkin.set(ctx, scope, ApSkin.PRESETS[i].id)
                                     ApAccentSync.apply(ctx)
-                                    onRecreate()
+                                    // 2026-11-13 UI 审查：与一键主题同口径热切，不再整壳重建
+                                    // （原 onRecreate() 是皮肤批早期的保护，链路稳定后仅剩白闪）。
                                 },
                             )
                         }
