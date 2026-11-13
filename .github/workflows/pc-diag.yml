@@ -29,7 +29,7 @@ on:
         default: "master"
 
 permissions:
-  contents: read
+  contents: write
   checks: write
 
 jobs:
@@ -167,6 +167,53 @@ jobs:
           foreach ($l in $buildErr | Select-Object -First 30) { $sum += $l.Trim() }
           $sum += '```'
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $sum
+
+      # 2026-11-15 增强（run #1882 教训）：cpp_build.log 报错行可能不在 tail 30 里
+      #（多 target 编译，错误在日志中段），当时 tail 30 与 CMakeError.log 全都匹配不到，
+      # 只剩「Process completed with exit code 1」。所以：全文 grep 错误行进注解（匿名可读），
+      # 日志尾部整段推 ci-logs 分支（公开可读，绕过 Actions 日志 API 的 admin 门槛，
+      # macos.yml 的 Publish errors on failure 同款链路）。
+      - name: Grep full build log errors
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path cpp_build.log) {
+            $errs = @(Get-Content cpp_build.log | Where-Object {
+              $_ -match "error [A-Z]+\d+" -or $_ -match "fatal error" -or $_ -match "LNK\d+" -or $_ -match "MSB\d+" -or $_ -match "error:" -or $_ -match "错误"
+            } | Select-Object -First 30)
+            Write-Output "::error title=PC diag full-grep count::${($errs | Measure-Object).Count}"
+            foreach ($l in $errs) {
+              $esc = ("$l").Trim() -replace "%", "%25" -replace "\r", "" -replace "\n", "%0A"
+              if ($esc.Length -gt 500) { $esc = $esc.Substring(0, 500) }
+              Write-Output "::error::${esc}"
+            }
+          } else {
+            Write-Output "::error title=PC diag full-grep::cpp_build.log 不存在"
+          }
+
+      - name: Push full logs to ci-logs branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set +e
+          WORK=$(mktemp -d)
+          cd "$WORK" || exit 1
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q origin ci-logs; then
+            git checkout -q -B ci-logs FETCH_HEAD
+          else
+            git checkout -q --orphan ci-logs
+          fi
+          mkdir -p errors
+          [ -f "$GITHUB_WORKSPACE/cpp_build.log" ] && tail -800 "$GITHUB_WORKSPACE/cpp_build.log" > "errors/diag_${GITHUB_RUN_ID}_cppbuild.txt"
+          [ -f "$GITHUB_WORKSPACE/build_host/CMakeFiles/CMakeError.log" ] && cp "$GITHUB_WORKSPACE/build_host/CMakeFiles/CMakeError.log" "errors/diag_${GITHUB_RUN_ID}_cmakeerr.txt"
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "pc diag errors: run ${GITHUB_RUN_ID}" || exit 0
+          git push -q origin HEAD:ci-logs && echo "diag errors -> ci-logs branch"
 
       - name: Upload diagnosis artifact
         if: always()
