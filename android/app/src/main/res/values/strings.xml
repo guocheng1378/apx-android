@@ -621,7 +621,8 @@
     <string name="ui_exit_msg">外设服务仍在后台运行，悬浮球继续可用。</string>
     <string name="ui_exit_keep">退出（后台继续）</string>
     <string name="ui_exit_stop">停止外设并退出</string>
-    <string name="ui_exit_cancel">取消</string>
+    <!-- ui_exit_cancel 已随 2026-11-13 UI 审查删除：取消 = 点弹窗外关闭，无需单独按钮 -->
+
 
     <!-- v223.29.9 设备形态（成宇「是否有识别手机，平板，电视的设置」） -->
     <string name="ui_form_title">设备形态</string>

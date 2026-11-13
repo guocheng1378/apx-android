@@ -604,8 +604,10 @@ class ApShellActivity : ComponentActivity() {
                 ApDevicePicker(onDismiss = { pickerOpen = false })
             }
 
-            // 退出确认（v223.28）：三个动作都明确 —— 「后台继续」不打断正在跑的外设，
+            // 退出确认（v223.28）：两个动作 —— 「后台继续」不打断正在跑的外设，
             // 「停止并退出」走与状态页关闭开关同一条 toggleAgent(false)。
+            // 2026-11-13 UI 审查：原第三个「取消」与点卡片外关闭（onDismiss）完全等价，
+            // 徒多一行按钮 —— 摘除，想不退就点外面。
             if (showExitAsk.value) {
                 ApComponents.DialogCard(onDismiss = { showExitAsk.value = false }) {
                     Text(text = stringResource(R.string.ui_exit_title), fontSize = 17.sp)
@@ -630,10 +632,6 @@ class ApShellActivity : ComponentActivity() {
                             toggleAgent(false)
                             finish()
                         },
-                    )
-                    ApComponents.ActionButton(
-                        text = stringResource(R.string.ui_exit_cancel),
-                        onClick = { showExitAsk.value = false },
                     )
                 }
             }
