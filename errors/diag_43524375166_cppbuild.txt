@@ -1,0 +1,107 @@
+MSBuild version 18.11.1-1.26513.3+940033be3 for .NET Framework
+
+  Checking File Globs
+  1>Checking Build System
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  ViGEmClient.cpp
+     Creating library D:/a/apx-android/apx-android/build_host/Release/ViGEmClient.lib and object D:/a/apx-android/apx-android/build_host/Release/ViGEmClient.exp
+  ViGEmClient.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\ViGEmClient.dll
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  clock.cpp
+  frame.cpp
+  hid_descriptor.cpp
+  hid_layout.cpp
+  sensors_id.cpp
+  units.cpp
+  Generating Code...
+  apx_shared.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apx_shared.lib
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  log.cpp
+  log_export.cpp
+  clock.cpp
+  crc32.cpp
+  tcp_probe.cpp
+  sunshine_detect.cpp
+  sunshine_launch.cpp
+  Generating Code...
+  apxpc_core.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apxpc_core.lib
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  descriptor_parse.cpp
+  monitor.cpp
+  usb_enum_win.cpp
+  usb_types.cpp
+  discovery.cpp
+  Generating Code...
+  apxpc_discovery.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apxpc_discovery.lib
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  sensor_reader_factory.cpp
+  sensor_reader_win_stub.cpp
+  Generating Code...
+  apxpc_sensors.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apxpc_sensors.lib
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  json.cpp
+  app_config.cpp
+  arbiter.cpp
+  display_control.cpp
+  hotkey_manager.cpp
+  action_router.cpp
+  host_service.cpp
+  update_check.cpp
+  tray_win32.cpp
+  autostart.cpp
+  registry.cpp
+  fx.cpp
+  ball_win32.cpp
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(468,43): warning C4244: 'argument': conversion from 'double' to 'Gdiplus::REAL', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(468,33): warning C4244: 'argument': conversion from 'double' to 'Gdiplus::REAL', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(479,66): warning C4244: 'argument': conversion from 'double' to 'Gdiplus::REAL', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(479,51): warning C4244: 'argument': conversion from 'double' to 'Gdiplus::REAL', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(485,24): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(485,24): warning C4244: 'initializing': conversion from 'double' to 'const float', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(486,24): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ball\ball_win32.cpp(486,24): warning C4244: 'initializing': conversion from 'double' to 'const float', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+  screenshot_win.cpp
+  notify_reply_win32.cpp
+D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(99,20): error C2664: 'HCURSOR LoadCursorW(HINSTANCE,LPCWSTR)': cannot convert argument 2 from 'LPSTR' to 'LPCWSTR' [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+      D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(99,41):
+      Types pointed to are unrelated; conversion requires reinterpret_cast, C-style cast or parenthesized function-style cast
+      C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um\winuser.h(10723,1):
+      see declaration of 'LoadCursorW'
+      D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(99,20):
+      while trying to match the argument list '(nullptr, LPSTR)'
+  
+D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(102,18): error C2664: 'HICON LoadIconW(HINSTANCE,LPCWSTR)': cannot convert argument 2 from 'LPSTR' to 'LPCWSTR' [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+      D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(102,37):
+      Types pointed to are unrelated; conversion requires reinterpret_cast, C-style cast or parenthesized function-style cast
+      C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\um\winuser.h(10854,1):
+      see declaration of 'LoadIconW'
+      D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(102,18):
+      while trying to match the argument list '(nullptr, LPSTR)'
+  
+D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(119,59): warning C4312: 'reinterpret_cast': conversion from 'const int' to 'HMENU' of greater size [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(122,51): warning C4312: 'reinterpret_cast': conversion from 'const int' to 'HMENU' of greater size [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\ui\notify_reply_win32.cpp(124,51): warning C4312: 'reinterpret_cast': conversion from 'const int' to 'HMENU' of greater size [D:\a\apx-android\apx-android\build_host\apxpc_service.vcxproj]
+  Generating Code...
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  media_session.cpp
+  audio_capture.cpp
+  mic_bridge.cpp
+  touch_inject.cpp
+  camera_view.cpp
+  Generating Code...
+  apxpc_media.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apxpc_media.lib
+  Building Custom Rule D:/a/apx-android/apx-android/pc/host/CMakeLists.txt
+  wireless_session.cpp
+  ctrl9511.cpp
+D:\a\apx-android\apx-android\pc\host\src\wireless\ctrl9511.cpp(621,28): warning C4018: '<=': signed/unsigned mismatch [D:\a\apx-android\apx-android\build_host\apxpc_wireless.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\wireless\ctrl9511.cpp(712,29): warning C4018: '<=': signed/unsigned mismatch [D:\a\apx-android\apx-android\build_host\apxpc_wireless.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\wireless\ctrl9511.cpp(1334,40): warning C4018: '<=': signed/unsigned mismatch [D:\a\apx-android\apx-android\build_host\apxpc_wireless.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\wireless\ctrl9511.cpp(1423,41): warning C4018: '<=': signed/unsigned mismatch [D:\a\apx-android\apx-android\build_host\apxpc_wireless.vcxproj]
+D:\a\apx-android\apx-android\pc\host\src\wireless\ctrl9511.cpp(1728,37): warning C4244: '=': conversion from '__int64' to 'double', possible loss of data [D:\a\apx-android\apx-android\build_host\apxpc_wireless.vcxproj]
+  file_receiver.cpp
+  file_sender.cpp
+  verify_code.cpp
+  input_injector_win.cpp
+  input_capture_win.cpp
+  Generating Code...
+  apxpc_wireless.vcxproj -> D:\a\apx-android\apx-android\build_host\Release\apxpc_wireless.lib
