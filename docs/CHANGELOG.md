@@ -4,6 +4,13 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## v223.29.101（2026-11-14）
+
+**启动即崩根修——黑匣子日志定位实锤（v99/v100 全线砖，本版恢复可用）**（2026-11-14 凌晨，用户回传澎湃真机黑匣子日志后定位）：
+
+- **启动即崩根修**（6885d80）：黑匣子日志实锤崩溃点——`IllegalArgumentException: both minLines 0 and maxLines 3 must be greater than zero`，主壳首帧组合期抛出。根因：新版 Compose（foundation 1.12，随 10-31 Miuix 0.9.4 升级带入）的 BasicText 开头新增校验 `minLines/maxLines 必须都 ≥1`；issue#170 #3 批给 ItemRow 摘要行加的 `summaryMinLines` 默认 0、`coerceAtMost(3)` 未兜底——任何带摘要的信息行在 v99/v100 上开 App 即崩，所有真机都进不去。修法改 `coerceIn(1, 3)`：未指定固定行数回落 1 行（与组件库默认一致，观感不变），调用方给 1~3 仍固定占位，防抖动原意不变。全仓仅此一处显式传 minLines，无同模式隐患。
+- 黑匣子取证段（v100 引入的 CrashBox 与启动打点）本版保留，待回验确认稳定后再撤。
+
 ## v223.29.100（2026-11-14）
 
 **启动黑匣子（v99 装后「点开无反应、无崩溃提示」排查取证版）**（2026-11-14 凌晨，用户点名发版）：
