@@ -811,6 +811,12 @@ class ControlServer(
             for (c in 'a'..'z') put(0x04 + (c - 'a'), 0 to c)
             val digits = "1234567890"
             for (i in digits.indices) put(0x1E + i, 0 to digits[i])
+            // 符号键（2026-11-14 实锤修复）：键盘页符号排在被控手机上此前整排无声 ——
+            // 这批 usage 不在表里，hidDown 查出 (0, '\u0000') 直接忽略。补齐 US 布局
+            // 下档符号（与 HidKeys.usageOf 的键面口径一致，修一处查同模式同步 TvControlServer）。
+            put(0x2D, 0 to '-'); put(0x2E, 0 to '='); put(0x2F, 0 to '['); put(0x30, 0 to ']')
+            put(0x31, 0 to '\\'); put(0x33, 0 to ';'); put(0x34, 0 to '\''); put(0x35, 0 to '`')
+            put(0x36, 0 to ','); put(0x37, 0 to '.'); put(0x38, 0 to '/')
         }
     }
 }

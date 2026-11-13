@@ -362,8 +362,14 @@ class LocalSendService : Service() {
                     nif.name.startsWith("pdp") || nif.name.startsWith("clat") ||
                     nif.name.startsWith("tun")) continue
                 nif.inetAddresses.toList().filterIsInstance<Inet4Address>().forEach { a ->
-                    val b = a.address // /24 网段：改前三字节，末字节遍历
-                    subnets.add(b.joinToString(".") { (it.toInt() and 0xFF).toString() })
+                    val b = a.address // /24 网段：**只取前 3 字节**、末字节清零后遍历 ——
+                    // 2026-11-14 实锤修复：原实现整地址拼进 base（base="192.168.2.41"），
+                    // 再拼 "$base.$last" 扫的全是五段非法主机名（192.168.2.41.1），
+                    // UnknownHostException 秒失败 —— 第四路单播探测等于从来没扫过，
+                    // 组播/广播被路由器滤掉的手机上「附近设备」就永远是空的。
+                    if (b.size >= 3) {
+                        subnets.add(b.take(3).joinToString(".") { (it.toInt() and 0xFF).toString() })
+                    }
                 }
             }
         } catch (t: Throwable) {
@@ -651,7 +657,13 @@ class LocalSendService : Service() {
             // register 与 UDP announce 走同一条入表路径：把 RegisterDto 展平成 announce 形状
             // （info 平铺 + port/protocol），fingerprint 去重、dedup、postRegister 回应全复用。
             // 展平而非透传：onAnnounce 只认扁平字段，两处结构对齐比两处解析更不易分叉。
-            val info = body.optJSONObject("info") ?: return
+            //
+            // 2026-11-14 实锤修复：本机自己发出去的 probe register（LocalSendProtocol.register）
+            // 是**平铺** deviceInfo + port + protocol，没有 info 包裹 —— 旧实现
+            // `optJSONObject("info") ?: return` 直接丢弃，于是「对端探测我」这条路在我这端
+            // 从来不入表（只有我探测对端、吃它 200 响应才单向入表）。容忍平铺体：
+            // 没有 info 包裹就当 body 自己就是 info，双向 register 都能入表。
+            val info = body.optJSONObject("info") ?: body
             val msg = JSONObject()
             info.keys().forEach { k -> msg.put(k, info.opt(k)) }
             msg.put("port", body.optInt("port", 0)).put("protocol", body.optString("protocol", "http"))

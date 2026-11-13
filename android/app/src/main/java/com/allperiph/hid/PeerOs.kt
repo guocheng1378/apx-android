@@ -42,11 +42,17 @@ enum class PeerOs {
         fun indexOf(os: PeerOs): Int = entries.indexOf(os)
 
         /** 当前选中的被控机系统；**设备档案优先**（2026-11-14 成宇「对应切换」批）——
-         *  连着哪台受控设备就用它自己的档案，没连设备 / 该设备没存过 = 全局键（存量行为不变） */
+         *  连着哪台受控设备就用它自己的档案，没连设备 / 该设备没存过 = 全局键（存量行为不变）
+         *
+         *  2026-11-14 追加（成宇「软件有没有识别对端手机并映射键盘」）：信标类型为手机
+         *  （ControlTarget.type == "phone"）且该设备没存过系统档案时，自动按 [ANDROID]
+         *  适配 —— 手机被控端没有 Win/桌面/注册表那套语义，照 Windows 口径发只会发出
+         *  无意义的组合；用户显式存过档案（intReadInt 命中）时尊重档案，不被覆盖。 */
         fun current(ctx: Context): PeerOs {
             com.allperiph.wireless.DeviceProfiles.readInt(ctx, FIELD_OS)?.let {
                 return entries[it.coerceIn(0, entries.size - 1)]
             }
+            if (com.allperiph.wireless.ControlTarget.type == "phone") return ANDROID
             return entries[ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
                 .getInt(KEY_OS, 0).coerceIn(0, entries.size - 1)]
         }
