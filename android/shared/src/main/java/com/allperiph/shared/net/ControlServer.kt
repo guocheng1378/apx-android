@@ -6,6 +6,7 @@ import android.os.SystemClock
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 import com.allperiph.shared.input.RootInput
+import com.allperiph.shared.input.UinputMouse
 import com.allperiph.shared.inject.TvInjector
 import java.io.InputStream
 import java.io.OutputStream
@@ -474,11 +475,20 @@ class ControlServer(
         // 判「长按（右键）或拖拽」；bit0 左键沿用 pressDown/pressUp。
         val needRightDown = (buttons and 2) != 0 && (prev and 2) == 0
         val needRightUp = (buttons and 2) == 0 && (prev and 2) != 0
-        // 中键 bit2：被控端 ControlEndpoint 没有中键注入语义，维持忽略但不再静默 —— 记一条日志便于排查
-        if (buttons and 4 != 0 && prev and 4 == 0) Log.w("控制面", "收到中键按下（bit2），被控端暂无中键注入通道，忽略")
+        // 中键 bit2：三指点按/中键拖拽（GestureEngine 发 0x04 帧对）此前整个被忽略 ——
+        // 「各个按钮是否有用」审查（2026-11-13）实锤的断链之一。现在接 uinput 中键：
+        // 与左右键同一条内核鼠标通道；uinput 未就绪时维持提示（无障碍/触摸无中键语义，
+        // 不做 root input 模拟——事件流对不齐会双击）。
+        val needMiddleDown = (buttons and 4) != 0 && (prev and 4) == 0
+        val needMiddleUp = (buttons and 4) == 0 && (prev and 4) != 0
         synchronized(keysLock) { lastButtons = buttons }
         if (needDown) endpoint.pressDown()
         if (needUp) endpoint.pressUp()
+        if (needMiddleDown) {
+            if (UinputMouse.ready) UinputMouse.button(2, true)
+            else Log.w("控制面", "收到中键按下（bit2）：虚拟鼠标未就绪，中键暂无法注入")
+        }
+        if (needMiddleUp) UinputMouse.button(2, false)
         if (needRightDown) {
             // 快速连点右键：先收掉上一次还没落地的推迟抬起，避免触摸流卡在 DOWN
             rightUpPending?.let { p ->
@@ -606,11 +616,13 @@ class ControlServer(
         val hadLeftBtn = synchronized(keysLock) { (lastButtons and 0x01) != 0 }
         // P0-3：右键序列（含还没落地的推迟抬起）在断开/挂起时也必须收尾，否则触摸流卡在 DOWN
         val hadRightBtn = synchronized(keysLock) { (lastButtons and 0x02) != 0 }
+        val hadMiddleBtn = synchronized(keysLock) { (lastButtons and 0x04) != 0 }
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }
         val pendingRight = rightUpPending
         if (pendingRight != null) { injectHandler.removeCallbacks(pendingRight); rightUpPending = null }
         for (u in held) runCatching { hidUp(u) }
         if (hadLeftBtn || hadRightBtn || pendingRight != null) runCatching { endpoint.pressUp() }
+        if (hadMiddleBtn) UinputMouse.button(2, false)   // 中键按住断连：抬起，不残留卡键
     }
 
     private fun hidDown(usage: Int) {

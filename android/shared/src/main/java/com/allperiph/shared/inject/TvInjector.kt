@@ -503,6 +503,12 @@ object TvInjector {
         }
         refreshScreen()
         val step = screenH / 4f * n
+        // uinput 滚轮（2026-11-13 全链路审查批）：REL_WHEEL 是真实鼠标滚轮 —— 不依赖
+        // root/无障碍，方向语义（notch 正=向上）与控制端一致；比 swipe 回放更省帧。
+        if (UinputMouse.ready) {
+            UinputMouse.wheel(n)
+            return
+        }
         val s = "input swipe ${cursorX.toInt()} ${cursorY.toInt()} ${cursorX.toInt()} ${(cursorY - step).toInt()} 220"
         if (platform?.accessibilityFirst == true) {
             if (systemReady() && ApxAccessibilityService.instance?.swipe(cursorX, cursorY, cursorX, cursorY - step, 220) == true) return
@@ -552,12 +558,16 @@ object TvInjector {
         // ① evdev 内核注入（免 root）：按下与松开都真的发出去，长按/连发/组合键才对
         if (EvdevInjector.available && EvdevInjector.sendKey(kc, down)) return
         if (!down) return
-        // ② root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
+        // ② 无障碍白名单优先（2026-11-13「单点还是不行」同款审查）：accessibilityFirst
+        //    平台（手机/TV）上 root `input keyevent` 同样会被 SELinux 静默丢弃（假成功），
+        //    无障碍全局动作永远轮不上 —— 这些键先走无障碍，root 处理其余任意键。
+        if (platform?.accessibilityFirst == true && systemReady() && tryAccessibilityKey(kc)) return
+        // ③ root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
         //   无障碍做不到这一点，所以只有 root 通道可用时按键才真正可用。
         //   `input keyevent` 自带 down+up，因此只在 down 时发一次。
         if (RootInput.available && RootInput.run("input keyevent $kc")) return
         if (!systemReady()) return
-        // ③ 平台特定的额外按键分支（手机的 Tab / PageUp/Down / MoveHome/End 等）
+        // ④ 平台特定的额外按键分支（手机的 Tab / PageUp/Down / MoveHome/End 等）
         if (platform?.handleExtraKey(kc, down, this) == true) return
         when (kc) {
             KeyEvent.KEYCODE_DPAD_LEFT -> nudge(-NUDGE, 0f)
@@ -579,7 +589,7 @@ object TvInjector {
             // ★ 遥控器套（HotkeyTemplates "tv"）的「返回 / 主页」：服务端已把 0x29(Esc)
             //   映射成 KEYCODE_BACK、0x4A(Home) 映射成 KEYCODE_HOME，原先这里没有分支 →
             //   被**静默丢弃**（被控端点「返回/主页」毫无反应）。无障碍服务注入不了任意按键，
-            //   但这三个全局动作是它明确支持的。
+            //   但这三个全局动作是它明确支持的（accFirst 平台已在 tryAccessibilityKey 前置处理）。
             // 电源键：root 下 `input keyevent 26` 真能锁屏/亮屏；无 root 用全局锁屏动作（API 28+）。
             // 以前白名单里没有它 → 用户按了没反应（真机反馈"还缺电源键"）。
             KeyEvent.KEYCODE_POWER -> {
@@ -598,6 +608,32 @@ object TvInjector {
                 Log.w(TAG, "被控按键未支持（无障碍通道无法注入该键）：kc=$kc")
             }
         }
+    }
+
+    /**
+     * 无障碍能稳定注入的按键白名单（accessibilityFirst 平台在 root 之前调用）。
+     * 返回 true 表示已注入；无障碍服务未启用返回 false，调用方照旧落 root。
+     * 通道语义：back/home/recents/锁屏是系统全局动作；DEL/SPACE/ENTER 走输入法/文本。
+     */
+    private fun tryAccessibilityKey(kc: Int): Boolean {
+        val svc = ApxAccessibilityService.instance
+        if (svc == null) return false
+        when (kc) {
+            KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> svc.back()
+            KeyEvent.KEYCODE_HOME -> svc.home()
+            KeyEvent.KEYCODE_APP_SWITCH -> svc.recents()
+            KeyEvent.KEYCODE_POWER -> svc.lockScreen()
+            KeyEvent.KEYCODE_DEL -> {
+                if (ApxImeService.delete()) return true
+                svc.deleteChar()
+            }
+            KeyEvent.KEYCODE_SPACE -> svc.typeText(" ")
+            KeyEvent.KEYCODE_ENTER -> {
+                if (!ApxImeService.key(KeyEvent.KEYCODE_ENTER, true)) click()
+            }
+            else -> return false
+        }
+        return true
     }
 
     /**
