@@ -46,8 +46,10 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 import com.allperiph.ui.miuix.applyEdgeToEdge
@@ -168,7 +170,6 @@ class RemoteInputActivity : ComponentActivity() {
         // 中性色（背景/面板/文字三级）按 ApPalette 自己的规则不参与运行时叠加，仍用 remote_panel_*。
         val accent = com.allperiph.ui.ApPalette.primary(this)
         val dim = getColor(R.color.remote_panel_text_dim)
-        val neutral = getColor(R.color.remote_panel_neutral)
         return ComposeView(this).apply {
             setContent {
                 ApMiuixTheme {
@@ -245,11 +246,20 @@ class RemoteInputActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End,
                         ) {
-                            ActionPill("语音", neutral) { startVoiceInput() }
+                            // 旧自建 ActionPill（Box+手写圆角+手写反馈）迁主壳：随文字宽度的
+                            // 窄按钮即 ApComponents.NarrowButton —— 反馈/底色/字色全走主题，
+                            // 不再这页一份、主壳一份（与操控面并轨同一约定）。
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_remote_item_voice),
+                            ) { startVoiceInput() }
                             Spacer(Modifier.width(12.dp))
-                            ActionPill(getString(R.string.ui_common_cancel), neutral) { cancelAndFinish() }
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_common_cancel),
+                            ) { cancelAndFinish() }
                             Spacer(Modifier.width(12.dp))
-                            ActionPill(getString(R.string.ui_common_send), accent) { sendCurrent() }
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_common_send),
+                            ) { sendCurrent() }
                         }
                     }
                     }
@@ -343,11 +353,15 @@ class RemoteInputActivity : ComponentActivity() {
             }
         }
         val host = androidx.compose.ui.platform.LocalView.current
+        // 主壳同款取色（2026-11-13 迁移）：底/字走 MiuixTheme 令牌 —— 换主题、莫奈叠加、
+        // 模块皮肤时与主壳一起变色；旧的 remote_panel_field/on 资源不再这页单走一套。
+        val fieldBg = MiuixTheme.colorScheme.surfaceContainer
+        val fieldOn = MiuixTheme.colorScheme.onSurface
         Box(
             modifier = Modifier
                 .padding(end = 6.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_field)))
+                .background(fieldBg)
                 .clickable(
                     interactionSource = interaction,
                     indication = null,   // 键盘页 KeyBox 同款（视觉自绘/按下震补偿；platform.LocalIndication 本编译环境解析不到）
@@ -359,27 +373,8 @@ class RemoteInputActivity : ComponentActivity() {
         ) {
             Text(
                 text = label,
-                color = androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_on)),
+                color = fieldOn,
                 fontSize = 13.sp,
-            )
-        }
-    }
-
-    /** 底部按钮（取消 / 发送）（#5 按下即震） */
-    @Composable
-    private fun ActionPill(label: String, bg: Int, onClick: () -> Unit) {
-        val host = androidx.compose.ui.platform.LocalView.current
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(androidx.compose.ui.graphics.Color(bg))
-                .clickable { com.allperiph.ui.Feedback.tap(host); onClick() }
-                .padding(horizontal = 24.dp, vertical = 10.dp),
-        ) {
-            Text(
-                text = label,
-                color = androidx.compose.ui.graphics.Color(getColor(R.color.remote_panel_on)),
-                fontSize = 14.sp,
             )
         }
     }
