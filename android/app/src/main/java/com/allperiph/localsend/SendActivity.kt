@@ -157,8 +157,19 @@ class SendActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() { super.onResume(); handler.post(refresh) }
-    override fun onPause() { super.onPause(); handler.removeCallbacksAndMessages(null) }
+    override fun onResume() {
+        super.onResume()
+        handler.post(refresh)
+        // 探测快慢档（NectarLink 调研批）：本页在屏 = 15s 快扫 + 立即提前一轮，
+        // 进页面不等旧计时；退到后台回落 90s 慢档（LocalSendService.teardown 也会清零）。
+        LocalSendService.fastMode = true
+        LocalSendService.wakeProber()
+    }
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacksAndMessages(null)
+        LocalSendService.fastMode = false
+    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)

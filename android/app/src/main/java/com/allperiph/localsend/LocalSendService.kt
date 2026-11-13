@@ -55,9 +55,16 @@ class LocalSendService : Service() {
         private const val TAG = "ApxLocalSend"
         private const val ANNOUNCE_PERIOD_MS = 30_000L
         private const val REGISTER_DEDUP_MS = 30_000L
-        /** 单播探测兜底：轮间隔与并发度（见 [startProber] 注释） */
-        private const val PROBE_PERIOD_MS = 45_000L
+        /**
+         * 单播探测兜底：并发度与两档轮间隔（见 [startProber] 注释）。
+         * 快档 = 发送页在屏（[fastMode]），15s 一轮对齐列表刷新节奏；
+         * 慢档 = 后台，90s 一轮（原 45s 定频拆档：后台没必要跟列表窗口一样密）。
+         */
+        private const val PROBE_FAST_MS = 15_000L
+        private const val PROBE_SLOW_MS = 90_000L
         private const val PROBE_THREADS = 24
+        /** 已知对端落盘上限：超过按 lastSeen 淘汰（NectarLink remember_addrs 同思路，防无限增长） */
+        private const val KNOWN_PEERS_MAX = 20
         /**
          * 接收端此刻是否真的在跑（进程内静态）。
          *
@@ -93,6 +100,23 @@ class LocalSendService : Service() {
          */
         var discoveryUp: Boolean by androidx.compose.runtime.mutableStateOf(false)
             private set
+
+        /**
+         * 探测快慢档：发送页在屏时置 true（15s 一轮），退到后台置 false（90s 一轮）。
+         * 调用方：[SendActivity] onResume/onPause；读方：prober 循环每轮取值。
+         */
+        var fastMode: Boolean by androidx.compose.runtime.mutableStateOf(false)
+
+        /**
+         * 提前唤醒探测线程（网络切换、发送页回到前台时调用，避免傻等满一轮）。
+         * NectarLink `network_changed()` 的等价物：路径变了就立刻重扫，而不是等退避到期。
+         */
+        fun wakeProber() {
+            synchronized(proberWake) { proberWake.notifyAll() }
+        }
+
+        /** 探测线程的等待锁：每轮结束时按当前档位定时等待，[wakeProber] 提前叫醒 */
+        private val proberWake = Object()
 
         /** 本机 HTTP 监听端口（53317 被占时回退 53318/53319），register 自报用 */
         @Volatile
@@ -178,6 +202,28 @@ class LocalSendService : Service() {
 
         startDiscovery()
         startProber()
+        registerNetworkWatcher()
+    }
+
+    /**
+     * 网络变化监听：Wi-Fi 切换/断连重连后立即提前一轮探测（不必等满 15s/90s）。
+     * CONNECTIVITY_CHANGE 自 7.0 起只对前台应用派发——本服务是前台服务、
+     * 收不到时慢档全扫兜底，不引入 NetworkCallback 的每个网络回调复杂度。
+     */
+    private var networkWatcher: android.content.BroadcastReceiver? = null
+    private fun registerNetworkWatcher() {
+        if (networkWatcher != null) return
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (running) wakeProber()
+            }
+        }
+        try {
+            registerReceiver(r, android.content.IntentFilter(android.net.ConnectivityManager.CONNECTIVITY_ACTION))
+            networkWatcher = r
+        } catch (t: Throwable) {
+            Log.w(TAG, "注册网络监听失败（快慢档兜底不受影响）", t)
+        }
     }
 
     private fun startDiscovery() {
@@ -195,12 +241,21 @@ class LocalSendService : Service() {
      * 此前发现只有三路 UDP（组播 + 受限广播 + 网段广播），在滤广播/组播的路由器
      * （运营商光猫常见，管理页里常常找不到开关）下三路全灭，「附近设备」永远空。
      * HTTP 直连不受广播过滤影响 —— 文件收发面板（9511 直连）在同一个网络上一直通，
-     * 就是佐证。这里对 /24 网段逐 IP 探测 53317/53318/53319：对方开关开着 HTTP 就在听，
-     * register 成功应答即双方互相入表，不依赖任何广播。
+     * 就是佐证。这里对每个网卡的 /24 网段逐 IP 探测 53317/53318/53319：对方开关开着
+     * HTTP 就在听，register 成功应答即双方互相入表，不依赖任何广播。
      *
-     * 成本评估：254 IP × 3 端口、24 并发、连接超时 300ms —— 对不存在的主机大多 RST
-     * 秒回，最坏（全超时）一轮约 10s，后台线程，对电量的可感知影响可忽略；周期 45s
-     * （略小于发送页 60s 活跃窗口，probe 刷新的设备不会在列表里闪没）。
+     * v223.29.92 升级（NectarLink 源码调研的三件套，用户「规划直接开始做」）：
+     *  · **记住对端**：probe/announce 命中即落盘对端地址，之后每轮先直拨老朋友再全扫
+     *    ——对上一次就秒见，不再受任何发现路径牵制（remember_addrs 同思路）；
+     *  · **快慢两档**：发送页在屏 15s 一轮（快到跟着列表刷新走），后台 90s（省电）；
+     *  · **多网卡都扫**：v91 只扫 preferredMulticastInterface 选中的那一张 —— 手机开
+     *    热点（ap0/swlan0）或 Wi-Fi+热点并存时选错网卡，热点互传整个漏掉（用户
+     *    「刚才的修复还是不行连不上」的候选原因之一）；现在遍历所有物理 IPv4 网卡
+     *    各扫各的 /24（蜂窝口跳过，别去扫运营商大网）；
+     *  · **网络变化立即重扫**：CONNECTIVITY_CHANGE 唤醒，不等满一轮。
+     *
+     * 成本评估：每网卡 254 IP × 3 端口、24 并发、连接超时 300ms —— 对不存在的主机大多
+     * RST 秒回，最坏（全超时）一轮约 10s/网卡，后台线程，对电量的可感知影响可忽略。
      */
     private fun startProber() {
         if (proberThread?.isAlive == true) return
@@ -208,9 +263,15 @@ class LocalSendService : Service() {
             var first = true
             while (running) {
                 if (!first) {
-                    try { Thread.sleep(PROBE_PERIOD_MS) } catch (_: InterruptedException) { return@Thread }
+                    try {
+                        synchronized(proberWake) {
+                            val wait = if (fastMode) PROBE_FAST_MS else PROBE_SLOW_MS
+                            proberWake.wait(wait)
+                        }
+                    } catch (_: InterruptedException) { return@Thread }
                 }
                 first = false
+                try { probeKnownPeers() } catch (t: Throwable) { Log.w(TAG, "直拨已知对端异常", t) }
                 try { probeSubnet() } catch (_: InterruptedException) { return@Thread } catch (t: Throwable) {
                     Log.w(TAG, "探测轮异常", t)
                 }
@@ -218,21 +279,68 @@ class LocalSendService : Service() {
         }, "LocalSend-Prober").apply { isDaemon = true; start() }
     }
 
-    /** 一轮子网探测；本机 IP 未知（无 Wi-Fi）时本轮跳过 */
+    /**
+     * 已知对端直拨：不依赖任何发现路径，对上一次（probe 命中/收到 announce/register）
+     * 的对端地址直接再敲一遍门——成功即入表 + 刷新落盘。记录永不删除（对端关了开关
+     * 直拨失败也无妨，慢档全扫回来兜底），仅在超过 [KNOWN_PEERS_MAX] 时按 lastSeen 淘汰。
+     */
+    private fun probeKnownPeers() {
+        for (p in loadKnownPeers()) probeHost(p.optString("ip", ""))
+    }
+
+    private val peersPrefs by lazy { getSharedPreferences("apx_localsend_peers", MODE_PRIVATE) }
+
+    private fun loadKnownPeers(): List<JSONObject> =
+        peersPrefs.all.values.mapNotNull { runCatching { JSONObject(it.toString()) }.getOrNull() }
+            .sortedByDescending { it.optLong("lastSeen", 0) }
+
+    /** 命中即落盘：fp → {ip, port, alias, deviceType, lastSeen}；超限淘汰最旧 */
+    private fun rememberPeer(fp: String, ip: String, port: Int, alias: String, deviceType: String) {
+        if (fp.isEmpty() || port !in 1..65535) return
+        val all = peersPrefs.all.keys.filter { it.startsWith("peer_") }.toMutableList()
+        while (all.size >= KNOWN_PEERS_MAX) {
+            val oldest = loadKnownPeers().lastOrNull()?.optString("fingerprint", "") ?: return
+            val key = "peer_$oldest"
+            peersPrefs.edit().remove(key).apply()
+            all.remove(key)
+        }
+        peersPrefs.edit().putString("peer_$fp", JSONObject()
+            .put("fingerprint", fp).put("ip", ip).put("port", port)
+            .put("alias", alias).put("deviceType", deviceType)
+            .put("lastSeen", System.currentTimeMillis()).toString()).apply()
+    }
+
+    /**
+     * 一轮子网探测：**每张**物理 IPv4 网卡各扫各的 /24（热点 ap0/swlan0、Wi-Fi wlan0
+     * 并存时以前只扫一张，另一侧互传全漏）。蜂窝口（rmnet/ccmni/pdp/clat/tun 前缀）
+     * 跳过——那不是局域网，扫运营商大网纯属浪费；本机 IP 未知（无 Wi-Fi/热点）时本轮跳过。
+     */
     private fun probeSubnet() {
-        val nif = preferredMulticastInterface() ?: return
-        val self = nif.inetAddresses.toList().filterIsInstance<Inet4Address>().firstOrNull() ?: return
-        val base = self.address // /24 网段：改前三字节，末字节遍历
+        val subnets = LinkedHashSet<String>()
+        try {
+            for (nif in NetworkInterface.getNetworkInterfaces()) {
+                if (!nif.isUp || nif.isLoopback || nif.isVirtual) continue
+                if (nif.name.startsWith("rmnet") || nif.name.startsWith("ccmni") ||
+                    nif.name.startsWith("pdp") || nif.name.startsWith("clat") ||
+                    nif.name.startsWith("tun")) continue
+                nif.inetAddresses.toList().filterIsInstance<Inet4Address>().forEach { a ->
+                    val b = a.address // /24 网段：改前三字节，末字节遍历
+                    subnets.add(b.joinToString(".") { (it.toInt() and 0xFF).toString() })
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "枚举网卡失败", t)
+        }
+        if (subnets.isEmpty()) return
         val pool = java.util.concurrent.Executors.newFixedThreadPool(PROBE_THREADS) { r ->
             Thread(r, "LocalSend-Probe").apply { isDaemon = true }
         }
         try {
-            val futures = (1..254).map { last ->
-                val ip = String.format("%s.%d", base.joinToString(".") { (it.toInt() and 0xFF).toString() }, last)
-                pool.submit { probeHost(ip) }
+            val futures = subnets.flatMap { base ->
+                (1..254).map { last -> pool.submit { probeHost("$base.$last") } }
             }
-            // 等待本轮全部结束（单任务自身带超时；上限放宽到 15s 防积压）
-            futures.forEach { f -> runCatching { f.get(15, java.util.concurrent.TimeUnit.SECONDS) } }
+            // 等待本轮全部结束（单任务自身带超时；多网卡放宽到 30s 防积压）
+            futures.forEach { f -> runCatching { f.get(30, java.util.concurrent.TimeUnit.SECONDS) } }
         } finally {
             pool.shutdownNow()
         }
@@ -256,6 +364,9 @@ class LocalSendService : Service() {
                     // 回路（对端随后回的 register 在 REGISTER_DEDUP_MS 内被拦）
                     val msg = try { JSONObject(body) } catch (_: Throwable) { return }
                     msg.put("port", port).put("protocol", "http")
+                    // 命中即落盘：下轮起走「记住对端直拨」，秒见不依赖发现
+                    rememberPeer(msg.optString("fingerprint", ip), ip, port,
+                        msg.optString("alias", ip), msg.optString("deviceType", "desktop"))
                     onAnnounce(msg.toString(), ip)
                     return
                 }
@@ -392,6 +503,9 @@ class LocalSendService : Service() {
         running = false
         isRunning = false
         discoveryUp = false
+        fastMode = false
+        networkWatcher?.let { try { unregisterReceiver(it) } catch (_: Throwable) {} }
+        networkWatcher = null
         httpPort = LocalSendProtocol.HTTP_PORT
         mainHandler.removeCallbacksAndMessages(null)
         try { discoveryThread?.interrupt() } catch (_: Throwable) {}
@@ -445,6 +559,9 @@ class LocalSendService : Service() {
         val port = msg.optInt("port", 0); if (port !in 1..65535) return
         // 批H：每次 announce 都刷新发送端设备表（置于 dedup 前，lastSeen 才不过期）
         LocalSendClient.onAnnounce(msg, ip)
+        // 命中即落盘：UDP/单播/register 收包三条路统一记对端，prober 直拨用
+        rememberPeer(msg.optString("fingerprint", ip), ip, port,
+            msg.optString("alias", ip), msg.optString("deviceType", "desktop"))
         val fp = msg.optString("fingerprint", ip)
         val now = System.currentTimeMillis()
         val last = registeredRecently[fp]
