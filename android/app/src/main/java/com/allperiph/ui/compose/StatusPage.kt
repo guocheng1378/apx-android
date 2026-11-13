@@ -311,16 +311,18 @@ fun StatusPage(
                                 text = ctx.getString(row.stateRes),
                                 color = stateColor(row.state),
                             )
-                            if (state.running) {
-                                Switch(
-                                    checked = row.enabled,
-                                    onCheckedChange = { on ->
-                                        Feedback.haptic(ctx)
-                                        AgentController.setModuleEnabled(ctx, row.id, on)
-                                        tick++
-                                    },
-                                )
-                            }
+                            // 2026-11-13 UI 审查：开关原来只在服务运行时显示 —— 服务没跑时
+                            // 整列开关消失只剩灰胶囊，用户不知道从哪点亮。setModuleEnabled
+                            // 在 runtime 为空时只写偏好、服务启动后照读，开关恒显恒可拨，
+                            // 运行态交给胶囊表达。
+                            Switch(
+                                checked = row.enabled,
+                                onCheckedChange = { on ->
+                                    Feedback.haptic(ctx)
+                                    AgentController.setModuleEnabled(ctx, row.id, on)
+                                    tick++
+                                },
+                            )
                         }
                     }
                     if (twoPane) {

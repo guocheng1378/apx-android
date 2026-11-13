@@ -297,9 +297,10 @@ internal fun ApFullKeyboard(
     // 关档（默认）连 transition 都不建（if 分支不进），不跑任何动画。
     // 存成 state 而不是 val：页签行尾的灯效芯片就地循环档位，改完当场重组灯效分支。
     var rgbMode by remember { mutableIntStateOf(KeyPref.rgbIndex(ctx)) }
-    // 调色：组合期一次性从持久层灌入（此后 RgbTune 只被绘制阶段读）；面板开关
+    // 调色：组合期一次性从持久层灌入（此后 RgbTune 只被绘制阶段读）；色相/亮度
+    // 直接在灯效弹窗里调（2026-11-13 UI 审查：原「调色」芯片点了关弹窗、再展开
+    // 下方面板，来回四跳 —— 并入弹窗后一跳到位）。
     remember { RgbTune.hueShift = KeyPref.rgbHue(ctx); RgbTune.bright = KeyPref.rgbBright(ctx) }
-    var tuneOpen by remember { mutableStateOf(false) }
     // 灯效直选弹窗（2026-11-12 图1/图4「结构混乱」修复 + 规划 v2 口径「快切改一键直选
     // 不再循环」）：页签行的灯效芯片只负责开这个弹窗，四档灯效在弹窗里**直选**、
     // 不再点一下循环一档 —— 原先「RGB 灯效 · 按下扩散」长芯片把页签行顶成三行，
@@ -491,45 +492,8 @@ internal fun ApFullKeyboard(
                 // 灯效直选弹窗（灯效开着才给），页签行不再为它单独占一行。
             }
 
-            // —— 调色面板：色相名直选 + 亮度三档（灯效开着且点了「调色」才展开；横滑防溢出）
-            if (tuneOpen && rgbMode != KeyPref.RGB_OFF) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf(
-                        "原" to 0, "红" to 340, "橙" to 30, "黄" to 55,
-                        "绿" to 140, "青" to 190, "蓝" to 240, "紫" to 285,
-                    ).forEach { (label, hue) ->
-                        ApComponents.TabChip(
-                            text = label,
-                            selected = RgbTune.hueShift == hue,
-                            onClick = {
-                                Feedback.tap(host)
-                                RgbTune.hueShift = hue
-                                KeyPref.setRgbHue(ctx, hue)
-                            },
-                            fx = fx,
-                        )
-                    }
-                    Spacer(Modifier.padding(horizontal = 4.dp))
-                    listOf("暗" to 60, "中" to 100, "亮" to 140).forEach { (label, b) ->
-                        ApComponents.TabChip(
-                            text = label,
-                            selected = RgbTune.bright == b,
-                            onClick = {
-                                Feedback.tap(host)
-                                RgbTune.bright = b
-                                KeyPref.setRgbBright(ctx, b)
-                            },
-                            fx = fx,
-                        )
-                    }
-                }
-            }
+            // —— 调色面板已并入灯效直选弹窗（2026-11-13 UI 审查：原先「调色」芯片
+            // 点了关弹窗、再展开下方面板，来回四跳 —— 现在色相/亮度就在弹窗里，一跳到位）。
 
             // —— 竖屏快捷键条（成宇 2026-11-12 19:31「所有键盘区不要手势控制面」）：
             // issue#168 2026-11-12 #4 三段方案里的触控板整块删掉，键位区拿回全部剩余
@@ -607,17 +571,42 @@ internal fun ApFullKeyboard(
                     )
                 }
             }
+            // —— 色相/亮度直接进弹窗（2026-11-13 UI 审查）：灯效开着才给；点档不关弹窗的
+            // 口径不变 —— 用户常想连着试几档看观感，调完色一样收尾点弹窗外。
             if (rgbMode != KeyPref.RGB_OFF) {
-                ApComponents.TabChip(
-                    text = ctx.getString(R.string.ui_kb_led_tune),
-                    selected = tuneOpen,
-                    onClick = {
-                        Feedback.tap(host)
-                        tuneOpen = !tuneOpen
-                        ledPickOpen = false
-                    },
-                    fx = fx,
-                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(
+                        "原" to 0, "红" to 340, "橙" to 30, "黄" to 55,
+                        "绿" to 140, "青" to 190, "蓝" to 240, "紫" to 285,
+                    ).forEach { (label, hue) ->
+                        ApComponents.TabChip(
+                            text = label,
+                            selected = RgbTune.hueShift == hue,
+                            onClick = {
+                                Feedback.tap(host)
+                                RgbTune.hueShift = hue
+                                KeyPref.setRgbHue(ctx, hue)
+                            },
+                            fx = fx,
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    listOf("暗" to 60, "中" to 100, "亮" to 140).forEach { (label, b) ->
+                        ApComponents.TabChip(
+                            text = label,
+                            selected = RgbTune.bright == b,
+                            onClick = {
+                                Feedback.tap(host)
+                                RgbTune.bright = b
+                                KeyPref.setRgbBright(ctx, b)
+                            },
+                            fx = fx,
+                        )
+                    }
+                }
             }
         }
     }
