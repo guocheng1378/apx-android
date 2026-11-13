@@ -76,6 +76,7 @@ import com.allperiph.ui.compose.FloatingHotkeyCard
 import com.allperiph.ui.compose.ApShellActivity
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvDiscovery
 import top.yukonga.miuix.kmp.basic.Text
@@ -2245,11 +2246,11 @@ class FloatingBallService : Service() {
                 ) {
                     Text(
                         text = stringResource(R.string.ui_main_label_floating_ball),
-                        fontSize = 14.sp,
+                        fontSize = ApType.footnote,
                     )
                     Text(
                         text = stringResource(R.string.ui_main_floating_ball_hint),
-                        fontSize = 12.sp,
+                        fontSize = ApType.caption,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier
                             .weight(1f)
@@ -2607,13 +2608,13 @@ class FloatingBallService : Service() {
                     ) {
                         Text(
                             text = stringResource(R.string.ui_ball_fn_clipboard_title),
-                            fontSize = 17.sp,
+                            fontSize = ApType.headline,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
                         Text(
                             text = stringResource(R.string.ui_ball_fn_clipboard_hint),
-                            fontSize = 12.sp,
+                            fontSize = ApType.caption,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(bottom = 8.dp),
@@ -2673,7 +2674,7 @@ class FloatingBallService : Service() {
                             Text(
                                 text = if (text.isEmpty()) stringResource(R.string.ui_ball_fn_clipboard_empty)
                                 else text,
-                                fontSize = 13.sp,
+                                fontSize = ApType.footnote,
                             )
                         }
                         ApComponents.VScrollbar(

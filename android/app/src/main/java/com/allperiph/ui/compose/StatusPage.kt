@@ -34,6 +34,7 @@ import com.allperiph.ui.EnvChecks
 import com.allperiph.ui.Feedback
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApEdgeInsets
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.ui.miuix.enterStagger
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
@@ -248,11 +249,11 @@ fun StatusPage(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
                                 text = ctx.getString(R.string.ui_bt_pair_title),
-                                fontSize = 15.sp,
+                                fontSize = ApType.body,
                             )
                             Text(
                                 text = ctx.getString(R.string.ui_bt_pair_body),
-                                fontSize = 13.sp,
+                                fontSize = ApType.footnote,
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(top = 8.dp),
                             )
@@ -449,7 +450,7 @@ fun StatusPage(
                 if (!state.rooted) {
                     Text(
                         text = ctx.getString(R.string.hint_usb2),
-                        fontSize = 12.sp,
+                        fontSize = ApType.caption,
                         color = colorResource(R.color.module_state_pending),
                         modifier = Modifier.padding(16.dp),
                     )
@@ -467,7 +468,7 @@ fun StatusPage(
                 // 同一份内容一页两处 —— 精简为只留 hint 一行当目录 + 按钮直达弹层，不丢信息。
                 Text(
                     text = ctx.getString(R.string.ui_main_cat_help_hint),
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 ApComponents.ActionButton(
@@ -669,13 +670,13 @@ private fun BtDiagPanel(ctx: Context, tick: Int) {
     Column(modifier = Modifier.padding(16.dp)) {
         Text(
             text = ctx.getString(R.string.ui_bt_diag_title),
-            fontSize = 15.sp,
+            fontSize = ApType.body,
         )
         val lines = diag?.let { diagLines(ctx, it) } ?: emptyList()
         lines.forEach { line ->
             Text(
                 text = line,
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 6.dp),
             )

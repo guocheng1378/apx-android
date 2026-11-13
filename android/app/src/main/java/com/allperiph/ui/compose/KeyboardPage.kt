@@ -66,6 +66,7 @@ import com.allperiph.ui.Feedback
 import com.allperiph.ui.KeyLayouts
 import com.allperiph.ui.KeyPref
 import com.allperiph.ui.miuix.ApComponents
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.ui.miuix.enterStagger
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberEnterStagger
@@ -552,7 +553,7 @@ internal fun ApFullKeyboard(
         ApComponents.DialogCard(onDismiss = { ledPickOpen = false }) {
             Text(
                 text = ctx.getString(R.string.ui_set_label_rgb),
-                fontSize = 16.sp,
+                fontSize = ApType.body,
             )
             FlowRow(
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
@@ -614,7 +615,7 @@ internal fun ApFullKeyboard(
     // —— 语音识别结果确认卡：说了什么、发不发，用户看得见再决定 ——
     voiceText?.let { t ->
         ApComponents.DialogCard(onDismiss = { voiceText = null }) {
-            Text(text = ctx.getString(R.string.ui_kb_voice_result_title), fontSize = 16.sp)
+            Text(text = ctx.getString(R.string.ui_kb_voice_result_title), fontSize = ApType.body)
             // 成宇 2026-11-13 04:0x「不能修改，没有识别窗」：识别结果原来是死的 Text，
             // 离线小模型听错字很常见，用户只能取消重来。改用可编辑输入框，默认填上
             // 识别结果，发送前可就地增删；remember(t) 按结果重建 —— 取消后再识别出
@@ -656,12 +657,12 @@ internal fun ApFullKeyboard(
     // —— 剪贴板发送确认卡：内容先亮出来再发（2026-11-13 UI 审查，样式与语音卡同构）——
     clipConfirm?.let { t ->
         ApComponents.DialogCard(onDismiss = { clipConfirm = null }) {
-            Text(text = ctx.getString(R.string.ui_ball_fn_clipboard_send), fontSize = 16.sp)
+            Text(text = ctx.getString(R.string.ui_ball_fn_clipboard_send), fontSize = ApType.body)
             // 预览只亮 4 行出省略号 —— 剪贴板可能是一大段长文，全亮会撑爆卡片；
             // 发出去的仍是完整内容，不因预览截断。
             Text(
                 text = t,
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
@@ -848,10 +849,10 @@ private fun RemoteLayout() {
 
     confirm?.let { (action, label) ->
         ApComponents.DialogCard(onDismiss = { confirm = null }) {
-            Text(text = ctx.getString(R.string.ui_touchpad_dialog_device, label), fontSize = 16.sp)
+            Text(text = ctx.getString(R.string.ui_touchpad_dialog_device, label), fontSize = ApType.body)
             Text(
                 text = ctx.getString(R.string.ui_touchpad_dialog_no_only_need, label),
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -975,7 +976,7 @@ private fun CustomLayout(
                 // 原来复用的是触控板页那句「长按「自定义」页签编辑布局」—— 可这一页的页签
                 // 只接了 clickable，全仓也没有长按处理，照着提示做永远没反应（审查 v5
                 // 初稿把这里算成死路；复核后确认下方那枚「编辑」按钮是能用的，所以只是文案错）。
-                Text(text = ctx.getString(R.string.ui_kb_custom_empty_hint), fontSize = 14.sp)
+                Text(text = ctx.getString(R.string.ui_kb_custom_empty_hint), fontSize = ApType.footnote)
             }
         } else {
             // 错落入场（2026-11-12 第三批）：自定义键排依次落位（动画只动 graphicsLayer）
@@ -1088,7 +1089,7 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
         Text(
             text = label,
             modifier = tileLabelMod,
-            fontSize = 16.sp,
+            fontSize = ApType.body,
             textAlign = TextAlign.Center,
             // 成宇 2026-11-13 05:0x「深色模式下遥控布局按钮字体是黑色，看不清」：图块文字
             // 此前没显式给色，落到默认渲染成黑字 —— 深色 surface 上直接没影。对齐键帽

@@ -52,6 +52,7 @@ import com.allperiph.ui.ApSkin
 import com.allperiph.ui.OrientLock
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.ui.miuix.MiuixTokens
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import androidx.compose.ui.res.stringResource
@@ -657,10 +658,10 @@ class ApShellActivity : ComponentActivity() {
             // 徒多一行按钮 —— 摘除，想不退就点外面。
             if (showExitAsk.value) {
                 ApComponents.DialogCard(onDismiss = { showExitAsk.value = false }) {
-                    Text(text = stringResource(R.string.ui_exit_title), fontSize = 17.sp)
+                    Text(text = stringResource(R.string.ui_exit_title), fontSize = ApType.headline)
                     Text(
                         text = stringResource(R.string.ui_exit_msg),
-                        fontSize = 13.sp,
+                        fontSize = ApType.footnote,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 6.dp),
                     )
@@ -874,7 +875,7 @@ class ApShellActivity : ComponentActivity() {
                                 )
                                 Text(
                                     text = stringResource(labelRes),
-                                    fontSize = 14.sp,
+                                    fontSize = ApType.footnote,
                                     color = itemColor,
                                     modifier = Modifier
                                         .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
@@ -1303,7 +1304,7 @@ internal fun ApDevicePickerBody(
     val leftPane: @Composable () -> Unit = {
         Text(
             text = ctx.getString(R.string.ui_pick_device_title),
-            fontSize = 17.sp,
+            fontSize = ApType.headline,
             // 居中档（悬浮面板）：标题整行居中；主屏保持左对齐
             textAlign = if (centered) TextAlign.Center else null,
             modifier = Modifier
@@ -1356,7 +1357,7 @@ internal fun ApDevicePickerBody(
         if (recent.isNotEmpty()) {
             Text(
                 text = ctx.getString(R.string.ui_pick_device_recent),
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
             )
             recent.forEach { h ->
@@ -1383,7 +1384,7 @@ internal fun ApDevicePickerBody(
         if (connecting.isNotEmpty()) {
             Text(
                 text = ctx.getString(R.string.ui_pick_device_connecting, connecting),
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
         }
@@ -1391,7 +1392,7 @@ internal fun ApDevicePickerBody(
         lastFailed?.let { failed ->
             Text(
                 text = ctx.getString(R.string.ui_pick_device_connect_failed, failed.ip),
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -1424,7 +1425,7 @@ internal fun ApDevicePickerBody(
         if (devices.isEmpty()) {
             Text(
                 text = ctx.getString(R.string.ui_pick_device_scanning),
-                fontSize = 13.sp,
+                fontSize = ApType.footnote,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
         }
@@ -1528,10 +1529,10 @@ private fun QuickActionsDialog(
     // managerDialog() 用的是独立 AlertDialog：改完就地把它自己的 render() 跑一遍，
     // 触控板页那边的 chip 网格以 editVersion 轮询重建会跟上（见 HotkeyGrid 的 items）。
     ApComponents.DialogCard(onDismiss = onDismiss) {
-        Text(text = ctx.getString(R.string.ui_home_sec_quick), fontSize = 17.sp)
+        Text(text = ctx.getString(R.string.ui_home_sec_quick), fontSize = ApType.headline)
         Text(
             text = ctx.getString(R.string.ui_home_quick_hint),
-            fontSize = 12.sp,
+            fontSize = ApType.caption,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )

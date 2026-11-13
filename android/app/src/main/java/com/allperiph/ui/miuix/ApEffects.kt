@@ -106,7 +106,7 @@ fun ApGlassTopBar(
             ) {
                 Text(
                     text = label ?: "选择设备",
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = MiuixTheme.colorScheme.primary,
                 )
             }
@@ -115,7 +115,7 @@ fun ApGlassTopBar(
         if (title != null) {
             Text(
                 text = title,
-                fontSize = 20.sp,
+                fontSize = ApType.title,
                 color = MiuixTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(start = 20.dp, bottom = 10.dp),
             )

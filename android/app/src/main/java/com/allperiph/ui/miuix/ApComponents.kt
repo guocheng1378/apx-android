@@ -132,11 +132,11 @@ object ApComponents {
                 Column(modifier = Modifier.weight(1f)) {
                     // 排版口径（2026-11-07）：标题最多 2 行、摘要最多 3 行，超出省略 ——
                     // 再长靠页面/弹窗的竖向滚动看全，不把整行高度撑爆。
-                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(text = title, fontSize = ApType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (!summary.isNullOrBlank()) {
                         Text(
                             text = summary,
-                            fontSize = 12.sp,
+                            fontSize = ApType.caption,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             maxLines = 3,
                             // summaryMinLines（issue#170 #3）：状态文字会随实况换文案的行
@@ -234,11 +234,11 @@ object ApComponents {
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 // 排版口径（2026-11-07）：与 ItemRow 同规格 —— 标题≤2 行、摘要≤3 行。
-                Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(text = title, fontSize = ApType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (!summary.isNullOrBlank()) {
                     Text(
                         text = summary,
-                        fontSize = 12.sp,
+                        fontSize = ApType.caption,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -267,7 +267,7 @@ object ApComponents {
             trailing = {
                 Text(
                     text = value,
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary,
                     // 排版口径（2026-11-07 成宇「同类控件文字需要对齐」）：
                     // 尾值右对齐、最多 2 行、横向上限约半屏 —— 长地址/端口/路径
@@ -291,7 +291,7 @@ object ApComponents {
                 .background(color.copy(alpha = 0.14f), RoundedCornerShape(50))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            Text(text = text, fontSize = 12.sp, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(text = text, fontSize = ApType.caption, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 
@@ -396,7 +396,7 @@ object ApComponents {
         ) {
             Text(
                 text = text,
-                fontSize = 14.sp,
+                fontSize = ApType.footnote,
                 color = if (active) tint else MiuixTheme.colorScheme.onSurfaceSecondary,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 // 页签/芯片恒单行：过长出省略号，不把页签行顶出屏外
@@ -599,10 +599,10 @@ object ApComponents {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     // 排版口径（2026-11-07）：标题≤2 行；计数回显恒单行。
-                    Text(text = title, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(text = title, fontSize = ApType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(
                         text = countText,
-                        fontSize = 12.sp,
+                        fontSize = ApType.caption,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

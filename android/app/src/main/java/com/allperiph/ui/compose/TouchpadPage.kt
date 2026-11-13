@@ -27,6 +27,7 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMotion
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -294,7 +295,7 @@ internal fun HotkeyGrid(
                 ) {
                     Text(
                         text = stringResource(R.string.ui_touchpad_text_hotkey),
-                        fontSize = 14.sp,
+                        fontSize = ApType.footnote,
                         fontWeight = FontWeight.Bold,
                         color = MiuixTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
@@ -302,7 +303,7 @@ internal fun HotkeyGrid(
                     if (showEdit) {
                         Text(
                             text = stringResource(R.string.ui_common_edit),
-                            fontSize = 12.sp,
+                            fontSize = ApType.caption,
                             color = MiuixTheme.colorScheme.primary,
                             modifier = Modifier
                                 .clickable { openManager() }
@@ -337,7 +338,7 @@ internal fun HotkeyGrid(
                         .pointerInput(Unit) { detectTapGestures(onLongPress = { openManager() }) },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = "＋", fontSize = 20.sp, color = Color(chipTextColor))
+                    Text(text = "＋", fontSize = ApType.title, color = Color(chipTextColor))
                 }
                 repeat(slotsPerRow - 1) { Box(modifier = Modifier.weight(1f)) }
             }

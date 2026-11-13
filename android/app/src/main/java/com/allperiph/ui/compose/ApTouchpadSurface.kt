@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.R
 import com.allperiph.ui.miuix.ApAccent
+import com.allperiph.ui.miuix.ApType
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -185,7 +186,7 @@ fun ApTouchpadSurface(
             if (hintVisible) {
                 Text(
                     text = hint,
-                    fontSize = 12.sp,
+                    fontSize = ApType.caption,
                     textAlign = TextAlign.Center,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier
@@ -227,7 +228,7 @@ fun ApTouchpadSurface(
                     Text(
                         text = if (serviceOff) ctx.getString(R.string.ui_touchpad_hint_service_off)
                         else ctx.getString(R.string.ui_touchpad_hint_no_uplink),
-                        fontSize = 12.sp,
+                        fontSize = ApType.caption,
                         textAlign = TextAlign.Center,
                         color = androidx.compose.ui.res.colorResource(R.color.module_state_error),
                         modifier = Modifier
@@ -242,7 +243,7 @@ fun ApTouchpadSurface(
                 // 既有机制）——阻断态红字原因照旧走上面的分支，两者互不叠加。
                 Text(
                     text = ctx.getString(R.string.ui_touchpad_text_cursor_swipe),
-                    fontSize = 12.sp,
+                    fontSize = ApType.caption,
                     textAlign = TextAlign.Center,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier

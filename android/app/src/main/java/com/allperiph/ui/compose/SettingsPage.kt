@@ -47,6 +47,7 @@ import com.allperiph.ui.OrientLock
 import com.allperiph.ui.ApTiming
 import com.allperiph.hid.HotkeyStore
 import com.allperiph.ui.UpdateChecker
+import com.allperiph.ui.miuix.ApType
 import androidx.compose.ui.window.Dialog
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
@@ -908,7 +909,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     }
                     Text(
                         text = ctx.getString(R.string.ui_set_ball_icons),
-                        fontSize = 16.sp,
+                        fontSize = ApType.body,
                         modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp),
                     )
                     Row(
@@ -969,7 +970,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         ) {
                             Text(
                                 text = ctx.getString(R.string.ui_set_album),
-                                fontSize = 11.sp,
+                                fontSize = ApType.micro,
                                 color = if (skinSelected) MiuixTheme.colorScheme.primary
                                 else MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
@@ -1106,7 +1107,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                         else -> R.string.ui_ball_menu_size_normal
                                     },
                                 ),
-                                fontSize = 13.sp,
+                                fontSize = ApType.footnote,
                                 color = MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
                         },
@@ -1128,10 +1129,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             ballItemMenu?.let { id ->
                 val idx = ballItems.indexOf(id).coerceAtLeast(0)
                 ApComponents.DialogCard(onDismiss = { ballItemMenu = null }) {
-                    Text(text = ctx.getString(BallConfig.labelRes(id)), fontSize = 17.sp)
+                    Text(text = ctx.getString(BallConfig.labelRes(id)), fontSize = ApType.headline)
                     Text(
                         text = ctx.getString(R.string.ui_ball_item_pos, idx + 1, ballItems.size),
-                        fontSize = 13.sp,
+                        fontSize = ApType.footnote,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(top = 4.dp),
                     )

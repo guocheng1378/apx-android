@@ -41,6 +41,7 @@ import com.allperiph.shared.net.FileSender
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMiuixTheme
 import com.allperiph.ui.miuix.ApTwoPaneScaffold
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.wireless.ControlTarget
@@ -161,11 +162,11 @@ class FilePanelActivity : ComponentActivity() {
                         ) {
                             Text(
                                 text = getString(R.string.ui_filepanel_text_file),
-                                fontSize = 20.sp,
+                                fontSize = ApType.title,
                             )
                             Text(
                                 text = targetLine,
-                                fontSize = 13.sp,
+                                fontSize = ApType.footnote,
                                 color = colorResource(R.color.overlay_accent),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -186,13 +187,13 @@ class FilePanelActivity : ComponentActivity() {
                             } else {
                                 Text(
                                     text = getString(R.string.ui_filepanel_text_file_forward),
-                                    fontSize = 14.sp,
+                                    fontSize = ApType.footnote,
                                     modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
                                 )
                                 // 说明（v205）：文件存哪 + 行内按钮怎么用（用户反馈"说明也没写，文件在哪"）
                                 Text(
                                     text = getString(R.string.ui_filepanel_where, recvPath),
-                                    fontSize = 11.sp,
+                                    fontSize = ApType.micro,
                                     color = colorResource(R.color.overlay_muted),
                                 )
                                 if (files.isEmpty()) {
@@ -204,7 +205,7 @@ class FilePanelActivity : ComponentActivity() {
                                     ) {
                                         Text(
                                             text = getString(R.string.ui_filepanel_text_file_no_local),
-                                            fontSize = 13.sp,
+                                            fontSize = ApType.footnote,
                                             color = colorResource(R.color.overlay_muted),
                                         )
                                     }
@@ -225,10 +226,10 @@ class FilePanelActivity : ComponentActivity() {
                         // 「@Composable invocations can only happen from a @Composable function」。
                         deleteTarget?.let { f ->
                             ApComponents.DialogCard(onDismiss = { deleteTarget = null }) {
-                                Text(text = getString(R.string.ui_filepanel_delete_title), fontSize = 16.sp)
+                                Text(text = getString(R.string.ui_filepanel_delete_title), fontSize = ApType.body)
                                 Text(
                                     text = getString(R.string.ui_filepanel_delete_msg, f.name),
-                                    fontSize = 13.sp,
+                                    fontSize = ApType.footnote,
                                     color = colorResource(R.color.overlay_muted),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -292,7 +293,7 @@ class FilePanelActivity : ComponentActivity() {
                 // 左右居中了」）：空态提示垂直居中，不再顶在栏首。
                 Text(
                     text = getString(R.string.ui_filepanel_text_file_no_local),
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = colorResource(R.color.overlay_muted),
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -312,21 +313,21 @@ class FilePanelActivity : ComponentActivity() {
             if (sel == null || !sel.isFile) {
                 Text(
                     text = getString(R.string.ui_filepanel_detail_none),
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = colorResource(R.color.overlay_muted),
                     modifier = Modifier.padding(top = 8.dp),
                 )
             } else {
-                Text(text = sel.name, fontSize = 15.sp, modifier = Modifier.padding(top = 4.dp))
+                Text(text = sel.name, fontSize = ApType.body, modifier = Modifier.padding(top = 4.dp))
                 Text(
                     text = "${sizeText(sel.length())} · ${timeText(sel.lastModified())}",
-                    fontSize = 12.sp,
+                    fontSize = ApType.caption,
                     color = colorResource(R.color.overlay_muted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 Text(
                     text = getString(R.string.ui_filepanel_where, sel.absolutePath),
-                    fontSize = 11.sp,
+                    fontSize = ApType.micro,
                     color = colorResource(R.color.overlay_muted),
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -357,13 +358,13 @@ class FilePanelActivity : ComponentActivity() {
             }
             Text(
                 text = getString(R.string.ui_filepanel_records),
-                fontSize = 14.sp,
+                fontSize = ApType.footnote,
                 modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
             )
             if (records.isEmpty()) {
                 Text(
                     text = getString(R.string.ui_filepanel_record_none),
-                    fontSize = 12.sp,
+                    fontSize = ApType.caption,
                     color = colorResource(R.color.overlay_muted),
                 )
             } else {
@@ -386,7 +387,7 @@ class FilePanelActivity : ComponentActivity() {
                         if (rec.outgoing) R.string.ui_filepanel_record_send else R.string.ui_filepanel_record_recv,
                         rec.name,
                     ),
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     maxLines = 1,
                 )
                 val stateLine = when (rec.state) {
@@ -396,7 +397,7 @@ class FilePanelActivity : ComponentActivity() {
                 }
                 Text(
                     text = "${timeText(rec.startedAt)} · $stateLine",
-                    fontSize = 11.sp,
+                    fontSize = ApType.micro,
                     color = when (rec.state) {
                         REC_FAIL -> colorResource(R.color.overlay_danger)
                         REC_OK -> colorResource(R.color.overlay_accent)
@@ -435,10 +436,10 @@ class FilePanelActivity : ComponentActivity() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = f.name, fontSize = 14.sp, maxLines = 1)
+                Text(text = f.name, fontSize = ApType.footnote, maxLines = 1)
                 Text(
                     text = "${sizeText(f.length())} · ${timeText(f.lastModified())}",
-                    fontSize = 11.sp,
+                    fontSize = ApType.micro,
                     color = colorResource(R.color.overlay_muted),
                 )
             }
@@ -490,7 +491,7 @@ class FilePanelActivity : ComponentActivity() {
             ) {
                 Text(
                     text = getString(R.string.ui_filepanel_send_pick),
-                    fontSize = 14.sp,
+                    fontSize = ApType.footnote,
                     color = colorResource(R.color.overlay_on_accent),
                 )
             }
@@ -507,7 +508,7 @@ class FilePanelActivity : ComponentActivity() {
         if (storageOk) return
         Text(
             text = getString(R.string.ui_filepanel_perm_grant),
-            fontSize = 13.sp,
+            fontSize = ApType.footnote,
             color = colorResource(R.color.overlay_muted),
             modifier = Modifier
                 .fillMaxWidth()
@@ -533,7 +534,7 @@ class FilePanelActivity : ComponentActivity() {
         if (statusText.isNotEmpty()) {
             Text(
                 text = statusText,
-                fontSize = 12.sp,
+                fontSize = ApType.caption,
                 color = if (statusWarn) colorResource(R.color.overlay_danger) else colorResource(R.color.overlay_muted),
                 modifier = Modifier.padding(top = 6.dp),
             )

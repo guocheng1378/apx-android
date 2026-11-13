@@ -32,6 +32,7 @@ import com.allperiph.R
 import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApMotion
 import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.ApType
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -84,7 +85,7 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
             // 关闭按钮被推到底部、中间一片空白。改 fillMaxWidth（只撑宽不撑高），
             // 卡片高度贴内容收，长文仍受 DialogCard 的 heightIn 上限兜底。
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = 18.sp)
+                Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = ApType.headline)
                 // 分段页签（横滑放得下七段）：当前段高亮，点一下只换正文
                 Row(
                     modifier = Modifier
@@ -177,10 +178,10 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
 @Composable
 private fun HelpBlock(title: String, body: String) {
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-        Text(text = title, fontSize = 15.sp)
+        Text(text = title, fontSize = ApType.body)
         Text(
             text = body,
-            fontSize = 13.sp,
+            fontSize = ApType.footnote,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.padding(top = 4.dp),
         )

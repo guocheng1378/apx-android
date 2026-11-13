@@ -49,6 +49,7 @@ import com.allperiph.hid.HidKeys
 import com.allperiph.hid.HidMouse
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.ui.miuix.ApMiuixTheme
+import com.allperiph.ui.miuix.ApType
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
@@ -412,7 +413,7 @@ private fun RemotePanel(host: RemoteActivity) {
         }
         Text(
             text = targetText,
-            fontSize = 12.sp,
+            fontSize = ApType.caption,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             maxLines = 2,
             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp, start = 2.dp),
@@ -439,7 +440,7 @@ private fun RemotePanel(host: RemoteActivity) {
                     }
                     Text(
                         text = ctx.getString(R.string.ui_remote_text_reboot_poweroff_volume_home),
-                        fontSize = 11.sp,
+                        fontSize = ApType.micro,
                         color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 2.dp, end = 2.dp),
@@ -469,7 +470,7 @@ private fun RemotePanel(host: RemoteActivity) {
             }
             Text(
                 text = ctx.getString(R.string.ui_remote_text_reboot_poweroff_volume_home),
-                fontSize = 11.sp,
+                fontSize = ApType.micro,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 modifier = Modifier.padding(top = 6.dp, start = 2.dp),
             )
@@ -547,7 +548,7 @@ private fun Dial(
             ) {
                 Text(
                     text = "OK",
-                    fontSize = 20.sp,
+                    fontSize = ApType.title,
                     fontWeight = FontWeight.Bold,
                     color = MiuixTheme.colorScheme.onPrimary,
                 )
@@ -575,7 +576,7 @@ private fun Arrow(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = glyph, fontSize = 26.sp, color = tint)
+        Text(text = glyph, fontSize = ApType.display, color = tint)
     }
 }
 
@@ -675,7 +676,7 @@ private fun HeadChip(label: String, onClick: () -> Unit) {
             }
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(text = label, fontSize = 12.sp, color = MiuixTheme.colorScheme.primary, maxLines = 1)
+        Text(text = label, fontSize = ApType.caption, color = MiuixTheme.colorScheme.primary, maxLines = 1)
     }
 }
 
@@ -776,7 +777,7 @@ private fun TouchStrip(host: RemoteActivity, modifier: Modifier = Modifier) {
     ) {
         Text(
             text = ctx.getString(R.string.ui_remote_touchpad_hint),
-            fontSize = 12.sp,
+            fontSize = ApType.caption,
             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             textAlign = TextAlign.Center,
         )
@@ -825,7 +826,7 @@ private fun MouseKeyRow(host: RemoteActivity, modifier: Modifier = Modifier) {
             ) {
                 Text(
                     text = ctx.getString(labelRes),
-                    fontSize = 13.sp,
+                    fontSize = ApType.footnote,
                     color = MiuixTheme.colorScheme.primary,
                 )
             }

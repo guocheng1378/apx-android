@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.allperiph.core.Uplink
 import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
+import com.allperiph.ui.miuix.ApType
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
@@ -533,7 +534,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         ) {
             Text(
                 text = statusLine,
-                fontSize = 12.sp,
+                fontSize = ApType.caption,
                 textAlign = TextAlign.Center, // issue#168 第 8 条：提示文字居中 + 自动换行
                 color = if (statusOk) colorResource(R.color.overlay_pad_ok) else colorResource(R.color.overlay_pad_warn),
                 modifier = Modifier.fillMaxWidth(),
@@ -541,7 +542,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             if (adviceLine.isNotEmpty()) {
                 Text(
                     text = adviceLine,
-                    fontSize = 10.5.sp,
+                    fontSize = ApType.micro,
                     textAlign = TextAlign.Center, // 同上
                     color = colorResource(R.color.overlay_pad_text_dim),
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
@@ -554,7 +555,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             if (com.allperiph.hid.PeerOs.current(padCtx) == com.allperiph.hid.PeerOs.MACOS) {
                 Text(
                     text = stringResource(R.string.ui_gamepad_hint_macos),
-                    fontSize = 10.5.sp,
+                    fontSize = ApType.micro,
                     textAlign = TextAlign.Center,
                     color = colorResource(R.color.overlay_pad_warn),
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
