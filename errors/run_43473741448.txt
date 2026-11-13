@@ -1,0 +1,46 @@
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 29%] Built target apxpc_sensors
+[ 38%] Built target apxpc_discovery
+[ 40%] Building CXX object CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/screen/screenshot_win.cpp:5:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/screen/screenshot.hpp:13:1: error: use of undeclared identifier 'std'
+   13 | std::string captureScreenToPng();
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/screenshot_win.cpp:121:1: error: use of undeclared identifier 'std'
+  121 | std::string captureScreenToPng() { return {}; }
+      | ^
+2 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o] Error 1
+[ 41%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/app/update_check_mac.mm.o
+[ 43%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 53%] Built target apxpc_media
+[ 66%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 24%] Built target apxpc_core
+[ 29%] Built target apxpc_sensors
+[ 38%] Built target apxpc_discovery
+[ 40%] Building CXX object CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/screen/screenshot_win.cpp:5:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/screen/screenshot.hpp:13:1: error: use of undeclared identifier 'std'
+   13 | std::string captureScreenToPng();
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/screen/screenshot_win.cpp:121:1: error: use of undeclared identifier 'std'
+  121 | std::string captureScreenToPng() { return {}; }
+      | ^
+2 errors generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 50%] Built target apxpc_media
+[ 62%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
