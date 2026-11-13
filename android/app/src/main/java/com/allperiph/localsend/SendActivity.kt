@@ -35,6 +35,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.rememberApInsets
 
 /**
  * LocalSend 发送页（MVP2 · issue#45）：列出 60s 内 announce 过的设备（每 2s 刷新）→
@@ -90,7 +91,18 @@ class SendActivity : ComponentActivity() {
             ComposeView(this).apply {
                 setContent {
                     ApMiuixTheme {
-                        Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                        // edge-to-edge 后内容自行垫边（与主壳 rememberApInsets 同口径，
+                        // issue#170 第 3 条：12dp 固定边距下标题文字顶进状态栏）——
+                        // 四边取「原 12dp 与系统栏/挖孔留白」的较大者，横屏挖孔侧也一并避开。
+                        val bars = rememberApInsets()
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(
+                                start = maxOf(12.dp, bars.left),
+                                top = maxOf(12.dp, bars.top),
+                                end = maxOf(12.dp, bars.right),
+                                bottom = maxOf(12.dp, bars.bottom),
+                            ),
+                        ) {
                             if (devices.isEmpty()) {
                                 // issue#168 返工（2026-11-12「发送文件的文字要高度（垂直）居中，
                                 // 之前只把左右居中了」）：空态提示不再顶在页首 —— 占满剩余高度
@@ -153,7 +165,9 @@ class SendActivity : ComponentActivity() {
                                 TextField(
                                     state = ipState,
                                     label = ctx.getString(R.string.ui_localsend_manual_hint),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    // 与上下 ActionButton 同水平边距（ActionButton 自带
+                                    // horizontal=16dp）：此前裸铺比按钮条两侧各宽 16dp，不齐
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                                 )
                                 com.allperiph.ui.miuix.ApComponents.ActionButton(
                                     text = ctx.getString(R.string.ui_localsend_manual_go),

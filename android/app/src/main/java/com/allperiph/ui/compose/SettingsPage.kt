@@ -1536,7 +1536,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
         if (cat == 3) {
             // ———————————————— 运行日志 ————————————————
             // 日志不是新造的：Log 有 512 条环形缓冲（snapshot/clear），LogExport 负责落盘
-            // （apx-logs-<kind>@<型号>-<stamp>.txt，默认目录 下载/AllPeriph，API 29+ 走 MediaStore）。
+            // （apx-logs-<kind>@<设备名>-<stamp>.txt，默认目录 下载/AllPeriph，API 29+ 走 MediaStore）。
             // 本页做三件事：筛选、查看（弹窗限高 62%）、导出（可自定义文件名与子目录）。
             var logMin by remember { mutableIntStateOf(1) }
             var logSpan by remember { mutableIntStateOf(1) }
@@ -1595,15 +1595,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         onClick = { logFormOpen = !logFormOpen },
                     )
                     if (logFormOpen) {
+                        // 输入框与上方 ActionButton 同水平边距（ApComponents.ActionButton
+                        // 自带 horizontal=16dp）：此前 fillMaxWidth 裸铺，比按钮条两侧各宽 16dp，
+                        // 展开区一眼看去两边不齐（issue#170 第 7 条「日志导出对话框对齐」）。
                         top.yukonga.miuix.kmp.basic.TextField(
                             state = logNameState,
                             label = ctx.getString(R.string.ui_set_log_file_label),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
                         top.yukonga.miuix.kmp.basic.TextField(
                             state = logDirState,
                             label = ctx.getString(R.string.ui_set_log_dir_label),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
                     }
                     ApComponents.ActionButton(
@@ -1625,7 +1628,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 }
                                 val customName = logNameState.text.toString().trim()
                                 val name = if (customName.isBlank()) {
-                                    com.allperiph.shared.util.LogExport.fileName("log")
+                                    com.allperiph.shared.util.LogExport.fileName("log", ctx)
                                 } else if (customName.endsWith(".txt")) customName else "$customName.txt"
                                 val subDir = logDirState.text.toString().trim().ifBlank { null }
                                 val saved = runCatching {

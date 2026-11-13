@@ -63,7 +63,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.colorResource
@@ -90,6 +89,7 @@ import com.allperiph.ui.miuix.ApComponents
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.wireless.ControlTarget
@@ -930,21 +930,25 @@ private fun FeedbackTap(view: android.view.View) = com.allperiph.ui.Feedback.tap
  *   网格超出滚动、滚动条置左（与首页 HotkeyGrid 同款）。
  * · 横屏：手势面撑满不加框（e7c917d 用户拍板「手势区撑满」口径），右列快捷键卡
  *   宽度走 ApComponents.touchpadSideWidth 共用口径、整列包框、标题行固定 + 网格滚动。
- * 旋转由 LocalConfiguration 驱动重组生效。
+ * 旋转由窗口实测宽高（rememberApAdaptiveLayout）驱动重组生效，不等 Configuration 回写。
  * 全屏（v223.2）：整块屏幕只剩手势面，方向键叠层、快捷键网格一起收起。
  */
 @Composable
 private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivity) {
     // 快捷键网格已并轨主壳 Compose HotkeyGrid（见 HotkeyCard），旋转自适应网格自己处理，
     // 不再需要旧 View 版按方向重画（hotkeyBoard 仅剩 TV 键位集状态与编辑弹窗用途）。
-    val land = LocalConfiguration.current.orientation ==
-        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // 方向判定与主壳同口径（issue#170 第 8 条：全屏操控面转屏后布局不跟随）：
+    // LocalConfiguration 的回写滞后一拍（本 Activity 声明了 configChanges，旋转不重建，
+    // 老坑见 rememberApAdaptiveLayout 注释），改用窗口实测宽高比 —— 与布局测量同源。
+    val adaptive = rememberApAdaptiveLayout()
+    val land = adaptive.landscape
     // 背景框分栏的卡底色与圆角：与首页 TouchpadPage 同值（surfaceContainer + 16dp），
     // 两处快捷键区/手势卡看起来是同一个设计。
     val cardColor = MiuixTheme.colorScheme.surfaceContainer
     val cardShape = RoundedCornerShape(16.dp)
-    // 右列宽度共用口径（见 ApComponents.touchpadSideWidth 注释），本页横屏竖屏各算一次
-    val screenWidth = LocalConfiguration.current.screenWidthDp.toFloat()
+    // 右列宽度共用口径（见 ApComponents.touchpadSideWidth 注释），本页横屏竖屏各算一次；
+    // 顺带与 land 同源（adaptive.width = 窗口实测宽，同一次快照）
+    val screenWidth = adaptive.width.value
     val surface: @Composable (Modifier) -> Unit = { m ->
         ApTouchpadSurface(
             onGesture = { host.onSurfaceGesture(it) },
@@ -1352,8 +1356,10 @@ private fun ConsoleDisplayPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAct
         host.updateDisplayStatus()
         onDispose { }
     }
-    val land = LocalConfiguration.current.orientation ==
-        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    // 方向判定与操控面页同口径（issue#170 第 8 条）：窗口实测宽高比，不等
+    // LocalConfiguration 的滞后回写（本 Activity 旋转不重建，老坑见
+    // rememberApAdaptiveLayout 注释），转屏瞬间布局即时跟随。
+    val land = rememberApAdaptiveLayout().landscape
     if (land) {
         Row(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 10.dp)) {
             Box(Modifier.weight(1f).fillMaxHeight().padding(end = 4.dp)) { StatusCard(ui) }

@@ -1386,10 +1386,13 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                     const int missedBefore = im->missedPongs_.exchange(0);   // v184：连续无 pong 计数清零
                     // 2026-11-12 体积/日志优化轮：pong 每秒一发，旧实现无条件记 INFO ——
                     // 测试者 11-11 一天的日志导出里这一条就有 6.4 万行（9.4MB 大头），
-                    // 全是重复噪声。改为**状态边沿才记**：上一轮确实出现过断档
-                    //（missedBefore>0）才补一条「心跳恢复」，健康链路全程静默；
+                    // 全是重复噪声。改为**状态边沿才记**：健康链路全程静默；
                     // RTT 采集不变，仍然每发都算。
-                    if (missedBefore > 0) APX_LOGI("9511 收到 pong（心跳恢复，此前断档 {} 轮）", missedBefore);
+                    // 2026-11-14 再收紧（issue#170 实测：一天 4.7 万条「心跳恢复」）——
+                    // 断档 1 轮是常规网络抖动（2s 超时贴着抖动量级），补一条恢复日志
+                    // 反而把 INFO 刷成每秒一条的另一种噪声。只记**连断 ≥2 轮**后的
+                    // 恢复：既有排障价值（真断线必连丢多轮），又不掺抖动。
+                    if (missedBefore >= 2) APX_LOGI("9511 收到 pong（心跳恢复，此前断档 {} 轮）", missedBefore);
                     const auto sent = im->pingSentMs_.load();
                     if (sent > 0) im->rttMs_.store(im->nowMs() - sent);
                 }
