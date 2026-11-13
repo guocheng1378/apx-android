@@ -10,6 +10,9 @@ package com.allperiph.wireless
  */
 object ControlTarget {
 
+    /** 「未连任何受控设备」的展示名：chip 默认值与 clear() 复位共用同一常量（设备档案据此判定「连着谁」） */
+    const val DEFAULT_LABEL = "本机 / PC"
+
     /** 当前选中的 9511 控制客户端（连入 TV / PC）；null 表示走默认（本机） */
     @Volatile
     var controlClient: TvControllerClient? = null
@@ -20,7 +23,7 @@ object ControlTarget {
 
     /** 设备 chip 展示名（设备名或 IP；默认「本机 / PC」） */
     @Volatile
-    var label: String = "本机 / PC"
+    var label: String = DEFAULT_LABEL
 
     /**
      * 受控设备类型："tv" 或 "pc"。
@@ -39,7 +42,7 @@ object ControlTarget {
         runCatching { controlClient?.disconnect() }
         controlClient = null
         host = ""
-        label = "本机 / PC"
+        label = DEFAULT_LABEL
         type = "tv"
         // 无线出口没了：作废已观测出口，否则徽章/面板还会写着「无线 9511」在用
         com.allperiph.core.Uplink.reset()

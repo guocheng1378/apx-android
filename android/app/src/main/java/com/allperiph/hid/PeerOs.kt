@@ -30,6 +30,9 @@ enum class PeerOs {
         private const val PREF = "apx_hid"
         private const val KEY_OS = "peer_os"
 
+        /** 设备档案里的字段名（与 DeviceProfiles.FIELD_OS 同值，避免跨包可见性纠缠） */
+        private const val FIELD_OS = "os"
+
         /** 设置页下拉的四套系统名（纯拉丁专名，不走中文文案棘轮） */
         fun labels(ctx: Context): List<String> =
             listOf("Windows", "macOS", "Linux", "Android")
@@ -38,14 +41,26 @@ enum class PeerOs {
 
         fun indexOf(os: PeerOs): Int = entries.indexOf(os)
 
-        /** 当前选中的被控机系统；未设置过 = WINDOWS（存量行为不变） */
-        fun current(ctx: Context): PeerOs =
-            entries[ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        /** 当前选中的被控机系统；**设备档案优先**（2026-11-14 成宇「对应切换」批）——
+         *  连着哪台受控设备就用它自己的档案，没连设备 / 该设备没存过 = 全局键（存量行为不变） */
+        fun current(ctx: Context): PeerOs {
+            com.allperiph.wireless.DeviceProfiles.readInt(ctx, FIELD_OS)?.let {
+                return entries[it.coerceIn(0, entries.size - 1)]
+            }
+            return entries[ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
                 .getInt(KEY_OS, 0).coerceIn(0, entries.size - 1)]
+        }
 
         fun setCurrent(ctx: Context, os: PeerOs) {
-            ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-                .edit().putInt(KEY_OS, indexOf(os)).apply()
+            val idx = indexOf(os)
+            // 连着受控设备 → 写进该设备的档案（连上谁自动换回谁的系统）；
+            // 没连设备 → 写全局键（存量行为不变）。档案是叠加层，两种场景互不污染。
+            if (com.allperiph.wireless.DeviceProfiles.activePeer() != null) {
+                com.allperiph.wireless.DeviceProfiles.writeInt(ctx, FIELD_OS, idx)
+            } else {
+                ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                    .edit().putInt(KEY_OS, idx).apply()
+            }
         }
 
         /** 当前系统下的出厂预置快捷键（「恢复默认」与未自定义时的快捷键条共用） */
