@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.SystemClock
+import com.allperiph.shared.accessibility.AccessibilityAutoEnable
 import com.allperiph.shared.util.Log
 
 /**
@@ -87,6 +88,12 @@ object KeepAlive {
             Log.i(TAG, "保活自检：被控服务不在 → 重新拉起")
             runCatching { ctrl.start(c) }
                 .onFailure { Log.w(TAG, "保活自检拉起失败：${it.message}") }
+        }
+        // 通道级保活：无障碍服务被 ROM 杀掉后不会自己回来（instance 恒空，点按/文字全落
+        // root 兜底，反馈 2026-11-13 日志实锤）。用户开着被控且服务没连上时，root 就地重绑
+        // 拉回 —— 没开被控不替用户做决定；没 root ensureAlive 内部自会跳过。
+        if (ctrl != null && ctrl.enabled(c) && !AccessibilityAutoEnable.isActive()) {
+            AccessibilityAutoEnable.ensureAlive(c)
         }
         schedule(c)
     }

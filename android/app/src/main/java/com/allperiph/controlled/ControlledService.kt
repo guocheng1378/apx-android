@@ -37,7 +37,14 @@ class ControlledService : Service() {
             TvInputDispatcher.peer(connected, peerText); TvInjector.setConnected(connected)
             // 输入法会话期换装（ImeSwitcher 类注释）：连上→切通道输入法，断开→还原。
             // 没被控机自用键盘也不受影响；没 root 自动跳过（维持手动切的老口径）。
-            if (connected) ImeSwitcher.activate(applicationContext) else ImeSwitcher.restore(applicationContext)
+            if (connected) {
+                ImeSwitcher.activate(applicationContext)
+                // 无障碍掉线即时修：对端刚连入时服务若已被 ROM 杀掉，就地 root 重绑（见
+                // AccessibilityAutoEnable.ensureAlive）—— 不等 60s 保活闹钟，第一下点击/打字就可用
+                if (!com.allperiph.shared.accessibility.AccessibilityAutoEnable.isActive()) {
+                    com.allperiph.shared.accessibility.AccessibilityAutoEnable.ensureAlive(applicationContext)
+                }
+            } else ImeSwitcher.restore(applicationContext)
         }
         override fun cursorMove(x: Float, y: Float, absolute: Boolean) {
             TvInputDispatcher.cursorMove(x, y, absolute); TvInjector.cursorMove(x, y, absolute)

@@ -48,4 +48,27 @@ object AccessibilityAutoEnable {
         Log.i(TAG, if (ok) "已通过 root 尝试开启无障碍：$comp" else "root 开启无障碍失败")
         return ok
     }
+
+    /**
+     * 无障碍**掉线自愈**（root 保活）：服务进程被 ROM 杀掉后 `enabled_accessibility_services`
+     * 里还挂着本组件 —— 系统不会因为值没变就重新绑定，[tryEnableViaRoot] 的「已包含则跳过」
+     * 对这种掉线毫无办法。这里把本组件从启用列表**精确分段摘除再追加回去**（先摘再加，
+     * 强制系统拆绑重连），用户挂的其它无障碍服务原样保留。
+     *
+     * 只该在 [isActive] 为 false（服务确实没连上）时调用；返回 true 表示命令已交给 root shell，
+     * 重绑是否成功稍后用 [isActive] 复核。settings get 在列表为空时回 "null" 字符串，先归零再分段。
+     */
+    fun ensureAlive(ctx: Context): Boolean {
+        if (!RootInput.available) return false
+        val comp = componentId(ctx)
+        val cmd = "cur=\$(settings get secure enabled_accessibility_services); " +
+            "[ \"\$cur\" = null ] && cur=''; " +
+            "rest=''; for x in \$(echo \"\$cur\" | tr ':' ' '); do " +
+            "case \"\$x\" in \"$comp\") ;; *) rest=\"\${rest:+\$rest:}\$x\" ;; esac; done; " +
+            "settings put secure enabled_accessibility_services \"\${rest:+\$rest:}$comp\"; " +
+            "settings put secure accessibility_enabled 1"
+        val ok = RootInput.run(cmd)
+        Log.i(TAG, if (ok) "无障碍已掉线，root 重绑拉回：$comp" else "无障碍掉线重绑失败")
+        return ok
+    }
 }
