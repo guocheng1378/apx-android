@@ -238,7 +238,13 @@ object TvInjector {
         val wm = ctx?.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         wm?.defaultDisplay?.let { d ->
             val m = android.util.DisplayMetrics()
-            d.getMetrics(m)
+            // 「点的地方不对，要往下点才能点对的位置」（2026-11-14）：
+            // getMetrics 返回的是**去掉状态栏/导航条**后的应用可用区，而无障碍
+            // dispatchGesture（tap/swipe/长按/滚动）与浮层窗口坐标用的都是**含系统栏的
+            // 全屏真实坐标** —— 拿偏小的高度换算，落点整体偏上（越靠屏幕底部偏得越多）。
+            // 改用 getRealMetrics 对齐全屏口径，全部注入通道与浮层光标从此同一坐标系。
+            // （API 17+；本模块 minSdk 23，无需守卫。）
+            d.getRealMetrics(m)
             screenW = m.widthPixels
             screenH = m.heightPixels
         }
