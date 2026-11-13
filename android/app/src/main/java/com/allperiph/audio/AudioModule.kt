@@ -281,7 +281,14 @@ class AudioModule(private val app: Context) : Module {
                 }
                 rec.startRecording()
                 val buf = ByteArray(FRAME_BYTES)
-                var lastWriteErrLog = 0L
+                // 丢帧态跟踪：主机（PC/Mac）没开录音、没取走 USB 麦克风流时，native
+                // 节流 100ms 后返回 -EAGAIN 丢本帧 —— 这是**常态**而非故障（主机想用
+                // Pad 麦克风时自然会打开）。issue#170：旧版每 5s 一条 W，测试者 15 分钟
+                // 导出里 178 行全是它。改为状态边沿才说话：进入丢帧态记一条 W、
+                // 之后每 60s 一条带累计数的 W、恢复取流时补一条 I；期间不再刷屏。
+                var dropping = false
+                var dropped = 0L
+                var lastDropLog = 0L
                 while (micRun) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) {
@@ -292,13 +299,20 @@ class AudioModule(private val app: Context) : Module {
                     }
                     val rc = stream.write(if (n == buf.size) buf else buf.copyOf(n))
                     if (rc < 0) {
-                        // 主机未取走 USB 麦克风流时 native 会节流 100ms 后返回 -EAGAIN（-11）丢本帧；
-                        // 这里限频打日志，避免 10ms 一条刷屏。
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastWriteErrLog > 5000) {
-                            lastWriteErrLog = now
-                            Log.w(TAG, "ALSA playback 写入失败 rc=$rc")
+                        if (!dropping) {
+                            dropping = true
+                            dropped = 0
+                            Log.w(TAG, "主机未取走麦克风流，写入暂丢（EAGAIN，每 60s 提醒一次）")
                         }
+                        dropped++
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastDropLog > 60000) {
+                            lastDropLog = now
+                            Log.w(TAG, "主机未取走麦克风流：已暂丢 $dropped 帧（主机侧开启录音即恢复）")
+                        }
+                    } else if (dropping) {
+                        dropping = false
+                        Log.i(TAG, "麦克风流恢复写入（此前暂丢 $dropped 帧）")
                     }
                 }
             } catch (t: Throwable) {
