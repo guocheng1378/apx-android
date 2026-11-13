@@ -750,7 +750,14 @@ object TvInjector {
         if (EvdevInjector.available && EvdevInjector.sendChar(ch)) return
         // ② 输入法通道（最稳，中英文都行）：系统输入法是我们时走 InputConnection
         if (ApxImeService.commit(s)) return
-        // ② 无障碍 ACTION_SET_TEXT
+        // ②½ root `input text`（2026-11-14 实锤补）：双向互控防护（ImeSwitcher：本机正在
+        //    控制别人时跳过输入法换装）落地后，两台手机互控时**双方都不换装** —— 键盘页
+        //    字母/数字/符号只走文本注入，IME 通道在用户的主场景天然缺席；无障碍
+        //    SET_TEXT 在 HyperOS 上又常被拒。root 在位时这里发一条真键盘文本事件，
+        //    与 OTG 键盘同通道：不依赖换装、不动剪贴板、光标位置也守得住。
+        //    键盘帧路径是逐字符下发，单字符够用；中文不走这条（见 ① 注释）。
+        if (RootInput.available && RootInput.run("input text ${shellQuoteSingle(s)}")) return
+        // ③ 无障碍 ACTION_SET_TEXT
         if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) return
         // 兜底：ACTION_SET_TEXT 被拒（MIUI / HyperOS 上常见：密码框、自绘输入框、
         // rootInActiveWindow 取不到节点）→ 改走"剪贴板 + ACTION_PASTE"。
@@ -769,6 +776,12 @@ object TvInjector {
                 "无障碍${if (accReady) "已连接" else "未连接"}，焦点写入与粘贴均被拒（输入框没聚焦？）：'$s'",
         )
     }
+
+    /**
+     * 单引号包裹并转义（`'` → `'\''`）：给 su 常驻 shell 里稳妥传参用。
+     * 键盘帧路径的字符集（字母/数字/下档符号/空格）全覆盖，含最麻烦的单引号本身。
+     */
+    private fun shellQuoteSingle(s: String): String = "'" + s.replace("'", "'\\''") + "'"
 
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
     fun consumer(bitmap: Int) {
