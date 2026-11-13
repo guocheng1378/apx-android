@@ -71,6 +71,54 @@ object ImeSwitcher {
         }.onFailure { Log.w(TAG, "读当前输入法失败：${it.message}") }.getOrNull()
     }
 
+    /**
+     * 一次性 root 回读：执行 [cmd] 取回完整输出。读回必须脱离 fire-and-forget 的
+     * 常驻 shell（输出没人消费），另开 su 进程 —— 每次会话只有连入/断开各几次。
+     * 防卡死双保险（2026-11-14 审查）：① su 挂起时 readText 会**永远阻塞**（waitFor
+     * 排在 read 之后等于没设），起 watchdog 线程到点 destroy 进程、读端随流关闭脱困；
+     * ② stderr 必须有消费线程，否则 su 写满管道会反过来堵死子进程。
+     * 超时/异常/无 root 一律返回 null。
+     */
+    private fun suRead(cmd: String): String? {
+        if (!RootInput.available) return null
+        return runCatching {
+            val p = ProcessBuilder("su", "-c", cmd)
+                .redirectErrorStream(false).start()
+            Thread({
+                runCatching {
+                    p.errorStream.bufferedReader().forEachLine { line ->
+                        if (line.isNotBlank()) Log.w(TAG, "su stderr：$line")
+                    }
+                }
+            }, "apx-ime-stderr").apply { isDaemon = true }.start()
+            Thread({
+                runCatching { Thread.sleep(3_000); p.destroy() }
+            }, "apx-ime-watchdog").apply { isDaemon = true }.start()
+            val out = InputStreamReader(p.inputStream, Charsets.UTF_8).readText().trim()
+            p.waitFor(5, TimeUnit.SECONDS)
+            runCatching { p.destroy() }
+            out
+        }.onFailure { Log.w(TAG, "root 回读失败（$cmd）：${it.message}") }.getOrNull()
+    }
+
+    /** 读当前默认输入法；空/`null`/失败返回 null（调用方按「不知道原输入法」降级处理） */
+    private fun currentDefault(): String? =
+        suRead("settings get secure default_input_method")
+            ?.trim()?.takeIf { it.isNotEmpty() && it != "null" }
+
+    /**
+     * 通道输入法是否已被系统注册（在 `ime list -a` 的完整清单里）。
+     * 没注册就**绝不能**碰 default_input_method —— 真机实锤（用户 HyperOS 被控机，
+     * v95）：`ime enable` 报 Unknown input method，系统清单里没有它；此时照旧硬写
+     * settings 只会把系统输入法指到一个不存在的 IME 上，本机键盘状态全乱。
+     */
+    private fun ownImeRegistered(own: String): Boolean {
+        val list = suRead("ime list -a -s") ?: return true   // 读不到时按「注册了」处理，避免误伤
+        return list.split(Regex("[\\r\\n\\s]+")).contains(own).also { ok ->
+            if (!ok) Log.w(TAG, "通道输入法未注册（ime list 不含 $own），本次不换装 —— 系统没扫到它，重启一次被控机通常恢复")
+        }
+    }
+
     /** 远程会话开始：记住原输入法 → 启用并切到通道输入法；没 root / 已是本通道则不动 */
     fun activate(ctx: Context) { queue.execute { activateInner(ctx) } }
 
@@ -81,8 +129,9 @@ object ImeSwitcher {
             if (RootInput.available) break
             Thread.sleep(500)
         }
-        val cur = currentDefault() ?: return
         val own = ownImeId(ctx)
+        if (!ownImeRegistered(own)) return   // 系统不认识这个输入法 → 别碰设置，保留用户原状
+        val cur = currentDefault() ?: return
         if (cur == own) return   // 已经是我们的通道（上次会话残留）→ 别覆盖已存的还原点
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit().putString(KEY_SAVED_IME, cur).apply()
