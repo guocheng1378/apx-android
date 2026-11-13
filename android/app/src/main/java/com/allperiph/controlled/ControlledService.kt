@@ -64,6 +64,9 @@ class ControlledService : Service() {
         override fun powerAction(action: Int) { TvInjector.powerAction(action) }
         override fun clipboard(text: String) {
             TvInjector.clipboard(text)
+            // 记下来源（2026-11-14「粘贴后无限循环」）：这段内容是落本机剪贴板的，
+            // 本机任何剪贴板监听都不能再当「用户复制了」回传 —— 防来回弹
+            com.allperiph.ui.ClipboardSync.markRemoteWritten(text)
             // 收到对端 0x20：此前静默写入剪贴板，被控手机零反馈 —— 发送方无从知道
             // 到底到没到（用户报障「剪贴板发送后，被控手机没有提示」）。这里补一条
             // 带内容预览的 Toast，顺带充当「到达已确认」。
@@ -87,13 +90,18 @@ class ControlledService : Service() {
     }
     /** v184：剪贴板监听是否已注册 —— onStartCommand 可能被反复调用，重复挂会多次回传 */
     private var clipListenerRegistered = false
+    /** 内容去重（2026-11-14 真机「粘贴后无限循环」）：HyperOS 监听回调可能迟到超过 600ms
+     *  抑制窗，纯时间窗防不住 A↔B 来回弹；与上次回传过的内容相同直接掐断 */
+    private var lastEchoedClipText: String? = null
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener {
         // v184：程序性写入抑制 —— 收到 PC 的 0x20 后 TvInjector.clipboard 会写剪贴板，
         // 这里若照常回传 0x21，PC 端 watcher 又写又回传，剪贴板内容来回乱跳。
         // 程序性写入后 600ms 内的变化静默吸收（真实用户复制不受影响）。
         if (android.os.SystemClock.uptimeMillis() - TvInjector.lastProgrammaticClipWriteMs < 600) return@OnPrimaryClipChangedListener
         val text = currentClipboardText()
-        if (!text.isNullOrEmpty()) server?.sendReverseClipboard(text)
+        if (text.isNullOrEmpty() || text == lastEchoedClipText) return@OnPrimaryClipChangedListener
+        lastEchoedClipText = text
+        server?.sendReverseClipboard(text)
     }
 
     override fun onCreate() {
@@ -107,6 +115,10 @@ class ControlledService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundGuarded()
         TvInjector.init(this, PhoneInjectorPlatform)
+        // 互传服务兜底启动（2026-11-14 用户「互传还是不能用」）：被控机的接收服务同样
+        // 只由设置里的开关拉起 —— 开关没开时对端永远发现不了、连不上。被控服务在跑就
+        // 兜底拉起（只补运行态、不动开关记录值），与发送页 v95 的兜底同口径。
+        runCatching { if (!com.allperiph.localsend.LocalSendService.isRunning) com.allperiph.localsend.LocalSendService.start(this) }
         if (server == null) server = ControlServer(endpoint = controlEndpoint)
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }

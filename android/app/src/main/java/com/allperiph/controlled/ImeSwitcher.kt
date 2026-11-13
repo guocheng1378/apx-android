@@ -130,7 +130,18 @@ object ImeSwitcher {
             Thread.sleep(500)
         }
         val own = ownImeId(ctx)
-        if (!ownImeRegistered(own)) return   // 系统不认识这个输入法 → 别碰设置，保留用户原状
+        if (!ownImeRegistered(own)) {
+            // v95 曾在 enable 失败后照写 settings（预检修复前的版本）：默认输入法可能
+            // 已被指到这个不存在的 IME —— 趁这次会话把它指回还原点，救回本机键盘
+            val saved = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_SAVED_IME, null)
+            val cur = currentDefault()
+            if (cur == own && !saved.isNullOrBlank() && saved != own) {
+                RootInput.run("settings put secure default_input_method $saved")
+                ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(KEY_SAVED_IME).apply()
+                Log.i(TAG, "默认输入法被指到未注册的通道（v95 遗留），已还原为 $saved")
+            }
+            return
+        }
         val cur = currentDefault() ?: return
         if (cur == own) return   // 已经是我们的通道（上次会话残留）→ 别覆盖已存的还原点
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)

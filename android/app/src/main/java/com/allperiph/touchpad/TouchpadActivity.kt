@@ -494,6 +494,9 @@ class TouchpadActivity : ComponentActivity() {
     private fun recvClipboard(text: String) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         cm?.setPrimaryClip(ClipData.newPlainText("APX", text))
+        // 内容去重（2026-11-14 真机「粘贴后无限循环」）：本机监听看到这段内容不能当
+        // 「用户又复制了」再发回去 —— 写入本来就是回传的落地，不记去重就 A↔B 无限弹
+        com.allperiph.ui.ClipboardSync.markRemoteWritten(text)
         val preview = if (text.length > 24) text.take(24) + "…" else text
         Toast.makeText(this, getString(R.string.ui_touchpad_toast_clipboard, preview), Toast.LENGTH_LONG).show()
     }

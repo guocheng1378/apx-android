@@ -22,6 +22,17 @@ object ClipboardSync {
     fun markProgrammaticWrite() { lastProgrammaticWriteMs = SystemClock.uptimeMillis() }
 
     /**
+     * 内容去重（2026-11-14 真机「粘贴后无限循环」）：与最近一次同步过（本机发出或
+     * 对端送来落本机）相同的内容直接掐断。纯 600ms 时间窗防不住 A↔B 来回弹 ——
+     * HyperOS 的剪贴板监听回调可能迟到超过时间窗，同内容再发一轮就无限循环；
+     * 内容一致本身就没有再同步的价值。
+     */
+    @Volatile private var lastSyncedText: String? = null
+
+    /** 对端送来的内容已写入本机剪贴板：记下来，本机监听不再回传它 */
+    fun markRemoteWritten(text: String) { lastSyncedText = text }
+
+    /**
      * 引用计数：界面（[register]）与悬浮球服务（[serviceAttach]）可能同时在听。
      *
      * 旧实现只有一个布尔位，谁后调 [unregister] 谁就把监听整个摘掉 ——
@@ -40,9 +51,9 @@ object ClipboardSync {
         val client = ControlTarget.controlClient ?: return@OnPrimaryClipChangedListener
         if (!client.ready) return@OnPrimaryClipChangedListener
         val text = currentClipboardText() ?: return@OnPrimaryClipChangedListener
-        if (text.isNotEmpty()) {
+        if (text.isNotEmpty() && text != lastSyncedText) {
             val ok = client.sendClipboard(text)
-            if (ok) Log.i(TAG, "剪贴板已同步到 ${ControlTarget.host}（${text.length} 字符）")
+            if (ok) { lastSyncedText = text; Log.i(TAG, "剪贴板已同步到 ${ControlTarget.host}（${text.length} 字符）") }
             else Log.w(TAG, "剪贴板同步发送失败")
         }
     }
@@ -68,6 +79,7 @@ object ClipboardSync {
         }
         if (text.isNullOrEmpty()) return SendResult.EMPTY
         val ok = client.sendClipboard(text)
+        if (ok) lastSyncedText = text
         Log.i(TAG, if (ok) "手动发送剪贴板（${text.length} 字符）" else "手动发送剪贴板失败")
         return if (ok) SendResult.OK else SendResult.FAIL
     }
