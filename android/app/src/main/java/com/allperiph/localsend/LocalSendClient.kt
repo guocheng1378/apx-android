@@ -70,7 +70,11 @@ object LocalSendClient {
                 .put("sha256", shaByFile[id])
                 .put("fileType", guessType(item.name)))
         }
-        val prepBody = JSONObject().put("info", selfInfo).put("files", filesJson)
+        // prepare-upload 的 info 字段是**平铺设备信息**（dto_v2 PrepareUploadRequestDto）；
+        // register 出站已改官方包裹结构（RegisterDto = info + port + protocol）——
+        // selfInfo 现在带着 info 壳进来，这里拆壳取平铺，别把壳再包一层。
+        val flatSelfInfo = selfInfo.optJSONObject("info") ?: selfInfo
+        val prepBody = JSONObject().put("info", flatSelfInfo).put("files", filesJson)
         val prep = httpJson("POST", base + LocalSendProtocol.PATH_PREPARE, prepBody)
             ?: return Result(false, "prepare 失败")
         val sessionId = prep.optString("sessionId")
