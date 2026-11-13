@@ -128,8 +128,9 @@ enum class PeerOs {
         // 截图 Win+Shift+S → ⌘⇧4（截选区；4=0x21）
         put("截图|${HidKeys.MOD_WIN or HidKeys.MOD_SHIFT}|0x16", (HidKeys.MOD_WIN or HidKeys.MOD_SHIFT) to 0x21)
         // 通知中心 Win+N → ⌘Space（聚焦；macOS 无对应快捷键，落一个高频动作不空转）
-        put("通知中心|${HidKeys.MOD_WIN}|0x04", HidKeys.MOD_WIN to 0x2C)
-        // 最小化 Win+M → ⌘M（窗口最小化；M=0x16）——通用规则已覆盖，显式落表保文档性
-        put("最小化|${HidKeys.MOD_WIN}|0x2D", HidKeys.MOD_WIN to 0x16)
+        put("通知中心|${HidKeys.MOD_WIN}|0x11", HidKeys.MOD_WIN to 0x2C)
+        // 最小化 Win+M → ⌘M（M=0x10）——通用规则已覆盖，显式落表保文档性
+        // （usage 笔误随 HidKeys.ROW3 一并修正：旧键 0x2D 在 Mac 上翻译成 ⌘S，会覆盖文档）
+        put("最小化|${HidKeys.MOD_WIN}|0x10", HidKeys.MOD_WIN to 0x10)
     }
 }

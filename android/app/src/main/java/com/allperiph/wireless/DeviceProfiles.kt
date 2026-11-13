@@ -28,6 +28,9 @@ object DeviceProfiles {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
+    /** 档案是单条 JSON 的读-改-写：并发写会整段覆盖丢字段，写侧统一串行化（审查 2026-11-14） */
+    private val writeLock = Any()
+
     /** 展示名 → 存储键：过滤掉路径/空白类字符，只留字母数字与连字符（中文属 Letter，会原样保留） */
     private fun key(label: String): String {
         val clean = label.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
@@ -79,8 +82,10 @@ object DeviceProfiles {
     /** 写当前受控设备的档案字段；没连设备时静默忽略（全局默认键仍是那时的唯一写点） */
     fun writeInt(ctx: Context, field: String, value: Int) {
         val peer = activePeer() ?: return
-        val o = load(ctx, peer)
-        o.put(field, value)
-        save(ctx, peer, o)
+        synchronized(writeLock) {
+            val o = load(ctx, peer)
+            o.put(field, value)
+            save(ctx, peer, o)
+        }
     }
 }

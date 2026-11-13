@@ -73,8 +73,8 @@ object HidKeys {
         Combo("重开标签", MOD_CTRL or MOD_SHIFT, 0x17),  // Ctrl+Shift+T
         Combo("任务视图", MOD_WIN, 0x2B),                // Win+Tab
         Combo("截图", MOD_WIN or MOD_SHIFT, 0x16),       // Win+Shift+S
-        Combo("通知中心", MOD_WIN, 0x04),                // Win+N
-        Combo("最小化", MOD_WIN, 0x2D),                  // Win+M
+        Combo("通知中心", MOD_WIN, 0x11),                // Win+N（0x04=A 键，笔误已修 2026-11-14）
+        Combo("最小化", MOD_WIN, 0x10),                  // Win+M（0x2D 是减号键，笔误已修 2026-11-14）
     )
 
     /** 出厂预置快捷键（快捷键页「恢复默认」与首次启动的初始值） */

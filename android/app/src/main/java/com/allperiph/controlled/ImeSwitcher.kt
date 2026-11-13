@@ -43,6 +43,10 @@ object ImeSwitcher {
     /**
      * 读当前默认输入法。[RootInput] 的常驻 shell 是 fire-and-forget（输出没人消费），
      * 回读得另开一次性 `su -c` —— 每次会话只有连入/断开各一次，这个开销付得起。
+     *
+     * 防卡死双保险（2026-11-14 审查）：① su 挂起时 readText 会**永远阻塞**（waitFor
+     * 排在 read 之后等于没设），起 watchdog 线程到点 destroy 进程、读端随流关闭脱困；
+     * ② stderr 必须有消费线程，否则 su 写满管道会反过来堵死子进程。
      * 超时/异常/无 root 一律返回 null（调用方按「不知道原输入法」降级处理）。
      */
     private fun currentDefault(): String? {
@@ -50,8 +54,19 @@ object ImeSwitcher {
         return runCatching {
             val p = ProcessBuilder("su", "-c", "settings get secure default_input_method")
                 .redirectErrorStream(false).start()
+            Thread({
+                runCatching {
+                    p.errorStream.bufferedReader().forEachLine { line ->
+                        if (line.isNotBlank()) Log.w(TAG, "su stderr：$line")
+                    }
+                }
+            }, "apx-ime-stderr").apply { isDaemon = true }.start()
+            Thread({
+                runCatching { Thread.sleep(3_000); p.destroy() }
+            }, "apx-ime-watchdog").apply { isDaemon = true }.start()
             val out = InputStreamReader(p.inputStream, Charsets.UTF_8).readText().trim()
-            p.waitFor(3, TimeUnit.SECONDS)
+            p.waitFor(5, TimeUnit.SECONDS)
+            runCatching { p.destroy() }
             out.takeIf { it.isNotEmpty() && it != "null" }
         }.onFailure { Log.w(TAG, "读当前输入法失败：${it.message}") }.getOrNull()
     }
@@ -60,6 +75,12 @@ object ImeSwitcher {
     fun activate(ctx: Context) { queue.execute { activateInner(ctx) } }
 
     private fun activateInner(ctx: Context) {
+        // root shell 是异步启动的（探测最多 ~3s）：对端抢在就绪前连入时不能静默跳过，
+        // 等它就绪再换装 —— 跳过=这个会话远程打字全灭且毫无提示
+        for (attempt in 0 until 8) {
+            if (RootInput.available) break
+            Thread.sleep(500)
+        }
         val cur = currentDefault() ?: return
         val own = ownImeId(ctx)
         if (cur == own) return   // 已经是我们的通道（上次会话残留）→ 别覆盖已存的还原点

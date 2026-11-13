@@ -190,6 +190,13 @@ class TvControllerClient(
                 if (cb != null) cb(text, flags) else injectRemoteTextFallback(text, flags)
             }
             0x27 -> { onRemoteInputDone?.invoke() }
+            // 0x28 特殊键回传（2026-11-14 审查补齐）：对端替本机代输时，编辑键排的特殊键
+            // 由被控侧经本帧回传 —— PC 控制端早有接收，手机/TV 控制端一直静默丢弃。
+            // 本机侧注入走与代输文本同两条通道（输入法/无障碍）；方向键/Tab 需要焦点
+            // 节点级的光标操作，暂不支持、如实打日志不装死。
+            0x28 -> {
+                if (body.size >= 3) specialKeyFallback(body[1].toInt() and 0xFF, body[2].toInt() and 0xFF)
+            }
             // 0x33 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节），存进 [peerCaps]。
             0x33 -> {
                 if (body.size >= 9) {
@@ -264,6 +271,23 @@ class TvControllerClient(
                 Log.w("TvCtrl", "代输注入失败（输入框没聚焦？）")
             }
         }
+    }
+
+    /**
+     * 0x28 特殊键落地（与 [injectRemoteTextFallback] 同通道）：退格走输入法删除、
+     * 无输入连接再退无障碍删一字；回车走输入法提交；Esc 退无障碍全局返回。
+     * 其余（方向键/Tab/翻页）需要焦点节点的光标语义，当前通道做不到，打日志。
+     */
+    private fun specialKeyFallback(mod: Int, vk: Int) {
+        val svc = com.allperiph.shared.accessibility.ApxAccessibilityService.instance
+        val ok = when (vk) {
+            0x08 -> com.allperiph.shared.ime.ApxImeService.delete() || (svc?.deleteChar() == true)
+            0x2E -> svc?.deleteChar() == true   // Delete（删光标后一字）：无障碍近似按删前一字处理
+            0x0D -> com.allperiph.shared.ime.ApxImeService.key(android.view.KeyEvent.KEYCODE_ENTER, true)
+            0x1B -> { svc?.back(); true }
+            else -> false
+        }
+        if (!ok) Log.w("TvCtrl", "代输特殊键未落地（输入框没聚焦？）：vk=0x${vk.toString(16)} mod=$mod")
     }
 
     private fun pingLoop() {
