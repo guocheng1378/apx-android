@@ -3,6 +3,7 @@ package com.allperiph.controlled
 import android.content.Context
 import com.allperiph.shared.input.RootInput
 import com.allperiph.shared.util.Log
+import com.allperiph.wireless.ControlTarget
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 
@@ -38,37 +39,6 @@ object ImeSwitcher {
      */
     private val queue = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "apx-ime-switch")
-    }
-
-    /**
-     * 读当前默认输入法。[RootInput] 的常驻 shell 是 fire-and-forget（输出没人消费），
-     * 回读得另开一次性 `su -c` —— 每次会话只有连入/断开各一次，这个开销付得起。
-     *
-     * 防卡死双保险（2026-11-14 审查）：① su 挂起时 readText 会**永远阻塞**（waitFor
-     * 排在 read 之后等于没设），起 watchdog 线程到点 destroy 进程、读端随流关闭脱困；
-     * ② stderr 必须有消费线程，否则 su 写满管道会反过来堵死子进程。
-     * 超时/异常/无 root 一律返回 null（调用方按「不知道原输入法」降级处理）。
-     */
-    private fun currentDefault(): String? {
-        if (!RootInput.available) return null
-        return runCatching {
-            val p = ProcessBuilder("su", "-c", "settings get secure default_input_method")
-                .redirectErrorStream(false).start()
-            Thread({
-                runCatching {
-                    p.errorStream.bufferedReader().forEachLine { line ->
-                        if (line.isNotBlank()) Log.w(TAG, "su stderr：$line")
-                    }
-                }
-            }, "apx-ime-stderr").apply { isDaemon = true }.start()
-            Thread({
-                runCatching { Thread.sleep(3_000); p.destroy() }
-            }, "apx-ime-watchdog").apply { isDaemon = true }.start()
-            val out = InputStreamReader(p.inputStream, Charsets.UTF_8).readText().trim()
-            p.waitFor(5, TimeUnit.SECONDS)
-            runCatching { p.destroy() }
-            out.takeIf { it.isNotEmpty() && it != "null" }
-        }.onFailure { Log.w(TAG, "读当前输入法失败：${it.message}") }.getOrNull()
     }
 
     /**
@@ -140,6 +110,14 @@ object ImeSwitcher {
                 ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(KEY_SAVED_IME).apply()
                 Log.i(TAG, "默认输入法被指到未注册的通道（v95 遗留），已还原为 $saved")
             }
+            return
+        }
+        // 双向互控防护（2026-11-14）：本机自己正控制着别人时，绝不能再换装自己的
+        // 输入法 —— 两台手机互控时双方都会走到 activate，把两台的键盘一起切进
+        // 通道（通道还是零高度空壳），用户手里两台「键盘全坏了」。上面的未注册
+        // 自愈分支保留执行：那是修 v95 遗留损害，不受本防护影响。
+        if (ControlTarget.isControlling()) {
+            Log.i(TAG, "本机正在控制其他设备（双向互控），跳过输入法换装")
             return
         }
         val cur = currentDefault() ?: return
