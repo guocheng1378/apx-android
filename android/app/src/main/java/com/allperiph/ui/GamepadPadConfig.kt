@@ -81,6 +81,8 @@ object GamepadPadConfig {
         "Group" to (0 to 40),
         "ResetAll" to (0 to 40),
         "Help" to (0 to 40),
+        // REQ 手柄编辑器 二期 5：「撤销」也占槽位（编辑态可拖，与组 / 复位同规格）
+        "Undo" to (0 to 40),
     )
 
     /**
@@ -165,6 +167,35 @@ object GamepadPadConfig {
     /** 标记编辑说明已看过（首次自动弹时置位，只置一次） */
     fun markTipShown(ctx: Context) {
         prefs(ctx).edit().putBoolean(KEY_TIP_SHOWN, true).apply()
+    }
+
+    // —— 编辑会话快照（REQ 手柄编辑器 二期 5，2026-11-15）——
+    // 进编辑态（✎）时对当前配置文件全量快照，编辑面板「撤销」原样写回：兜住整个
+    // 编辑会话的误操作（改键 / 拖位 / 滑尺寸 / 恢复默认都算），单次拖动的撤销栈放三期。
+    // 快照含 tip.editing_shown 在内的**全部键**，恢复即回到进编辑那一刻的完整状态；
+    // ✓ 收工由调用方丢弃快照（释放内存），不落盘。
+
+    /** 全量快照当前配置（含编辑说明看过标记等全部键，键位/尺寸/偏移四类前缀自然覆盖） */
+    fun snapshot(ctx: Context): Map<String, Any?> = prefs(ctx).all
+
+    /**
+     * 把快照原样写回（先清后写，快照里没有的键一并清掉 —— 严格回到快照那一刻）。
+     * 值类型按 SharedPreferences 支持的五种逐个落；读取方（bit/sizeDp/offset）会
+     * 自动回落默认值，无需额外处理。
+     */
+    fun restore(ctx: Context, snap: Map<String, Any?>) {
+        prefs(ctx).edit().clear().apply {
+            snap.forEach { (k, v) ->
+                when (v) {
+                    is Int -> putInt(k, v)
+                    is Float -> putFloat(k, v)
+                    is Boolean -> putBoolean(k, v)
+                    is Long -> putLong(k, v)
+                    is String -> putString(k, v)
+                    is Set<*> -> @Suppress("UNCHECKED_CAST") putStringSet(k, v as Set<String>)
+                }
+            }
+        }.apply()
     }
 
     /** bit 的显示名（配置界面用）：面键按 ABXY 字母显示（issue#170 #7，见 [KEY_CHOICES]） */

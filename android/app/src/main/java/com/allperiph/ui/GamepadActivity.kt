@@ -382,6 +382,10 @@ internal fun GamepadPanel(onExit: () -> Unit) {
     var padConfiguring by remember { mutableStateOf<String?>(null) }
     var padConfigVersion by remember { mutableIntStateOf(0) }
 
+    // 编辑会话快照（REQ 手柄编辑器 二期 5）：进编辑态（✎）对配置全量快照，编辑面板
+    // 「撤销」原样写回；✓ 收工即提交、快照丢弃。null = 没有快照（不在编辑态或已收工）。
+    var padEditSnapshot by remember { mutableStateOf<Map<String, Any?>?>(null) }
+
     // 按钮组（issue#169 第 20 条）：编辑态开「组」模式后，点选多颗槽位成组（亮白描边），
     // 拖动任意一颗 = 整组平移同一增量，成员相对位置保持不变；关组模式即散组。
     var padGroupMode by remember { mutableStateOf(false) }
@@ -691,14 +695,19 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     padEditing = !padEditing
                     if (!padEditing) {
                         padConfiguring = null
-                        // 退出编辑顺带散组（issue#169 第 20 条），并撤操作提示
+                        // ✓ 收工即提交：快照丢弃（REQ 二期 5），退出编辑顺带散组（issue#169 第 20 条）、撤操作提示
+                        padEditSnapshot = null
                         padGroupMode = false
                         padGroupSel = emptySet()
                         showEditingTip = false
-                    } else if (!GamepadPadConfig.tipShown(padCtx)) {
-                        // 进编辑态首次自动弹操作说明（REQ 本批 4）：看过落盘，不再自动弹
-                        GamepadPadConfig.markTipShown(padCtx)
-                        showEditingTip = true
+                    } else {
+                        // 进编辑态先全量快照（REQ 二期 5）：「撤销」退回这一刻
+                        padEditSnapshot = GamepadPadConfig.snapshot(padCtx)
+                        if (!GamepadPadConfig.tipShown(padCtx)) {
+                            // 进编辑态首次自动弹操作说明（REQ 本批 4）：看过落盘，不再自动弹
+                            GamepadPadConfig.markTipShown(padCtx)
+                            showEditingTip = true
+                        }
                     }
                     Feedback.haptic(padCtx)
                 },
@@ -708,6 +717,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     onTap = {
                         padEditing = false
                         padConfiguring = null
+                        padEditSnapshot = null   // ✓ 收工即提交：快照丢弃（REQ 二期 5）
                         padGroupMode = false
                         padGroupSel = emptySet()
                         showEditingTip = false
@@ -743,6 +753,36 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     },
                     onMoveBy = { dx, dy -> padMoveBy("Group", dx, dy) },
                     onMoveEnd = { padMoveEnd("Group") },
+                )
+            }
+        }
+
+        // —— 撤销（REQ 手柄编辑器 二期 5）：退回进编辑态（✎）那一刻的完整配置 ——
+        // 兜住整个编辑会话的误操作：改键 / 拖位 / 滑尺寸 / 恢复默认都能一键还原。
+        // 写回后同步内存 state：偏移重读、实时尺寸清空、配置卡关掉、版本号 bump 让
+        // 所有按钮重读存档；快照保留（可多次撤销到同一基线，直到 ✓ 收工）。放「复位」上方同列。
+        if (padEditing) {
+            // 撤销动作（onDown / onConfigure 同款透传，与「复位」按钮口径一致）
+            val undoAll = {
+                padEditSnapshot?.let { snap ->
+                    GamepadPadConfig.restore(padCtx, snap)
+                    padOffsets = OFFSET_SLOTS.associateWith { GamepadPadConfig.offset(padCtx, it) }
+                    padLiveSizes = emptyMap()
+                    padConfiguring = null
+                    padConfigVersion++
+                }
+                Feedback.haptic(padCtx)
+            }
+            val undoDrag = padDrag("Undo")
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp * padScale, bottom = 150.dp * padScale).offset(x = undoDrag.first, y = undoDrag.second)) {
+                Pad(
+                    label = stringResource(R.string.ui_gamepad_btn_undo),
+                    bit = 0, width = 40.dp, height = 40.dp, slot = "Undo", scale = padScale,
+                    editing = padEditing, configVersion = padConfigVersion,
+                    onDown = { undoAll() },
+                    onConfigure = { undoAll() },   // 编辑态 tap 透传原功能；拖动只做移位（issue#170 #6）
+                    onMoveBy = { dx, dy -> padMoveBy("Undo", dx, dy) },
+                    onMoveEnd = { padMoveEnd("Undo") },
                 )
             }
         }
