@@ -54,6 +54,11 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 2026-11-14「v99 装上点开无反应、无崩溃提示」排查：进程起点先装启动黑匣子
+        //（崩溃落盘 + 阶段打点），再走原有初始化 —— 这是排查期临时取证手段，
+        // 定位后若确认无碍可整段连同 CrashBox 一起撤掉。
+        com.allperiph.CrashBox.install(this)
+        com.allperiph.CrashBox.mark("进程启动：Application.onCreate")
         context = this
         // ControlledService companion 实现了 ServiceController；交给共享 KeepAlive 使用。
         KeepAlive.controller = ControlledService
@@ -101,6 +106,8 @@ class App : Application() {
             }
             if (anyTransport) com.allperiph.ui.AgentForegroundService.start(this)
         }.onFailure { deferAgentStartOnNotAllowed(it) }
+        // Application 初始化全程走完的标记：文件里有这行说明死因在界面阶段或更后面
+        com.allperiph.CrashBox.mark("Application 初始化完成")
     }
 
     /**

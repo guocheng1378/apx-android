@@ -194,6 +194,9 @@ class ApShellActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 2026-11-14 启动黑匣子打点：主壳 onCreate 开始 / 结束各一句，配合进程起点标记，
+        // 把「点开无反应」的进程死在哪一段（没进进程 / 死在 Application / 死在界面）钉死。
+        com.allperiph.CrashBox.mark("主壳启动：ApShellActivity.onCreate")
         // 不再调 ApPalette.applyRuntimeTheme：Compose 侧的强调色已由 ApMiuixTheme 的
         // colorScheme 给全，这个调用是「给 View 层 ?attr 叠运行时强调色」的遗产，
         // 宿主页已经没有任何 View 需要它；保持 attachBaseContext(ThemePref.wrap)，
