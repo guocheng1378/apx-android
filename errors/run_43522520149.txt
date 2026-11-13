@@ -1,0 +1,112 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 28%] Built target apxpc_sensors
+[ 38%] Built target apxpc_discovery
+[ 66%] Built target apxpc_service
+[ 68%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/local_send_receiver.cpp.o
+[ 69%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/local_send_sender.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/localsend/local_send_sender.cpp:62:23: warning: unused variable 'kPathInfo' [-Wunused-const-variable]
+   62 | constexpr const char* kPathInfo = "/api/localsend/v2/info";
+      |                       ^~~~~~~~~
+1 warning generated.
+[ 71%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/sha256.cpp.o
+[ 73%] Linking CXX static library libapxpc_localsend.a
+[ 73%] Built target apxpc_localsend
+[ 82%] Built target apxpc_media
+[ 84%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1343:25: error: variable 'cbNotifyReplyResult' cannot be implicitly captured in a lambda with no capture-default specified
+ 1343 |                     if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
+      |                         ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1201:16: note: 'cbNotifyReplyResult' declared here
+ 1201 |     const auto cbNotifyReplyResult = onNotifyReplyResult;
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1206:36: note: lambda expression begins here
+ 1206 |     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
+      |                                    ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by value
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by reference
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , &cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1343:46: error: variable 'cbNotifyReplyResult' cannot be implicitly captured in a lambda with no capture-default specified
+ 1343 |                     if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
+      |                                              ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1201:16: note: 'cbNotifyReplyResult' declared here
+ 1201 |     const auto cbNotifyReplyResult = onNotifyReplyResult;
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1206:36: note: lambda expression begins here
+ 1206 |     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
+      |                                    ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by value
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by reference
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , &cbNotifyReplyResult
+2 errors generated.
+make[3]: *** [CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o] Error 1
+[ 85%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/file_sender.cpp.o
+[ 87%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/verify_code.cpp.o
+[ 88%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_injector_mac.mm.o
+[ 90%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o
+make[3]: Target `CMakeFiles/apxpc_wireless.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_wireless.dir/all] Error 2
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 28%] Built target apxpc_sensors
+[ 38%] Built target apxpc_discovery
+[ 66%] Built target apxpc_service
+[ 73%] Built target apxpc_localsend
+[ 82%] Built target apxpc_media
+[ 84%] Building CXX object CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1343:25: error: variable 'cbNotifyReplyResult' cannot be implicitly captured in a lambda with no capture-default specified
+ 1343 |                     if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
+      |                         ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1201:16: note: 'cbNotifyReplyResult' declared here
+ 1201 |     const auto cbNotifyReplyResult = onNotifyReplyResult;
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1206:36: note: lambda expression begins here
+ 1206 |     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
+      |                                    ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by value
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by reference
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , &cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1343:46: error: variable 'cbNotifyReplyResult' cannot be implicitly captured in a lambda with no capture-default specified
+ 1343 |                     if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
+      |                                              ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1201:16: note: 'cbNotifyReplyResult' declared here
+ 1201 |     const auto cbNotifyReplyResult = onNotifyReplyResult;
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1206:36: note: lambda expression begins here
+ 1206 |     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
+      |                                    ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by value
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , cbNotifyReplyResult
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/ctrl9511.cpp:1208:65: note: capture 'cbNotifyReplyResult' by reference
+ 1208 |                                     cbAlbumPage, cbAlbumPageFail] {
+      |                                                                 ^
+      |                                                                 , &cbNotifyReplyResult
+2 errors generated.
+make[3]: *** [CMakeFiles/apxpc_wireless.dir/src/wireless/ctrl9511.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_wireless.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_wireless.dir/all] Error 2
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
