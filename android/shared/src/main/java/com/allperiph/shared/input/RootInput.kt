@@ -35,6 +35,11 @@ object RootInput {
     @Volatile
     private var writer: OutputStreamWriter? = null
 
+    /** 是否曾经成功起过通道（共享控制面用它决定要不要续命：从未热过的机器不白试 su） */
+    @Volatile
+    var everWarm: Boolean = false
+        private set
+
     private val starting = AtomicBoolean(false)
 
     /** root 通道是否可用（未授权 root / 无 root / su 异常 → false） */
@@ -88,6 +93,7 @@ object RootInput {
                     return@Thread
                 }
                 Log.i(TAG, "root 注入通道已就绪：全键鼠可用")
+                everWarm = true
             } catch (t: Throwable) {
                 Log.w(TAG, "启动 root shell 失败：${t.message}")
             } finally {

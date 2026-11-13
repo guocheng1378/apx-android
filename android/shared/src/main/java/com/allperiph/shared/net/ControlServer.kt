@@ -62,9 +62,11 @@ class ControlServer(
      * 借心跳保活 root 注入通道（2026-11-14 被控机实锤：su shell 被 HyperOS 杀掉后
      * 无人再拉，「授权显示允许、通道整段没起」）。ping 每秒一跳、tryStart 幂等
      * （在跑/在启动直接返回），这里按 30s 节流 —— 真无 root 的机器也不至于每秒白起进程。
-     * 异步拉起：本秒通道还没回来，下一秒连接内就绪；打字路径另有用时重拉（TvInjector）双保险。
+     * 只续「热过」的通道（everWarm）：TV 端与无 root 机器从未用过 su，心跳里不白试；
+     * 曾热过被杀的 su shell 最迟半分钟自愈。打字路径另有用时重拉（TvInjector）双保险。
      */
     private fun keepRootChannelWarm() {
+        if (!RootInput.everWarm) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastRootKeepaliveMs < 30_000L) return
         lastRootKeepaliveMs = now
