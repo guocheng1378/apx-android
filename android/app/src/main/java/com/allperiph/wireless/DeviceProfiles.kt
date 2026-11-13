@@ -40,6 +40,20 @@ object DeviceProfiles {
         prefs(ctx).edit().putString(key(label), o.toString()).apply()
     }
 
+    /**
+     * 设备作用域偏好文件名：连着受控设备时返回带设备后缀的**独立文件**，没连返回原文件名。
+     *
+     * 这是「整套设置按设备切换」的通用通道（2026-11-14 成宇「对应切换」批二期）：
+     * 快捷键存档（HotkeyStore）、键盘属性（KeyPref）、手柄键位配置（GamepadPadConfig）
+     * 都是 SharedPreferences 型的偏好 —— 把各自的 prefs() 经这里路由，连上谁
+     * `getSharedPreferences` 就落在谁自己的文件里，读端自然换档，调用点零改动。
+     * 没连设备 = 原文件（存量行为不变）；同名机型共用档案（与 [activePeer] 同一口径）。
+     */
+    fun scopedPrefsName(ctx: Context, base: String): String {
+        val peer = activePeer() ?: return base
+        return "${base}_${key(peer).removePrefix("prof_")}"
+    }
+
     /** 当前已连入的受控设备名；没连设备返回 null（档案语义只在「连着谁」时有意义） */
     fun activePeer(): String? =
         ControlTarget.label.takeIf { it.isNotBlank() && it != ControlTarget.DEFAULT_LABEL }

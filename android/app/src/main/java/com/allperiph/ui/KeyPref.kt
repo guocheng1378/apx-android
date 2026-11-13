@@ -25,7 +25,13 @@ object KeyPref {
     private const val KEY_EFFECT = "fx"
     private const val KEY_RGB = "rgb"
 
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(
+        // 设备作用域（2026-11-14「对应切换」批二期）：连着受控设备时整套键盘属性
+        // （排列/密度/键帽材质/特效/灯效/自定义布局）落在该设备自己的文件里，
+        // 连上谁用谁的键盘；没连设备 = 原文件（存量行为不变）。
+        com.allperiph.wireless.DeviceProfiles.scopedPrefsName(ctx, PREF),
+        Context.MODE_PRIVATE,
+    )
 
     // —————————————————————————— 键位排列 ——————————————————————————
 

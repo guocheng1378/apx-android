@@ -18,15 +18,31 @@ object HotkeyStore {
     private const val KEY_ITEMS = "items"
     private const val KEY_TEMPLATE = "template"
 
+    /**
+     * 快捷键存档读统一走**设备作用域**文件（2026-11-14「对应切换」批二期，[DeviceProfiles.scopedPrefsName]）：
+     * 连着受控设备时落在该设备自己的文件里 —— 每台设备各存一套快捷键，连上谁用谁的；
+     * 没连设备 = 原文件（存量行为不变）。⚠️ 使用计数（KEY_USAGE）故意不走这里：
+     * 那是跨设备的使用习惯统计，全局一份才符合「高频动作自动排前」的本意。
+     */
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(
+        com.allperiph.wireless.DeviceProfiles.scopedPrefsName(ctx, PREF),
+        Context.MODE_PRIVATE,
+    )
+
+    /** 使用计数专用：全局文件，不随设备分档（见 [prefs] 注释） */
+    private fun usagePrefs(ctx: Context) =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+
     fun loadTemplate(ctx: Context): String? =
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_TEMPLATE, null)
+        prefs(ctx).getString(KEY_TEMPLATE, null)
 
     fun applyTemplate(ctx: Context, t: HotkeyTemplates.Template) {
         // issue#168 第 14 条：落库前按当前被控机系统翻译——存档里存的是**本机认的组合**，
         // 换系统后改选「被控机系统」再重套模板即可（存量存档不动，只影响新套的模板）。
+        // 被控机系统自第一批起按设备档案读写（PeerOs.current/setCurrent），这里翻译
+        // 与落盘自然都落在当前设备的作用域里，模板也各存各的。
         save(ctx, PeerOs.current(ctx).adapt(t.combos))
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit().putString(KEY_TEMPLATE, t.key).apply()
+        prefs(ctx).edit().putString(KEY_TEMPLATE, t.key).apply()
     }
 
     // —————————————————————————— 使用计数与自动排序（v1.29） ——————————————————————————
@@ -51,11 +67,10 @@ object HotkeyStore {
     private val usageLock = Any()
 
     fun isAutoSort(ctx: Context): Boolean =
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_SORT, true)
+        prefs(ctx).getBoolean(KEY_SORT, true)
 
     fun setAutoSort(ctx: Context, on: Boolean) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_SORT, on).apply()
+        prefs(ctx).edit().putBoolean(KEY_SORT, on).apply()
     }
 
     fun comboKey(c: HidKeys.Combo): String = "${c.mod}:${c.usage}"
@@ -78,13 +93,13 @@ object HotkeyStore {
         val cache = usageCache ?: return
         val obj = JSONObject()
         cache.forEach { (key, v) -> obj.put(key, v) }
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        usagePrefs(ctx)
             .edit().putString(KEY_USAGE, obj.toString()).apply()
     }
 
     fun loadUsage(ctx: Context): Map<String, Int> {
         usageCache?.let { return it }
-        val raw = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val raw = usagePrefs(ctx)
             .getString(KEY_USAGE, null) ?: return emptyMap()
         return runCatching {
             val o = JSONObject(raw)
@@ -95,7 +110,7 @@ object HotkeyStore {
     }
 
     fun markCustom(ctx: Context) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        prefs(ctx)
             .edit().remove(KEY_TEMPLATE).apply()
     }
 
@@ -113,7 +128,7 @@ object HotkeyStore {
     }
 
     fun load(ctx: Context): MutableList<HidKeys.Combo> {
-        val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val sp = prefs(ctx)
         // issue#168 第 14 条：无存档回退走 PeerOs——被控机选了 macOS 时出厂行也是 ⌘ 系（Windows 基线不变）
         val raw = sp.getString(KEY_ITEMS, null) ?: return PeerOs.defaults(ctx).toMutableList()
         return repair(
@@ -128,7 +143,7 @@ object HotkeyStore {
     }
 
     fun save(ctx: Context, list: List<HidKeys.Combo>) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        prefs(ctx)
             .edit().putString(KEY_ITEMS, encode(list).toString()).apply()
     }
 
@@ -141,7 +156,7 @@ object HotkeyStore {
         HotkeyTemplates.byKey("tv")?.combos ?: HidKeys.DEFAULTS
 
     fun loadTv(ctx: Context): MutableList<HidKeys.Combo> {
-        val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val sp = prefs(ctx)
         val raw = sp.getString(KEY_ITEMS_TV, null) ?: return tvDefault().toMutableList()
         return repair(
             runCatching {
@@ -155,7 +170,7 @@ object HotkeyStore {
     }
 
     fun saveTv(ctx: Context, list: List<HidKeys.Combo>) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        prefs(ctx)
             .edit().putString(KEY_ITEMS_TV, encode(list).toString()).apply()
     }
 
@@ -163,8 +178,16 @@ object HotkeyStore {
 
     private const val KEY_CUSTOM = "custom_templates"
 
+    /**
+     * 自建模板**故意全局**（不走 [prefs] 的设备作用域）：模板是用户攒的可复用素材，
+     * 换台设备就看不见自己的模板会让人以为全丢了。分设备的是「当前套用的那份组合」
+     * （items/template），不是模板库本身。
+     */
+    private fun customPrefs(ctx: Context) =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+
     fun loadCustom(ctx: Context): MutableList<HotkeyTemplates.Template> {
-        val raw = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val raw = customPrefs(ctx)
             .getString(KEY_CUSTOM, null) ?: return mutableListOf()
         return runCatching {
             val arr = JSONArray(raw)
@@ -193,7 +216,7 @@ object HotkeyStore {
                     .put("items", encode(t.combos))
             )
         }
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        customPrefs(ctx)
             .edit().putString(KEY_CUSTOM, arr.toString()).apply()
     }
 

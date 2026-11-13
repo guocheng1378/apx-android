@@ -146,5 +146,13 @@ object GamepadPadConfig {
     fun labelOf(bit: Int): String =
         KEY_CHOICES.firstOrNull { it.first == bit }?.second ?: "?"
 
-    private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    /**
+     * 设备作用域（2026-11-14「对应切换」批二期）：连着受控设备时键位/尺寸/偏移
+     * 落在该设备自己的文件里 —— 每台设备各存一套手柄面板（打电脑一套、打电视一套），
+     * 连上谁自动换谁的面板；没连设备 = 原文件（存量行为不变）。
+     */
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences(
+        com.allperiph.wireless.DeviceProfiles.scopedPrefsName(ctx, PREFS),
+        Context.MODE_PRIVATE,
+    )
 }
