@@ -124,11 +124,40 @@ class ApShellActivity : ComponentActivity() {
     /** 启动参数：直接打开受控设备选择器（通知点击等入口带 EXTRA_PICK_DEVICE 时） */
     private var pickOnStart = false
 
+    /**
+     * 「只来选设备」请求打点：本壳是 singleTask，遥控页点「选择设备」跳回来时实例
+     * 通常已存在，走 [onNewIntent] 而非 [onCreate] —— pickOnStart 不会重新赋值，
+     * 这里递增计数让 Shell 内的 LaunchedEffect 观察到，照样把选择器弹出来。
+     */
+    private val pickRequests = androidx.compose.runtime.mutableIntStateOf(0)
+
     /** 当前页签的"单一真相"：Compose 侧读/写。
      *  必须是快照状态：`LaunchedEffect(page)` 的 key 是组合期读到的值，改普通字段
      *  不会触发重组，同步 effect 永远不再跑，界面纹丝不动。快照状态任何一处写它
      *  都会让读它的组合失效。 */
     private var pageState by androidx.compose.runtime.mutableStateOf(0)
+
+    /** 「只来选设备」收尾：关掉本壳并回遥控页。注意遥控页多半已被清栈销毁 —— 它也是
+     *  singleTask，又压在本壳之上，本壳被 onNewIntent 带回前台时它就没了；光 finish
+     *  会落到桌面。这里显式补拉一次：实例还在就路由过去，没了就按正常入口新建
+     *  （连接状态在 ControlTarget 全局持有，新实例 onResume 即见当前目标）。 */
+    private fun finishPickMode() {
+        pickOnStart = false
+        startActivity(Intent(this, com.allperiph.ui.RemoteActivity::class.java))
+        finish()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        // singleTask 复用实例时走这里，onCreate 不会再跑 —— 此前 EXTRA_PICK_DEVICE 只在
+        // onCreate 读，遥控页点「选择设备」跳回主壳时选择器根本不弹，用户被留在主壳
+        // 的上一页（反馈 2026-11-13「跳回主界面的设置，遥控又回到未链接状态」）。
+        if (intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true) {
+            intent.removeExtra(EXTRA_PICK_DEVICE)
+            pickOnStart = true
+            pickRequests.intValue++
+        }
+    }
 
     /** 退出确认弹窗开关（v223.28 补回旧 MainActivity 迁移时整块丢掉的那份） */
     private val showExitAsk = androidx.compose.runtime.mutableStateOf(false)
@@ -347,6 +376,11 @@ class ApShellActivity : ComponentActivity() {
             label = "topGap",
         )
         androidx.compose.runtime.LaunchedEffect(pickOnStart) { if (pickOnStart) pickerOpen = true }
+        // onNewIntent 补投递的「只来选设备」请求：计数从 0 变正数即弹选择器（见 pickRequests 注释）。
+        // 计数只增不减，重复进入也不会漏 —— LaunchedEffect(0) 首跑为空操作。
+        androidx.compose.runtime.LaunchedEffect(pickRequests.intValue) {
+            if (pickRequests.intValue > 0) pickerOpen = true
+        }
         // 返回键：**全壳只有这一处策略**（审查条 2.6 + v5 §9.2-C 的修正）。
         //
         // 前一版把「先收悬浮层、否则弹退出确认」注册在 onCreate 的 onBackPressedDispatcher 上，
@@ -359,6 +393,8 @@ class ApShellActivity : ComponentActivity() {
             if (com.allperiph.ui.FloatingBallService.collapseOverlays()) return@BackHandler
             if (pickerOpen) {
                 pickerOpen = false
+                // 「只来选设备」模式：返回键视同取消，与点卡片外同口径，回遥控页
+                if (pickOnStart) finishPickMode()
                 return@BackHandler
             }
             if (page != 0) {
@@ -601,7 +637,14 @@ class ApShellActivity : ComponentActivity() {
             // 受控设备选择器（从旧 MainActivity.showDevicePicker 迁来）：列表来自
             // TvDiscovery 的广播发现，选中即连入 9511；「本机 / PC」走 ControlTarget.clear()
             if (pickerOpen) {
-                ApDevicePicker(onDismiss = { pickerOpen = false })
+                ApDevicePicker(onDismiss = {
+                    pickerOpen = false
+                    // 「只来选设备」模式（遥控页带 EXTRA_PICK_DEVICE 进入）：选完 / 取消都
+                    // 回遥控页 —— 旧版 MainActivity 的契约（fad19c5），UI 迁 Compose 时丢失，
+                    // RemoteActivity.pickTarget 的注释一直是这个承诺。正常进壳
+                    // pickOnStart=false，不受影响。
+                    if (pickOnStart) finishPickMode()
+                })
             }
 
             // 退出确认（v223.28）：两个动作 —— 「后台继续」不打断正在跑的外设，
