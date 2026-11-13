@@ -55,6 +55,22 @@ class ControlServer(
     /** 对端连入/断开的服务级回调（记忆对端 IP、刷新通知等）；与 [ControlEndpoint.onPeerStateChanged] 区别在于它是上层侧效应 */
     @Volatile var onPeerChanged: ((Boolean, String) -> Unit)? = null
 
+    /** root 通道保活节流：借 ping 重拉 su shell，两次尝试至少间隔 30s（真无 root 时也不白转） */
+    private var lastRootKeepaliveMs: Long = 0L
+
+    /**
+     * 借心跳保活 root 注入通道（2026-11-14 被控机实锤：su shell 被 HyperOS 杀掉后
+     * 无人再拉，「授权显示允许、通道整段没起」）。ping 每秒一跳、tryStart 幂等
+     * （在跑/在启动直接返回），这里按 30s 节流 —— 真无 root 的机器也不至于每秒白起进程。
+     * 异步拉起：本秒通道还没回来，下一秒连接内就绪；打字路径另有用时重拉（TvInjector）双保险。
+     */
+    private fun keepRootChannelWarm() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastRootKeepaliveMs < 30_000L) return
+        lastRootKeepaliveMs = now
+        RootInput.tryStart()
+    }
+
     /**
      * 对端能力位图（0x33 能力协商，2026-11-11）：连接建立后对端报上来的支持能力，
      * 见 [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量。0 = 未收到（旧版对端没有该机制，
@@ -414,6 +430,7 @@ class ControlServer(
                                 actions.add {
                                     if (!sendControl(PONG)) Log.w("控制面", "诊断:pong发送失败 ready=$ready")
                                 }
+                                keepRootChannelWarm()
                             }
                             0x01 -> if (body.size >= 5) actions.add { onMouse(body) }
                             0x02 -> if (body.size >= 3) actions.add { onConsumer(body) }
