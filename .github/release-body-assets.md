@@ -14,9 +14,12 @@
 - 自动检测 WebView2 Runtime，缺失时后台静默装（Win10 旧版无感知）
 - 卸载自动进「应用和功能」
 - 安装包自动压缩了 apxdesktop + apxhost + WebView2Loader + web/* 全部资源
+- 内置 **UsbScan 高拍仪**（GPL-3.0 独立第三方，装到 `third-party\UsbScan`，开始菜单有入口）：接上任意 USB 摄像头或本软件的手机虚拟摄像头，即可拍文件、自动裁边、透视校正、离线 OCR 出 PDF
 
 ### 便携版（Windows zip）
 解压到任意目录直接双击 apxdesktop.exe 运行，绿色免安装。
+
+便携版同样内置 UsbScan（`third-party\UsbScan\usbscan.exe`，原样未改）。
 
 ### macOS（arm64）
 下载 **AllPeriph-{{TAG}}-macos-arm64.zip**（由 macos.yml 独立上传）：

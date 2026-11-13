@@ -19,6 +19,7 @@
 | [AntiMicroX](https://github.com/AntiMicroX/antimicrox) | PC 图形化手柄映射，所见即所得 | 改键选择器（点槽位弹指派窗）参考 | GPL-3.0（只借鉴思路） |
 | [NEXPAD](https://github.com/parmarsanket/NEXPAD) | 安卓虚拟手柄 for PC（与本项目最接近） | 虚拟手柄 overlay 全程序化矢量控件佐证 | Apache-2.0 |
 | [scrcpy-touchmap](https://github.com/kuuldor/scrcpy-touchmap) | scrcpy 触控映射 HUD | 编辑态抑制输出、拖心=移动/拖缘=缩放、改键范式参考 | 以仓库为准 |
+| [UsbScan](https://github.com/Kaiyuan/usbscan) | 任意 USB 摄像头变高拍仪（自动裁边/透视校正/离线 OCR/PDF 归档，Rust+Slint） | **已打包进 PC 发行版** `third-party/UsbScan/`（2026-11-14，独立组件未改未链接）；文档检测/裁边算法与 `pc/` 同为 GPL-3.0，日后可吸收 | GPL-3.0 |
 
 ## 逐项分析：已验证、值得借鉴的点
 

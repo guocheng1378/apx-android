@@ -8,6 +8,7 @@
 ;   • 默认装到 %LOCALAPPDATA%\Programs\全能外设（免管理员；与 apxsetup.exe 同目录）
 ;   • 自动检测 WebView2 Runtime，缺失时后台静默装（用户无感知）
 ;   • 卸载自动进「应用和功能」、自动停旧实例
+;   • 内置 UsbScan 高拍仪（GPL-3.0 独立第三方，装到 third-party\UsbScan，开始菜单有入口）
 ;
 ; CI 调用：iscc /DMyAppVersion=v0.4.3 /DArtifactsDir=dist/pc-exes-webview2
 ;              /DIconDir=pc/host/res AllPeriph.iss
@@ -56,11 +57,14 @@ Source: "{#ArtifactsDir}\WebView2Loader.dll"; DestDir: "{app}";     Flags: ignor
 Source: "{#ArtifactsDir}\ViGEmClient.dll";  DestDir: "{app}";     Flags: ignoreversion
 Source: "{#ArtifactsDir}\apxhost.exe";         DestDir: "{app}";     Flags: ignoreversion
 Source: "{#ArtifactsDir}\web\*";               DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
+; —— UsbScan 高拍仪（GPL-3.0 独立第三方，构建时自上游原样下载校验，未改未链接）——
+Source: "{#ArtifactsDir}\third-party\UsbScan\*"; DestDir: "{app}\third-party\UsbScan"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{group}\开源主页";  Filename: "https://github.com/guocheng1378/apx-android"
+Name: "{group}\UsbScan 高拍仪"; Filename: "{app}\third-party\UsbScan\usbscan.exe"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
