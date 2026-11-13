@@ -118,6 +118,8 @@ std::string captureScreenToPng() {
     return saved;
 }
 
+}  // namespace apxpc::screen
+
 #else  // 非 Windows：本功能暂缺，返回空串（调用方按失败提示，不托气泡）。
 
 namespace apxpc::screen {
