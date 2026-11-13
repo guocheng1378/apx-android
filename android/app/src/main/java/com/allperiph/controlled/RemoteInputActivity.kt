@@ -249,17 +249,23 @@ class RemoteInputActivity : ComponentActivity() {
                             // 旧自建 ActionPill（Box+手写圆角+手写反馈）迁主壳：随文字宽度的
                             // 窄按钮即 ApComponents.NarrowButton —— 反馈/底色/字色全走主题，
                             // 不再这页一份、主壳一份（与操控面并轨同一约定）。
+                            // 注意：NarrowButton 形参顺序是 (text, onClick, modifier=默认)，
+                            // 尾随 lambda 只能绑到最后一个形参 —— onClick 必须命名传参
+                            //（CI 踩过：v97 首推尾随 lambda 判给了 modifier，编译红）。
                             ApComponents.NarrowButton(
                                 text = getString(R.string.ui_remote_item_voice),
-                            ) { startVoiceInput() }
+                                onClick = { startVoiceInput() },
+                            )
                             Spacer(Modifier.width(12.dp))
                             ApComponents.NarrowButton(
                                 text = getString(R.string.ui_common_cancel),
-                            ) { cancelAndFinish() }
+                                onClick = { cancelAndFinish() },
+                            )
                             Spacer(Modifier.width(12.dp))
                             ApComponents.NarrowButton(
                                 text = getString(R.string.ui_common_send),
-                            ) { sendCurrent() }
+                                onClick = { sendCurrent() },
+                            )
                         }
                     }
                     }
