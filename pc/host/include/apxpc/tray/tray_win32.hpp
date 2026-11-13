@@ -64,6 +64,10 @@ public:
     // 未设置则菜单不出该项。点击即发 1（响铃），手机端 30s 自动停 —— PC 不维护
     // 「正在响」状态（手机可能已到时自停，PC 无法感知），所以不做切换式文案。
     void setFindPhoneCallback(std::function<void()> cb) { onFindPhone_ = std::move(cb); }
+    // 气泡被点击回调（0x41 通知回复入口，2026-11-15）：notify() 弹出的气泡用户点了
+    // 一下时触发；未设置则点了没反应。回调在托盘线程上执行（该线程带消息泵，
+    // 可直接开 Win32 窗口，如通知回复小窗）。
+    void setBalloonClickCallback(std::function<void()> cb) { onBalloonClick_ = std::move(cb); }
     void setPort(unsigned port) { port_ = port; }
 
     /// 连接状态角标：true=未连接（图标亮红点），false=已连接（熄）。
@@ -109,6 +113,7 @@ public:
     std::function<void()> onBallToggle_;    // 托盘「显示/隐藏悬浮球」
     std::function<bool()> ballVisibleFn_;   // 取当前可见态（菜单文案用）
     std::function<void()> onFindPhone_;     // 托盘「查找手机」（0x38 响铃）
+    std::function<void()> onBalloonClick_;  // 气泡被点击（0x41 通知回复入口）
     unsigned port_ = 47990;
 #if defined(_WIN32)
     HWND window_ = nullptr;

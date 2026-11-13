@@ -113,6 +113,24 @@ class ControlServer(
      */
     @Volatile var onAlbumCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
 
+    /**
+     * 0x41 通知回复回调（2026-11-14，能力位 bit1）：PC 点气泡回复 → 控制面命令 →
+     * 上层实现找回缓存 action 提交 RemoteInput。参数口径与 [onPhoneFileCmd] 一致
+     * （cmd/body/reply）—— body 为整段帧载荷（含 cmd 字节）；reply = 本链路的
+     * sendControl（0x43 回执原路返回）。实现落 app 模块
+     * `com.allperiph.notify.NotificationReply`（由 ControlledService 注入）。
+     * TV 端不设该回调 —— **0x43 仍必发**：dispatch 处按「未开启通知回复」(err=1)
+     * 兜底应答（REQ-通知回复.md：回执应答式，成功失败都要给终态）。
+     */
+    @Volatile var onNotifyReplyCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean) -> Unit)? = null
+
+    /**
+     * bit1 通知回复能力查询（2026-11-14）：sendCapsSync 组位图前调用 —— 返回 true 才报
+     * [ApxFrame.CAP_NOTIFY_REPLY]。app 模块注入「通知使用权是否已开启」；未注入（TV）
+     * 恒 false，能力位不报（PC 端门控就不给回放入口）。
+     */
+    @Volatile var notifyReplyCap: (() -> Boolean)? = null
+
     @Volatile var onRemoteInputRequest: ((String, String) -> Unit)? = null
     @Volatile var onRemoteInputText: ((String, Int) -> Unit)? = null
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
@@ -469,6 +487,16 @@ class ControlServer(
                             // reply 闭包 = 当前链路的 sendControl（应答 0x45/0x47 走原路返回）。
                             0x44 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x44, body, ::sendControl, currentPeerHost()) }
                             0x46 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x46, body, ::sendControl, currentPeerHost()) }
+                            // 0x41 通知回复（2026-11-14，能力位 bit1）：PC 气泡点回复 → 本机找回
+                            // 缓存 action 提交 RemoteInput。实现落 app 模块 NotificationReply
+                            // （经 onNotifyReplyCmd 回调注入，与 0x44 的 PhoneFiles 同一套注入口径）；
+                            // TV 端不注入 → 按「未开启通知回复」(err=1) 兜底应答 —— 0x43 是应答式，
+                            // 无论哪端收到都必须给 PC 一个终态，静默丢弃会让 PC 端一直干等。
+                            0x41 -> if (body.size >= 5) actions.add {
+                                val reply = ::sendControl
+                                if (onNotifyReplyCmd != null) onNotifyReplyCmd?.invoke(0x41, body, reply)
+                                else reply(ApxFrame.packNotifyReplyResult(ApxFrame.NOTIFY_REPLY_ERR_DISABLED))
+                            }
                             // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：电脑浏览本机相册。
                             // 实现落 app 模块 PhoneAlbum（经 onAlbumCmd 回调注入，与 onPhoneFileCmd
                             // 同一套注入口径）；TV 端不注入 → 静默忽略（类底有日志）。
@@ -606,8 +634,12 @@ class ControlServer(
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
      */
     private fun sendCapsSync() {
+        // bit1 通知回复：本端**通知使用权已开启**才报（回复能力依赖监听的 action 缓存，
+        // 2026-11-14 REQ-通知回复.md）。能力由上层注入（notifyReplyCap → app 模块读
+        // NotificationSyncPref），共享模块不依赖应用层偏好 —— 未注入（TV）即不报。
+        val replyCap = if (notifyReplyCap?.invoke() == true) ApxFrame.CAP_NOTIFY_REPLY else 0L
         val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
-            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            replyCap or
             com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
             com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or

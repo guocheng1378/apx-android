@@ -157,7 +157,7 @@ std::string readSystemClipboard();
 // 发送能力帧前先核对**对端**位图，缺位的一端不发送对应帧族，旧版安静忽略未知帧号。
 // 位号改动必须三处同步：本文件、Android shared/proto/ApxFrame.kt、docs/PROTOCOL.md §3.3。
 static constexpr uint64_t kCaps9511NotifySync  = 1ull << 0;  // 手机→PC 推送/消除通知（0x40/0x42）
-static constexpr uint64_t kCaps9511NotifyReply = 1ull << 1;  // PC→手机 RemoteInput 代发回复（0x41，预留）
+static constexpr uint64_t kCaps9511NotifyReply = 1ull << 1;  // PC→手机 RemoteInput 代发回复（0x41/0x43，2026-11-14）
 static constexpr uint64_t kCaps9511FindPhone   = 1ull << 2;  // PC→手机 查找手机响铃（0x38）
 static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏览/取走手机文件（0x44–0x47）
 static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相册投影（0x48–0x4B）
@@ -301,6 +301,17 @@ public:
     /// 回调跑在 reader 线程；抓屏是 GDI 调用，线程安全。
     void setOnGamepadShot(std::function<void()> cb) { onGamepadShot_ = std::move(cb); }
 
+    /// 通知回复（0x41/0x43，2026-11-14，能力位 bit1）：PC 气泡点回复 → 本端发 0x41，
+    /// 手机（连入的控制端）处理后回 0x43 终态回执。**成功（err=0）也回帧**——用户在等。
+    /// err 取值与 Android ApxFrame.NOTIFY_REPLY_ERR_* 一致（0=已提交 1=未开启通知回复
+    /// 2=key 失效 3=该通知不支持回复 4=发送失败）。回调跑在 reader 线程。
+    void setOnNotifyReplyResult(std::function<void(uint8_t err)> cb) { onNotifyReplyResult_ = std::move(cb); }
+
+    /// 发送通知回复请求（0x41）：key=0x40 带来的 Android 通知键，text=用户要回复的正文
+    ///（UTF-8，协议上限 1KB，发送侧超长按字符边界截断）。门控同 sendFindPhone：
+    /// 对端报过 0x33 且缺 kCaps9511NotifyReply 时跳过（旧版手机不报该位，即无缓存）。
+    bool sendNotifyReply(const std::string& key, const std::string& text);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -318,6 +329,8 @@ private:
     std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
     std::function<void()> onGamepadShot_;
+    // 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：搬运口径同通知同步回调
+    std::function<void(uint8_t)> onNotifyReplyResult_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----
@@ -400,6 +413,12 @@ public:
     bool sendAlbumWatchReq(bool on);
     bool sendAlbumThumbReq(uint32_t id);
 
+    /// 通知回复（0x41/0x43，2026-11-14，能力位 bit1）：PC 控手机的链路上向受控手机
+    /// 发 0x41 通知回复请求；手机回 0x43 终态回执走 onNotifyReplyResult 回调
+    ///（**成功 err=0 也回帧**，用户在等）。门控同 sendFindPhone：对端报过 0x33 且
+    /// 缺 kCaps9511NotifyReply 时跳过。key=0x40 带来的通知键；text 超长按字符边界截断。
+    bool sendNotifyReply(const std::string& key, const std::string& text);
+
     /// 线程安全状态快照（计数 / RTT / 连接）
     Ctrl9511ClientStatus status() const;
 
@@ -439,6 +458,12 @@ public:
     std::function<void(uint8_t err, uint32_t page,
                        const std::vector<AlbumEntry>& entries)> onAlbumPage;
     std::function<void(uint8_t err, const std::string& path)> onAlbumPageFail;
+
+    /// 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：手机回终态时触发。
+    /// 回调跑在 reader 线程；⚠️ 与既有回调一样在 connect() 时被捕获，必须在
+    /// **连接前**赋值（WirelessSession 的转发 lambda 同款）。err 取值与 Android
+    /// ApxFrame.NOTIFY_REPLY_ERR_* 一致（0=已提交 1=未开启 2=key 失效 3=不支持回复 4=发送失败）。
+    std::function<void(uint8_t err)> onNotifyReplyResult;
 
 private:
     struct Impl;

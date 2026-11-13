@@ -67,6 +67,20 @@ class TvControlServer(
      */
     @Volatile var onAlbumCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean, peerHost: String?) -> Unit)? = null
 
+    /**
+     * 0x41 通知回复回调（2026-11-14，能力位 bit1）：与 :shared ControlServer.onNotifyReplyCmd
+     * 同一条协议的对齐实现（cmd/body/reply 口径一致）。TV 端不注入 —— dispatch 处按
+     * 「未开启通知回复」(err=1) 兜底应答（0x43 应答式，成功失败都要给终态）。
+     */
+    @Volatile var onNotifyReplyCmd: ((cmd: Int, body: ByteArray, reply: (ByteArray) -> Boolean) -> Unit)? = null
+
+    /**
+     * bit1 通知回复能力查询（2026-11-14）：sendCapsSync 组位图前调用，true 才报
+     * [com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY]。TV 端无通知回复功能不注入，
+     * 恒 false 即不报 —— PC 端门控就不给回放入口。
+     */
+    @Volatile var notifyReplyCap: (() -> Boolean)? = null
+
     @Volatile private var suspended = false
 
     /** PC 请求挂起被控：断开当前连接并拒绝新连接（监听保留，可随时恢复） */
@@ -339,6 +353,15 @@ class TvControlServer(
                             // client socket 现取（0x46 经 9512 推送文件时的目标）。
                             0x44 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x44, body, ::sendControl, client?.inetAddress?.hostAddress) }
                             0x46 -> if (body.size >= 3) actions.add { onPhoneFileCmd?.invoke(0x46, body, ::sendControl, client?.inetAddress?.hostAddress) }
+                            // 0x41 通知回复（2026-11-14，能力位 bit1）：与 :shared ControlServer
+                            // 同一条 —— 实现落 NotificationReply（经 onNotifyReplyCmd 回调注入）；
+                            // TV 端不注入 → 按「未开启通知回复」(err=1) 兜底应答（0x43 应答式，
+                            // 收到必答，静默丢弃会让 PC 端一直干等）。
+                            0x41 -> if (body.size >= 5) actions.add {
+                                val reply = ::sendControl
+                                if (onNotifyReplyCmd != null) onNotifyReplyCmd?.invoke(0x41, body, reply)
+                                else reply(ApxFrame.packNotifyReplyResult(ApxFrame.NOTIFY_REPLY_ERR_DISABLED))
+                            }
                             // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：控制端浏览本机相册。
                             // reply = 本链路 sendControl（0x49/0x47 原路返回）；实现落 PhoneAlbum
                             //（经 onAlbumCmd 回调注入，与 0x44 的 PhoneFiles 同一套注入口径）。
@@ -567,8 +590,11 @@ class TvControlServer(
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
      */
     private fun sendCapsSync() {
+        // bit1 通知回复：通知使用权已开启才报（notifyReplyCap 由上层注入；TV 不注入恒 false，
+        // 2026-11-14 REQ-通知回复.md）。与 :shared ControlServer.sendCapsSync 同口径。
+        val replyCap = if (notifyReplyCap?.invoke() == true) ApxFrame.CAP_NOTIFY_REPLY else 0L
         val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
-            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            replyCap or
             com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
             com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or

@@ -150,6 +150,13 @@ public:
     /// 受控手机消除通知（key 与推送时一致；气泡无法撤回，当前仅转发记账）。
     void setOnNotifyDismiss(std::function<void(const std::string& key)> cb);
 
+    /// 通知回复（0x41/0x43，2026-11-14，能力位 bit1）：向已连接的受控手机发 0x41
+    /// 通知回复请求（PC 气泡点「回复」）。未连接 / 对端不支持返回 false；手机回 0x43
+    /// 终态经 setOnNotifyReplyResult 回调（成功 err=0 也回帧——用户在等）。
+    bool sendNotifyReply(const std::string& key, const std::string& text);
+    /// 回执回调：err 与 Android ApxFrame.NOTIFY_REPLY_ERR_* 一致。setter 同款带锁转发。
+    void setOnNotifyReplyResult(std::function<void(uint8_t err)> cb);
+
     // ————— 手机文件浏览（0x44–0x47，2026-11-11，能力位 bit3） —————
     // 受控端回目录列表（0x45）/ 取文件失败回执（0x47），经**控制端 reader** 到这里；
     // 接线方（桌面壳）转 web_panel 事件推给前端。回调跑在 9511 reader 线程，
@@ -210,6 +217,7 @@ private:
     // 构造时挂在 client_ 上的转发 lambda 每次带锁取最新。
     std::function<void(const std::string&, const std::string&, const std::string&, const std::string&)> onNotifyPush_;
     std::function<void(const std::string&)> onNotifyDismiss_;
+    std::function<void(uint8_t)> onNotifyReplyResult_;
     // 手机文件浏览回调（0x44–0x47，2026-11-11）：锁保护口径同上
     std::function<void(uint8_t, const std::string&, const std::vector<PhoneFileEntry>&)> onPhoneFileList_;
     std::function<void(uint8_t, const std::string&)> onPhoneFileFail_;

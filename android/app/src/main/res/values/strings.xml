@@ -724,7 +724,7 @@
     <string name="ui_set_kb_forward_title">物理键盘全局转发</string>
     <string name="ui_set_kb_forward_summary">接上蓝牙键盘后，按键直接转给被控端（需已连接设备）</string>
     <string name="ui_set_notify_title">通知同步到电脑</string>
-    <string name="ui_set_notify_summary">手机来通知时，电脑托盘弹出气泡（连接 PC 且对方支持时生效）</string>
+    <string name="ui_set_notify_summary">手机来通知时，电脑托盘弹出气泡；带回复入口的通知（微信/QQ/短信等）还可直接在电脑上打字回复（连接 PC 且对方支持时生效）</string>
     <string name="ui_set_notify_settings">通知使用权设置</string>
     <string name="ui_set_open_settings_failed">打开系统设置失败</string>
     <string name="ui_set_theme_export">导出当前主题（复制到剪贴板）</string>

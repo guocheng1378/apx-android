@@ -110,6 +110,15 @@ std::string clampPhoneFilePath(const std::string& path) {
     return path.substr(0, end);
 }
 
+/// 通用 UTF-8 截断（0x41 通知回复发送侧）：与 Android ApxFrame.utf8Clamp 同算法，
+/// 超长只取前 max 字节且不在多字节字符中间断开（key ≤512B、text ≤1KB 均走它）。
+std::string clampUtf8Reply(const std::string& s, size_t maxBytes) {
+    if (s.size() <= maxBytes) return s;
+    size_t end = maxBytes;
+    while (end > 0 && (static_cast<uint8_t>(s[end]) & 0xC0) == 0x80) --end;  // 回退 UTF-8 续字节
+    return s.substr(0, end);
+}
+
 bool sendAll(Sock s, const uint8_t* p, size_t n) {
     size_t off = 0;
     while (off < n) {
@@ -242,6 +251,8 @@ struct Ctrl9511Server::Impl {
     // 手柄截图回调（0x4C，2026-11-14，能力位 bit6）：外层 setter 写、start() 搬运
     std::function<void()> onGamepadShot_;
     std::atomic<uint64_t> aGamepadShot_{0};
+    // 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：外层 setter 写、start() 搬运
+    std::function<void(uint8_t)> onNotifyReplyResult_;
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -612,6 +623,12 @@ struct Ctrl9511Server::Impl {
                 if (onNotifyDismiss_) onNotifyDismiss_(key);
                 aNotifyDismiss_.fetch_add(1);
             }
+        } else if (cmd == 0x43 && bodyLen >= 2) {
+            // NOTIFY_REPLY_RESULT 通知回复回执（2026-11-14，能力位 bit1）：手机回 0x41 的
+            // 终态——**成功（err=0）也回帧**（与 0x47 不同：回复成功与否用户在等）。
+            // err 取值与 Android ApxFrame.NOTIFY_REPLY_ERR_* 一致，由接线方转成气泡文案。
+            const uint8_t err = p[1];
+            if (onNotifyReplyResult_) onNotifyReplyResult_(err);
         } else if (cmd == 0x45 && bodyLen >= 4) {
             // PHONE_FILE_LIST_REPLY 目录应答（2026-11-11，能力位 bit3）：对端回报目录内容。
             // 载荷（与 Android ApxFrame.packPhoneFileListReply 对拍）：
@@ -843,6 +860,8 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         // 相册投影回调（0x49/0x47，2026-11-12）：同款搬运
         im->onAlbumPage_ = std::move(onAlbumPage_);
         im->onAlbumPageFail_ = std::move(onAlbumPageFail_);
+        // 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：同款搬运
+        im->onNotifyReplyResult_ = std::move(onNotifyReplyResult_);
         // 手柄截图回调（0x4C，2026-11-14）：同款搬运
         im->onGamepadShot_ = std::move(onGamepadShot_);
 
@@ -983,6 +1002,30 @@ bool Ctrl9511Server::sendAlbumThumbReq(uint32_t id) {
                         static_cast<uint8_t>((id >> 16) & 0xFF),
                         static_cast<uint8_t>((id >> 24) & 0xFF) };
     impl_->sendCmd(0x4B, body, sizeof(body));
+    return true;
+}
+
+// 通知回复发送（0x41，2026-11-14，能力位 bit1）：手机控 PC 的链路上，PC 托盘点气泡
+// 「回复」反向让手机代发消息。载荷（与 Android ApxFrame.parseNotifyReply 对拍）：
+//   [keyLen u16 LE][key][textLen u16 LE][text]（sendCmd 会把 cmd 放帧头第 1 字节）。
+// 门控与 sendFindPhone 同口径：手机没报过 0x33（旧版）照发、报过且缺 kCaps9511NotifyReply
+// 才明确跳过 —— 手机端 bit1 随通知使用权开关上报，缺位即无 action 缓存，发了也是白等。
+// key 为空直接拒绝（0x40 发送侧保证 key 非空，这里是防御），回执走 0x43 回调。
+bool Ctrl9511Server::sendNotifyReply(const std::string& key, const std::string& text) {
+    if (!impl_ || key.empty()) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511NotifyReply) == 0) return false;
+    const auto k = clampUtf8Reply(key, 512);
+    const auto t = clampUtf8Reply(text, 1024);
+    std::vector<uint8_t> body(2 + k.size() + 2 + t.size());
+    size_t off = 0;
+    body[off++] = static_cast<uint8_t>(k.size() & 0xFF);
+    body[off++] = static_cast<uint8_t>((k.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + off, k.data(), k.size()); off += k.size();
+    body[off++] = static_cast<uint8_t>(t.size() & 0xFF);
+    body[off++] = static_cast<uint8_t>((t.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + off, t.data(), t.size());
+    impl_->sendCmd(0x41, body.data(), body.size());
     return true;
 }
 
@@ -1155,6 +1198,7 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbSpecialKey = onSpecialKey;
     const auto cbNotifyPush = onNotifyPush;
     const auto cbNotifyDismiss = onNotifyDismiss;
+    const auto cbNotifyReplyResult = onNotifyReplyResult;
     const auto cbPhoneFileList = onPhoneFileList;
     const auto cbPhoneFileFail = onPhoneFileFail;
     const auto cbAlbumPage = onAlbumPage;
@@ -1292,6 +1336,11 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                             im->aNotifyDismiss_.fetch_add(1);
                         }
                     }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 2 && payload[0] == 0x43) {
+                    // NOTIFY_REPLY_RESULT 通知回复回执（2026-11-14，能力位 bit1）：受控手机
+                    // 回 0x41 的终态——成功（err=0）也回帧，用户在等。err 语义与 Android
+                    // ApxFrame.NOTIFY_REPLY_ERR_* 一致，接线方转气泡文案。
+                    if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 4 && payload[0] == 0x45) {
                     // PHONE_FILE_LIST_REPLY 目录应答（2026-11-11，能力位 bit3）：受控手机回报
                     // 目录内容。载荷与服务端 dispatch 同款（与 ApxFrame.packPhoneFileListReply
@@ -1641,6 +1690,28 @@ bool Ctrl9511Client::sendAlbumThumbReq(uint32_t id) {
                         static_cast<uint8_t>((id >> 16) & 0xFF),
                         static_cast<uint8_t>((id >> 24) & 0xFF) };
     impl_->sendCmd(0x4B, body, sizeof(body));
+    return true;
+}
+
+// 通知回复发送（0x41，2026-11-14，能力位 bit1）：PC 控手机的链路上，托盘点气泡
+// 「回复」让受控手机代发消息。载荷与门控同 Ctrl9511Server::sendNotifyReply（对拍
+// Android ApxFrame.parseNotifyReply；key ≤512B / text ≤1KB 超长按字符边界截断）。
+// 手机回 0x43 终态走 onNotifyReplyResult 回调（成功也回帧）。
+bool Ctrl9511Client::sendNotifyReply(const std::string& key, const std::string& text) {
+    if (!impl_ || key.empty()) return false;
+    const uint64_t caps = impl_->peerCaps_.load();
+    if (caps != 0 && (caps & kCaps9511NotifyReply) == 0) return false;
+    const auto k = clampUtf8Reply(key, 512);
+    const auto t = clampUtf8Reply(text, 1024);
+    std::vector<uint8_t> body(2 + k.size() + 2 + t.size());
+    size_t off = 0;
+    body[off++] = static_cast<uint8_t>(k.size() & 0xFF);
+    body[off++] = static_cast<uint8_t>((k.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + off, k.data(), k.size()); off += k.size();
+    body[off++] = static_cast<uint8_t>(t.size() & 0xFF);
+    body[off++] = static_cast<uint8_t>((t.size() >> 8) & 0xFF);
+    std::memcpy(body.data() + off, t.data(), t.size());
+    impl_->sendCmd(0x41, body.data(), body.size());
     return true;
 }
 

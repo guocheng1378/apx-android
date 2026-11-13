@@ -91,6 +91,13 @@ LRESULT CALLBACK trayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // 双击打开面板
             auto* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
             if (self && self->onOpen_) self->onOpen_();
+        } else if (lp == NIN_BALLOONUSERCLICK) {
+            // 气泡被点击（0x41 通知回复入口，2026-11-15）：notify() 弹出的气泡自带
+            // 用户可点区域，点击时 Shell_NotifyIcon 会回 NIN_BALLOONUSERCLICK ——
+            // 此前没接这个消息，气泡只是提示、点不出东西。当前在托盘线程（本窗口
+            // 过程内，带消息泵），可直接开 UI 窗口（通知回复小窗就在这里打开）。
+            auto* self = reinterpret_cast<TrayIcon*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+            if (self && self->onBalloonClick_) self->onBalloonClick_();
         }
         return 0;
     }

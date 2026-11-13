@@ -213,6 +213,12 @@ class TvControllerClient(
             0x38 -> {
                 if (body.size >= 2) com.allperiph.findphone.FindPhoneRinger.handle(body[1].toInt() and 0xFF)
             }
+            // 0x41 通知回复（2026-11-14，能力位 bit1）：手机控 PC / TV 的链路上，PC 服务端
+            // 气泡点回复反向发来 0x41。落 app 模块 NotificationReply（与 0x44 的 PhoneFiles
+            // 同口径直调，无 UI 回调要接）；handle 内部必回 0x43 终态（err 语义见回执常量）。
+            0x41 -> {
+                if (body.size >= 5) com.allperiph.notify.NotificationReply.handle(0x41, body, ::sendControl)
+            }
             // 0x44 浏览本机目录（2026-11-11，能力位 bit3）：手机控 PC / TV 的链路上，对端
             // 也可以浏览本机文件（三端对等）。落 app 模块 PhoneFiles（与 0x38 同口径直调，
             // 无 UI 回调要接）；reply 走本链路 sendControl，对端 IP = 本客户端连的服务端 host。
@@ -437,8 +443,20 @@ class TvControllerClient(
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
      */
     private fun sendCapsSync() {
+        // bit1 通知回复：本端通知使用权已开启才报（app 模块直接读 NotificationSyncPref，
+        // 2026-11-14 REQ-通知回复.md）。回复的 action 缓存在监听器里，使用权关着必然是空的；
+        // App.context 未就绪时按未开启处理（不报 bit1，PC 门控不给回放入口）。
+        val appCtx = com.allperiph.App.context
+        val replyCap = if (appCtx != null && com.allperiph.notify.NotificationSyncPref.isEnabled(appCtx)) {
+            ApxFrame.CAP_NOTIFY_REPLY
+        } else 0L
+        sendCapsBase(replyCap)
+    }
+
+    /** 组 0x33 并发出（[sendCapsSync] 的公共尾部；参数即本端要报的通知回复能力位） */
+    private fun sendCapsBase(replyCap: Long) {
         val own = com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_SYNC or
-            com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
+            replyCap or
             com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
             com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or

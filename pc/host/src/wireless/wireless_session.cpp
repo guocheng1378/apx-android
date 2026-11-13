@@ -182,6 +182,17 @@ WirelessSession::WirelessSession() {
         if (cb) cb(key);
     };
 
+    // 通知回复回执转发（0x43，2026-11-14，能力位 bit1）：手机回 0x41 的终态 → 外层回调
+    //（托盘气泡）。锁保护口径与通知同步同款 —— connect() 前挂转发 lambda，之后随时改。
+    client_.onNotifyReplyResult = [this](uint8_t err) {
+        std::function<void(uint8_t)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onNotifyReplyResult_;
+        }
+        if (cb) cb(err);
+    };
+
     // 手机文件浏览转发（0x44–0x47，2026-11-11）：受控端回目录列表 / 取文件失败回执
     // → 外层回调（web_panel 事件）。锁保护口径与通知同步同款。
     client_.onPhoneFileList = [this](uint8_t err, const std::string& path,
@@ -483,6 +494,18 @@ void WirelessSession::setOnNotifyPush(
 void WirelessSession::setOnNotifyDismiss(std::function<void(const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onNotifyDismiss_ = std::move(cb);
+}
+
+// 通知回复（0x41/0x43，2026-11-14，能力位 bit1）：转发给 9511 客户端（能力门控在其内部；
+// 未连接 / 对端不支持都返回 false，由调用方提示）。回执 setter 锁保护口径同通知同步。
+bool WirelessSession::sendNotifyReply(const std::string& key, const std::string& text) {
+    if (!client_.ready()) return false;
+    return client_.sendNotifyReply(key, text);
+}
+
+void WirelessSession::setOnNotifyReplyResult(std::function<void(uint8_t)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onNotifyReplyResult_ = std::move(cb);
 }
 
 // 手机文件浏览回调（0x45/0x47，2026-11-11）：外层 setter 只改本类回调存储 ——

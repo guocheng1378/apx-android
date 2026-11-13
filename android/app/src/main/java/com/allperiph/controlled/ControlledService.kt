@@ -150,6 +150,17 @@ class ControlledService : Service() {
         server?.onAlbumCmd = { cmd, body, reply, peer ->
             com.allperiph.files.PhoneAlbum.handle(cmd, body, reply, peer)
         }
+        // 0x41 通知回复（2026-11-14，能力位 bit1）：PC 气泡点回复 → 找回缓存 action 提交
+        // RemoteInput。实现落 NotificationReply；handle 内部必回 0x43 终态（err 见回执常量）。
+        // 回调线程模型同 PhoneFiles：actions 队列线程，RemoteInput 提交无主线程要求。
+        server?.onNotifyReplyCmd = { cmd, body, reply ->
+            com.allperiph.notify.NotificationReply.handle(cmd, body, reply)
+        }
+        // 0x33 能力位 bit1（通知回复）上报口径：通知使用权已开启才报 —— 回复能力依赖
+        // 监听器的 action 缓存，使用权关着缓存必然是空的，报了也是空承诺。
+        // sendCapsSync 在连接激活时调用，读偏好（SharedPreferences）线程安全。
+        val service = this
+        server?.notifyReplyCap = { com.allperiph.notify.NotificationSyncPref.isEnabled(service) }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {

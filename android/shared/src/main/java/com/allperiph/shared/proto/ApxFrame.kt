@@ -77,7 +77,11 @@ object ApxFrame {
     /** 能力位 bit0：通知同步 —— 手机→PC 推送（0x40）与消除（0x42）通知 */
     const val CAP_NOTIFY_SYNC = 1L shl 0
 
-    /** 能力位 bit1：通知回复 —— PC→手机 经 RemoteInput 代发回复（0x41，预留未实现） */
+    /**
+     * 能力位 bit1：通知回复 —— PC→手机 经 RemoteInput 代发回复（0x41/0x43，2026-11-14）。
+     * 手机端上报口径：**通知使用权已开启**才报（回复能力依赖 ApxNotificationListener
+     * 的 action 缓存，使用权关了缓存就是空的）；PC 端恒报（发送端永远存在）。
+     */
     const val CAP_NOTIFY_REPLY = 1L shl 1
 
     /** 能力位 bit2：查找手机 —— PC→手机 响铃（0x38，静音也响） */
@@ -121,6 +125,33 @@ object ApxFrame {
 
     /** 手机 → PC：消除一条通知（用户在手机上划掉/点开时回发，PC 端气泡随即过时）。 */
     const val CMD_NOTIFY_DISMISS = 0x42
+
+    // ———————————— 9511 通知回复（2026-11-14，能力位 bit1）————————————
+    /**
+     * PC → 手机：通知回复请求。手机端经通知使用权监听缓存的「可回复 action」
+     * 程序性填充 RemoteInput 并 `pendingIntent.send()`——等效用户在通知栏
+     * 点「回复」打字。发送前核对**对端**能力位图含 [CAP_NOTIFY_REPLY]（手机没开通知使用权
+     * 不报该位；旧版对未知帧号安静忽略）。载荷布局见 [parseNotifyReply]。
+     */
+    const val CMD_NOTIFY_REPLY = 0x41
+
+    /**
+     * 手机 → PC：通知回复回执，应答式——**成功也发帧**（与 0x47「成功不发帧」不同：
+     * 回复成功与否用户在等，必须给终态）。载荷 `[0x43][err u8]`，err 见
+     * [NOTIFY_REPLY_ERR_SUBMITTED] 等。任何收 0x41 的路径都必发一帧本回执。
+     */
+    const val CMD_NOTIFY_REPLY_RESULT = 0x43
+
+    /** 0x43 err=0：已提交（RemoteInput send 成功；App 是否真的发出由它自己负责） */
+    const val NOTIFY_REPLY_ERR_SUBMITTED = 0
+    /** 0x43 err=1：未开启通知回复（通知使用权关闭 / 本端未接该功能） */
+    const val NOTIFY_REPLY_ERR_DISABLED = 1
+    /** 0x43 err=2：通知已不在（key 失效——通知被划走 / 监听重启后缓存丢失） */
+    const val NOTIFY_REPLY_ERR_KEY_GONE = 2
+    /** 0x43 err=3：该通知不支持回复（无 RemoteInput action，纯展示通知） */
+    const val NOTIFY_REPLY_ERR_NO_ACTION = 3
+    /** 0x43 err=4：发送失败（PendingIntent.send 抛异常） */
+    const val NOTIFY_REPLY_ERR_SEND_FAILED = 4
 
     // ———————————— 9511 查找手机（2026-11-11，能力位 bit2）————————————
     /**
@@ -419,6 +450,35 @@ object ApxFrame {
         kb.copyInto(body, 3)
         return body
     }
+
+    /** 通知回复（0x41）各字段上限：key 与 0x40 同口径；text 1KB——消息回复场景够用，
+     *  超长应走输入互控（REQ-通知回复.md） */
+    private const val NOTIFY_REPLY_TEXT_MAX = 1024
+
+    /** 0x41 解析结果：key=通知键（0x40 原样带回的那个），text=用户要回复的正文 */
+    data class NotifyReplyRequest(val key: String, val text: String)
+
+    /**
+     * 解 0x41 通知回复请求帧：
+     * `[0x41][keyLen u16 LE][key][textLen u16 LE][text]`（UTF-8；上限见 [NOTIFY_REPLY_TEXT_MAX]）。
+     * 长度段与载荷不符（半截帧/超读）返回 null，调用方整帧丢弃并发 err=4 兜底回执。
+     */
+    fun parseNotifyReply(body: ByteArray): NotifyReplyRequest? {
+        if (body.size < 5 || body[0].toInt() and 0xFF != CMD_NOTIFY_REPLY) return null
+        val keyLen = (body[1].toInt() and 0xFF) or ((body[2].toInt() and 0xFF) shl 8)
+        val textLen = (body[3].toInt() and 0xFF) or ((body[4].toInt() and 0xFF) shl 8)
+        if (body.size < 5 + keyLen + textLen) return null
+        val key = String(body, 5, keyLen, Charsets.UTF_8)
+        val text = String(body, 5 + keyLen, textLen, Charsets.UTF_8)
+        return NotifyReplyRequest(key, text)
+    }
+
+    /**
+     * 组 0x43 通知回复回执帧：`[0x43][err u8]`。应答式，成功（err=0）也必发——
+     * 用户在 PC 端等终态，与文件取回 0x47「成功不发帧」口径相反。
+     */
+    fun packNotifyReplyResult(err: Int): ByteArray =
+        byteArrayOf(CMD_NOTIFY_REPLY_RESULT.toByte(), err.toByte())
 
     private val crcTable = IntArray(256).also { t ->
         for (i in 0 until 256) {

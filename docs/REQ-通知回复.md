@@ -1,4 +1,4 @@
-# REQ 通知回复（0x41，2026-11-14 方案稿，实施等用户点头）
+# REQ 通知回复（0x41，2026-11-14 方案稿 → 2026-11-15 第一批已实施）
 
 ## 背景与现状
 
@@ -65,3 +65,35 @@ KDE Connect 的 reply 通道同为 RemoteInput 注入（Apache-2.0），仅借�
 
 - 不做「在 PC 上直接调起手机输入法互控打字」（那是互控通道，已有）；
 - 不做群聊选择/会话列表（回复永远绑定通知本身，防止做歪成半个 IM 客户端）。
+
+## 实施记录（2026-11-15，第一批全量）
+
+按方案 1–4 一次交付，改动清单：
+
+- **协议帧**：`ApxFrame.kt`（CMD 0x41/0x43、5 个 err 常量、`NOTIFY_REPLY_TEXT_MAX=1024`、
+  `NotifyReplyRequest`、`parseNotifyReply` 坏帧返 null、`packNotifyReplyResult`）；
+  PC `ctrl9511.hpp/.cpp`（Server/Client `sendNotifyReply` + `setOnNotifyReplyResult`，
+  `clampUtf8Reply` 按 UTF-8 字符边界截断）；`wireless_session` 转发；PROTOCOL.md 补
+  0x41/0x43 行、0x33 行 bit1 落地、版本沿革 1.9；`check_protocol.py` 登记 0x41/0x43。
+- **手机端**：`ApxNotificationListener` LRU action 缓存（上限 64，`replyLock` 同步，
+  onNotificationPosted 缓存第一个带非空 RemoteInputs 的 action，onNotificationRemoved 移除）；
+  新模块 `NotificationReply.handle`（错误码全路径回 0x43，成功也回帧）；
+  `ControlServer` / `TvControlServer` / `TvControllerClient` 三条收帧路径接入
+  （TV 不注入能力位，收 0x41 回 err=1）；`ControlledService` 注入回调；
+  能力位 bit1 按通知使用权开关动态报（context 为 null 按 0 处理）。
+- **PC 端**：托盘 `NIN_BALLOONUSERCLICK` 接 `onBalloonClick_` 回调；新文件
+  `notify_reply_win32.cpp`（Win32 单实例多行输入小窗，Esc 取消、空文本不发，
+  `notify_reply.hpp` 非 Win 空桩）进 CMake；`desktop_main` 接线：`showNotify` 记录
+  最后一条可回复通知（mutex 保护，验证码命中排除），气泡点击开小窗，提交按
+  session → ctrlSrv 两链路择活发 0x41，0x43 回执转「通知回复」气泡文案。
+
+与方案的偏差（均按「如实施时确认则并入说明」口径处理）：
+
+1. **设置页未加独立开关**：回复能力与通知使用权、缓存完全同生死，独立开关只会误导；
+   `ui_set_notify_summary` 文案并入「带回复入口的通知还可直接在电脑上打字回复」。
+2. **PC 小窗选原生 Win32**（非 WebView2 面板）：回复是气泡的即时动作，原生单实例小窗
+   不用等面板起来、不过 React 状态，点完即走。
+3. **气泡「回复按钮」落成「点击气泡即打开回复窗」**：NIF_INFO 气泡无按钮区，实际可用的
+   入口是 `NIN_BALLOONUSERCLICK`（点气泡本体），交互等价、少一个 Win32 NOTIFYICON_
+   细节坑；验证码命中仍不挂回复（记录时排除）。
+4. **发送按钮提交，Enter 不绑定**：编辑框是多行的，回车留给换行。

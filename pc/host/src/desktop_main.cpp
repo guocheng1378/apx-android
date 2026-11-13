@@ -29,6 +29,7 @@
 #include "apxpc/wireless/file_receiver.hpp"
 #include "apxpc/wireless/find_phone_toggle.hpp"
 #include "apxpc/wireless/verify_code.hpp"
+#include "apxpc/ui/notify_reply.hpp"   // 通知回复小窗（0x41 第一批）：气泡点击后打开（非 Win 空桩）
 #include "apxpc/localsend/local_send_receiver.hpp"
 #include "apxpc/media/media_session.hpp"
 #include "apxpc/media/screen_push.hpp"
@@ -813,7 +814,19 @@ int runDesktopMain() {
     // 托盘析构在 session/ctrlSrv.stop() 之后（退出清理反向顺序），回调无悬挂窗口。
     {
         apxpc::tray::TrayIcon* trayRaw = tray.get();
-        auto showNotify = [trayRaw](const std::string& app, const std::string& title,
+        // 最后一条可回复通知（0x41 通知回复入口，2026-11-15，REQ-通知回复.md 第一批）：
+        // onNotifyPush 在 9511 reader 线程写入，托盘气泡点击在托盘线程读取 —— 用
+        // mutex 保护的小结构跨线程交接。只记 key/app/title/text，点开时取最新一条。
+        struct LastReplyable {
+            std::string key;   // Android 通知键（0x40 第一个参数），回复时原样随 0x41 发回
+            std::string app;
+            std::string title;
+            std::string text;
+        };
+        std::mutex lastReplyMx;
+        LastReplyable lastReply;
+        auto showNotify = [trayRaw, &lastReplyMx, &lastReply](const std::string& key,
+                                    const std::string& app, const std::string& title,
                                     const std::string& text) {
             if (!trayRaw) return;
             // 气泡排版：标题=应用名；正文=通知标题 + 正文（去重、都空时不冒泡）
@@ -825,24 +838,75 @@ int runDesktopMain() {
             // 复制失败（极少见，如剪贴板被占用）不追加「已复制」，气泡只显示原文，不撒谎。
             std::string code;
             std::string bodyShown = body;
-            if (apxpc::wireless::copyIfVerifyCode(title, text, &code))
+            const bool isVerifyCode = apxpc::wireless::copyIfVerifyCode(title, text, &code);
+            if (isVerifyCode)
                 bodyShown += "（验证码 " + code + " 已复制）";
+            // 0x41 回复入口：验证码气泡不挂回复（回验证码没有意义），其余都记录 ——
+            // 气泡点击打开小窗时用的就是这里存的最后一条。
+            if (!isVerifyCode) {
+                std::lock_guard<std::mutex> lk(lastReplyMx);
+                lastReply = {key, app, title, text};
+            }
             trayRaw->notify(app.empty() ? "手机通知" : app, bodyShown);
         };
         session->setOnNotifyPush(
-            [showNotify](const std::string&, const std::string& title,
+            [showNotify](const std::string& key, const std::string& title,
                          const std::string& text, const std::string& app) {
-                showNotify(app, title, text);
+                showNotify(key, app, title, text);
             });
         // 消除（0x42）：气泡无法撤回，当前不接 —— 仅 reader 侧计数记账
         session->setOnNotifyDismiss(nullptr);
 #if defined(_WIN32)
         ctrlSrv.setOnNotifyPush(
-            [showNotify](const std::string&, const std::string& title,
+            [showNotify](const std::string& key, const std::string& title,
                          const std::string& text, const std::string& app) {
-                showNotify(app, title, text);
+                showNotify(key, app, title, text);
             });
         ctrlSrv.setOnNotifyDismiss(nullptr);
+#endif
+
+        // —— 通知回复接线（0x41/0x43，2026-11-15，能力位 bit1）——
+        // 气泡点击 → 打开回复小窗（托盘线程，带消息泵，可直接开 Win32 窗口）；
+        // 提交即发 0x41：两条链路择活 —— 先 session（常规：PC 控手机），失败再
+        // ctrlSrv（手机控 PC），与查找手机接线同口径。0x43 回执（成功 err=0 也回帧）
+        // 转「通知回复」气泡文案，告知结果。回调均在 reader 线程，TrayIcon::notify
+        // 双平台线程安全，可直接调。
+        tray->setBalloonClickCallback([trayRaw, &lastReplyMx, &lastReply, &session, &ctrlSrv] {
+            if (!trayRaw) return;
+            std::string key, app, title, text;
+            {
+                std::lock_guard<std::mutex> lk(lastReplyMx);
+                if (lastReply.key.empty()) return;   // 还没收到过通知：点了没东西可回
+                key = lastReply.key;
+                app = lastReply.app;
+                title = lastReply.title;
+                text = lastReply.text;
+            }
+            apxpc::wireless::WirelessSession* replySession = session.get();
+            auto submit = [replySession, &ctrlSrv](const std::string& key,
+                                                   const std::string& text) -> bool {
+                if (replySession && replySession->sendNotifyReply(key, text)) return true;
+                return ctrlSrv.sendNotifyReply(key, text);
+            };
+            apxpc::ui::showNotifyReply(key, app, title, submit,
+                                       [trayRaw](const std::string& t, const std::string& msg) {
+                                           if (trayRaw) trayRaw->notify(t, msg);
+                                       });
+        });
+        // 0x43 回执文案：err 与手机端 ApxFrame.NOTIFY_REPLY_ERR_* 一一对应（0=成功也回帧）。
+        auto notifyReplyResult = [trayRaw](uint8_t err) {
+            if (!trayRaw) return;
+            const char* msg =
+                err == 0 ? "已回复（经手机系统通知发出，对方能否收到由该 App 决定）"
+              : err == 1 ? "手机未开启通知同步，暂时回不了"
+              : err == 2 ? "通知已不在手机上（可能被划走），回不了"
+              : err == 3 ? "这条通知不支持回复"
+                         : "回复发送失败，请检查连接后重试";
+            trayRaw->notify("通知回复", msg);
+        };
+        session->setOnNotifyReplyResult(notifyReplyResult);
+#if defined(_WIN32)
+        ctrlSrv.setOnNotifyReplyResult(notifyReplyResult);
 #endif
     }
 
