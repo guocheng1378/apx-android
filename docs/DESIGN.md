@@ -66,6 +66,14 @@ Linear 的语言正好是「软件工艺文档」式的：近黑画布、层叠�
 
 ## 五、组件规则
 
+- **图标（2026-11-13，issue#166 第 3 条「图标按钮等元素风格统一」）**：
+  - UI 性质的符号一律走 `ic_apx_*` 矢量集（24dp 线性、单色遮罩、使用处 tint），
+    **禁止**再写 `Text("≡")` / `Text("✕")` 这类字符符号——字符观感随 ROM 字体漂移，
+    缺字形时直接变豆腐块。Compose 侧统一经 `ApComponents.Icon` 取；View 侧用
+    `setCompoundDrawables` + `setTint`（参考 `CustomKeyboardDialog.smallBtnIcon`）。
+  - 纯图标按钮必须给 `contentDescription`（走 `strings.xml`），读屏读动作不读「图形」。
+  - **例外**：功能键图例（手柄的 ✕○△□、HID 键名）是按键语义的一部分，不在此列；
+    文字按钮（「+ 键」「+ 新行」）保持文字，不硬加图标。
 - **顶栏 / 底栏**：液态玻璃（`hazeEffect`，底色 0.55 不透明度）；<API 33 退化为 0.96 半透明纯色。
 - **底栏**：必须是**悬浮卡片**——内容从其下方穿过，不允许在栏下再垫一条不透明底。
 - **列表**：优先「一行一信息」，能用下拉就不铺开关（设置页枚举项走 `WindowDropdownPreference`）。

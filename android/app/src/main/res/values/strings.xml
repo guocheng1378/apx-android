@@ -304,6 +304,10 @@
     <string name="ui_custom_kbd_title">自定义键盘布局</string>
     <string name="ui_custom_kbd_hint">长按行内键删除；「＋键」添加，「＋新行」加一行</string>
     <string name="ui_custom_kbd_pick_group">选分组</string>
+    <!-- 行操作小按钮改图标后（issue#166 第 3 条），读屏用户的动作名 -->
+    <string name="ui_custom_kbd_row_up">上移一行</string>
+    <string name="ui_custom_kbd_row_down">下移一行</string>
+    <string name="ui_custom_kbd_row_delete">删除此行</string>
 
     <string name="ui_filepanel_delete_title">删除文件</string>
     <string name="ui_filepanel_delete_msg">确定删除「%1$s」？删除后无法恢复。</string>

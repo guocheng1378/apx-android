@@ -234,13 +234,12 @@ object ApComponents {
             }
             trailing?.invoke()
             if (onLongClick != null) {
-                Text(
-                    text = "\u2261",
-                    // 同类尾部辅助文字统一 13sp（与取值行/折叠箭头对齐口径一致）
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                // 拖动把手（issue#166 第 3 条）：此前「≡」13sp 字符——观感随 ROM 字体漂移。
+                // 改 ic_apx_menu 矢量，16dp 边长贴近原 13sp 视觉高度，染色沿用次文字色。
+                Icon(
+                    resId = R.drawable.ic_apx_menu,
+                    size = 16.dp,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -281,6 +280,38 @@ object ApComponents {
         ) {
             Text(text = text, fontSize = 12.sp, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+
+    /**
+     * 图标统一入口（issue#166 第 3 条「图标按钮等元素风格统一」）：
+     * Compose 页面要用 `ic_apx_*` 图标时**只许**经这里取——此前主壳导航球、操控面导航球、
+     * FoldGroup 折叠头、ClickRow 拖动把手各自写 `Text("≡")` 这类字符符号，跨 ROM 字体
+     * 缺字形会变豆腐块，且与悬浮球菜单已用的矢量族两套观感。
+     *
+     * 规格（与 ic_apx_* 集一致）：24dp 基准、单色遮罩，颜色由 [tint] 统一给——
+     * 默认主题次文字色；CI 关卡 `check_appearance.py` 保证 `ui/` 下不出现裸色值字面量，
+     * 想换色请传语义色（如 `MiuixTheme.colorScheme.primary`），不要写死。
+     *
+     * @param size 边长；同一行/同一网格里的图标保持同边长（UI-CHECKLIST 第 11 条），由调用方保证
+     * @param desc 非空时作为无障碍内容描述（纯装饰图标传 null 即可，读屏时自动跳过）
+     */
+    @Composable
+    fun Icon(
+        resId: Int,
+        modifier: Modifier = Modifier,
+        size: Dp = 24.dp,
+        tint: Color = MiuixTheme.colorScheme.onSurfaceSecondary,
+        desc: String? = null,
+    ) {
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(resId),
+            contentDescription = desc,
+            modifier = modifier
+                .width(size)
+                .height(size),
+            // 遮罩图标的染色统一走 colorFilter（与 View 侧 setColorFilter 同语义）
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(tint),
+        )
     }
 
     /**
@@ -564,10 +595,24 @@ object ApComponents {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text(
-                    text = if (open) "\u25be" else "\u25b8",
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                // 折叠头箭头（issue#166 第 3 条）：此前「▾/▸」按状态换字符——字符观感
+                // 随 ROM 字体漂移，还与矢量图标族两套规格。改用 ic_apx_caret 旋转：
+                // 收起 0°（右向）、展开 90°（下向），旋转走 ApMotion 同口径（动效关时直落）。
+                val caretRotation by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (open) 90f else 0f,
+                    animationSpec = if (ApMotion.enabled(fgHost.context)) {
+                        androidx.compose.animation.core.tween(
+                            durationMillis = ApMotion.durationMs(fgHost.context, 150),
+                            easing = ApMotion.EnterEasing,
+                        )
+                    } else {
+                        androidx.compose.animation.core.tween(0)
+                    },
+                    label = "foldGroupCaret",
+                )
+                Icon(
+                    resId = R.drawable.ic_apx_caret,
+                    modifier = Modifier.graphicsLayer { rotationZ = caretRotation },
                 )
             }
             // 展开/收起动效（成宇 2026-11-12 20:14「优化动效heui界面，让界面看起来更有质感」）：

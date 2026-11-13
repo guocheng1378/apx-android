@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通用图标：右向小箭头（折叠组头 chevron）。此前 FoldGroup 用「▸/▾」字符，收起/展开
+     靠换字符（issue#166 第 3 条「图标按钮等元素风格统一」）：改用本图标配使用处旋转
+     ——收起 0°、展开 90°，与 ic_apx_* 线性族同规格。单色遮罩，颜色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,6 l6,6 -6,6" />
+</vector>

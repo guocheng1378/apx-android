@@ -966,11 +966,13 @@ class ApShellActivity : ComponentActivity() {
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                // 字色随球色翻转（球反色后 onSurface 在白球/黑球上必有一侧看不清）
-                Text(
-                    text = "≡",
-                    fontSize = 17.sp,
-                    color = if (navDarkBall) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.95f),
+                // 字色随球色翻转（球反色后 onSurface 在白球/黑球上必有一侧看不清）。
+                // 菜单把手（issue#166 第 3 条）：「≡」字符改 ic_apx_menu 矢量——
+                // 字符观感随 ROM 字体漂移，且无法与 ic_apx_* 矢量族同规格；20dp 贴近原 17sp。
+                ApComponents.Icon(
+                    resId = R.drawable.ic_apx_menu,
+                    size = 20.dp,
+                    tint = if (navDarkBall) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.95f),
                 )
             }
         }

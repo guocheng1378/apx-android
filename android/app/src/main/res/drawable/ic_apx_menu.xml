@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通用图标：菜单 / 把手（三横线）。此前「≡」以字符 Text 散在主壳导航球、操控面导航球
+     与 ClickRow 拖动把手三处（issue#166 第 3 条「图标按钮等元素风格统一」），
+     统一收进矢量集——字符写法跨 ROM 字体缺字形时会变豆腐块，且无法与 ic_apx_* 同规格。
+     单色遮罩（fillColor/strokeColor 固定 #FF000000），实际颜色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M4,7 h16" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M4,12 h16" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M4,17 h16" />
+</vector>

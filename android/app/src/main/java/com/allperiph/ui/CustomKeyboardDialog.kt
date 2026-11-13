@@ -73,21 +73,24 @@ object CustomKeyboardDialog {
                     gravity = Gravity.CENTER_VERTICAL
                     setPadding(0, dp(this, 6), 0, 0)
                 }
-                rc.addView(smallBtn(act, "↑") {
+                // 行操作按钮（issue#166 第 3 条「图标按钮等元素风格统一」）：
+                // 「↑/↓/✕」字符改 ic_apx_up/down/close 矢量——字符观感随 ROM 字体漂移，
+                // 且与 ic_apx_* 矢量族两套规格；desc 走 strings.xml，读屏读动作不读「图形」。
+                rc.addView(smallBtnIcon(act, R.drawable.ic_apx_up, R.string.ui_custom_kbd_row_up) {
                     if (i > 0) {
                         val tmp = rows.removeAt(i)
                         rows.add(i - 1, tmp)
                         rebuild()
                     }
                 })
-                rc.addView(smallBtn(act, "↓") {
+                rc.addView(smallBtnIcon(act, R.drawable.ic_apx_down, R.string.ui_custom_kbd_row_down) {
                     if (i < rows.size - 1) {
                         val tmp = rows.removeAt(i)
                         rows.add(i + 1, tmp)
                         rebuild()
                     }
                 })
-                rc.addView(smallBtn(act, "✕") {
+                rc.addView(smallBtnIcon(act, R.drawable.ic_apx_close, R.string.ui_custom_kbd_row_delete) {
                     rows.removeAt(i)
                     rebuild()
                 })
@@ -152,6 +155,28 @@ object CustomKeyboardDialog {
             setPadding(dp(this, 8), dp(this, 4), dp(this, 8), dp(this, 4))
             setOnClickListener { onClick() }
         }
+
+    /**
+     * 图标版 smallBtn（issue#166 第 3 条）：复用 [smallBtn] 的样式骨架，文字换成
+     * `ic_apx_*` 单色遮罩矢量（compound drawable 位），染色沿用该弹窗次文字色令牌。
+     * 16dp 图标贴合原 11f 字符的视觉高度；minSdk 34，原生 VectorDrawable 直取即可。
+     *
+     * @param descRes 无障碍动作名——纯图标按钮读屏只能靠它，必须走 strings.xml
+     */
+    private fun smallBtnIcon(act: Activity, iconRes: Int, descRes: Int, onClick: () -> Unit): Button {
+        val btn = smallBtn(act, "", onClick).apply {
+            contentDescription = act.getString(descRes)
+        }
+        // bounds 在按钮侧换算（dp 的第一参要 View，放进 icon 的 apply 块里 this 会是 Drawable）
+        val sizePx = dp(btn, 16)
+        val icon = act.getDrawable(iconRes)!!.apply {
+            setTint(act.getColor(R.color.md_on_surface_variant))
+            // setCompoundDrawables 不自动算 bounds，必须手动给定
+            setBounds(0, 0, sizePx, sizePx)
+        }
+        btn.setCompoundDrawables(icon, null, null, null)
+        return btn
+    }
 
     /** 两段选键：先选分组，再选该组下的键 */
     private fun pickKey(act: Activity, onPick: (String) -> Unit) {

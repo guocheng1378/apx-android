@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 通用图标：关闭 / 删除（斜十字）。此前 CustomKeyboardDialog 行删除按钮用「✕」字符
+     （issue#166 第 3 条「图标按钮等元素风格统一」），统一收进矢量集。
+     注意：手柄上的「✕」是 PlayStation 功能键图例（HID 语义），不属于 UI 图标，不改。
+     单色遮罩，颜色由使用处 tint 决定。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M6,6 L18,18" />
+    <path
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round"
+        android:pathData="M18,6 L6,18" />
+</vector>
