@@ -85,6 +85,17 @@ class BtHidDevice(private val appContext: Context) : Module {
         }
     }
 
+    /**
+     * 意外断开自动回连（2026-11-14，手机控手机实测「会断开」）：
+     * 手机当 HID 主机的省电策略比 PC / 电视激进得多 —— 空闲几秒就主动踢线，
+     * 旧实现 onConnectionStateChanged 只记账不回连，断了就永远断着。
+     * 限次 + 间隔倍增回连：治「主机踢线」这一类；主机锁屏吞输入、删配对这类
+     * 能力边界连不上就让它如实停在 lastError 上，不空转耗电。
+     */
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var reconnectTries = 0
+    private var lastHost: BluetoothDevice? = null
+
     private val callback = object : Callback() {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
             this@BtHidDevice.registered = registered
@@ -96,8 +107,18 @@ class BtHidDevice(private val appContext: Context) : Module {
             if (registered) connectBondedHost()
         }
         override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
+            val wasConnected = isConnected
             isConnected = state == BluetoothProfile.STATE_CONNECTED
-            if (isConnected) lastError = null
+            if (isConnected) {
+                lastError = null
+                reconnectTries = 0
+                if (device != null) lastHost = device
+            } else if (registered && wasConnected && device != null) {
+                // 只在「注册在位 + 之前连着」时才算意外断开（stop() 拆注册触发的断开不算）；
+                // 记住断的是哪台，只回连它，不向全部已配对主机广播式重拨。
+                lastHost = device
+                scheduleReconnect()
+            }
             Log.i(TAG, "蓝牙 HID 连接=${isConnected}")
         }
     }
@@ -167,6 +188,7 @@ class BtHidDevice(private val appContext: Context) : Module {
         runCatching { hidDevice?.unregisterApp() }
         runCatching { BluetoothAdapter.getDefaultAdapter()?.closeProfileProxy(BluetoothProfile.HID_DEVICE, hidDevice) }
         hidDevice = null; registered = false; isConnected = false
+        reconnectTries = 0   // 手动停模块时清回连计数，下次启动从零计
         state = ModuleState.STOPPED
     }
 
@@ -208,6 +230,30 @@ class BtHidDevice(private val appContext: Context) : Module {
      */
     fun connect(host: BluetoothDevice) {
         runCatching { if (hasConnect()) hidDevice?.connect(host) }
+    }
+
+    /**
+     * 意外断开后的回连调度：第 n 次延迟 n*2s，最多 [MAX_RECONNECT] 次；
+     * 期间 stop() / 重注册会经 registered / isConnected 守卫自然失效，不产生野回调。
+     */
+    private fun scheduleReconnect() {
+        if (reconnectTries >= MAX_RECONNECT) {
+            lastError = "连接断开，已自动回连 $MAX_RECONNECT 次仍失败；主机锁屏或删配对时需在主机端重连"
+            reconnectTries = 0
+            Log.w(TAG, "自动回连 $MAX_RECONNECT 次仍断开，停止重试")
+            return
+        }
+        reconnectTries++
+        val host = lastHost
+        val name = runCatching { host?.name }.getOrNull() ?: host?.address ?: "主机"
+        lastError = "连接断开，第 $reconnectTries 次自动回连中…"
+        Log.i(TAG, "意外断开：$reconnectTries/$MAX_RECONNECT 次回连 $name")
+        mainHandler.postDelayed({
+            if (registered && !isConnected) {
+                runCatching { hidDevice?.connect(host) }
+                    .onFailure { Log.w(TAG, "回连 $name 失败：${it.message}") }
+            }
+        }, reconnectTries * 2000L)
     }
 
     /**
@@ -358,7 +404,7 @@ class BtHidDevice(private val appContext: Context) : Module {
 
     override fun maskBits(): Long = if (state.isActive) (1L shl 34) else 0
 
-    companion object { private const val TAG = "BtHidDevice" }
+    companion object { private const val TAG = "BtHidDevice"; private const val MAX_RECONNECT = 3 }
 }
 
 /**
