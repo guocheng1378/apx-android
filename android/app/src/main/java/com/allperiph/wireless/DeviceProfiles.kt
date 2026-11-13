@@ -28,9 +28,14 @@ object DeviceProfiles {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
 
-    /** 展示名 → 存储键：过滤掉路径/空白类字符，只留字母数字与连字符 */
-    private fun key(label: String) =
-        "prof_" + label.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+    /** 展示名 → 存储键：过滤掉路径/空白类字符，只留字母数字与连字符（中文属 Letter，会原样保留） */
+    private fun key(label: String): String {
+        val clean = label.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+        // 全符号/全 emoji/纯空白的名字过滤后为空，全部挤在 "prof_" 一个键里会互相串档，
+        // 退回哈希兜底键：removePrefix("prof_") 后剩 "h"+十六进制，scopedPrefsName 照常拼文件名
+        return if (clean.isNotEmpty()) "prof_$clean"
+        else "prof_h" + Integer.toHexString(label.hashCode())
+    }
 
     private fun load(ctx: Context, label: String): JSONObject =
         runCatching { JSONObject(prefs(ctx).getString(key(label), "{}") ?: "{}") }
@@ -48,6 +53,10 @@ object DeviceProfiles {
      * 都是 SharedPreferences 型的偏好 —— 把各自的 prefs() 经这里路由，连上谁
      * `getSharedPreferences` 就落在谁自己的文件里，读端自然换档，调用点零改动。
      * 没连设备 = 原文件（存量行为不变）；同名机型共用档案（与 [activePeer] 同一口径）。
+     *
+     * 生效时机：读端是组合期/调用期直读（如 KeyPref.density），`ControlTarget.label`
+     * 不是 observable 状态，换连设备后**回到页面（导航重建）才换档** —— 连接成功
+     * 都发生在连接流程页里，返回即重建，符合「连上谁用谁的」直觉，无需状态订阅。
      */
     fun scopedPrefsName(ctx: Context, base: String): String {
         val peer = activePeer() ?: return base
