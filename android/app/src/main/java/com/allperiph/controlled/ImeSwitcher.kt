@@ -117,8 +117,11 @@ object ImeSwitcher {
             val saved = sp.getString(KEY_SAVED_IME, null)
             val cur = currentDefault()
             if (cur == own) {
-                val fallback = saved?.takeIf { it != own }
-                    ?: listEnabledImes().firstOrNull { it != own }
+                // 还原点优先，但**必须还在已启用清单里**（被卸载/禁用的还原点指回去等于
+                // 重演 v95）——不在时与还原路径同口径改用现存替身。
+                val enabled = listEnabledImes()
+                val fallback = saved?.takeIf { it != own && (enabled.isEmpty() || enabled.contains(it)) }
+                    ?: enabled.firstOrNull { it != own }
                 if (fallback != null) {
                     RootInput.run("settings put secure default_input_method $fallback")
                     sp.edit().remove(KEY_SAVED_IME).apply()

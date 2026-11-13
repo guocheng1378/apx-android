@@ -23,8 +23,21 @@ object LocalSendProtocol {
     const val PATH_UPLOAD = "/api/localsend/v2/upload"
     const val PATH_CANCEL = "/api/localsend/v2/cancel"
 
-    /** http 模式下指纹为随机串（https 才是证书 sha256），进程内不变即可 */
-    val fingerprint: String = UUID.randomUUID().toString()
+    /**
+     * http 模式下指纹为随机串（https 才是证书 sha256）。
+     *
+     * 2026-11-14 补：改为**落盘固化**（见 [initFingerprint]）——此前每次进程启动都
+     * 重新随机，HyperOS 杀后台是常态，重启一次对端设备表和本机已知对端落盘里就多
+     * 一条「同一台设备的孤儿」，KNOWN_PEERS_MAX 限额下孤儿会把真对端挤出去。
+     * 初值保留进程内随机作兜底，正常启动路径由 [initFingerprint] 覆盖为落盘值。
+     */
+    var fingerprint: String = UUID.randomUUID().toString()
+        private set
+
+    /** 服务启动时注入落盘指纹；幂等，重复注入以后到为准，空串忽略 */
+    fun initFingerprint(persisted: String) {
+        if (persisted.isNotBlank()) fingerprint = persisted
+    }
 
     /** info / register 响应与设备登记共用的设备信息 */
     fun deviceInfo(alias: String, deviceType: String, download: Boolean): JSONObject = JSONObject()

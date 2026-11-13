@@ -1010,6 +1010,15 @@ class ApShellActivity : ComponentActivity() {
         OrientLock.apply(this)
         // 剪贴板同步（旧主壳里由 MainActivity 挂载，迁到新宿主后同一个入口）
         com.allperiph.ui.ClipboardSync.register(this)
+        // 互传服务补拉（2026-11-14，与悬浮球回前台兜底同思路）：HyperOS 杀掉前台服务后
+        // 用户只开主界面时互传不会复活——意愿位还开着、用户以为两边都通，实际至少一边
+        // 已死，「互相发现不了」的隐性来源。内部幂等：服务活着 / 意愿位关着都是 no-op。
+        runCatching {
+            val apxPrefs = getSharedPreferences("apx", MODE_PRIVATE)
+            if (apxPrefs.getBoolean("localsend_enabled", false) &&
+                !com.allperiph.localsend.LocalSendService.isRunning
+            ) com.allperiph.localsend.LocalSendService.start(this)
+        }
         // issue#168 建议 11 的回前台兜底（v223.29.50）：onStop 已进后台时
         // startForegroundService 可能被系统拒，服务不在的球就在回前台这一刻补拉
         // （前台启动无限制）。内部幂等：服务活着 / 意愿位关着都是 no-op。

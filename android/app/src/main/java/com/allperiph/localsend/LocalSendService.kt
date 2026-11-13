@@ -65,6 +65,9 @@ class LocalSendService : Service() {
         private const val PROBE_THREADS = 24
         /** 已知对端落盘上限：超过按 lastSeen 淘汰（NectarLink remember_addrs 同思路，防无限增长） */
         private const val KNOWN_PEERS_MAX = 20
+
+        /** 本机指纹的落盘键（与已知对端同一个 prefs 文件；指纹固化见 startAll 注释） */
+        private const val KEY_SELF_FP = "self_fingerprint"
         /**
          * 接收端此刻是否真的在跑（进程内静态）。
          *
@@ -191,6 +194,12 @@ class LocalSendService : Service() {
         running = true
         isRunning = true
         serviceRef = this
+        // 指纹固化（LocalSendProtocol.initFingerprint 注释）：首次生成落盘，之后重启复用，
+        // 别再让同一台设备在对端表里反复换新面孔
+        val fp = peersPrefs.getString(KEY_SELF_FP, null) ?: UUID.randomUUID().toString().also {
+            peersPrefs.edit().putString(KEY_SELF_FP, it).apply()
+        }
+        LocalSendProtocol.initFingerprint(fp)
         val n = Notification.Builder(this, CHAN_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("LocalSend 互传")
@@ -396,7 +405,9 @@ class LocalSendService : Service() {
             try {
                 val conn = URL("http://$ip:$port${LocalSendProtocol.PATH_REGISTER}").openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
-                conn.connectTimeout = 300; conn.readTimeout = 800
+                // 800ms（2026-11-14 补）：原 300ms 在 ARP 冷启动（热点刚建/Wi-Fi 刚重连）
+                // 下首连大概率超时，整轮全空白费一轮探测；后台线程 24 并发，放宽可承受
+                conn.connectTimeout = 800; conn.readTimeout = 1200
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.outputStream.use { it.write(LocalSendProtocol.register(alias, deviceType, true, httpListenPort).toString().toByteArray(Charsets.UTF_8)) }
