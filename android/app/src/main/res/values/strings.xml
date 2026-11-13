@@ -802,4 +802,8 @@
     <string name="ui_gamepad_btn_tip_help">？</string>
     <!-- issue#170 #5 追修：编辑态一键清全部槽位的拖动偏移（按钮被旧配置顶出屏幕时的全量入口）。 -->
     <string name="ui_gamepad_btn_reset_all">复位</string>
+    <!-- issue#170 #7：手柄页中央截图键的反馈文案（按钮面自身是 📷 字形，无需文案）。 -->
+    <string name="ui_gamepad_shot_sent">已让电脑截屏，图片在电脑「图片\\AllPeriph」文件夹</string>
+    <string name="ui_gamepad_shot_need_wireless">手柄截图需无线模式连上电脑后才可用</string>
+    <string name="ui_gamepad_shot_peer_old">电脑端版本较旧，请升级电脑客户端后再试</string>
 </resources>

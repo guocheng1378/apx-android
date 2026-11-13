@@ -104,6 +104,12 @@ object ApxFrame {
      */
     const val CAP_ABSOLUTE_POINTER = 1L shl 5
 
+    /**
+     * 能力位 bit6：手柄截图 —— 控制端（手机手柄页）→ 被控（PC）发 0x4C 帧让 PC 抓屏存图。
+     * 发送前核对**对端**位图含本位（对端没报过 0x33 时照发兜底，旧 PC 对未知帧号安静忽略）。
+     */
+    const val CAP_GAMEPAD_SHOT = 1L shl 6
+
     // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
     /**
      * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]
@@ -180,6 +186,15 @@ object ApxFrame {
      * <img> 地址）；失败发 0x47（path = "album:thumb:<id>"，与取文件失败同一回执帧）。
      */
     const val CMD_ALBUM_THUMB = 0x4B
+
+    /**
+     * 手机 → PC：手柄截图（issue#170 #7，能力位 bit6）。手柄页 Select/Start 中间一枚
+     * 截屏键，点了让**受控 PC** 抓自己屏幕存 PNG（游戏画面留影，不是截图手机本机）。
+     * 载荷空（cmd 一字节，无 body 字段）；PC 端存图后托盘气泡回执路径。仅无线链路可用
+     * —— USB HID / 蓝牙 HID 报告是标准手柄位图格式，带不动自定义命令，按钮在这两条
+     * 出口下只提示不可用。接收方：PC `ctrl9511.cpp` 服务端 dispatch。
+     */
+    const val CMD_GAMEPAD_SHOT = 0x4C
 
     /** 相册单页条目数：60 张 ≈ 每条 ~250B 路径 + 名字，一页帧 < 40KB，远小于 4MB 帧上限 */
     const val ALBUM_PAGE_SIZE = 60

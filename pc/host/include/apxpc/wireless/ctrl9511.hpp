@@ -162,6 +162,7 @@ static constexpr uint64_t kCaps9511FindPhone   = 1ull << 2;  // PC→手机 查�
 static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏览/取走手机文件（0x44–0x47）
 static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相册投影（0x48–0x4B）
 static constexpr uint64_t kCaps9511AbsolutePtr = 1ull << 5;  // 控制端→被控 绝对指针 0x06（手机小地图指哪打哪）
+static constexpr uint64_t kCaps9511GamepadShot = 1ull << 6;  // 手机→PC 手柄截图 0x4C（手柄页中央 📷 键，issue#170 #7）
 
 /// 相册条目（0x49 分页应答，2026-11-12，与 Android ApxFrame.AlbumEntry 对拍）。
 /// added 为秒（MediaStore DATE_ADDED 口径，PC 端按它折算本地日期分组）；
@@ -295,6 +296,11 @@ public:
         onAlbumPageFail_ = std::move(cb);
     }
 
+    /// 手柄截图回调（0x4C，2026-11-14，能力位 bit6）：手机手柄页中央 📷 键按下时触发，
+    /// 由接线方抓屏存图并托盘气泡回执（`screen::captureScreenToPng` + `TrayIcon::notify`）。
+    /// 回调跑在 reader 线程；抓屏是 GDI 调用，线程安全。
+    void setOnGamepadShot(std::function<void()> cb) { onGamepadShot_ = std::move(cb); }
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
@@ -311,6 +317,7 @@ private:
     // 相册投影回调（0x49/0x47，2026-11-12）：搬运口径同上
     std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
+    std::function<void()> onGamepadShot_;
 };
 
 // ---------------------------------------------------------- 9511 控制客户端 ----

@@ -205,8 +205,11 @@ struct Ctrl9511Server::Impl {
      * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
      */
     void sendCapsSync() {
+        // 手机控 PC（服务端）：本端接 0x4C 手柄截图，报 bit6；PC 控手机方向的
+        // sendCapsSync（下方 Client::Impl 同名函数）**不加** —— 那条链路没有 0x4C 接收端。
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr;
+                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr
+                           | kCaps9511GamepadShot;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放帧头第 1 字节，这里只传位图 8 字节
@@ -236,6 +239,9 @@ struct Ctrl9511Server::Impl {
     std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
     std::atomic<uint64_t> aAlbumPage_{0}, aAlbumPageFail_{0};
+    // 手柄截图回调（0x4C，2026-11-14，能力位 bit6）：外层 setter 写、start() 搬运
+    std::function<void()> onGamepadShot_;
+    std::atomic<uint64_t> aGamepadShot_{0};
 
     void enqueue(const uint8_t* frame, size_t len) {
         {
@@ -549,6 +555,12 @@ struct Ctrl9511Server::Impl {
             // INPUT_DONE：手机输入完成
             if (onRemoteInputDone_) onRemoteInputDone_();
             aInputDone_.fetch_add(1);
+        } else if (cmd == 0x4C) {
+            // 手柄截图（手机手柄页中央 📷 键 → 让 PC 抓自己屏幕存 PNG，issue#170 #7）。
+            // 载荷空；抓屏 + 存图 + 气泡回执都在接线回调里（desktop_main），这里只认领
+            // 帧号 —— 命令零参数，不做 bodyLen 门控（旧控制端/新控制端发的一字节相同）。
+            if (onGamepadShot_) onGamepadShot_();
+            aGamepadShot_.fetch_add(1);
         } else if (cmd == 0x31 && bodyLen >= 2) {
             /* MODE_STATUS：手机上报「三种接入模式的可用性 + 当前在用哪个」（issue#47 面板侧诉求）。
                面板原来那三个开关里只有无线是真的，蓝牙与 USB 的真开关在手机端 ——
@@ -831,6 +843,8 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         // 相册投影回调（0x49/0x47，2026-11-12）：同款搬运
         im->onAlbumPage_ = std::move(onAlbumPage_);
         im->onAlbumPageFail_ = std::move(onAlbumPageFail_);
+        // 手柄截图回调（0x4C，2026-11-14）：同款搬运
+        im->onGamepadShot_ = std::move(onGamepadShot_);
 
         im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (im->listenFd == kBadSock) { im->st.error = "socket 创建失败"; cleanup(); return false; }

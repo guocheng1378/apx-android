@@ -364,6 +364,16 @@ class TvControllerClient(
     fun consumer(bitmap: Int) = sendControl(byteArrayOf(0x02.toByte(), ((bitmap and 0xFF).toByte()), ((bitmap ushr 8).toByte())) )
     fun power(action: Int) = sendControl(byteArrayOf(0x22.toByte(), action.toByte()))
     fun gamepad(buttons: Int, x: Int, y: Int, rx: Int, ry: Int) = sendControl(byteArrayOf(0x07.toByte(), (buttons and 0xFF).toByte(), ((buttons ushr 8) and 0xFF).toByte(), x.toByte(), y.toByte(), rx.toByte(), ry.toByte()))
+    /**
+     * 手柄截图（0x4C，issue#170 #7）：让受控 PC 抓自己屏幕存 PNG。门控同 absoluteTouch
+     * —— 对端报过 0x33 且缺 CAP_GAMEPAD_SHOT 位（PC 端还没升级）时跳过返回 false，
+     * 手机侧好提示「升级电脑端」；对端没报过 0x33（老版本）照发兜底，未知帧号安静忽略。
+     */
+    fun gamepadShot(): Boolean {
+        if (!ready) return false
+        if (peerCaps != 0L && peerCaps and ApxFrame.CAP_GAMEPAD_SHOT == 0L) return false
+        return sendControl(byteArrayOf(ApxFrame.CMD_GAMEPAD_SHOT.toByte()))
+    }
     fun sendClipboard(text: String): Boolean {
         if (text.isEmpty()) return false
         val bytes = text.toByteArray(Charsets.UTF_8); if (bytes.size > 0xFFFF) return false

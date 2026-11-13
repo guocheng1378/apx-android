@@ -34,6 +34,7 @@
 #include "apxpc/media/screen_push.hpp"
 #include "apxpc/media/audio_capture.hpp"
 #include "apxpc/media/mic_bridge.hpp"
+#include "apxpc/screen/screenshot.hpp"
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/hotkey/hotkey.hpp"
 // 球 v2 共享 API：toggleBallFan（M4-c(b) 热键唤起）。
@@ -912,6 +913,26 @@ int runDesktopMain() {
             });
         });
     }
+
+#if defined(_WIN32)
+    // —— 手柄截图接线（0x4C，2026-11-14，能力位 bit6，issue#170 #7）——
+    // 手机手柄页中央 📷 键 → 这里抓整个虚拟桌面存 PNG 到「图片\AllPeriph\手柄截图-时间戳.png」，
+    // 托盘气泡回执路径（TrayIcon::notify 双平台线程安全，但 mac 端 captureScreenToPng
+    // 是空桩返回空 —— 走失败气泡，与「mac 未接 9511 受控分发」的既有口径一致）。
+    // 回调跑在 9511 reader 线程；抓屏是 GDI 调用，不依赖窗口宿主。
+    {
+        apxpc::tray::TrayIcon* shotTray = tray.get();
+        ctrlSrv.setOnGamepadShot([shotTray] {
+            if (!shotTray) return;
+            const std::string path = apxpc::screen::captureScreenToPng();
+            if (!path.empty()) {
+                shotTray->notify("手柄截图", "已保存到 " + path);
+            } else {
+                shotTray->notify("手柄截图", "截屏失败：请检查「图片」文件夹权限");
+            }
+        });
+    }
+#endif
 
     // 球扇形全局热键（M4-c(b)）：装配处注册。mac 的 Carbon 事件靠主线程 AppKit
     // 泵分发，必须在下方 tray->run() 之前注册。

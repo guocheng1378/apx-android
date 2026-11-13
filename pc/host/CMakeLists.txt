@@ -319,6 +319,9 @@ set(APXPC_SERVICE_SRC
   "${APXPC_ROOT}/src/ball/registry.cpp"
   "${APXPC_ROOT}/src/ball/fx.cpp"
   "${APXPC_ROOT}/src/ball/ball_win32.cpp"
+  # 手柄截图抓屏（issue#170 #7）：单文件含 Win32 真实现与其它平台空桩（同 tray 口径），
+  # 无需 CMake 按平台分支；Win 实现只用 GDI + GDI+，两库 service 目标已链接。
+  "${APXPC_ROOT}/src/screen/screenshot_win.cpp"
 )
 if(APPLE)
   # update_check 的 macOS HTTP 实现（NSURLSession / ObjC++）。必须在 add_library 前

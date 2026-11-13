@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.BoxWithConstraints
 import android.content.res.Configuration
+import android.widget.Toast
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.Dp
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import com.allperiph.core.Uplink
 import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
+import com.allperiph.wireless.ControlTarget
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.applyEdgeToEdge
@@ -794,6 +796,16 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 onMoveBy = { dx, dy -> groupAwareMove("Start", dx, dy) }, onMoveEnd = { groupAwareEnd("Start") })
         }
 
+        // —— 手柄截图（issue#170 #7：Select/Start 正中间一枚）：无线模式让受控 PC 抓自己
+        // 屏幕存 PNG（游戏画面留影，不是截图手机本机）。USB HID / 蓝牙 HID 报告是标准
+        // 手柄位图格式带不动自定义命令，那两条出口下按钮只弹提示。bit=0 + onDown 走
+        // 功能键语义（不发 HID）；窄面板（W < 580dp）上 0.2W 中缝放不下 40dp 中缝键，
+        // 会与两侧药丸贴边 —— 键随 padScale 缩，超窄时宁挤不挪位（两侧键位是回验过的口径）。
+        Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = 0.dp, y = H * 0.05f)) {
+            Pad(label = "📷", bit = 0, width = 40.dp, height = 30.dp, pill = true, scale = padScale,
+                onDown = { gamepadShot(padCtx) })
+        }
+
         // —— 双摇杆（底部中轴两侧；PlayStation 系摇杆不贴角） ——
         // 编辑态：上层盖一块透明拖拽面接管触摸（摇杆本体收不到事件），拖 = 移位落盘；
         // 普通态不盖章，摇杆照常吃输入。本体是纯 Compose 摇杆（见 Stick 注释）。
@@ -1018,6 +1030,25 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             )
         }
     }
+}
+
+/**
+ * 手柄截图（issue#170 #7）：无线模式发 0x4C 让受控 PC 抓自己屏幕存 PNG（游戏画面留影，
+ * 不是截图手机本机）。出口判定与提示 —— 未连/非无线出口提示走无线；PC 报过能力协商
+ * 且缺 bit6（电脑端没升级）提示升级；发送成功气泡回执。USB HID / 蓝牙 HID 出口下
+ * controlClient 为空，统一落「需无线」提示（HID 报告格式带不动自定义命令，属能力边界）。
+ */
+private fun gamepadShot(ctx: android.content.Context) {
+    val cc = ControlTarget.controlClient
+    if (cc == null || !cc.ready) {
+        Toast.makeText(ctx, R.string.ui_gamepad_shot_need_wireless, Toast.LENGTH_SHORT).show()
+        return
+    }
+    Toast.makeText(
+        ctx,
+        if (cc.gamepadShot()) R.string.ui_gamepad_shot_sent else R.string.ui_gamepad_shot_peer_old,
+        Toast.LENGTH_SHORT,
+    ).show()
 }
 
 /**
