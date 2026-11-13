@@ -213,44 +213,46 @@ class FilePanelActivity : ComponentActivity() {
                                 statusLine()
                             }
                         }
-                    }
-                }
-
-                // —— 删除确认卡（2026-11-13 UI 审查）：文件删除不可恢复，必须弹确认；
-                // 原生 ApDialog 与全 App 的 DialogCard 卡片风是两套皮，统一走卡片弹窗
-                //（本页已是 Compose 宿主，状态挂 Activity 字段，confirmDelete 只置状态）。
-                deleteTarget?.let { f ->
-                    ApComponents.DialogCard(onDismiss = { deleteTarget = null }) {
-                        Text(text = getString(R.string.ui_filepanel_delete_title), fontSize = 16.sp)
-                        Text(
-                            text = getString(R.string.ui_filepanel_delete_msg, f.name),
-                            fontSize = 13.sp,
-                            color = colorResource(R.color.overlay_muted),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            ApComponents.NarrowButton(
-                                text = getString(R.string.ui_common_cancel),
-                                onClick = { deleteTarget = null },
-                            )
-                            ApComponents.NarrowButton(
-                                text = getString(R.string.ui_common_delete),
-                                onClick = {
-                                    val ok = runCatching { f.delete() }.getOrDefault(false)
-                                    status(
-                                        if (ok) getString(R.string.ui_filepanel_deleted, f.name)
-                                        else getString(R.string.ui_filepanel_delete_failed, f.name),
-                                        !ok,
+                        // —— 删除确认卡（2026-11-13 UI 审查）：文件删除不可恢复，必须弹确认；
+                        // 原生 ApDialog 与全 App 的 DialogCard 卡片风是两套皮，统一走卡片弹窗
+                        //（本页已是 Compose 宿主，状态挂 Activity 字段，confirmDelete 只置状态）。
+                        // 注意必须留在 setContent 组合上下文里 —— 放 setContent 外
+                        // 「ComposeView.apply 里」是普通代码，编译期就会报
+                        // 「@Composable invocations can only happen from a @Composable function」。
+                        deleteTarget?.let { f ->
+                            ApComponents.DialogCard(onDismiss = { deleteTarget = null }) {
+                                Text(text = getString(R.string.ui_filepanel_delete_title), fontSize = 16.sp)
+                                Text(
+                                    text = getString(R.string.ui_filepanel_delete_msg, f.name),
+                                    fontSize = 13.sp,
+                                    color = colorResource(R.color.overlay_muted),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    ApComponents.NarrowButton(
+                                        text = getString(R.string.ui_common_cancel),
+                                        onClick = { deleteTarget = null },
                                     )
-                                    if (ok) {
-                                        if (selected == f) selected = null
-                                        refreshList()
-                                    }
-                                    deleteTarget = null
-                                },
-                            )
+                                    ApComponents.NarrowButton(
+                                        text = getString(R.string.ui_common_delete),
+                                        onClick = {
+                                            val ok = runCatching { f.delete() }.getOrDefault(false)
+                                            status(
+                                                if (ok) getString(R.string.ui_filepanel_deleted, f.name)
+                                                else getString(R.string.ui_filepanel_delete_failed, f.name),
+                                                !ok,
+                                            )
+                                            if (ok) {
+                                                if (selected == f) selected = null
+                                                refreshList()
+                                            }
+                                            deleteTarget = null
+                                        },
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -328,11 +330,25 @@ class FilePanelActivity : ComponentActivity() {
                 // 无震动，颜色走 overlay_* 写死资源 —— 整体换 ApComponents.NarrowButton
                 // （Miuix TextButton 直通：命中/反馈/震/主题色全有）。删除的红色语义由
                 // confirmDelete 二次确认兜底。
+                // 注意 NarrowButton 形参顺序是 text/onClick/modifier —— 尾随 lambda
+                // 会绑到 modifier，onClick 必须命名传参（v97 首推红同款，5d675a5）。
                 Row(modifier = Modifier.padding(top = 10.dp)) {
-                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_text_forward)) { sendFile(sel) }
-                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_open)) { openFile(sel) }
-                    ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_share)) { shareFile(sel) }
-                    ApComponents.NarrowButton(text = getString(R.string.ui_common_delete)) { confirmDelete(sel) }
+                    ApComponents.NarrowButton(
+                        text = getString(R.string.ui_filepanel_text_forward),
+                        onClick = { sendFile(sel) },
+                    )
+                    ApComponents.NarrowButton(
+                        text = getString(R.string.ui_filepanel_open),
+                        onClick = { openFile(sel) },
+                    )
+                    ApComponents.NarrowButton(
+                        text = getString(R.string.ui_filepanel_share),
+                        onClick = { shareFile(sel) },
+                    )
+                    ApComponents.NarrowButton(
+                        text = getString(R.string.ui_common_delete),
+                        onClick = { confirmDelete(sel) },
+                    )
                 }
             }
             Text(
