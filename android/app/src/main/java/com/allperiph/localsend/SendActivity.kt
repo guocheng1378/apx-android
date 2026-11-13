@@ -146,6 +146,10 @@ class SendActivity : ComponentActivity() {
                             )
                             if (manualOpen) {
                                 val ipState = rememberTextFieldState()
+                                // 2026-11-13 UI 审查：手动直连的提示从 Toast 改行内文本 ——
+                                // 探测要几秒，Toast 转瞬即逝，失败原因看不见；行内常驻
+                                // 提示与 v223.29.37「就地提示」口径一致，状态可回看。
+                                var manualMsg by remember { mutableStateOf<String?>(null) }
                                 TextField(
                                     state = ipState,
                                     label = ctx.getString(R.string.ui_localsend_manual_hint),
@@ -156,19 +160,26 @@ class SendActivity : ComponentActivity() {
                                     onClick = {
                                         val ip = ipState.text.toString().trim()
                                         if (ip.isEmpty()) {
-                                            Toast.makeText(ctx, ctx.getString(R.string.ui_localsend_manual_hint), Toast.LENGTH_SHORT).show()
+                                            manualMsg = ctx.getString(R.string.ui_localsend_manual_hint)
                                         } else {
-                                            Toast.makeText(ctx, ctx.getString(R.string.ui_localsend_manual_probing), Toast.LENGTH_SHORT).show()
+                                            manualMsg = ctx.getString(R.string.ui_localsend_manual_probing)
                                             LocalSendService.manualProbeStatic(ip) { ok ->
-                                                Toast.makeText(
-                                                    applicationContext,
-                                                    ctx.getString(if (ok) R.string.ui_localsend_manual_ok else R.string.ui_localsend_manual_fail),
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
+                                                // 回调在子线程，setState 本身线程安全；行内文本自会重组合
+                                                manualMsg = ctx.getString(
+                                                    if (ok) R.string.ui_localsend_manual_ok else R.string.ui_localsend_manual_fail,
+                                                )
                                             }
                                         }
                                     },
                                 )
+                                manualMsg?.let { msg ->
+                                    Text(
+                                        text = msg,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    )
+                                }
                             }
                         }
                     }

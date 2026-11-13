@@ -388,8 +388,9 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 常用微调（第②层） ————————————————
             // 「整机强调色」一次写 ApSkin.SCOPES 三处（与一键主题同一口径），绝大多数
             // 换肤需求点这一个下拉就够；确有「触控板蓝、键盘紫」这类分模块需求的，
-            // 去第③层「进阶设置」逐个改。键帽材质 / 特效从「键盘外观」段上提，动效 /
-            // 音效从原「动效」段并入：调观感手感时都在这一层解决。
+            // 去第③层「进阶设置」逐个改。键帽材质 / 特效从「键盘外观」段上提；
+            // 动效从原「动效」段并入，界面缩放 2026-11-13 从进阶折叠提入本层：
+            // 调观感手感时都在这一层解决（震动 / 音效反馈档位归「通用」，见下方注释）。
             // KeyPref 偏好此前**只有实现、没有入口** —— setKeycapStyle / setDensity /
             // setLayout 全仓零调用，用户想换机械键帽或 Dvorak 只能改代码。这里给唯一的
             // 一组入口，初值直接读 KeyPref 自己的 index（不另立一份状态，避免"界面显示
@@ -467,19 +468,42 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             Feedback.haptic(ctx)
                         },
                     )
-                    WindowDropdownPreference(
-                        title = ctx.getString(R.string.ui_main_label_sound),
-                        summary = ApFeel.SOUND_LABELS.getOrElse(sound) { "" },
-                        items = ApFeel.SOUND_LABELS,
-                        selectedIndex = sound,
-                        onSelectedIndexChange = { i ->
-                            sound = i
-                            ApFeel.setSound(ctx, i)
-                        },
-                    )
-                    // 「震动」按成宇 2026-11-03「震动没有映射过来，映射到外设模式里了」留在
-                    // 「快捷键与外设 → 通用」：音效是**出声**（外观体验），震动是**按键手感**
-                    // （手机怎么响应输入），与光标锁定 \/ 手势遮蔽同类。本层只收动效与音效。
+                    // 「音效」2026-11-13 UI 审查随「震动」一并归入「快捷键与外设 → 通用」：
+                    // 两者同是 ApFeel 反馈档位，原先分置两处（音效在这层、震动在通用），
+                    // 看着像遗漏。本层保留动效与界面缩放。
+                    // ————————————— 界面缩放（2026-11-07 成宇「无极自定义 dpi 缩放」） —————————————
+                    // steps=0 = 连续滑条（无极）；80%~125%：再小字不可读，再大就失去
+                    // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
+                    // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
+                    // v223.29.73：从工具分组（cat2）搬进外观分组 —— 缩放属外观项；
+                    // 2026-11-13 UI 审查再从进阶折叠提入常用微调：调字号是高频需求，
+                    // 不该藏在第③层（滑条跟手修复口径不变，见下）。
+                    // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局
+                    // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按
+                    // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层
+                    // 已改 animate 150ms 平滑，不再跳变）。
+                    val uiScaleSd = LocalDensity.current
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        androidx.compose.ui.platform.LocalDensity provides
+                            androidx.compose.ui.unit.Density(
+                                uiScaleSd.density / com.allperiph.ui.UiScalePref.current.floatValue,
+                                uiScaleSd.fontScale,
+                            ),
+                    ) {
+                        SliderPreference(
+                            value = com.allperiph.ui.UiScalePref.current.floatValue,
+                            // 拖动中只改内存（setLive），松手才落盘（persist）——每帧写
+                            // SharedPreferences 是「界面调节卡着」的来源，见 UiScalePref.setLive。
+                            onValueChange = { com.allperiph.ui.UiScalePref.setLive(it) },
+                            onValueChangeFinished = { com.allperiph.ui.UiScalePref.persist(ctx) },
+                            title = ctx.getString(R.string.ui_set_label_ui_scale),
+                            valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
+                            valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
+                            steps = 0,
+                        )
+                    }
+                    // 「震动」「音效」均已归入「快捷键与外设 → 通用」（2026-11-13 UI 审查）：
+                    // 同为 ApFeel 反馈档位，不再分置外观与通用两处。
                 }
             }
 
@@ -604,35 +628,6 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             title = ctx.getString(R.string.ui_set_label_apply_when),
                             value = ctx.getString(R.string.ui_set_value_kb_apply_when),
                         )
-                        // ————————————— 界面缩放（2026-11-07 成宇「无极自定义 dpi 缩放」） —————————————
-                        // steps=0 = 连续滑条（无极）；80%~125%：再小字不可读，再大就失去
-                        // 「多看一截」的意义。拖动即刻生效（UiScalePref.current 是 Compose 状态，
-                        // 主壳与弹窗两处 LocalDensity 都读它，不用 recreate）。
-                        // v223.29.73：从工具分组（cat2）搬进外观的进阶折叠 —— 缩放属外观项。
-                        // 跟手修复（成宇 2026-11-07「滑动条没有跟手」）：滑条自身不吃全局
-                        // 缩放 —— 拖动时它跟着变大会边拖边变形、thumb 对不上手指。这里按
-                        // 100% 渲染（当前密度 ÷ 缩放），缩放只作用于它之外的整树（上层
-                        // 已改 animate 150ms 平滑，不再跳变）。
-                        val uiScaleSd = LocalDensity.current
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            androidx.compose.ui.platform.LocalDensity provides
-                                androidx.compose.ui.unit.Density(
-                                    uiScaleSd.density / com.allperiph.ui.UiScalePref.current.floatValue,
-                                    uiScaleSd.fontScale,
-                                ),
-                        ) {
-                            SliderPreference(
-                                value = com.allperiph.ui.UiScalePref.current.floatValue,
-                                // 拖动中只改内存（setLive），松手才落盘（persist）——每帧写
-                                // SharedPreferences 是「界面调节卡着」的来源，见 UiScalePref.setLive。
-                                onValueChange = { com.allperiph.ui.UiScalePref.setLive(it) },
-                                onValueChangeFinished = { com.allperiph.ui.UiScalePref.persist(ctx) },
-                                title = ctx.getString(R.string.ui_set_label_ui_scale),
-                                valueText = "${(com.allperiph.ui.UiScalePref.current.floatValue * 100).toInt()}%",
-                                valueRange = com.allperiph.ui.UiScalePref.MIN..com.allperiph.ui.UiScalePref.MAX,
-                                steps = 0,
-                            )
-                        }
                     }
                 }
             }
@@ -794,6 +789,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             haptic = i
                             ApFeel.setHaptic(ctx, i)
                             Feedback.haptic(ctx)
+                        },
+                    )
+                    // 音效档位（2026-11-13 UI 审查从「主题与外观 → 常用微调」搬来）：
+                    // 与震动同是 [ApFeel] 反馈档位，归到一处 —— 原先分置两处易像遗漏。
+                    WindowDropdownPreference(
+                        title = ctx.getString(R.string.ui_main_label_sound),
+                        summary = ApFeel.SOUND_LABELS.getOrElse(sound) { "" },
+                        items = ApFeel.SOUND_LABELS,
+                        selectedIndex = sound,
+                        onSelectedIndexChange = { i ->
+                            sound = i
+                            ApFeel.setSound(ctx, i)
                         },
                     )
                 }
@@ -1345,7 +1352,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             }
 
             // ———————————————— 主题数据 ————————————————
-            // v223.29.73：界面缩放已搬进外观分组的进阶折叠（缩放属外观项，见 cat0）。
+            // v223.29.73：界面缩放已搬进外观分组（缩放属外观项，见 cat0）；
+            // 2026-11-13 UI 审查：再提入「常用微调」层，进阶折叠不再放缩放。
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_theme)) {
                 Column {
                     ApComponents.ActionButton(
