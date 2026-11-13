@@ -809,22 +809,27 @@ object TvInjector {
     @Volatile
     var lastProgrammaticClipWriteMs: Long = 0L
 
-    /** 剪贴板文本：写入被控端系统剪贴板，并尝试填入当前聚焦输入框 */
+    /** 剪贴板文本：尝试填入当前聚焦输入框；上屏不成才写被控端系统剪贴板兜底 */
     fun clipboard(text: String) {
         val c = ctx ?: return
         val cm = c.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        // Android 10+：无焦点的 App setPrimaryClip 会被静默丢弃，这里记下结果用于诊断
+        // ① 输入法通道：**中文**只有这条最稳 —— root 的 `input text` 只支持 ASCII，
+        //    无障碍 ACTION_SET_TEXT 在 MIUI / 自绘输入框上又常被拒。
+        // 2026-11-13 顺序重排（用户 v94 真机「他一直弹剪贴板」）：原实现**无条件先写
+        // 系统剪贴板**再走 IME —— 用户每按一次「剪贴板/打字」，HyperOS 就弹一次
+        // 「正在使用剪贴板」隐私横幅，连按连弹。改为先试 IME：**成功即上屏且完全不
+        // 碰剪贴板**（字已在输入框里，无需再同步），横幅不再弹；失败才落写剪贴板 +
+        // 无障碍 SET_TEXT/PASTE 的老路径，语义对失败分支不变。
+        if (ApxImeService.commit(text)) { Log.i(TAG, "远程剪贴板：走 IME 上屏成功"); return }
+        if (systemReady() && ApxAccessibilityService.instance?.typeText(text) == true) { Log.i(TAG, "远程剪贴板：走无障碍 SET_TEXT 成功"); return }
+        // ② 兜底：字上不了屏才写系统剪贴板（Android 10+：无焦点的 App 写入可能被
+        //    静默丢弃，这里记下结果用于诊断），再退 ACTION_PASTE。
         runCatching { cm?.setPrimaryClip(ClipData.newPlainText("APX", text)) }
             .onSuccess {
                 lastProgrammaticClipWriteMs = SystemClock.uptimeMillis()
                 Log.i(TAG, "远程剪贴板：setPrimaryClip 已调用（后台 App 可能被系统丢弃，看 IME 通道）")
             }
             .onFailure { Log.e(TAG, "远程剪贴板：setPrimaryClip 异常 ${it.message}") }
-        // ① 输入法通道：**中文**只有这条最稳 —— root 的 `input text` 只支持 ASCII，
-        //    无障碍 ACTION_SET_TEXT 在 MIUI / 自绘输入框上又常被拒。
-        if (ApxImeService.commit(text)) { Log.i(TAG, "远程剪贴板：走 IME 上屏成功"); return }
-        if (systemReady() && ApxAccessibilityService.instance?.typeText(text) == true) { Log.i(TAG, "远程剪贴板：走无障碍 SET_TEXT 成功"); return }
-        // 兜底：剪贴板已经写进去了，退到 ACTION_PASTE
         val pasted = ApxAccessibilityService.instance?.paste(text) == true
         Log.i(TAG, if (pasted) "远程剪贴板：走无障碍 PASTE 成功" else "远程剪贴板：三条通道均未生效（检查全能外设输入法是否设为当前输入法）")
     }
