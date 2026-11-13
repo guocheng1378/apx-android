@@ -49,8 +49,7 @@
     <string name="card_link">连接状态</string>
 
     <string name="label_usb_speed">USB 连接速度</string>
-    <string name="hint_usb2">USB 2.0 慢档 · 换 3.0 线与接口更跟手</string>
-    <string name="hint_usb_ok">USB 3.0 高速已就绪。</string>
+    <string name="hint_usb2">换 3.0 线与接口更跟手</string>
     <!-- 原「延迟预算 / 触控上行 ≤2ms」：那是研发指标，用户要的是"跟不跟手、不跟手怎么办" -->
 
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
@@ -260,7 +259,7 @@
     <string name="ui_help_title_faq">常见问题</string>
     <string name="ui_help_project">全能外设把手机/平板变成电脑的键盘、鼠标、副屏与声卡：USB 有线或 Wi-Fi 连上电脑后，手机屏就是触控板，实体键盘打字也会转发到电脑。所有通信仅限局域网，不上传任何数据（MIT 开源）。</string>
     <string name="ui_help_link">USB 有线：性能最高且同时充电，需 root，目前仅支持 Windows；Wi-Fi：免 root，走 9511 控制面 / 9502 媒体 / 9501 发现信标 / 9512 文件；蓝牙：HID 键盘鼠标。延迟与速率看「链路诊断」行；出现 UDC/带宽告警时，重启手机再开关 USB 模式通常可恢复。</string>
-    <string name="ui_help_gesture">触控板：单指移动、双指滚动与捏合缩放、双指点按右键；三指点按为中键，三指滑动映射 Windows 手势（位移≥60px 触发）：上=Alt+Tab、下=Win+D、左右=Ctrl+Win+←/→。横屏支持触控板左右分栏、四指换页；实体键盘的触摸板也会映射到电脑。设置里的「悬浮球」可在其它应用上方保留一块触控板面板（需悬浮窗授权）。</string>
+    <string name="ui_help_gesture">触控板：单指移动、双指滚动与捏合缩放、双指点按右键；三指点按为中键，三指滑动映射 Windows 手势（位移≥60px 触发）：上=Alt+Tab、下=Win+D、左右=Ctrl+Win+←/→。横屏支持触控板左右分栏；实体键盘的触摸板也会映射到电脑。设置里的「悬浮球」可在其它应用上方保留一块触控板面板（需悬浮窗授权）。</string>
     <string name="ui_help_faq">① USB 模式需要 root（会提示授权）；② USB 模式仅支持 Windows，macOS 暂无副屏；③ 请把本应用加入电池优化白名单（设置→应用→电池→无限制），否则后台几十秒可能被杀、导致连不上；④ Windows 收 USB 麦克风/音箱、macOS 系统音频授权等进阶用法见仓库 docs/使用说明.md；⑤ Mac 连线没反应时，先看 Mac「系统设置 → 隐私与安全性 → 允许配件连接」——新配件首次连接会弹窗，点过「不允许」后 Mac 就不再认这部手机，改成「始终允许」并重插数据线；也换条数据线、直插 Mac 机身端口再试。</string>
     <string name="ui_help_title_features">功能说明</string>
     <string name="ui_help_title_howto">三步上手</string>
@@ -390,7 +389,7 @@
     <string name="ui_help_cursor_lock">触摸板光标锁定：连上电脑后本窗隐藏系统光标，触控板点击只转发到电脑（Pad 防误触）。</string>
     <string name="ui_help_localsend">互传（LocalSend）：开关 = 接收文件；点行 = 发送文件到电脑 / 其他平台。</string>
     <string name="ui_help_ball">悬浮球：设置页「悬浮球」里开关。① 长按主界面的悬浮导航球会**就地唤出扇形常用功能**（与单击悬浮球同一个菜单，图标 / 开关态 / 顺序都在设置页编辑；低栏已退场，导航球可拖动换位）；② 悬浮球展开的触控板浮窗与主界面触控板页手势完全一致 —— 长按 550ms 锁拖拽、双指长按 550ms 锁右键拖拽、双指滚动有位移门禁（滚动途中不会误触发右键），震动反馈同一套档位；③ 手机重启或进程被回收后，按用户意愿位自动把球放回来（关过球的用户不会被强行拉起）。</string>
-    <string name="ui_help_export_log">导出运行日志：一键保存 log.txt 到 Download/AllPeriph，反馈问题时附上。</string>
+    <string name="ui_help_export_log">导出运行日志：默认存到 下载/AllPeriph，文件名带机型与时间（apx-logs-…）；也可自定义文件名与子目录。反馈问题时附上。</string>
     <!-- 主页／帮助页新增文案（迁移到 Compose 时丢了「帮助与说明」入口，本轮补回） -->
     <string name="ui_help_howto">① 电脑装好 PC 端并打开；② 手机在「状态」页打开启动开关；③ 在「状态 → 受控与出口」点「选择受控设备」选一台设备（选「本机 / PC」= 不控制别的设备）。Wi-Fi 免 root，USB 需 root 且仅 Windows。</string>
     <string name="ui_help_open_full">查看完整说明</string>

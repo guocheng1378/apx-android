@@ -442,14 +442,16 @@ fun StatusPage(
                         },
                     )
                 }
-                Text(
-                    text = if (state.rooted) ctx.getString(R.string.hint_usb_ok)
-                    else ctx.getString(R.string.hint_usb2),
-                    fontSize = 12.sp,
-                    color = if (state.rooted) MiuixTheme.colorScheme.onSurfaceVariantSummary
-                    else colorResource(R.color.module_state_pending),
-                    modifier = Modifier.padding(16.dp),
-                )
+                // 链路速度已在上面 ValueRow 展示，这里只在慢档时补一条增量建议；
+                // 3.0 正常时不再重复宣告一遍速度（原 hint_usb_ok 行纯重复，已删）。
+                if (!state.rooted) {
+                    Text(
+                        text = ctx.getString(R.string.hint_usb2),
+                        fontSize = 12.sp,
+                        color = colorResource(R.color.module_state_pending),
+                        modifier = Modifier.padding(16.dp),
+                    )
+                }
             }
         }
         var helpOpen by remember { mutableStateOf(false) }
