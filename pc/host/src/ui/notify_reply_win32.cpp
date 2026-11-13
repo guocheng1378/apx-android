@@ -7,6 +7,24 @@
 
 #if defined(_WIN32)
 
+// ⚠️ 必须在 include <windows.h> 之前定义（同 tray_win32.cpp / ball_win32.cpp / web_panel.cpp
+// 的做法，panel_win32.cpp 有完整注释）：工程 CMake 从未全局定义 UNICODE —— 不定义的话，
+// IDC_ARROW / IDI_APPLICATION 这类资源宏展开成 ANSI 版本（MAKEINTRESOURCEA → LPSTR），
+// 下面 LoadCursorW / LoadIconW 直接 C2664「cannot convert argument 2 from 'LPSTR' to 'LPCWSTR'」
+//（CI 实证：pc 门禁 run #1882，macOS 只编本文件的空桩分支所以绿）。
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+
 #include <windows.h>
 #include <windowsx.h>
 
