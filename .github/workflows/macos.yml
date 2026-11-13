@@ -288,7 +288,8 @@ jobs:
         # tag 构建时把 zip 重命名为与 Windows/Android 资产同风格的
         # AllPeriph-<tag>-macos-arm64.zip 并上传：
         #   · build.yml 的 release job（needs pc+android，通常更慢）可能还没建 Release ——
-        #     不存在则本步先建（标题占位，随后 build.yml 的 softprops 会同 tag 合并更新正文）；
+        #     不存在则本步先建（标题与正文均为占位；最终正文由 build.yml 的
+        #     Force final release body 步骤强制覆写为 CHANGELOG 段，v223.29.98 坑收口）；
         #     已存在则直接 --clobber 追加 —— 两条路径都幂等，先跑谁都不冲突。
         if: success() && startsWith(github.ref, 'refs/tags/v')
         env:

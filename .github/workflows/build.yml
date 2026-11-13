@@ -698,8 +698,12 @@ jobs:
             $section = $section[0..($section.Count - 2)]
           }
           $assets = (Get-Content .github/release-body-assets.md -Raw) -replace '\{\{TAG\}\}', $tag
-          (($section -join "`n") + "`n`n---`n`n" + $assets) | Set-Content release_notes.md -Encoding utf8
-          Write-Host "release_notes.md：$tag 段 $($section.Count) 行 + 资产说明"
+          # v-fix（release-notes）：generate_release_notes 的「Full Changelog」链接只在
+          # softprops 新建 Release 时生成，对 macos.yml 抢建的已有 Release 不可靠 ——
+          # 正文末尾自带一条「本版本全部提交」链接兜底，最终正文由下一步强制覆写保证。
+          $commits = "[本版本全部提交](https://github.com/$env:GITHUB_REPOSITORY/commits/$tag)"
+          (($section -join "`n") + "`n`n---`n`n" + $assets + "`n`n---`n`n" + $commits) | Set-Content release_notes.md -Encoding utf8
+          Write-Host "release_notes.md：$tag 段 $($section.Count) 行 + 资产说明 + 提交列表"
 
       - name: Upload Release
         uses: softprops/action-gh-release@v2
@@ -709,3 +713,16 @@ jobs:
           generate_release_notes: true
           make_latest: true
           body_path: release_notes.md
+
+      - name: Force final release body
+        # v-fix（release-notes，v223.29.98 两次实锤的坑）：macos.yml 的 tag 构建通常
+        # 先跑完、抢先建 Release 写占位正文；softprops 对已存在的 Release 只补资产，
+        # 正文不保证覆写 —— 发布页曾只剩「macOS 测试版资产已上传…」，版本明细全丢，
+        # 只能事后手工 PATCH。这里用 gh release edit 把正文强制覆写为 release_notes.md
+        #（CHANGELOG 段 + 资产说明 + 提交列表），幂等可重跑；Release 此时必已存在
+        #（上一步保证），edit 不会另建。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file release_notes.md
+        shell: pwsh
