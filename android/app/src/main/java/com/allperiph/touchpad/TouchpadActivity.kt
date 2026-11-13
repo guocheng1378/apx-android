@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -67,6 +68,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -76,6 +78,7 @@ import com.allperiph.controlled.ControlledService
 import com.allperiph.core.ModuleId
 import com.allperiph.hid.HidKeys
 import com.allperiph.shared.net.FileSender
+import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.ui.AgentController
 import com.allperiph.ui.ApPalette
 import com.allperiph.ui.HotkeyBoard
@@ -401,6 +404,37 @@ class TouchpadActivity : ComponentActivity() {
     /** 双指长按 550ms → 右键拖拽锁定 */
     fun armRightDragNow() {
         (AgentController.module(ModuleId.TOUCHPAD) as? TouchpadModule)?.armRightDrag()
+    }
+
+    /**
+     * 绝对指针出口（2026-11-13「指哪打哪」第 2 步，小地图叠层专用）：
+     * 0x06 帧只走无线控制链路 [TvControllerClient]，其余控制客户端没有这条通道。
+     * action/buttons/x/y 语义与 0x04 相同（0 按下 / 1 抬起 / 2 移动，x/y 归一化 0..65535）。
+     * 发送失败（未在控 / 链路断 / 对端明确不支持）时：移动帧静默丢弃——拖动路径
+     * 一秒几十帧，逐帧弹 Toast 只会刷屏；点击类帧（down/up）弹提示，让用户知道
+     * 「点了没反应」是连接问题而不是地图坏了。
+     */
+    fun sendAbsoluteTouch(action: Int, buttons: Int, x: Int, y: Int) {
+        val c = ControlTarget.controlClient as? TvControllerClient
+        val ok = if (c != null && ControlTarget.isControlling()) {
+            c.absoluteTouch(action, buttons, x, y)
+        } else {
+            false
+        }
+        if (!ok && action != 2) {
+            Toast.makeText(this, R.string.ui_touchpad_minimap_unavailable, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * 小地图展开前的一次性可用性检查：没在控、或对端报过 0x33 能力位图但没带
+     * CAP_ABSOLUTE_POINTER（bit5）时返回 false —— 这两种情况点了地图也白发。
+     * peerCaps==0（老版本没报过能力）按协议口径视为「照发兜底」，不算不支持。
+     */
+    fun absolutePointerReady(): Boolean {
+        if (!ControlTarget.isControlling()) return false
+        val c = ControlTarget.controlClient as? TvControllerClient ?: return false
+        return c.peerCaps == 0L || c.peerCaps and ApxFrame.CAP_ABSOLUTE_POINTER != 0L
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
@@ -931,6 +965,8 @@ private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
                 // v208：方向键居中覆盖手势面（带中心 OK），四周与键间空隙仍可滑动 ——
                 // 键帽只消费自身区域，键外照常走触控引擎，滑动与方向同屏。
                 DpadOverlay(Modifier.align(Alignment.Center))
+                // 绝对指针小地图（0x06 第二模式）：入口在右下角，与方向键同口径只吃自身区域
+                MiniMapOverlay(Modifier.align(Alignment.BottomEnd), host)
             }
             // 横屏右列（issue#168 第 7 条）：与首页横屏右列同款 —— 整列包背景框，
             // 宽度走共用口径（此前固定 190dp，平板上太窄、快捷键挤成一竖条）。
@@ -958,6 +994,8 @@ private fun ConsoleTouchpadPage(ui: TouchpadActivity.ConsoleUi, host: TouchpadAc
             ) {
                 surface(Modifier.fillMaxSize())
                 DpadOverlay(Modifier.align(Alignment.Center))
+                // 绝对指针小地图（0x06 第二模式）：入口在右下角，与方向键同口径只吃自身区域
+                MiniMapOverlay(Modifier.align(Alignment.BottomEnd), host)
             }
             // 快捷键卡：占下方 1/3（首页同比例），标题行固定卡顶、网格超出滚动。
             Box(
@@ -1027,6 +1065,148 @@ private fun DpadKey(label: String, usage: Int) {
         accent = Color(kbAccent(ctx)),
         accentSoft = Color(kbAccentSoft(ctx)),
     )
+}
+
+/**
+ * 地图内坐标 → 0x06 载荷的归一化 0..65535（与 0x04 同布局，u16 小端由发送端打包）。
+ */
+private fun mapNorm(px: Float, py: Float, w: Int, h: Int): Pair<Int, Int> =
+    ((px / w * 65535f).toInt().coerceIn(0, 65535)) to ((py / h * 65535f).toInt().coerceIn(0, 65535))
+
+/**
+ * 绝对指针小地图叠层（2026-11-13「指哪打哪」第 2 步，随 0x06 帧与能力位 bit5 落地）：
+ * 手势卡右下角一枚入口钮 → 展开一块 16:9 被控端屏幕等比小地图。与原触控板操作逻辑并存 ——
+ * 手势面照旧相对位移，小地图是「指哪打哪」的第二模式：
+ * · 单指点按：先 move（对端光标跟到指下）再 down/up，一次点击直接跳到该点；
+ * · 按住拖动：越过触控 slop 后逐帧 move 跟手平移，不补 down/up（不产生点击）；
+ * · 双指点按：全程未越 slop 且出现过两根手指 → buttons=2 的 down/up（= 右键）。
+ * 地图只消费自身区域，与 DpadOverlay 同口径（其余区域照常走触控引擎）；
+ * 未连接 / 对端明确不支持时点入口只 Toast 说明，不弹空地图。
+ */
+@Composable
+private fun MiniMapOverlay(modifier: Modifier = Modifier, host: TouchpadActivity) {
+    val expanded = remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    if (!expanded.value) {
+        // 收起态：一枚小圆钮，底色描边与 DpadOverlay 同套，不抢手势面的视觉焦点
+        Box(
+            modifier
+                .padding(10.dp)
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(colorResource(R.color.miuix_bg))
+                .border(1.dp, colorResource(R.color.miuix_stroke), CircleShape)
+                .clickable {
+                    // 展开前先做一次性可用性检查：没在控 / 对端明确不支持就不弹空地图
+                    if (host.absolutePointerReady()) {
+                        expanded.value = true
+                    } else {
+                        Toast.makeText(
+                            ctx,
+                            R.string.ui_touchpad_minimap_unavailable,
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                stringResource(R.string.ui_touchpad_minimap_toggle),
+                fontSize = 11.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+        }
+    } else {
+        MiniMapPanel(host) { expanded.value = false }
+    }
+}
+
+/** 展开态：标题行 + 16:9 小地图 + 操作提示（220dp 宽收口，竖屏横屏都不顶卡） */
+@Composable
+private fun MiniMapPanel(host: TouchpadActivity, onCollapse: () -> Unit) {
+    Column(
+        Modifier
+            .padding(10.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(colorResource(R.color.miuix_bg))
+            .border(1.dp, colorResource(R.color.miuix_stroke), RoundedCornerShape(14.dp))
+            .padding(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.ui_touchpad_minimap_toggle),
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                stringResource(R.string.ui_touchpad_minimap_collapse),
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onCollapse),
+            )
+        }
+        // 小地图本体：16:9 等比深色面板 = 被控端屏幕的示意，坐标即屏幕归一化坐标，点哪发哪。
+        // 手势判定对齐触控板口径：越过 touchSlop 才算拖动，轻抖不改判点击语义。
+        Box(
+            Modifier
+                .padding(top = 6.dp)
+                .width(220.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF141414))
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        var last = down.position
+                        var dragMode = false
+                        var maxPointers = 1
+                        // 首触先发 hover：对端光标先跟到指下，点按/拖动都从这帧起
+                        val (hx, hy) = mapNorm(last.x, last.y, size.width, size.height)
+                        host.sendAbsoluteTouch(2, 0, hx, hy)
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val pressedCount = ev.changes.count { it.pressed }
+                            if (pressedCount > maxPointers) maxPointers = pressedCount
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed) break // 主指抬起 → 收尾判定
+                            ch.consume()
+                            last = ch.position
+                            if (!dragMode &&
+                                (ch.position - down.position).getDistance() > viewConfiguration.touchSlop
+                            ) {
+                                dragMode = true
+                            }
+                            if (dragMode) {
+                                // 拖动 = 连续 move，跟手平移对端光标（不产生点击）
+                                val (mx, my) = mapNorm(last.x, last.y, size.width, size.height)
+                                host.sendAbsoluteTouch(2, 0, mx, my)
+                            }
+                        }
+                        if (!dragMode) {
+                            val (x, y) = mapNorm(last.x, last.y, size.width, size.height)
+                            if (maxPointers >= 2) {
+                                // 双指点按 = 右键：down/up 成对，buttons bit1（右键位）
+                                host.sendAbsoluteTouch(0, 2, x, y)
+                                host.sendAbsoluteTouch(1, 2, x, y)
+                            } else {
+                                // 单指点按 = move → down → up：一次点击直接跳到该点
+                                host.sendAbsoluteTouch(0, 0, x, y)
+                                host.sendAbsoluteTouch(1, 0, x, y)
+                            }
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) { }
+        Text(
+            stringResource(R.string.ui_touchpad_minimap_hint),
+            fontSize = 10.sp,
+            color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
 }
 
 /**

@@ -206,7 +206,7 @@ struct Ctrl9511Server::Impl {
      */
     void sendCapsSync() {
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles | kCaps9511Album;
+                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放帧头第 1 字节，这里只传位图 8 字节
@@ -489,6 +489,16 @@ struct Ctrl9511Server::Impl {
             const uint16_t x = apx::getU16(p + 3);
             const uint16_t y = apx::getU16(p + 5);
             if (injector) injector->injectTouch(action, buttons, x, y);
+            aTouch_.fetch_add(1);
+        } else if (cmd == 0x06 && bodyLen >= 9) {
+            // 0x06 绝对指针（2026-11-13，能力位 bit5）：手机小地图「屏幕定位」——
+            // 归一化 0..65535 映射整个虚拟桌面（injectAbsolute），与 0x04 副屏触摸
+            // 的「映射副屏」语义不同，故单独命令号；计数与触摸同族（aTouch_）。
+            const uint8_t action = p[1];
+            const uint8_t buttons = p[2];
+            const uint16_t x = apx::getU16(p + 3);
+            const uint16_t y = apx::getU16(p + 5);
+            if (injector) injector->injectAbsolute(action, buttons, x, y);
             aTouch_.fetch_add(1);
         } else if (cmd == 0x20 && bodyLen >= 3) {
             const uint32_t len = static_cast<uint32_t>(p[1]) |
@@ -1041,7 +1051,7 @@ struct Ctrl9511Client::Impl {
      */
     void sendCapsSync() {
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles | kCaps9511Album;
+                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放 body[0]，这里只传位图 8 字节

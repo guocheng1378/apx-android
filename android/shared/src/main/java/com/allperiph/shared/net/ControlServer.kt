@@ -438,6 +438,10 @@ class ControlServer(
                             0x02 -> if (body.size >= 3) actions.add { onConsumer(body) }
                             0x03 -> if (body.size >= 3) actions.add { onKeyboard(body) }
                             0x04 -> if (body.size >= 9) actions.add { onTouch(body) }
+                            // 0x06 绝对指针（2026-11-13，能力位 bit5）：与 0x04 同载荷、
+                            // 同 onTouch 处理（归一化 0..65535 落整屏）；不复用 0x04 是
+                            // 因为 PC 端 0x04 的落点语义是副屏，见 ApxFrame.CAP_ABSOLUTE_POINTER。
+                            0x06 -> if (body.size >= 9) actions.add { onTouch(body) }
                             0x07 -> if (body.size >= 7) actions.add { onGamepad(body) }
                             CLIPBOARD -> if (body.size >= 4) actions.add { onClipboard(body) }
                             0x22 -> if (body.size >= 2) actions.add { onPowerAction(body) }
@@ -606,7 +610,9 @@ class ControlServer(
             com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
             com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
-            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM
+            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or
+            // bit5 绝对指针（0x06）：本端被控时收它落整屏 onTouch，支持即报
+            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()

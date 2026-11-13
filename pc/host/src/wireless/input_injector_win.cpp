@@ -372,6 +372,32 @@ public:
         apxpc::media::injectTouchFrame(body, sizeof(body));
     }
 
+    void injectAbsolute(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) override {
+        // 0x06 绝对指针（2026-11-13「指哪打哪」第二模式）：与 injectTouch（0x04 副屏触摸）
+        // 的落点语义不同 —— 这里映射**整个虚拟桌面**（SM_X/CXVIRTUALSCREEN，多屏覆盖全部
+        // 显示器，SetCursorPos 天然支持负坐标跨屏），不受副屏开关影响。
+        // 定位沿用 v184 实测结论：MOUSEEVENTF_ABSOLUTE 纯移动帧会被部分环境静默丢弃，
+        // 一律 SetCursorPos 定位、按键单独 SendInput。
+        const LONG px = ::GetSystemMetrics(SM_XVIRTUALSCREEN) +
+            (static_cast<LONG>(x) * ::GetSystemMetrics(SM_CXVIRTUALSCREEN)) / 65535;
+        const LONG py = ::GetSystemMetrics(SM_YVIRTUALSCREEN) +
+            (static_cast<LONG>(y) * ::GetSystemMetrics(SM_CYVIRTUALSCREEN)) / 65535;
+        ::SetCursorPos(px, py);
+        // 只记按下/抬起：移动帧高频，全记会把日志刷爆
+        if (action == 0 || action == 1) {
+            std::vector<INPUT> in;
+            const DWORD down = (buttons & 0x02) ? MOUSEEVENTF_RIGHTDOWN
+                             : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEDOWN
+                                                : MOUSEEVENTF_LEFTDOWN;
+            const DWORD up   = (buttons & 0x02) ? MOUSEEVENTF_RIGHTUP
+                             : (buttons & 0x04) ? MOUSEEVENTF_MIDDLEUP
+                                                : MOUSEEVENTF_LEFTUP;
+            INPUT b{}; b.type = INPUT_MOUSE; b.mi.dwFlags = (action == 0) ? down : up;
+            in.push_back(b);
+            ::SendInput(static_cast<UINT>(in.size()), in.data(), sizeof(INPUT));
+        }
+    }
+
     void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count) override {
         const size_t n = count > 6 ? 6 : count;
         for (int bit = 0; bit < 8; ++bit) {

@@ -94,6 +94,16 @@ object ApxFrame {
      */
     const val CAP_ALBUM = 1L shl 4
 
+    /**
+     * 能力位 bit5：绝对指针 —— 控制端 → 被控发 0x06 绝对指针帧（指哪打哪的第二模式）。
+     * 与 0x04 副屏触摸同一载荷布局（action/buttons/x/y 归一化 0..65535），但定位语义是
+     * **整个桌面**（PC 端映射虚拟桌面，Android 被控端映射整屏），与副屏的「映射到
+     * 非主屏显示器」不同，故不复用 0x04 —— 同帧双义会让多屏机器的落点随副屏开关漂移。
+     * 三端收帧：PC `ctrl9511.cpp` 服务端 dispatch、Android `ControlServer` /
+     * `TvControlServer`（同一 onTouch 处理）。发送端（手机）发前核对**对端**位图含本位。
+     */
+    const val CAP_ABSOLUTE_POINTER = 1L shl 5
+
     // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
     /**
      * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]

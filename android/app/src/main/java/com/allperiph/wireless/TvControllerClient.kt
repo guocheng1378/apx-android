@@ -343,6 +343,21 @@ class TvControllerClient(
      *  老 PC 端按 bodyLen>=5 读前 5 字节、忽略多出来的字节；老手机端同理 —— 双向兼容。 */
     fun mouse(buttons: Int, dx: Int, dy: Int, wheel: Int = 0, pan: Int = 0) = sendControl(byteArrayOf(0x01.toByte(), buttons.toByte(), dx.coerceIn(-127, 127).toByte(), dy.coerceIn(-127, 127).toByte(), wheel.coerceIn(-127, 127).toByte(), pan.coerceIn(-127, 127).toByte()))
     fun touch(action: Int, buttons: Int, x: Int, y: Int) = sendControl(byteArrayOf(0x04.toByte(), action.toByte(), buttons.toByte(), (x and 0xFF).toByte(), ((x shr 8) and 0xFF).toByte(), (y and 0xFF).toByte(), ((y shr 8) and 0xFF).toByte(), 0, 0))
+    /**
+     * 绝对指针帧（0x06，2026-11-13「指哪打哪」第二模式）：触控板页小地图点按/拖动走这条。
+     * 载荷与 0x04 副屏触摸同布局（action 0按下/1抬起/2移动 + buttons + x/y 归一化
+     * 0..65535 + 保留 2 字节），但 PC 端映射**整个虚拟桌面**（多屏也能点到），
+     * Android 被控端映射整屏，语义见 ApxFrame.CAP_ABSOLUTE_POINTER 注释。
+     *
+     * 能力门控：对端必须报过 0x33 且含 CAP_ABSOLUTE_POINTER（bit5）—— 旧版被控端对
+     * 未知帧号安静忽略，但发也是白发，这里提前挡一道；对端没报过 0x33（peerCaps==0，
+     * 老版本）照发兜底，同 sendFindPhone 口径。
+     */
+    fun absoluteTouch(action: Int, buttons: Int, x: Int, y: Int): Boolean {
+        if (!ready) return false
+        if (peerCaps != 0L && peerCaps and ApxFrame.CAP_ABSOLUTE_POINTER == 0L) return false
+        return sendControl(byteArrayOf(0x06.toByte(), action.toByte(), buttons.toByte(), (x and 0xFF).toByte(), ((x shr 8) and 0xFF).toByte(), (y and 0xFF).toByte(), ((y shr 8) and 0xFF).toByte(), 0, 0))
+    }
     /** v184：特殊键/组合键（0x28）：mod 位图 1=Ctrl 2=Shift 4=Alt，vk 用 Windows VK 码 */
     fun sendSpecialKey(mod: Int, vk: Int) = sendControl(byteArrayOf(0x28.toByte(), mod.toByte(), vk.toByte()))
     fun keyboard(usage: Int, down: Boolean, mod: Int = 0) = if (down) sendControl(byteArrayOf(0x03.toByte(), mod.toByte(), 0, usage.toByte())) else sendControl(byteArrayOf(0x03.toByte(), 0, 0, 0))
@@ -416,7 +431,9 @@ class TvControllerClient(
             com.allperiph.shared.proto.ApxFrame.CAP_NOTIFY_REPLY or
             com.allperiph.shared.proto.ApxFrame.CAP_FIND_PHONE or
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
-            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM
+            com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or
+            // bit5 绝对指针（0x06）：本端被控时收它落整屏 onTouch，支持即报
+            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()

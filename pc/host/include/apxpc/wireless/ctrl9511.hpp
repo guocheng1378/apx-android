@@ -72,6 +72,15 @@ public:
     /// 绝对坐标触摸（归一化 0..65535）。action: 0=down 1=up 2=move；buttons 决定双指=右键。
     virtual void injectTouch(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) = 0;
 
+    /// 绝对指针（0x06，2026-11-13「指哪打哪」第二模式）：归一化坐标 0..65535 映射到
+    /// **整个虚拟桌面**（多屏覆盖全部显示器），与 injectTouch 的「映射到副屏」语义不同
+    /// —— 这是手机小地图「屏幕定位」专用的注入路径。默认回落 injectTouch
+    ///（Linux uinput 无桌面概念，触摸式坐标注入即足够）；Windows 覆盖为
+    /// SetCursorPos（v184 实测：MOUSEEVENTF_ABSOLUTE 纯移动帧会被部分环境静默丢弃）。
+    virtual void injectAbsolute(uint8_t action, uint8_t buttons, uint16_t x, uint16_t y) {
+        injectTouch(action, buttons, x, y);
+    }
+
     /// HID 键盘（页 0x07）：mod 修饰位图 + 最多 6 个 usage；实现按边沿注入（down/up）。
     virtual void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count) = 0;
 
@@ -152,6 +161,7 @@ static constexpr uint64_t kCaps9511NotifyReply = 1ull << 1;  // PC→手机 Remo
 static constexpr uint64_t kCaps9511FindPhone   = 1ull << 2;  // PC→手机 查找手机响铃（0x38）
 static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏览/取走手机文件（0x44–0x47）
 static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相册投影（0x48–0x4B）
+static constexpr uint64_t kCaps9511AbsolutePtr = 1ull << 5;  // 控制端→被控 绝对指针 0x06（手机小地图指哪打哪）
 
 /// 相册条目（0x49 分页应答，2026-11-12，与 Android ApxFrame.AlbumEntry 对拍）。
 /// added 为秒（MediaStore DATE_ADDED 口径，PC 端按它折算本地日期分组）；

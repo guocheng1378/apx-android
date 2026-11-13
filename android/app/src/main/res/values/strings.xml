@@ -114,6 +114,12 @@
     <string name="ui_touchpad_fullscreen_enter">全屏</string>
     <string name="ui_touchpad_fullscreen_exit">退出全屏</string>
     <string name="ui_touchpad_fullscreen_hint">全屏触控板 · 按返回键或点右下角「退出全屏」</string>
+    <!-- v223.29.99 绝对指针小地图（0x06 第二模式）：触控板页手势卡右下角入口 + 展开面板。
+         与原触控板操作逻辑并存：小地图是「指哪打哪」，手势面照旧相对位移。 -->
+    <string name="ui_touchpad_minimap_toggle">小地图</string>
+    <string name="ui_touchpad_minimap_collapse">收起</string>
+    <string name="ui_touchpad_minimap_hint">点按跳转 · 拖动跟手 · 双指点按 = 右键</string>
+    <string name="ui_touchpad_minimap_unavailable">未连接或对端不支持绝对指针</string>
     <string name="ui_dock_ball_desc">悬浮栏已收起，点按展开，按住拖动可移位</string>
     <string name="ui_common_edit">编辑</string>
     <string name="ui_touchpad_toast_device_connect_not">还没连上手机</string>
