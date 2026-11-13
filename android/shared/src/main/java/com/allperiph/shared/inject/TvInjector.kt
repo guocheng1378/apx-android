@@ -338,8 +338,16 @@ object TvInjector {
         }
         if (platform?.accessibilityFirst == true) {
             // TV：无障碍手势优先，root 兜底（SELinux Enforcing 下 root 的 input 会被静默丢弃）
-            if (systemReady() && ApxAccessibilityService.instance?.tap(x, y) == true) {
+            // 2026-11-13 诊断补强：用户被控机日志显示 tap 全走 root、无障碍通道全程未成功
+            // —— 但 root 是否落地无从验证，日志查无实据。现在把无障碍失败的**具体原因**
+            // 打出来（未连接 / dispatchGesture 拒绝），下一份日志即可定位。
+            val acc = ApxAccessibilityService.instance
+            if (acc == null || !systemReady()) {
+                Log.w(TAG, "tapAt($xi, $yi)：无障碍通道未连接（instance=${acc != null}），落 root")
+            } else if (acc.tap(x, y)) {
                 Log.i(TAG, "tapAt($xi, $yi) 走无障碍手势成功"); return
+            } else {
+                Log.w(TAG, "tapAt($xi, $yi)：无障碍手势被系统拒绝（dispatchGesture=false），落 root")
             }
             if (RootInput.available && RootInput.run("input tap $xi $yi")) return
             Log.w(TAG, "tapAt($xi, $yi) 失败：无障碍与 root 通道均未生效")
@@ -368,7 +376,15 @@ object TvInjector {
         }
         val s = "input swipe ${x1.toInt()} ${y1.toInt()} ${x2.toInt()} ${y2.toInt()} $ms"
         if (platform?.accessibilityFirst == true) {
-            if (systemReady() && ApxAccessibilityService.instance?.swipe(x1, y1, x2, y2, ms) == true) return
+            // 与 tapAt 同款诊断日志（修一处查同模式）：无障碍失败必须留原因
+            val acc = ApxAccessibilityService.instance
+            if (acc == null || !systemReady()) {
+                Log.w(TAG, "swipe：无障碍通道未连接（instance=${acc != null}），落 root")
+            } else if (acc.swipe(x1, y1, x2, y2, ms)) {
+                return
+            } else {
+                Log.w(TAG, "swipe：无障碍手势被系统拒绝（dispatchGesture=false），落 root")
+            }
             if (RootInput.available && RootInput.run(s)) return
         } else {
             if (RootInput.available && RootInput.run(s)) return
@@ -468,7 +484,15 @@ object TvInjector {
         }
         val s = "input swipe $xi $yi $xi $yi 600"
         if (platform?.accessibilityFirst == true) {
-            if (systemReady() && ApxAccessibilityService.instance?.longPress(x, y) == true) return
+            // 与 tapAt 同款诊断日志（修一处查同模式）：无障碍失败必须留原因
+            val acc = ApxAccessibilityService.instance
+            if (acc == null || !systemReady()) {
+                Log.w(TAG, "longPress($xi, $yi)：无障碍通道未连接（instance=${acc != null}），落 root")
+            } else if (acc.longPress(x, y)) {
+                return
+            } else {
+                Log.w(TAG, "longPress($xi, $yi)：无障碍手势被系统拒绝（dispatchGesture=false），落 root")
+            }
             if (RootInput.available && RootInput.run(s)) return
         } else {
             if (RootInput.available && RootInput.run(s)) return
@@ -525,7 +549,15 @@ object TvInjector {
         }
         val s = "input swipe ${cursorX.toInt()} ${cursorY.toInt()} ${cursorX.toInt()} ${(cursorY - step).toInt()} 220"
         if (platform?.accessibilityFirst == true) {
-            if (systemReady() && ApxAccessibilityService.instance?.swipe(cursorX, cursorY, cursorX, cursorY - step, 220) == true) return
+            // 与 tapAt 同款诊断日志（修一处查同模式）：无障碍失败必须留原因
+            val acc = ApxAccessibilityService.instance
+            if (acc == null || !systemReady()) {
+                Log.w(TAG, "scroll：无障碍通道未连接（instance=${acc != null}），落 root")
+            } else if (acc.swipe(cursorX, cursorY, cursorX, cursorY - step, 220)) {
+                return
+            } else {
+                Log.w(TAG, "scroll：无障碍手势被系统拒绝（dispatchGesture=false），落 root")
+            }
             if (RootInput.available && RootInput.run(s)) return
         } else {
             if (RootInput.available && RootInput.run(s)) return

@@ -66,9 +66,20 @@ object RootInput {
                 }
                 process = p
                 writer = OutputStreamWriter(p.outputStream, Charsets.UTF_8)
-                // 把 stderr 并到 stdout 排掉，避免管道堵死
-                Thread({ runCatching { p.errorStream.bufferedReader().useLines { it.forEach { } } } },
-                    "apx-root-err").start()
+                // 把 stderr 并排到日志 —— v2（2026-11-13）：**不再静默丢弃**。
+                // 原实现把 stderr 整个吞掉防管道堵死，但代价是真相也没了：HyperOS/SELinux
+                // 把 `input` 命令静默丢弃时，input 自身常往 stderr 打异常（SecurityException /
+                // "Injection failed" 等），而 run() 只写 stdin 就返回 true —— 日志里只剩
+                // 「root 注入：…」一条假成功，掩盖了「点了没落地」的根因（用户被控机实锤：
+                // tap 全走 root、无障碍通道全程未成功，点不动却查无实据）。
+                // 现在逐行透传到日志；吞吐量极低（正常注入一条都不输出），不会刷屏。
+                Thread({
+                    runCatching {
+                        p.errorStream.bufferedReader().forEachLine { line ->
+                            if (line.isNotBlank()) Log.w(TAG, "root stderr：$line")
+                        }
+                    }
+                }, "apx-root-err").start()
                 if (!probe(p)) {
                     Log.w(TAG, "root shell 无响应，关闭")
                     runCatching { p.destroy() }
