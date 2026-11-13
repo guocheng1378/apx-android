@@ -7,6 +7,10 @@
 #if defined(_WIN32)
 
 #include <windows.h>
+// GDI+ 头依赖 IStream（GdiplusMetafile 等）—— 本仓 CMake 定义了 WIN32_LEAN_AND_MEAN
+// （裁掉 OLE 系头，IStream 随之消失，CI 实锤 error C2065 'IStream'），按微软推荐
+// 顺序自己补 <objidl.h> 再进 <gdiplus.h>。
+#include <objidl.h>
 #include <gdiplus.h>
 #include <shlobj.h>
 
