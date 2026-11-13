@@ -288,9 +288,40 @@ object TvInjector {
 
     fun click() = tapAt(cursorX, cursorY)
 
+    /**
+     * 把系统光标（uinput REL）从逻辑光标当前位置挪到 (x,y)。
+     *
+     * 只在 [UinputMouse.ready] 时被调用：逻辑坐标照常更新（与 cursorMove 同一状态源），
+     * 位移差值走 REL 事件 —— 与移动帧同一条**已被真机验证有效**的内核通道。
+     */
+    private fun moveCursorTo(x: Float, y: Float) {
+        refreshScreen()
+        val tx = x.coerceIn(0f, screenW.toFloat())
+        val ty = y.coerceIn(0f, screenH.toFloat())
+        val dx = (tx - cursorX).toInt()
+        val dy = (ty - cursorY).toInt()
+        if (dx != 0 || dy != 0) UinputMouse.move(dx, dy)
+        cursorX = tx
+        cursorY = ty
+        cursorMovedByPeer = true
+        paintOverlay()
+    }
+
     fun tapAt(x: Float, y: Float) {
         val xi = x.toInt()
         val yi = y.toInt()
+        if (UinputMouse.ready) {
+            // uinput 优先（2026-11-13「单点还是不行」批）：光标移动走的内核虚拟鼠标已验证
+            // 有效，点击却还走无障碍/root —— 无障碍未开时落 root，`input tap` 在 SELinux
+            // Enforcing/HyperOS 上会被静默丢弃（RootInput.run 只写 stdin 就返回 true，
+            // 假成功），无障碍兜底永远轮不上。现在移动和点击合并到同一条内核通道：
+            // 先挪光标再左键单击，按下/抬起间给 30ms 让上层识别成一次完整点击。
+            moveCursorTo(x, y)
+            UinputMouse.button(0, true)
+            try { Thread.sleep(30) } catch (_: InterruptedException) {}
+            UinputMouse.button(0, false)
+            return
+        }
         if (platform?.accessibilityFirst == true) {
             // TV：无障碍手势优先，root 兜底（SELinux Enforcing 下 root 的 input 会被静默丢弃）
             if (systemReady() && ApxAccessibilityService.instance?.tap(x, y) == true) {
@@ -306,6 +337,21 @@ object TvInjector {
     }
 
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, ms: Long) {
+        if (UinputMouse.ready) {
+            // uinput 拖拽（与 tapAt 同批）：左键按住 + REL 步进移动 + 抬起 = 标准鼠标拖拽，
+            // 绕开 root input swipe 的静默丢弃与无障碍未开两个坑。阻塞注入线程至多
+            // ms（封顶 2000ms 由调用方约束）—— 与原回放路径同线程语义，帧序不乱。
+            moveCursorTo(x1, y1)
+            UinputMouse.button(0, true)
+            val steps = (ms / 33L).coerceIn(8L, 30L).toInt()
+            val stepMs = ms / steps
+            for (i in 1..steps) {
+                try { Thread.sleep(stepMs) } catch (_: InterruptedException) { break }
+                moveCursorTo(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps)
+            }
+            UinputMouse.button(0, false)
+            return
+        }
         val s = "input swipe ${x1.toInt()} ${y1.toInt()} ${x2.toInt()} ${y2.toInt()} $ms"
         if (platform?.accessibilityFirst == true) {
             if (systemReady() && ApxAccessibilityService.instance?.swipe(x1, y1, x2, y2, ms) == true) return
@@ -343,7 +389,17 @@ object TvInjector {
         // P1-5：能拿到 INJECT_EVENTS 时直接开一条真实触摸流（按下沿注入 DOWN），
         // 后续移动帧在 cursorMove 里逐帧注入 ACTION_MOVE 实时跟随；拿不到权限则退回原 finishStroke 回放。
         streamTouch = injectTouch(MotionEvent.ACTION_DOWN, cursorX, cursorY)
+        if (!streamTouch && UinputMouse.ready) {
+            // uinput 鼠标按住（与 tapAt 同批）：真实触摸流拿不到权限时的次优解 ——
+            // 左键按住 + REL 移动天然构成拖拽/长按，同一条已验证有效的内核通道；
+            // pressUp 走 [mouseDown] 分支抬起，不再落 finishStroke 回放（避免双击）。
+            UinputMouse.button(0, true)
+            mouseDown = true
+        }
     }
+
+    /** [pressDown] 已走 uinput 鼠标按住时置位：pressUp 只负责抬起左键 */
+    private var mouseDown = false
 
     /** 在当前光标处"抬起"：不动=轻点或长按（≥500ms），移动=拖拽（时长取实际值） */
     fun pressUp() {
@@ -352,6 +408,13 @@ object TvInjector {
             // 真实触摸流：抬起沿直接注入 UP，一笔结束（拖拽期间 MOVE 已逐帧注入）
             injectTouch(MotionEvent.ACTION_UP, cursorX, cursorY)
             streamTouch = false
+            touchDownX = -1f
+            touchDownY = -1f
+            return
+        }
+        if (mouseDown) {
+            UinputMouse.button(0, false)
+            mouseDown = false
             touchDownX = -1f
             touchDownY = -1f
             return
@@ -380,6 +443,15 @@ object TvInjector {
     private fun longPress(x: Float, y: Float) {
         val xi = x.toInt()
         val yi = y.toInt()
+        if (UinputMouse.ready) {
+            // uinput 长按（与 tapAt 同批）：左键按住 650ms 再抬起 —— Android 上鼠标按住
+            // 即触发长按（onLongClick 阈值 500ms），语义与原 swipe 回放一致且不依赖 root。
+            moveCursorTo(x, y)
+            UinputMouse.button(0, true)
+            try { Thread.sleep(650) } catch (_: InterruptedException) {}
+            UinputMouse.button(0, false)
+            return
+        }
         val s = "input swipe $xi $yi $xi $yi 600"
         if (platform?.accessibilityFirst == true) {
             if (systemReady() && ApxAccessibilityService.instance?.longPress(x, y) == true) return

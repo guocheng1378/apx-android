@@ -94,7 +94,7 @@ object UinputMouse {
         runCatching { sendRel(if (notches > 0) REL_WHEEL else -REL_WHEEL, notches) }
     }
 
-    /** 鼠标按键：0=左键 1=右键 2=中键，down=true 按下（当前混合方案下备用） */
+    /** 鼠标按键：0=左键 1=右键 2=中键，down=true 按下（TvInjector 点击/长按/拖拽现走此通道） */
     fun button(which: Int, down: Boolean) {
         if (!ready) return
         val btn = when (which) {
