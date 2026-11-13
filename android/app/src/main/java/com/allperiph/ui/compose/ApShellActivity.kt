@@ -147,12 +147,13 @@ class ApShellActivity : ComponentActivity() {
         finish()
     }
 
-    override fun onNewIntent(intent: Intent?) {
+    // 参数按 compile SDK 的非空标注写 Intent（可空版本会 overrides nothing 编译红，CI 59d82c9 报过）
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // singleTask 复用实例时走这里，onCreate 不会再跑 —— 此前 EXTRA_PICK_DEVICE 只在
         // onCreate 读，遥控页点「选择设备」跳回主壳时选择器根本不弹，用户被留在主壳
         // 的上一页（反馈 2026-11-13「跳回主界面的设置，遥控又回到未链接状态」）。
-        if (intent?.getBooleanExtra(EXTRA_PICK_DEVICE, false) == true) {
+        if (intent.getBooleanExtra(EXTRA_PICK_DEVICE, false)) {
             intent.removeExtra(EXTRA_PICK_DEVICE)
             pickOnStart = true
             pickRequests.intValue++
