@@ -765,6 +765,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 ctx.getString(R.string.ui_set_localsend_diag)
                             else -> ctx.getString(R.string.ui_set_localsend_summary)
                         },
+                        // issue#170 #3「打开后状态文字一直变化、页面上下抖」：三条提示文案
+                        // 长短不一，行数一变整行高度跳。按「保证显示完全、固定行数」口径
+                        // 给摘要固定 3 行占位 —— 文字随实况换，行高不再跳。
+                        summaryMinLines = 3,
                         checked = localSend,
                         onCheckedChange = { on ->
                             localSend = on

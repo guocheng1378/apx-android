@@ -121,6 +121,7 @@ object ApComponents {
         trailing: @Composable (() -> Unit)? = null,
         showDivider: Boolean = false,
         modifier: Modifier = Modifier,
+        summaryMinLines: Int = 0,
     ) {
         Column {
             Row(
@@ -138,6 +139,10 @@ object ApComponents {
                             fontSize = 12.sp,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             maxLines = 3,
+                            // summaryMinLines（issue#170 #3）：状态文字会随实况换文案的行
+                            //（如 LocalSend 互传的 diag 提示），行数一变整行高度跳、页面上下抖。
+                            // 调用方给 min 行数即固定占位 —— 文字仍在 3 行上限内换，高度不变。
+                            minLines = summaryMinLines.coerceAtMost(3),
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -156,10 +161,12 @@ object ApComponents {
         checked: Boolean,
         enabled: Boolean = true,
         onCheckedChange: (Boolean) -> Unit,
+        summaryMinLines: Int = 0,
     ) {
         ItemRow(
             title = title,
             summary = summary,
+            summaryMinLines = summaryMinLines,
             trailing = { Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled) },
         )
     }

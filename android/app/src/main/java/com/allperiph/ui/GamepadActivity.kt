@@ -521,30 +521,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(top = 3.dp),
                 )
             }
-            // 编辑操作说明（REQ 本批 4）：首次进编辑态自动弹一行，6 秒或点按钮后淡出；
-            // 画在提示列内顺序排布，不与任何元素叠字，不拦截手势（无 clickable）。
-            // 平板档字号与内边距同 padScale 放大。
-            AnimatedVisibility(visible = padEditing && showEditingTip) {
-                Text(
-                    text = stringResource(R.string.ui_gamepad_editing_tip),
-                    fontSize = (11 * padScale).sp,
-                    textAlign = TextAlign.Center,
-                    color = colorResource(R.color.overlay_pad_ok),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 6.dp * padScale)
-                        .background(
-                            colorResource(R.color.overlay_scrim).copy(alpha = 0.72f),
-                            RoundedCornerShape(percent = 50),
-                        )
-                        .border(
-                            1.dp,
-                            colorResource(R.color.overlay_pad_stroke_idle),
-                            RoundedCornerShape(percent = 50),
-                        )
-                        .padding(horizontal = 14.dp * padScale, vertical = 5.dp * padScale),
-                )
-            }
+            // 编辑操作说明（REQ 本批 4）：首次进编辑态自动弹一行，6 秒或点按钮后淡出。
+            // issue#170 #7：提示本体挪出提示列，改画为面板 Box 最后一个子项 —— 居中、
+            // 最上层、至多 3 行，不再被后画的按钮盖住（见面板 Box 尾部的弹层）。
         }
 
         // 「？」重看编辑说明（REQ 本批 4）：只在编辑态出现，点一下重新弹顶部的操作提示。
@@ -697,46 +676,49 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 onMoveBy = { dx, dy -> groupAwareMove("DRight", dx, dy) }, onMoveEnd = { groupAwareEnd("DRight") })
         }
 
-        // —— 面键 ✕○□△（右侧中部，PS5 菱形位：△ 上 / ○ 右 / ✕ 下 / □ 左） ——
+        // —— 面键 ABXY（右侧中部，菱形位：Y 上 / B 右 / A 下 / X 左）——
+        // issue#170 #7：面键文字统一用 ABXY 字母，不再用 PlayStation 图形符号
+        //（PS5 槽位布局保留，只换显示文字；Exit 功能键的 ✕ 是退出键，不属面键，不动）。
+        // 键位选择器与编辑弹窗的同名显示在 GamepadPadConfig.KEY_CHOICES 同步改。
         // 锚点走钳制版（faceAnchorX）：窄面板上 0.87W+87dp 越出右缘，ABXY 整簇被裁掉
         // 纵向锚点走 clusterCy（与十字键簇同一锚，见函数注释）
         val faceCx = faceAnchorX(W, padScale)
         val faceCy = clusterCy(H, padScale)
         val yDrag = padDrag("Y")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp * padScale + yDrag.first, y = faceCy - 87.dp * padScale + yDrag.second)) {
-            Pad(label = "△", bit = GamepadController.BTN_Y, slot = "Y", scale = padScale, editing = padEditing, selected = padGroupMode && "Y" in padGroupSel,
+            Pad(label = "Y", bit = GamepadController.BTN_Y, slot = "Y", scale = padScale, editing = padEditing, selected = padGroupMode && "Y" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Y") },
                 onMoveBy = { dx, dy -> groupAwareMove("Y", dx, dy) }, onMoveEnd = { groupAwareEnd("Y") })
         }
         val bDrag = padDrag("B")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx + 29.dp * padScale + bDrag.first, y = faceCy - 29.dp * padScale + bDrag.second)) {
-            Pad(label = "○", bit = GamepadController.BTN_B, slot = "B", scale = padScale, editing = padEditing, selected = padGroupMode && "B" in padGroupSel,
+            Pad(label = "B", bit = GamepadController.BTN_B, slot = "B", scale = padScale, editing = padEditing, selected = padGroupMode && "B" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("B") },
                 onMoveBy = { dx, dy -> groupAwareMove("B", dx, dy) }, onMoveEnd = { groupAwareEnd("B") })
         }
         val aDrag = padDrag("A")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 29.dp * padScale + aDrag.first, y = faceCy + 29.dp * padScale + aDrag.second)) {
-            Pad(label = "✕", bit = GamepadController.BTN_A, slot = "A", scale = padScale, editing = padEditing, selected = padGroupMode && "A" in padGroupSel,
+            Pad(label = "A", bit = GamepadController.BTN_A, slot = "A", scale = padScale, editing = padEditing, selected = padGroupMode && "A" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("A") },
                 onMoveBy = { dx, dy -> groupAwareMove("A", dx, dy) }, onMoveEnd = { groupAwareEnd("A") })
         }
         val xDrag = padDrag("X")
         Box(modifier = Modifier.align(Alignment.TopStart).offset(x = faceCx - 87.dp * padScale + xDrag.first, y = faceCy - 29.dp * padScale + xDrag.second)) {
-            Pad(label = "□", bit = GamepadController.BTN_X, slot = "X", scale = padScale, editing = padEditing, selected = padGroupMode && "X" in padGroupSel,
+            Pad(label = "X", bit = GamepadController.BTN_X, slot = "X", scale = padScale, editing = padEditing, selected = padGroupMode && "X" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("X") },
                 onMoveBy = { dx, dy -> groupAwareMove("X", dx, dy) }, onMoveEnd = { groupAwareEnd("X") })
         }
 
-        // —— Create / Options（顶部中轴两侧，PS5 的 Share/Options 位） ——
+        // —— Select / Start（顶部中轴两侧，PS5 的 Create/Options 位；issue#170 #7 文字随通用叫法） ——
         val selDrag = padDrag("Sel")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.40f - W / 2 + selDrag.first, y = H * 0.05f + selDrag.second)) {
-            Pad(label = "Create", bit = GamepadController.BTN_SELECT, width = 76.dp, height = 30.dp, pill = true, slot = "Sel", scale = padScale, editing = padEditing, selected = padGroupMode && "Sel" in padGroupSel,
+            Pad(label = "Select", bit = GamepadController.BTN_SELECT, width = 76.dp, height = 30.dp, pill = true, slot = "Sel", scale = padScale, editing = padEditing, selected = padGroupMode && "Sel" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Sel") },
                 onMoveBy = { dx, dy -> groupAwareMove("Sel", dx, dy) }, onMoveEnd = { groupAwareEnd("Sel") })
         }
         val startDrag = padDrag("Start")
         Box(modifier = Modifier.align(Alignment.TopCenter).offset(x = W * 0.60f - W / 2 + startDrag.first, y = H * 0.05f + startDrag.second)) {
-            Pad(label = "Options", bit = GamepadController.BTN_START, width = 76.dp, height = 30.dp, pill = true, slot = "Start", scale = padScale, editing = padEditing, selected = padGroupMode && "Start" in padGroupSel,
+            Pad(label = "Start", bit = GamepadController.BTN_START, width = 76.dp, height = 30.dp, pill = true, slot = "Start", scale = padScale, editing = padEditing, selected = padGroupMode && "Start" in padGroupSel,
                 configVersion = padConfigVersion, onConfigure = { groupAwareTap("Start") },
                 onMoveBy = { dx, dy -> groupAwareMove("Start", dx, dy) }, onMoveEnd = { groupAwareEnd("Start") })
         }
@@ -917,6 +899,34 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             // cfgVer 仅作订阅占位，避免未使用告警：下方不再直接引用
             @Suppress("UNUSED_EXPRESSION")
             cfgVer
+        }
+
+        // —— 编辑操作说明弹层（issue#170 #7）：「？」重看 / 首次进编辑态都走这里 ——
+        // 排在面板 Box 最后 = 绘制在最上层，居中显示、至多 3 行，不再被后画的按钮盖住
+        //（原先排在顶部提示列里，顺序在按钮之前）。淡出计时沿用 showEditingTip 的 6 秒逻辑。
+        AnimatedVisibility(
+            visible = padEditing && showEditingTip,
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            Text(
+                text = stringResource(R.string.ui_gamepad_editing_tip),
+                fontSize = (11 * padScale).sp,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                color = colorResource(R.color.overlay_pad_ok),
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .background(
+                        colorResource(R.color.overlay_scrim).copy(alpha = 0.72f),
+                        RoundedCornerShape(percent = 50),
+                    )
+                    .border(
+                        1.dp,
+                        colorResource(R.color.overlay_pad_stroke_idle),
+                        RoundedCornerShape(percent = 50),
+                    )
+                    .padding(horizontal = 14.dp * padScale, vertical = 5.dp * padScale),
+            )
         }
     }
 }

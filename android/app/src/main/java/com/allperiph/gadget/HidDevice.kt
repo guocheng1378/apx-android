@@ -118,7 +118,7 @@ class HidDevice(
         var off = 0
         while (off < report.size) {
             val n = try {
-                Os.write(f, report, off, report.size - off)
+                writeWithEagainRetry(f, report, off, report.size - off)
             } catch (e: ErrnoException) {
                 // 主机未取走上一段：丢帧，绝不阻塞。
                 //
@@ -141,6 +141,31 @@ class HidDevice(
         // 任意一笔成功即清连败计数（EAGAIN 偶发丢帧属正常，不该触发重开）
         consecutiveWriteFailures = 0
         return true
+    }
+
+    /**
+     * EAGAIN 短程重试（issue#170 2026-11-13 pad 日志定性）：f_hid 对 O_NONBLOCK 写，
+     * 主机未取走上一份 IN 报告时返回 EAGAIN —— 此前直接丢帧，pad 实测 15 分钟 96 笔
+     * 失败、Uplink 出口在「USB / 无出口」之间横跳，用户观感「只能单发、连发全灭」。
+     * 主机取报文的间隔是毫秒级，这里对 EAGAIN 做短程重试（上限约 32ms）：短暂停顿
+     * 绝大多数能等回来；持续失败（主机真不在读）仍按丢帧上抛，维持「绝不阻塞输入线程」
+     * 的既有约束 —— 连发节奏由上层节流兜底，这里不引入长阻塞。
+     */
+    private fun writeWithEagainRetry(f: FileDescriptor, buf: ByteArray, off: Int, len: Int): Int {
+        var tries = 0
+        while (true) {
+            try {
+                return Os.write(f, buf, off, len)
+            } catch (e: ErrnoException) {
+                // OsConstants 不暴露 EWOULDBLOCK，Linux 上它恒等于 EAGAIN，只判 EAGAIN
+                if (e.errno == OsConstants.EAGAIN && tries < EAGAIN_MAX_RETRIES) {
+                    tries++
+                    sleepQuiet(EAGAIN_RETRY_MS)
+                    continue
+                }
+                throw e
+            }
+        }
     }
 
     /**
@@ -213,5 +238,10 @@ class HidDevice(
         // 写失败日志节流与 fd 重开限频（issue#168 2026-11-11，见 onWriteFailure 注释）
         private const val FAIL_LOG_INTERVAL_MS = 5_000L
         private const val REOPEN_MIN_INTERVAL_MS = 2_000L
+
+        // EAGAIN 短程重试参数（issue#170 2026-11-13，见 writeWithEagainRetry 注释）：
+        // 8 次 × 4ms ≈ 32ms 上限，覆盖主机取报文的典型毫秒级间隔，又不至于拖死输入线程
+        private const val EAGAIN_MAX_RETRIES = 8
+        private const val EAGAIN_RETRY_MS = 4L
     }
 }

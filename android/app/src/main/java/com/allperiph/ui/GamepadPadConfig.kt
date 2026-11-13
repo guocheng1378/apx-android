@@ -32,18 +32,20 @@ object GamepadPadConfig {
      */
     private const val KEY_TIP_SHOWN = "tip.editing_shown"
 
-    /** 可选键位（bit → 显示名）：与 [GamepadController] 的按钮位一一对应 */
+    /** 可选键位（bit → 显示名）：与 [GamepadController] 的按钮位一一对应。
+     *  issue#170 #7：面键与中键显示名统一通用叫法 —— ABXY 字母（不用图形符号）、
+     *  Select / Start（原 Create / Options 是 PS5 双关叫法）。 */
     val KEY_CHOICES: List<Pair<Int, String>> = listOf(
-        GamepadController.BTN_A to "✕",
-        GamepadController.BTN_B to "○",
-        GamepadController.BTN_X to "□",
-        GamepadController.BTN_Y to "△",
+        GamepadController.BTN_A to "A",
+        GamepadController.BTN_B to "B",
+        GamepadController.BTN_X to "X",
+        GamepadController.BTN_Y to "Y",
         GamepadController.BTN_L1 to "L1",
         GamepadController.BTN_R1 to "R1",
         GamepadController.BTN_L2 to "L2",
         GamepadController.BTN_R2 to "R2",
-        GamepadController.BTN_SELECT to "Create",
-        GamepadController.BTN_START to "Options",
+        GamepadController.BTN_SELECT to "Select",
+        GamepadController.BTN_START to "Start",
         GamepadController.BTN_DUP to "▲",
         GamepadController.BTN_DDOWN to "▼",
         GamepadController.BTN_DLEFT to "◀",
@@ -142,7 +144,7 @@ object GamepadPadConfig {
         prefs(ctx).edit().putBoolean(KEY_TIP_SHOWN, true).apply()
     }
 
-    /** bit 的显示名（配置界面用）：面键按 PlayStation 符号显示，与 PS5 布局对应 */
+    /** bit 的显示名（配置界面用）：面键按 ABXY 字母显示（issue#170 #7，见 [KEY_CHOICES]） */
     fun labelOf(bit: Int): String =
         KEY_CHOICES.firstOrNull { it.first == bit }?.second ?: "?"
 

@@ -463,8 +463,12 @@ internal fun HotkeyGrid(
             alignEnd = false,
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 2.dp)
-                .fillMaxHeight(),
+                // issue#170 #4：滑条起止与按钮区对齐 —— 滚动列自带 bottom = 8dp + bottomGap
+                // 内边距（视口比热键区 Box 矮一截），轨道若吃满整列高度，thumb 拖到底会
+                // 探到最后一排按钮下缘之外；把同一段内边距补给轨道。顶部本就对齐：
+                // 滚动列没有 top padding，thumb 在顶时与首行芯片同高起点。
+                .fillMaxHeight()
+                .padding(start = 2.dp, bottom = 8.dp + bottomGap),
         )
         } // 热键区 Box 闭合
         } // 标题行之外的内容列（fillMaxSize）闭合

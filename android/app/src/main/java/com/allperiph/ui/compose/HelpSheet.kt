@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +24,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,10 +103,13 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                 }
                 Column(
                     modifier = Modifier
-                        // issue#169 #13「帮助弹窗按内容自适应」：weight 默认 fill=true 会把
-                        // 正文列撑到「限高 − 标题 − 页签 − 按钮」的满额，正文短时按钮照样沉底。
-                        // fill=false 让正文列按内容收，长文顶满剩余空间后内部滚动接管。
-                        .weight(1f, fill = false)
+                        // issue#170 #3「切换说明页弹窗抽搐」：正文列原来是 weight(fill=false)
+                        // 贴内容收 —— 切分段时容器先量两段文字的最大高、结束再缩回最终高，
+                        // 卡片一次切换重排两次，观感抽搐（用户描述「自适应死循环」）。
+                        // 改固定正文高度（屏高 42%）：分段切换只换文字（长文内部滚动接管），
+                        // 卡片尺寸全程稳定，抖动无从发生；issue#169 #13 的「短文不空心」
+                        // 让位给稳定性 —— 说明类弹窗内容只会越来越长，定高是更稳的口径。
+                        .height(LocalConfiguration.current.screenHeightDp.dp * 0.42f)
                         .verticalScroll(rememberScrollState())
                         .padding(top = 8.dp),
                 ) {
