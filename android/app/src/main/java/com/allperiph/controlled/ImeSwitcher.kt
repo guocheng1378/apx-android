@@ -89,6 +89,13 @@ object ImeSwitcher {
         }
     }
 
+    /**
+     * 当前**已启用**输入法的完整 id 清单（`ime list -s` 只列 enabled 的）。
+     * 自愈/还原兜底用：还原点丢了或指向已卸载的输入法时，从这份清单里挑替身。
+     */
+    private fun listEnabledImes(): List<String> =
+        suRead("ime list -s")?.split(Regex("[\\r\\n\\s]+"))?.filter { it.contains('/') } ?: emptyList()
+
     /** 远程会话开始：记住原输入法 → 启用并切到通道输入法；没 root / 已是本通道则不动 */
     fun activate(ctx: Context) { queue.execute { activateInner(ctx) } }
 
@@ -102,13 +109,24 @@ object ImeSwitcher {
         val own = ownImeId(ctx)
         if (!ownImeRegistered(own)) {
             // v95 曾在 enable 失败后照写 settings（预检修复前的版本）：默认输入法可能
-            // 已被指到这个不存在的 IME —— 趁这次会话把它指回还原点，救回本机键盘
-            val saved = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_SAVED_IME, null)
+            // 已被指到这个不存在的 IME —— 趁这次会话把它指回还原点，救回本机键盘。
+            // 2026-11-14 补：还原点为空（用户清过应用数据/重装，偏好没了而 settings
+            // 还指着不存在的通道）时，从系统已启用输入法里挑一个非本通道的兜底——
+            // 只认还原点的话，这台机器的键盘就永远救不回来。
+            val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            val saved = sp.getString(KEY_SAVED_IME, null)
             val cur = currentDefault()
-            if (cur == own && !saved.isNullOrBlank() && saved != own) {
-                RootInput.run("settings put secure default_input_method $saved")
-                ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(KEY_SAVED_IME).apply()
-                Log.i(TAG, "默认输入法被指到未注册的通道（v95 遗留），已还原为 $saved")
+            if (cur == own) {
+                val fallback = saved?.takeIf { it != own }
+                    ?: listEnabledImes().firstOrNull { it != own }
+                if (fallback != null) {
+                    RootInput.run("settings put secure default_input_method $fallback")
+                    sp.edit().remove(KEY_SAVED_IME).apply()
+                    Log.i(TAG, "默认输入法被指到未注册的通道（v95 遗留），已还原为 $fallback" +
+                        (if (saved.isNullOrBlank()) "（还原点为空，从已启用输入法兜底挑选）" else ""))
+                } else {
+                    Log.w(TAG, "默认输入法指向未注册通道，但已启用输入法里找不到非本通道的候选，无法自愈")
+                }
             }
             return
         }
@@ -138,8 +156,14 @@ object ImeSwitcher {
         val saved = sp.getString(KEY_SAVED_IME, null) ?: return
         // root 通道不在（su 被杀/未授权）：**保留还原点**下次再试 —— 现在清掉等于把
         // 用户键盘永远留在无声通道上（本机的键盘就真没了）。发送成功才清。
-        if (RootInput.available && RootInput.run("settings put secure default_input_method $saved")) {
-            Log.i(TAG, "远程会话结束：输入法还原为 $saved")
+        // 2026-11-14 补：还原目标已不在已启用清单（被卸载/被禁用）时改用现存替身，
+        // 别把 default_input_method 指到又一个不存在的 IME 上重演 v95 的病。
+        val enabled = if (RootInput.available) listEnabledImes() else emptyList()
+        val target = if (enabled.isEmpty() || enabled.contains(saved)) saved
+            else enabled.firstOrNull { it != ownImeId(ctx) } ?: return
+        if (RootInput.available && RootInput.run("settings put secure default_input_method $target")) {
+            Log.i(TAG, "远程会话结束：输入法还原为 $target" +
+                (if (target != saved) "（原还原点 $saved 已不在已启用清单，改用现存替身）" else ""))
             sp.edit().remove(KEY_SAVED_IME).apply()
         }
     }
