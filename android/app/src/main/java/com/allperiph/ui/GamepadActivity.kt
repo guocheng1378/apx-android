@@ -1384,9 +1384,16 @@ private fun Pad(
                         val cx0 = size.width / 2f
                         val cy0 = size.height / 2f
                         val radiusPx = minOf(effW.value, effH.value) / 2f * density
-                        val edgePx = 12.dp * scale
+                        // issue#170 #6：边缘环宽度 —— 圆键固定 12dp×scale；长条药丸
+                        // （L2/R2 68×32、Select/Start 76×30）短边半径只有 15~16dp，12dp 环
+                        // 会盖掉近整颗键，编辑态点按配置/拖移几乎无从下手。改按短边比例封顶
+                        // （0.4，与 58dp 标准圆键 12/29≈0.41 同占比），环随按钮短边缩，手感一致。
+                        val edgeRingPx = minOf(
+                            (12.dp * scale).value,
+                            minOf(effW.value, effH.value) * 0.4f,
+                        ) * density
                         var resizing = !slot.isNullOrEmpty() &&
-                            hypot(down.position.x - cx0, down.position.y - cy0) > radiusPx - edgePx.toPx()
+                            hypot(down.position.x - cx0, down.position.y - cy0) > radiusPx - edgeRingPx
                         // resizing 成立 = slot 非空（见上一行的 isNullOrEmpty 判定），
                         // 但那是 var 初始化处的判定，编译器不会跨语句 smart cast；
                         // setSize 形参是非空 String —— 取一份局部非空副本落盘，
