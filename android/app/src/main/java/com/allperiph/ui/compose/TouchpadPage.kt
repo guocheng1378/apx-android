@@ -446,7 +446,7 @@ private fun HotkeyGrid(
             }
         }
         }
-        } // 标题行之外的内容列（fillMaxSize）闭合
+        // —— 热键网格滚动列（311）到此闭合；热键区 Box 保持展开，包住下方滚动条 ——
         // 左侧竖向滚动条：内容不超高时不画（VScrollbar 内部 maxValue<=0 直接返回）。
         // issue#169 #9 追评：原先挂在 BoxWithConstraints 层（fillMaxHeight 量到含标题行的
         // 整卡高度），条子能一路拖出快捷键区域、往下滑到消失；现在挂进热键区 Box，
@@ -460,6 +460,7 @@ private fun HotkeyGrid(
                 .fillMaxHeight(),
         )
         } // 热键区 Box 闭合
+        } // 标题行之外的内容列（fillMaxSize）闭合
     }
 }
 
