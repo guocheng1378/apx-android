@@ -750,7 +750,18 @@ object TvInjector {
         // rootInActiveWindow 取不到节点）→ 改走"剪贴板 + ACTION_PASTE"。
         // 以前没有这层兜底，于是用户看到的就是"打字没反应"。
         if (ApxAccessibilityService.instance?.paste(s) == true) return
-        Log.w(TAG, "文本注入失败（当前没有聚焦的输入框？）：'$s'")
+        // 2026-11-13 诊断补强（用户 v94 真机「手机控手机键盘不能用」）：文本通道
+        // 四级全空时原先只有一句「文本注入失败」，分不清断在哪级。现在把各级状态
+        // 分开打：isActive()=false → 被控机没启用/没选中「全能外设」输入法；
+        // true 但 commit 没落 → 输入法在服务但当前无输入连接（输入框没聚焦）；
+        // typeText/paste 全败 = 焦点/节点问题（HyperOS 拒绝 SET_TEXT 也落这）。
+        // 修一处查同模式：key() 的注入失败原因日志已随 v223.29.94 落地，text() 同口径补齐。
+        val accReady = ApxAccessibilityService.instance != null
+        Log.w(
+            TAG,
+            "文本注入失败：输入法${if (ApxImeService.isActive()) "在服务但无输入连接" else "未启用/非当前输入法"}、" +
+                "无障碍${if (accReady) "已连接" else "未连接"}，焦点写入与粘贴均被拒（输入框没聚焦？）：'$s'",
+        )
     }
 
     /** 多媒体位图（与 CONSUMER_MAP 同序）：音量/静音用 AudioManager，播放控制尽力而为 */
