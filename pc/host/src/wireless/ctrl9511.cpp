@@ -1204,7 +1204,8 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbAlbumPage = onAlbumPage;
     const auto cbAlbumPageFail = onAlbumPageFail;
     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
-                                    cbNotifyPush, cbNotifyDismiss, cbPhoneFileList, cbPhoneFileFail,
+                                    cbNotifyPush, cbNotifyDismiss, cbNotifyReplyResult,
+                                    cbPhoneFileList, cbPhoneFileFail,
                                     cbAlbumPage, cbAlbumPageFail] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
