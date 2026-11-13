@@ -368,6 +368,8 @@
 2. 选中「AllPeriph」确认；旧配对先删再配（缓存的是「手机」类型）。
 3. 配对后本机自动回连。被控手机需亮屏解锁（锁屏会吞掉 HID 输入）。
 
+注意：不是所有手机都能当蓝牙键鼠的主机——realme / OPPO 系（真机实测）没有「手机作蓝牙 HID 主机」入口，手机控手机请用 Wi-Fi 直连；电脑 / 电视等真 HID 主机不受影响。
+
 配对一次即可。Wi-Fi 断开时键鼠自动回落蓝牙；文件 / 剪贴板等协议功能仍需 Wi-Fi。</string>
     <string name="ui_bt_pair_open_settings">打开系统蓝牙设置</string>
     <string name="ui_bt_pair_open_failed">无法打开蓝牙设置</string>
