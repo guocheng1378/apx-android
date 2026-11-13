@@ -36,6 +36,8 @@
 #include "apxpc/ui/panel_http.hpp"
 
 #include "apxpc/autostart.hpp"
+#include "apxpc/app/update_check.hpp"  // update.check / update.open：面板此前没接，概览页检查更新回「未知动作」
+#include "apxpc/version.hpp"           // APXPC_VERSION_STRING：update.check 回带当前版本
 #include "apxpc/config/app_config.hpp"
 #include "apxpc/discovery/discovery.hpp"
 #include "apxpc/discovery/enumerator.hpp"
@@ -1101,6 +1103,43 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, okResp(d));
     }
 
+    // ———————— 更新通道（2026-11-14）：面板层此前完全没接 update.*，前端概览页
+    // 「检查更新」与横幅「查看」在这里都回「未知动作」。动作面与 web_panel.cpp /
+    // action_router.cpp 对齐：检查、打开下载页；一键安装是 Windows 专属（Win 端
+    // Setup.exe 资产），mac 诚实回话不 hidden —— 缺分支比不能用的按钮更糟。
+    if (name == "update.check") {
+        const auto r = apxpc::app::checkForUpdate();
+        Json d = Json::makeObject();
+        d["netOk"] = r.ok;
+        d["hasNewer"] = r.hasNewer;
+        d["latestTag"] = r.latestTag;
+        d["error"] = r.error;
+        d["current"] = APXPC_VERSION_STRING;
+        d["url"] = "https://github.com/guocheng1378/apx-android/releases/latest";
+        // mac 没有 Setup.exe 一键装：恒 false，前端保持「查看」跳下载页
+        d["canInstall"] = false;
+        return postResponse(p, id, okResp(d));
+    }
+    // app.openUrl / update.open：打开下载页。白名单与 web_panel.cpp 同口径
+    //（本仓库 Release 域 + 镜像），act 通道不能变成任意 URL 启动器。
+    if (name == "app.openUrl" || name == "update.open") {
+        const Json* u = payload.find("url");
+        const std::string url = u ? u->asString() : std::string();
+        const bool allowed =
+            url.rfind("https://github.com/guocheng1378/apx-android/", 0) == 0 ||
+            url.rfind("https://gh-proxy.com/", 0) == 0;
+        if (!allowed) return postResponse(p, id, failResp("只允许打开本项目的 Release 页"));
+        const bool did = std::system(("open '" + url + "'").c_str()) == 0;
+        Json d = Json::makeObject();
+        d["ok"] = did;
+        if (!did) d["url"] = url;
+        return postResponse(p, id, okResp(d));
+    }
+    if (name == "update.install") {
+        // mac 没有 Setup.exe：如实告知去下载页手动装（前端不会主动调，防御分支）
+        return postResponse(p, id, failResp("macOS 暂不支持一键安装，请到 Release 页下载"));
+    }
+
     return postResponse(p, id, failResp("未知动作: " + name));
 }
 
@@ -1650,6 +1689,28 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
             apxpc::autostart::setAutostart(true);
         }
     }
+
+    // 更新检查（与 desktop_main.cpp 的 Win 更新线程同源）：启动 10s 后后台查一次
+    // GitHub releases，有新版推 on-update-available 给前端顶部横幅。10s 延迟给
+    // 前端就绪留窗口（事件轮询 400ms 起，更早推的也会被 since=0 补到，不急）。
+    // pushEvent 只碰全局事件环，面板退出后线程再推也无害 —— detach 安全。
+    std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+        const auto r = apxpc::app::checkForUpdate();
+        if (!r.ok || !r.hasNewer) {
+            if (!r.ok) APX_LOGI("检查更新：{}", r.error.c_str());
+            else APX_LOGI("检查更新：已是最新（{}）", r.latestTag.c_str());
+            return;
+        }
+        APX_LOGI("检查更新：发现新版本 {}", r.latestTag.c_str());
+        Json d = Json::makeObject();
+        d["latest"] = r.latestTag;
+        d["current"] = APXPC_VERSION_STRING;
+        d["url"] = "https://github.com/guocheng1378/apx-android/releases/latest";
+        // 本面板跑在 mac/Linux：没有 Setup.exe 一键装，前端保持「查看」跳下载页
+        d["canInstall"] = false;
+        pushEvent(std::string("on-update-available"), d);
+    }).detach();
 
     // 自动发现（runWebPanel 关键修复同款：缺这步永远 Idle 不收 APX1PH 信标）
     if (panel.bundle.session) {

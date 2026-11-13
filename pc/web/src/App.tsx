@@ -31,9 +31,14 @@ export default function App() {
   const [page, setPage] = React.useState<PageId>('overview');
   const [toasts, setToasts] = React.useState<Toast[]>([]);
   const [remote, setRemote] = React.useState<{ hint: string } | null>(null);
-  const [update, setUpdate] = React.useState<{ latest: string; current: string; url: string } | null>(
-    null,
-  );
+  const [update, setUpdate] = React.useState<{
+    latest: string;
+    current: string;
+    url: string;
+    canInstall?: boolean; // 宿主支持一键装（Win 且 Release 有 Setup 资产）；mac 恒 false
+    download?: { percent: number } | null; // 下载中（percent -1 = 总量未知）
+    donePath?: string; // 下载完成后的安装包路径：横幅切「立即安装」
+  } | null>(null);
   const { pref, setPref } = useTheme();
   const pageRef = React.useRef<PageId>('overview');
   pageRef.current = page;
@@ -61,9 +66,41 @@ export default function App() {
     () =>
       bridge.onEvent('on-update-available', (evt: any) => {
         const d = evt?.data || {};
-        if (d.latest && d.url) setUpdate({ latest: d.latest, current: d.current || '', url: d.url });
+        if (d.latest && d.url)
+          setUpdate({
+            latest: d.latest,
+            current: d.current || '',
+            url: d.url,
+            canInstall: !!d.canInstall,
+            download: null,
+          });
       }),
     [],
+  );
+
+  // 一键升级下载进度/结果：横幅按钮按状态切换（下载中禁用 → 就绪后「立即安装」）
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-update-download-progress', (evt: any) => {
+        const pct = evt?.data?.percent;
+        setUpdate((u) =>
+          u ? { ...u, download: { percent: typeof pct === 'number' ? Math.round(pct) : -1 } } : u,
+        );
+      }),
+    [],
+  );
+  React.useEffect(
+    () =>
+      bridge.onEvent('on-update-download-done', (evt: any) => {
+        const d = evt?.data || {};
+        if (d.ok && d.path) {
+          setUpdate((u) => (u ? { ...u, download: null, donePath: d.path } : u));
+        } else {
+          pushToast(`升级包下载失败：${d.error || '未知原因'}`, 'err');
+          setUpdate((u) => (u ? { ...u, download: null } : u)); // 横幅回退为「查看」
+        }
+      }),
+    [pushToast],
   );
 
   // 托盘「文件传输…」：以前是弹文件窗，现在直接切到传输页（事件与页面两处同源）
@@ -228,14 +265,47 @@ export default function App() {
           <div className="topbar-right">
             {update && (
               <div className="update-pill">
-                新版 {update.latest}
-                <button
-                  className="btn btn-primary btn-sm"
-                  style={{ height: 26, borderRadius: 99 }}
-                  onClick={() => bridge.act('app.openUrl', { url: update.url }).catch(() => {})}
-                >
-                  查看
-                </button>
+                {update.donePath ? '安装包已就绪' : `新版 ${update.latest}`}
+                {update.canInstall ? (
+                  /* 一键升级（Win）：下载中禁用并显示百分比；就绪后切「立即安装」 */
+                  update.donePath ? (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ height: 26, borderRadius: 99 }}
+                      onClick={() =>
+                        bridge
+                          .act('update.installRun', { path: update.donePath })
+                          .catch(() => {})
+                      }
+                    >
+                      立即安装
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      style={{ height: 26, borderRadius: 99 }}
+                      disabled={!!update.download}
+                      onClick={() => bridge.act('update.install').catch(() => {})}
+                    >
+                      {update.download
+                        ? update.download.percent >= 0
+                          ? `下载中 ${update.download.percent}%`
+                          : '下载中…'
+                        : '一键升级'}
+                    </button>
+                  )
+                ) : (
+                  /* 非一键（mac）：保持「查看」跳下载页（后端 app.openUrl 白名单代开） */
+                  <button
+                    className="btn btn-primary btn-sm"
+                    style={{ height: 26, borderRadius: 99 }}
+                    onClick={() =>
+                      bridge.act('app.openUrl', { url: update.url }).catch(() => {})
+                    }
+                  >
+                    查看
+                  </button>
+                )}
                 <button
                   className="icon-btn"
                   style={{ width: 24, height: 24 }}

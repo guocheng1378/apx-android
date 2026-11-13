@@ -58,6 +58,8 @@
 #include "apxpc/media/mic_bridge.hpp"
 #include "apxpc/media/camera_view.hpp"  // M7-c 1/8：面板接摄像头（预览窗 + 虚拟摄像头出口）
 #include "apxpc/autostart.hpp"
+#include "apxpc/app/update_check.hpp"   // update.check / update.install 一键升级（此前只接在热键路由器，面板上点不动）
+#include "apxpc/version.hpp"            // APXPC_VERSION_STRING：update.check 回带当前版本
 #include "apxpc/tray/tray_win32.hpp"
 #include "apxpc/discovery/discovery.hpp"
 #include "apxpc/discovery/enumerator.hpp"
@@ -551,6 +553,11 @@ std::string peerHost(Panel* p) {
 std::mutex g_sendMu;
 std::vector<std::thread> g_sendThreads;
 
+// 一键升级线程：与 g_sendThreads 同款约束 —— 线程持 Panel*，退出前 join
+// （下载几十 MB 可能跑好几分钟，面板中途退出绝不悬空）。
+std::mutex g_updateMu;
+std::vector<std::thread> g_updateThreads;
+
 // 异步发文件：绝不能在 UI 线程 / 托盘线程里同步 sendFile（大文件会卡死消息循环，
 // 老面板 file_panel_win32 也是开 std::thread 发）。respId 非空 → 完成后回
 // act-response（前端 file.send await 收尾）；为空 → 推 on-file-send-done 事件（托盘入口）。
@@ -694,6 +701,79 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
             APX_LOGW("app.openUrl 拒绝非白名单 URL：{}", url.c_str());
         }
         // 防御分支（本 UI 不会触发）：回 ok 避免前端挂 10s 超时，拒绝已落日志。
+        return postResponse(p, id, okResp());
+    }
+    // ———————— 一键升级（2026-11-14）：面板层此前没接 update.*，概览页「检查更新」
+    // 与横幅「查看」在面板上一直回「未知动作」（update.check/update.open 只接在
+    // 热键路由器里）。字段名与 action_router.cpp 的同名分支保持一致，另加
+    // canInstall/setupUrl 供前端区分一键装与跳转下载页。
+    if (name == "update.check") {
+        const auto r = apxpc::app::checkForUpdate();
+        Json d = Json::makeObject();
+        d["netOk"] = r.ok;
+        d["hasNewer"] = r.hasNewer;
+        d["latestTag"] = r.latestTag;
+        d["error"] = r.error;
+        d["current"] = APXPC_VERSION_STRING;
+        d["url"] = "https://github.com/guocheng1378/apx-android/releases/latest";
+        // Windows 有 Setup 资产才能一键装；没有就退回「查看」跳下载页
+        d["canInstall"] = !r.setupUrl.empty();
+        d["setupUrl"] = r.setupUrl;
+        return postResponse(p, id, okResp(d));
+    }
+    if (name == "update.install") {
+        // 防重入用静态 atomic：同一面板实例同时只允许一个下载在跑
+        static std::atomic<bool> updateInstalling{false};
+        if (updateInstalling.exchange(true))
+            return postResponse(p, id, failResp("升级已在进行中"));
+        {
+            Json d = Json::makeObject();
+            d["started"] = true;
+            postResponse(p, id, okResp(d));   // HTTP 语义同 file.send：先回「已开始」，结果走事件
+        }
+        {
+            std::lock_guard<std::mutex> lk(g_updateMu);
+            g_updateThreads.emplace_back([p] {
+                const auto r = apxpc::app::checkForUpdate();
+                auto failDone = [p](const std::string& msg) {
+                    Json d = Json::makeObject();
+                    d["ok"] = false;
+                    d["error"] = msg;
+                    postEvent(p, std::string("on-update-download-done"), d);
+                };
+                if (!r.ok) { failDone("检查更新失败：" + r.error); return; }
+                if (!r.hasNewer) { failDone("已是最新版本，无需升级"); return; }
+                if (r.setupUrl.empty()) { failDone("本次 Release 未提供 Windows 安装包，请到下载页手动下载"); return; }
+                char tempDir[MAX_PATH] = {};
+                const std::string dest =
+                    ::GetTempPathA(MAX_PATH, tempDir) > 0 ? std::string(tempDir) : std::string(".");
+                std::string outPath, derr;
+                const bool ok = apxpc::app::downloadSetupInstaller(r.setupUrl, dest, outPath, derr,
+                    [p](int percent) {
+                        Json d = Json::makeObject();
+                        d["percent"] = static_cast<double>(percent);
+                        postEvent(p, std::string("on-update-download-progress"), d);
+                    });
+                if (!ok) { failDone("安装包下载失败：" + derr); return; }
+                Json d = Json::makeObject();
+                d["ok"] = true;
+                d["path"] = outPath;
+                d["tag"] = r.latestTag;
+                postEvent(p, std::string("on-update-download-done"), d);
+            });
+        }
+        return;
+    }
+    if (name == "update.installRun") {
+        const std::string path = payload.find("path") ? payload.find("path")->asString() : "";
+        if (path.empty()) return postResponse(p, id, failResp("未指定安装包路径"));
+        std::string err;
+        if (!apxpc::app::runSetupInstallerSilently(path, err))
+            return postResponse(p, id, failResp(err));
+        // 安装器 CLOSEAPPLICATIONS 会接住退出中的本进程，RESTARTAPPLICATIONS 装完拉回新版；
+        // 这里走与 window.quit 相同的退出路径给安装器让路（先置标志再 WM_CLOSE）。
+        p->running.store(false);
+        ::PostMessageW(p->hwnd, WM_CLOSE, 0, 0);
         return postResponse(p, id, okResp());
     }
     if (name == "session.connectManual" && b.session) {
@@ -1664,6 +1744,8 @@ void notifyUpdateAvailable(const std::string& latestTag, const std::string& curr
     d["latest"] = latestTag;
     d["current"] = currentTag;
     d["url"] = url;
+    // Win 桌面壳恒可一键装（update.install 可用）；前端按这个字段切按钮
+    d["canInstall"] = true;
     postEvent(p, std::string("on-update-available"), d);
 }
 
@@ -1985,6 +2067,12 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
         std::lock_guard<std::mutex> lk(g_sendMu);
         for (auto& t : g_sendThreads) if (t.joinable()) t.join();
         g_sendThreads.clear();
+    }
+    // 一键升级线程同款约束：下载几十 MB 可能还在跑，先 join 再析构 Panel
+    {
+        std::lock_guard<std::mutex> lk(g_updateMu);
+        for (auto& t : g_updateThreads) if (t.joinable()) t.join();
+        g_updateThreads.clear();
     }
     // 媒体建链线程：面板退出前 join（Panel 是栈对象，析构时若线程仍 joinable 会 terminate）
     // 互传接收端：先停再清 g_panel —— 接收线程的回调以 g_panel 为准，顺序反了会漏推事件
