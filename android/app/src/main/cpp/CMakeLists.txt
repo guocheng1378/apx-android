@@ -46,6 +46,8 @@ target_compile_definitions(apx PRIVATE APX_JNI_CLASS=com_allperiph_shared_input_
 # 虚拟鼠标（uinput）走同一份 apx_uinput.c，但 JNI 符号挂在 UinputMouse 类下；
 # 类名宏由这里传入，避免与手柄的符号冲突。
 target_compile_definitions(apx PRIVATE APX_JNI_CLASS_MOUSE=com_allperiph_shared_input_UinputMouse)
+# 虚拟键盘（uinput）走同一份 apx_uinput.c，JNI 符号挂在 UinputKeyboard 类下。
+target_compile_definitions(apx PRIVATE APX_JNI_CLASS_KB=com_allperiph_shared_input_UinputKeyboard)
 
 find_library(APX_LOG_LIB log)
 if(APX_LOG_LIB)

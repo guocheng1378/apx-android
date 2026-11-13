@@ -6,6 +6,7 @@ import android.os.SystemClock
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 import com.allperiph.shared.input.RootInput
+import com.allperiph.shared.input.UinputKeyboard
 import com.allperiph.shared.input.UinputMouse
 import com.allperiph.shared.inject.TvInjector
 import java.io.InputStream
@@ -595,6 +596,13 @@ class ControlServer(
 
     private val MOD_KEYCODE = intArrayOf(113, 59, 57, 117, 114, 60, 58, 118)
 
+    /** 本帧此刻是否有修饰键按住（onKeyboard 按 mod 位图更新；组合键路由的判据） */
+    @Volatile
+    private var anyModifierHeld = false
+
+    /** 已改走 uinput 真键盘的字符键（usage→字符）：抬起时按原路抬起，不走错通道 */
+    private val routedChars = HashMap<Int, Char>()
+
     private fun onKeyboard(body: ByteArray) {
         val mod = body[1].toInt() and 0xFF; val now = HashSet<Int>()
         val end = if (body.size < 9) body.size else 9
@@ -605,6 +613,9 @@ class ControlServer(
             return
         }
         for (bit in 0 until 8) { if (mod and (1 shl bit) != 0) now.add(0xE0 + bit) }
+        // 修饰键状态先于按键 diff 更新：hidDown 里字符是否改走 uinput 真键盘（组合键）
+        // 要看「本帧此刻有没有修饰键按住」，提前一帧/滞后一帧都会让组合键散架
+        anyModifierHeld = now.any { it in 0xE0..0xE7 }
         val prev = synchronized(keysLock) { HashSet(pressedKeys) }
         for (u in prev) { if (u !in now) hidUp(u) }
         for (u in now) { if (u !in prev) hidDown(u) }
@@ -623,17 +634,31 @@ class ControlServer(
         for (u in held) runCatching { hidUp(u) }
         if (hadLeftBtn || hadRightBtn || pendingRight != null) runCatching { endpoint.pressUp() }
         if (hadMiddleBtn) UinputMouse.button(2, false)   // 中键按住断连：抬起，不残留卡键
+        UinputKeyboard.releaseAll()   // 真键盘按住的修饰键/字符兜底抬起（断连时对端未必按序发抬起帧）
     }
 
     private fun hidDown(usage: Int) {
         if (usage in 0xE0..0xE7) { val kc = MOD_KEYCODE[usage - 0xE0]; endpoint.key(kc, true); return }
         val (kc, ch) = HID_MAP[usage] ?: (0 to '\u0000')
+        // 组合键路由（2026-11-13）：修饰键按住时字符改走 uinput 真键盘 —— 内核把
+        // Ctrl/Shift 状态随事件流一起送进应用，Ctrl+C / Shift+A 才有真实语义；输入法/
+        // 无障碍文本通道只能发裸字符，组合键等于白按。无修饰键时不改道：输入法文本
+        // 通道中英文最稳（uinput 真键盘经系统按键分发，中文组合输入反而过不去）。
+        if (anyModifierHeld && ch != '\u0000' && UinputKeyboard.ready) {
+            if (UinputKeyboard.sendChar(ch, down = true)) {
+                synchronized(keysLock) { routedChars[usage] = ch }
+                return
+            }
+        }
         if (kc != 0) endpoint.key(kc, true)
         if (ch != '\u0000') endpoint.text(ch)
     }
 
     private fun hidUp(usage: Int) {
         if (usage in 0xE0..0xE7) { val kc = MOD_KEYCODE[usage - 0xE0]; endpoint.key(kc, false); return }
+        // 按下时改走真键盘的字符，抬起必须原路返回（此刻修饰键可能已松开，不能再判一次）
+        val routed = synchronized(keysLock) { routedChars.remove(usage) }
+        if (routed != null) { if (UinputKeyboard.ready) UinputKeyboard.sendChar(routed, down = false); return }
         val (kc, _) = HID_MAP[usage] ?: (0 to '\u0000')
         if (kc != 0) endpoint.key(kc, false)
     }

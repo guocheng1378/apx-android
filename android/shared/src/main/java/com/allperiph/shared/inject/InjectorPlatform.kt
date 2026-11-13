@@ -104,5 +104,10 @@ interface InjectorPlatform {
             "虚拟鼠标（系统原生光标）",
             "需要 root（会自动尝试 chmod /dev/uinput）",
         ),
+        Triple(
+            "ukey",
+            "虚拟键盘（组合键）",
+            "需要 root（会自动尝试 chmod /dev/uinput）",
+        ),
     )
 }

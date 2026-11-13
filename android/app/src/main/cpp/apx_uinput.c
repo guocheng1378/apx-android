@@ -59,6 +59,12 @@
 #endif
 #define APX_JNI_M(name)     APX_JNI2(APX_JNI_CLASS_MOUSE, name)
 
+/* 虚拟键盘（UinputKeyboard）同款：独立类名宏 APX_JNI_CLASS_KB。 */
+#ifndef APX_JNI_CLASS_KB
+#define APX_JNI_CLASS_KB com_allperiph_shared_input_UinputKeyboard
+#endif
+#define APX_JNI_K(name)     APX_JNI2(APX_JNI_CLASS_KB, name)
+
 /* 与内核 struct uinput_user_dev 布局一致（自己定义，不受 uapi 头增删影响） */
 typedef struct {
     char name[UINPUT_MAX_NAME_SIZE];
@@ -296,4 +302,102 @@ JNIEXPORT void JNICALL APX_JNI_M(sendMouseButton)(JNIEnv *env, jobject thiz, jin
     (void) env; (void) thiz;
     apx_memit(EV_KEY, btn, down ? 1 : 0);
     apx_msyn();
+}
+
+/* ————————————————————————————————————————————————————————————————————————————
+ * 虚拟键盘（与虚拟手柄/鼠标同款 uinput 老式接口，独立第三个 fd）：
+ *   - 组合键的唯一正解：root `input keyevent` 自带 down+up（修饰状态留不住）、
+ *     无障碍注不了任意按键、evdev 又常因 /dev/input 权限不可用 —— uinput 直接新建
+ *     一只内核键盘设备，修饰键以独立 down/up 事件进出，内核据此合成 META_* 状态。
+ *   - 键位位图整段声明（0..KEY_MAX）：Kotlin 侧按「安卓键码 → Linux 键码」映射后直接发
+ *     编号，两边不共享键位清单 —— 整段声明杜绝「C 漏声明一个键、写进去被内核丢弃」的暗坑。
+ *   - 设备名 "APX Virtual Keyboard" —— evdev 扫描类工具按名字排除含 apx/allperiph
+ *     的设备，防止把自己当成真实键盘产生自激。
+ * ———————————————————————————————————————————————————————————————————————————— */
+
+static int g_kfd = -1;
+
+static void apx_kemit(int type, int code, int value) {
+    if (g_kfd < 0) return;
+    struct input_event ev;
+    memset(&ev, 0, sizeof(ev));
+    gettimeofday(&ev.time, NULL);
+    ev.type = (unsigned short) type;
+    ev.code = (unsigned short) code;
+    ev.value = value;
+    /* 写失败通常是设备被销毁；静默忽略，由 isKeyboardReady() 反映真实状态 */
+    if (write(g_kfd, &ev, sizeof(ev)) < 0) {
+        LOGW("虚拟键盘 uinput 写入失败：%s", strerror(errno));
+    }
+}
+
+static void apx_ksyn(void) { apx_kemit(EV_SYN, SYN_REPORT, 0); }
+
+/** 创建虚拟键盘。可重复调用，已创建时直接返回 true。 */
+JNIEXPORT jboolean JNICALL APX_JNI_K(openKeyboard)(JNIEnv *env, jobject thiz) {
+    (void) env; (void) thiz;
+    if (g_kfd >= 0) return JNI_TRUE;
+
+    int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        LOGW("打开 /dev/uinput 失败：%s（无权限时虚拟键盘不可用，按键走原通道）", strerror(errno));
+        return JNI_FALSE;
+    }
+
+    if (ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0 ||
+        ioctl(fd, UI_SET_EVBIT, EV_SYN) < 0) {
+        LOGW("UI_SET_EVBIT 失败：%s", strerror(errno));
+        close(fd);
+        return JNI_FALSE;
+    }
+
+    /* 键位位图整段声明（见上方说明）：只有 EV_KEY 没有 REL/ABS，内核归为纯键盘 */
+    for (int code = 0; code <= KEY_MAX; code++) {
+        ioctl(fd, UI_SET_KEYBIT, code);
+    }
+
+    apx_uinput_dev_t udev;
+    memset(&udev, 0, sizeof(udev));
+    snprintf(udev.name, UINPUT_MAX_NAME_SIZE, "APX Virtual Keyboard");
+    udev.id.bustype = BUS_USB;
+    udev.id.vendor = 0x2b1a;
+    udev.id.product = 0x0abe;   /* 与手柄 0x0abc / 鼠标 0x0abd 区分，三只虚拟设备 */
+    udev.id.version = 1;
+
+    if (write(fd, &udev, sizeof(udev)) != (ssize_t) sizeof(udev)) {
+        LOGW("写 uinput_user_dev 失败：%s", strerror(errno));
+        close(fd);
+        return JNI_FALSE;
+    }
+    if (ioctl(fd, UI_DEV_CREATE) < 0) {
+        LOGW("UI_DEV_CREATE 失败：%s", strerror(errno));
+        close(fd);
+        return JNI_FALSE;
+    }
+
+    g_kfd = fd;
+    LOGI("虚拟键盘已创建：APX Virtual Keyboard（修饰键/F 键独立 down-up，内核级组合键）");
+    return JNI_TRUE;
+}
+
+/** 销毁虚拟键盘（不调用也不会崩，进程退出内核会回收） */
+JNIEXPORT void JNICALL APX_JNI_K(closeKeyboard)(JNIEnv *env, jobject thiz) {
+    (void) env; (void) thiz;
+    if (g_kfd < 0) return;
+    ioctl(g_kfd, UI_DEV_DESTROY);
+    close(g_kfd);
+    g_kfd = -1;
+    LOGI("虚拟键盘已销毁");
+}
+
+JNIEXPORT jboolean JNICALL APX_JNI_K(isKeyboardReady)(JNIEnv *env, jobject thiz) {
+    (void) env; (void) thiz;
+    return g_kfd >= 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+/** 键盘按键：key 用 Linux KEY_* 值，down=true 按下（修饰状态由内核按 down/up 序列合成） */
+JNIEXPORT void JNICALL APX_JNI_K(sendKeyboardKey)(JNIEnv *env, jobject thiz, jint key, jboolean down) {
+    (void) env; (void) thiz;
+    apx_kemit(EV_KEY, key, down ? 1 : 0);
+    apx_ksyn();
 }

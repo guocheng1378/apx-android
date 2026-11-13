@@ -17,6 +17,7 @@ import com.allperiph.shared.ime.ApxImeService
 import com.allperiph.shared.input.EvdevInjector
 import com.allperiph.shared.input.RootInput
 import com.allperiph.shared.input.UinputGamepad
+import com.allperiph.shared.input.UinputKeyboard
 import com.allperiph.shared.input.UinputMouse
 import com.allperiph.shared.util.Log
 
@@ -150,11 +151,15 @@ object TvInjector {
         //  ⑤ uinput 虚拟鼠标：被控端新建内核鼠标设备，系统原生光标随 REL 位移真动；
         //    就绪后蓝点浮层退场（见 paintOverlay），点/长按/滚动仍走原注入通道
         Thread({ runCatching { UinputMouse.tryStart() } }, "${platform.threadPrefix}-uinput-mouse").start()
+        //  ⑥ uinput 虚拟键盘：修饰键/F 键独立 down-up，组合键（Ctrl+C 等）的唯一正解
+        Thread({ runCatching { UinputKeyboard.tryStart() } }, "${platform.threadPrefix}-uinput-key").start()
         RootInput.tryStart()
         initialized = true
     }
 
     fun onDestroy() {
+        // 断连收尾：抬起虚拟键盘按住的所有键（修饰键/字母在内核侧不残留）
+        UinputKeyboard.releaseAll()
         platform?.overlay?.destroy()
         ctx = null
         initialized = false
@@ -179,7 +184,7 @@ object TvInjector {
     }
 
     /** 是否具备「任意按键」级别的能力 */
-    fun fullKeyReady(): Boolean = RootInput.available || EvdevInjector.available
+    fun fullKeyReady(): Boolean = RootInput.available || EvdevInjector.available || UinputKeyboard.ready
 
     /**
      * 控制能力自检清单：`(名称, 是否就绪, 没就绪时该怎么办)`。
@@ -199,6 +204,7 @@ object TvInjector {
                 "ime" -> ApxImeService.isActive()
                 "uinput" -> UinputGamepad.ready
                 "umouse" -> UinputMouse.ready
+                "ukey" -> UinputKeyboard.ready
                 else -> false
             }
             out.add(Triple(name, ready, how))
@@ -555,6 +561,11 @@ object TvInjector {
     }
 
     fun key(kc: Int, down: Boolean) {
+        // ⓪ uinput 虚拟键盘（内核级）：修饰键/F 键走真键盘 —— down/up 是独立事件，
+        //    修饰状态能留住，Ctrl+C / Shift+Tab 这类组合键才有注入语义（root `input
+        //    keyevent` 自带 down+up，修饰状态留不住，见 ③）。表外键返回 false 落回
+        //    原通道，既有已验证行为（返回/主页/方向键等）一个不碰。
+        if (UinputKeyboard.ready && UinputKeyboard.sendKey(kc, down)) return
         // ① evdev 内核注入（免 root）：按下与松开都真的发出去，长按/连发/组合键才对
         if (EvdevInjector.available && EvdevInjector.sendKey(kc, down)) return
         if (!down) return
@@ -603,6 +614,8 @@ object TvInjector {
             else -> {
                 // 其余（含 Ctrl/Alt/Shift/Win 修饰键 113/59/57/117/114/60/58/118，由键盘帧的
                 // mod 位图折出）：本机没有组合键注入语义，只能忽略。
+                // ★ 修饰键/F 键正常情况到不了这里 —— ⓪ 的 uinput 虚拟键盘已经接住；
+                //   只有虚拟键盘不可用（无 root / uinput 被禁）时才落到本分支。
                 // ★ 但**必须打日志**：以前静默丢弃，用户只看到"键位不对/按了没反应"，
                 //   谁都查不到到底丢了哪个键。
                 Log.w(TAG, "被控按键未支持（无障碍通道无法注入该键）：kc=$kc")
