@@ -800,4 +800,6 @@
     <string name="ui_gamepad_cfg_done">完成</string>
     <string name="ui_gamepad_editing_tip">拖动移动 · 捏边缩放 · 点按改键</string>
     <string name="ui_gamepad_btn_tip_help">？</string>
+    <!-- issue#170 #5 追修：编辑态一键清全部槽位的拖动偏移（按钮被旧配置顶出屏幕时的全量入口）。 -->
+    <string name="ui_gamepad_btn_reset_all">复位</string>
 </resources>

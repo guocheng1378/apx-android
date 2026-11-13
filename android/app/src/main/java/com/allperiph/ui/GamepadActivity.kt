@@ -66,6 +66,7 @@ import com.allperiph.R
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /**
  * 全屏游戏手柄（v1.x 起，v223.25 起只剩壳）：双虚拟摇杆 + 常用按键，经 [GamepadController]
@@ -438,7 +439,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // 对齐参考线（issue#169 第 19 条）：吸附生效时画加宽的十字轴提示，拖动结束即撤；
         // 垫在所有按键底下（Box 内第一个孩子），不挡编辑态的编辑白罩与拖拽面。
+        // issue#170 #9：编辑中被点选（配置卡开着）的按钮，其横纵轴线全程常显，中心 =
+        // 按钮实时中心（基准锚点 + 实时偏移，拖动跟手）；其他任一按钮中心与轴重合
+        // （|差| ≤ 2dp）时该轴变红提示「叠按钮了」，脱开即恢复常态色。
         val guideColor = colorResource(R.color.overlay_pad_ok)
+        val guideHitColor = colorResource(R.color.overlay_pad_warn)
         Canvas(modifier = Modifier.fillMaxSize()) {
             val lw = 2.5.dp.toPx()
             padGuides.first?.let { x ->
@@ -446,6 +451,26 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             }
             padGuides.second?.let { y ->
                 drawLine(guideColor, Offset(0f, y.dp.toPx()), Offset(size.width, y.dp.toPx()), lw)
+            }
+            val cfgSlot = padConfiguring
+            if (padEditing && cfgSlot != null) {
+                val base = centers[cfgSlot]
+                if (base != null) {
+                    val off = padOffsets[cfgSlot] ?: (0f to 0f)
+                    val cx = base.first + off.first
+                    val cy = base.second + off.second
+                    val hit = 2.dp.toPx()
+                    val vHit = centers.any { (s, oc) -> s != cfgSlot && abs(oc.first - cx) <= hit }
+                    val hHit = centers.any { (s, oc) -> s != cfgSlot && abs(oc.second - cy) <= hit }
+                    drawLine(
+                        if (vHit) guideHitColor else guideColor,
+                        Offset(cx.dp.toPx(), 0f), Offset(cx.dp.toPx(), size.height), lw,
+                    )
+                    drawLine(
+                        if (hHit) guideHitColor else guideColor,
+                        Offset(0f, cy.dp.toPx()), Offset(size.width, cy.dp.toPx()), lw,
+                    )
+                }
             }
         }
 
@@ -607,6 +632,26 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     onDown = {
                         padGroupMode = !padGroupMode
                         if (!padGroupMode) padGroupSel = emptySet()
+                        Feedback.haptic(padCtx)
+                    },
+                )
+            }
+        }
+
+        // —— 复位（issue#170 #5 追修）：编辑态一键清全部槽位的拖动偏移 ——
+        // 场景：手柄槽位配置随覆盖更新保留，旧布局/旧拖拽留下的偏移可能把按钮顶出
+        // 屏幕外，出屏按钮点不到、开不了单槽「恢复位置」——只有全量入口救得回来。
+        // 只清偏移不动键位/尺寸（误点无破坏性，拖坏了再拖回来即可），放「组」上方同列。
+        if (padEditing) {
+            Box(modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp * padScale, bottom = 104.dp * padScale)) {
+                Pad(
+                    label = stringResource(R.string.ui_gamepad_btn_reset_all),
+                    bit = 0, width = 40.dp * padScale, height = 40.dp * padScale, scale = padScale,
+                    onDown = {
+                        GamepadPadConfig.resetAllOffsets(padCtx)
+                        // 内存偏移 state 一并归零（GamepadPadConfig.resetAllOffsets 不管这块）
+                        padOffsets = padOffsets + OFFSET_SLOTS.associateWith { 0f to 0f }
+                        padConfigVersion++
                         Feedback.haptic(padCtx)
                     },
                 )
@@ -817,10 +862,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     }
                 }
                 // 尺寸行：点开 / 收起四档横条（捏边无级缩放不变，实时值优先于配置档）；
-                // 摇杆尺寸不受配置控制，整行隐藏（issue#169 第 18③ 条）
+                // 摇杆尺寸不受配置控制，整行隐藏（issue#169 第 18③ 条）。
+                // issue#170 #6：显示改用实际渲染口径 —— 存档值在平板档要 × padScale 才是
+                // 屏上真实尺寸（短边/360、封顶 1.5），此前显示存档值导致「同 dp 值 pad
+                // 上按钮比手机大很多」的度量错乱观感；手机档 scale=1 数值不变。
                 if (!isStick) {
                     Text(
-                        text = stringResource(R.string.ui_gamepad_cfg_size, "${curSize}dp"),
+                        text = stringResource(R.string.ui_gamepad_cfg_size, "${(curSize * padScale).roundToInt()}dp"),
                         fontSize = (15 * padScale).sp,
                         color = colorResource(R.color.overlay_pad_text),
                         modifier = Modifier
@@ -855,7 +903,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                                         },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(text = "$sz", fontSize = (13 * padScale).sp, color = colorResource(R.color.overlay_pad_text))
+                                    // issue#170 #6：档位显示同样换算成实际渲染 dp（选中态仍按存档口径比对）
+                                    Text(text = "${(sz * padScale).roundToInt()}", fontSize = (13 * padScale).sp, color = colorResource(R.color.overlay_pad_text))
                                 }
                             }
                         }

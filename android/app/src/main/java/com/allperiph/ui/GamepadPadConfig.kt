@@ -122,6 +122,21 @@ object GamepadPadConfig {
     }
 
     /**
+     * 一键清空全部槽位的拖动偏移（issue#170 #5 追修：配置随覆盖更新/跨版本保留，
+     * 旧布局时代拖出来的偏移可能把按钮顶出屏幕，而出屏的按钮点不到、开不了
+     * 单槽「恢复位置」——只有全量入口救得回来）。只清 offx./offy.，键位与尺寸
+     * 存档不动；调用方要自己把内存里的偏移 state 一并归零（同 [reset] 的注意）。
+     */
+    fun resetAllOffsets(ctx: Context) {
+        prefs(ctx).edit().apply {
+            (SLOT_DEFAULTS.keys + STICK_SLOTS).forEach { slot ->
+                remove(KEY_OFF_X + slot)
+                remove(KEY_OFF_Y + slot)
+            }
+        }.apply()
+    }
+
+    /**
      * 恢复某槽位默认（REQ 手柄编辑器 本批 3，配置卡「恢复默认」行）：清掉该槽位的
      * 键位 / 尺寸 / 偏移 x / 偏移 y 四个键，读端自动回落 [SLOT_DEFAULTS] 与 (0,0) ——
      * 不新增 key、不迁移，老配置直接兼容。注意：这只清存档，调用方要自己把
