@@ -126,6 +126,9 @@ class FilePanelActivity : ComponentActivity() {
     /** 平板双栏（≥600dp）：右栏当前选中的文件；窄屏不用（tap 行即转发） */
     private var selected by mutableStateOf<File?>(null)
 
+    /** 待确认删除的文件：Compose 确认卡状态（见 setContent 内 deleteTarget 卡） */
+    private var deleteTarget by mutableStateOf<File?>(null)
+
     /**
      * 「所有文件访问」授权状态（方向三：电脑浏览手机文件的前提）。
      * onCreate 首查 + onResume 复查——用户从系统设置授完权回来立刻消失，不用重启面板。
@@ -212,6 +215,45 @@ class FilePanelActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // —— 删除确认卡（2026-11-13 UI 审查）：文件删除不可恢复，必须弹确认；
+                // 原生 ApDialog 与全 App 的 DialogCard 卡片风是两套皮，统一走卡片弹窗
+                //（本页已是 Compose 宿主，状态挂 Activity 字段，confirmDelete 只置状态）。
+                deleteTarget?.let { f ->
+                    ApComponents.DialogCard(onDismiss = { deleteTarget = null }) {
+                        Text(text = getString(R.string.ui_filepanel_delete_title), fontSize = 16.sp)
+                        Text(
+                            text = getString(R.string.ui_filepanel_delete_msg, f.name),
+                            fontSize = 13.sp,
+                            color = colorResource(R.color.overlay_muted),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_common_cancel),
+                                onClick = { deleteTarget = null },
+                            )
+                            ApComponents.NarrowButton(
+                                text = getString(R.string.ui_common_delete),
+                                onClick = {
+                                    val ok = runCatching { f.delete() }.getOrDefault(false)
+                                    status(
+                                        if (ok) getString(R.string.ui_filepanel_deleted, f.name)
+                                        else getString(R.string.ui_filepanel_delete_failed, f.name),
+                                        !ok,
+                                    )
+                                    if (ok) {
+                                        if (selected == f) selected = null
+                                        refreshList()
+                                    }
+                                    deleteTarget = null
+                                },
+                            )
+                        }
+                    }
+                }
             },
         )
         refreshTargets()
@@ -285,7 +327,7 @@ class FilePanelActivity : ComponentActivity() {
                 // 2026-11-13 UI 审查：原 actionText 文字按钮无 44dp 命中下限、无按压反馈、
                 // 无震动，颜色走 overlay_* 写死资源 —— 整体换 ApComponents.NarrowButton
                 // （Miuix TextButton 直通：命中/反馈/震/主题色全有）。删除的红色语义由
-                // ApDialog 二次确认兜底（confirmDelete 不变）。
+                // confirmDelete 二次确认兜底。
                 Row(modifier = Modifier.padding(top = 10.dp)) {
                     ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_text_forward)) { sendFile(sel) }
                     ApComponents.NarrowButton(text = getString(R.string.ui_filepanel_open)) { openFile(sel) }
@@ -480,22 +522,11 @@ class FilePanelActivity : ComponentActivity() {
 
     /**
      * 行内「删除」：文件删除不可恢复，必须弹确认（用户反馈"文件管理里没有删除"）。
-     * 双栏里删除的是右栏选中文件 —— 删掉后顺手清掉选中态，右栏退回引导文案。
+     * 2026-11-13 UI 审查：确认从原生 ApDialog 换成 Compose 侧 [deleteTarget] 状态 +
+     * DialogCard（本页 Compose 宿主内统一卡片风），本函数只负责置待删目标。
      */
     private fun confirmDelete(f: File) {
-        ApDialog.builder(this)
-            .setTitle(getString(R.string.ui_filepanel_delete_title))
-            .setMessage(getString(R.string.ui_filepanel_delete_msg, f.name))
-            .setPositiveButton(getString(R.string.ui_common_delete)) { _, _ ->
-                val ok = runCatching { f.delete() }.getOrDefault(false)
-                status(if (ok) getString(R.string.ui_filepanel_deleted, f.name) else getString(R.string.ui_filepanel_delete_failed, f.name), !ok)
-                if (ok) {
-                    if (selected == f) selected = null
-                    refreshList()
-                }
-            }
-            .setNegativeButton(getString(R.string.ui_common_cancel), null)
-            .show()
+        deleteTarget = f
     }
 
     // ————————————————————————————— 打开 / 分享（v2）—————————————————————————————

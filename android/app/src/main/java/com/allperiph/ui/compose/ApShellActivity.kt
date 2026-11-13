@@ -1276,26 +1276,22 @@ internal fun ApDevicePickerBody(
         // 此前这个开关只在设置页「快捷键与外设」与触控板页出现，选设备这条动线上没有，
         // 用户要「这台被对方控」时得先离开选择器。这里给一行就地切换（服务启停走
         // ControlledService 自己的开关位，与那些入口是同一条链路）。
-        ApComponents.ActionButton(
-            text = ctx.getString(R.string.ui_pick_device_controlled) + "：" +
-                ctx.getString(
-                    if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
-                ),
-            onClick = {
-                // 震动已由 ApComponents.ActionButton 统一给（2026-11-04 一整套手感），这里不再叠
-                if (controlledOn) {
-                    com.allperiph.controlled.ControlledService.stop(ctx)
-                } else {
+        // 2026-11-13 UI 审查：开关语义原用 ActionButton 的「被控：开/关」文案切换表达，
+        // 与全 App 的 SwitchRow 口径不符 —— 改标准开关行；开关态本身即反馈，
+        // 原「开/关」Toast 随文案切换一并摘除。
+        ApComponents.SwitchRow(
+            title = ctx.getString(R.string.ui_pick_device_controlled),
+            checked = controlledOn,
+            onCheckedChange = { on ->
+                // SwitchRow 内部只有 Switch（无 ActionButton 的统一震动），这里补一次轻震，
+                // 与设置页/状态页的开关行同口径
+                com.allperiph.ui.Feedback.haptic(ctx)
+                if (on) {
                     com.allperiph.controlled.ControlledService.start(ctx)
+                } else {
+                    com.allperiph.controlled.ControlledService.stop(ctx)
                 }
                 controlledOn = com.allperiph.controlled.ControlledService.running
-                android.widget.Toast.makeText(
-                    ctx,
-                    ctx.getString(
-                        if (controlledOn) R.string.ui_home_controlled_on else R.string.ui_home_controlled_off,
-                    ),
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
             },
         )
         // 悬浮面板的「关闭」按钮落左栏底（横屏时与被控开关同列）；
