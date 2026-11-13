@@ -304,9 +304,15 @@ private fun HotkeyGrid(
                     }
                 }
             }
+            // issue#169 #9 追评：网格列外面再包一层「热键区 Box」—— 左侧滚动条从
+            // BoxWithConstraints 层挪进这层 Box，高度就被限制在热键区内
+            //（详见下方 VScrollbar 处注释）；Box 自身吃掉标题行以下的全部剩余高度。
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             Column(
-                modifier = Modifier.fillMaxWidth().weight(1f)
-                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp + bottomGap)
+                modifier = Modifier.fillMaxSize()
+                    // issue#169 #9 追评：左列起点 12→20dp，给左侧滚动条留出 2~18dp 的沟
+                    //（滚动条宽 16dp），芯片从 20dp 起、不再被滚动条盖住。
+                    .padding(start = 20.dp, end = 12.dp, bottom = 8.dp + bottomGap)
                     .verticalScroll(gridScroll)
                     .pointerInput(items.size) {
                         detectTapGestures(onLongPress = { openManager() })
@@ -440,8 +446,11 @@ private fun HotkeyGrid(
             }
         }
         }
-        } // 标题行之外的内容列（fillMaxSize）闭合：滚动条要画在 Box 层（盖在标题+网格上）
-        // 左侧竖向滚动条：内容不超高时不画（VScrollbar 内部 maxValue<=0 直接返回）
+        } // 标题行之外的内容列（fillMaxSize）闭合
+        // 左侧竖向滚动条：内容不超高时不画（VScrollbar 内部 maxValue<=0 直接返回）。
+        // issue#169 #9 追评：原先挂在 BoxWithConstraints 层（fillMaxHeight 量到含标题行的
+        // 整卡高度），条子能一路拖出快捷键区域、往下滑到消失；现在挂进热键区 Box，
+        // 高度只覆盖网格，不再越界。
         ApComponents.VScrollbar(
             scrollState = gridScroll,
             alignEnd = false,
@@ -450,6 +459,7 @@ private fun HotkeyGrid(
                 .padding(start = 2.dp)
                 .fillMaxHeight(),
         )
+        } // 热键区 Box 闭合
     }
 }
 

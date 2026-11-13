@@ -518,6 +518,17 @@ class FloatingBallService : Service() {
     /** 扇形菜单浮层（v223.15）：单击悬浮球展开的那一圈快捷项 */
     private var menu: View? = null
 
+    /**
+     * 球旁浮动提示（issue#169 #5 追评）：快捷项切换的报态改为自建 overlay 小条。
+     * 背景：这三处原先用系统 Toast，而悬浮球服务常年退到后台（球压在别的应用上），
+     * 系统对后台应用的 Toast 有队列限流 —— 连点几档后除队头外全部被丢弃，
+     * 用户看到的是「功能切了但没提示」。自建小窗不受该限流约束。
+     */
+    private var ballTip: View? = null
+
+    /** [ballTip] 的自动隐藏任务：新提示先撤旧任务再排新的，避免旧任务误删新提示 */
+    private var ballTipHide: Runnable? = null
+
     /** 展开中的快捷项（id → 那一格 View）：连接模式切换后按它就地刷新选中态 */
     private val fanItems = mutableListOf<Pair<String, View>>()
 
@@ -843,6 +854,7 @@ class FloatingBallService : Service() {
         detach(ball)
         detach(panel)
         detach(menu)
+        removeBallTip()
         panelHost?.destroy()
         panelHost = null
         panelKind = null
@@ -868,6 +880,8 @@ class FloatingBallService : Service() {
         closeMenu()
         panel?.let { collapse() }
         detach(ball)
+        // 就地收球时菜单已被 closeMenu 收掉（内部会一并清球旁提示），这里再兜一道
+        removeBallTip()
         ballAttached = false
         ballAttachedGlobal = false
         docked = false
@@ -1804,6 +1818,67 @@ class FloatingBallService : Service() {
         detach(menu)
         menu = null
         fanItems.clear()
+        // 菜单收起时球旁提示没有存在意义（报态只在菜单开着时发生）
+        removeBallTip()
+    }
+
+    /**
+     * 球旁浮动提示（issue#169 #5 追评）：showBallTip 取代三个快捷项处理器里的系统 Toast。
+     *
+     * 自建 overlay 小条（TYPE_APPLICATION_OVERLAY + NOT_FOCUSABLE / NOT_TOUCH_MODAL），
+     * 挂在球心上方；位置换算沿用 setupBallTouch 注释里的口径 —— 窗口 x/y 不带状态栏偏移。
+     * 先按球的窗口位给个粗位，挂上后（拿到实际宽高）再微调到球心正上方；
+     * 新提示先撤旧的，1.5s 后自动移除。
+     */
+    private fun showBallTip(text: String) {
+        removeBallTip()
+        val tv = TextView(themed)
+        tv.text = text
+        tv.textSize = 13f
+        tv.maxWidth = dp(280)
+        tv.setTextColor(getColor(R.color.md_on_surface))
+        tv.setBackgroundResource(R.drawable.ap_ball_tip)
+        tv.setPadding(dp(12), dp(7), dp(12), dp(7))
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            // 粗位：球心横坐标、球上方一段 —— 挂上后按实际宽高微调
+            val blp = ball?.layoutParams as? WindowManager.LayoutParams
+            x = (blp?.x ?: 0) + dp(BALL_DP) / 2
+            y = (blp?.y ?: 0) - dp(64)
+        }
+        runCatching { wm.addView(tv, lp) }.onFailure {
+            Log.w(TAG, "球旁提示挂载失败：${it.message}")
+            return
+        }
+        ballTip = tv
+        // 微调到球心正上方：宽高只有挂上后才量得到
+        tv.post {
+            if (ballTip !== tv) return@post
+            val blp = ball?.layoutParams as? WindowManager.LayoutParams
+            val tipLp = tv.layoutParams as? WindowManager.LayoutParams
+            if (blp == null || tipLp == null) return@post
+            tipLp.x = blp.x + dp(BALL_DP) / 2 - tv.width / 2
+            tipLp.y = (blp.y - tv.height - dp(8)).coerceAtLeast(dp(8))
+            runCatching { wm.updateViewLayout(tv, tipLp) }
+        }
+        val hide = Runnable { if (ballTip === tv) removeBallTip() }
+        ballTipHide = hide
+        Handler(Looper.getMainLooper()).postDelayed(hide, 1500)
+    }
+
+    /** 收掉球旁提示：隐藏任务一并撤，重复调用安全（detach 自带 runCatching） */
+    private fun removeBallTip() {
+        ballTipHide?.let { Handler(Looper.getMainLooper()).removeCallbacks(it) }
+        ballTipHide = null
+        ballTip?.let { detach(it) }
+        ballTip = null
     }
 
     /** 快捷项分发：触控板 / 键盘 / 手柄 / 设备 = 浮窗面板（就地完成）；文件与被控台 = 完整页面（startActivity）；退出与连接模式 = 服务内处理 */
@@ -1937,10 +2012,11 @@ class FloatingBallService : Service() {
 
     /**
      * 双开关项（成宇 2026-11-07「悬浮球菜单加上物理键盘全局转发的切换开关，方便不用
-     * 的时候关闭」）。语义与连接模式项一致：就地翻转、Toast 报态、**不收菜单**。
+     * 的时候关闭」）。语义与连接模式项一致：就地翻转、球旁提示报态、**不收菜单**。
      * 写点与设置页完全同一条 prefs；开不起来时（无障碍没启用）**如实回退并提示**，
      * 绝不让球上显示假的「已开启」。
-     * （root 直读项已随功能整体移除 —— issue#168 2026-11-11 用户报开关闪退且实测无效。）
+     * （root 直读项已随功能整体移除 —— issue#168 2026-11-11 用户报开关闪退且实测无效。
+     *  issue#169 #5 追评：Toast 在后台服务里被系统限流丢弃，改自建球旁提示 showBallTip。）
      */
     private fun onFanToggle(id: String) {
         val label = getString(BallConfig.labelRes(id))
@@ -1950,17 +2026,15 @@ class FloatingBallService : Service() {
                 GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), next)
                 if (next && !a11yForwardOn()) {
                     GlobalKeyForwarder.setEnabled(GlobalKeyForwarder.prefs(this), false)
-                    Toast.makeText(this, getString(R.string.ui_ball_toggle_kb_a11y), Toast.LENGTH_SHORT).show()
+                    showBallTip(getString(R.string.ui_ball_toggle_kb_a11y))
                     renderFanStates()
                     return
                 }
             }
         }
-        Toast.makeText(
-            this,
+        showBallTip(
             getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
-            Toast.LENGTH_SHORT,
-        ).show()
+        )
         renderFanStates()
     }
 
@@ -1979,28 +2053,25 @@ class FloatingBallService : Service() {
         // （数据层硬编码，与状态页标题同一个双源）—— AgentController 现改存资源 id
         // （transportRes），本层用 Service 上下文解析。
         val label = getString(AgentController.transportRes(kind))
-        Toast.makeText(
-            this,
+        // issue#169 #5 追评：后台服务发 Toast 会被系统限流丢弃（连点几档只剩队头），
+        // 改自建球旁提示，不再受约束。
+        showBallTip(
             getString(if (next) R.string.ui_ball_menu_mode_on else R.string.ui_ball_menu_mode_off, label),
-            Toast.LENGTH_SHORT,
-        ).show()
+        )
         renderFanStates()
     }
 
     /**
      * 被控机系统项（issue#169 第 5 条）：就地循环 Windows → macOS → Linux → Android，
      * 与设置页「快捷键模板」的下拉同一写点（[PeerOs.setCurrent]）—— 两处状态不会打架。
-     * 开关类语义：翻转、Toast 报态、**不收菜单**，连按即逐档切换。
+     * 开关类语义：翻转、球旁提示报态、**不收菜单**，连按即逐档切换。
      */
     private fun onFanPeerOs() {
         val labels = PeerOs.labels(this)
         val next = PeerOs.fromIndex((PeerOs.indexOf(PeerOs.current(this)) + 1) % PeerOs.entries.size)
         PeerOs.setCurrent(this, next)
-        Toast.makeText(
-            this,
-            getString(R.string.ui_ball_menu_peer_os, labels[PeerOs.indexOf(next)]),
-            Toast.LENGTH_SHORT,
-        ).show()
+        // issue#169 #5 追评：同 onFanToggle —— Toast 被系统限流丢弃，改球旁提示
+        showBallTip(getString(R.string.ui_ball_menu_peer_os, labels[PeerOs.indexOf(next)]))
         renderFanStates()
     }
 
@@ -2229,13 +2300,16 @@ class FloatingBallService : Service() {
                             (AgentController.module(com.allperiph.core.ModuleId.TOUCHPAD) as? TouchpadModule)
                                 ?.armRightDrag()
                         },
-                        modifier = Modifier.fillMaxWidth().weight(2f),
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                     )
-                    // issue#169 #8「悬浮球竖屏时快捷键只显示一行」：竖屏面板总高 30% 夹
-                    // 220~360dp，1/3 权重分给热键卡往往只剩 ~100dp，只够画一行芯片。
-                    // 给热键卡加 188dp 下限（≈3 行芯片 + 间距 + 标题/内边距），竖屏时
-                    // 快捷键至少能露出 3 行；空间不足时手势面按 weight 让位。
-                    Box(modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 188.dp).padding(top = 8.dp)) {
+                    // issue#169 #8 追评「悬浮球竖屏时快捷键仍只显示一行」：上一版给热键卡
+                    // 加了 weight(1f) + heightIn(min=188dp)，但在 Compose Column 里两者会
+                    // 打架 —— weight 按份额把可用高切成小份（竖屏面板总高 ~300dp 时只分得
+                    // ~66dp），heightIn(min=188) 又要求按 188dp 测量，两个子项加起来超出
+                    // 面板高度，溢出部分被窗口裁掉，热键卡实际仍只有一行。
+                    // 改法：热键卡不再参与权重分配，直接给死高 196dp（含 8dp 顶部留白 =
+                    // 卡 188dp，≈3 行芯片）；手势面用 weight(1f) 吃掉剩余全部空间。
+                    Box(modifier = Modifier.fillMaxWidth().height(196.dp).padding(top = 8.dp)) {
                         FloatingHotkeyCard(ctx = this@FloatingBallService, modifier = Modifier.fillMaxSize())
                     }
                 }

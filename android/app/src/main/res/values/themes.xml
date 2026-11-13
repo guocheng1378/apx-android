@@ -42,9 +42,11 @@
         <item name="apOnPrimary">@color/md_on_primary</item>
         <item name="android:colorAccent">@color/md_primary</item>
         <!-- issue#169 #13「弹窗补圆角」：原先 windowBackground 是纯色矩形，把圆角面板的
-             四个角垫成了直角（自定义键盘布局 / 快捷键管理弹窗尤其明显）。改透明窗底 +
-             圆角半径 24dp，面板圆角直接可见；面板本身的底色仍走 colorBackground。 -->
-        <item name="android:windowBackground">@android:color/transparent</item>
+             四个角垫成了直角（自定义键盘布局 / 快捷键管理弹窗尤其明显）。
+             8157abe 曾改透明窗底 + dialogCornerRadius=24dp，但 framework 的 AlertDialog
+             面板自身不画背景，透明窗底让弹窗内容直接浮在页面上（回归）。
+             现改为带 24dp 圆角的实底 drawable：既露圆角又保底色。 -->
+        <item name="android:windowBackground">@drawable/ap_dialog_panel</item>
         <item name="android:colorBackground">@color/md_surface</item>
         <item name="android:dialogCornerRadius">24dp</item>
         <!-- issue#169 #13「弹窗根据内容自适应长宽」：framework 对浮动窗口的默认最小宽

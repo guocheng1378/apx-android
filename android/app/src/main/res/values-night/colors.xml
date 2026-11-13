@@ -71,6 +71,10 @@
     <color name="overlay_pad_key_idle">#2EFFFFFF</color>
     <color name="overlay_pad_stroke_pressed">#DDFFFFFF</color>
     <color name="overlay_pad_stroke_idle">#66FFFFFF</color>
+    <!-- 摇杆本体配色：与 values 同值（手柄页固定深色） -->
+    <color name="overlay_stick_base">#22FFFFFF</color>
+    <color name="overlay_stick_ring">#55FFFFFF</color>
+    <color name="overlay_stick_knob">#DDFFFFFF</color>
 
     <!-- 模块状态色（深色）：与 values 同名覆盖 -->
     <color name="module_state_running">#FF3DDC97</color>

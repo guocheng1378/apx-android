@@ -13,7 +13,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -78,7 +77,11 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
         // scrollable = false：本弹窗内部用 weight(1f) + 自己的 verticalScroll 分区
         // （标题/页签/正文滚动/底部按钮四段），外层再包一层滚动会让 weight 在无界高度里失效。
         ApComponents.DialogCard(onDismiss = onDismiss, heightRatio = 0.82f, scrollable = false) {
-            Column(modifier = Modifier.fillMaxSize()) {
+            // issue#169 #13「帮助弹窗按内容自适应」：外层原来是 fillMaxSize —— 它会贴满
+            // DialogCard 的限高（0.82 屏高），正文再短卡片也撑成一张大半屏的空心卡，
+            // 关闭按钮被推到底部、中间一片空白。改 fillMaxWidth（只撑宽不撑高），
+            // 卡片高度贴内容收，长文仍受 DialogCard 的 heightIn 上限兜底。
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(text = ctx.getString(R.string.ui_main_cat_help), fontSize = 18.sp)
                 // 分段页签（横滑放得下七段）：当前段高亮，点一下只换正文
                 Row(
@@ -98,7 +101,10 @@ fun ApHelpSheet(onDismiss: () -> Unit) {
                 }
                 Column(
                     modifier = Modifier
-                        .weight(1f)
+                        // issue#169 #13「帮助弹窗按内容自适应」：weight 默认 fill=true 会把
+                        // 正文列撑到「限高 − 标题 − 页签 − 按钮」的满额，正文短时按钮照样沉底。
+                        // fill=false 让正文列按内容收，长文顶满剩余空间后内部滚动接管。
+                        .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState())
                         .padding(top = 8.dp),
                 ) {

@@ -779,6 +779,9 @@
     <string name="ui_gamepad_cfg_key">键位：%1$s</string>
     <string name="ui_gamepad_cfg_size">尺寸：%1$s</string>
     <string name="ui_gamepad_cfg_reset">恢复默认</string>
+    <!-- issue#169 第 18④ 条：摇杆槽位没有键位/尺寸配置，恢复默认只清偏移，文案改「恢复默认位置」；
+         普通按钮仍是「恢复默认」（恢复键位/尺寸/偏移四维）。 -->
+    <string name="ui_gamepad_cfg_reset_pos">恢复默认位置</string>
     <string name="ui_gamepad_cfg_done">完成</string>
     <string name="ui_gamepad_editing_tip">拖动移动 · 捏边缩放 · 点按改键</string>
     <string name="ui_gamepad_btn_tip_help">？</string>

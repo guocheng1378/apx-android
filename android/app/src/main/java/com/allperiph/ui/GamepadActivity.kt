@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -53,7 +54,6 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.core.Uplink
 import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
@@ -430,12 +430,10 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 if (sy == null && abs(ny - oc.second) <= snapRadius) sy = oc.second
             }
             padGuides = sx to sy
-            // 吸附时把这一帧位移改写为「贴到轴上」的差值；未吸上的轴照常跟手
-            padMoveBy(
-                slot,
-                sx?.let { it - base.first - cur.first } ?: dx,
-                sy?.let { it - base.second - cur.second } ?: dy,
-            )
+            // issue#169 #18① 追评「对齐轴强制吸附导致无法移动」：吸附不再改写位移，
+            // 只亮轴线提示 —— 拖动全程照常跟手，用户自己决定要不要对齐；
+            // 参考线在半径内亮起、松手即撤（padMoveEnd 里清）。
+            padMoveBy(slot, dx, dy)
         }
 
         // 对齐参考线（issue#169 第 19 条）：吸附生效时画加宽的十字轴提示，拖动结束即撤；
@@ -745,7 +743,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
 
         // —— 双摇杆（底部中轴两侧；PlayStation 系摇杆不贴角） ——
         // 编辑态：上层盖一块透明拖拽面接管触摸（摇杆本体收不到事件），拖 = 移位落盘；
-        // 普通态不盖章，摇杆照常吃输入。JoystickView 自身不动。
+        // 普通态不盖章，摇杆照常吃输入。本体是纯 Compose 摇杆（见 Stick 注释）。
         // 摇杆横向锚点走钳制版 stickAnchorX（簇/摇杆相叠时向外让开 + 防越出左右缘，见函数注释）
         val lsCx = stickAnchorX(W, H, stickSize, padScale, left = true).coerceAtLeast(stickSize / 2 + 8.dp * padScale)
         val rsCx = stickAnchorX(W, H, stickSize, padScale, left = false).coerceAtMost(W - stickSize / 2 - 8.dp * padScale)
@@ -800,12 +798,16 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // issue#169 第 21 条：功能键（✕/✎）没有键位可改，只出「尺寸」行与「恢复默认」——
                 // 键位行对着 0 号位显示「?」反而让用户误以为坏了
                 val isFunc = GamepadPadConfig.FUNC_SLOTS.contains(slot)
+                // issue#169 第 18③ 条：摇杆（LStick/RStick）键位/尺寸两行同样无效——
+                // Stick 布局不读 size 配置、SLOT_DEFAULTS 里也没有摇杆兜底，
+                // 之前显示出「键位:A + 尺寸 58dp」的假配置，怎么点都没反应。整体隐藏。
+                val isStick = GamepadPadConfig.STICK_SLOTS.contains(slot)
                 Text(
                     text = stringResource(R.string.ui_gamepad_cfg_title, slot),
                     fontSize = (16 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_text),
                 )
-                if (!isFunc) {
+                if (!isFunc && !isStick) {
                     // 键位行：点开 / 收起 14 键网格（点选即落盘，保持展开方便连改多颗）
                     Text(
                         text = stringResource(R.string.ui_gamepad_cfg_key, GamepadPadConfig.labelOf(curBit)),
@@ -832,44 +834,47 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         )
                     }
                 }
-                // 尺寸行：点开 / 收起四档横条（捏边无级缩放不变，实时值优先于配置档）
-                Text(
-                    text = stringResource(R.string.ui_gamepad_cfg_size, "${curSize}dp"),
-                    fontSize = (15 * padScale).sp,
-                    color = colorResource(R.color.overlay_pad_text),
-                    modifier = Modifier
-                        .padding(top = 10.dp * padScale)
-                        .height(40.dp * padScale)
-                        .clickable {
-                            sizePickerOpen = !sizePickerOpen
-                            keyPickerOpen = false
-                            Feedback.haptic(cfgCtx)
-                        },
-                )
-                if (sizePickerOpen) {
-                    Row(
-                        modifier = Modifier.padding(top = 8.dp * padScale),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp * padScale),
-                    ) {
-                        GamepadPadConfig.SIZE_CHOICES.forEach { sz ->
-                            val picked = sz == curSize
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 44.dp * padScale, height = 36.dp * padScale)
-                                    .background(colorResource(R.color.overlay_pad_key_idle), RoundedCornerShape(10.dp))
-                                    .border(
-                                        if (picked) 2.dp else 1.dp,
-                                        colorResource(if (picked) R.color.overlay_pad_ok else R.color.overlay_pad_stroke_idle),
-                                        RoundedCornerShape(10.dp),
-                                    )
-                                    .clickable {
-                                        GamepadPadConfig.set(cfgCtx, slot, curBit, sz)
-                                        padConfigVersion++
-                                        Feedback.haptic(cfgCtx)
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(text = "$sz", fontSize = (13 * padScale).sp, color = colorResource(R.color.overlay_pad_text))
+                // 尺寸行：点开 / 收起四档横条（捏边无级缩放不变，实时值优先于配置档）；
+                // 摇杆尺寸不受配置控制，整行隐藏（issue#169 第 18③ 条）
+                if (!isStick) {
+                    Text(
+                        text = stringResource(R.string.ui_gamepad_cfg_size, "${curSize}dp"),
+                        fontSize = (15 * padScale).sp,
+                        color = colorResource(R.color.overlay_pad_text),
+                        modifier = Modifier
+                            .padding(top = 10.dp * padScale)
+                            .height(40.dp * padScale)
+                            .clickable {
+                                sizePickerOpen = !sizePickerOpen
+                                keyPickerOpen = false
+                                Feedback.haptic(cfgCtx)
+                            },
+                    )
+                    if (sizePickerOpen) {
+                        Row(
+                            modifier = Modifier.padding(top = 8.dp * padScale),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp * padScale),
+                        ) {
+                            GamepadPadConfig.SIZE_CHOICES.forEach { sz ->
+                                val picked = sz == curSize
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 44.dp * padScale, height = 36.dp * padScale)
+                                        .background(colorResource(R.color.overlay_pad_key_idle), RoundedCornerShape(10.dp))
+                                        .border(
+                                            if (picked) 2.dp else 1.dp,
+                                            colorResource(if (picked) R.color.overlay_pad_ok else R.color.overlay_pad_stroke_idle),
+                                            RoundedCornerShape(10.dp),
+                                        )
+                                        .clickable {
+                                            GamepadPadConfig.set(cfgCtx, slot, curBit, sz)
+                                            padConfigVersion++
+                                            Feedback.haptic(cfgCtx)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(text = "$sz", fontSize = (13 * padScale).sp, color = colorResource(R.color.overlay_pad_text))
+                                }
                             }
                         }
                     }
@@ -877,8 +882,11 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // 恢复默认（REQ 本批 3）：清该槽位键位/尺寸/偏移四键，不弹确认 ——
                 // 改动可再调回来，且编辑态本身不发光标。内存里的偏移 state 也要归零，
                 // 否则按钮不回到默认位（存档清了、画面还在原地）。
+                // 摇杆只有位置可恢复，文案区分（issue#169 第 18④ 条）。
                 Text(
-                    text = stringResource(R.string.ui_gamepad_cfg_reset),
+                    text = stringResource(
+                        if (isStick) R.string.ui_gamepad_cfg_reset_pos else R.string.ui_gamepad_cfg_reset,
+                    ),
                     fontSize = (15 * padScale).sp,
                     color = colorResource(R.color.overlay_pad_text),
                     modifier = Modifier
@@ -1004,10 +1012,21 @@ private fun BoxScope.FuncDragOverlay(
 }
 
 /**
- * 虚拟摇杆容器：本体是 [JoystickView]（AndroidView，多指认领与回中都在里面），
- * 外面包一层负责「编辑态拖拽移位」。编辑态盖一块透明拖拽面接管触摸——上层先于
- * 下层收到事件且全部消费，摇杆本体收不到；普通态不盖，摇杆照常吃输入。
- * 编辑态另加 8% 白罩提示「这东西在编辑」。
+ * 虚拟摇杆容器：本体是**纯 Compose 摇杆**（Canvas 画圆底 / 描边 / 摇杆头 +
+ * pointerInput 手势），外面包一层负责「编辑态拖拽移位」。编辑态盖一块透明拖拽面
+ * 接管触摸——上层先于下层收到事件且全部消费，摇杆本体收不到；普通态不盖，
+ * 摇杆照常吃输入。编辑态另加 8% 白罩提示「这东西在编辑」。
+ *
+ * issue#169 #17 追评「双摇杆无法同时操控」根因：旧实现用 AndroidView 包 JoystickView
+ * （View 内多指认领本身正确），但双指分落两颗摇杆时走 Android ViewGroup 原生分发 ——
+ * ACTION_DOWN 命中的第一个子 View 认领整个手势，第二根手指的 POINTER_DOWN 不会派给
+ * 另一颗摇杆（ViewGroup 默认不开 motionEventSplitting），双摇杆同操永远不通；
+ * LS/RS 的接线本身没错。改纯 Compose 后，每颗摇杆只命中落进自己边界的那根指针
+ *（Compose 按 pointer 独立命中派发），双摇杆天然可同操。
+ *
+ * 手势语义照搬旧 JoystickView：落下即按摇杆键（L3/R3，issue#169 第 17 条），
+ * 拖出 touch slop 先松键再进轴值模式（两条语义互斥），抬手 / 取消兜底回中，
+ * 不会把 L3/R3 卡住。轴值线性映射 [-127,127]，超出最大行程锁在圆周上。
  */
 @Composable
 private fun Stick(
@@ -1022,28 +1041,80 @@ private fun Stick(
     onMoveEnd: () -> Unit,
     onAxis: (Int, Int) -> Unit,
     // issue#169 第 17 条：点住未拖 = 摇杆键（L3/R3）。位号由调用方给（<0 表示无），
-    // JoystickView 的 onButton 回调直接换算成 GamepadController.setButton。
+    // 手势协程里直接换算成 GamepadController.setButton。
     buttonBit: Int = -1,
 ) {
     val ctx = LocalContext.current
-    // tap 回调经 rememberUpdatedState 桥进手势协程，避免重组重启拖拽手势
+    // tap / 轴值 / 按键回调经 rememberUpdatedState 桥进手势协程，避免重组重启拖拽手势
     val currentOnTap by rememberUpdatedState(onTap)
+    val currentOnAxis by rememberUpdatedState(onAxis)
+    val currentOnButton by rememberUpdatedState { down: Boolean ->
+        if (buttonBit >= 0) GamepadController.setButton(buttonBit, down)
+    }
+    // 摇杆头相对圆心的偏移（px）：手势协程里更新，Canvas 里读取重画
+    var knob by remember { mutableStateOf(Offset.Zero) }
+    // 摇杆配色走语义令牌（外观门面关卡：不写死色值），重组时预取 Color 供画布用
+    val stickBase = colorResource(R.color.overlay_stick_base)
+    val stickRing = colorResource(R.color.overlay_stick_ring)
+    val stickKnob = colorResource(R.color.overlay_stick_knob)
     Box(modifier = modifier.size(size)) {
-        AndroidView(
-            factory = { c ->
-                JoystickView(c).also { v ->
-                    v.onAxis = onAxis
-                    // 摇杆键：点住未拖 = L3/R3 按下，拖出 slop 或抬手 = 抬起
-                    v.onButton = { down ->
-                        if (buttonBit >= 0) GamepadController.setButton(buttonBit, down)
+        // —— 摇杆本体：圆底 + 描边 + 摇杆头（配色与旧 JoystickView 一致） ——
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .size(size)
+                .alpha(if (editing) 0.5f else 1f)
+                // 编辑态不加手势：由上层拖拽面接管，避免「挪摇杆」和「扳摇杆」同时发生
+                .then(if (editing) Modifier else Modifier.pointerInput(Unit) {
+                    awaitEachGesture {
+                        // 认领第一根落进本摇杆的手指；已有手指在操作时新手指不接管
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        var buttonDown = true
+                        currentOnButton(true)
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val maxR = (minOf(size.width, size.height).toFloat() / 2f - 8.dp.toPx()) * 0.58f
+                        fun applyKnob(x: Float, y: Float) {
+                            var dx = x - center.x
+                            var dy = y - center.y
+                            val dist = hypot(dx, dy)
+                            if (dist > maxR && dist > 0f) {
+                                dx = dx / dist * maxR
+                                dy = dy / dist * maxR
+                            }
+                            knob = Offset(dx, dy)
+                            currentOnAxis(((dx / maxR) * 127f).toInt(), ((dy / maxR) * 127f).toInt())
+                        }
+                        applyKnob(down.position.x, down.position.y)
+                        val slop = viewConfiguration.touchSlop
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            // 只跟认领的那一根：其余手指的移动（按按钮 / 划屏）不影响摇杆
+                            val mine = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!mine.pressed) break
+                            mine.consume()
+                            val x = mine.position.x
+                            val y = mine.position.y
+                            // 拖出 slop = 转入轴值操控：先松开摇杆键（两种语义互斥）
+                            if (buttonDown &&
+                                (abs(x - down.position.x) > slop || abs(y - down.position.y) > slop)
+                            ) {
+                                buttonDown = false
+                                currentOnButton(false)
+                            }
+                            applyKnob(x, y)
+                        }
+                        // 认领手指抬离 / 取消：键先复位、轴值回中，两条状态线各自兜底
+                        if (buttonDown) currentOnButton(false)
+                        knob = Offset.Zero
+                        currentOnAxis(0, 0)
                     }
-                }
-            },
-            // 编辑态禁用摇杆本体：JoystickView 在 isEnabled=false 时交出触摸，
-            // 由上层拖拽面接管，避免「挪摇杆」和「扳摇杆」同时发生
-            update = { v -> v.isEnabled = !editing },
-            modifier = Modifier.size(size).alpha(if (editing) 0.5f else 1f),
-        )
+                }),
+        ) {
+            val r = minOf(this.size.width, this.size.height) / 2f - 8.dp.toPx()
+            drawCircle(stickBase, radius = r)
+            drawCircle(stickRing, radius = r, style = Stroke(width = 2.dp.toPx()))
+            drawCircle(stickKnob, radius = r * 0.42f, center = center + knob)
+        }
         if (editing) {
             Box(modifier = Modifier.matchParentSize().background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f), CircleShape))
             // 组选中视觉：3dp 亮白描边圆圈（优先级只管画在最上层，语义与 Pad 一致）
@@ -1151,7 +1222,10 @@ private fun Pad(
     var pressCount by remember { mutableIntStateOf(0) }
     val pressed = pressCount > 0 && !editing
     // 动效：按下 90ms 缩到 0.92 + 底色过渡（手感档位只管震动，动效不做开关，成本极低）
-    val scale by animateFloatAsState(
+    // ⚠️ 命名必须是 pressScale：外层形参 scale 是面板缩放系数（平板档），此前本地
+    // animateFloatAsState 同名遮蔽了形参 —— 编辑态手势里 12.dp * scale / (d / scale)
+    // 全拿到了 1.02 的按压缩放，存档尺寸每捏一次悄悄缩 2%（issue#169 #18② 同批修）。
+    val pressScale by animateFloatAsState(
         targetValue = if (pressed) 0.92f else if (editing) 1.02f else 1f,
         animationSpec = tween(90),
         label = "padScale",
@@ -1178,7 +1252,7 @@ private fun Pad(
     val shape = if (pill) RoundedCornerShape(percent = 50) else CircleShape
     Box(
         modifier = Modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
             .size(effW, effH)
             .background(bg, shape)
             .border(
@@ -1201,19 +1275,32 @@ private fun Pad(
                         // —— 编辑态：不发 HID。捏边缘 = 无级调大，拖 = 移位，tap = 配置。 ——
                         Feedback.haptic(ctx)
                         var moved = false
-                        // issue#169 第 18 条：按下点落在边缘环（外圈 12dp×scale）即进调尺寸手势；
-                        // 直径 = 2 ×（手指到中心距离），拖动全程实时跟随，每帧落盘（存档口径）。
-                        val cx = size.width / 2f
-                        val cy = size.height / 2f
+                        // issue#169 第 18 条：按下点落在边缘环（外圈 12dp×scale）即进调尺寸手势
+                        val cx0 = size.width / 2f
+                        val cy0 = size.height / 2f
                         val radiusPx = minOf(effW.value, effH.value) / 2f * density
                         val edgePx = 12.dp * scale
                         var resizing = !slot.isNullOrEmpty() &&
-                            hypot(down.position.x - cx, down.position.y - cy) > radiusPx - edgePx.toPx()
+                            hypot(down.position.x - cx0, down.position.y - cy0) > radiusPx - edgePx.toPx()
                         // resizing 成立 = slot 非空（见上一行的 isNullOrEmpty 判定），
                         // 但那是 var 初始化处的判定，编译器不会跨语句 smart cast；
                         // setSize 形参是非空 String —— 取一份局部非空副本落盘，
                         // 否则 CI 编译红（fd842c1 实锤「String? 但 String expected」）。
                         val slotKey = if (slot.isNullOrEmpty()) null else slot
+                        // issue#169 #18② 追评「按钮会抽搐移动、边缘不跟手指」：旧口径每帧按
+                        // 「手指到中心的距离 ×2」算直径，但按钮是左上锚定，尺寸一变中心就跑，
+                        // 下一帧量到的距离跟着漂 —— 直径越算越偏（指数发散，被上限钳住就是
+                        // 「瞬间跳到最大」的抽搐）。改为锚定增量：以手势起始的直径与手指落点为
+                        // 基准 —— 右缘/下缘（含右下角）把手指轴向位移直接加到直径上，边缘严格
+                        // 跟手指 1:1；左上缘退回「冻结手势起始中心」的 ×2 口径（中心不随尺寸
+                        // 移动，至少不发散）。显示口径限制在档位内；平板档上下限同乘 scale，
+                        // 落盘时除回 —— 存档口径手机/平板一致。
+                        val startSize = effW.value
+                        val startX = down.position.x
+                        val startY = down.position.y
+                        val startDist = hypot(startX - cx0, startY - cy0)
+                        val downRight = startX >= cx0
+                        val downBottom = startY >= cy0
                         var lastX = down.position.x
                         var lastY = down.position.y
                         val slopPx = viewConfiguration.touchSlop
@@ -1224,14 +1311,17 @@ private fun Pad(
                             mine.consume()
                             val x = mine.position.x
                             val y = mine.position.y
-                            if (!moved && (abs(x - down.position.x) > slopPx || abs(y - down.position.y) > slopPx)) {
+                            if (!moved && (abs(x - startX) > slopPx || abs(y - startY) > slopPx)) {
                                 moved = true
                             }
                             if (resizing) {
-                                // 边缘无级调大：直径跟手指到中心的距离走（显示口径限制在档位内；
-                                // 平板档上下限同乘 scale，落盘时除回 —— 存档口径手机/平板一致）
-                                val d = (2f * hypot(x - cx, y - cy) / density)
-                                    .coerceIn(PAD_RESIZE_MIN_DP * scale, PAD_RESIZE_MAX_DP * scale)
+                                val d = (if (downRight || downBottom) {
+                                    // 右/下缘：直径 = 起始直径 + 手指轴向位移（px→dp）
+                                    startSize + maxOf(x - startX, y - startY) / density
+                                } else {
+                                    // 左上缘：冻结中心的 ×2 口径（issue#169 #18②，见上）
+                                    startSize + 2f * (hypot(x - cx0, y - cy0) - startDist) / density
+                                }).coerceIn(PAD_RESIZE_MIN_DP * scale, PAD_RESIZE_MAX_DP * scale)
                                 liveSize = d
                                 slotKey?.let {
                                     GamepadPadConfig.setSize(ctx, it, (d / scale).toInt())

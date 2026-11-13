@@ -137,6 +137,11 @@
     <color name="overlay_pad_key_idle">#2EFFFFFF</color>
     <color name="overlay_pad_stroke_pressed">#DDFFFFFF</color>
     <color name="overlay_pad_stroke_idle">#66FFFFFF</color>
+    <!-- 摇杆本体配色（issue#169 #17 重写）：圆底 / 描边 / 摇杆头，与旧 JoystickView 一致；
+         手柄页固定深色，与 values 同值（见 overlay_scrim 注释）。 -->
+    <color name="overlay_stick_base">#22FFFFFF</color>
+    <color name="overlay_stick_ring">#55FFFFFF</color>
+    <color name="overlay_stick_knob">#DDFFFFFF</color>
 
     <!--
       模块状态色（StatusPage）：浅色取值，深色在 values-night 覆盖。

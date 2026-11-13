@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  issue#169 #13「弹窗背景回归」修复：8157abe 把 Dialog 主题的 windowBackground 改成了
+  透明（为了露出 24dp 圆角面板），但 framework 的 AlertDialog 面板自身并不绘制背景，
+  全靠窗口底色撑起来 —— 结果弹窗内容直接浮在页面上、没有底色。
+  这里改用「带圆角的实底」作为窗口背景：既是透明窗底的圆角效果，又保住了面板底色。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <!-- 与主题 android:colorBackground 同令牌，亮/暗色各取各的 md_surface -->
+    <solid android:color="@color/md_surface" />
+    <corners android:radius="24dp" />
+</shape>
