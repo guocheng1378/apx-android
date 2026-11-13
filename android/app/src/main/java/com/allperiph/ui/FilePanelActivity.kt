@@ -138,6 +138,10 @@ class FilePanelActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         storageOk = PhoneFiles.hasStorageAccess(this)
+        // 互传收不到（成宇 2026-11-13）：接收监听 9512 此前只挂在被控服务
+        //（ControlledService）与 TV 服务里 —— 纯控制端（被控开关没开）进面板只发不收。
+        // 这里补上：面板一开就拉起接收监听（running 原子幂等，被控服务已起时是 no-op）。
+        FileReceiver.start(this)
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
         applyEdgeToEdge()
         setContentView(
@@ -765,6 +769,9 @@ class FilePanelActivity : ComponentActivity() {
         mainHandler.removeCallbacksAndMessages(null)
         // 面板关了就摘掉收到回调：不摘会长期持着本 Activity（内存泄漏 + 重复记账）
         if (FileReceiver.onReceived != null) FileReceiver.onReceived = null
+        // 接收监听同口径收尾：被控服务在跑时归它管（它停时自己会 stop），不动；
+        // 纯控制端是本页 onCreate 拉起的，关面板一并停掉，不留后台监听端口。
+        if (!com.allperiph.controlled.ControlledService.isRunning()) FileReceiver.stop()
         super.onDestroy()
     }
 }
