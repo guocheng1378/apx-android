@@ -707,8 +707,19 @@ class LocalSendService : Service() {
             synchronized(pf) {
                 if (pf.stream != null) return pf.stream
                 val created = try { createTarget(pf.fileName) } catch (_: Throwable) { return null }
-                pf.uri = created.first; pf.stream = created.second
-                return created.second
+                // 计数包装（2026-11-14 实锤修复「发送成功但接收失败」）：此前 pf.written 恒为 0
+                // —— 没有任何路径累加它，finishUpload 的 sizeOk 校验 (written == size) 对一切
+                // 非空文件必然不成立：文件已按 Content-Length 完整落盘、上传回 204（发送端
+                // 显示成功），接收端却在收尾时把它当「没写够」丢弃并通知接收失败。
+                // 用 FilterOutputStream 包装计数后，校验恢复原意：比对发送申报的 size，
+                // 连带兜住中途截断（copyExactly 提前 EOF 时 ok=false，不走这条分支）。
+                val counting = object : java.io.FilterOutputStream(created.second) {
+                    override fun write(b: Int) { out.write(b); pf.written += 1 }
+                    // 必须重写批量写：FilterOutputStream 默认实现逐字节调 write(Int)，慢一个量级
+                    override fun write(b: ByteArray, off: Int, len: Int) { out.write(b, off, len); pf.written += len }
+                }
+                pf.uri = created.first; pf.stream = counting
+                return counting
             }
         }
 
