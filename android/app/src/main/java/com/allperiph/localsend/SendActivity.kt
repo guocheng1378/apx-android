@@ -18,17 +18,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.allperiph.R
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.applyEdgeToEdge
 
@@ -126,7 +130,8 @@ class SendActivity : ComponentActivity() {
                             // /24 单播探测）对「同 Wi-Fi 却跨网段」的路由器无能为力（DHCP 池
                             // 跨网段很常见，两台设备一个 10.184.x 一个 10.191.x，自动发现全灭）。
                             // 手动填对端 IP 直拨一次：命中即双向入表并记住对端，之后自动直拨。
-                            var manualOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                            val ctx = LocalContext.current
+                            var manualOpen by remember { mutableStateOf(false) }
                             com.allperiph.ui.miuix.ApComponents.ActionButton(
                                 text = ctx.getString(
                                     if (manualOpen) R.string.ui_localsend_manual_collapse
@@ -135,8 +140,8 @@ class SendActivity : ComponentActivity() {
                                 onClick = { manualOpen = !manualOpen },
                             )
                             if (manualOpen) {
-                                val ipState = androidx.compose.foundation.text.input.rememberTextFieldState()
-                                top.yukonga.miuix.kmp.basic.TextField(
+                                val ipState = rememberTextFieldState()
+                                TextField(
                                     state = ipState,
                                     label = ctx.getString(R.string.ui_localsend_manual_hint),
                                     modifier = Modifier.fillMaxWidth(),
