@@ -80,6 +80,11 @@ class SendActivity : ComponentActivity() {
         }
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
         applyEdgeToEdge()
+        // 互传服务兜底启动（2026-11-14 用户「互传还是不能用」）：本页依赖服务在听 53317
+        // 并发 announce，但开关在设置里 —— 开关没开时进来就是一张永远空白的列表，
+        // 谁也看不出为什么。现在进页面就兜底拉起服务（只补运行态、不动开关的记录值），
+        // 对端发过来的 register/probe 才有应答，列表才有得刷新。
+        if (!LocalSendService.isRunning) LocalSendService.start(this)
         title = "发送到设备"
         setContentView(
             ComposeView(this).apply {
