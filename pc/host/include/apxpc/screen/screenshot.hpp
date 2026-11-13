@@ -5,6 +5,10 @@
 // 与「mac 走 panel_http 未接 9511 受控分发」的既有口径一致，不声明无定义的链接。
 #pragma once
 
+// 自足头文件：本头唯一对外类型是 std::string，自己带 <string>（CI 实锤：
+// mac 上 windows.h 不存在，先前漏 include 编译红）。
+#include <string>
+
 namespace apxpc::screen {
 
 /// 抓取整个虚拟桌面存为 PNG。成功返回绝对路径（保存到「图片\AllPeriph\手柄截图-时间戳.png」），
