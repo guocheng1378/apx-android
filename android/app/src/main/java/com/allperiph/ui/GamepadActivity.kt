@@ -1065,14 +1065,17 @@ private fun Stick(
                 .alpha(if (editing) 0.5f else 1f)
                 // 编辑态不加手势：由上层拖拽面接管，避免「挪摇杆」和「扳摇杆」同时发生
                 .then(if (editing) Modifier else Modifier.pointerInput(Unit) {
+                    // 形参 size 是 Dp，会遮蔽 PointerInputScope.size（IntSize）——
+                    // 先显式取 this.size 存成 px 尺寸，手势里全部用它（CI android 编译红修复）
+                    val px = this.size
                     awaitEachGesture {
                         // 认领第一根落进本摇杆的手指；已有手指在操作时新手指不接管
                         val down = awaitFirstDown(requireUnconsumed = false)
                         down.consume()
                         var buttonDown = true
                         currentOnButton(true)
-                        val center = Offset(size.width / 2f, size.height / 2f)
-                        val maxR = (minOf(size.width, size.height).toFloat() / 2f - 8.dp.toPx()) * 0.58f
+                        val center = Offset(px.width / 2f, px.height / 2f)
+                        val maxR = (minOf(px.width, px.height).toFloat() / 2f - 8.dp.toPx()) * 0.58f
                         fun applyKnob(x: Float, y: Float) {
                             var dx = x - center.x
                             var dy = y - center.y
