@@ -788,7 +788,8 @@ object TvInjector {
         val accReady = ApxAccessibilityService.instance != null
         Log.w(
             TAG,
-            "文本注入失败：输入法${if (ApxImeService.isActive()) "在服务但无输入连接" else "未启用/非当前输入法"}、" +
+            "文本注入失败：root${if (RootInput.available) "就绪" else "未就绪（su 未授权或通道未起）"}、" +
+                "输入法${if (ApxImeService.isActive()) "在服务但无输入连接" else "未启用/非当前输入法"}、" +
                 "无障碍${if (accReady) "已连接" else "未连接"}，焦点写入与粘贴均被拒（输入框没聚焦？）：'$s'",
         )
     }
