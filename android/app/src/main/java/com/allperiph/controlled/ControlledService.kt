@@ -35,6 +35,9 @@ class ControlledService : Service() {
     private val controlEndpoint = object : ControlEndpoint {
         override fun onPeerStateChanged(connected: Boolean, peerText: String) {
             TvInputDispatcher.peer(connected, peerText); TvInjector.setConnected(connected)
+            // 输入法会话期换装（ImeSwitcher 类注释）：连上→切通道输入法，断开→还原。
+            // 没被控机自用键盘也不受影响；没 root 自动跳过（维持手动切的老口径）。
+            if (connected) ImeSwitcher.activate(applicationContext) else ImeSwitcher.restore(applicationContext)
         }
         override fun cursorMove(x: Float, y: Float, absolute: Boolean) {
             TvInputDispatcher.cursorMove(x, y, absolute); TvInjector.cursorMove(x, y, absolute)
@@ -268,6 +271,8 @@ class ControlledService : Service() {
 
     override fun onDestroy() {
         running = false; Companion.server = null
+        // 服务停了必还原输入法：远程会话中途被杀也不能把用户的键盘留在「无声通道」上
+        ImeSwitcher.restore(applicationContext)
         // 待裁决的接入选择随服务销毁作废：先回调拒绝（释放挂起的握手线程），再清引用
         pendingTakeoverDecide?.let { runCatching { it(false) } }
         pendingTakeoverDecide = null
