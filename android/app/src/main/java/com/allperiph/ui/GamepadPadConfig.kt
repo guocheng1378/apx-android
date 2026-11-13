@@ -27,8 +27,8 @@ object GamepadPadConfig {
 
     /**
      * 编辑说明的「看过」标记（REQ 手柄编辑器 本批 4）：进编辑态首次弹操作提示
-     * 「拖动移动 · 捏边缩放 · 点按改键」，看过就不再自动弹 —— 编辑面板的「？」
-     * 仍可随时重看。独立 tip. 前缀，不进槽位四键体系。
+     * 「拖动移动 · 点按改键 · 滑条改大小」（issue#170 #4：捏边缩放已改配置卡滑条），
+     * 看过就不再自动弹 —— 编辑面板的「？」仍可随时重看。独立 tip. 前缀，不进槽位四键体系。
      */
     private const val KEY_TIP_SHOWN = "tip.editing_shown"
 
@@ -52,8 +52,8 @@ object GamepadPadConfig {
         GamepadController.BTN_DRIGHT to "▶",
     )
 
-    /** 尺寸档（dp）：功能键 40 起，按键三档小 / 中 / 大（issue#169 第 21 条补 40 给 ✕/✎） */
-    val SIZE_CHOICES = listOf(40, 44, 58, 76)
+    // 尺寸档（issue#170 #4 随批删除）：四档点选条已改无级滑条，无档位概念 ——
+    // 圆键 32–96dp、药丸 40–120dp，范围由 UI 层按槽位形状给出，存储仍是 int dp。
 
     /** 各槽位的默认键位与尺寸（dp）：没改过配置时与重画后的 PS5 版一致 */
     val SLOT_DEFAULTS = mapOf(
@@ -74,13 +74,21 @@ object GamepadPadConfig {
         // issue#169 第 21 条：✕ / ✎ 功能键也占槽位（偏移 + 尺寸），bit=0 表示不发 HID
         "Exit" to (0 to 40),
         "Edit" to (0 to 40),
+        // issue#170 #6：📷 截图键入编辑体系（bit=0，无键位行，默认 40dp 宽、药丸语义）；
+        // 「组 / 复位 / ？」三个编辑态专属按钮也占槽位 —— 它们不进配置卡（tap 保留原
+        // 功能：切组 / 清偏移 / 弹说明），槽位只为了偏移落盘与「复位」全量清偏移覆盖
+        "Shot" to (0 to 40),
+        "Group" to (0 to 40),
+        "ResetAll" to (0 to 40),
+        "Help" to (0 to 40),
     )
 
     /**
      * 功能键槽位（issue#169 第 21 条）：✕ / ✎ 同样可拖可配，但没有键位 ——
-     * 配置卡对这两个槽位只出「尺寸」行，不出「键位」行（0 号位不在 [KEY_CHOICES]）。
+     * 配置卡对这些槽位只出「尺寸」行，不出「键位」行（0 号位不在 [KEY_CHOICES]）。
+     * issue#170 #6 追加：📷（Shot）同样 bit=0、无键位行，一并走「只配尺寸」路径。
      */
-    val FUNC_SLOTS = listOf("Exit", "Edit")
+    val FUNC_SLOTS = listOf("Exit", "Edit", "Shot")
 
     /** 摇杆槽位：只支持拖动移位（存偏移），不进键位/尺寸配置卡 */
     val STICK_SLOTS = listOf("LStick", "RStick")

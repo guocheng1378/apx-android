@@ -798,7 +798,11 @@
          普通按钮仍是「恢复默认」（恢复键位/尺寸/偏移四维）。 -->
     <string name="ui_gamepad_cfg_reset_pos">恢复位置</string>
     <string name="ui_gamepad_cfg_done">完成</string>
-    <string name="ui_gamepad_editing_tip">拖动移动 · 捏边缩放 · 点按改键</string>
+    <!-- issue#170 #4（二轮）：捏边缩放改配置卡无级滑条，编辑提示同步换口径。 -->
+    <string name="ui_gamepad_editing_tip">拖动移动 · 点按改键 · 大小走滑条</string>
+    <!-- issue#170 #7（二轮）：组合配置卡标题与成员键位只读提示。 -->
+    <string name="ui_gamepad_cfg_group_title">组合 · %1$d 颗</string>
+    <string name="ui_gamepad_cfg_key_members">成员键位：%1$s</string>
     <string name="ui_gamepad_btn_tip_help">？</string>
     <!-- issue#170 #5 追修：编辑态一键清全部槽位的拖动偏移（按钮被旧配置顶出屏幕时的全量入口）。 -->
     <string name="ui_gamepad_btn_reset_all">复位</string>
