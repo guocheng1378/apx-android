@@ -107,7 +107,7 @@ R_USE = re.compile(
 #   「恢复默认位置」等 2 处（GamepadActivity 摇杆假配置文案），追认上调；后续新文案仍应优先走 strings.xml。
 # 646 -> 648（2026-11-14 输入法换装批盘点）：47b9e79 真机三修带入 2 处存量，追认上调；
 #   后续新文案仍应优先走 strings.xml。
-TEXT_BASELINE = 648  # 2026-11-14 输入法换装批：基线对齐 47b9e79 后实测
+TEXT_BASELINE = 650  # 2026-11-14 534109a（text() 补 root 级的注释/文案）带入 +2 追认锁住
 
 
 def strip_comments(text):

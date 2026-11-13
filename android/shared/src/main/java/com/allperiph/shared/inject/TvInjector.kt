@@ -747,22 +747,38 @@ object TvInjector {
         if (ch == '\u0000') return
         val s = ch.toString()
         // ① evdev：字母/数字/空格直接发真按键（不依赖"当前有没有输入框"、也不依赖输入法切没切过来）
-        if (EvdevInjector.available && EvdevInjector.sendChar(ch)) return
+        // 成功路径也打一条：人打字频率低、可接受；没有它，注入命中哪一级只能靠失败日志反推
+        if (EvdevInjector.available && EvdevInjector.sendChar(ch)) {
+            Log.i(TAG, "文本注入①evdev 命中：'$s'")
+            return
+        }
         // ② 输入法通道（最稳，中英文都行）：系统输入法是我们时走 InputConnection
-        if (ApxImeService.commit(s)) return
+        if (ApxImeService.commit(s)) {
+            Log.i(TAG, "文本注入②输入法命中：'$s'")
+            return
+        }
         // ②½ root `input text`（2026-11-14 实锤补）：双向互控防护（ImeSwitcher：本机正在
         //    控制别人时跳过输入法换装）落地后，两台手机互控时**双方都不换装** —— 键盘页
         //    字母/数字/符号只走文本注入，IME 通道在用户的主场景天然缺席；无障碍
         //    SET_TEXT 在 HyperOS 上又常被拒。root 在位时这里发一条真键盘文本事件，
         //    与 OTG 键盘同通道：不依赖换装、不动剪贴板、光标位置也守得住。
         //    键盘帧路径是逐字符下发，单字符够用；中文不走这条（见 ① 注释）。
-        if (RootInput.available && RootInput.run("input text ${shellQuoteSingle(s)}")) return
+        if (RootInput.available && RootInput.run("input text ${shellQuoteSingle(s)}")) {
+            Log.i(TAG, "文本注入②½root input text 命中：'$s'")
+            return
+        }
         // ③ 无障碍 ACTION_SET_TEXT
-        if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) return
+        if (systemReady() && ApxAccessibilityService.instance?.typeText(s) == true) {
+            Log.i(TAG, "文本注入③无障碍 SET_TEXT 命中：'$s'")
+            return
+        }
         // 兜底：ACTION_SET_TEXT 被拒（MIUI / HyperOS 上常见：密码框、自绘输入框、
         // rootInActiveWindow 取不到节点）→ 改走"剪贴板 + ACTION_PASTE"。
         // 以前没有这层兜底，于是用户看到的就是"打字没反应"。
-        if (ApxAccessibilityService.instance?.paste(s) == true) return
+        if (ApxAccessibilityService.instance?.paste(s) == true) {
+            Log.i(TAG, "文本注入④无障碍粘贴命中：'$s'")
+            return
+        }
         // 2026-11-13 诊断补强（用户 v94 真机「手机控手机键盘不能用」）：文本通道
         // 四级全空时原先只有一句「文本注入失败」，分不清断在哪级。现在把各级状态
         // 分开打：isActive()=false → 被控机没启用/没选中「全能外设」输入法；
