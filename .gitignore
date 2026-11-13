@@ -84,3 +84,4 @@ pc/host/build_test/
 # Python 字节码缓存（跑 scripts/check_*.py 时生成，不该进库）
 __pycache__/
 *.pyc
+.nfs*
