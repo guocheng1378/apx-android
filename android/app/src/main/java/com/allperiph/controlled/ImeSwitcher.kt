@@ -77,11 +77,11 @@ object ImeSwitcher {
     private fun restoreInner(ctx: Context) {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val saved = sp.getString(KEY_SAVED_IME, null) ?: return
-        if (RootInput.available) {
-            RootInput.run("settings put secure default_input_method $saved")
+        // root 通道不在（su 被杀/未授权）：**保留还原点**下次再试 —— 现在清掉等于把
+        // 用户键盘永远留在无声通道上（本机的键盘就真没了）。发送成功才清。
+        if (RootInput.available && RootInput.run("settings put secure default_input_method $saved")) {
             Log.i(TAG, "远程会话结束：输入法还原为 $saved")
+            sp.edit().remove(KEY_SAVED_IME).apply()
         }
-        // 无论是否还原成功都清掉还原点：下次会话重新记，避免把旧值反复写回
-        sp.edit().remove(KEY_SAVED_IME).apply()
     }
 }
