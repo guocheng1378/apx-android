@@ -622,6 +622,8 @@ object TvInjector {
         // ③ root 通道：**任意按键**都能注入（走的是与 OTG 鼠标 / 蓝牙手柄同一条系统输入通道）。
         //   无障碍做不到这一点，所以只有 root 通道可用时按键才真正可用。
         //   `input keyevent` 自带 down+up，因此只在 down 时发一次。
+        // 自愈：与 text() ②½ 同款 —— su shell 被 HyperOS 杀掉后不会自己回来，用时重拉。
+        if (!RootInput.available) RootInput.tryStart()
         if (RootInput.available && RootInput.run("input keyevent $kc")) return
         if (!systemReady()) return
         // ④ 平台特定的额外按键分支（手机的 Tab / PageUp/Down / MoveHome/End 等）
@@ -763,6 +765,11 @@ object TvInjector {
         //    SET_TEXT 在 HyperOS 上又常被拒。root 在位时这里发一条真键盘文本事件，
         //    与 OTG 键盘同通道：不依赖换装、不动剪贴板、光标位置也守得住。
         //    键盘帧路径是逐字符下发，单字符够用；中文不走这条（见 ① 注释）。
+        // 自愈（2026-11-14 被控机实锤：su 授权显示允许、通道却整段没起来）：root shell
+        //    只在 init 时起过一次，HyperOS 把它杀掉后就永远 available=false，没人再拉。
+        //    这里发现不在就重拉（幂等，已在跑/在启动都直接返回）；异步起，本条落空、
+        //    下一条就能命中。打字频率低，重试开销可接受。
+        if (!RootInput.available) RootInput.tryStart()
         if (RootInput.available && RootInput.run("input text ${shellQuoteSingle(s)}")) {
             Log.i(TAG, "文本注入②½root input text 命中：'$s'")
             return
