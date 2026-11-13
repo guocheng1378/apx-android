@@ -386,13 +386,9 @@ README 里的「零第三方依赖」不再是界面层的否决理由，改为�
 | 3 手机端触控板页 | 已完成 | `TouchpadPage`，手势面用 `pointerInteropFilter` 保原始 MotionEvent |
 | 4 手机端设置页 | 已完成 | 模板/模板管理/环境诊断/文件与传输/传输分类/遥控与键盘/主题数据/键映射/背景图/运行日志（筛选·查看·导出） |
 | 5 电视端主屏 + 文件页 | 已完成 | `TvHome`、`TvFileScreen`、`TvOverlayHost` + 通知浮窗；`TvOverlay`/`RemoteInputOverlay` 有书面理由留 View |
-| 6 切换默认入口、删除遗留 Views/XML | 进行中 | 已删 `MainActivity.kt`/三个 Fragment/`KeyboardPanels`/`TouchpadSplit`/`activity_main`/`activity_screen` 等；`SendActivity`、`GamepadActivity`、`ScreenActivity`、`RemoteInputActivity`、`FilePanelActivity` 已迁 Compose 并脱钩旧主题栈；**旧主题栈剩余调用方**：`TouchpadActivity`、`RemoteActivity`、`ApShellActivity`（仅 `ThemePref.wrap` 提供明暗，`ApPalette.applyRuntimeTheme` 已去（皮肤/取色已拆成 ApPalette / ApSkin））、`FloatingBallService`（`wrapService` 还要给 Service 挂 `Theme.AllPeriph`）、`SettingsPage` 切皮肤后的同步调用 |
+| 6 切换默认入口、删除遗留 Views/XML | 进行中（界面已全面 Compose，剩 View 残层） | 已删 `MainActivity.kt`/三个 Fragment/`KeyboardPanels`/`TouchpadSplit`/`activity_main`/`activity_screen` 等；`SendActivity`、`GamepadActivity`、`ScreenActivity`、`RemoteInputActivity`、`FilePanelActivity` 已迁 Compose 并脱钩旧主题栈。**2026-11-14 实测勘误**：`TouchpadActivity`、`RemoteActivity`、`SettingsPage`、悬浮球面板/菜单其实都已 `ComposeView` 承载 —— 全仓 XML 仅剩两处：悬浮球球体（`view_floating_ball`，一个图标圆球）与桌面小组件（`RemoteViews` 技术上限死，不迁）。真正剩余：①球体 View（迁 Compose 收益≈0，倾向保留）；②**View 弹窗层**（`ApDialog` 统一入口 + `CustomKeyboardDialog` / `HotkeyBoard` 编辑弹窗等 8 个调用方 —— 确认框与键位编辑仍是 View 主题）；③明暗/取色胶水（`ThemePref.wrap\|wrapService`、`ApPalette.applyRuntimeTheme`）——弹窗层清零前保留，清零后正式下线。 |
 
-**剩余一处口径**：`RemoteInputActivity`（被控端输入面板）仍是 View 实现，冻结在
-`EditText` + `TextWatcher` + 平台 IME 这条链路上——逐字增量上屏是文字到对端的**唯一**通道，
-把输入法搬进 Compose 的 `BasicTextField` 属于「拿能不能打出字换一致性」，因此判定为
-**用 `AndroidView` 包住输入框、只迁外壳**，而不是整页重写。这一页迁完，旧外观总控（已拆成 ApPalette / ApSkin）/ `ThemePref`
-的取色职责即可正式下线（导出/导入/预设管理属于功能，保留）。
+**`RemoteInputActivity` 口径已落地**：外壳、标题行、编辑键排、触控面（并轨 `ApTouchpadSurface`）、底部按钮均为 Compose；仅 `EditText` + `TextWatcher` 经 `AndroidView` 互操作保留 —— 增量 diff 上屏 + 平台 IME 是文字到对端的唯一通道，不拿「能不能打出字」换一致性。
 
 **必须保留的行为**（来自 2026-10-28 三条未落地补丁中仍然成立的部分）：
 edge-to-edge 用框架 `WindowInsets` 手动垫边（systemBars + displayCutout + ime，不引 androidx）；
