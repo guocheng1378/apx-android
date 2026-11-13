@@ -122,6 +122,44 @@ class SendActivity : ComponentActivity() {
                                     }
                                 }
                             }
+                            // 按 IP 直连（2026-11-13）：自动发现四路（多播/受限广播/网段广播/
+                            // /24 单播探测）对「同 Wi-Fi 却跨网段」的路由器无能为力（DHCP 池
+                            // 跨网段很常见，两台设备一个 10.184.x 一个 10.191.x，自动发现全灭）。
+                            // 手动填对端 IP 直拨一次：命中即双向入表并记住对端，之后自动直拨。
+                            var manualOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                            com.allperiph.ui.miuix.ApComponents.ActionButton(
+                                text = ctx.getString(
+                                    if (manualOpen) R.string.ui_localsend_manual_collapse
+                                    else R.string.ui_localsend_manual_btn,
+                                ),
+                                onClick = { manualOpen = !manualOpen },
+                            )
+                            if (manualOpen) {
+                                val ipState = androidx.compose.foundation.text.input.rememberTextFieldState()
+                                top.yukonga.miuix.kmp.basic.TextField(
+                                    state = ipState,
+                                    label = ctx.getString(R.string.ui_localsend_manual_hint),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                com.allperiph.ui.miuix.ApComponents.ActionButton(
+                                    text = ctx.getString(R.string.ui_localsend_manual_go),
+                                    onClick = {
+                                        val ip = ipState.text.toString().trim()
+                                        if (ip.isEmpty()) {
+                                            Toast.makeText(ctx, ctx.getString(R.string.ui_localsend_manual_hint), Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(ctx, ctx.getString(R.string.ui_localsend_manual_probing), Toast.LENGTH_SHORT).show()
+                                            LocalSendService.manualProbeStatic(ip) { ok ->
+                                                Toast.makeText(
+                                                    applicationContext,
+                                                    ctx.getString(if (ok) R.string.ui_localsend_manual_ok else R.string.ui_localsend_manual_fail),
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
                 }

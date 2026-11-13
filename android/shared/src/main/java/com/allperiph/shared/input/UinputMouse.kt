@@ -53,6 +53,19 @@ object UinputMouse {
 
     private val starting = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    /**
+     * 内核光标锚定完成后的回调（由 [TvInjector] 在 init 时注册，避免依赖环）。
+     *
+     * 为什么要锚定：REL 鼠标的位置只能靠事件累积，Android 给虚拟鼠标分配的初始光标
+     * 位置在**屏幕中心**，而逻辑坐标（TvInjector.cursorX/Y）预置在**右上角内缩一格** ——
+     * 两套坐标天然错开半屏。此后所有「绝对定位」操作（tapAt / 长按 / 触摸帧的落点）
+     * 都是把逻辑目标换算成 REL 差值发给内核，内核光标于是永远停在「目标 + 半屏偏差」
+     * 上，点下去的位置和用户看到的位置对不上 —— 用户症状「手机控手机不能点击」。
+     * 锚定：大负位移把内核光标顶到 (0,0)，回调把逻辑坐标同步归零，两端从此同基准。
+     */
+    @Volatile
+    var onAnchored: (() -> Unit)? = null
+
     /** 创建虚拟鼠标。要在**后台线程**调用（有文件 IO）。幂等。 */
     fun tryStart(): Boolean {
         if (ready) return true
@@ -61,9 +74,13 @@ object UinputMouse {
         try {
             if (openMouse()) {
                 ready = true
+                // 只有「真正新建」这一次会走到这里：ready=false 时内核 fd 必然是关的
+                //（进程存活期间 openMouse 成功后 ready 一直为 true，不会重复锚定）
+                anchorToOrigin()
             } else if (RootInput.available && RootInput.run("chmod 666 /dev/uinput")) {
                 // 很多设备该节点是 0660 root:input；既然有 root，就别卡在权限上
                 ready = openMouse()
+                if (ready) anchorToOrigin()
             }
             if (ready) Log.i(TAG, "虚拟鼠标已就绪：被控端系统光标为内核级真实输入")
             return ready
@@ -73,6 +90,25 @@ object UinputMouse {
         } finally {
             starting.set(false)
         }
+    }
+
+    /**
+     * 内核光标锚到左上角 (0,0)：分 64 步各发 -256 的 REL 位移（合计 -16384，任何屏幕
+     * 都够）。不一次发完是防个别 ROM 对超大单步位移做截断/平滑；每步自带 SYN，几毫秒
+     * 内完成。结束后回调 [onAnchored] 把逻辑坐标归零 —— 两套坐标自此同步。
+     */
+    private fun anchorToOrigin() {
+        runCatching {
+            // 稍等 InputReader 认领新设备：UI_DEV_CREATE 返回不代表内核指针服务已就位，
+            // 发得太早锚定事件会被丢掉，光标仍从屏幕中心起步
+            try { Thread.sleep(150) } catch (_: InterruptedException) {}
+            repeat(64) {
+                sendRel(REL_X, -256)
+                sendRel(REL_Y, -256)
+            }
+            Log.i(TAG, "内核光标已锚定到左上角 (0,0)")
+        }
+        onAnchored?.invoke()
     }
 
     /**

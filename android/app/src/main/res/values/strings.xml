@@ -342,6 +342,13 @@
 
     <string name="ui_localsend_none">没有可发送的文件</string>
     <string name="ui_localsend_sending">正在发送 %1$d 个文件到 %2$s…</string>
+    <string name="ui_localsend_manual_btn">按 IP 连接（自动发现搜不到时用）</string>
+    <string name="ui_localsend_manual_collapse">收起 IP 连接</string>
+    <string name="ui_localsend_manual_hint">对方设备的 IP，如 192.168.1.8</string>
+    <string name="ui_localsend_manual_go">连接</string>
+    <string name="ui_localsend_manual_probing">连接中…</string>
+    <string name="ui_localsend_manual_ok">连上了，列表马上出现对方</string>
+    <string name="ui_localsend_manual_fail">没连上：确认对方已开启互传、填的是对方 IP</string>
 
     <string name="ui_remote_cursor_on">光标 开</string>
     <string name="ui_remote_cursor_off">光标 关</string>

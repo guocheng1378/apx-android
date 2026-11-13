@@ -125,6 +125,19 @@ class LocalSendService : Service() {
 
         fun start(context: Context) = context.startForegroundService(Intent(context, LocalSendService::class.java).setAction(ACTION_START))
         fun stop(context: Context) = context.startService(Intent(context, LocalSendService::class.java).setAction(ACTION_STOP))
+
+        /** 当前运行中的服务实例：发送页的手动探测入口要跨实例边界取（Service 无公共句柄） */
+        @Volatile
+        private var serviceRef: LocalSendService? = null
+
+        /**
+         * 发送页「按 IP 连接」入口：转发给运行中的服务实例；服务没跑（互传开关未开）
+         * 直接回 false，让 UI 提示先开开关（与 [isRunning] 的对账语义一致）。
+         */
+        fun manualProbeStatic(ip: String, onResult: (Boolean) -> Unit) {
+            val svc = serviceRef
+            if (svc == null) onResult(false) else svc.manualProbe(ip, onResult)
+        }
     }
 
     private class PendingFile(
@@ -177,6 +190,7 @@ class LocalSendService : Service() {
     private fun startAll() {
         running = true
         isRunning = true
+        serviceRef = this
         val n = Notification.Builder(this, CHAN_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("LocalSend 互传")
@@ -286,6 +300,30 @@ class LocalSendService : Service() {
      */
     private fun probeKnownPeers() {
         for (p in loadKnownPeers()) probeHost(p.optString("ip", ""))
+    }
+
+    /**
+     * 手动按 IP 探测（发送页「按 IP 连接」，2026-11-13）。
+     *
+     * 自动发现四路（多播/受限广播/网段广播//24 单播探测）对「同 Wi-Fi 却跨网段」的
+     * 路由器（DHCP 池跨网段、或两台设备连了不同频段各自划段）无能为力；用户在发送页
+     * 手动填对端 IP 直拨一次：命中即双向入表 + [rememberPeer] 落盘 —— 之后每轮
+     * 直拨已知对端，后续不用再填。结果经 [onResult] 回 UI（须已切回主线程的回调）。
+     */
+    fun manualProbe(ip: String, onResult: (Boolean) -> Unit) {
+        val host = ip.trim().removePrefix("http://").removePrefix("https://").substringBefore('/')
+        Thread({
+            val ok = runCatching { probeHostManual(host) }.getOrDefault(false)
+            mainHandler?.post { onResult(ok) }
+        }, "LocalSend-ManualProbe").apply { isDaemon = true; start() }
+    }
+
+    /** manualProbe 的阻塞版：命中返回 true（probeHost 是 private，这里仅做非空短路） */
+    private fun probeHostManual(ip: String): Boolean {
+        if (ip.isEmpty()) return false
+        probeHost(ip)
+        // probeHost 不回布尔；看落盘里有没有这个 IP 即可（命中时 onAnnounce 已 rememberPeer）
+        return loadKnownPeers().any { it.optString("ip") == ip }
     }
 
     private val peersPrefs by lazy { getSharedPreferences("apx_localsend_peers", MODE_PRIVATE) }
@@ -451,7 +489,7 @@ class LocalSendService : Service() {
             ms.joinGroup(group)
             Log.w(TAG, "没有可用 IPv4 网卡，多播组按内核默认接口加入")
         }
-        announceTargets = buildAnnounceTargets(nif, group)
+        announceTargets = buildAnnounceTargets(group)
         return ms
     }
 
@@ -474,12 +512,20 @@ class LocalSendService : Service() {
     }
 
     /**
-     * announce 目标：多播组 + 受限广播 255.255.255.255 + 网段广播。
+     * announce 目标：多播组 + 受限广播 + **每张物理 IPv4 网卡的网段广播**。
      *
      * 多播是官方通道，但家用路由器/AP 常对 224.0.0.167 做 IGMP snooping 而不带 querier，
      * 无线↔有线方向会被静默丢掉；广播在同一个广播域里更稳，两边都发成本几乎为零。
+     *
+     * 网段广播从「只算组播选中网卡」扩成「每张物理网卡各取各的」（2026-11-13）：
+     * 被日志实锤的场景是两台设备同在一个 Wi-Fi 却拿了**不同 /24** 的地址（10.184.x vs
+     * 10.191.x）—— 光猫/路由器 DHCP 池跨网段时很常见。这种拓扑下：
+     *  · /24 单播探测永远扫不到对方（探测只扫本机所在网段）；
+     *  · 受限广播 255.255.255.255 在 Linux 上按默认路由出——多网卡时可能出在错的口；
+     *  · 唯一稳的是「往对端所在网段的广播地址各发一份」——同一二层广播域内必达，
+     *    即使网段不同。遍历所有物理 IPv4 网卡的 interfaceAddresses 即可拿全。
      */
-    private fun buildAnnounceTargets(nif: NetworkInterface?, group: InetAddress): List<InetAddress> {
+    private fun buildAnnounceTargets(group: InetAddress): List<InetAddress> {
         val out = ArrayList<InetAddress>()
         out.add(group)
         try {
@@ -489,9 +535,16 @@ class LocalSendService : Service() {
             Log.w(TAG, "取受限广播地址失败", t)
         }
         try {
-            nif?.interfaceAddresses?.forEach { ia ->
-                val b = ia.broadcast
-                if (b is Inet4Address && out.none { it.hostAddress == b.hostAddress }) out.add(b)
+            for (nif in NetworkInterface.getNetworkInterfaces()) {
+                if (!nif.isUp || nif.isLoopback) continue
+                // 蜂窝口/隧道口的网段广播纯属浪费（与 probeSubnet 的跳过口径一致）
+                if (nif.name.startsWith("rmnet") || nif.name.startsWith("ccmni") ||
+                    nif.name.startsWith("pdp") || nif.name.startsWith("clat") ||
+                    nif.name.startsWith("tun")) continue
+                nif.interfaceAddresses.forEach { ia ->
+                    val b = ia.broadcast
+                    if (b is Inet4Address && out.none { it.hostAddress == b.hostAddress }) out.add(b)
+                }
             }
         } catch (t: Throwable) {
             Log.w(TAG, "取网段广播地址失败", t)
@@ -502,6 +555,7 @@ class LocalSendService : Service() {
     private fun teardown() {
         running = false
         isRunning = false
+        serviceRef = null
         discoveryUp = false
         fastMode = false
         networkWatcher?.let { try { unregisterReceiver(it) } catch (_: Throwable) {} }

@@ -149,7 +149,15 @@ object TvInjector {
         //  ④ uinput 虚拟手柄：手柄**摇杆**只有它能注入（见 gamepad()）
         Thread({ runCatching { UinputGamepad.tryStart() } }, "${platform.threadPrefix}-uinput").start()
         //  ⑤ uinput 虚拟鼠标：被控端新建内核鼠标设备，系统原生光标随 REL 位移真动；
-        //    就绪后蓝点浮层退场（见 paintOverlay），点/长按/滚动仍走原注入通道
+        //    就绪后蓝点浮层退场（见 paintOverlay），点/长按/滚动仍走原注入通道。
+        //    锚定回调（UinputMouse.onAnchored）：虚拟鼠标的 REL 光标初始落在屏幕中心，
+        //    与本对象的逻辑坐标（右上角内缩）天然错开半屏，绝对定位点击会落错位 ——
+        //    内核光标被锚回 (0,0) 的同时，把逻辑坐标也同步归零，两端从此同基准。
+        UinputMouse.onAnchored = {
+            cursorX = 0f
+            cursorY = 0f
+            cursorMovedByPeer = false
+        }
         Thread({ runCatching { UinputMouse.tryStart() } }, "${platform.threadPrefix}-uinput-mouse").start()
         //  ⑥ uinput 虚拟键盘：修饰键/F 键独立 down-up，组合键（Ctrl+C 等）的唯一正解
         Thread({ runCatching { UinputKeyboard.tryStart() } }, "${platform.threadPrefix}-uinput-key").start()
