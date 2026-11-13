@@ -55,6 +55,9 @@ class LocalSendService : Service() {
         private const val TAG = "ApxLocalSend"
         private const val ANNOUNCE_PERIOD_MS = 30_000L
         private const val REGISTER_DEDUP_MS = 30_000L
+        /** 单播探测兜底：轮间隔与并发度（见 [startProber] 注释） */
+        private const val PROBE_PERIOD_MS = 45_000L
+        private const val PROBE_THREADS = 24
         /**
          * 接收端此刻是否真的在跑（进程内静态）。
          *
@@ -113,6 +116,7 @@ class LocalSendService : Service() {
     /** announce 目标地址：多播组 + 受限广播 + 网段广播（建 socket 时按实际网卡算出来） */
     @Volatile private var announceTargets: List<InetAddress> = emptyList()
     private var discoveryThread: Thread? = null
+    private var proberThread: Thread? = null
     private var multicastLock: WifiManager.MulticastLock? = null
     private var httpServer: LocalSendHttpServer? = null
     private var httpListenPort = LocalSendProtocol.HTTP_PORT
@@ -173,6 +177,7 @@ class LocalSendService : Service() {
         }
 
         startDiscovery()
+        startProber()
     }
 
     private fun startDiscovery() {
@@ -181,6 +186,82 @@ class LocalSendService : Service() {
         discoveryThread = Thread({ discoveryLoop() }, "LocalSend-Discovery").apply {
             isDaemon = true
             start()
+        }
+    }
+
+    /**
+     * 单播探测（第四路发现兜底，2026-11-13 成宇「两个手机互相发现不了，电脑也不行」）。
+     *
+     * 此前发现只有三路 UDP（组播 + 受限广播 + 网段广播），在滤广播/组播的路由器
+     * （运营商光猫常见，管理页里常常找不到开关）下三路全灭，「附近设备」永远空。
+     * HTTP 直连不受广播过滤影响 —— 文件收发面板（9511 直连）在同一个网络上一直通，
+     * 就是佐证。这里对 /24 网段逐 IP 探测 53317/53318/53319：对方开关开着 HTTP 就在听，
+     * register 成功应答即双方互相入表，不依赖任何广播。
+     *
+     * 成本评估：254 IP × 3 端口、24 并发、连接超时 300ms —— 对不存在的主机大多 RST
+     * 秒回，最坏（全超时）一轮约 10s，后台线程，对电量的可感知影响可忽略；周期 45s
+     * （略小于发送页 60s 活跃窗口，probe 刷新的设备不会在列表里闪没）。
+     */
+    private fun startProber() {
+        if (proberThread?.isAlive == true) return
+        proberThread = Thread({
+            var first = true
+            while (running) {
+                if (!first) {
+                    try { Thread.sleep(PROBE_PERIOD_MS) } catch (_: InterruptedException) { return@Thread }
+                }
+                first = false
+                try { probeSubnet() } catch (_: InterruptedException) { return@Thread } catch (t: Throwable) {
+                    Log.w(TAG, "探测轮异常", t)
+                }
+            }
+        }, "LocalSend-Prober").apply { isDaemon = true; start() }
+    }
+
+    /** 一轮子网探测；本机 IP 未知（无 Wi-Fi）时本轮跳过 */
+    private fun probeSubnet() {
+        val nif = preferredMulticastInterface() ?: return
+        val self = nif.inetAddresses.toList().filterIsInstance<Inet4Address>().firstOrNull() ?: return
+        val base = self.address // /24 网段：改前三字节，末字节遍历
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(PROBE_THREADS) { r ->
+            Thread(r, "LocalSend-Probe").apply { isDaemon = true }
+        }
+        try {
+            val futures = (1..254).map { last ->
+                val ip = String.format("%s.%d", base.joinToString(".") { (it.toInt() and 0xFF).toString() }, last)
+                pool.submit { probeHost(ip) }
+            }
+            // 等待本轮全部结束（单任务自身带超时；上限放宽到 15s 防积压）
+            futures.forEach { f -> runCatching { f.get(15, java.util.concurrent.TimeUnit.SECONDS) } }
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
+    /** 对单主机依次试 53317/53318/53319；应答即入表（并触发对端入表），短路返回 */
+    private fun probeHost(ip: String) {
+        for (port in intArrayOf(53317, 53318, 53319)) {
+            try {
+                val conn = URL("http://$ip:$port${LocalSendProtocol.PATH_REGISTER}").openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 300; conn.readTimeout = 800
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(LocalSendProtocol.register(alias, deviceType, true, httpListenPort).toString().toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                val body = conn.inputStream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                conn.disconnect()
+                if (code in 200..299) {
+                    // 对端 deviceInfo 平铺 + probe 端口 → announce 形状入表；dedup 会拦住
+                    // 回路（对端随后回的 register 在 REGISTER_DEDUP_MS 内被拦）
+                    val msg = try { JSONObject(body) } catch (_: Throwable) { return }
+                    msg.put("port", port).put("protocol", "http")
+                    onAnnounce(msg.toString(), ip)
+                    return
+                }
+            } catch (_: Throwable) {
+                // 该端口无应答（连接拒绝/超时），试下一端口
+            }
         }
     }
 
@@ -315,6 +396,8 @@ class LocalSendService : Service() {
         mainHandler.removeCallbacksAndMessages(null)
         try { discoveryThread?.interrupt() } catch (_: Throwable) {}
         discoveryThread = null
+        try { proberThread?.interrupt() } catch (_: Throwable) {}
+        proberThread = null
         try { multicast?.leaveGroup(InetSocketAddress(LocalSendProtocol.MULTICAST_GROUP, LocalSendProtocol.MULTICAST_PORT), null) } catch (_: Throwable) {}
         try { multicast?.close() } catch (_: Throwable) {}
         multicast = null
@@ -392,6 +475,17 @@ class LocalSendService : Service() {
 
     private val handler = object : LocalSendHttpServer.Handler {
         override fun deviceInfo(): JSONObject = LocalSendProtocol.deviceInfo(alias, deviceType, true)
+
+        override fun onRegister(body: JSONObject, peerIp: String) {
+            // register 与 UDP announce 走同一条入表路径：把 RegisterDto 展平成 announce 形状
+            // （info 平铺 + port/protocol），fingerprint 去重、dedup、postRegister 回应全复用。
+            // 展平而非透传：onAnnounce 只认扁平字段，两处结构对齐比两处解析更不易分叉。
+            val info = body.optJSONObject("info") ?: return
+            val msg = JSONObject()
+            info.keys().forEach { k -> msg.put(k, info.opt(k)) }
+            msg.put("port", body.optInt("port", 0)).put("protocol", body.optString("protocol", "http"))
+            onAnnounce(msg.toString(), peerIp)
+        }
 
         override fun prepareUpload(body: JSONObject): JSONObject {
             val info = body.optJSONObject("info")

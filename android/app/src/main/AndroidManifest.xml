@@ -117,7 +117,14 @@
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher_app"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AllPeriph">
+        android:theme="@style/Theme.AllPeriph"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic：LocalSend 协议按官方口径就是局域网明文 HTTP（http://ip:53317）。
+             targetSdk ≥ 28 时平台默认禁明文出站 —— 此前没开这一位，手机端所有出站 HTTP
+             （postRegister 单播应答、发送三步 register/prepare/upload）在 HttpURLConnection
+             处直接抛「Cleartext HTTP traffic not permitted」，表现为发现通路半残、发送必挂；
+             被动侧（接收文件，对方连本机 server）不受该策略影响，所以「收得到、发不出」。
+             仅本 App 需要明文，按官方协议放开（零凭据零隐私数据，无安全边界问题）。 -->
 
         <!--
           ① 主控制面（竖屏，v1.19）。

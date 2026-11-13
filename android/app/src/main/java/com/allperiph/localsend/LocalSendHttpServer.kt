@@ -21,6 +21,16 @@ class LocalSendHttpServer(
         /** GET info 与 register 的响应体（设备信息） */
         fun deviceInfo(): JSONObject
 
+        /**
+         * POST register：把请求方登记进本机发现表（2026-11-13 补）。
+         *
+         * 此前只回 deviceInfo、不入表 —— 单播 register 这条「多播被路由器挡掉时的唯一
+         * 发现通路」只对 PC 端生效（PC 自己会入表），手机↔手机之间收 register 的一端
+         * 永远不认识对方，UDP 一被滤附近设备就全空。body 为 RegisterDto（info + port +
+         * protocol），peerIp 取自连接的远端地址，比 body 更可信。
+         */
+        fun onRegister(body: JSONObject, peerIp: String)
+
         /** POST prepare-upload：接受清单，返回 {sessionId, files:{id:token}} */
         fun prepareUpload(body: JSONObject): JSONObject
 
@@ -83,7 +93,10 @@ class LocalSendHttpServer(
                     respondJson(out, 200, handler.deviceInfo())
 
                 method == "POST" && path == LocalSendProtocol.PATH_REGISTER -> {
-                    skipBody(input, contentLength)
+                    val body = readBodyBytes(input, contentLength)
+                    val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
+                    // 对端 IP 取连接远端地址：NAT/代理在本场景不存在，直连即可信
+                    handler.onRegister(json, socket.inetAddress?.hostAddress ?: "")
                     respondJson(out, 200, handler.deviceInfo())
                 }
 
