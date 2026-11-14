@@ -423,7 +423,7 @@ object HidKeys {
                 Uplink.set(
                     Uplink.NONE,
                     if (target.isControlling()) "受控目标已断开"
-                    else "USB HID 未就绪、蓝牙未连接（/dev/hidg0 未挂载或 USB 口被调试占用）",
+                    else "USB HID 未就绪、蓝牙未连接（/dev/hidg0/1/2 未挂载或 USB 口被调试占用）",
                 )
                 if (first) Log.w(TAG, "键盘无可用出口：USB 未挂载、蓝牙未连接、未选受控设备")
             }

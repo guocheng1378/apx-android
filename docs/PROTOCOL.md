@@ -22,6 +22,12 @@
 ### 2.1 描述符总原则
 
 - 单一报告描述符包含 **15 个 Top-Level Collection**（Report ID 1、2、3、4、5、6、7–15），见 `ARCHITECTURE.md` §4
+- **USB gadget 自 2026-11-14（issue#170 #2）起不再整份下发**：拆为三个 f_hid 实例，
+  各实例首 TLC = 该接口主用途（macOS 按主用途匹配，主用途非 Mouse/Keyboard 的
+  复合接口其鼠标 TLC 不被指针事件系统挂上）：
+  `hid.usb0` 指针面（Mouse+Consumer → /dev/hidg0）、`hid.usb1` 控制面（Gamepad+Vendor → hidg1）、
+  `hid.usb2` 键盘面（Keyboard → hidg2）。**Report ID 编号不变**，仅物理归属按 rid 路由。
+  本节的 TLC/报告字节布局对三份拆分描述符同样适用。
 - 描述符总字节数须 **< 4096**（`f_hid` 经 ConfigFS 写入 `report_desc` 的内核侧上限）；超限时优先精简字段的范围声明，而不是删减 TLC
   - **实测（v1.4，`apx_selftest` 输出）：1727 字节，余量 2369**。新增 TLC 前先看这个数字（`INFO descriptor=... headroom=...`），别凭感觉估
   - v1.4 新增触控板 Mouse TLC 仅占 **61 字节**，远未逼近上限

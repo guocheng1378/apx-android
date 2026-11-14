@@ -74,6 +74,15 @@ object ApxNative {
     /** 完整 HID 报告描述符字节流（6 个 TLC），写入 ConfigFS report_desc */
     external fun hidReportDescriptor(): ByteArray
 
+    /** USB 拆分·指针面描述符（Mouse + Consumer → hid.usb0/hidg0），issue#170 #2 */
+    external fun usbPointerReportDescriptor(): ByteArray
+
+    /** USB 拆分·控制面描述符（Gamepad + Vendor → hid.usb1/hidg1），issue#170 #2 */
+    external fun usbControlReportDescriptor(): ByteArray
+
+    /** USB 拆分·键盘面描述符（Keyboard → hid.usb2/hidg2），issue#170 #2 */
+    external fun usbKeyboardReportDescriptor(): ByteArray
+
     /** 蓝牙 HID 描述符（Mouse/Keyboard/Consumer 三个 TLC，不含传感器） */
     external fun btReportDescriptor(): ByteArray
 
@@ -219,6 +228,15 @@ object ApxNative {
     ): ByteArray? = guard { packVendorStatus(status, linkSpeed, moduleMask, errorCode, uptimeMs, lastSeq) }
 
     fun hidReportDescriptorOrNull(): ByteArray? = guard { hidReportDescriptor() }
+
+    /** USB 拆分·指针面（hidg0：Mouse + Consumer），issue#170 #2 */
+    fun usbPointerDescriptorOrNull(): ByteArray? = guard { usbPointerReportDescriptor() }
+
+    /** USB 拆分·控制面（hidg1：Gamepad + Vendor），issue#170 #2 */
+    fun usbControlDescriptorOrNull(): ByteArray? = guard { usbControlReportDescriptor() }
+
+    /** USB 拆分·键盘面（hidg2：Keyboard），issue#170 #2 */
+    fun usbKeyboardDescriptorOrNull(): ByteArray? = guard { usbKeyboardReportDescriptor() }
 
     fun hidMaxReportLengthOrDefault(): Int =
         if (isAvailable) {

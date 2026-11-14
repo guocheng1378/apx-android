@@ -377,6 +377,42 @@ int main() {
     CHECK_EQ(s.inputBits[apx::kReportBattery] / 8 + 1, 1);
     CHECK_EQ(apx::maxReportLength(), 264u);
 
+    // ============ USB 拆分描述符（issue#170 #2，2026-11-14）===========
+    // hid.usb0 指针面(Mouse+Consumer→hidg0) / hid.usb1 控制面(Gamepad+Vendor→hidg1)
+    // / hid.usb2 键盘面(Keyboard→hidg2)：各实例首 TLC = 该接口主用途（macOS
+    // 按主用途匹配），rid 编号不变；这里钉住「每份只含自己那几个 rid」。
+    const std::vector<uint8_t> ptrDesc = apx::buildUsbPointerDescriptor();
+    const std::vector<uint8_t> ctlDesc = apx::buildUsbControlDescriptor();
+    const std::vector<uint8_t> kbdDesc = apx::buildUsbKeyboardDescriptor();
+    CHECK(!ptrDesc.empty());
+    CHECK(!ctlDesc.empty());
+    CHECK(!kbdDesc.empty());
+    std::printf("INFO usb_desc_split pointer=%zu control=%zu keyboard=%zu bytes\n",
+                ptrDesc.size(), ctlDesc.size(), kbdDesc.size());
+    CHECK(ptrDesc.size() < 4096u);
+    CHECK(ctlDesc.size() < 4096u);
+    CHECK(kbdDesc.size() < 4096u);
+    const DescStats ps = parseDescriptor(ptrDesc);
+    const DescStats cs = parseDescriptor(ctlDesc);
+    const DescStats ks = parseDescriptor(kbdDesc);
+    // 指针面：鼠标 6B + 多媒体 4B；键盘/手柄/Vendor 不在本实例（0 bits → 1）
+    CHECK_EQ(ps.inputBits[apx::kReportMouse] / 8 + 1, 6);
+    CHECK_EQ(ps.inputBits[apx::kReportConsumer] / 8 + 1, 4);
+    CHECK_EQ(ps.inputBits[apx::kReportKeyboard] / 8 + 1, 1);
+    CHECK_EQ(ps.inputBits[apx::kReportGamepad] / 8 + 1, 1);
+    CHECK_EQ(ps.inputBits[apx::kReportVendor] / 8 + 1, 1);
+    // 控制面：手柄 7B + Vendor IN 24B；OUT 264B（PC 下发命令走本实例）
+    CHECK_EQ(cs.inputBits[apx::kReportGamepad] / 8 + 1, 7);
+    CHECK_EQ(cs.inputBits[apx::kReportVendor] / 8 + 1, 24);
+    CHECK_EQ(cs.outputBits[apx::kReportVendor] / 8 + 1, 264);
+    CHECK_EQ(cs.inputBits[apx::kReportMouse] / 8 + 1, 1);
+    CHECK_EQ(cs.inputBits[apx::kReportKeyboard] / 8 + 1, 1);
+    // 键盘面：键盘 9B；其余面不在本实例
+    CHECK_EQ(ks.inputBits[apx::kReportKeyboard] / 8 + 1, 9);
+    CHECK(ks.inputBits[apx::kReportKeyboard] % 8 == 0);
+    CHECK_EQ(ks.inputBits[apx::kReportMouse] / 8 + 1, 1);
+    CHECK_EQ(ks.inputBits[apx::kReportVendor] / 8 + 1, 1);
+
     // v1.11：TLC 元数据表 22 个（含 USB 键盘 21 与 PTP 系列 16..20）
     size_t tlcCount = 0;
     const uint8_t* ids = apx::tlcReportIds(tlcCount);

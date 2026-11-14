@@ -76,7 +76,7 @@ object HotkeyController {
             }
             else -> {
                 val first = Uplink.current != Uplink.NONE
-                Uplink.set(Uplink.NONE, "USB HID 未就绪（/dev/hidg0 未挂载）、蓝牙未连接")
+                Uplink.set(Uplink.NONE, "USB HID 未就绪（/dev/hidg0/1/2 未挂载）、蓝牙未连接")
                 if (first) Log.w(TAG, "多媒体键无可用出口（USB 未挂载 / 蓝牙未连接）")
             }
         }

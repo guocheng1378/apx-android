@@ -119,7 +119,7 @@ object HidMouse {
                 val why = if (ControlTarget.isControlling()) {
                     "受控目标已断开；USB HID 未就绪、蓝牙未连接"
                 } else {
-                    "USB HID 未就绪（/dev/hidg0 未挂载或 USB 口被调试占用）、蓝牙未连接"
+                    "USB HID 未就绪（/dev/hidg0/1/2 未挂载或 USB 口被调试占用）、蓝牙未连接"
                 }
                 Uplink.set(Uplink.NONE, why)
                 if (first) Log.w(TAG, "鼠标无可用出口：$why")

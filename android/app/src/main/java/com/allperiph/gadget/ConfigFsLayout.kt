@@ -11,7 +11,17 @@ enum class GadgetFeature(
     val optional: Boolean,
     val label: String,
 ) {
-    HID("hid.usb0", true, false, "f_hid 复合 HID（传感器/触控/按键/电池/Vendor）"),
+    // issue#170 #2（2026-11-14）：单 HID 实例拆成三个。为什么必须拆：
+    // macOS 的 HID 栈按描述符**第一个 TLC** 决定接口主用途（PrimaryUsage），
+    // 主用途非 Mouse/Keyboard 的复合接口，其鼠标 TLC 不会被指针事件系统挂上
+    // —— 实测 pad→Mac「3 指手势（键盘路径）有效、单指/双指（鼠标帧）全无效」。
+    // **枚举声明顺序 = 配置内链接顺序 = /dev/hidgN 节点号**，勿乱序：
+    //   hid.usb0 → hidg0 指针面（Mouse+Consumer，首用途 Mouse）
+    //   hid.usb1 → hidg1 控制面（Gamepad+Vendor，首用途 Gamepad，issue#52 不回退）
+    //   hid.usb2 → hidg2 键盘面（Keyboard，首用途 Keyboard）
+    HID_POINTER("hid.usb0", true, false, "f_hid 指针面（鼠标+多媒体）"),
+    HID_CONTROL("hid.usb1", true, false, "f_hid 控制面（手柄+Vendor）"),
+    HID_KEYBOARD("hid.usb2", true, false, "f_hid 键盘面"),
     // ⚠️ 曾把 ACM/NCM 默认关掉（怀疑是它们导致 Windows「Code 10 拒绝配置整个 configuration」
     // 而让 HID/音频一起失效）。后来用 PC 注册表取证推翻：App gadget（VID_1D6B&PID_0104）在
     // 这台 PC 上**历史上完整枚举成功过**，子设备里就有 MEDIA Source/Sink ×2（音箱+麦克风，
@@ -37,13 +47,24 @@ data class GadgetOptions(
     val serial: String = UsbId.SERIAL,
     val maxPowerMa: Int = 500,
     val reportLength: Int = GadgetConst.HID_REPORT_LENGTH_FALLBACK,
-    val reportDescSource: String? = null,
+    /** USB 拆分（issue#170 #2）：每个 HID 实例一份描述符文件（手机侧已暂存路径） */
+    val reportDescPointer: String? = null,
+    val reportDescControl: String? = null,
+    val reportDescKeyboard: String? = null,
     val configfsRoot: String = SysPath.CONFIGFS_USB_GADGET,
     val reuse: Boolean = false,
 ) {
     fun root(): String = "$configfsRoot/$gadget"
     fun configDir(): String = "${root()}/configs/$config"
     fun functionDir(f: GadgetFeature): String = "${root()}/functions/${f.instance}"
+
+    /** 该 HID 实例对应的描述符源文件（null = 未提供，functionProps 会显式失败） */
+    fun reportDescSource(f: GadgetFeature): String? = when (f) {
+        GadgetFeature.HID_POINTER -> reportDescPointer
+        GadgetFeature.HID_CONTROL -> reportDescControl
+        GadgetFeature.HID_KEYBOARD -> reportDescKeyboard
+        else -> null
+    }
 }
 
 data class Step(
@@ -98,13 +119,20 @@ object ConfigFsLayout {
         steps += Step("for u in /config/usb_gadget/*/UDC; do echo \"\$u rc=\$(echo '' > \"\$u\" 2>&1; echo \$?)\"; done >> /data/local/tmp/apx_unbind.txt 2>&1", optional = true)
         steps += Step("for i in \$(seq 12); do s=\$(cat '/sys/class/udc/$udc/state' 2>/dev/null); case \"\$s\" in *configured*|*addressed*|*default*) sleep 0.5;; *) break;; esac; done; echo \"udc-state=[\$s] after \$i rounds\" >> /data/local/tmp/apx_ffs.txt", optional = true)
 
-        o.reportDescSource?.let { src ->
-            val hidFd = o.functionDir(GadgetFeature.HID)
-            steps += Step("src=\$(wc -c < '$src' 2>/dev/null || echo 0); rd=\$(wc -c < '$hidFd/report_desc' 2>/dev/null || echo 0); ok=0; if [ \"\$rd\" = \"\$src\" ]; then ok=1; elif [ \"\$src\" != \"0\" ] && head -c \"\$src\" '$hidFd/report_desc' 2>/dev/null | cmp -s - '$src'; then ok=1; fi; echo \"hid desc src=\$src device=\$rd ok=\$ok\" >> /data/local/tmp/apx_ffs.txt; test \"\$ok\" = \"1\"")
+        // 逐实例核对描述符已写入（issue#170 #2：三个实例各一份；旧的 onesize 单份
+        // 核对会漏掉「某一份没写进去」——那是该用途整个失效却仍显示运行中）
+        for (f in o.features.sortedBy { it.ordinal }) {
+            if (f !in HID_FEATURES) continue
+            val src = o.reportDescSource(f) ?: continue
+            val hidFd = o.functionDir(f)
+            steps += Step("src=\$(wc -c < '$src' 2>/dev/null || echo 0); rd=\$(wc -c < '$hidFd/report_desc' 2>/dev/null || echo 0); ok=0; if [ \"\$rd\" = \"\$src\" ]; then ok=1; elif [ \"\$src\" != \"0\" ] && head -c \"\$src\" '$hidFd/report_desc' 2>/dev/null | cmp -s - '$src'; then ok=1; fi; echo \"hid desc ${f.instance} src=\$src device=\$rd ok=\$ok\" >> /data/local/tmp/apx_ffs.txt; test \"\$ok\" = \"1\"")
         }
 
         steps += Step("ok=0; for t in 1 2 3; do if printf '%s' '$udc' > '$g/UDC' 2>/tmp/apx_udc_err; then ok=1; break; else echo \"udc try \$t rc=\$? err=\$(cat /tmp/apx_udc_err)\" >> /data/local/tmp/apx_unbind.txt; sleep 1; fi; done; test \$ok -eq 1")
-        steps += Step("chmod 666 '${SysPath.HIDG_DEVICE}'", optional = true)
+        // 三个 HID 节点都要放开权限（issue#170 #2：hidg0/1/2）
+        for (node in SysPath.HIDG_DEVICES) {
+            steps += Step("chmod 666 '$node'", optional = true)
+        }
         steps += Step("chmod 666 '${SysPath.ACM_DEVICE}'", optional = true)
         steps += Step("chmod 666 '${SysPath.FFS_MOUNT_DIR}'/ep* 2>/dev/null", optional = true)
         steps += Step("chmod 666 /dev/snd/pcmC*D* 2>/dev/null", optional = true)
@@ -124,7 +152,10 @@ object ConfigFsLayout {
             steps += Step("rm -f '${o.configDir()}/${f.instance}' 2>/dev/null", optional = true)
             steps += Step("cd '${o.configDir()}' && ln -s '../../functions/${f.instance}' '${f.instance}'", optional)
         }
-        steps += Step("chmod 666 '${SysPath.HIDG_DEVICE}'", optional = true)
+        // issue#170 #2：三个 HID 节点同样放开权限
+        for (node in SysPath.HIDG_DEVICES) {
+            steps += Step("chmod 666 '$node'", optional = true)
+        }
         steps += Step("chmod 666 '${SysPath.ACM_DEVICE}'", optional = true)
         return steps
     }
@@ -133,13 +164,13 @@ object ConfigFsLayout {
         val optional = f.optional
         val steps = mutableListOf<Step>()
         when (f) {
-            GadgetFeature.HID -> {
+            GadgetFeature.HID_POINTER, GadgetFeature.HID_CONTROL, GadgetFeature.HID_KEYBOARD -> {
                 steps += Step("printf '%s' '${GadgetConst.HID_SUBCLASS_NONE}' > '$fd/subclass'", optional)
                 steps += Step("printf '%s' '${GadgetConst.HID_PROTOCOL_NONE}' > '$fd/protocol'", optional)
                 steps += Step("printf '%s' '${o.reportLength}' > '$fd/report_length'", optional)
-                val src = o.reportDescSource
+                val src = o.reportDescSource(f)
                 if (src == null) {
-                    steps += Step("false # missing HID report descriptor")
+                    steps += Step("false # missing ${f.instance} report descriptor")
                 } else {
                     steps += Step("cp '$src' '$fd/report_desc'", optional = o.reuse)
                 }
@@ -189,4 +220,9 @@ object ConfigFsLayout {
     }
 
     private val RELEASABLE_FFS = listOf("ipcr", "aoa", "ctrl")
+
+    /** 三个 HID 功能（issue#170 #2 拆分），描述符核对等遍历用 */
+    private val HID_FEATURES = setOf(
+        GadgetFeature.HID_POINTER, GadgetFeature.HID_CONTROL, GadgetFeature.HID_KEYBOARD,
+    )
 }

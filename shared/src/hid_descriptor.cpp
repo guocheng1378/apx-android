@@ -345,6 +345,36 @@ size_t writeReportDescriptor(uint8_t* dst, size_t cap) {
     return desc.size();
 }
 
+// ========================= USB 拆分描述符（issue#170 #2）========================
+// 背景：issue#52（347aa8x）把 Gamepad 提到 USB 描述符首位后，接口主用途=Gamepad。
+// macOS 的 HID 栈历史上按 kIOHIDPrimaryUsageKey/PrimaryUsagePage 做设备匹配，
+// 主用途非 Mouse 的接口其鼠标 TLC 不会被指针事件系统挂上 —— pad→Mac 实测
+// 「3 指手势（键盘组合键路径）有效、单指/双指（鼠标帧）全无效」。
+// 方案：一个 f_hid 实例只承载一个「用途面」，各实例首 TLC 即该接口主用途：
+//   hid.usb0（hidg0）指针面：Mouse + Consumer —— 主用途 Mouse
+//   hid.usb1（hidg1）控制面：Gamepad + Vendor —— 主用途 Gamepad（issue#52 不回退）
+//   hid.usb2（hidg2）键盘面：Keyboard          —— 主用途 Keyboard
+// TLC 构造函数与 Report ID 完全复用（零打包改动）；逐份描述符都 < 4096B 内核上限。
+std::vector<uint8_t> buildUsbPointerDescriptor() {
+    Builder b;
+    buildTlcMouse(b);      // rid 2（§2.10 相对鼠标：单指/双指手势帧）
+    buildTlcConsumer(b);   // rid 4（§2.6 多媒体键：三指中键等）
+    return b.out;
+}
+
+std::vector<uint8_t> buildUsbControlDescriptor() {
+    Builder b;
+    buildTlcGamepad(b);    // rid 22 —— 首个 TLC：主用途 Gamepad（issue#52 macOS 手柄）
+    buildTlcVendor(b);     // rid 5 —— 控制面 OUT/状态（PC 下发命令、手机状态上报）
+    return b.out;
+}
+
+std::vector<uint8_t> buildUsbKeyboardDescriptor() {
+    Builder b;
+    buildTlcKeyboard(b);   // rid 21（§2.12 键盘：修饰键 + 6 按键）
+    return b.out;
+}
+
 // ============================ 蓝牙 HID 版描述符 =============================
 // 无线模式用。Mouse / Keyboard / Consumer / Gamepad 四个 TLC，不含传感器。
 // Report ID 从 1 重新开始（1=Mouse 2=Keyboard 3=Consumer 4=Gamepad）。

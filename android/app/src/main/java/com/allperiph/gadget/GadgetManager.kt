@@ -152,24 +152,34 @@ class GadgetManager(
                 // "ConfigFS 挂载失败"收场，真正的 EBUSY 原因就此丢失。
                 val freed = arb.acquire()
 
-                val descBytes = ApxNative.hidReportDescriptorOrNull()
-                if (descBytes == null || descBytes.isEmpty()) {
-                    fail("shared/ 未提供 HID 报告描述符（libapx.so 未加载或接口缺失）")
+                // issue#170 #2：USB 拆分为三个 f_hid 实例（指针/控制/键盘面），
+                // 每实例首 TLC = 该接口主用途（macOS 按主用途匹配，详见描述符注释）。
+                val descPointer = ApxNative.usbPointerDescriptorOrNull()
+                val descControl = ApxNative.usbControlDescriptorOrNull()
+                val descKeyboard = ApxNative.usbKeyboardDescriptorOrNull()
+                if (descPointer.isNullOrEmpty() || descControl.isNullOrEmpty() ||
+                    descKeyboard.isNullOrEmpty()
+                ) {
+                    fail("shared/ 未提供 USB 拆分 HID 描述符（libapx.so 未加载或接口缺失）")
                     arb.release()
                     return
                 }
-                val descFile = stageDescriptor(descBytes)
-                if (descFile == null) {
+                val descPointerFile = stageDescriptor(descPointer, SysPath.SHARED_TMP_DESC_POINTER)
+                val descControlFile = stageDescriptor(descControl, SysPath.SHARED_TMP_DESC_CONTROL)
+                val descKeyboardFile = stageDescriptor(descKeyboard, SysPath.SHARED_TMP_DESC_KEYBOARD)
+                if (descPointerFile == null || descControlFile == null || descKeyboardFile == null) {
                     fail("HID 报告描述符暂存失败")
                     arb.release()
                     return
                 }
 
-                Log.i(TAG, "build=own-v3，直接自建 gadget")
+                Log.i(TAG, "build=own-v4（USB 拆分三实例），直接自建 gadget")
                 val options = GadgetOptions(
                     bcdUsb = if (best.speed.isSuperSpeed) UsbId.BCD_USB_30 else UsbId.BCD_USB_20,
                     reportLength = ApxNative.hidMaxReportLengthOrDefault(),
-                    reportDescSource = descFile,
+                    reportDescPointer = descPointerFile,
+                    reportDescControl = descControlFile,
+                    reportDescKeyboard = descKeyboardFile,
                 ).copy(configfsRoot = resolveConfigfsRoot(sh))
                 val mounted = runSteps(ConfigFsLayout.mount(options, best.name), sh)
                 if (!mounted) {
@@ -207,9 +217,11 @@ class GadgetManager(
      * 否则"重试成功"会停在"gadget 绑上了、但模块没接上"的半死状态（界面显示已就绪却发不出去）。
      */
     private fun afterMount(best: UdcInfo, options: GadgetOptions) {
-        val hid = HidDevice()
-        if (!hid.open()) {
-            fail("${SysPath.HIDG_DEVICE} 打不开（权限或 SELinux 限制）")
+        // issue#170 #2：按 Report ID 路由到三个 hidgN（指针/控制/键盘面），
+        // OUT（PC 下发的 Vendor 命令）只在控制面节点监听
+        val hid = HidDevice(HidDevice.usbSplitNodes())
+        if (hid.open() == 0) {
+            fail("${SysPath.HIDG_DEVICE} 等节点全部打不开（权限或 SELinux 限制）")
             return
         }
         hid.setReportListener { onHidReport(it) }
@@ -317,21 +329,23 @@ class GadgetManager(
         Log.i(TAG, "PTP 描述符已移除，跳过 Feature 登记")
     }
 
-    private fun stageDescriptor(bytes: ByteArray): String? {
+    /** 描述符暂存：App 普通权限写 filesDir，再 root 侧推到 SHARED_TMP 供 ConfigFS cp。
+     *  issue#170 #2：三个实例各一份，[target] 即 SHARED_TMP 侧目标路径。 */
+    private fun stageDescriptor(bytes: ByteArray, target: String = SysPath.SHARED_TMP_DESC): String? {
         return try {
             val dir = File(app.filesDir, SysPath.APP_STAGING_DIR)
             if (!dir.exists() && !dir.mkdirs()) return null
-            val f = File(dir, DESC_FILE_NAME)
+            val f = File(dir, target.substringAfterLast('/'))
             f.writeBytes(bytes)
             val sh = shell ?: return null
             sh.makeDirs(SysPath.SHARED_TMP_DIR)
-            if (!sh.pushFile(f, SysPath.SHARED_TMP_DESC, "0644")) {
-                Log.w(TAG, "push descriptor failed")
+            if (!sh.pushFile(f, target, "0644")) {
+                Log.w(TAG, "push descriptor failed: $target")
                 return null
             }
-            SysPath.SHARED_TMP_DESC
+            target
         } catch (t: Throwable) {
-            Log.e(TAG, "stage descriptor failed", t)
+            Log.e(TAG, "stage descriptor failed: $target", t)
             null
         }
     }
@@ -381,10 +395,13 @@ class GadgetManager(
             try { Thread.sleep(backoff) } catch (_: InterruptedException) { return }
 
             closeDevices()
+            // issue#170 #2：三个实例的描述符沿用 start() 时已暂存到 SHARED_TMP 的三份
             val options = GadgetOptions(
                 bcdUsb = if (best.speed.isSuperSpeed) UsbId.BCD_USB_30 else UsbId.BCD_USB_20,
                 reportLength = ApxNative.hidMaxReportLengthOrDefault(),
-                reportDescSource = SysPath.SHARED_TMP_DESC,
+                reportDescPointer = SysPath.SHARED_TMP_DESC_POINTER,
+                reportDescControl = SysPath.SHARED_TMP_DESC_CONTROL,
+                reportDescKeyboard = SysPath.SHARED_TMP_DESC_KEYBOARD,
             )
             // ⚠️ 这里**绝不能** forceClean：内核同一开机周期只允许成功创建一次 gadget，
             // forceClean 会把 gadget 本体逐级 rmdir 掉，之后 mkdir 必然撞 -EEXIST（被报成
@@ -395,8 +412,8 @@ class GadgetManager(
                 Log.e(TAG, "heal: remount failed")
                 return
             }
-            val hid = HidDevice()
-            if (hid.open()) {
+            val hid = HidDevice(HidDevice.usbSplitNodes())
+            if (hid.open() > 0) {
                 hid.setReportListener { onHidReport(it) }
                 hidDev = hid
                 registerSensorFeatureReports()
@@ -606,7 +623,6 @@ class GadgetManager(
 
     companion object {
         private const val TAG = "GadgetManager"
-        private const val DESC_FILE_NAME = "hid_report_desc.bin"
         private const val MAX_HEAL = 3
         private val HEAL_BACKOFF_MS = longArrayOf(2000, 5000, 15000)
 

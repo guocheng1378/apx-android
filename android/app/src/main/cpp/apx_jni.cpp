@@ -125,6 +125,26 @@ Java_com_allperiph_core_ApxNative_hidReportDescriptor(JNIEnv* env, jobject) {
     return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
 }
 
+// USB 拆分描述符（issue#170 #2，2026-11-14）：hid.usb0/1/2 各一份，
+// 每个实例首 TLC 即该接口主用途（指针面 Mouse / 控制面 Gamepad / 键盘面 Keyboard）
+JNIEXPORT jbyteArray JNICALL
+Java_com_allperiph_core_ApxNative_usbPointerReportDescriptor(JNIEnv* env, jobject) {
+    const std::vector<uint8_t> desc = apx::buildUsbPointerDescriptor();
+    return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_allperiph_core_ApxNative_usbControlReportDescriptor(JNIEnv* env, jobject) {
+    const std::vector<uint8_t> desc = apx::buildUsbControlDescriptor();
+    return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_allperiph_core_ApxNative_usbKeyboardReportDescriptor(JNIEnv* env, jobject) {
+    const std::vector<uint8_t> desc = apx::buildUsbKeyboardDescriptor();
+    return toByteArray(env, desc.empty() ? nullptr : desc.data(), desc.size());
+}
+
 // 蓝牙 HID 描述符（Mouse/Keyboard/Consumer 三个 TLC，不含传感器）
 JNIEXPORT jbyteArray JNICALL
 Java_com_allperiph_core_ApxNative_btReportDescriptor(JNIEnv* env, jobject) {

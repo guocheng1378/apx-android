@@ -9,7 +9,7 @@
 | `UdcProbe.kt` | 枚举 `/sys/class/udc`、解析 `current_speed`、选最优控制器 |
 | `ConfigFsLayout.kt` | 纯函数生成挂载/卸载/清场命令序列（与 `scripts/apx_gadget.sh` 同序，可单测） |
 | `RootShell.kt` | root 操作唯一出口：常驻 su 进程 + 退出码标记，逐条取返回值 |
-| `HidDevice.kt` | `/dev/hidg0` 非阻塞读写（IN 写 + OUT 轮询读） |
+| `HidDevice.kt` | `/dev/hidg0/1/2` 非阻塞读写（IN 写按 Report ID 路由 + 控制面 OUT 轮询读） |
 | `SerialDevice.kt` | `/dev/ttyGS0`（CDC ACM）非阻塞写入 |
 
 ## 挂载顺序（内核要求）
@@ -25,7 +25,12 @@
 
 ## Function 组合
 
-默认启用 `f_hid`（复合 HID，6 个 TLC）+ `f_acm`（GPS NMEA → COM 口）。
+默认启用 `f_hid` ×3（issue#170 #2，2026-11-14 USB 拆分）+ `f_acm`（GPS NMEA → COM 口）：
+`hid.usb0` 指针面（Mouse+Consumer → hidg0，首用途 Mouse）、
+`hid.usb1` 控制面（Gamepad+Vendor → hidg1，首用途 Gamepad）、
+`hid.usb2` 键盘面（Keyboard → hidg2，首用途 Keyboard）。
+拆分原因：macOS 按接口主用途匹配，主用途非 Mouse 的复合接口其鼠标 TLC
+不被指针事件系统挂上（实测 pad→Mac「键盘/手势可用、单指/双指全无效」）。
 `f_uac2`（手机麦克风 + 扬声器）默认尝试挂载；`f_uvc` / `f_ncm` 仍在预留。
 
 三者均标记为 `optional`：厂商内核常缺少对应 gadget function（实测 Xiaomi HyperOS 就**没有** `usb_f_uac2`），
@@ -38,7 +43,7 @@
 ## 已知限制
 
 - **Report ID 5 需声明为 Input + Feature 双用途**，状态才能经中断 IN 端点上行；否则只能走 `Get_Report`（Windows 侧不会主动轮询）。
-- `/dev/hidg0` 必须 `O_NONBLOCK`：f_hid 同时只允许一个 IN 请求在途，主机未取走时再写会阻塞；传感器是可丢数据面，宁可丢帧。
+- `/dev/hidg0/1/2` 必须 `O_NONBLOCK`：f_hid 同一实例同时只允许一个 IN 请求在途，主机未取走时再写会阻塞；鼠标/传感器是可丢数据面，宁可丢帧。
 - SELinux enforcing 下 `chmod 666` 可能失败，属可选步骤；App 自身以 root 打开节点不受影响。
 - SIGKILL（LMK 强杀）不会执行 shutdown hook，此时用 `scripts/apx_gadget.sh down` 人工恢复。
 
@@ -48,7 +53,7 @@
 adb push scripts/apx_gadget.sh /data/local/tmp/
 adb shell su -c 'sh /data/local/tmp/apx_gadget.sh status'      # 看 UDC / speed / 节点
 adb shell su -c 'sh /data/local/tmp/apx_gadget.sh speed'        # 速度门禁
-adb shell su -c 'sh /data/local/tmp/apx_gadget.sh up /data/local/tmp/apx/hid_report_desc.bin'
+adb shell su -c 'sh /data/local/tmp/apx_gadget.sh up'
 adb shell su -c 'sh /data/local/tmp/apx_gadget.sh down'         # 必做：恢复手机 USB
 adb logcat -s GadgetManager UdcProbe UsbHalArbiter RootShell
 ```

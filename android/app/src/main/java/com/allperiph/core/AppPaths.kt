@@ -16,8 +16,16 @@ object SysPath {
     const val UDC_CURRENT_SPEED = "current_speed"
     const val UDC_STATE = "state"
 
-    /** f_hid 创建的字符设备 */
+    /** f_hid 创建的字符设备。
+     *  issue#170 #2（2026-11-14）起 gadget 拆为三个 HID 实例（hid.usb0/1/2），
+     *  节点号 = 配置内链接顺序：hidg0=指针面(Mouse+Consumer)、
+     *  hidg1=控制面(Gamepad+Vendor)、hidg2=键盘面(Keyboard)。 */
     const val HIDG_DEVICE = "/dev/hidg0"
+    const val HIDG_CONTROL_DEVICE = "/dev/hidg1"
+    const val HIDG_KEYBOARD_DEVICE = "/dev/hidg2"
+
+    /** 全部 f_hid 节点（chmod / 诊断遍历用，顺序 = 链接顺序） */
+    val HIDG_DEVICES = listOf(HIDG_DEVICE, HIDG_CONTROL_DEVICE, HIDG_KEYBOARD_DEVICE)
 
     /** f_acm 创建的 CDC ACM 设备（Windows 侧枚举为 COM 口） */
     const val ACM_DEVICE = "/dev/ttyGS0"
@@ -39,7 +47,14 @@ object SysPath {
 
     /** 与 scripts/ 共用的可写目录（adb shell 也用同一路径，便于脱离 App 验证） */
     const val SHARED_TMP_DIR = "/data/local/tmp/apx"
+
+    /** 拆分前的单份描述符（兼容旧调试脚本；App 现走下面三份） */
     const val SHARED_TMP_DESC = "$SHARED_TMP_DIR/hid_report_desc.bin"
+
+    /** USB 拆分三份描述符（issue#170 #2）：指针面 / 控制面 / 键盘面 */
+    const val SHARED_TMP_DESC_POINTER = "$SHARED_TMP_DIR/hid_report_desc_pointer.bin"
+    const val SHARED_TMP_DESC_CONTROL = "$SHARED_TMP_DIR/hid_report_desc_control.bin"
+    const val SHARED_TMP_DESC_KEYBOARD = "$SHARED_TMP_DIR/hid_report_desc_keyboard.bin"
 }
 
 /** USB-IF / ConfigFS 需要的描述符字段 */

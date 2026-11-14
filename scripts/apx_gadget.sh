@@ -10,16 +10,17 @@
 #   adb push scripts/apx_gadget.sh /data/local/tmp/apx_gadget.sh
 #   adb shell chmod 0755 /data/local/tmp/apx_gadget.sh
 #   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh status'
-#   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh up   /data/local/tmp/apx/hid_report_desc.bin'
+#   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh up'
 #   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh down'
-#   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh heal  /data/local/tmp/apx/hid_report_desc.bin'
+#   adb shell su -c 'sh /data/local/tmp/apx_gadget.sh heal'
 #
 # 子命令：
 #   status                 打印 UDC / current_speed / 设备节点 / sys.usb.config
 #   speed                  只打印 UDC 当前速度（架构 §6.1 速度门禁）
-#   up   [desc.bin]        抢占 UDC 并挂载 f_hid + f_acm（desc.bin 默认 $TMP/hid_report_desc.bin）
+#   up [ptr ctl kbd]       抢占 UDC 并挂载 f_hid ×3 + f_acm
+#                          （三份描述符默认 $TMP/hid_report_desc_{pointer,control,keyboard}.bin）
 #   down                   卸载并恢复原有 sys.usb.config
-#   heal [desc.bin]        不恢复 USB 配置，直接清场重挂（心跳丢失自愈的人工等价操作）
+#   heal [ptr ctl kbd]     不恢复 USB 配置，直接清场重挂（心跳丢失自愈的人工等价操作）
 #
 # 硬性要求：必须以 root 执行；退出码 0=成功，非 0=失败（失败会自动回滚 USB 配置）。
 # 只使用 POSIX sh 语法（Android /system/bin/sh 为 mksh/toybox，无 bash 数组与 [[ ]]）。
@@ -39,7 +40,12 @@ MAXPOWER=500
 HID_REPORT_LENGTH=1024
 
 TMP=/data/local/tmp/apx
-DEFAULT_DESC="$TMP/hid_report_desc.bin"
+# issue#170 #2（2026-11-14）：USB 拆为三个 f_hid 实例，描述符各一份。
+#   hid.usb0 指针面(Mouse+Consumer→hidg0) / hid.usb1 控制面(Gamepad+Vendor→hidg1)
+#   hid.usb2 键盘面(Keyboard→hidg2)。旧单份 hid_report_desc.bin 仅作遗留参考。
+DEFAULT_DESC_POINTER="$TMP/hid_report_desc_pointer.bin"
+DEFAULT_DESC_CONTROL="$TMP/hid_report_desc_control.bin"
+DEFAULT_DESC_KEYBOARD="$TMP/hid_report_desc_keyboard.bin"
 SAVED_PROP_FILE="$TMP/.saved_sys_usb_config"
 
 APX_FAIL=0
@@ -132,7 +138,7 @@ teardown_gadget() {
     [ -d "$g" ] || return 0
     printf '' > "$g/UDC" 2>/dev/null
     sleep 0.3
-    for f in hid.usb0 acm.usb0 uvc.usb0 uac2.usb0 ncm.usb0; do
+    for f in hid.usb0 hid.usb1 hid.usb2 acm.usb0 uvc.usb0 uac2.usb0 ncm.usb0; do
         rm -f "$g/configs/$CONFIG_NAME/$f" 2>/dev/null
         rmdir "$g/functions/$f" 2>/dev/null
     done
@@ -179,13 +185,17 @@ cmd_status() {
     fi
     printf -- '--- device nodes ---\n'
     ls -l /dev/hidg0 2>/dev/null || printf '/dev/hidg0     = <missing>\n'
+    ls -l /dev/hidg1 2>/dev/null || printf '/dev/hidg1     = <missing>\n'
+    ls -l /dev/hidg2 2>/dev/null || printf '/dev/hidg2     = <missing>\n'
     ls -l /dev/ttyGS0 2>/dev/null || printf '/dev/ttyGS0    = <missing>\n'
-    printf -- '--- descriptor ---\n'
-    if [ -s "$DEFAULT_DESC" ]; then
-        printf 'report_desc   = %s (%s bytes)\n' "$DEFAULT_DESC" "$(wc -c < "$DEFAULT_DESC" 2>/dev/null)"
-    else
-        printf 'report_desc   = <missing> %s\n' "$DEFAULT_DESC"
-    fi
+    printf -- '--- descriptors (issue#170 #2 拆分：指针/控制/键盘面) ---\n'
+    for d in "$DEFAULT_DESC_POINTER" "$DEFAULT_DESC_CONTROL" "$DEFAULT_DESC_KEYBOARD"; do
+        if [ -s "$d" ]; then
+            printf 'report_desc   = %s (%s bytes)\n' "$d" "$(wc -c < "$d" 2>/dev/null)"
+        else
+            printf 'report_desc   = <missing> %s\n' "$d"
+        fi
+    done
     return 0
 }
 
@@ -202,7 +212,11 @@ cmd_speed() {
 
 cmd_up() {
     need_root up "$@"
-    desc="${1:-$DEFAULT_DESC}"
+    # issue#170 #2：三个实例各一份描述符；参数依次为
+    # [pointer.bin] [control.bin] [keyboard.bin]（缺省取 App 导出的三份）
+    desc_pointer="${1:-$DEFAULT_DESC_POINTER}"
+    desc_control="${2:-$DEFAULT_DESC_CONTROL}"
+    desc_keyboard="${3:-$DEFAULT_DESC_KEYBOARD}"
 
     base=$(configfs_root) || die "ConfigFS 不可用（内核未启用 CONFIG_CONFIGFS_FS / USB_GADGET）"
     [ -n "$base" ] || die "ConfigFS 不可用"
@@ -221,7 +235,9 @@ cmd_up() {
             ;;
     esac
 
-    [ -s "$desc" ] || die "HID 报告描述符缺失：$desc（由 shared/ 生成，App 启动后会导出到该路径）"
+    for d in "$desc_pointer" "$desc_control" "$desc_keyboard"; do
+        [ -s "$d" ] || die "HID 描述符缺失：$d（由 shared/ 生成，App 启动后导出 *_pointer/_control/_keyboard.bin）"
+    done
 
     save_prop
     release_udc
@@ -243,14 +259,20 @@ cmd_up() {
     w "$c/strings/$LANG_US/configuration" "$CONFIGURATION" || exit 1
     w "$c/MaxPower" "$MAXPOWER" || exit 1
 
-    # —— f_hid：复合 HID（传感器/触控/按键/电池/Vendor，6 个 TLC）——
-    hid="$g/functions/hid.usb0"
-    mkdirs "$hid" || exit 1
-    w "$hid/subclass"     0                 || exit 1
-    w "$hid/protocol"     0                 || exit 1
-    w "$hid/report_length" "$HID_REPORT_LENGTH" || exit 1
-    cp "$desc" "$hid/report_desc" 2>/dev/null || die "写入 report_desc 失败"
-    ln -s "$hid" "$c/hid.usb0" 2>/dev/null || warn "链接 hid.usb0 失败"
+    # —— f_hid ×3（issue#170 #2 拆分；链接顺序决定 /dev/hidgN 节点号，勿乱序）——
+    #   hid.usb0 指针面(Mouse+Consumer→hidg0) / hid.usb1 控制面(Gamepad+Vendor→hidg1)
+    #   hid.usb2 键盘面(Keyboard→hidg2)
+    for pair in "hid.usb0:$desc_pointer" "hid.usb1:$desc_control" "hid.usb2:$desc_keyboard"; do
+        name=${pair%%:*}
+        d=${pair#*:}
+        h="$g/functions/$name"
+        mkdirs "$h" || exit 1
+        w "$h/subclass"      0 || exit 1
+        w "$h/protocol"      0 || exit 1
+        w "$h/report_length" "$HID_REPORT_LENGTH" || exit 1
+        cp "$d" "$h/report_desc" 2>/dev/null || die "写入 $name report_desc 失败"
+        ln -s "$h" "$c/$name" 2>/dev/null || warn "链接 $name 失败"
+    done
 
     # —— f_acm：CDC ACM（GPS NMEA → PC COM 口）——
     acm="$g/functions/acm.usb0"
@@ -271,6 +293,8 @@ cmd_up() {
     w "$g/UDC" "$u" || die "绑定 UDC 失败（可能仍被 USB HAL 占用）"
     sleep 0.5
     chmod 666 /dev/hidg0 2>/dev/null
+    chmod 666 /dev/hidg1 2>/dev/null
+    chmod 666 /dev/hidg2 2>/dev/null
     chmod 666 /dev/ttyGS0 2>/dev/null
 
     APX_FAIL=0
@@ -295,10 +319,11 @@ cmd_heal() {
 
 usage() {
     cat <<'EOF'
-用法：sh apx_gadget.sh <status|speed|up [desc.bin]|down|heal [desc.bin]>
-  status  打印 UDC / 速度 / 设备节点 / 描述符现状
+用法：sh apx_gadget.sh <status|speed|up [ptr ctl kbd]|down|heal [ptr ctl kbd]>
+  status  打印 UDC / 速度 / 设备节点 / 三份描述符现状
   speed   只做速度门禁检查（架构 §6.1）
-  up      抢占 UDC 并挂载 f_hid + f_acm（desc.bin 默认 /data/local/tmp/apx/hid_report_desc.bin）
+  up      抢占 UDC 并挂载 f_hid ×3（指针/控制/键盘面）+ f_acm
+          （描述符默认 /data/local/tmp/apx/hid_report_desc_{pointer,control,keyboard}.bin）
   down    卸载并恢复原 sys.usb.config
   heal    清场重挂（心跳丢失自愈的人工等价操作）
 环境变量：APX_UDC 可指定 UDC 控制器名。

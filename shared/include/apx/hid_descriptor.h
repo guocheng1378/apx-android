@@ -149,8 +149,26 @@ enum : uint16_t {
 };
 
 // ---- 报告描述符 -----------------------------------------------------------
+// 完整（单接口）描述符 —— **USB gadget 已不再使用**（issue#170 #2，2026-11-14）。
+// macOS 按描述符**第一个 TLC** 决定 HID 接口的主用途，而主用途非
+// Mouse/Keyboard 的复合接口会被指针事件系统跳过（Apple 文档自认的历史行为），
+// 导致「键盘/手柄能用、单指/双指触控全部无效」。USB 改为**一个 f_hid
+// 实例只装一个「指针相关」用途**的三个描述符（见下），各挂一个 hidgN 节点。
+// 保留本函数：协议文档 §2.1 仍以此描述完整 TLC 语义，且 JNI 旧出口有
+// 调用方（nativeInit 能力探测），勿删。
 std::vector<uint8_t> buildReportDescriptor();
 size_t writeReportDescriptor(uint8_t* dst, size_t cap);
+
+// ---- USB 拆分描述符（issue#170 #2，2026-11-14）--------------------------
+// 三个 f_hid 实例（hid.usb0/1/2 → /dev/hidg0/1/2，**节点号=配置内链接顺序**）：
+//   hid.usb0 指针面：Mouse + Consumer   → 首用途 Mouse（macOS 指针事件认它）
+//   hid.usb1 控制面：Gamepad + Vendor   → 首用途 Gamepad（issue#52 修复不变）
+//                                        （Vendor OUT/状态仍走本节点，语义不变）
+//   hid.usb2 键盘面：Keyboard           → 首用途 Keyboard
+// Report ID 编号不变（2/4/5/21/22），两端打包代码零改动。
+std::vector<uint8_t> buildUsbPointerDescriptor();
+std::vector<uint8_t> buildUsbControlDescriptor();
+std::vector<uint8_t> buildUsbKeyboardDescriptor();
 
 // ---- 蓝牙 HID 版描述符（无线模式）------------------------------------------
 // Mouse / Keyboard / Consumer / Gamepad 四个 TLC。
