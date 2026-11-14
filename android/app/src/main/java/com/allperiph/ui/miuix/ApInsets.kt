@@ -139,8 +139,17 @@ fun android.app.Activity.applyLandscapeBarPref(landscape: Boolean) {
 fun rememberApInsets(): ApInsets {
     val view = LocalView.current
     var state by remember { mutableStateOf(ApInsets()) }
-
-    DisposableEffect(view) {
+    // issue#170 #3（2026-11-14 报告人实测 + 与代码核对一致）：横放手机
+    // （系统锁竖屏）进入全屏页时，窗口随陀螺仪短暂跳横、随即切回锁定 ——
+    // 跳横那一拍 rootWindowInsets 是横屏口径（挖孔在左右），锁回竖屏后若
+    // listener 不再重派发（v223.23 已有该 ROM 先例，见下「兜底」注），横屏口径的
+    // 左右避让就被本状态 latch 住：竖屏里左右留空白，哪一侧空白取决于进入瞬间
+    // 孔在哪一侧（与报告人「从哪一侧横屏放置进去，空白位置不同」吻合）。
+    // 兜底：窗口实测尺寸一变就重读 —— containerSize 与布局测量同源
+    // （老坑见 rememberApAdaptiveLayout 注释），跳横/锁回必然各变一次，
+    // 尺寸一变即重读根窗口 insets，锁回竖屏立刻撤掉横屏口径的左右避让。
+    val win = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    DisposableEffect(view, win) {
         val density = view.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
         fun pxToDp(px: Int): Dp = (px / density).dp
 
