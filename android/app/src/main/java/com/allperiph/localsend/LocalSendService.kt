@@ -172,7 +172,11 @@ class LocalSendService : Service() {
         }
     }
 
-    private val alias: String get() = Build.MODEL ?: "Android"
+    // 对端设备表里亮的名字（issue#170 第三轮 #4）：与日志文件名同一口径 —— 优先系统
+    // 「设备名称」，读不到回落 Build.MODEL。此前固定 Build.MODEL，小米设备在对端互传表里
+    // 只能看到的认证型号（25091RP04C 这类），和日志里的名字对不上，多台设备难区分。
+    private val alias: String get() =
+        com.allperiph.shared.util.LogExport.systemDeviceName(this)
     private val deviceType: String
         get() = if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
 

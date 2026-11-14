@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -66,11 +68,13 @@ import android.widget.Toast
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.allperiph.core.Uplink
 import com.allperiph.core.UplinkEvent
 import com.allperiph.shared.event.EventBus
+import com.allperiph.ui.miuix.ApComponents
 import com.allperiph.ui.miuix.ApType
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.ui.miuix.ApMiuixTheme
@@ -995,12 +999,33 @@ internal fun GamepadPanel(onExit: () -> Unit) {
             val isGroup = padGroupMode && padGroupSel.size >= 2 && slot in padGroupSel
             // 尺寸落盘目标：组合 = 全体选中成员（摇杆不读尺寸配置，跳过）；单颗 = 当前槽位
             val sizeTargets = if (isGroup) padGroupSel - GamepadPadConfig.STICK_SLOTS.toSet() else setOf(slot)
+            // issue#170 #5（三轮）：卡顶加拖动横条，整卡可拖离中心避开压住的按钮；
+            // 偏移随槽位重开复位（换目标槽位即回正，重新弹同一槽位也回正，行为可预期）
+            var cardDrag by remember(slot) { mutableStateOf(Offset.Zero) }
             Column(
                 modifier = Modifier
+                    .offset { IntOffset(cardDrag.x.roundToInt(), cardDrag.y.roundToInt()) }
                     .background(colorResource(R.color.overlay_scrim), RoundedCornerShape(14.dp * padScale))
                     .border(1.dp, colorResource(R.color.overlay_pad_stroke_idle), RoundedCornerShape(14.dp * padScale))
-                    .padding(18.dp * padScale),
+                    .padding(12.dp * padScale),
             ) {
+                // 拖动横条：图标沿用菜单把手口径（issue#166 第 3 条禁字符 Text），
+                // 按住横条拖动整卡；只吃横条手势，卡内其余行不受影响
+                ApComponents.Icon(
+                    resId = R.drawable.ic_apx_menu,
+                    size = 20.dp,
+                    tint = colorResource(R.color.overlay_pad_text),
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDrag = { change, amount ->
+                                    change.consume()
+                                    cardDrag = Offset(cardDrag.x + amount.x, cardDrag.y + amount.y)
+                                },
+                            )
+                        },
+                )
                 val cfgCtx = LocalContext.current
                 val defaults = GamepadPadConfig.SLOT_DEFAULTS[slot]
                     ?: (GamepadController.BTN_A to 58)
@@ -1030,8 +1055,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     padConfigVersion++
                     Feedback.haptic(cfgCtx)
                 }
-                // issue#170 #8：配置卡排版统一 —— 各行文字居中、行距一致（12dp×scale），
-                // 行宽拉满让点按热区对齐，不再左对齐参差。
+                // issue#170 #8：配置卡排版统一 —— 各行文字居中、行距一致，行宽拉满
+                // 让点按热区对齐，不再左对齐参差；issue#170 #5（三轮）：行距随整卡
+                // 缩小一并收敛（12dp→8dp×scale），保证全部行在小屏竖屏也能完整显示。
                 Text(
                     text = if (isGroup) stringResource(R.string.ui_gamepad_cfg_group_title, padGroupSel.size)
                     else stringResource(R.string.ui_gamepad_cfg_title, slot),
@@ -1053,7 +1079,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         fontSize = (15 * padScale).sp,
                         color = colorResource(R.color.overlay_pad_text),
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp * padScale),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp * padScale),
                     )
                 } else if (!isFunc && !isStick) {
                     // 键位行：点开 / 收起 14 键网格（点选即落盘，保持展开方便连改多颗）
@@ -1064,8 +1090,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 12.dp * padScale)
-                            .height(40.dp * padScale)
+                            .padding(top = 8.dp * padScale)
+                            .height(34.dp * padScale)
                             .clickable {
                                 keyPickerOpen = !keyPickerOpen
                                 Feedback.haptic(cfgCtx)
@@ -1093,7 +1119,7 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         fontSize = (15 * padScale).sp,
                         color = colorResource(R.color.overlay_pad_text),
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp * padScale),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp * padScale),
                     )
                     PadSizeSlider(
                         value = shownSize,
@@ -1128,8 +1154,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp * padScale)
-                        .height(40.dp * padScale)
+                        .padding(top = 8.dp * padScale)
+                        .height(34.dp * padScale)
                         .clickable {
                             if (isGroup) {
                                 padGroupSel.forEach { s -> GamepadPadConfig.reset(cfgCtx, s) }
@@ -1150,8 +1176,8 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp * padScale)
-                        .height(40.dp * padScale)
+                        .padding(top = 8.dp * padScale)
+                        .height(34.dp * padScale)
                         .clickable {
                             keyPickerOpen = false
                             padConfiguring = null

@@ -5,8 +5,10 @@
 //   ② HTTP：URL 带 ?host=1 时启用（macOS / 浏览器面板：宿主 `apxhost panel` 起本地服务后
 //      open "http://127.0.0.1:<port>/?host=1"）——
 //        · act/query → POST /api/act、/api/query，一问一答（响应体即 act-response 协议）
-//        · 状态流   → 400ms GET /api/state（与 WebView2 的 400ms PostWebMessage 等价）
-//        · 事件     → 400ms GET /api/events?since=N（增量轮询；**不做 SSE** ——
+//        · 状态流   → 400ms GET /api/state（与 WebView2 的 400ms PostWebMessage 等价；
+//                     issue#170 #1 起标签页不可见时整段跳过，回前台立即补一轮）
+//        · 事件     → 400ms GET /api/events?since=N（增量轮询；不可见降到 4s ——
+//                     环形缓冲 since=N 不丢；**不做 SSE** ——
 //                     宿主 panel_http 是单线程 accept 模型，长连接会占死 accept 循环）
 //        · 上传     → POST /api/upload?ip&port，body=文件原始字节，文件名走 X-File-Name 头
 //                     （浏览器页面拿不到真实路径，系统文件对话框只有桌面壳有；
@@ -156,6 +158,11 @@ class Bridge {
   private eventListeners = new Map<string, Set<(data: any) => void>>();
   private seq = 0;
   private transport: Transport = 'mock';
+  /**
+   * 上一帧 state 快照的 JSON（同值去重用，见 handleEnvelope 的 'state' 分支）。
+   * null 表示还没收到过任何 state，首帧必须原样下发。
+   */
+  private lastStateJson: string | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && (window as any).chrome?.webview) {
@@ -183,9 +190,24 @@ class Bridge {
 
   // —— HTTP 传输（macOS / 浏览器面板）——
 
+  /**
+   * 状态/事件轮询（issue#170 第三轮 #1「Edge 切到本页就高占用」的修复）：
+   *
+   * 旧实现是固定 400ms 的 setInterval 连发 /api/events + /api/state 两个请求 ——
+   * 前台标签页每秒 5 轮 × 2 请求，服务端 /api/state 每次都整包 buildState，
+   * 前端每帧再整棵树 re-render，占用全来自这条轮询；切走标签页浏览器把
+   * setInterval 节流成分钟级，现象「切走就正常」正是它的指纹。
+   *
+   * 改成自排程 setTimeout + 可见性分档：
+   *  · 可见：维持 400ms（与 WebView2 的 400ms PostWebMessage 等价，延迟不退化）；
+   *  · 不可见：事件降到 4s 一轮（环形缓冲 since=N 不丢事件），/api/state 整个跳过 ——
+   *    回前台时 visibilitychange 立刻补一轮，state 全量拉一次自然追平；
+   *  · 兜底：对不做 visibilitychange 的老浏览器，倒计时走完也会自行按当刻可见性排下一轮。
+   */
   private startHttp() {
     let eventSeq = 0;
-    window.setInterval(async () => {
+    let timer = 0;
+    const poll = async () => {
       try {
         const er = await fetch(`/api/events?since=${eventSeq}`);
         if (er.ok) {
@@ -198,14 +220,24 @@ class Bridge {
           }
         }
       } catch {}
-      if (this.stateListeners.size === 0) return;
-      try {
-        const r = await fetch('/api/state');
-        if (!r.ok) return;
-        const msg = await r.json();
-        this.handleEnvelope(msg);
-      } catch {}
-    }, 400);
+      if (document.visibilityState !== 'hidden' && this.stateListeners.size > 0) {
+        try {
+          const r = await fetch('/api/state');
+          if (r.ok) {
+            const msg = await r.json();
+            this.handleEnvelope(msg);
+          }
+        } catch {}
+      }
+      timer = window.setTimeout(poll, document.visibilityState === 'hidden' ? 4000 : 400);
+    };
+    // 切回前台不等倒计时：立刻补一轮，state 与事件马上跟上
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(poll, 0);
+    });
+    timer = window.setTimeout(poll, 400);
   }
 
   private simulateMockState() {
@@ -250,6 +282,14 @@ class Bridge {
   private handleEnvelope(msg: any) {
     if (!msg || typeof msg !== 'object') return;
     if (msg.kind === 'state') {
+      // 同值快照去重（issue#170 第三轮 #1 的另一半）：state 是 400ms 全量轮询
+      //（WebView2 的 PostWebMessage / HTTP 的 /api/state 同口径），绝大多数轮次的
+      // 内容与上一帧完全一致 —— 原样下发会让 App 每个 tick 都 setState 一个新对象、
+      // 整棵组件树白白重渲染。JSON 比对一次的成本远低于一次全树 re-render；
+      // state 的消费方都按字段读、没有对象身份依赖，去重不影响任何行为。
+      const next = JSON.stringify(msg.data);
+      if (this.lastStateJson === next) return;
+      this.lastStateJson = next;
       this.stateListeners.forEach(l => l(msg.data));
       return;
     }

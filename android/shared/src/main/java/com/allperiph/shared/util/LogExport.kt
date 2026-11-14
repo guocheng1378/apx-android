@@ -36,25 +36,35 @@ object LogExport {
     private const val RECV_DIR = "APX"
 
     /**
+     * 设备展示名（issue#170 第三轮 #4：设备连接 / 文件互传里亮给别人的名字，与日志
+     * 文件名**同一口径**，此前日志改了、界面里还是认证型号，一台小米三处三个叫法）：
+     *  1. 系统设置里的「设备名称」（`Settings.Global` 的 `device_name`，用户自己起过名的
+     *     通常就是这个）—— 按原样保留，含中文/空格都行；
+     *  2. 读不到时回落 `Build.MODEL`；
+     *  3. 两者全空回落 `Android`。
+     * 这里**不做**文件名消毒 —— 展示名允许中文/空格/符号，落文件名的调用方再按
+     * [fileName] 的规则自行清理。
+     */
+    fun systemDeviceName(ctx: Context): String =
+        runCatching {
+            Settings.Global.getString(ctx.contentResolver, Settings.Global.DEVICE_NAME)
+        }.getOrNull()?.trim().orEmpty()
+            .ifBlank { Build.MODEL.orEmpty() }
+            .ifBlank { "Android" }
+
+    /**
      * 导出文件名：`apx-logs-<kind>@<设备名>-<stamp>.txt`。
      *
      * [kind] 传英文小写短名（`logcat` / `log` / `tvlog`），它只是文件名里的一段、
      * 不直接进界面，所以不走 strings.xml。
      *
-     * 设备标识的取值顺序（issue#170：小米的 `Build.MODEL` 是认证型号如 `25091RP04C`，
-     * 用户自己都认不出是哪台机器）：
-     *  1. 系统设置里的「设备名称」（`Settings.Global` 的 `device_name`，用户自己起过名的
-     *     通常就是这个）—— 按原样保留，含中文/空格都行；
-     *  2. 读不到时回落 `Build.MODEL`；
-     *  3. 两者全空回落 `Android`（不回落空串 —— 那会让文件名里出现 `@@`，看着像 bug）。
+     * 设备标识取值口径见 [systemDeviceName]（issue#170：小米的 `Build.MODEL` 是认证型号
+     * 如 `25091RP04C`，用户自己都认不出是哪台机器）。
      * 消毒只去文件系统的硬性非法字符与控制字符：沿用旧的 `[^A-Za-z0-9._-]` 会把中文
      * 设备名剥光；空格保留（与 [saveToDownloads] 的 sanitizeName 同口径）。
      */
     fun fileName(kind: String, ctx: Context): String {
-        val fromSettings = runCatching {
-            Settings.Global.getString(ctx.contentResolver, Settings.Global.DEVICE_NAME)
-        }.getOrNull()?.trim().orEmpty()
-        val device = fromSettings.ifBlank { Build.MODEL.orEmpty() }
+        val device = systemDeviceName(ctx)
             .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "")
             .trim()
             .ifBlank { "Android" }

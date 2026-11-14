@@ -124,7 +124,9 @@ class TvServerService : Service() {
 
     private fun ensureBeacon() {
         if (beacon != null) return
-        val name = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android TV"
+        // 信标设备名（issue#170 第三轮 #4，与手机端同一口径）：优先系统「设备名称」，
+        // 读不到回落 Build.MODEL —— 对端设备连接页与日志文件名对得上，多台设备好区分。
+        val name = com.allperiph.shared.util.LogExport.systemDeviceName(this)
         beacon = WirelessBeacon(
             BEACON_PREFIX_TV,
             name,

@@ -1516,6 +1516,18 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     // 记上一次观测到的内容区尺寸：转屏 / 分屏变化时按它判定「该重读落点了」
     // （类型是 Compose 的 IntSize——onSizeChanged 回调的入参就是它，别换成 android.util.Size）
     var lastBounds by remember { mutableStateOf<IntSize?>(null) }
+    // issue#170 第三轮 #3「悬浮胶囊拖不过另一半屏」：拖拽夹边与菜单胶囊横钳的
+    // 宽高来源换成**窗口实测值**（onSizeChanged 回填）。此前各处读
+    // resources.displayMetrics——本页转屏不重建（configChanges），个别 ROM 上
+    // Resources 的 metrics 回写滞后甚至不更新，转屏后仍停在旧屏宽，横向正好被
+    // 夹在旧屏宽（竖屏宽 ≈ 横屏宽一半，表现即「只能拖一半」）。窗口实测值与
+    // 布局测量同源、转屏瞬间必然回调（老坑见 rememberApAdaptiveLayout 注释），
+    // 以它为准；dm 只作首帧（窗口还没量出来时）的兜底。
+    var winW by remember { mutableIntStateOf(0) }
+    var winH by remember { mutableIntStateOf(0) }
+    /** 窗口实测宽（px）；首帧还没量出来时退回 Resources metrics（进入时刻两者一致） */
+    fun boundsW(): Int = winW.takeIf { it > 0 } ?: dm.widthPixels
+    fun boundsH(): Int = winH.takeIf { it > 0 } ?: dm.heightPixels
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1528,6 +1540,9 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                 if (size.width <= 0 || size.height <= 0) return@onSizeChanged
                 val prev = lastBounds
                 lastBounds = size
+                // 边界口径同步换新：拖拽夹边与胶囊横钳都读这份（见上方 winW/winH 注释）
+                winW = size.width
+                winH = size.height
                 // 首次测量交给下方 LaunchedEffect 落位；此后尺寸一变就按共享比例重读
                 if (prev == null || navBallX < 0f || (size.width == prev.width && size.height == prev.height)) {
                     return@onSizeChanged
@@ -1563,9 +1578,11 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
             } else {
                 navBallY + navBallPx + pillGapPx
             }
-            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
+            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填；
+            // 边界读窗口实测值 boundsW()，转屏后立刻换新 —— 旧口径读 Resources metrics
+            // 在个别 ROM 上停在旧屏宽，胶囊横钳也就停在旧宽，见 winW/winH 注释）
             val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
-                .coerceIn(pillMarginPx, (dm.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+                .coerceIn(pillMarginPx, (boundsW() - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
             Box(
                 modifier = Modifier
                     .offset { IntOffset(pillXPx.roundToInt(), pillYPx.roundToInt()) }
@@ -1625,16 +1642,18 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                             // 旧对象仍停在旧朝向尺寸，横向被夹在旧屏宽。d5d700d 只修了落位重读
                             //（onSizeChanged），拖拽夹边与存档两处漏网；改为每次事件现读，
                             // 转屏后边界与存档口径立刻换新。
-                            val dm = host.resources.displayMetrics
+                            // issue#170 第三轮 #3 追补：个别 ROM 上现读 Resources metrics
+                            // 也可能回写滞后（转屏后仍停旧宽，「只能拖一半」），边界来源再换成
+                            // 窗口实测值（onSizeChanged 回填，与布局同源）；没量出来时退 dm。
                             navBallX = (navBallX + drag.x)
-                                .coerceIn(0f, dm.widthPixels - navBallPx)
+                                .coerceIn(0f, boundsW() - navBallPx)
                             // 纵向钳进系统栏带：上不过状态栏/挖孔、下不过小白条（#9 同规矩）
-                            navBallY = clampBallY(navBallY + drag.y, dm.heightPixels)
+                            navBallY = clampBallY(navBallY + drag.y, boundsH())
                         },
                         onDragEnd = {
-                            val dm = host.resources.displayMetrics
+                            // 存档尺寸与拖拽边界同源（窗口实测优先），转屏后比例不因此失真
                             com.allperiph.ui.BallPos.save(
-                                host, navBallX, navBallY, dm.widthPixels, dm.heightPixels,
+                                host, navBallX, navBallY, boundsW(), boundsH(),
                             )
                         },
                     )

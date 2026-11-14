@@ -217,7 +217,10 @@ class ControlledService : Service() {
         }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
         FileReceiver.start(applicationContext)
-        val devName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android"
+        // 信标里的设备名（issue#170 第三轮 #4）：与日志/互传同一口径 —— 优先系统
+        // 「设备名称」。此前固定 Build.MODEL，PC 端设备连接页看到的是认证型号，
+        // 与日志文件名对不上，多台手机/pad 分不清谁是谁。
+        val devName = com.allperiph.shared.util.LogExport.systemDeviceName(this)
         // v184：以下两处必须幂等 —— onStartCommand 会被反复调用（START_STICKY 重启、
         // onTaskRemoved 拉起、系统回收后重建）。旧实现每次都新建一个 beacon（旧实例的
         // 线程与端口从此没人管，逐次累积）并再 addPrimaryClipChangedListener 一次

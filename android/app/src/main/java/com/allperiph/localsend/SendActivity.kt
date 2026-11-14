@@ -291,8 +291,10 @@ class SendActivity : ComponentActivity() {
         }
         val deviceType = if (resources.configuration.smallestScreenWidthDp >= 600) "tablet" else "phone"
         // register 请求体要带 port/protocol，对端才认得出本机的 HTTP 端口（原来只发 deviceInfo）
+        // 设备名（issue#170 第三轮 #4）：与 LocalSendService.alias 同一函数（系统「设备名称」
+        // 优先），发送页自报的名字别再单独用认证型号。
         val selfInfo = LocalSendProtocol.register(
-            android.os.Build.MODEL, deviceType, true, LocalSendService.httpPort,
+            com.allperiph.shared.util.LogExport.systemDeviceName(this), deviceType, true, LocalSendService.httpPort,
         )
         Toast.makeText(this, getString(R.string.ui_localsend_sending, items.size, target.alias), Toast.LENGTH_SHORT).show()
         val pendingTmp = tmpFiles.toList()
