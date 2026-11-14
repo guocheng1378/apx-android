@@ -1528,12 +1528,13 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     // 同病根）：横屏且 landscape_hide_status 藏了状态栏时顶钳归 0 —— 此前照抄
     // ApInsets.top，状态栏隐藏后 insets 归零与否看 ROM，横屏首拍的状态栏高度被
     // latch，球顶就被旧 inset 卡住。改走 apxBallTopLimit，与 applyLandscapeBarPref
-    // 读同一份偏好；竖屏语义原样（issue#168 2026-11-12 #9 不动）。方向判定用
-    // isLandscape()（宽>高，与落位/横屏口径一致），转屏后 ballInsets 状态一变即
-    // 重组重算，顶钳随之切换。
+    // 读同一份偏好；竖屏语义原样（issue#168 2026-11-12 #9 不动）。方向判定沿用
+    // isLandscape() 的宽>高口径（private 方法扩展不到，内联同式）；转屏后
+    // ballInsets 状态一变即重组重算，顶钳随之切换。
     val ballTopLimitPx = with(density) {
         com.allperiph.ui.miuix.apxBallTopLimit(
-            host, ballInsets.top, host.isLandscape(),
+            host, ballInsets.top,
+            host.resources.configuration.screenWidthDp > host.resources.configuration.screenHeightDp,
         ).toPx()
     }
     val ballBottomGapPx = with(density) { ballInsets.bottom.toPx() }
