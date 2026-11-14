@@ -99,6 +99,34 @@ fun android.app.Activity.applyEdgeToEdge(hideSystemBars: Boolean = false) {
 }
 
 /**
+ * v223.29.103（成宇 2026-11-14 截图「被控模式里上面状态栏没屏蔽，设置里的屏蔽按钮
+ * 到底起作用没有」）：独立 Activity 宿主的横屏状态栏口径 —— 此前只有手柄页 / 主壳
+ * 首帧（v223.29.90 批）接了 landscape_hide_status，操控面、输入面板等其余全屏宿主
+ * 横屏时状态栏依旧常显，时间电量直接压在页面内容上。约定：独立 Activity 宿主在
+ * onCreate / onResume / onWindowFocusChanged 三处调用；参数传「此刻是否横屏」（与
+ * rememberApAdaptiveLayout 同口径：宽 > 高），竖屏不动作，横竖切换后由下一次回前台
+ * /取焦按新朝向重压。只藏状态栏、不碰导航栏；TRANSIENT_BY_SWIPE 保留「下滑临时
+ * 呼出」，insets 隐藏后归零，各页 rememberApInsets 垫边自动跟随。
+ * 页内自管系统栏的全屏态（如操控面 setFullscreen 连导航栏一起收/放）应在调用前
+ * 自行让位，避免两套口径打架。
+ */
+fun android.app.Activity.applyLandscapeBarPref(landscape: Boolean) {
+    if (!landscape) return
+    val ctrl = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+    // 扩展函数体内没有 Activity 子类的成员作用域，Context 常量必须带类名限定
+    //（裸写 MODE_PRIVATE 在扩展函数里解析不到 —— 手柄页能裸写是因为写在子类里）。
+    if (getSharedPreferences("apx", android.content.Context.MODE_PRIVATE)
+            .getBoolean("landscape_hide_status", true)
+    ) {
+        ctrl.systemBarsBehavior =
+            androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        ctrl.hide(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+    } else {
+        ctrl.show(androidx.core.view.WindowInsetsCompat.Type.statusBars())
+    }
+}
+
+/**
  * 读当前窗口的 framework insets 并转成 Compose 状态。
  *
  * 实现要点：

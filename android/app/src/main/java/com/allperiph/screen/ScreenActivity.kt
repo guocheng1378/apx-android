@@ -33,6 +33,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.applyLandscapeBarPref
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -64,7 +65,14 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
+        // v223.29.103（成宇 2026-11-14「被控模式里上面状态栏没屏蔽，设置里的屏蔽按钮
+        // 到底起作用没有」）：本页强制横屏（清单 sensorOrientation=landscape），此前只
+        // applyEdgeToEdge（默认显示口径），状态栏压在画面上沿。与手柄页同批接上共享
+        // 横屏口径（ApInsets.applyLandscapeBarPref）；强制横屏无需横竖判定。
+        val hideBar = getSharedPreferences("apx", MODE_PRIVATE)
+            .getBoolean("landscape_hide_status", true)
+        applyEdgeToEdge(hideSystemBars = hideBar)
+        applyLandscapeBarPref(landscape = true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // 迁 Compose（ThemePref 下线的一步；外观总控已拆成 ApPalette / ApSkin）：画面本体仍是 TextureView，
         // 用 AndroidView 互操作包进来 —— 解码链路、SurfaceTextureListener、触摸桥
@@ -108,6 +116,9 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
         super.onResume()
         ticker.removeCallbacks(tick)
         ticker.post(tick)
+        // v223.29.103：回前台重压一次横屏状态栏（本页强制横屏；读实时偏好，
+        // 开关改完回来即生效）
+        applyLandscapeBarPref(landscape = true)
         // 切回副屏页：请 PC 立即出一帧 IDR（控制通道 0x06），否则要等编码端下一个
         // 关键帧，断连久了能黑好几秒。未选受控设备时发送失败，靠编码端周期 IDR 兜底。
         ControlTarget.controlClient?.sendControl(byteArrayOf(0x06))
@@ -122,6 +133,13 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
             }
             Log.i("ScreenActivity", "副屏：WiFi 高性能锁已获取（防省电掐流）")
         }
+    }
+
+    /** v223.29.103 追补：取焦时再压一次 —— 通知面板交互后系统自行抬回状态栏、
+     *  页面没退 onResume 不会再跑，这里补上无人再压的空档（与手柄页同款）。 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyLandscapeBarPref(landscape = true)
     }
 
     override fun onPause() {

@@ -92,6 +92,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.rememberApAdaptiveLayout
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.applyLandscapeBarPref
 import com.allperiph.wireless.ControlTarget
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
@@ -214,7 +215,18 @@ class TouchpadActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
+        // v223.29.103（成宇 2026-11-14 截图「被控模式里上面状态栏没屏蔽，设置里的屏蔽按钮
+        // 到底起作用没有」）：操控面此前只调默认**显示**口径的 applyEdgeToEdge、从不读
+        // landscape_hide_status —— 主壳横屏藏着的状态栏，一进操控面就被 post 的
+        // show 抬回，时间电量直接叠在键盘页头上。与手柄页/主壳首帧（v223.29.90 批）
+        // 同根：applyEdgeToEdge 的 post 必须与调用页口径一致，隐藏口径作为参数传入。
+        // 横竖判定与主壳 529ea9f 同口径（Configuration 此刻唯一同源来源）。
+        applyEdgeToEdge(
+            hideSystemBars = isLandscape() &&
+                getSharedPreferences("apx", MODE_PRIVATE)
+                    .getBoolean("landscape_hide_status", true),
+        )
+        applyConsoleBarPref()
         // 强调色要叠在「正在用的这个主题」上才算数（View 弹窗：自检 / 关机确认 仍走主题）
         ApPalette.applyRuntimeTheme(this)
         // 截屏已放开（与主页口径一致）：主控制面此前挂 FLAG_SECURE，用户没法截图反馈界面问题
@@ -280,9 +292,34 @@ class TouchpadActivity : ComponentActivity() {
         // 与主页同口径：每次回前台复核转发桥（窗口回调被换掉就重新包上）
         physKeyBridge?.ensureAttached(window)
         GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
+        // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
+        applyConsoleBarPref()
         // 注：服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）——
         // 此前进本页球+栏双窗同屏的问题从根上消失，桌面只悬浮球一个控件。
     }
+
+    /** v223.29.103 追补：焦点回到操控面时再压一次 —— 通知面板/系统交互后系统会把
+     *  状态栏自行抬回，而页面没退、onResume 不会再跑；这里补上无人再压的空档
+     * （与手柄页 v223.29.90 同款）。 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyConsoleBarPref()
+    }
+
+    /**
+     * v223.29.103：操控面的横屏状态栏口径（见 [applyLandscapeBarPref]，apx 偏好
+     * landscape_hide_status 默认开）。onCreate / onResume / onWindowFocusChanged 三处复用。
+     * 全屏态不参与 —— 进出全屏的系统栏归 setFullscreen 管（连导航栏一起收/放），
+     * 这里插手会跟它打架。
+     */
+    private fun applyConsoleBarPref() {
+        if (ui.fullscreen) return
+        applyLandscapeBarPref(isLandscape())
+    }
+
+    /** 横屏判定：与主壳 rememberApAdaptiveLayout 同口径（宽 > 高） */
+    private fun isLandscape(): Boolean =
+        resources.configuration.screenWidthDp > resources.configuration.screenHeightDp
 
     override fun onPause() {
         GestureShield.release(this, HOLDER_CONSOLE)

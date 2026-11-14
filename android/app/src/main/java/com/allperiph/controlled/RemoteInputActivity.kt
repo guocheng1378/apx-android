@@ -53,6 +53,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.applyLandscapeBarPref
 
 class RemoteInputActivity : ComponentActivity() {
 
@@ -127,7 +128,16 @@ class RemoteInputActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
+        // v223.29.103（成宇 2026-11-14「被控模式里上面状态栏没屏蔽」）：本面板与操控面
+        // 同一批 —— 此前只 applyEdgeToEdge（默认显示口径），横屏时状态栏压在面板头上，
+        // 设置里的开关管不到这里。接上共享横屏口径（见 ApInsets.applyLandscapeBarPref）。
+        val landscape = resources.configuration.screenWidthDp > resources.configuration.screenHeightDp
+        applyEdgeToEdge(
+            hideSystemBars = landscape &&
+                getSharedPreferences("apx", MODE_PRIVATE)
+                    .getBoolean("landscape_hide_status", true),
+        )
+        applyLandscapeBarPref(landscape)
         // ①主题跟色：强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文
         // 叠加会丢）——这页此前只有注释没有实际调用，accent 也是写死的 remote_panel_accent，
         // 切主题/莫奈/皮肤全都不动。
@@ -145,6 +155,24 @@ class RemoteInputActivity : ComponentActivity() {
         editText?.post {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.showSoftInput(editText, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /** v223.29.103：回前台/取焦各重压一次横屏状态栏（读实时偏好，开关改完回来即生效；
+     *  系统在通知面板交互后自行抬回状态栏的空档也由这两处补上，与手柄页同款） */
+    override fun onResume() {
+        super.onResume()
+        applyLandscapeBarPref(
+            resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+        )
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyLandscapeBarPref(
+                resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+            )
         }
     }
 

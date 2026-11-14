@@ -53,6 +53,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.applyLandscapeBarPref
 import androidx.compose.ui.res.colorResource
 
 /**
@@ -144,7 +145,16 @@ class FilePanelActivity : ComponentActivity() {
         // 这里补上：面板一开就拉起接收监听（running 原子幂等，被控服务已起时是 no-op）。
         FileReceiver.start(this)
         // 全屏（成宇 2026-11-02「所有页屏蔽状态栏」）：与主壳同一口径，本页也不露系统时间。
-        applyEdgeToEdge()
+        // v223.29.103（成宇 2026-11-14「被控模式里上面状态栏没屏蔽，设置里的屏蔽按钮
+        // 到底起作用没有」）：接上共享横屏口径 —— 此前只 applyEdgeToEdge（默认显示口径），
+        // 横屏时状态栏压在面板头上，设置里的开关管不到这里。
+        val landscape = resources.configuration.screenWidthDp > resources.configuration.screenHeightDp
+        applyEdgeToEdge(
+            hideSystemBars = landscape &&
+                getSharedPreferences("apx", MODE_PRIVATE)
+                    .getBoolean("landscape_hide_status", true),
+        )
+        applyLandscapeBarPref(landscape)
         setContentView(
             ComposeView(this).apply {
                 setContent {
@@ -277,6 +287,21 @@ class FilePanelActivity : ComponentActivity() {
         storageOk = PhoneFiles.hasStorageAccess(this)
         refreshTargets()
         refreshList()
+        // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
+        applyLandscapeBarPref(
+            resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+        )
+    }
+
+    /** v223.29.103 追补：取焦时再压一次 —— 通知面板交互后系统自行抬回状态栏、
+     *  页面没退 onResume 不会再跑，这里补上无人再压的空档（与手柄页同款）。 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyLandscapeBarPref(
+                resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+            )
+        }
     }
 
     // ————————————————————————————— 界面 —————————————————————————————

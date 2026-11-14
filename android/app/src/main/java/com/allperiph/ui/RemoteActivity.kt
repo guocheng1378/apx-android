@@ -53,6 +53,7 @@ import com.allperiph.ui.miuix.ApType
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
+import com.allperiph.ui.miuix.applyLandscapeBarPref
 import com.allperiph.wireless.ControlTarget
 import top.yukonga.miuix.kmp.basic.Text
 
@@ -112,7 +113,16 @@ class RemoteActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyEdgeToEdge()
+        // v223.29.103（成宇 2026-11-14「被控模式里上面状态栏没屏蔽，设置里的屏蔽按钮
+        // 到底起作用没有」）：本页与操控面同批 —— 此前只 applyEdgeToEdge（默认显示
+        // 口径），横屏时状态栏压在拨盘面上。接上共享横屏口径（ApInsets.applyLandscapeBarPref）。
+        val landscape = resources.configuration.screenWidthDp > resources.configuration.screenHeightDp
+        applyEdgeToEdge(
+            hideSystemBars = landscape &&
+                getSharedPreferences("apx", MODE_PRIVATE)
+                    .getBoolean("landscape_hide_status", true),
+        )
+        applyLandscapeBarPref(landscape)
         // 强调色要叠在「正在用的这个主题」上才算数：View 弹窗（语音说明 / 关机确认）仍走主题
         ApPalette.applyRuntimeTheme(this)
         // 读回上次偏好并即时生效：重进本页（含重连）后，上次关掉的浮层不会又冒出来
@@ -135,6 +145,21 @@ class RemoteActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeTick.value++ // 目标行跟随回前台的最新状态
+        // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
+        applyLandscapeBarPref(
+            resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+        )
+    }
+
+    /** v223.29.103 追补：取焦时再压一次 —— 通知面板交互后系统自行抬回状态栏、
+     *  页面没退 onResume 不会再跑，这里补上无人再压的空档（与手柄页同款）。 */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            applyLandscapeBarPref(
+                resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
+            )
+        }
     }
 
     /** 切换被控端光标浮层：记偏好 + 立即发给当前被控端（没连着就只记，连上自动生效） */
