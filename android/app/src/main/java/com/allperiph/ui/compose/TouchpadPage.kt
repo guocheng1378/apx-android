@@ -459,9 +459,18 @@ internal fun HotkeyGrid(
         // issue#169 #9 追评：原先挂在 BoxWithConstraints 层（fillMaxHeight 量到含标题行的
         // 整卡高度），条子能一路拖出快捷键区域、往下滑到消失；现在挂进热键区 Box，
         // 高度只覆盖网格，不再越界。
+        //
+        // issue#170 第五轮 #4（报告人明确口径）：①thumb 起点顶 = 首行按钮顶、终点底 =
+        // 末行按钮底 —— 轨道吃满热键区 Box（滚动视口）高，自身只垫滚动列同款
+        // bottom = 8dp + bottomGap 内边距，Top 对齐后整段行程完整显示不被裁切
+        //（对齐改在 VScrollbar 内部，见其注释）；②thumb 长度固定为快捷键区（滚动
+        // 视口）高度的 1/4 —— 此前按「可视/总内容」比例，内容稍多 thumb 就顶满
+        // 轨道，「一滑就滚过头」；短轨道 + 内容全程映射（拖动换算不变）后行程短、
+        // 滚动覆盖全部内容。竖屏下卡与横屏右列都走本处 HotkeyGrid，两处口径一致。
         ApComponents.VScrollbar(
             scrollState = gridScroll,
             alignEnd = false,
+            thumbFraction = 1f / 4f,
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 // issue#170 #4：滑条起止与按钮区对齐 —— 滚动列自带 bottom = 8dp + bottomGap

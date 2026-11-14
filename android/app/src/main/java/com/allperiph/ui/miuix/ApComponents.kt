@@ -816,12 +816,22 @@ object ApComponents {
 
     /**
      * 竖向滚动条（issue#168 2026-11-11「显示不下时加滑动条」）：贴在滚动区左缘或右缘的
-     * 细滚动条，thumb 长度按「可视 / 总内容」比例，拖动 thumb 直接驱动 [scrollState]。
+     * 细滚动条，拖动 thumb 直接驱动 [scrollState]。
      * 内容不超高（maxValue ≤ 0）时整根不画，调用方无需自己判断是否显示。
      *
      * 为什么自己画而不是用 Modifier.verticalScrollbar 之类的现成件：Compose 1.7 没有
      * 稳定的竖向滚动条 API（ScrollbarStyle 只在桌面端），而触控板页快捷键区 / 设备
      * 面板都要「看得见的滑动条」，这里收成一个最小组件供两处共用。
+     *
+     * thumb 位置口径（issue#170 第五轮 #4，报告人原话「滑条起始点顶部和按钮首行顶部
+     * 对齐、终点底部和快捷键末行下方对齐」）：thumb 挂轨道**顶**（TopStart/TopEnd），
+     * 偏移 = 滚动进度 × (轨道 − thumb)。此前挂 CenterStart/CenterEnd——滚到顶时 thumb
+     * 悬在轨道中部、滚到底又探出轨道下缘，快捷键区最显眼。其余调用点（剪贴板面板 /
+     * 设备面板）的轨道同样铺满滚动视口，Top 对齐后起点/终点同样贴视口两端，属同修。
+     *
+     * thumb 长度：[thumbFraction] > 0 时固定为轨道高的该比例（快捷键区 1/4，见调用点
+     * 注释——「防止滑条过长、一滑就滚过头」），拖动换算仍是内容全程映射（短轨道覆盖
+     * 全部内容）；否则按「可视 / 总内容」比例（旧行为）。
      */
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
@@ -829,25 +839,31 @@ object ApComponents {
         scrollState: androidx.compose.foundation.ScrollState,
         modifier: Modifier = Modifier,
         alignEnd: Boolean,
+        thumbFraction: Float = 0f,
     ) {
         if (scrollState.maxValue <= 0) return
         val density = LocalDensity.current
         BoxWithConstraints(modifier = modifier) {
             val trackPx = with(density) { maxHeight.toPx() }
             val range = scrollState.maxValue.toFloat()
-            // thumb 高度 = 轨道 × 可视占比（viewport / (viewport + 可滚范围)）
-            val thumbPx = (trackPx * trackPx / (trackPx + range)).coerceAtLeast(24f)
+            // thumb 高度：快捷键区固定 1/4 轨道；其余场景按可视占比（viewport / (viewport + 可滚范围)）
+            val thumbPx = if (thumbFraction > 0f) {
+                (trackPx * thumbFraction).coerceAtLeast(24f)
+            } else {
+                (trackPx * trackPx / (trackPx + range)).coerceAtLeast(24f)
+            }
             val yMax = (trackPx - thumbPx).coerceAtLeast(1f)
             Box(
                 modifier = Modifier
                     .then(
-                        if (alignEnd) Modifier.align(Alignment.CenterEnd)
-                        else Modifier.align(Alignment.CenterStart),
+                        // 顶对齐（issue#170 第五轮 #4）：起点 thumb 顶 = 首行顶、终点 thumb 底 = 末行底
+                        if (alignEnd) Modifier.align(Alignment.TopEnd)
+                        else Modifier.align(Alignment.TopStart),
                     )
                     .offset { IntOffset(0, ((scrollState.value / range) * yMax).toInt()) }
                     // issue#169 #9「滑动条太细，所有滑动条加宽至一个字符宽度」：
                     // 4dp 细条手指捏不住，加宽到 ≈ 一个中文字符宽（16dp），圆角同步放大；
-                    // 拖动换算不变（按轨道占比 dispatchRawDelta）。
+                    // 拖动换算不变（按轨道占比 dispatchRawDelta，内容全程映射）。
                     .width(16.dp)
                     .height(with(density) { thumbPx.toDp() })
                     .clip(RoundedCornerShape(8.dp))
