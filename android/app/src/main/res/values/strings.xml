@@ -585,6 +585,8 @@
     <string name="ui_theme_preset_bouncy_desc">暮紫 · 机械键帽 · 弹跳 · 强震动 · 点击音</string>
     <string name="ui_set_auto_swap_title">横持自动切到键盘页</string>
     <string name="ui_set_auto_swap_sum">关闭后页面不随重力自动切换（默认关）</string>
+    <string name="ui_set_fullscreen_gyro_title">全屏触控板跟随陀螺仪</string>
+    <string name="ui_set_fullscreen_gyro_sum">关闭后操控面不随陀螺仪旋转，始终跟随系统屏幕方向设置（默认开）</string>
     <string name="ui_set_hide_status_title">横屏隐藏状态栏</string>
     <string name="ui_touchpad_hint_service_off">服务未启动 · 先到「状态」页打开开关</string>
     <string name="ui_touchpad_hint_no_uplink">没有出口 · 先选受控设备，或接 USB / 蓝牙</string>

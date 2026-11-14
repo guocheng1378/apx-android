@@ -52,6 +52,38 @@ object OrientLock {
         prefs(ctx).edit().putBoolean(KEY_AUTO_SWAP, on).apply()
     }
 
+    /**
+     * 全屏触控板页（操控面 TouchpadActivity）的「App 内方向传感器跟随」开关
+     * （issue#170 第五轮 #3，报告人原话「把 app 调用陀螺仪检测横竖屏做到设置里面，
+     * 方便启用/禁用」）。
+     *
+     * ## 背景与语义
+     * 操控面在清单里声明 `screenOrientation="sensor"`（App 层让陀螺仪决定朝向）。
+     * 系统开着旋转锁定时，横放手机进全屏触控板页，窗口会先按传感器跳到横屏、
+     * 随即又被锁定切回竖屏 —— 报告人看到的「先闪横屏 UI 再切竖屏」就是这条
+     * 「App 内陀螺仪检测」与系统方向锁定的冲突（v223.29.105 的 ApInsets 尺寸重读
+     * 只兜住了跳横那一拍的挖孔避让，跳横本身没关）。
+     *
+     *  · 默认**开**：维持现有行为（清单 sensor 的传感器跟随）。
+     *  · 关：该页在 onCreate/onResume 里把运行期朝向请求改成
+     *    `SCREEN_ORIENTATION_NOSENSOR` —— 窗口不再向陀螺仪要朝向，始终跟随系统
+     *    的旋转锁定/朝向设置，跳横从源头消失。
+     *
+     * ## 与另外两个开关的关系（正交，不互相覆盖）
+     *  · `orient_lock`（[isOn]）：壳级「钉在当前朝向」，用户显式锁 = 最高优先级，
+     *    本开关开着与否都不插手（见 TouchpadActivity.applyFullscreenOrientPref）；
+     *  · `orient_auto_swap`（[autoSwapEnabled]）：管**主壳**的「横持自动切键盘页」
+     *    重力判读，与全屏触控板页的窗口朝向是两码事。
+     */
+    private const val KEY_FULLSCREEN_SENSOR = "orient_fullscreen_sensor"
+
+    fun fullscreenSensorEnabled(ctx: Context): Boolean =
+        prefs(ctx).getBoolean(KEY_FULLSCREEN_SENSOR, true)
+
+    fun setFullscreenSensor(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_FULLSCREEN_SENSOR, on).apply()
+    }
+
     fun set(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean(KEY, on).apply()
     }

@@ -232,6 +232,11 @@ class TouchpadActivity : ComponentActivity() {
         // 此前只在主壳 apply —— 进操控面后 requestedOrientation 跟随清单 sensor，
         // 锁被静默释放。这里按同一偏好补齐（onCreate + onResume，设置里改完回来即生效）。
         OrientLock.apply(this)
+        // issue#170 第五轮 #3：全屏触控板页的「App 内方向传感器跟随」开关（默认开）。
+        // 关掉后本页不再向陀螺仪要朝向（NOSENSOR），窗口不随传感器跳横，完全跟随
+        // 系统的旋转锁定/朝向设置 —— 根修报告人「横放进来先闪横屏 UI 再切竖屏」的
+        // 跳横源头。OrientLock 显式锁定时它不插手（见 applyFullscreenOrientPref 注释）。
+        applyFullscreenOrientPref()
         // 强调色要叠在「正在用的这个主题」上才算数（View 弹窗：自检 / 关机确认 仍走主题）
         ApPalette.applyRuntimeTheme(this)
         // 截屏已放开（与主页口径一致）：主控制面此前挂 FLAG_SECURE，用户没法截图反馈界面问题
@@ -300,6 +305,9 @@ class TouchpadActivity : ComponentActivity() {
         // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
         applyConsoleBarPref()
         OrientLock.apply(this)
+        // issue#170 第五轮 #3：回前台重读一次（设置里改完开关退回来即生效，
+        // 与上方 OrientLock.apply 同一套补点节奏）
+        applyFullscreenOrientPref()
         // 注：服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）——
         // 此前进本页球+栏双窗同屏的问题从根上消失，桌面只悬浮球一个控件。
     }
@@ -321,6 +329,26 @@ class TouchpadActivity : ComponentActivity() {
     private fun applyConsoleBarPref() {
         if (ui.fullscreen) return
         applyLandscapeBarPref(isLandscape())
+    }
+
+    /**
+     * 全屏触控板页的「App 内方向传感器跟随」开关落地（issue#170 第五轮 #3，
+     * 偏好与读写见 [OrientLock.fullscreenSensorEnabled]）。
+     *
+     * 三种情形的优先级（互不覆盖，注释即对账）：
+     *  · OrientLock 显式锁定（`orient_lock` 开）→ LOCKED（用户点名「钉住」），
+     *    本函数直接让位 —— 锁定的语义就是「什么都别动」；
+     *  · 本开关开（默认）→ 不写运行期朝向，维持清单 `screenOrientation="sensor"`
+     *    的现有行为（窗口跟随设备方向传感器）；
+     *  · 本开关关 → NOSENSOR：窗口不再咨询陀螺仪，始终跟随系统的旋转锁定/朝向
+     *    设置 —— 横放手机（系统锁竖屏）进本页不再先跳横屏（报告人的跳横根修）。
+     *
+     * onCreate + onResume 双点调用（与 OrientLock.apply 同节奏），设置页改完退回即生效。
+     */
+    private fun applyFullscreenOrientPref() {
+        if (OrientLock.isOn(this)) return          // 显式锁定优先，本开关不插手
+        if (OrientLock.fullscreenSensorEnabled(this)) return   // 默认：维持清单 sensor 行为
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
     }
 
     /** 横屏判定：与主壳 rememberApAdaptiveLayout 同口径（宽 > 高） */

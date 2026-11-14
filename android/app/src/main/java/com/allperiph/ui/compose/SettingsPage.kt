@@ -739,6 +739,24 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         },
                     )
 
+                    // 全屏触控板页的「App 内方向传感器跟随」（issue#170 第五轮 #3）：
+                    // 默认开 = 维持清单 sensor 的现有行为；关掉后操控面（TouchpadActivity）
+                    // 不再向陀螺仪要朝向，横放手机（系统锁竖屏）进页不再先跳横屏。
+                    // 与上面两个开关的关系见 OrientLock 的 KDoc（正交，不互相覆盖）。
+                    var fullscreenGyro by remember {
+                        mutableStateOf(OrientLock.fullscreenSensorEnabled(ctx))
+                    }
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_fullscreen_gyro_title),
+                        summary = ctx.getString(R.string.ui_set_fullscreen_gyro_sum),
+                        checked = fullscreenGyro,
+                        onCheckedChange = { on ->
+                            fullscreenGyro = on
+                            OrientLock.setFullscreenSensor(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+
                     // 横屏隐藏状态栏（2026-11-12 用户原话「横屏时把状态栏屏蔽了，布局避开
                     // 状态栏触发区域，可以在设置里加开关」）：默认开。开着时横屏隐藏状态栏
                     // —— 误触顶边不再拉开通知栏；从屏顶下滑按 TRANSIENT_BY_SWIPE 短暂
