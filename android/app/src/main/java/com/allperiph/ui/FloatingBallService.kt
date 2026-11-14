@@ -85,6 +85,7 @@ import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -625,9 +626,16 @@ class FloatingBallService : Service() {
         val dm = realDisplayMetrics()
         // 幂等闸门：本轮重排是否真换了屏幕尺寸。多条通道（reflowCb / onConfigurationChanged /
         // DisplayListener / reflowNow）重复触发时，只有第一条会干活，后面的空跑。
-        // 注意先把 lastScreen 更新掉再走各分支，保证「换算过的位置不会被再次换算」。
-        val sizeChanged = lastScreenW > 0 && lastScreenH > 0 &&
-            (lastScreenW != dm.widthPixels || lastScreenH != dm.heightPixels)
+        // ⚠️ 先留底旧尺寸再更新 lastScreen：下面的比例换算是「旧屏 → 新屏」，除数必须
+        // 用旧值。2026-11-14 反馈「圆弧/球有时莫名跑到屏幕中间」——旧代码先更新
+        // lastScreenW/H 再拿它当除数，lp.x / 新宽 * 新宽 恒等于 lp.x，换算成了空操作，
+        // 转屏后球停在旧方向的像素坐标上再被夹边，竖屏边缘的球转横屏后正好落在
+        // 屏幕中部。闸门「先把 lastScreen 更新掉」的意图（避免重复换算）由
+        // sizeChanged 的比较口径保住：换过一次后 dm 不再变化，后续重跑不会进换算分支。
+        val prevScreenW = lastScreenW
+        val prevScreenH = lastScreenH
+        val sizeChanged = prevScreenW > 0 && prevScreenH > 0 &&
+            (prevScreenW != dm.widthPixels || prevScreenH != dm.heightPixels)
         lastScreenW = dm.widthPixels
         lastScreenH = dm.heightPixels
 
@@ -659,9 +667,10 @@ class FloatingBallService : Service() {
         closeMenu()
         if (sizeChanged) {
             // 比例换算保住相对位置：贴边的球换算后仍在边缘附近，再由 applyDockShape 精确吸边
-            lp.x = (lp.x.toFloat() / lastScreenW * dm.widthPixels).toInt()
+            // （除数用留底的旧屏尺寸 prevScreenW/H，见函数头注释——换算才是真换算）
+            lp.x = (lp.x.toFloat() / prevScreenW * dm.widthPixels).toInt()
                 .coerceIn(0, (dm.widthPixels - left - lp.width).coerceAtLeast(0))
-            lp.y = (lp.y.toFloat() / lastScreenH * dm.heightPixels).toInt()
+            lp.y = (lp.y.toFloat() / prevScreenH * dm.heightPixels).toInt()
                 .coerceIn(0, (dm.heightPixels - top - lp.height).coerceAtLeast(0))
             publishBallPosition(v)
         }
@@ -697,8 +706,15 @@ class FloatingBallService : Service() {
         if (kind == KIND_GAMEPAD && panel == null) detachPadOrientAnchor()
     }
 
-    /** 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动 */
-    private val touchSlop get() = dp(6)
+    /**
+     * 拖动阈值：超过它才算「拖」，滤掉手指按上去时的抖动。
+     *
+     * 2026-11-14 反馈「停靠弧第一次点击没反应」：原写死 dp(6)，而停靠圆弧窗口可见
+     * 凸出只有 13dp 上下、离屏缘还留 2dp 缝，目标本来就小——阈值再偏大，点击时手指
+     * 稍一歪就超过它被判成拖动。改用系统标准 touchSlop（各 ROM 按触屏实测给值），
+     * 语义不变：仍是「超过才算拖」。
+     */
+    private val touchSlop get() = android.view.ViewConfiguration.get(this).scaledTouchSlop
 
     // 球拖动/点击判定
     private var downRawX = 0f
@@ -709,6 +725,15 @@ class FloatingBallService : Service() {
     private var downWindowY = 0
     private var downAt = 0L
     private var moved = false
+
+    /**
+     * 本次触摸全程的最大位移（px，ACTION_DOWN 起算、MOVE 逐帧取最大）。
+     *
+     * 2026-11-14 反馈「停靠弧第一次点击没反应」：小目标上手指稍歪超过 touchSlop 就
+     * 被判拖动，抬手走落位分支——球看着毫无反应，「第二次才好」。抬手时若位移
+     * 其实很小、按住时间也短，实际意图就是点一下，按点击处理（见 ACTION_UP）。
+     */
+    private var maxOffset = 0f
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
 
@@ -909,6 +934,15 @@ class FloatingBallService : Service() {
         ballAttached = true
         ballAttachedGlobal = true
         setupBallTouch(v)
+        // 形态对齐（2026-11-14 反馈「圆弧/球有时莫名跑到屏幕中间」）：面板收球
+        //（expandComposePanel）只摘窗口不清停靠标志，还球挂回的是圆球尺寸和圆球布局，
+        // docked/dockHidden 却可能还挂着 —— 标志与实际形态脱节，且没有任何路径把窗口
+        // 吸回边缘，球就停在 BallPos 存档的位置（转屏后正是屏幕中部）。挂回后按标志
+        // 重放形态：停靠态必然吸附边缘（hideDockShape 末尾会把贴边落点写回存档），
+        // 非停靠态维持原位。hideBallForApp 路径已就地复位标志，这里再兜一道幂等无害。
+        if (docked) {
+            if (dockHidden) hideDockShape(v) else applyDockShape(v, dockLeft)
+        }
         return true
     }
 
@@ -962,6 +996,7 @@ class FloatingBallService : Service() {
                     downWindowY = lp.y
                     downAt = System.currentTimeMillis()
                     moved = false
+                    maxOffset = 0f
                     // v223.29.11：抓球即停掉贴边滑入 + 按压脉冲（落下轻微缩小）
                     dockAnim?.cancel()
                     // issue#168 建议 12：任何一次触摸都算「有操作」——先撤掉待执行的
@@ -975,6 +1010,7 @@ class FloatingBallService : Service() {
                     // 于是「按住想挪一下」常常落进长按分支，把服务直接关掉。
                     val dx = ev.rawX - downRawX
                     val dy = ev.rawY - downRawY
+                    maxOffset = maxOf(maxOffset, hypot(dx, dy))
                     if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
                         moved = true
                     }
@@ -987,6 +1023,14 @@ class FloatingBallService : Service() {
                     // 抬手把按压脉冲的缩放还原
                     view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
                     when {
+                        // 「歪点」当点击（2026-11-14 反馈「停靠弧第一次点击没反应」）：
+                        // 弧窗口窄，手指稍歪就超过 touchSlop 被判 moved，抬手走拖动落位
+                        // 分支，视觉上毫无反应，像「第一次点了没生效」。位移小（< 12dp）
+                        // 且按住时间短（< 300ms）的「拖动」实际意图就是点一下，按点击处理，
+                        // 不走落位 —— 停靠态恢复圆球，普通态开关菜单。按住久了仍按拖动算，
+                        // 长按关服务的语义不受影响（300ms < LONG_PRESS_MS）。
+                        moved && maxOffset < dp(12) && held < 300L ->
+                            if (docked) undock(view) else toggleMenu(view)
                         // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
                         moved -> settleAfterDrag(view)
                         // 停靠态单击 = 恢复悬浮球正常显示（建议 2）。隐藏态（圆弧）
@@ -1047,9 +1091,12 @@ class FloatingBallService : Service() {
         val wasDocked = docked
         lp.y = lp.y.coerceIn(0, (dm.heightPixels - top - v.height).coerceAtLeast(0))
 
-        // 第 12 条三追：比较的是**球边**离屏幕边缘的距离（cx 是球心），不再是球心距
-        val nearLeft = v.width > 0 && cx - v.width / 2f < dockSnapPx
-        val nearRight = v.width > 0 && dm.widthPixels - (cx + v.width / 2f) < dockSnapPx
+        // 第 12 条三追：比较的是**球边**离屏幕边缘的距离（cx 是球心）。
+        // 2026-11-14 反馈：阈值纳入弧窗口的 2dp 屏缝（hideDockShape 的 gap）——
+        // 弧态拖回原位松手时球边恰好离屏缘 2dp，旧阈值「< 2dp」差一丝判不上，
+        // 只能靠 wasDocked 兜底归位；把缝算进阈值，吸附判定与实际贴边口径一致。
+        val nearLeft = v.width > 0 && cx - v.width / 2f < dockSnapPx + dp(2)
+        val nearRight = v.width > 0 && dm.widthPixels - (cx + v.width / 2f) < dockSnapPx + dp(2)
         if (nearLeft || nearRight) {
             docked = true
             dockLeft = nearLeft
@@ -1219,8 +1266,12 @@ class FloatingBallService : Service() {
         val cy = top + lp.y + v.height / 2f
         val r = dp(DOCK_ARC_RADIUS_DP)
         val stroke = dp(ARC_STROKE_DP)
-        // 弓形可见宽度 = r/2（圆心在屏外 r/2），加描边与 2dp 边距余量
-        val w = r / 2 + stroke + dp(4)
+        // 弓形可见宽度 = r/2（圆心在屏外 r/2），加描边与 2dp 边距余量；
+        // 2026-11-14 反馈「第一次点击没反应」再补 8dp 屏内侧热区：弧本体窄，点准了
+        // 手指也常落在弧外空白上。加宽只扩窗口、不动画布 —— ArcPeekDrawable 的圆心
+        // 锚在**停靠侧**窗口边缘（左：cx0=-r/2 相对左缘；右：cx0=width+r/2 相对右缘，
+        // lp.x 仍把窗口停靠侧贴在屏缘 - gap），多出的宽度全落在屏内侧，弧位置不变。
+        val w = r / 2 + stroke + dp(4) + dp(8)
         // 可见弧高 = 2·r·sin(60°) ≈ 1.73r，加描边余量
         val h = (2 * r * 0.866f).toInt() + stroke + dp(6)
         // issue#168 三追：窗口整体往屏内让 2px，弧两端（可见描边离屏缘最近的点）
@@ -1241,6 +1292,11 @@ class FloatingBallService : Service() {
         v.findViewById<ImageView>(R.id.ivBallIcon)?.visibility = View.GONE
         runCatching { wm.updateViewLayout(v, lp) }
             .onFailure { Log.w(TAG, "停靠条收成圆弧失败：${it.message}") }
+        // 2026-11-14 反馈「圆弧/球有时莫名跑到屏幕中间」：把弧的贴边落点写回共享存档。
+        // 收弧动画结束时 settleAfterDrag 的存档早已发完（发的是动画前的位置），重排等
+        // 路径也只在 sizeChanged 分支存过；不补这一笔，壳内导航球读到的还是屏中间
+        // 的旧位。settleAfterDrag 末尾那笔会被这里覆盖成更准的贴边值，幂等无害。
+        publishBallPosition(v)
     }
 
     /**
