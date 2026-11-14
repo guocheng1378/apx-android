@@ -1017,8 +1017,9 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                     .widthIn(max = 280.dp * padScale)
                     .padding(12.dp * padScale),
             ) {
-                // 拖动把手：单条等宽细横线（报告人点名）；按住拖动整卡，
-                // 只吃把手手势，卡内其余行不受影响
+                // 拖动把手：等宽细横线（四轮报告人点名）；五轮（issue#170）按反馈
+                // 收窄到 2/3 卡宽并居中——等宽横线与卡片边缘「观感有点不协调」。
+                // 按住拖动整卡，只吃把手手势，卡内其余行不受影响
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1033,9 +1034,13 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                         },
                     contentAlignment = Alignment.Center,
                 ) {
+                    // 视觉横线改 2/3 卡宽、水平居中（issue#170 第五轮 #2，报告人原话
+                    // 「手柄编辑卡顶部把手横线调整为三分之二长度居中吧，观感有点不协调」）：
+                    // 外层把手 Box 的 contentAlignment=Center 负责居中，横线本身收窄到 2/3；
+                    // 拖动手势仍挂在整条 16dp 高的外层 Box 上（fillMaxWidth 不动），只有观感变。
                     Box(
                         Modifier
-                            .fillMaxWidth()
+                            .fillMaxWidth(2f / 3f)
                             .height(3.dp * padScale)
                             .background(
                                 colorResource(R.color.overlay_pad_text).copy(alpha = 0.65f),
