@@ -1023,24 +1023,36 @@ class FloatingBallService : Service() {
                     // 抬手把按压脉冲的缩放还原
                     view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
                     when {
+                        // 停靠态（弧/条）恢复圆球：宽口径（2026-11-14 追「还是要点两次」）。
+                        // 目标窄（可见凸出仅 10dp 上下），点击时手指常沿描边滚出明显位移、
+                        // 或刻意点得慢 —— 这些都该算点击。三条口径并成一条：停靠态下位移
+                        // < 20dp 的释放一律恢复圆球，不限按压时长（真要挪位置，拖出的是
+                        // 远大于 20dp 的位移，不会误伤；长按关服务只对未停靠的圆球生效，
+                        // 见下两支，停靠态语义本就是「任何释放都找回」）。
+                        docked && maxOffset < dp(20) -> undock(view)
                         // 「歪点」当点击（2026-11-14 反馈「停靠弧第一次点击没反应」）：
                         // 弧窗口窄，手指稍歪就超过 touchSlop 被判 moved，抬手走拖动落位
                         // 分支，视觉上毫无反应，像「第一次点了没生效」。位移小（< 12dp）
                         // 且按住时间短（< 300ms）的「拖动」实际意图就是点一下，按点击处理，
-                        // 不走落位 —— 停靠态恢复圆球，普通态开关菜单。按住久了仍按拖动算，
+                        // 不走落位 —— 普通态开关菜单。按住久了仍按拖动算，
                         // 长按关服务的语义不受影响（300ms < LONG_PRESS_MS）。
-                        moved && maxOffset < dp(12) && held < 300L ->
-                            if (docked) undock(view) else toggleMenu(view)
+                        moved && maxOffset < dp(12) && held < 300L -> toggleMenu(view)
                         // 拖动结束：落位 + 判定是否轻拨到了侧边（建议 2）
                         moved -> settleAfterDrag(view)
-                        // 停靠态单击 = 恢复悬浮球正常显示（建议 2）。隐藏态（圆弧）
-                        // 单击同样直落这里 —— 不停在中间态，一找回就是完整圆球，
-                        // 之后单击再展开菜单（issue#168 建议 12）。
-                        docked -> undock(view)
                         // 长按关闭：只在「真的没动过」时算数，拖动不背这个锅
                         held >= LONG_PRESS_MS -> shutdown()
                         else -> toggleMenu(view)           // 单击展开/收起扇形菜单
                     }
+                }
+                // 手势流被判取消（ACTION_CANCEL）：系统抢手势（贴边弧落在全面屏返回
+                // 手势区里最常见）、窗口中途重排等都会把 DOWN 之后的流判成 CANCEL，
+                // UP 永远不来 —— 表现正是「点弧的那下毫无反应，第二下才好」。
+                // 位移小说明是点了一下被吃掉，按点击收尾恢复圆球；位移大说明是真拖动
+                // 被系统截走，维持原形态别乱弹。按压脉冲（0.9 缩放）也要就地还原，
+                // 否则弧会一直停在缩小态。
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+                    if (docked && maxOffset < dp(20)) undock(view)
                 }
             }
             true
