@@ -69,6 +69,28 @@ void ActionRouter::applyHotkeyChange() {
     }
 }
 
+// 副屏远程开关（0x4D，2026-11-14）：与 act("screen.toggle") 同款插拔 + 落盘，
+// 差别只在按目标态 set、已是目标态时不重复插拔（重复点不抖屏）。
+void ActionRouter::setDisplayEnabled(bool on, net::Json& out) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (cfg_.displayEnabled == on) {
+        out["enabled"] = on;
+        out["note"] = on ? "副屏已是开启状态" : "副屏已是关闭状态";
+        out["streaming"] = false;
+        return;
+    }
+    cfg_.displayEnabled = on;
+    std::string err, note;
+    if (on) display_->plug({cfg_.displayW, cfg_.displayH, cfg_.displayHz,
+        static_cast<uint8_t>(cfg_.displayOrientation == "landscape" ? 1 : 0)}, &err, &note);
+    else display_->unplug(&err, &note);
+    out["enabled"] = cfg_.displayEnabled;
+    out["note"] = !note.empty() ? note
+        : (on ? "已切换副屏后端状态；实际推流由桌面面板负责" : "已切回直连（副屏关闭）");
+    out["streaming"] = false;
+    persist();
+}
+
 // ---------------------------------------------------------------- 动作核心
 void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& out) {
     std::lock_guard<std::mutex> lk(mu_);

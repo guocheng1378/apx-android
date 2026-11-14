@@ -34,6 +34,20 @@ import com.allperiph.ui.miuix.ApMiuixTheme
 import top.yukonga.miuix.kmp.basic.Text
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.ui.miuix.applyLandscapeBarPref
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import com.allperiph.wireless.TvControllerClient
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import android.widget.Toast
 
 /**
  * 副屏全屏页：把 PC 推来的画面铺满手机屏幕。
@@ -103,6 +117,13 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
                                     .padding(8.dp),
+                            )
+                            // 一键开副屏（2026-11-14 成宇「能在 App 副屏页加一个按钮一键
+                            // 启用 PC 的副屏开关吗」）：右下角入口，与触控板页小地图入口
+                            // 同套样式，只吃自身区域不挡画面手势。
+                            ScreenToggleOverlay(
+                                Modifier.align(Alignment.BottomEnd),
+                                this@ScreenActivity,
                             )
                         }
                     }
@@ -430,10 +451,55 @@ class ScreenActivity : ComponentActivity(), TextureView.SurfaceTextureListener {
         Log.i(TAG, "副屏页：$txt")
     }
 
+    /**
+     * 一键开副屏出口（0x4D，2026-11-14 成宇「能在 App 副屏页加一个按钮一键启用 PC 的
+     * 副屏开关吗」）：只走无线控制链路 [TvControllerClient]，其余控制客户端（USB/蓝牙
+     * HID）没有这条通道 —— 如实返回 false，让按钮弹「升级/连接」提示而不是静默无操作。
+     */
+    fun sendScreenToggle(on: Boolean): Boolean {
+        val c = ControlTarget.controlClient as? TvControllerClient
+        return c != null && ControlTarget.isControlling() && c.screenToggle(on)
+    }
+
     private companion object {
         const val TAG = "ScreenActivity"
 
         /** 状态字刷新间隔：够快能看到数字在涨，又不至于每秒刷很多次 */
         const val HINT_INTERVAL_MS = 1_000L
+    }
+}
+
+/**
+ * 一键开副屏入口（2026-11-14 成宇「能在 App 副屏页加一个按钮一键启用 PC 的副屏开关吗」，
+ * 0x4D 帧 + 能力位 bit7）：右下角一枚小圆钮，样式与触控板页小地图入口同套
+ * （44dp 圆钮、miuix 底色描边），只吃自身区域不挡画面手势。
+ * 点按 → 发 0x4D（on=1）；未在控或对端报过 0x33 且缺 bit7（电脑端未升级）时
+ * 发送侧如实返回 false，这里弹「升级电脑端」而不是假装发了。
+ */
+@Composable
+private fun ScreenToggleOverlay(modifier: Modifier = Modifier, host: ScreenActivity) {
+    val ctx = LocalContext.current
+    Box(
+        modifier
+            .padding(10.dp)
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(colorResource(R.color.miuix_bg))
+            .border(1.dp, colorResource(R.color.miuix_stroke), CircleShape)
+            .clickable {
+                val ok = host.sendScreenToggle(on = true)
+                Toast.makeText(
+                    ctx,
+                    if (ok) R.string.ui_screen_toggle_sent else R.string.ui_screen_toggle_unavailable,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            stringResource(R.string.ui_screen_toggle_label),
+            fontSize = 11.sp,
+            color = MiuixTheme.colorScheme.onSurface,
+        )
     }
 }

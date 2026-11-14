@@ -114,6 +114,14 @@ object ApxFrame {
      */
     const val CAP_GAMEPAD_SHOT = 1L shl 6
 
+    /**
+     * 能力位 bit7：副屏远程开关 —— 控制端（手机副屏页）→ 被控（PC）发 [CMD_SCREEN_TOGGLE]
+     * 一键插入/拔出虚拟显示器（PC 端热键 screen.toggle 的同款动作）。发送前核对**对端**
+     * 位图含本位（PC 没升级时不发，手机侧好提示「升级电脑端」；对端没报过 0x33 时
+     * 照发兜底，旧 PC 对未知帧号安静忽略）。
+     */
+    const val CAP_SCREEN_TOGGLE = 1L shl 7
+
     // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
     /**
      * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]
@@ -227,6 +235,15 @@ object ApxFrame {
      */
     const val CMD_GAMEPAD_SHOT = 0x4C
 
+    /**
+     * 手机 → PC：副屏远程开关（2026-11-14 成宇「能在 App 副屏页加一个按钮一键启用 PC
+     * 的副屏开关吗」，能力位 bit7）。载荷 `[0x4D][on u8]`：1=开（插虚拟显示器）0=关。
+     * PC 端走热键 screen.toggle 同款动作（含配置落盘）；开了虚拟屏后推流仍由桌面面板
+     * 负责，PC 侧托盘气泡会如实说明。接收方：PC `ctrl9511.cpp` 服务端 dispatch
+     * （接线在 desktop_main）。仅无线控制链路可发（9512 媒体通道不载控制帧）。
+     */
+    const val CMD_SCREEN_TOGGLE = 0x4D
+
     /** 相册单页条目数：60 张 ≈ 每条 ~250B 路径 + 名字，一页帧 < 40KB，远小于 4MB 帧上限 */
     const val ALBUM_PAGE_SIZE = 60
 
@@ -255,6 +272,10 @@ object ApxFrame {
     /** 组 0x4A 监听开关：`[0x4A][on u8]`（1=开 0=关）。 */
     fun packAlbumWatchReq(on: Boolean): ByteArray =
         byteArrayOf(CMD_ALBUM_WATCH.toByte(), if (on) 1 else 0)
+
+    /** 组 0x4D 副屏远程开关：`[0x4D][on u8]`（1=开 0=关），见 [CMD_SCREEN_TOGGLE]。 */
+    fun packScreenToggle(on: Boolean): ByteArray =
+        byteArrayOf(CMD_SCREEN_TOGGLE.toByte(), if (on) 1 else 0)
 
     /** 组 0x4B 缩略图请求：`[0x4B][id u32 LE]`。 */
     fun packAlbumThumbReq(id: Long): ByteArray {

@@ -380,6 +380,19 @@ class TvControllerClient(
         if (peerCaps != 0L && peerCaps and ApxFrame.CAP_GAMEPAD_SHOT == 0L) return false
         return sendControl(byteArrayOf(ApxFrame.CMD_GAMEPAD_SHOT.toByte()))
     }
+
+    /**
+     * 副屏远程开关（0x4D，2026-11-14 成宇「能在 App 副屏页加一个按钮一键启用 PC 的
+     * 副屏开关吗」）：副屏页右下角入口 → 让受控 PC 插/拔虚拟显示器（热键 screen.toggle
+     * 同款动作，含配置落盘）。门控同 gamepadShot —— 对端报过 0x33 且缺
+     * CAP_SCREEN_TOGGLE 位（PC 端还没升级）时跳过返回 false，手机侧好提示「升级电脑端」；
+     * 对端没报过 0x33（老版本）照发兜底，未知帧号安静忽略。
+     */
+    fun screenToggle(on: Boolean): Boolean {
+        if (!ready) return false
+        if (peerCaps != 0L && peerCaps and ApxFrame.CAP_SCREEN_TOGGLE == 0L) return false
+        return sendControl(ApxFrame.packScreenToggle(on))
+    }
     fun sendClipboard(text: String): Boolean {
         if (text.isEmpty()) return false
         val bytes = text.toByteArray(Charsets.UTF_8); if (bytes.size > 0xFFFF) return false

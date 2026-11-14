@@ -40,6 +40,11 @@ public:
     void act(const std::string& name, const net::Json& payload, net::Json& out);
     void query(const std::string& name, net::Json& out);
 
+    // 副屏远程开关（0x4D，2026-11-14）：手机副屏页一键插/拔虚拟显示器 —— 与热键
+    // screen.toggle 同款动作，但按目标态直接 set（不翻转）；out["enabled"]/["note"]
+    // 供托盘气泡回执。已是目标态时幂等 noop（重复点不抖屏）。
+    void setDisplayEnabled(bool on, net::Json& out);
+
 private:
     void persist();
     void applyHotkeyChange(); // 同步到 HotkeyManager

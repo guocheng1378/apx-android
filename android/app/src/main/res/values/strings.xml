@@ -120,6 +120,11 @@
     <string name="ui_touchpad_minimap_collapse">收起</string>
     <string name="ui_touchpad_minimap_hint">点按跳转 · 拖动跟手 · 双指点按 = 右键</string>
     <string name="ui_touchpad_minimap_unavailable">未连接或对端不支持绝对指针</string>
+    <!-- 2026-11-14 一键开副屏（0x4D + 能力位 bit7）：副屏页右下角入口，远程插/拔电脑虚拟显示器。
+         开了屏 ≠ 有画面：推流由电脑端桌面面板负责，文案如实带出。 -->
+    <string name="ui_screen_toggle_label">开副屏</string>
+    <string name="ui_screen_toggle_sent">已请求开启电脑副屏（画面在电脑端桌面面板开启）</string>
+    <string name="ui_screen_toggle_unavailable">未连接或电脑端版本过旧，请升级电脑端后再试</string>
     <string name="ui_dock_ball_desc">悬浮栏已收起，点按展开，按住拖动可移位</string>
     <string name="ui_common_edit">编辑</string>
     <string name="ui_touchpad_toast_device_connect_not">还没连上手机</string>

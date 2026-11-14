@@ -978,6 +978,31 @@ int runDesktopMain() {
         });
     }
 
+    // —— 副屏远程开关接线（0x4D，2026-11-14，能力位 bit7）——
+    // 手机副屏页右下角入口 → 一键插/拔虚拟显示器（走 ActionRouter::setDisplayEnabled，
+    // 与热键 screen.toggle 同款动作含配置落盘）。回调跑在 9511 reader 线程；router 内部
+    // 有锁、托盘 notify 双平台线程安全，直接同步调。回执气泡把「插了屏 ≠ 有画面」
+    // 如实带出 —— 推流由桌面面板负责，别让用户以为气泡一弹手机上就有画面。
+    {
+        auto* routerRaw = router.get();
+        apxpc::tray::TrayIcon* screenTray = tray.get();
+        ctrlSrv.setOnScreenToggle([routerRaw, screenTray](uint8_t on) {
+            if (!routerRaw) return;
+            apxpc::net::Json out;  // main 在全局命名空间，net 须全限定（同下方托盘指针口径）
+            routerRaw->setDisplayEnabled(on != 0, out);
+            // 极简 Json 无 value() 便捷取值 —— find + asBool/asString 同 action_router 惯例
+            const bool applied = out.find("enabled") != nullptr &&
+                                 out["enabled"].asBool() == (on != 0);
+            const std::string note = out.find("note") != nullptr
+                                         ? out["note"].asString()
+                                         : std::string();
+            if (screenTray) {
+                screenTray->notify("副屏远程开关",
+                    applied ? (note + "（推流由桌面面板负责）") : ("未生效：" + note));
+            }
+        });
+    }
+
 #if defined(_WIN32)
     // —— 手柄截图接线（0x4C，2026-11-14，能力位 bit6，issue#170 #7）——
     // 手机手柄页中央 📷 键 → 这里抓整个虚拟桌面存 PNG 到「图片\AllPeriph\手柄截图-时间戳.png」，

@@ -216,9 +216,11 @@ struct Ctrl9511Server::Impl {
     void sendCapsSync() {
         // 手机控 PC（服务端）：本端接 0x4C 手柄截图，报 bit6；PC 控手机方向的
         // sendCapsSync（下方 Client::Impl 同名函数）**不加** —— 那条链路没有 0x4C 接收端。
+        // bit7 副屏远程开关（0x4D）同理只在服务端报 —— 0x4D 的接收端（ActionRouter
+        // 接线）只在手机控 PC 方向存在。
         const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
                            | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr
-                           | kCaps9511GamepadShot;
+                           | kCaps9511GamepadShot | kCaps9511ScreenToggle;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放帧头第 1 字节，这里只传位图 8 字节
@@ -251,6 +253,9 @@ struct Ctrl9511Server::Impl {
     // 手柄截图回调（0x4C，2026-11-14，能力位 bit6）：外层 setter 写、start() 搬运
     std::function<void()> onGamepadShot_;
     std::atomic<uint64_t> aGamepadShot_{0};
+    // 副屏远程开关回调（0x4D，2026-11-14，能力位 bit7）：搬运口径同手柄截图回调
+    std::function<void(uint8_t)> onScreenToggle_;
+    std::atomic<uint64_t> aScreenToggle_{0};
     // 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：外层 setter 写、start() 搬运
     std::function<void(uint8_t)> onNotifyReplyResult_;
 
@@ -572,6 +577,12 @@ struct Ctrl9511Server::Impl {
             // 帧号 —— 命令零参数，不做 bodyLen 门控（旧控制端/新控制端发的一字节相同）。
             if (onGamepadShot_) onGamepadShot_();
             aGamepadShot_.fetch_add(1);
+        } else if (cmd == 0x4D && bodyLen >= 2) {
+            // 副屏远程开关（手机副屏页右下角入口 → 一键插/拔虚拟显示器，2026-11-14，
+            // 能力位 bit7）。载荷 [0x4D][on u8]：1=开 0=关；动作与配置落盘都在接线回调
+            // 里（desktop_main 接 ActionRouter），托盘气泡回执结果，这里只认领转发。
+            if (onScreenToggle_) onScreenToggle_(p[1]);
+            aScreenToggle_.fetch_add(1);
         } else if (cmd == 0x31 && bodyLen >= 2) {
             /* MODE_STATUS：手机上报「三种接入模式的可用性 + 当前在用哪个」（issue#47 面板侧诉求）。
                面板原来那三个开关里只有无线是真的，蓝牙与 USB 的真开关在手机端 ——
@@ -864,6 +875,8 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
         im->onNotifyReplyResult_ = std::move(onNotifyReplyResult_);
         // 手柄截图回调（0x4C，2026-11-14）：同款搬运
         im->onGamepadShot_ = std::move(onGamepadShot_);
+        // 副屏远程开关回调（0x4D，2026-11-14）：同款搬运
+        im->onScreenToggle_ = std::move(onScreenToggle_);
 
         im->listenFd = ::socket(AF_INET, SOCK_STREAM, 0);
         if (im->listenFd == kBadSock) { im->st.error = "socket 创建失败"; cleanup(); return false; }

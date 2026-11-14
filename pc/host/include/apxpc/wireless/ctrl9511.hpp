@@ -163,6 +163,7 @@ static constexpr uint64_t kCaps9511PhoneFiles  = 1ull << 3;  // PC→手机 浏�
 static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相册投影（0x48–0x4B）
 static constexpr uint64_t kCaps9511AbsolutePtr = 1ull << 5;  // 控制端→被控 绝对指针 0x06（手机小地图指哪打哪）
 static constexpr uint64_t kCaps9511GamepadShot = 1ull << 6;  // 手机→PC 手柄截图 0x4C（手柄页中央 📷 键，issue#170 #7）
+static constexpr uint64_t kCaps9511ScreenToggle = 1ull << 7; // 手机→PC 副屏远程开关 0x4D（副屏页右下角入口，2026-11-14）
 
 /// 相册条目（0x49 分页应答，2026-11-12，与 Android ApxFrame.AlbumEntry 对拍）。
 /// added 为秒（MediaStore DATE_ADDED 口径，PC 端按它折算本地日期分组）；
@@ -301,6 +302,12 @@ public:
     /// 回调跑在 reader 线程；抓屏是 GDI 调用，线程安全。
     void setOnGamepadShot(std::function<void()> cb) { onGamepadShot_ = std::move(cb); }
 
+    /// 副屏远程开关回调（0x4D，2026-11-14，能力位 bit7）：手机副屏页入口发来开/关请求
+    /// （on=1 插虚拟显示器 / 0 拔出），由接线方走 ActionRouter 同款动作（含配置落盘），
+    /// 托盘气泡回执结果。回调跑在 reader 线程；plug/unplug 是 IDD/驱动调用，与热键回调
+    /// 同线程模型（ActionRouter 内部有锁，接线方直接调即可）。
+    void setOnScreenToggle(std::function<void(uint8_t on)> cb) { onScreenToggle_ = std::move(cb); }
+
     /// 通知回复（0x41/0x43，2026-11-14，能力位 bit1）：PC 气泡点回复 → 本端发 0x41，
     /// 手机（连入的控制端）处理后回 0x43 终态回执。**成功（err=0）也回帧**——用户在等。
     /// err 取值与 Android ApxFrame.NOTIFY_REPLY_ERR_* 一致（0=已提交 1=未开启通知回复
@@ -329,6 +336,8 @@ private:
     std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
     std::function<void()> onGamepadShot_;
+    // 副屏远程开关回调（0x4D，2026-11-14，能力位 bit7）：搬运口径同手柄截图回调
+    std::function<void(uint8_t)> onScreenToggle_;
     // 通知回复回执回调（0x43，2026-11-14，能力位 bit1）：搬运口径同通知同步回调
     std::function<void(uint8_t)> onNotifyReplyResult_;
 };
