@@ -157,8 +157,12 @@ class GadgetManager(
                 val descPointer = ApxNative.usbPointerDescriptorOrNull()
                 val descControl = ApxNative.usbControlDescriptorOrNull()
                 val descKeyboard = ApxNative.usbKeyboardDescriptorOrNull()
-                if (descPointer.isNullOrEmpty() || descControl.isNullOrEmpty() ||
-                    descKeyboard.isNullOrEmpty()
+                // ByteArray? 没有 isNullOrEmpty（stdlib 只给 CharSequence/Collection）——
+                // 上一版直接用导致 CI Kotlin 编译红；判空用 null/isEmpty，
+                // 且通过后局部 val 智能转换成非空，正好喂 stageDescriptor(ByteArray)。
+                if (descPointer == null || descPointer.isEmpty() ||
+                    descControl == null || descControl.isEmpty() ||
+                    descKeyboard == null || descKeyboard.isEmpty()
                 ) {
                     fail("shared/ 未提供 USB 拆分 HID 描述符（libapx.so 未加载或接口缺失）")
                     arb.release()
