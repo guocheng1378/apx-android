@@ -1759,8 +1759,8 @@ private fun FullscreenOverlay(host: TouchpadActivity) {
     /** 按给定窗口尺寸把已拖动过的胶囊夹回屏内（拖拽与转屏重排共用同一份口径） */
     fun reClamp(w: Int, h: Int) {
         if (pillX < 0f || pillW <= 0) return
-        pillX = pillX.coerceIn(0f, (w - pillW).coerceAtLeast(0f))
-        pillY = pillY.coerceIn(0f, (h - pillH).coerceAtLeast(0f))
+        pillX = pillX.coerceIn(0f, (w - pillW).coerceAtLeast(0).toFloat())
+        pillY = pillY.coerceIn(0f, (h - pillH).coerceAtLeast(0).toFloat())
     }
     Box(
         Modifier
@@ -1822,8 +1822,8 @@ private fun FullscreenOverlay(host: TouchpadActivity) {
                         onDrag = { change, drag ->
                             change.consume()
                             if (pillX >= 0f) {
-                                pillX = (pillX + drag.x).coerceIn(0f, (boundsW() - pillW).coerceAtLeast(0f))
-                                pillY = (pillY + drag.y).coerceIn(0f, (boundsH() - pillH).coerceAtLeast(0f))
+                                pillX = (pillX + drag.x).coerceIn(0f, (boundsW() - pillW).coerceAtLeast(0).toFloat())
+                                pillY = (pillY + drag.y).coerceIn(0f, (boundsH() - pillH).coerceAtLeast(0).toFloat())
                             }
                         },
                     )
