@@ -44,7 +44,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import com.allperiph.wireless.TvControllerClient
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import android.widget.Toast
