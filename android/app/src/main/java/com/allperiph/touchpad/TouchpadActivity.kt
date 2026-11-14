@@ -1524,7 +1524,18 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     // issue#168 2026-11-12 #9「禁止移动到状态栏和小白条区域」（与主壳导航球同规矩）：
     // 拖拽纵界 = 顶部 ApInsets.top（状态栏/挖孔）、底部 ApInsets.bottom（手势条）。
     val ballInsets = com.allperiph.ui.miuix.rememberApInsets()
-    val ballTopLimitPx = with(density) { ballInsets.top.toPx() }
+    // 2026-11-14 同模式修（用户反馈「应用内横屏时悬浮栏不能拖到最上边」，与主壳导航球
+    // 同病根）：横屏且 landscape_hide_status 藏了状态栏时顶钳归 0 —— 此前照抄
+    // ApInsets.top，状态栏隐藏后 insets 归零与否看 ROM，横屏首拍的状态栏高度被
+    // latch，球顶就被旧 inset 卡住。改走 apxBallTopLimit，与 applyLandscapeBarPref
+    // 读同一份偏好；竖屏语义原样（issue#168 2026-11-12 #9 不动）。方向判定用
+    // isLandscape()（宽>高，与落位/横屏口径一致），转屏后 ballInsets 状态一变即
+    // 重组重算，顶钳随之切换。
+    val ballTopLimitPx = with(density) {
+        com.allperiph.ui.miuix.apxBallTopLimit(
+            host, ballInsets.top, host.isLandscape(),
+        ).toPx()
+    }
     val ballBottomGapPx = with(density) { ballInsets.bottom.toPx() }
     // 纵向钳进系统栏带（极矮屏兜底 max≥min）；落位与拖拽共用。
     fun clampBallY(y: Float, screenH: Int): Float {

@@ -705,7 +705,17 @@ class ApShellActivity : ComponentActivity() {
             // 顶部 ApInsets.top（状态栏/挖孔垫，与 topPad 同源）、底部 ApInsets.bottom
             // （手势条高度）。横边界不动 —— 用户只点名了上下两条系统栏带。
             val ballInsets = com.allperiph.ui.miuix.rememberApInsets()
-            val ballTopLimitPx = with(ballDensity) { ballInsets.top.toPx() }
+            // 2026-11-14 反馈「应用内横屏时悬浮栏不能拖到最上边」：横屏默认藏状态栏
+            //（landscape_hide_status），藏了就该能贴顶 —— 但顶钳此前照抄 ApInsets.top，
+            // 状态栏隐藏后 insets 归零与否、归零后是否重派发都看 ROM（v223.23 有从不
+            // 重派发的先例），横屏首拍读到的状态栏高度被 latch，球顶就被旧 inset 卡住。
+            // 顶钳改走 apxBallTopLimit：横屏且藏状态栏时归 0（挖孔横屏在左右，顶部无需
+            // 避让），竖屏语义原样（issue#168 2026-11-12 #9 不动）。
+            val ballTopLimitPx = with(ballDensity) {
+                com.allperiph.ui.miuix.apxBallTopLimit(
+                    this@ApShellActivity, ballInsets.top, landscape,
+                ).toPx()
+            }
             val ballBottomGapPx = with(ballDensity) { ballInsets.bottom.toPx() }
             var navBallX by remember { mutableFloatStateOf(-1f) }
             var navBallY by remember { mutableFloatStateOf(-1f) }
@@ -749,7 +759,13 @@ class ApShellActivity : ComponentActivity() {
                         (ballBoundsW() - navBallPx) / 2f
                     }
                     navBallY = if (landscape) {
-                        with(ballDensity) { (8.dp + topPad).toPx() }
+                        // 无档横屏落右上：顶部垫边与拖拽顶钳同口径（apxBallTopLimit）——
+                        // 横屏藏状态栏时 topPad 若被 latch 在旧值，落位也会跟着偏低
+                        with(ballDensity) {
+                            (8.dp + com.allperiph.ui.miuix.apxBallTopLimit(
+                                this@ApShellActivity, topPad, landscape,
+                            )).toPx()
+                        }
                     } else {
                         ballBoundsH() - navBallPx - with(ballDensity) { 26.dp.toPx() }
                     }

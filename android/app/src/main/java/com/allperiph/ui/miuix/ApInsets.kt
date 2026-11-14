@@ -127,6 +127,23 @@ fun android.app.Activity.applyLandscapeBarPref(landscape: Boolean) {
 }
 
 /**
+ * 悬浮球顶部可拖 Y 的下界口径（2026-11-14 用户反馈「应用内横屏时悬浮栏不能拖到最上边」）：
+ * 横屏且按 landscape_hide_status 藏了状态栏时返回 0 —— 藏了就该能贴顶，而且不依赖
+ * insets 重派发（状态栏隐藏后 insets 是否归零、归零后是否重派发到 View 树都看 ROM，
+ * v223.23 已有从不重派发的先例，直接按偏好归 0 绕开 latch）；竖屏或横屏不藏状态栏时
+ * 原样返回 [insetsTop]（issue#168 #9 竖屏「禁止拖进状态栏带」语义不动）。
+ * 横屏挖孔在屏幕左右两侧，顶部本就无需避让，归 0 不引入孔区误触。
+ * 与 [applyLandscapeBarPref] 读同一份偏好，口径永远一致 —— 主壳导航球
+ * （ApShellActivity）与操控面导航球（TouchpadActivity ConsoleNavBall）共用本函数。
+ */
+fun apxBallTopLimit(context: android.content.Context, insetsTop: Dp, landscape: Boolean): Dp {
+    if (!landscape) return insetsTop
+    val hidden = context.getSharedPreferences("apx", android.content.Context.MODE_PRIVATE)
+        .getBoolean("landscape_hide_status", true)
+    return if (hidden) 0.dp else insetsTop
+}
+
+/**
  * 读当前窗口的 framework insets 并转成 Compose 状态。
  *
  * 实现要点：
