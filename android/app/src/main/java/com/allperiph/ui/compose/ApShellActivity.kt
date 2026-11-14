@@ -105,7 +105,9 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.graphicsLayer
 
 /**
@@ -707,16 +709,27 @@ class ApShellActivity : ComponentActivity() {
             var navBallX by remember { mutableFloatStateOf(-1f) }
             var navBallY by remember { mutableFloatStateOf(-1f) }
             val dmBall = resources.displayMetrics
+            // 窗口实测口径（2026-11-14 同模式对齐，与操控面球 TouchpadActivity 同款）：
+            // 此前落点恢复、拖拽边界与存档三处都读 resources.displayMetrics —— 个别 ROM
+            // 转屏后 Resources 指标回写滞后甚至不更新（老坑见 rememberApAdaptiveLayout
+            // 注释），横向被夹在旧屏宽。改用球节点 onGloballyPositioned 现读根容器实测
+            // 尺寸（findRootCoordinates 与布局测量同源、转屏瞬间必然回调）；首帧还没量
+            // 出来时退回 Resources metrics（进入时刻两者一致）。
+            var lastBallBounds by remember { mutableStateOf<IntSize?>(null) }
+            var ballWinW by remember { mutableIntStateOf(0) }
+            var ballWinH by remember { mutableIntStateOf(0) }
+            fun ballBoundsW(): Int = ballWinW.takeIf { it > 0 } ?: dmBall.widthPixels
+            fun ballBoundsH(): Int = ballWinH.takeIf { it > 0 } ?: dmBall.heightPixels
             androidx.compose.runtime.LaunchedEffect(landscape) {
                 // 首次组合 / 转屏：读共享落点（球左上角比例）。转屏时重读一次 ——
                 // 存的是比例，横竖屏互换也能落回相对位置；无档则落原生角位
                 // （竖屏底中、横屏右上，与旧收起球同位）。
                 val loaded = com.allperiph.ui.BallPos.load(
-                    this@ApShellActivity, dmBall.widthPixels, dmBall.heightPixels, navBallPx.toInt(),
+                    this@ApShellActivity, ballBoundsW(), ballBoundsH(), navBallPx.toInt(),
                 )
                 // 档位落点也钳进系统栏带（上/下界夹不出负区间时才钳，极矮屏兜底）
                 fun clampY(y: Float): Float {
-                    val maxY = (dmBall.heightPixels - navBallPx - ballBottomGapPx)
+                    val maxY = (ballBoundsH() - navBallPx - ballBottomGapPx)
                         .coerceAtLeast(ballTopLimitPx)
                     return y.coerceIn(ballTopLimitPx, maxY)
                 }
@@ -726,18 +739,18 @@ class ApShellActivity : ComponentActivity() {
                     // 此前只钳 Y，X 照单全收 —— 球停在屏右边界之外，看着就是「丢了」。
                     // 转屏重读时一并钳 X：左 0、右 屏宽-球径，与拖拽钳制同一口径。
                     navBallX = loaded.first.toFloat()
-                        .coerceIn(0f, (dmBall.widthPixels - navBallPx).coerceAtLeast(0f))
+                        .coerceIn(0f, (ballBoundsW() - navBallPx).coerceAtLeast(0f))
                     navBallY = clampY(loaded.second.toFloat())
                 } else {
                     navBallX = if (landscape) {
-                        dmBall.widthPixels - navBallPx - with(ballDensity) { 20.dp.toPx() }
+                        ballBoundsW() - navBallPx - with(ballDensity) { 20.dp.toPx() }
                     } else {
-                        (dmBall.widthPixels - navBallPx) / 2f
+                        (ballBoundsW() - navBallPx) / 2f
                     }
                     navBallY = if (landscape) {
                         with(ballDensity) { (8.dp + topPad).toPx() }
                     } else {
-                        dmBall.heightPixels - navBallPx - with(ballDensity) { 26.dp.toPx() }
+                        ballBoundsH() - navBallPx - with(ballDensity) { 26.dp.toPx() }
                     }
                 }
             }
@@ -758,9 +771,11 @@ class ApShellActivity : ComponentActivity() {
             } else {
                 navBallY + navBallPx + pillGapPx
             }
-            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填）
+            // 横向：胶囊中线对齐球心，左右钳进屏边（pillW 由 onSizeChanged 实测回填；
+            // 屏宽读根容器实测值 ballBoundsW()，转屏后立刻换新 —— 与球拖拽边界同口径，
+            // 旧口径读首帧捕获的 dmBall 在个别 ROM 上停在旧屏宽，胶囊横钳也就停在旧宽）
             val pillXPx = (navBallX + navBallPx / 2f - pillW / 2f)
-                .coerceIn(pillMarginPx, (dmBall.widthPixels - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
+                .coerceIn(pillMarginPx, (ballBoundsW() - pillW - pillMarginPx).coerceAtLeast(pillMarginPx))
 
             // 点胶囊外任意处收起：接住手势的透明层画在球之下（球画在后、z 序压它）。
             // 这里只做可见性不带过渡（EnterTransition.None）：它本身透明，唯一意义是
@@ -937,6 +952,41 @@ class ApShellActivity : ComponentActivity() {
                             ballPressed = false
                         }
                     }
+                    // 窗口实测回填（见上方 lastBallBounds 注释）：挂球自身节点即可，
+                    // findRootCoordinates 取的是组合根（全屏 Box）实测尺寸。首帧交给
+                    // LaunchedEffect(landscape) 落位；此后根尺寸一变（转屏/分屏/挖孔
+                    // 变化）就按共享比例重读落点 —— 与操控面球 onSizeChanged 同模式，
+                    // 不等 Configuration 回写，个别 ROM 指标滞后也兜得住。
+                    .onGloballyPositioned { coords ->
+                        val root = coords.findRootCoordinates().size
+                        if (root.width <= 0 || root.height <= 0) return@onGloballyPositioned
+                        val prev = lastBallBounds
+                        lastBallBounds = root
+                        ballWinW = root.width
+                        ballWinH = root.height
+                        if (prev == null || navBallX < 0f ||
+                            (root.width == prev.width && root.height == prev.height)
+                        ) {
+                            return@onGloballyPositioned
+                        }
+                        com.allperiph.ui.BallPos.load(
+                            this@ApShellActivity, root.width, root.height, navBallPx.toInt(),
+                        )?.let {
+                            navBallX = it.first.toFloat()
+                                .coerceIn(0f, (root.width - navBallPx).coerceAtLeast(0f))
+                            navBallY = it.second.toFloat().coerceIn(
+                                ballTopLimitPx,
+                                (root.height - navBallPx - ballBottomGapPx).coerceAtLeast(ballTopLimitPx),
+                            )
+                        } ?: run {
+                            // 没有存档（异常清除等）：至少把球夹回当前屏内，别悬在屏外
+                            navBallX = navBallX.coerceIn(0f, (root.width - navBallPx).coerceAtLeast(0f))
+                            navBallY = navBallY.coerceIn(
+                                ballTopLimitPx,
+                                (root.height - navBallPx - ballBottomGapPx).coerceAtLeast(ballTopLimitPx),
+                            )
+                        }
+                    }
                     .clip(CircleShape)
                     .semantics { contentDescription = getString(R.string.ui_dock_ball_desc) }
                     // 拖动跟手（compose 侧靠每帧 offset 重组，球是单节点小控件，
@@ -952,22 +1002,24 @@ class ApShellActivity : ComponentActivity() {
                                 // 「只能到中间」）；且一进拖拽旧钳制立刻生效，坐标先被拽回
                                 // 上限，看起来就是「跳到左边」。与操控面球 d5d700d 同病根：
                                 // 每次拖拽事件现读一份，转屏后边界立刻换新。
-                                val dm = resources.displayMetrics
+                                // 2026-11-14 同模式再进一步：个别 ROM 上现读 Resources metrics
+                                // 也可能回写滞后（见 lastBallBounds 注释），边界来源换成
+                                // onGloballyPositioned 回填的根容器实测值，没量出来退 dm。
                                 navBallX = (navBallX + drag.x)
-                                    .coerceIn(0f, dm.widthPixels - navBallPx)
+                                    .coerceIn(0f, ballBoundsW() - navBallPx)
                                 // 纵向钳进系统栏带：上不过状态栏/挖孔、下不过小白条
                                 //（issue#168 2026-11-12 #9；极矮屏兜底 max≥min）
                                 navBallY = (navBallY + drag.y).coerceIn(
                                     ballTopLimitPx,
-                                    (dm.heightPixels - navBallPx - ballBottomGapPx)
+                                    (ballBoundsH() - navBallPx - ballBottomGapPx)
                                         .coerceAtLeast(ballTopLimitPx),
                                 )
                             },
                             onDragEnd = {
-                                val dm = resources.displayMetrics
+                                // 存档尺寸与拖拽边界同源（根容器实测优先），转屏后比例不因此失真
                                 com.allperiph.ui.BallPos.save(
                                     this@ApShellActivity,
-                                    navBallX, navBallY, dm.widthPixels, dm.heightPixels,
+                                    navBallX, navBallY, ballBoundsW(), ballBoundsH(),
                                 )
                             },
                         )
