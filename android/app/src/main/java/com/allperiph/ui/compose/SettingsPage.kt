@@ -151,7 +151,18 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
     var shield by remember { mutableStateOf(GestureShield.isEnabled(ctx)) }
     // 开关显示**实况**，不显示意愿位：`localsend_enabled` 只是「用户希望开着」的记录，
     // 进程一死服务就没了，重启后开关却还是「开」（审查 v5 §9.3 的补丁 0004）。
-    var localSend by remember { mutableStateOf(com.allperiph.localsend.LocalSendService.isRunning) }
+    // issue#170 #4（2026-11-14）：此前 `remember { mutableStateOf(isRunning) }` 只在
+    // 组合那一刻拍一张照，服务之后起落（后台被 HyperOS 杀掉 / ApShell 回前台补拉）
+    // 开关都不跟着动，「上次开启后没有恢复运行」提示也随之永远不触发。
+    // 改为直接读 LocalSendService 的快照状态（服务侧 mutableStateOf，跨线程写安全，
+    // issue#169 第 22 条已接好）：实况一变就重组；点开关那一拍用 override 盖住
+    // （startForegroundService 异步，不等它返回就亮开关），实况追上后自动回落。
+    var localSendOverride by remember { mutableStateOf<Boolean?>(null) }
+    val localSendLive = com.allperiph.localsend.LocalSendService.isRunning
+    androidx.compose.runtime.LaunchedEffect(localSendLive) {
+        if (localSendOverride == localSendLive) localSendOverride = null
+    }
+    val localSend = localSendOverride ?: localSendLive
     val localSendWanted = apxPrefs.getBoolean("localsend_enabled", false)
 
     // 大屏（平板 / 折叠展开 / 横屏）不再把设置项拉满整屏：限宽 680dp 并水平居中；
@@ -774,7 +785,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         summaryMinLines = 3,
                         checked = localSend,
                         onCheckedChange = { on ->
-                            localSend = on
+                            localSendOverride = on
                             apxPrefs.edit().putBoolean("localsend_enabled", on).apply()
                             if (on) {
                                 com.allperiph.localsend.LocalSendService.start(ctx)
