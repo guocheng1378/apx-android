@@ -1710,7 +1710,43 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
 private fun FullscreenOverlay(host: TouchpadActivity) {
     val ctx = LocalContext.current
     val view = LocalView.current
-    Box(Modifier.fillMaxSize()) {
+    // —— 退出胶囊的位置状态与边界口径（issue#170 第五轮 #1）——
+    // 报告人（v223.29.105 实测）：横竖屏切换时胶囊定位不随实时转屏重排，会①落到屏幕外、
+    // ②拖不过半屏（拖动边界被旧朝向的宽高夹住）。修法与操控面导航球（ConsoleNavBall）、
+    // FloatingBallService.reflowForScreenChange 同一思路：
+    //  · 边界来源用「窗口实测尺寸」（onSizeChanged 回填 winW/winH）——本页转屏不重建
+    //   （configChanges），Resources 的 displayMetrics 回写滞后甚至不更新（老坑见
+    //   rememberApAdaptiveLayout 注释），用它夹边就会出现「拖不过半屏」；
+    //  · 转屏（窗口尺寸一变）即把已拖动过的胶囊重夹回新边界内（reflow），
+    //    没拖过时保持右下角锚点，天然跟随转屏。
+    var pillX by remember { mutableFloatStateOf(-1f) }   // 胶囊左上角 px；-1 = 未拖过，仍走右下角锚
+    var pillY by remember { mutableFloatStateOf(-1f) }
+    var pillW by remember { mutableIntStateOf(0) }
+    var pillH by remember { mutableIntStateOf(0) }
+    var winW by remember { mutableIntStateOf(0) }
+    var winH by remember { mutableIntStateOf(0) }
+    val pillMarginPx = with(LocalDensity.current) { 10.dp.toPx() }
+    fun boundsW(): Int = winW
+    fun boundsH(): Int = winH
+    /** 按给定窗口尺寸把已拖动过的胶囊夹回屏内（拖拽与转屏重排共用同一份口径） */
+    fun reClamp(w: Int, h: Int) {
+        if (pillX < 0f || pillW <= 0) return
+        pillX = pillX.coerceIn(0f, (w - pillW).coerceAtLeast(0f))
+        pillY = pillY.coerceIn(0f, (h - pillH).coerceAtLeast(0f))
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            // 转屏重排：窗口实测尺寸一变就重夹（挂在 onSizeChanged 而非 LaunchedEffect：
+            // Compose 测量与布局同源、不等 Configuration 回写，转屏瞬间必然触发，
+            // 见 ConsoleNavBall 同款注释）。
+            .onSizeChanged { size ->
+                if (size.width <= 0 || size.height <= 0) return@onSizeChanged
+                winW = size.width
+                winH = size.height
+                reClamp(size.width, size.height)
+            },
+    ) {
         // 退出胶囊：3s 后降到 25% 不透明度
         var pillAlpha by remember { mutableStateOf(0.6f) }
         LaunchedEffect(Unit) {
@@ -1719,14 +1755,50 @@ private fun FullscreenOverlay(host: TouchpadActivity) {
         }
         Box(
             Modifier
-                .align(Alignment.BottomEnd)
-                .padding(10.dp)
+                // 拖过就用绝对坐标；没拖过保持右下角 10dp 锚（锚点态转屏天然跟随）
+                .then(
+                    if (pillX >= 0f) {
+                        Modifier.offset { IntOffset(pillX.roundToInt(), pillY.roundToInt()) }
+                    } else {
+                        Modifier.align(Alignment.BottomEnd).padding(10.dp)
+                    },
+                )
+                .onSizeChanged { size ->
+                    pillW = size.width
+                    pillH = size.height
+                    // 胶囊自身量出来 / 文案变化导致尺寸变化时也重夹一次（首帧 pillW=0 时是空操作）
+                    reClamp(boundsW(), boundsH())
+                }
                 .alpha(pillAlpha)
                 .clip(RoundedCornerShape(50))
                 .background(colorResource(R.color.miuix_card))
                 .clickable {
                     com.allperiph.ui.Feedback.tap(view)
                     host.setFullscreen(false)
+                }
+                .pointerInput(Unit) {
+                    // 拖拽夹边全部现读窗口实测尺寸：转屏后口径立即换新，
+                    // 不会再用旧朝向的宽高把胶囊夹在半屏（与 ConsoleNavBall 拖拽同修法）
+                    detectDragGestures(
+                        onDragStart = { _ ->
+                            // 首拖起手：把当前右下角锚位换算成绝对坐标，起拖瞬间不跳位
+                            if (pillX < 0f) {
+                                val w = boundsW()
+                                val h = boundsH()
+                                if (w > 0 && h > 0 && pillW > 0) {
+                                    pillX = (w - pillW - pillMarginPx).coerceAtLeast(0f)
+                                    pillY = (h - pillH - pillMarginPx).coerceAtLeast(0f)
+                                }
+                            }
+                        },
+                        onDrag = { change, drag ->
+                            change.consume()
+                            if (pillX >= 0f) {
+                                pillX = (pillX + drag.x).coerceIn(0f, (boundsW() - pillW).coerceAtLeast(0f))
+                                pillY = (pillY + drag.y).coerceIn(0f, (boundsH() - pillH).coerceAtLeast(0f))
+                            }
+                        },
+                    )
                 }
                 .padding(horizontal = 14.dp, vertical = 7.dp),
         ) {
