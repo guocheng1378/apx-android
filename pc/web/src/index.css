@@ -129,7 +129,11 @@
     user-select: none;
     font-size: 15px;
     line-height: 1.5;
-    /* 极慢的环境光：两块低饱和光斑，随连接状态呼吸（见 .app[data-live]） */
+    /* 环境光：两块低饱和光斑，静态铺底（随连接状态的透明度过渡见 .hero[data-live]）。
+       issue#170 第四轮 #1「Mac 上浏览器开着面板就高占用」实测根修 —— 原来这块
+       80vh 模糊渐变挂着 drift 26s 无限动画，无 GPU 的环境里整页每帧都在光栅化，
+       静置测得进程树 12s 烧满一整核；摘掉动画后降到约 1/9。模糊层一帧都不该
+       无故重画，光斑的「活」只保留给状态变化的透明度过渡。 */
   }
 
   /* 环境光 */
@@ -145,7 +149,6 @@
     opacity: 0.9;
     pointer-events: none;
     z-index: 0;
-    animation: drift 26s ease-in-out infinite alternate;
   }
 
   /* 极细颗粒：去掉「一整块纯色」的塑料感 */
@@ -977,7 +980,6 @@
     opacity: 0.14;
     filter: blur(6px);
     transition: opacity 0.2s var(--soft);
-    animation: drift 18s ease-in-out infinite alternate;
     pointer-events: none;
   }
 
@@ -1352,15 +1354,6 @@
   100% {
     opacity: 0;
     transform: scale(1.6);
-  }
-}
-
-@keyframes drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(-3%, 4%, 0) scale(1.08);
   }
 }
 
