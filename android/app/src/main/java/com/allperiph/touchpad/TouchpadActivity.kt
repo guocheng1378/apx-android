@@ -347,7 +347,16 @@ class TouchpadActivity : ComponentActivity() {
      */
     private fun applyFullscreenOrientPref() {
         if (OrientLock.isOn(this)) return          // 显式锁定优先，本开关不插手
-        if (OrientLock.fullscreenSensorEnabled(this)) return   // 默认：维持清单 sensor 行为
+        if (OrientLock.fullscreenSensorEnabled(this)) {
+            // 「关 → 开」回切：此前的 NOSENSOR 是本函数写的运行期覆盖，不会随偏好
+            // 复位自动消失（requestedOrientation 随 Activity 实例存续）——这里显式
+            // 撤掉，UNSPECIFIED = 清掉运行期覆盖，清单 sensor 重新生效。
+            // 只在真写着 NOSENSOR 时才写，避免 onCreate 每次都被当成一次配置变更。
+            if (requestedOrientation == android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR) {
+                requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+            return
+        }
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_NOSENSOR
     }
 
