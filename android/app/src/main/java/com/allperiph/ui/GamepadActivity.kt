@@ -1046,37 +1046,40 @@ internal fun GamepadPanel(onExit: () -> Unit) {
                 // —— 布局改双列（issue#170 #5 四轮，报告人 6871267905 点名）：
                 // 左列 = 标题 / 键位 / 尺寸数值与输入 / 恢复 / 完成；
                 // 无级尺寸滑条竖着放**卡片右侧**（原横滑条占一整行，卡被撑到满宽）。
+                // —— 编辑卡各口径声明上提到 Row 作用域（issue#170 #5 四轮）：
+                // 竖滑条块在左列 Column 之外，必须能读到这组量；
+                // 本地无 SDK 编不过这层作用域，CI 实测抓出后统一上提。
+                val cfgCtx = LocalContext.current
+                val defaults = GamepadPadConfig.SLOT_DEFAULTS[slot]
+                    ?: (GamepadController.BTN_A to 58)
+                val curBit = GamepadPadConfig.bit(cfgCtx, slot, defaults.first)
+                val curSize = GamepadPadConfig.sizeDp(cfgCtx, slot, defaults.second)
+                // 滑条拖动中的实时预览值（存档口径）优先于存档档位
+                val shownSize = padLiveSizes[slot] ?: curSize
+                // issue#169 第 21 条：功能键（✕/✎/📷）没有键位可改，只出「尺寸」行与「恢复默认」——
+                // 键位行对着 0 号位显示「?」反而让用户误以为坏了
+                val isFunc = GamepadPadConfig.FUNC_SLOTS.contains(slot)
+                // issue#169 第 18③ 条：摇杆（LStick/RStick）键位/尺寸两行同样无效——
+                // Stick 布局不读 size 配置、SLOT_DEFAULTS 里也没有摇杆兜底，
+                // 之前显示出「键位:A + 尺寸 58dp」的假配置，怎么点都没反应。整体隐藏。
+                val isStick = GamepadPadConfig.STICK_SLOTS.contains(slot)
+                // 无级范围（issue#170 #4）：圆键 32–96、药丸 40–120（下限取 40 覆盖 📷
+                // 出厂宽 40；方案写的 56 会让 📷 默认值落在范围外，实施取 40，见汇报）。
+                // 组合态取全体成员范围的交集，滑条只在公共合法区间内动。
+                fun slotSizeRange(s: String): IntRange =
+                    if (PAD_PILL_RATIO_H.containsKey(s)) 40..120 else 32..96
+                val sizeMin = if (isGroup) sizeTargets.maxOfOrNull { slotSizeRange(it).first } ?: 32 else slotSizeRange(slot).first
+                val sizeMax = if (isGroup) sizeTargets.minOfOrNull { slotSizeRange(it).last } ?: 96 else slotSizeRange(slot).last
+                // 尺寸落盘（滑条松手 / 输入提交统一入口）：组合态逐颗 setSize + 版本号
+                // 递增让全体成员同帧重读；清预览态回配置驱动。
+                fun commitSize(v: Int) {
+                    sizeTargets.forEach { GamepadPadConfig.setSize(cfgCtx, it, v) }
+                    padLiveSizes = emptyMap()
+                    padConfigVersion++
+                    Feedback.haptic(cfgCtx)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        val cfgCtx = LocalContext.current
-                        val defaults = GamepadPadConfig.SLOT_DEFAULTS[slot]
-                            ?: (GamepadController.BTN_A to 58)
-                        val curBit = GamepadPadConfig.bit(cfgCtx, slot, defaults.first)
-                        val curSize = GamepadPadConfig.sizeDp(cfgCtx, slot, defaults.second)
-                        // 滑条拖动中的实时预览值（存档口径）优先于存档档位
-                        val shownSize = padLiveSizes[slot] ?: curSize
-                        // issue#169 第 21 条：功能键（✕/✎/📷）没有键位可改，只出「尺寸」行与「恢复默认」——
-                        // 键位行对着 0 号位显示「?」反而让用户误以为坏了
-                        val isFunc = GamepadPadConfig.FUNC_SLOTS.contains(slot)
-                        // issue#169 第 18③ 条：摇杆（LStick/RStick）键位/尺寸两行同样无效——
-                        // Stick 布局不读 size 配置、SLOT_DEFAULTS 里也没有摇杆兜底，
-                        // 之前显示出「键位:A + 尺寸 58dp」的假配置，怎么点都没反应。整体隐藏。
-                        val isStick = GamepadPadConfig.STICK_SLOTS.contains(slot)
-                        // 无级范围（issue#170 #4）：圆键 32–96、药丸 40–120（下限取 40 覆盖 📷
-                        // 出厂宽 40；方案写的 56 会让 📷 默认值落在范围外，实施取 40，见汇报）。
-                        // 组合态取全体成员范围的交集，滑条只在公共合法区间内动。
-                        fun slotSizeRange(s: String): IntRange =
-                            if (PAD_PILL_RATIO_H.containsKey(s)) 40..120 else 32..96
-                        val sizeMin = if (isGroup) sizeTargets.maxOfOrNull { slotSizeRange(it).first } ?: 32 else slotSizeRange(slot).first
-                        val sizeMax = if (isGroup) sizeTargets.minOfOrNull { slotSizeRange(it).last } ?: 96 else slotSizeRange(slot).last
-                        // 尺寸落盘（滑条松手 / 输入提交统一入口）：组合态逐颗 setSize + 版本号
-                        // 递增让全体成员同帧重读；清预览态回配置驱动。
-                        fun commitSize(v: Int) {
-                            sizeTargets.forEach { GamepadPadConfig.setSize(cfgCtx, it, v) }
-                            padLiveSizes = emptyMap()
-                            padConfigVersion++
-                            Feedback.haptic(cfgCtx)
-                        }
                         // issue#170 #8：配置卡排版统一 —— 各行文字居中、行距一致，行宽拉满
                         // 让点按热区对齐，不再左对齐参差；issue#170 #5（三轮）：行距随整卡
                         // 缩小一并收敛（12dp→8dp×scale），保证全部行在小屏竖屏也能完整显示。
