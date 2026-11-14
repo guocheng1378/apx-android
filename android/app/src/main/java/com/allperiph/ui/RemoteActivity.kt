@@ -123,6 +123,10 @@ class RemoteActivity : ComponentActivity() {
                     .getBoolean("landscape_hide_status", true),
         )
         applyLandscapeBarPref(landscape)
+        // v223.29.103 同类排查（成宇 2026-11-14「是否还有其他的开关有这种问题」）：方向锁定
+        // 同病 —— 此前只在主壳 apply，进本页后锁被静默释放；按同一偏好补齐
+        //（onCreate + onResume，设置里改完回来即生效）。
+        OrientLock.apply(this)
         // 强调色要叠在「正在用的这个主题」上才算数：View 弹窗（语音说明 / 关机确认）仍走主题
         ApPalette.applyRuntimeTheme(this)
         // 读回上次偏好并即时生效：重进本页（含重连）后，上次关掉的浮层不会又冒出来
@@ -145,6 +149,7 @@ class RemoteActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeTick.value++ // 目标行跟随回前台的最新状态
+        OrientLock.apply(this) // v223.29.103：方向锁定回前台重apply，设置里改完回来即生效
         // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
         applyLandscapeBarPref(
             resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,

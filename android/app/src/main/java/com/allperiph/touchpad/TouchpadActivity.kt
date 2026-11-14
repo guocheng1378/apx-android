@@ -83,6 +83,7 @@ import com.allperiph.ui.ApPalette
 import com.allperiph.ui.HotkeyBoard
 import com.allperiph.ui.HotkeyController
 import com.allperiph.ui.KeyPref
+import com.allperiph.ui.OrientLock
 import com.allperiph.ui.compose.ApTouchpadSurface
 import com.allperiph.ui.compose.rememberApBackdrop
 import com.allperiph.ui.miuix.ApComponents
@@ -227,6 +228,10 @@ class TouchpadActivity : ComponentActivity() {
                     .getBoolean("landscape_hide_status", true),
         )
         applyConsoleBarPref()
+        // v223.29.103 同类排查（成宇 2026-11-14「是否还有其他的开关有这种问题」）：方向锁定
+        // 此前只在主壳 apply —— 进操控面后 requestedOrientation 跟随清单 sensor，
+        // 锁被静默释放。这里按同一偏好补齐（onCreate + onResume，设置里改完回来即生效）。
+        OrientLock.apply(this)
         // 强调色要叠在「正在用的这个主题」上才算数（View 弹窗：自检 / 关机确认 仍走主题）
         ApPalette.applyRuntimeTheme(this)
         // 截屏已放开（与主页口径一致）：主控制面此前挂 FLAG_SECURE，用户没法截图反馈界面问题
@@ -294,6 +299,7 @@ class TouchpadActivity : ComponentActivity() {
         GestureShield.acquireWithHint(this, HOLDER_CONSOLE)
         // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
         applyConsoleBarPref()
+        OrientLock.apply(this)
         // 注：服务层悬浮栏已随整合拆除（FloatingBallService 顶注释）——
         // 此前进本页球+栏双窗同屏的问题从根上消失，桌面只悬浮球一个控件。
     }

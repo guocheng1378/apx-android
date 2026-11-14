@@ -155,6 +155,10 @@ class FilePanelActivity : ComponentActivity() {
                     .getBoolean("landscape_hide_status", true),
         )
         applyLandscapeBarPref(landscape)
+        // v223.29.103 同类排查（成宇 2026-11-14「是否还有其他的开关有这种问题」）：方向锁定
+        // 同病 —— 此前只在主壳 apply，进本面板后锁被静默释放；按同一偏好补齐
+        //（onCreate + onResume，设置里改完回来即生效）。
+        OrientLock.apply(this)
         setContentView(
             ComposeView(this).apply {
                 setContent {
@@ -287,6 +291,7 @@ class FilePanelActivity : ComponentActivity() {
         storageOk = PhoneFiles.hasStorageAccess(this)
         refreshTargets()
         refreshList()
+        OrientLock.apply(this) // v223.29.103：方向锁定回前台重apply，设置里改完回来即生效
         // v223.29.103：回前台重压一次横屏状态栏（读实时偏好，开关改完回来即生效）
         applyLandscapeBarPref(
             resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,

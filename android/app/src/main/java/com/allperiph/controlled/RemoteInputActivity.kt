@@ -138,6 +138,10 @@ class RemoteInputActivity : ComponentActivity() {
                     .getBoolean("landscape_hide_status", true),
         )
         applyLandscapeBarPref(landscape)
+        // v223.29.103 同类排查（成宇 2026-11-14「是否还有其他的开关有这种问题」）：方向锁定
+        // 同病 —— 此前只在主壳 apply，进本面板后锁被静默释放；按同一偏好补齐
+        //（onCreate + onResume，设置里改完回来即生效）。
+        com.allperiph.ui.OrientLock.apply(this)
         // ①主题跟色：强调色要叠在「正在用的这个主题」上才算数（清单主题是新建的，父上下文
         // 叠加会丢）——这页此前只有注释没有实际调用，accent 也是写死的 remote_panel_accent，
         // 切主题/莫奈/皮肤全都不动。
@@ -162,6 +166,7 @@ class RemoteInputActivity : ComponentActivity() {
      *  系统在通知面板交互后自行抬回状态栏的空档也由这两处补上，与手柄页同款） */
     override fun onResume() {
         super.onResume()
+        com.allperiph.ui.OrientLock.apply(this)
         applyLandscapeBarPref(
             resources.configuration.screenWidthDp > resources.configuration.screenHeightDp,
         )

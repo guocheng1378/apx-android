@@ -91,6 +91,9 @@ class SendActivity : ComponentActivity() {
                     .getBoolean("landscape_hide_status", true),
         )
         applyLandscapeBarPref(landscape)
+        // 方向锁定同类排查（2026-11-14 成宇「是否还有其他的开关有这种问题」）：orient_lock
+        // 此前只在主壳 apply，进本页后锁被静默释放，与状态栏屏蔽是同一类病，补齐。
+        com.allperiph.ui.OrientLock.apply(this)
         // 互传服务兜底启动（2026-11-14 用户「互传还是不能用」）：本页依赖服务在听 53317
         // 并发 announce，但开关在设置里 —— 开关没开时进来就是一张永远空白的列表，
         // 谁也看不出为什么。现在进页面就兜底拉起服务（只补运行态、不动开关的记录值），
@@ -242,6 +245,8 @@ class SendActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 方向锁定：回前台重 apply（同批口径，apply 幂等，值不变不重设）。
+        com.allperiph.ui.OrientLock.apply(this)
         handler.post(refresh)
         // 探测快慢档（NectarLink 调研批）：本页在屏 = 15s 快扫 + 立即提前一轮，
         // 进页面不等旧计时；退到后台回落 90s 慢档（LocalSendService.teardown 也会清零）。
