@@ -44,6 +44,13 @@ object TvDiscovery {
         /** 设备类型："tv"（APX1TV）/ "pc"（APX1PC）/ "phone"（APX1PH，手机被控）；
          *  只有 "tv" 才进 TV 专属快捷键布局 */
         var type: String = "tv",
+        /**
+         * 对端控制面配对令牌（link-hardening，REQ-无线安全配对）：信标第 4 段广播，
+         * 连入 9511 握手时原样回带给对端校验。旧版对端信标可能只有 3 段（token 空），
+         * 此时对端未启用令牌校验，握手照常通过。**旧实现整段丢弃此字段**，导致
+         * 「控制端永远不带令牌、被控端配了也白配」—— 这里补上保留。
+         */
+        var token: String = "",
     ) {
         /** 列表后缀：三类得一眼分清，否则「手机被控」看起来和电视没区别 */
         val typeLabel: String
@@ -132,14 +139,18 @@ object TvDiscovery {
                     name = name.removePrefix(PHONE_NAME_MARK)
                 }
                 val now = System.currentTimeMillis()
+                // link-hardening：信标第 4 段 = 对端控制面令牌（<前缀> <name> <port> <token>）。
+                // 旧版对端信标没有这段，getOrNull 兜空串即可，握手照常放行。
+                val beaconToken = parts.getOrNull(3) ?: ""
                 val existing = devices[ip]
                 if (existing != null) {
                     existing.name = name
                     existing.port = port
                     existing.type = type
+                    existing.token = beaconToken
                     existing.lastSeen = now
                 } else {
-                    devices[ip] = TvDevice(name, ip, port, now, type)
+                    devices[ip] = TvDevice(name, ip, port, now, type, beaconToken)
                 }
             }
         } catch (_: Throwable) {

@@ -1275,7 +1275,13 @@ internal fun connectControlledDevice(
 ) {
     val ui = android.os.Handler(android.os.Looper.getMainLooper())
     Thread({
-        val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port)
+        // link-hardening（REQ-无线安全配对）：被控端启用令牌后握手必须带 token。
+        // 信标路径的 dev 自带 token；历史重连等来源可能没有 —— 按 IP 从发现表兜底取
+        // （被控端开着信标时 1.5s 内就有；都没有则对端多半未启用令牌，空串照常放行）。
+        val tok = d.token.ifBlank {
+            com.allperiph.wireless.TvDiscovery.list().firstOrNull { it.ip == d.ip }?.token ?: ""
+        }
+        val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port, tok)
         val ok = c.connect()
         ui.post {
             if (ok) {

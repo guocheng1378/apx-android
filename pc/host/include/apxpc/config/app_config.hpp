@@ -63,12 +63,20 @@ struct AppConfig {
 
     // PC 侧键盘重映射（from 物理键 -> to 逻辑键，优化项）
     std::map<std::string, std::string> keymap;
+
+    // 9511 控制面配对 token（docs/REQ-无线安全配对.md）：
+    // 128-bit 随机 hex（32 字符），首次启动生成并持久化；被控端信标回带同一 token
+    // 才允许握手。空串 = 不启用校验（对端旧版/未启用 token 时保持互通）。
+    std::string pairingToken;
 };
 
 // 加载：文件缺失或解析失败返回默认值（不报错，首次启动常见）；
 // 任何字段缺失都回落默认，不破坏既有配置。
 AppConfig loadConfig(const std::string& path);
 void saveConfig(const std::string& path, const AppConfig& cfg);
+
+// 读取 pairingToken；为空则生成 128-bit 随机 hex 写回配置并返回（load→generate→save）。
+std::string ensurePairingToken(const std::string& path);
 
 // 默认热键（七类动作）
 std::map<std::string, HotkeyBinding> defaultHotkeys();

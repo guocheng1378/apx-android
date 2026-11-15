@@ -126,7 +126,13 @@ class ControlledService : Service() {
         // 只由设置里的开关拉起 —— 开关没开时对端永远发现不了、连不上。被控服务在跑就
         // 兜底拉起（只补运行态、不动开关记录值），与发送页 v95 的兜底同口径。
         runCatching { if (!com.allperiph.localsend.LocalSendService.isRunning) com.allperiph.localsend.LocalSendService.start(this) }
-        if (server == null) server = ControlServer(endpoint = controlEndpoint)
+        if (server == null) {
+            // link-hardening（REQ-无线安全配对）：被控端启用配对令牌 —— 首次生成 128-bit
+            // 随机值持久化，此后重连必须带令牌才能握上手（信标里有广播，控制端从信标取；
+            // 未升级的旧控制端不带令牌会连不上，两端同版升级即恢复，见 REQ 文档 §3.2）。
+            val tok = pairingToken(this)
+            server = ControlServer(endpoint = controlEndpoint, token = tok)
+        }
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         // 0x05 开副屏请求：PC 面板开启副屏推流时下发 → 广播 ScreenOpenRequestEvent，
@@ -229,7 +235,11 @@ class ControlledService : Service() {
             beacon = WirelessBeacon(
                 "APX1TV",
                 com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
-                ControlServer.PORT, "",
+                ControlServer.PORT,
+                // link-hardening：信标带上本机配对令牌（<前缀> <name> <port> <token>），
+                // 控制端从信标取用；明文广播是已知限制（REQ-无线安全配对 §3.3，随 R2 加密解决），
+                // 此处先让「带令牌校验」这条链路完整转起来。
+                pairingToken(this),
                 unicastHosts = {
                     val hosts = ArrayList<String>(8)
                     com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
@@ -354,6 +364,24 @@ class ControlledService : Service() {
         private const val NOTIFY_ID = 0x9A3
         private const val PREF = "apx_controlled"
         private const val KEY_ENABLED = "enabled"
+        private const val KEY_PAIRING_TOKEN = "pairing_token"
+
+        /**
+         * 本机被控配对令牌（link-hardening，REQ-无线安全配对）：首次调用生成 128-bit
+         * 随机 hex 持久化，此后恒定。控制面握手与信标广播共用；删掉这个偏好键即重置
+         * 配对（对端需重新从信标学习新令牌）。
+         */
+        fun pairingToken(c: Context): String {
+            val sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            sp.getString(KEY_PAIRING_TOKEN, null)?.takeIf { it.isNotEmpty() }?.let { return it }
+            val bytes = ByteArray(16)
+            java.security.SecureRandom().nextBytes(bytes)
+            val tok = bytes.joinToString("") { "%02x".format(it) }
+            sp.edit().putString(KEY_PAIRING_TOKEN, tok).apply()
+            Log.i(TAG, "已生成被控配对令牌")
+            return tok
+        }
+
         @Volatile var running: Boolean = false; private set
         @Volatile var server: ControlServer? = null; internal set
         /**

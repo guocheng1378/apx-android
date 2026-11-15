@@ -633,7 +633,7 @@ class TouchpadActivity : ComponentActivity() {
                     which == items.size - 1 -> promptTvIp()
                     else -> {
                         val tv = tvs.getOrNull(which - 1) ?: return@setItems
-                        connectTv(tv.ip, tv.port, tv.name, tv.type)
+                        connectTv(tv.ip, tv.port, tv.name, tv.type, tv.token)
                     }
                 }
             }
@@ -658,10 +658,16 @@ class TouchpadActivity : ComponentActivity() {
     }
 
     /** 后台连入 TV/PC 并设为当前控制目标（不阻塞 UI）
-     * @param type 设备类型 "tv" 或 "pc"：仅 TV 切到 TV 专属快捷键套，PC 保持鼠标 + 完整键鼠 */
-    private fun connectTv(ip: String, port: Int, name: String, type: String = "tv") {
+     * @param type 设备类型 "tv" 或 "pc"：仅 TV 切到 TV 专属快捷键套，PC 保持鼠标 + 完整键鼠
+     * @param token 对端控制面配对令牌（link-hardening，REQ-无线安全配对）：信标路径自带；
+     *              手动输入 IP / 历史重连没有，兜底从发现表按 IP 取（被控端启用令牌而
+     *              信标里也取不到时握手会被拒，属预期 —— 见连接失败提示） */
+    private fun connectTv(ip: String, port: Int, name: String, type: String = "tv", token: String = "") {
         Thread({
-            val c = TvControllerClient(ip, port)
+            val tok = token.ifBlank {
+                TvDiscovery.list().firstOrNull { it.ip == ip }?.token ?: ""
+            }
+            val c = TvControllerClient(ip, port, tok)
             val ok = c.connect()
             runOnUiThread {
                 // connect() 最长阻塞 5s，期间用户可能已经退出页面

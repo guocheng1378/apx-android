@@ -44,9 +44,10 @@ int64_t nowMs() {
 }
 
 /// 解析 "APX1TV|APX1PC|APX1PH <name> <port> <token>"，返回 (host-ip, port)。
-/// phone 出参：是否手机信标（APX1PH）—— 自动发现手机优先，见 onBeacon。name/token 忽略。
+/// phone 出参：是否手机信标（APX1PH）—— 自动发现手机优先，见 onBeacon。
+/// token 出参：信标第 4 段配对 token（docs/REQ-无线安全配对.md）；旧信标可无该段 = 空串。
 bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port,
-                 bool* phone = nullptr) {
+                 bool* phone = nullptr, std::string* token = nullptr) {
     // 简单按空格切分，取第 2、3 段（name、port）。host 由调用方从来源地址填入。
     std::string_view s(buf, n);
     // 必须以 "APX1TV"(TV) / "APX1PC"(PC) / "APX1PH"(手机被控) 开头 —— 三种前缀同为 6 字符。
@@ -73,6 +74,15 @@ bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port,
         return false;
     }
     (void)name0;
+    // 第 4 段 = 配对 token（可选段）：段存在才取，缺失保持空串（旧信标兼容）。
+    if (token) {
+        token->clear();
+        size_t t0 = port1;
+        while (t0 < s.size() && (s[t0] == ' ' || s[t0] == '\t')) ++t0;
+        size_t t1 = t0;
+        while (t1 < s.size() && s[t1] != ' ' && s[t1] != '\t') ++t1;
+        if (t1 > t0) token->assign(s.substr(t0, t1 - t0));
+    }
     return port != 0;
 }
 
@@ -276,7 +286,8 @@ void WirelessSession::disconnect() {
     manualFailed_ = false;
 }
 
-void WirelessSession::onBeacon(const std::string& host, uint16_t port, bool phone) {
+void WirelessSession::onBeacon(const std::string& host, uint16_t port, bool phone,
+                               const std::string& token) {
     std::lock_guard<std::mutex> lk(mu_);
     // 手机信标优先（修复⑫）：TV 端 app 常驻自启、持续广播 APX1TV，此前「先到先连」
     // 会在手机断链重发现时把会话绑到 TV 上 —— TV 连接稳定不掉线，自愈泵永不触发，
@@ -286,6 +297,7 @@ void WirelessSession::onBeacon(const std::string& host, uint16_t port, bool phon
     beaconHost_ = host;
     beaconPort_ = port;
     beaconPhone_ = phone;
+    beaconToken_ = token;   // 握手回带用：控制端 connect 时从信标 token 原样带回
     haveBeacon_ = true;
 }
 
@@ -323,6 +335,7 @@ void WirelessSession::worker() {
                 port = desire_.port;
                 attempt = (mode != Mode::Idle);
                 haveBeacon_ = false;
+                beaconToken_.clear();   // 换目标时清残留：token 只随当次信标有效
                 manualFailed_ = false;
                 connectStartMs_ = 0;
             }
@@ -357,13 +370,19 @@ void WirelessSession::worker() {
                 }
                 std::string bhost;
                 uint16_t bport = 0;
+                std::string btoken;
                 {
                     std::lock_guard<std::mutex> lk(mu_);
-                    if (haveBeacon_) { bhost = beaconHost_; bport = beaconPort_; haveBeacon_ = false; }
+                    // token 与 host/port 一起在锁内取出：待连信标是快照，三样必须同源
+                    if (haveBeacon_) {
+                        bhost = beaconHost_; bport = beaconPort_;
+                        btoken = beaconToken_; haveBeacon_ = false;
+                    }
                 }
                 if (!bhost.empty()) {
                     publish(LinkPhase::Connecting, mode);
-                    if (client_.connect(bhost, bport, "")) {
+                    // 回带信标 token：被控端启用校验时握手必经（docs/REQ-无线安全配对.md）
+                    if (client_.connect(bhost, bport, btoken)) {
                         connectedPeer_ = bhost + ":" + std::to_string(bport);
                         connectStartMs_ = nowMs();
                         publish(LinkPhase::Connected, mode);
@@ -644,15 +663,16 @@ void WirelessSession::beaconLoop() {
 #endif
         uint16_t bport = 0;
         std::string dummy;
+        std::string btoken;
         bool phone = false;
         // 过滤自身信标：本机广播会回环回来，不过滤就会「连自己」（面板假装已连接，
         // 而手机永远连不上）。见 isSelfAddress 注释。
-        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport, &phone)
+        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport, &phone, &btoken)
 #if defined(_WIN32)
             && !isSelfAddress(from.sin_addr.s_addr)
 #endif
         ) {
-            onBeacon(hostIp, bport, phone);
+            onBeacon(hostIp, bport, phone, btoken);
         }
     }
 #if defined(_WIN32)

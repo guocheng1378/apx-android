@@ -1770,7 +1770,12 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
             char hname[256] = {};
             if (gethostname(hname, sizeof(hname) - 1) == 0 && hname[0] != '\0') {
                 hname[sizeof(hname) - 1] = '\0';
-                if (!panel.ctrlSrv.start(9511, "", hname)) {
+                // token：panel.bundle.cfg 是 AppConfig*，但此处的 cfg 可能未含最新
+                // pairingToken（首次启动时由 ensurePairingToken 生成并落盘）。
+                // 统一走 ensurePairingToken：load→无则生成→save，与 desktop_main 同源。
+                const std::string pairingToken = apxpc::config::ensurePairingToken(
+                    apxpc::config::defaultConfigPath());
+                if (!panel.ctrlSrv.start(9511, pairingToken, hname)) {
                     /* 探测说没人、绑定却失败：这才是真冲突（抢跑 / 权限 / 端口保留）。
                        此时再探一次，把「已被占」与「绑定被拒」分开写清楚。 */
                     panel.ctrlShared = apxpc::net::tcpPortRespondsLocal(9511, 200);
@@ -1780,7 +1785,7 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
                     else
                         APX_LOGW("9511 受控端启动失败（{}）：手机将无法发现本机", cerr.c_str());
                 } else {
-                    APX_LOGI("9511 受控端已启动（面板自带，主机名 {}）", hname);
+                    APX_LOGI("9511 受控端已启动（面板自带，主机名 {}，token 校验已启用）", hname);
                 }
             }
         }

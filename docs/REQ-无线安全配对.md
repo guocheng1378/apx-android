@@ -1,9 +1,9 @@
-# REQ 无线安全配对（2026-11-15 方案稿 —— 提案，待拍板）
+# REQ 无线安全配对（2026-11-15 方案稿 —— token 全链路已随 2026-11-15 批落地）
 
-> 状态：**提案**。本文档来自 2026-11-15 无线控制面安全审查（R1–R4，见
+> 状态：**已拍板并部分落地**。本文档来自 2026-11-15 无线控制面安全审查（R1–R4，见
 > `egm_review/wireless_security_review.md`）。其中小改动已随本批直接落地（见 §2），
-> 跨端协议与 UI 改动（§3–§5）需要先评审拍板——本机无编译环境，涉及两端同时升级
-> 的改动不宜盲改。
+> token 分发链路（TOFU 版）也已随 2026-11-15 批落地（见 §3 标注）；§4 加密（R2）与
+> 首连确认 UI 仍为后续批次。
 
 ## 1. 背景与现状
 
@@ -42,11 +42,30 @@ token 链路目前是**断的**，这正是不能「把 token 一填了事」的
 | R1 铺垫 | `pc/host/src/wireless/ctrl9511.cpp` | ① 服务端配了 token 却收到空 token（tokLen=0）时显式拒绝（旧实现跳过校验直接放行，「配了也拦不住」；当前装配处 token 恒空，行为不变）；② `st.peer` 从 `"(peer)"` 占位改为 accept 时取真实对端 IP（sockaddr 现取） |
 | R1 同模式 | `android/.../controlled/TvControlServer.kt` | 空令牌旁路同修（与 `ControlServer.kt` 的 v-fix 同款；`ControlServer.kt` 此前已有，未动，作为修法基准） |
 | R1 同模式核对 | `android/shared/.../media/MediaChannel.kt` | **无需改动**：该文件无条件读令牌 buf，len=0 时空串必不过「不匹配」分支，无旁路；已留注释说明差异 |
+| R1 主体 | `android/.../controlled/ControlledService.kt` | 手机被控端启用真实配对 token：`ControlServer` 构造传 token；信标第 4 段广播 token；`pairingToken()` 生成/存储（SecureRandom 16 字节 hex，SharedPreferences `apx_controlled`） |
+| R1 主体 | `pc/host/include|src/config/app_config.*` | PC 配置加 `pairingToken` 字段（load/save）+ `ensurePairingToken()`（load→无则生成 128-bit hex→save） |
+| R1 主体 | `pc/host/src/desktop_main.cpp`（Win）| 9511 受控端装配改传真实 token（`ctrlSrv.start(9511, token, host)`） |
+| R1 主体 | `pc/host/src/ui/panel_http.cpp`（mac/Linux）| 同上，面板装配点改传真实 token |
+| R1 主体 | `pc/host/src/wireless/wireless_session.cpp` + `.hpp` | `parseBeacon` 加 token 出参（信标第 4 段，旧信标兼容）；`onBeacon` 存 `beaconToken_`；worker 自动连接握手回带信标 token（手动连接无信标来源，保持空 token——限制见 §3.2） |
+| R1 主体 | `android/.../wireless/TvDiscovery.kt` | `TvDevice` 加 `token` 字段并从信标解析（新/更新两分支均写） |
+| R1 主体 | `android/.../ui/compose/ApShellActivity.kt`、`touchpad/TouchpadActivity.kt` | 控制端连接改传 token（`d.token`，空时按 IP 从发现表兜底查） |
+| R1 同模式核对 | `android/tv/.../TvServerService.kt` | **无需改动**：TV 维持无认证（不传 token、信标传空），与 §3.2 取舍一致 |
+| R4 余项确认 | 9512/9513 通道 | **本批不动**：文件（9512）与媒体（9513）token 链路未接（PC `MediaSession::connect` 传空、手机 `MediaChannel` 服务端 token 空），认证归 §5 |
 
 > 空令牌拒绝是**为配对机制启用预留**：装配处仍传空 token（行为零变化），配对机制
 > 落地并写入 token 后该防线即刻生效，无需再改握手代码。
+>
+> —— 上句仅描述前一批；**token 全链路已随 2026-11-15 批打通**（TOFU 版），见 §3
+> 新增标注。
 
 ## 3. 配对机制（R1 主体：首连确认 + token 分发）
+
+> **落地状态（2026-11-15 批）：token 分发链路已随本批打通（TOFU 版）** —— 两端被控
+> 服务启用真实 token、信标第 4 段广播、发现层保留 token、控制端握手回带，全链路贯通。
+> 已知限制（接受并注明）：① token 明文广播，对被动嗅探者无保密性（R2 加密为下一批）；
+> ② 被控端启用 token 后，旧版控制端握手必拒——**跨版本需两端同步升级**（用户自用
+> 设备可接受）；③ 首连确认 UI 未做，token 属「信任首用」（TOFU）：局域网内拿到信标
+> token 的主机即可握手通过，保密性依赖 R2。
 
 ### 3.1 交互设计
 
@@ -63,18 +82,28 @@ token 链路目前是**断的**，这正是不能「把 token 一填了事」的
 
 ### 3.2 跨版本兼容（必须评审）
 
+> **2026-11-15 批实际取舍**：未加宽限期/能力协商位（方案 a/b 均未采用），直接启用
+> token 校验——旧版控制端 × 新被控端握手必拒，**两端需同步升级**（用户自用设备，
+> 接受此限制；发布时须同步发版两端）。
+
 - 旧版对端不带 token：服务端启用 token 后空令牌一律拒绝（本批铺垫已生效）——
   **新被控端 × 旧控制端会连不上**。方案：
   - a) 信标加「已配对」标志位 + 宽限期（发布后 N 天内空令牌放行，仅记日志）；
   - b) 或 0x33 能力协商加 `CAP_PAIRING` 位：两端都报才启用 token 校验
     （推荐，与 0x41 通知回复的渐进启用先例一致）。
-- TV 端（`TvControlServer` 同协议镜像）：TV 没有确认 UI，落地时 TV 维持无认证模式
-  或由手机端代管配对，实施前单独确认。
+- TV 端（`TvControlServer` 同协议镜像）：**本批维持无认证**——`TvServerService`
+  构造 `ControlServer(endpoint)` 不传 token、信标传空（无 UI 无存储），与新被控端
+  token 校验不冲突（TV 信标无 token 段，控制端回带空 token，TV 服务端不校验）。
 
 ### 3.3 明确不做
 
+> **2026-11-15 批修订**：原「不做信标带 token 认证」的结论随用户拍板调整——本批
+> 实际采用**信标第 4 段广播 token + 握手回带**（TOFU 版）。明文广播的限制如实
+> 写入 §3 落地状态：token 只防「没听到信标的被动连接」，对能收到广播的攻击者
+> 无保密性，完整防线依赖 R2 加密。
+
 - **信标带 token 认证**：明文广播（R2）使它对局域网攻击者无意义；最多作为「已配对」
-  标志的载体，不作为凭据。
+  标志的载体，不作为凭据。（本批作为 TOFU 过渡已落地，见上方修订说明）
 - **0x21 反向剪贴板按 caps 门控**：攻击者可协商 caps，门控无认证意义，已从范围内剔除。
 
 ## 4. 会话加密（R2）
@@ -98,6 +127,8 @@ token 解决「谁在连」，不解决「链路上有什么」。输入流、�
 1. **第一批（无 UI）**：`0x34` 配对帧 + token 生成/存储（PC config、手机
    SharedPreferences）+ 发现层保留 token 字段（`TvDevice`、`parseBeacon`）+
    `CAP_PAIRING` 能力位协商，两端同版发布。
+   —— **2026-11-15 批已完成其中 token 生成/存储与发现层保留（TOFU 版，无 0x34、
+   无能力协商）；剩余 0x34 配对帧与 `CAP_PAIRING` 协商为可选后续（现方案不依赖）。**
 2. **第二批（UI）**：首连确认弹窗（PC 面板 + 手机）、配对设备管理（列表/撤销）。
 3. **第三批（加密）**：TLS/PSK 落地，9511/9512/9513 全链路。
 

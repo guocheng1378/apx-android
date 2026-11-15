@@ -734,10 +734,14 @@ int runDesktopMain() {
 #if defined(_WIN32)
     // Win：面板入口（web_panel/runWebPanel）**不**创建 9511，所以由本文件创建。
     apxpc::wireless::Ctrl9511Server ctrlSrv;
-    if (!ctrlSrv.start(9511, "", hostUtf8))
+    // token 需在 start 前取得（下方 cfg 完整加载在此之后）；
+    // ensurePairingToken 自带 load→无则生成→save，与手机端 pairingToken() 同规格。
+    const std::string pairingToken =
+        apxpc::config::ensurePairingToken(apxpc::config::defaultConfigPath());
+    if (!ctrlSrv.start(9511, pairingToken, hostUtf8))
         APX_LOGW("9511 受控端启动失败（端口可能已被 apxhost 占用）");
     else
-        APX_LOGI("9511 受控端已启动（桌面端自带）");
+        APX_LOGI("9511 受控端已启动（桌面端自带，token 校验已启用）");
 #else
     // mac/Linux：9511 受控端**不在本文件创建** —— 面板入口（runWebPanelHttp 内的
     // HttpPanel::ctrlSrv）已经是唯一创建点。v223「mac 打开即崩溃」（issue#47）的根因

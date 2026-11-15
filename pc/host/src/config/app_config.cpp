@@ -2,8 +2,10 @@
 #include "apxpc/net/json.hpp"
 #include "apxpc/log.hpp"
 
+#include <array>
 #include <cstdlib>
 #include <filesystem>
+#include <random>
 
 namespace apxpc::config {
 namespace {
@@ -136,6 +138,7 @@ AppConfig loadConfig(const std::string& path) {
     if (auto* km = j.find("keymap")) {
         for (const auto& [k, v] : km->asObject()) cfg.keymap[k] = v.asString();
     }
+    cfg.pairingToken    = str("pairingToken", "");
     return cfg;
 }
 
@@ -193,6 +196,8 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     for (const auto& [k, v] : cfg.keymap) km[k] = v;
     j["keymap"] = std::move(km);
 
+    j["pairingToken"]    = cfg.pairingToken;
+
     std::string p = expandPath(path);
     std::error_code ec;
     std::filesystem::create_directories(std::filesystem::path(p).parent_path(), ec);
@@ -201,6 +206,31 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     auto s = j.stringify(2);
     std::fwrite(s.data(), 1, s.size(), f);
     std::fclose(f);
+}
+
+// 生成 128-bit 随机配对 token，返回 32 字符 hex（docs/REQ-无线安全配对.md）。
+// 手机端同规格（SecureRandom 16 字节 hex）；32 字符无空格，不破坏信标空格切分。
+static std::string generatePairingToken() {
+    static const char* kHex = "0123456789abcdef";
+    std::random_device rd;
+    std::array<uint8_t, 16> raw{};
+    for (auto& b : raw) b = static_cast<uint8_t>(rd());  // 逐字节填充（16 字节成本可忽略）
+    std::string out;
+    out.reserve(raw.size() * 2);
+    for (uint8_t b : raw) {
+        out.push_back(kHex[b >> 4]);
+        out.push_back(kHex[b & 0x0F]);
+    }
+    return out;
+}
+
+std::string ensurePairingToken(const std::string& path) {
+    AppConfig cfg = loadConfig(path);
+    if (!cfg.pairingToken.empty()) return cfg.pairingToken;
+    cfg.pairingToken = generatePairingToken();
+    saveConfig(path, cfg);
+    APX_LOGI("首次生成 9511 配对 token 并写入配置");
+    return cfg.pairingToken;
 }
 
 }  // namespace apxpc::config
