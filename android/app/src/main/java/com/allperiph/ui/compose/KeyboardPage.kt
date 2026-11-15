@@ -849,9 +849,12 @@ private fun RemoteLayout() {
 
     confirm?.let { (action, label) ->
         ApComponents.DialogCard(onDismiss = { confirm = null }) {
-            Text(text = ctx.getString(R.string.ui_touchpad_dialog_device, label), fontSize = ApType.body)
+            // 遥控页专属文案（2026-11-15 UI 审查）：此前复用操控面 ui_touchpad_dialog_device /
+            // no_only_need，「那台设备」在遥控语境指代含糊；现改 ui_remote_dialog_power_*，
+            // 指明对象是电脑，root 前提与无 root 退回待机的语义保持不变。
+            Text(text = ctx.getString(R.string.ui_remote_dialog_power_title, label), fontSize = ApType.body)
             Text(
-                text = ctx.getString(R.string.ui_touchpad_dialog_no_only_need, label),
+                text = ctx.getString(R.string.ui_remote_dialog_power_desc, label),
                 fontSize = ApType.footnote,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
@@ -1095,8 +1098,10 @@ private fun MediaTile(label: String, modifier: Modifier, onClick: () -> Unit) {
             // 此前没显式给色，落到默认渲染成黑字 —— 深色 surface 上直接没影。对齐键帽
             // fg 的取法走 onSurface（亮=黑字/暗=白字，跟系统日夜自动切换）。
             color = MiuixTheme.colorScheme.onSurface,
-            // 图块宽度按文字自适应（issue#168 2026-11-12 #5「长度按文字宽度自适应」）：
-            // 不再由外层 weight 拉宽 —— 文字单行排，标签长就宽、短就窄。
+            // 文字单行排（maxLines=1）防标签折行。**注释勘误（2026-11-15 UI 审查）**：此处原写
+            // 「宽度按文字自适应、不由外层 weight 拉宽」，那是 3d125c8 当年给旧工具行图块的
+            // 口径；工具行随 027bdd7 并入页签行（TabChip）后，本组件现只剩遥控页 REMOTE_ROWS
+            // 一个调用点，行内 Modifier.weight(1f) 等分宽度 —— 原描述已不成立。
             maxLines = 1,
         )
     }

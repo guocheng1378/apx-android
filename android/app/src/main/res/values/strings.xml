@@ -130,6 +130,10 @@
     <string name="ui_touchpad_toast_device_connect_not">还没连上手机</string>
     <string name="ui_touchpad_dialog_device">要对那台设备执行「%1$s」吗？</string>
     <string name="ui_touchpad_dialog_no_only_need">会直接对那台设备执行「%1$s」（需要它有 root；没有 root 只会退回待机）。</string>
+    <!-- 2026-11-15 UI 审查：遥控页关机/重启确认弹窗此前复用操控面 ui_touchpad_dialog_device / no_only_need，
+         「那台设备」在遥控语境下指代含糊；改遥控页专属文案（语义不变：需被控端 root，无 root 退回待机）。 -->
+    <string name="ui_remote_dialog_power_title">要对电脑执行「%1$s」吗？</string>
+    <string name="ui_remote_dialog_power_desc">会直接对电脑执行「%1$s」。（需要它有 root；没有 root 只会退回待机。）</string>
     <string name="ui_touchpad_toast_send_done">已发送「%1$s」指令</string>
     <string name="ui_touchpad_dialog_selftest_channel_inject">权限自检</string>
     <!-- 审计批4清理（2026-11-12）：原操控面退役键盘 CustomLayout 的占位提示，随死代码删除后零引用；
