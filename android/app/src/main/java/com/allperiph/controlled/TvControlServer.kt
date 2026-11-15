@@ -193,6 +193,12 @@ class TvControlServer(
                 val buf = ByteArray(len)
                 if (!readFully(ins, buf)) { runCatching { sock.close() }; return }
                 if (token.isNotEmpty() && String(buf, Charsets.UTF_8) != token) { Log.w("被控控制面", "令牌不匹配，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return }
+            } else if (token.isNotEmpty()) {
+                // v-fix（link-hardening）：与 :shared ControlServer 同修法 —— 服务端配了令牌，
+                // 对端却发空令牌（len=0）时旧实现整段校验被跳过直接放行，等于「配了令牌也
+                // 拦不住不带令牌的连接」（攻击者只需发 4 字节 0）。空令牌必须显式拒绝；
+                // 当前装配处 token 恒空，行为不变，为配对机制落地后启用预留。
+                Log.w("被控控制面", "对端未携带令牌，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return
             }
             sock.soTimeout = 0; activate(sock)
         } catch (t: Throwable) { Log.w("被控控制面", "握手失败：${t.message}"); runCatching { sock.close() } }

@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <cerrno>
 #include <csignal>
+#include <cstdio>   // ipFromSockaddr 的 snprintf
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -300,9 +301,27 @@ struct Ctrl9511Server::Impl {
         }
     }
 
+    static std::string ipFromSockaddr(const sockaddr_in& sa) {
+        // 手工拼点分十进制：inet_ntop 在 Win 上是 InetNopA 宏、老 MinGW 头不全，
+        // 手工格式化三端行为一致且无平台坑。
+        const uint32_t a = ntohl(sa.sin_addr.s_addr);
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%u.%u.%u.%u",
+                      (a >> 24) & 0xFF, (a >> 16) & 0xFF, (a >> 8) & 0xFF, a & 0xFF);
+        return buf;
+    }
+
     void acceptLoop() {
         while (running.load()) {
-            Sock c = ::accept(listenFd, nullptr, nullptr);
+            // link-hardening：accept 时把对端地址带出来，握手成功后面板显示真实来源 IP
+            //（旧实现传 nullptr，st.peer 恒为 "(peer)" 占位，出问题没法定位是哪台设备）。
+            sockaddr_in peerAddr{};
+#if defined(_WIN32)
+            int alen = sizeof(peerAddr);
+#else
+            socklen_t alen = sizeof(peerAddr);
+#endif
+            Sock c = ::accept(listenFd, reinterpret_cast<sockaddr*>(&peerAddr), &alen);
             if (c == kBadSock) {
                 if (!running.load()) break;
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -333,11 +352,11 @@ struct Ctrl9511Server::Impl {
             // v184：握手移出 accept 线程（见 hsThread 注释）。先 join 上一个握手线程
             // 保证串行，避免并发握手同时改写 readerThread / writerThread 等成员。
             if (hsThread.joinable()) hsThread.join();
-            hsThread = std::thread([this, c] { handshake(c); });
+            hsThread = std::thread([this, c, ip = ipFromSockaddr(peerAddr)] { handshake(c, ip); });
         }
     }
 
-    void handshake(Sock s) {
+    void handshake(Sock s, const std::string& peerIp) {
         if (readerThread.joinable()) readerThread.join();
         if (writerThread.joinable()) writerThread.join();
 
@@ -356,6 +375,12 @@ struct Ctrl9511Server::Impl {
             std::vector<uint8_t> buf(tokLen);
             if (!readFull(s, buf.data(), tokLen)) { ok = false; }
             else if (!token.empty() && std::string(buf.begin(), buf.end()) != token) ok = false;
+        } else if (!token.empty()) {
+            // link-hardening（与 android/shared ControlServer v-fix 同修法）：服务端配了
+            // 令牌，对端却发空令牌（tokLen=0）—— 旧实现整段校验被跳过直接放行，等于
+            // 「配了令牌也拦不住不带令牌的连接」（攻击者只需发 4 字节 0）。空令牌必须
+            // 显式拒绝；当前装配处 token 恒空，行为不变，为配对机制落地后启用预留。
+            ok = false;
         }
         if (!ok) { closeSock(s); resetClientFor(s); return; }
 #if defined(_WIN32)
@@ -368,7 +393,8 @@ struct Ctrl9511Server::Impl {
         {
             std::lock_guard<std::mutex> lk(clientMu);
             st.connected = true;
-            st.peer = "(peer)";
+            // link-hardening：面板状态条显示真实来源 IP（旧值恒为 "(peer)" 占位）
+            st.peer = peerIp.empty() ? std::string("(peer)") : peerIp;
         }
         /* 新会话从「未上报」开始：上一会话的手机模式快照（可用性 + 在用哪条）必须作废，
            否则面板会把上一模式当成当前状态一直显示（issue#52：切了模式却看到旧状态）。 */

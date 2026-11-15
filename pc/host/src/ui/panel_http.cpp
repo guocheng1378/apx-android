@@ -1125,9 +1125,15 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
     if (name == "app.openUrl" || name == "update.open") {
         const Json* u = payload.find("url");
         const std::string url = u ? u->asString() : std::string();
-        const bool allowed =
-            url.rfind("https://github.com/guocheng1378/apx-android/", 0) == 0 ||
-            url.rfind("https://gh-proxy.com/", 0) == 0;
+        // link-hardening：白名单之外再加 shell 字符拒收。下一行 std::system 用单引号
+        // 包 URL 拼命令，引号类字符一旦混进 URL（' ; ` $ ( ) 等）即可越过白名单
+        // 拼接任意命令。白名单限定的 Release 域里正常 URL 不可能含这些字符，
+        // 命中即视为构造过的请求，直接拒绝。
+        const bool shellUnsafe =
+            url.find_first_of("'\"`\\;$&|<>\n\r") != std::string::npos;
+        const bool allowed = !shellUnsafe &&
+            (url.rfind("https://github.com/guocheng1378/apx-android/", 0) == 0 ||
+             url.rfind("https://gh-proxy.com/", 0) == 0);
         if (!allowed) return postResponse(p, id, failResp("只允许打开本项目的 Release 页"));
         const bool did = std::system(("open '" + url + "'").c_str()) == 0;
         Json d = Json::makeObject();
@@ -1223,6 +1229,9 @@ std::string percentDecode(const std::string& s) {
 
 struct Req {
     std::string method, path, query, body;
+    // link-hardening：Origin 头（跨站请求必带）。本机面板页面发起的请求 Origin 必为
+    // 127.0.0.1/localhost + 本端口，恶意网页伪造的请求对不上 → handleConnection 拒绝。
+    std::string origin;
     bool ok = false;
     // —— 浏览器上传（POST /api/upload）用 ——
     // 这条路径的 body 可能是几百 MB：整段读进内存既浪费又会被下面的 512KB 闸门拒掉，
@@ -1283,6 +1292,17 @@ Req readRequest(int fd) {
         const size_t e = v.find_last_not_of(" \t");
         v = (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
         r.fileName = percentDecode(v);
+    }
+
+    // Origin 头（CSRF 防线用；与上面 x-file-name 同款解析法）
+    const size_t og = lowerHead.find("origin:");
+    if (og != std::string::npos) {
+        const size_t lineEnd = head.find("\r\n", og);
+        std::string v = head.substr(og + 7,
+            (lineEnd == std::string::npos ? head.size() : lineEnd) - (og + 7));
+        const size_t b = v.find_first_not_of(" \t");
+        const size_t e = v.find_last_not_of(" \t");
+        r.origin = (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
     }
 
     // —— 上传：body 不在这里读 ——
@@ -1584,6 +1604,21 @@ void handleConnection(HttpPanel* p, int fd) {
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     const Req req = readRequest(fd);
     if (!req.ok) { ::close(fd); return; }
+
+    // CSRF 防线（link-hardening）：API 只接受本机面板页面发起的请求。浏览器在跨站
+    // fetch/XHR 上必带 Origin；用户浏览的恶意网页伪造的请求 Origin 对不上本机端口，
+    // 一律 403 —— 这是「恶意页面 → /api/act → app.openUrl」链路的第一道闸。
+    // 无 Origin（curl / 顶层导航 GET）放行：面板只绑 127.0.0.1，外网摸不到。
+    if (!req.origin.empty()) {
+        const std::string selfIp = "http://127.0.0.1:" + std::to_string(p->port);
+        const std::string selfLocal = "http://localhost:" + std::to_string(p->port);
+        if (req.origin != selfIp && req.origin != selfLocal) {
+            APX_LOGW("面板拒绝跨站请求：Origin={}", req.origin.c_str());
+            respond(fd, 403, "Forbidden", "text/plain; charset=utf-8", "origin not allowed");
+            ::close(fd);
+            return;
+        }
+    }
 
     if (req.method == "GET" && req.path == "/api/state") {
         // 轮询触发节流任务（与 web_panel 的 400ms tick 等价；select tick 另有一份兑底）

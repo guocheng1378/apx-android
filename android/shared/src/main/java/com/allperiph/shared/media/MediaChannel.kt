@@ -190,6 +190,9 @@ class MediaChannel(
                 runCatching { sock.close() }
                 return
             }
+            // 注：buf 这里是无条件读的（len=0 时为空串），配了令牌时空令牌已被上面的
+            // 不匹配分支拒绝 —— 与 9511 控制面（len>0 才进校验块、空令牌会旁路）不同，
+            // 本文件无需补空令牌分支。9511 侧的同修见 TvControlServer.kt / ctrl9511.cpp。
             // 读不再永久阻塞。PC 只在触摸/推流时才发帧，静默超时是常态 →
             // 超时后 continue 继续等；真正半开（PC 消失）也会周期性醒来检查
             // sock.isClosed，不再无限挂死。

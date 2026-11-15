@@ -243,6 +243,17 @@ struct FileReceiver::Impl {
             clearCur(c);
             return;
         }
+        // link-hardening：9512 无鉴权（见 REQ-无线安全配对.md），任何局域网主机都能连入
+        // 声明 size —— 没有上限的话一次恶意声明就是几十 GB 的磁盘灌满。上限取 4 GiB，
+        // 与面板浏览器上传闸门 kMaxUploadBytes（panel_http.cpp）同口径：合法大视频仍能过，
+        // 恶意声明被拦；后续随配对机制再按文件类型细分。
+        if (size > 4ull * 1024 * 1024 * 1024) {
+            APX_LOGW("文件接收：声明大小 {} 字节超过 4 GiB 上限，拒绝",
+                     static_cast<unsigned long long>(size));
+            closeSock(c);
+            clearCur(c);
+            return;
+        }
 
         std::string outDir;
         {

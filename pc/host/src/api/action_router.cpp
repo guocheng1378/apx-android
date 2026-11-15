@@ -331,8 +331,13 @@ void ActionRouter::act(const std::string& name, const net::Json& p, net::Json& o
     if (name == "update.open") {
         const auto* u = p.find("url");
         const std::string url = u ? u->asString() : std::string();
+        // link-hardening：白名单之外再加 shell 字符拒收 —— mac 分支 std::system 用单引号
+        // 包 URL 拼命令，引号类字符混进 URL 即可越过白名单拼接任意命令（与
+        // panel_http.cpp app.openUrl 同修法）。正常 Release 页 URL 不含这些字符。
+        const bool shellUnsafe = url.find_first_of("'\"`\\;$&|<>\n\r") != std::string::npos;
         // 白名单：只允许本项目 Release 页（后端代开外链，WebView2 对 window.open 不一定理）
-        if (url.rfind("https://github.com/guocheng1378/apx-android/releases", 0) != 0) {
+        if (shellUnsafe ||
+            url.rfind("https://github.com/guocheng1378/apx-android/releases", 0) != 0) {
             out = fail("只允许打开本项目的 Release 页");
             return;
         }
