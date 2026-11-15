@@ -1554,23 +1554,6 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
         val bg = MiuixTheme.colorScheme.background
         0.2126f * bg.red + 0.7152f * bg.green + 0.0722f * bg.blue < 0.5f
     }
-    // 首次组合 / 转屏：读共享落点（球左上角比例）；无档落右上角（操控面大标题头在
-    // 左上，右上既有退出胶囊……避开标题行，落**右下**与拇指区一致）
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        if (navBallX < 0f) {
-            val loaded = com.allperiph.ui.BallPos.load(host, dm.widthPixels, dm.heightPixels, navBallPx.toInt())
-            if (loaded != null) {
-                navBallX = loaded.first.toFloat()
-                navBallY = clampBallY(loaded.second.toFloat(), dm.heightPixels)
-            } else {
-                navBallX = dm.widthPixels - navBallPx - with(density) { 20.dp.toPx() }
-                navBallY = clampBallY(dm.heightPixels - navBallPx - with(density) { 32.dp.toPx() }, dm.heightPixels)
-            }
-        }
-    }
-    // 记上一次观测到的内容区尺寸：转屏 / 分屏变化时按它判定「该重读落点了」
-    // （类型是 Compose 的 IntSize——onSizeChanged 回调的入参就是它，别换成 android.util.Size）
-    var lastBounds by remember { mutableStateOf<IntSize?>(null) }
     // issue#170 第三轮 #3「悬浮胶囊拖不过另一半屏」：拖拽夹边与菜单胶囊横钳的
     // 宽高来源换成**窗口实测值**（onSizeChanged 回填）。此前各处读
     // resources.displayMetrics——本页转屏不重建（configChanges），个别 ROM 上
@@ -1578,11 +1561,36 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
     // 夹在旧屏宽（竖屏宽 ≈ 横屏宽一半，表现即「只能拖一半」）。窗口实测值与
     // 布局测量同源、转屏瞬间必然回调（老坑见 rememberApAdaptiveLayout 注释），
     // 以它为准；dm 只作首帧（窗口还没量出来时）的兜底。
+    // issue#170 第五轮 #1 追补（成宇澄清报告对象是悬浮栏球，v104 只修了夹边）：
+    // **落位**两处仍读 Resources 指标——① LaunchedEffect(Unit) 只在进组合时跑一次，
+    // 转屏后进出全屏重建组合，用滞后指标落位（横屏屏高 < 竖屏存档 Y 时球直接
+    // 落出屏外，且再无转屏回调来救）；② onSizeChanged 首测分支直接 return，
+    // 不给这份旧坐标纠偏的机会。修法：落位读 boundsW()/boundsH()（量出来就用
+    // 实测口径）；首测时若位置已落、指标与实测不一致就按实测尺寸重读共享档位，
+    // 再统一钳进实测边界。
     var winW by remember { mutableIntStateOf(0) }
     var winH by remember { mutableIntStateOf(0) }
     /** 窗口实测宽（px）；首帧还没量出来时退回 Resources metrics（进入时刻两者一致） */
     fun boundsW(): Int = winW.takeIf { it > 0 } ?: dm.widthPixels
     fun boundsH(): Int = winH.takeIf { it > 0 } ?: dm.heightPixels
+    // 首次组合 / 转屏：读共享落点（球左上角比例）；无档落右上角（操控面大标题头在
+    // 左上，右上既有退出胶囊……避开标题行，落**右下**与拇指区一致）
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (navBallX < 0f) {
+            val loaded = com.allperiph.ui.BallPos.load(host, boundsW(), boundsH(), navBallPx.toInt())
+            if (loaded != null) {
+                navBallX = loaded.first.toFloat()
+                    .coerceIn(0f, (boundsW() - navBallPx).coerceAtLeast(0f))
+                navBallY = clampBallY(loaded.second.toFloat(), boundsH())
+            } else {
+                navBallX = boundsW() - navBallPx - with(density) { 20.dp.toPx() }
+                navBallY = clampBallY(boundsH() - navBallPx - with(density) { 32.dp.toPx() }, boundsH())
+            }
+        }
+    }
+    // 记上一次观测到的内容区尺寸：转屏 / 分屏变化时按它判定「该重读落点了」
+    // （类型是 Compose 的 IntSize——onSizeChanged 回调的入参就是它，别换成 android.util.Size）
+    var lastBounds by remember { mutableStateOf<IntSize?>(null) }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1598,8 +1606,22 @@ private fun ConsoleNavBall(ui: TouchpadActivity.ConsoleUi, host: TouchpadActivit
                 // 边界口径同步换新：拖拽夹边与胶囊横钳都读这份（见上方 winW/winH 注释）
                 winW = size.width
                 winH = size.height
-                // 首次测量交给下方 LaunchedEffect 落位；此后尺寸一变就按共享比例重读
+                // 首次测量交给下方 LaunchedEffect 落位；此后尺寸一变就按共享比例重读。
+                // 首测兜底（issue#170 第五轮 #1 追补，见上方注释②）：LaunchedEffect 落位
+                // 读的指标可能滞后（落位时窗口还没量出来、退回 dm 的路径），位置已落时
+                // 按实测口径纠偏——指标与实测一致就幂等重钳；不一致就按实测尺寸重读
+                // 共享档位（档位本身带钳制），末尾再统一钳进实测边界兜住无档场景。
                 if (prev == null || navBallX < 0f || (size.width == prev.width && size.height == prev.height)) {
+                    if (prev == null && navBallX >= 0f) {
+                        if (dm.widthPixels != size.width || dm.heightPixels != size.height) {
+                            com.allperiph.ui.BallPos.load(host, size.width, size.height, navBallPx.toInt())?.let {
+                                navBallX = it.first.toFloat()
+                                navBallY = it.second.toFloat()
+                            }
+                        }
+                        navBallX = navBallX.coerceIn(0f, (size.width - navBallPx).coerceAtLeast(0f))
+                        navBallY = clampBallY(navBallY, size.height)
+                    }
                     return@onSizeChanged
                 }
                 com.allperiph.ui.BallPos.load(host, size.width, size.height, navBallPx.toInt())?.let {
