@@ -3,8 +3,10 @@ package com.allperiph
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import com.allperiph.shared.util.Log
+import com.allperiph.shared.util.LogExport
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -23,6 +25,13 @@ import java.util.Locale
  * 落盘走 MediaStore（API 29+ 共享下载目录，无需存储权限；本项目 minSdk=34 恒可用），
  * MediaStore 异常时退回应用私有外部目录兜底 —— 崩溃钩子里绝不能再抛第二异常。
  * 文件每次重写全量内容（标记很少，整文件 < 几 KB），避免追加语义在 MediaStore 上难做。
+ *
+ * **两份文件各管一头（2026-11-15 取证链路补强）**：启动日志是「全量重写式」的——每次
+ * 进程启动 marks 清零重写，下一次成功启动会把上一次的崩溃痕迹整个抹掉；而「装新版后
+ * 崩一次、之后正常」恰是最常见的样本形态，证据必须在覆盖前分家。所以崩溃时额外调
+ * [snapshot] 另存一份带时间戳的崩溃快照（`下载/AllPeriph/apx-logs-crash@<设备名>-<时间>.txt`，
+ * 与运行日志导出同一套 [LogExport] 命名口径），正常启动永远不写快照，多次崩溃各留一份
+ * 不互相覆盖。
  */
 object CrashBox {
 
@@ -36,6 +45,9 @@ object CrashBox {
 
     private var resolver: android.content.ContentResolver? = null
     private var mediaUri: Uri? = null
+
+    /** 崩溃快照落盘用：[LogExport.saveToDownloads] 需要完整 Context，resolver 不够（取 applicationContext，进程内恒可用） */
+    private var appCtx: Context? = null
 
     /** MediaStore 不可用（极个别 ROM 限制）时的私有目录兜底，用户需从开发者选项导出 */
     private var fallback: File? = null
@@ -52,6 +64,7 @@ object CrashBox {
         if (previousHandler != null) return
         try {
             resolver = context.contentResolver
+            appCtx = context.applicationContext
             fallback = context.getExternalFilesDir(null)
             previousHandler = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { t, e ->
@@ -63,6 +76,10 @@ object CrashBox {
                         marks.add(sw.toString())
                     }
                     flush()
+                    // 崩溃现场另存快照（见类文档「两份文件各管一头」）：必须在 flush 之后、
+                    // 异常交还系统之前做完，失败静默 —— 快照丢了大不了还剩启动日志兜底，
+                    // 绝不能为它再抛第二异常。
+                    snapshot()
                 } catch (_: Throwable) {
                     // 黑匣子自己再坏也不能影响系统原有的崩溃上报路径
                 }
@@ -109,5 +126,30 @@ object CrashBox {
         } catch (t: Throwable) {
             Log.w(TAG, "黑匣子私有目录落盘失败：${t.message}")
         }
+    }
+
+    /**
+     * 崩溃现场快照（只在崩溃钩子里调用）：写
+     * `下载/AllPeriph/apx-logs-crash@<设备名>-<时间>.txt`，命名走 [LogExport.fileName]
+     * 与运行日志导出**同一套口径**，用户把几份文件摆在一起也分得清谁是谁。
+     *
+     * 文件头带版本与机型 —— 远端收文件的人不用再追问「哪个版本装的」；正文就是当时
+     * 的全量 marks（含崩溃行与堆栈，[flush] 前刚写好）。LogExport 的 MediaStore 路径
+     * 同名自动加 ` (1)` 不覆盖，多次崩溃各留一份；写不进去时 LogExport 抛异常，
+     * 这里 [runCatching] 兜住记日志即可 —— 启动日志那份兜底还在。
+     */
+    private fun snapshot() {
+        val ctx = appCtx ?: return
+        runCatching {
+            val head = buildString {
+                appendLine("AllPeriph 启动崩溃快照")
+                appendLine("App 版本：${BuildConfig.VERSION_NAME}")
+                appendLine("设备：${Build.MANUFACTURER} ${Build.MODEL}")
+                appendLine("时间：${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
+                appendLine()
+            }
+            val body = synchronized(marks) { head + marks.joinToString("\n") + "\n" }
+            LogExport.saveToDownloads(ctx, LogExport.fileName("crash", ctx), body)
+        }.onFailure { Log.w(TAG, "崩溃快照落盘失败：${it.message}") }
     }
 }
