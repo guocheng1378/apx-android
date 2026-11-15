@@ -561,9 +561,30 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         }
 
         // —— 按钮组的移动/点选分发（issue#169 第 20 条）：组内槽位拖动 = 整组同增量 ——
-        // 组移动不做单键吸附（组相对位置不能被吸附改写）；点选只在组模式下翻转选中。
+        // 组移动吸附（REQ 手柄编辑器 三期 7）：以**组包围盒**贴轴 —— 命中判定用组内各槽位
+        // 移动后中心与组外槽位中心比对，命中即亮轴线（不改写位移，与 issue#169 #18① 追评
+        // 后的单键口径一致 —— 方案原稿「整组平移同量强制吸附」已按该追评口径统一为
+        // 「只提示」，避免重演「对齐轴强制吸附导致无法移动」）；组内相对位置天然不变。
         fun groupAwareMove(slot: String, dx: Float, dy: Float) {
             if (padGroupMode && slot in padGroupSel) {
+                var gx: Float? = null
+                var gy: Float? = null
+                for (g in padGroupSel) {
+                    val gbase = centers[g] ?: continue
+                    val gcur = padOffsets[g] ?: (0f to 0f)
+                    // 组内成员移动后的中心（基准 + 实时偏移 + 本次增量），逐成员与组外比对
+                    val nx = gbase.first + gcur.first + dx
+                    val ny = gbase.second + gcur.second + dy
+                    for ((s, oc) in centers) {
+                        if (s in padGroupSel) continue   // 组内成员互为参照没有意义（整组同动）
+                        val so = padOffsets[s] ?: (0f to 0f)
+                        val tx = oc.first + so.first
+                        val ty = oc.second + so.second
+                        if (gx == null && abs(nx - tx) <= snapRadius) gx = tx
+                        if (gy == null && abs(ny - ty) <= snapRadius) gy = ty
+                    }
+                }
+                padGuides = gx to gy
                 padGroupSel.forEach { padMoveBy(it, dx, dy) }
             } else {
                 snapMove(slot, dx, dy)
@@ -987,9 +1008,32 @@ internal fun GamepadPanel(onExit: () -> Unit) {
         // issue#170 #7（二轮）：组模式选中 ≥2 颗时点选中的成员，弹一张组合卡
         // （标题「组合 · N 颗」）——尺寸同步落全部成员、键位行隐藏（各成员不同，
         // 显示只读提示防误改）、「恢复位置」逐成员 reset。
+        // REQ 手柄编辑器 三期 6（配置卡跟手）：卡不再恒居中，改弹在目标按钮**就近象限**
+        // 的角（按钮实时中心到面板四角取最近 = 所在象限的角），内缩 16dp×scale 定位 ——
+        // 点左边按钮卡弹左边、不遮住点的那颗；卡顶把手拖拽偏移（cardDrag）照旧可再调。
+        // 仍画在面板内不换 Dialog（Service overlay 宿主 BadToken 规避不变）。
+        val cfgSlotForAlign = padConfiguring
+        val cfgAlign = if (cfgSlotForAlign == null) Alignment.Center else run {
+            val base = centers[cfgSlotForAlign]
+            if (base == null) return@run Alignment.Center   // 摇杆等无锚槽位兜底回正中
+            val off = padOffsets[cfgSlotForAlign] ?: (0f to 0f)
+            // 目标按钮实时中心（基准 + 偏移）：拖过位置后卡跟到新位置所在的象限
+            val cx = base.first + off.first
+            val cy = base.second + off.second
+            val left = cx < W.value / 2f
+            val top = cy < H.value / 2f
+            when {
+                left && top -> Alignment.TopStart
+                left -> Alignment.BottomStart
+                top -> Alignment.TopEnd
+                else -> Alignment.BottomEnd
+            }
+        }
         AnimatedVisibility(
             visible = padConfiguring != null,
-            modifier = Modifier.align(Alignment.Center),
+            modifier = Modifier
+                .padding(16.dp * padScale)   // 三期 6：角内缩 16dp（对齐到角后卡离边缘一线呼吸位）
+                .align(cfgAlign),
         ) {
             val slot = padConfiguring ?: return@AnimatedVisibility
             // 读一次 padConfigVersion 订阅重组：点选落盘后 curBit/curSize 才会刷新
