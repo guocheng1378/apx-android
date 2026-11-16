@@ -40,6 +40,14 @@ object CrashBox {
     /** 落到「下载」里的文件名，用户一眼认得；带日期便于多次取证 */
     private const val DISPLAY = "AllPeriph启动日志.txt"
 
+    /**
+     * 崩溃快照数量护栏（2026-11-16 自主唤醒审查）：快照每次崩溃新增一份、MediaStore 同名
+     * 只加后缀不覆盖，崩溃循环（如「启动即崩反复点开」）会在下载目录持续堆积；到这个
+     * 上限就不再新增 —— 最近的 20 份足够排查，避免无限膨胀。只停新增、不删旧文件
+     * （删除外部数据须用户确认，这里不碰）。
+     */
+    private const val SNAPSHOT_CAP = 20
+
     /** 启动链路标记：最后一条 = 进程走到的最远处 */
     private val marks = ArrayList<String>()
 
@@ -140,6 +148,12 @@ object CrashBox {
      */
     private fun snapshot() {
         val ctx = appCtx ?: return
+        // 数量护栏：查询失败不拦截落盘（宁可多存一份也别漏证据），只有确认超上限才跳过
+        val overCap = runCatching { snapshotCount() >= SNAPSHOT_CAP }.getOrDefault(false)
+        if (overCap) {
+            Log.w(TAG, "崩溃快照已达上限 $SNAPSHOT_CAP 份，本次不再新增")
+            return
+        }
         runCatching {
             val head = buildString {
                 appendLine("AllPeriph 启动崩溃快照")
@@ -151,5 +165,21 @@ object CrashBox {
             val body = synchronized(marks) { head + marks.joinToString("\n") + "\n" }
             LogExport.saveToDownloads(ctx, LogExport.fileName("crash", ctx), body)
         }.onFailure { Log.w(TAG, "崩溃快照落盘失败：${it.message}") }
+    }
+
+    /**
+     * 现存崩溃快照数：按文件名前缀在 MediaStore 下载集合里数（LIKE 匹配 apx-logs-crash@%，
+     * 不挑子目录——快照都在「下载/AllPeriph」，但按名匹配对将来挪目录也稳）。
+     * 查询异常抛给调用方处理，这里不吞。
+     */
+    private fun snapshotCount(): Int {
+        val r = resolver ?: return 0
+        return r.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+            arrayOf("apx-logs-crash@%"),
+            null,
+        )?.use { it.count } ?: 0
     }
 }
