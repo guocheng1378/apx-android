@@ -214,7 +214,7 @@ object UpdateChecker {
 
     /** 旧入口保持不变（GitHub 源）：包成 NewVersion 走统一弹窗。 */
     fun showUpdateDialog(context: Context, tag: String, url: String) {
-        showUpdateDialog(context, NewVersion(tag = tag, url = url))
+        showUpdateDialog(context, Result.NewVersion(tag = tag, url = url))
     }
 
     /**
@@ -226,7 +226,7 @@ object UpdateChecker {
      *  - force=true：服务端标记的强制更新，弹窗不可取消。
      * 不做应用内更新（免签名/权限/断点续传一套新问题）。
      */
-    fun showUpdateDialog(context: Context, r: NewVersion) {
+    fun showUpdateDialog(context: Context, r: Result.NewVersion) {
         val message = buildString {
             append(context.getString(R.string.about_update_hint, currentTag(), r.tag))
             if (r.size > 0L) {
