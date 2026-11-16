@@ -56,6 +56,13 @@
 
 ---
 
+## 📥 下载
+
+- **国内高速下载站（永久入口）**：<https://guoapp.dpdns.org> —— 各平台安装包一页直达，含光鸭网盘国内镜像
+- **GitHub Releases**：<https://github.com/guocheng1378/apx-android/releases>
+
+---
+
 ## ⚡ 5 分钟上手
 
 ### 方式一：无线（推荐，免 root）
