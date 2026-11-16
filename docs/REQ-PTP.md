@@ -4,6 +4,11 @@
 > 手势全部交由 Windows 系统合成（双指滚/捏合/三指任务视图/四指桌面/掌压抑制/惯性物理原生获得），
 > 并在 Windows 设置中出现「精确式触控板」标志与原生手势设置页。
 
+> **状态（2026-11-16 补注）**：本稿为 2026-09 方案，此后 PTP 描述符已移除（USB HID 接口
+> Code 10 蓝屏规避——PTP/Digitizer TLC 的 Feature report 无用户态应答；
+> `GadgetManager.registerPtpFeatureReports()` 现仅记日志跳过 Feature 登记）。
+> 现状为**历史方案稿**，阅读时勿当待实施项；实施进度以代码与 CHANGELOG 为准。
+
 ## 一、架构变更
 
 - 手机端只上报**原始多指触摸数据**（每指 id/x/y/tip/w/h），不再本地合成手势

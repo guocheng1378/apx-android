@@ -73,7 +73,7 @@
 
 | 线 | 剩什么 | 难度 | 状态 |
 |----|--------|------|------|
-| 线 4 | 手机端删除 `PAGE_KEYBOARD` 和 8 套键盘布局 | 中 | 待做（85K 文件，需手动操作） |
+| 线 4 | 手机端删除 `PAGE_KEYBOARD` 和 8 套键盘布局 | 中 | **已取消**（2026-11-16 勘误）：8 套键盘布局是现役设计，`PAGE_KEYBOARD` 仍由触控板页使用，不再删除 |
 | PC 端 | `ctrl_channel.cpp` + `panel_win32.cpp` 加远程输入 | 高 | **已完成**：收发在 `pc/host/src/wireless/ctrl9511.cpp`（0x25 请求 / 0x26 回传 / 0x27 完成），输入窗口 `pc/host/src/ui/remote_input_win32.cpp`，面板入口 `panel_win32.cpp` / `panel_http.cpp` / `web_panel.cpp` 三端对等（PC↔手机、PC↔TV 双向可用） |
 
 ---

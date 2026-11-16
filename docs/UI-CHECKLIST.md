@@ -1,7 +1,13 @@
-# UI 自检清单（XML Views 版）
+# UI 自检清单（XML / View 残层版）
 
-本仓 UI 是**传统 XML 布局 + 手写 drawable**（不是 Compose）。改 `res/layout*/`、`res/drawable/`、
-`res/values*/` 或任何会动界面的 Kotlin 之前，先过一遍下面这份清单。
+> **2026-11-16 勘误**：本清单开头原写「本仓 UI 是传统 XML（不是 Compose）」已过时——
+> 2026-11-01 起界面层迁移到 Jetpack Compose + Miuix（见 ROADMAP §2.6），全部 Activity 主界面
+> 已由 `ComposeView` 承载，Compose 界面走 `ui/compose/`（组件经 `ApComponents` 取）。
+
+本清单现在只约束仍在用的 XML / View 残层：**悬浮球球体（`view_floating_ball`）、桌面小组件
+（RemoteViews 技术限死）与 View 弹窗层**（`ApDialog` 门面 + `HotkeyBoard` /
+`CustomKeyboardDialog` 等 8 调用方，按 2026-11-07 浮层收敛书面口径保留）。改这些、
+`res/layout*/`、`res/drawable/`、`res/values*/` 或任何会动界面的 Kotlin 之前，先过一遍下面这份清单。
 
 它不描述"什么是好看"，只列**编译器查不出来、真机上才会暴露**的约定 —— 这类问题在本仓
 已经反复出现过（issue#43 顶栏竖排、issue#44 深色看不清、悬浮球面板黑字压深底）。

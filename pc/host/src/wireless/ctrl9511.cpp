@@ -379,7 +379,8 @@ struct Ctrl9511Server::Impl {
             // link-hardening（与 android/shared ControlServer v-fix 同修法）：服务端配了
             // 令牌，对端却发空令牌（tokLen=0）—— 旧实现整段校验被跳过直接放行，等于
             // 「配了令牌也拦不住不带令牌的连接」（攻击者只需发 4 字节 0）。空令牌必须
-            // 显式拒绝；当前装配处 token 恒空，行为不变，为配对机制落地后启用预留。
+            // 显式拒绝；v223.29.109 起装配处启用持久化配对令牌（TOFU），本分支即空令牌
+            // 旁路的强制拒绝路径。
             ok = false;
         }
         if (!ok) { closeSock(s); resetClientFor(s); return; }
