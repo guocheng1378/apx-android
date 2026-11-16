@@ -1,7 +1,7 @@
 # 四项外部集成方案评估
 
 > 范围：Sunshine（含内网穿透）、scrcpy、LocalSend、bada。
-> 结论先行：**LocalSend 只差 PC 端**，scrcpy 与 Sunshine 适合「托管 + 引导」而不是重写协议，bada 只值得做一次可行性验证。
+> 结论先行：**LocalSend 已全量落地（Android + PC 端收发均完成，见 §3）**，scrcpy 与 Sunshine 适合「托管 + 引导」而不是重写协议，bada 只值得做一次可行性验证。
 > 本文只做评估，不含实施；工作量按「熟悉本仓库的一个人」估算，单位为工作日。
 
 ---
@@ -12,10 +12,10 @@
 |---|---|---|
 | Sunshine / Moonlight | 全仓 0 处引用 | 未开始 |
 | scrcpy | 仅 `pc/display/transport/tcp_transport_win.cpp` 两处注释（对照其「多 socket」设计取舍与发送缓冲策略），无任何代码依赖 | 未接入，只是借鉴过思路 |
-| LocalSend | **PC 接收端 + 面板入口已实现**（`pc/host/src/localsend/`，见下）\n  · Android 端 5 个文件：`LocalSendProtocol` / `LocalSendHttpServer` / `LocalSendClient` / `LocalSendService` / `SendActivity`，协议按官方 v2.2 实现（多播 224.0.0.167:53317、`/info` `/register` `/prepare-upload` `/upload` `/cancel`），设置页有开关（issue#45） | **Android 端已完成，PC 端（`pc/host/src`）没有实现** |
+| LocalSend | **两端收发均已完成**：Android 端 5 个文件（`LocalSendProtocol` / `LocalSendHttpServer` / `LocalSendClient` / `LocalSendService` / `SendActivity`，协议按官方 v2.2 实现：多播 224.0.0.167:53317、`/info` `/register` `/prepare-upload` `/upload` `/cancel`，设置页有开关，issue#45）；PC 端收发 + 面板入口 + `apxhost localsend` / `localsend-send` 子命令（`pc/host/src/localsend/`，明细见 §3） | **已完成（Android + PC 收发、双向互通）** |
 | bada | 全仓 0 处引用 | 未开始 |
 
-也就是说，「四项都做」里目前真正有代码的只有 LocalSend 的一半：手机 ↔ 官方 LocalSend 桌面版能通，手机 ↔ 本工程 PC 端还不通。
+也就是说，四项里唯一动真格的 LocalSend 已经全链路打通：手机 ↔ 本工程 PC 端互通，也与官方 LocalSend 桌面版互通。
 
 ---
 
@@ -101,7 +101,7 @@
   应答解析）+ 真端口跑一遍假对端（只实现五个端点），验证发出去的字段、query、
   Content-Length 与内容摘要，以及取消真能中断且发出 cancel、目标不可达/文件不存在如实报错。
 
-**三条路**
+**三条路**（历史评估，档 1 **已落地**——上文「本轮接线」即其实现）
 
 1. **PC 端实现接收端（推荐）**：UDP 多播收发 + `HttpServer`（同样五个端点）+ 落盘与进度 UI。协议已经由 Android 端验证过，照同一套端点写即可。
    - 工作量 3–5 天（网络 + Win 防火墙 + 端口 53317 占用处理 + 中文文件名/大文件）。
@@ -109,7 +109,7 @@
 2. **内嵌 / 调用官方桌面版**：打包省事，但端口 53317 会冲突、两套进程割裂，且分发体积变大。不推荐。
 3. **维持现状 + 文档说明**：0 工作量，但「本工程 PC 端」这条链路永远不通。
 
-**结论**：做档 1。这是四项里**投入产出比最高**的一项，因为协议侧的工作已经付过了。
+**结论**：做档 1。这是四项里**投入产出比最高**的一项，因为协议侧的工作已经付过了。（已按档 1 落地，见本节开头。）
 
 ---
 

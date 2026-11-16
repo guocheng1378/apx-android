@@ -27,6 +27,8 @@
    - **自动创建 GitHub Release**，正文 = CHANGELOG 对应版本段（改了什么）
      + `.github/release-body-assets.md`（各资产怎么用）+ 自动生成的 Full Changelog，
      `make_latest: true`
+   - **macOS 资产**由 `macos.yml` 的 tag 构建独立上传到同一 Release（两边对同一 Release
+     幂等协作：谁先完成谁建 Release，后到者 `--clobber` 追加）
 5. **各端更新检查自动生效**（见第三节）。
 
 > 检查：Actions → Build → run 顶部 `push tag v*` 事件 → 等 `release` job 绿 → Releases 页确认四件套。
@@ -41,6 +43,7 @@
 | Windows 便携版 | `AllPeriph-<tag>-portable.zip` | 绿色免安装 |
 | 手机 APK | `AllPeriph-<tag>-app.apk` | 触控板/键盘/… |
 | 电视 APK | `AllPeriph-<tag>-tv.apk` | 被控端 |
+| macOS (arm64) | `AllPeriph-<tag>-macos-arm64.zip` | 测试版（macos.yml 独立上传） |
 
 ---
 

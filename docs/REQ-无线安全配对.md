@@ -8,7 +8,7 @@
 ## 1. 背景与现状
 
 三端共用 9511 控制面（PC `ctrl9511.cpp` / 手机 `TvControlServer.kt` + `ControlServer.kt`）、
-9512 文件通道（`FileReceiver` / `FileSender`）、9513 媒体通道（`MediaChannel`）。审查结论：
+9512 文件通道（`FileReceiver` / `FileSender`）、9502 媒体通道（`MediaChannel`）。审查结论：
 
 - **R1**：控制面默认零认证。两端装配处 token 恒传空串
   （PC `desktop_main.cpp` / `panel_http.cpp` `ctrlSrv.start(9511, "", …)`；手机
@@ -50,7 +50,7 @@ token 链路目前是**断的**，这正是不能「把 token 一填了事」的
 | R1 主体 | `android/.../wireless/TvDiscovery.kt` | `TvDevice` 加 `token` 字段并从信标解析（新/更新两分支均写） |
 | R1 主体 | `android/.../ui/compose/ApShellActivity.kt`、`touchpad/TouchpadActivity.kt` | 控制端连接改传 token（`d.token`，空时按 IP 从发现表兜底查） |
 | R1 同模式核对 | `android/tv/.../TvServerService.kt` | **无需改动**：TV 维持无认证（不传 token、信标传空），与 §3.2 取舍一致 |
-| R4 余项确认 | 9512/9513 通道 | **本批不动**：文件（9512）与媒体（9513）token 链路未接（PC `MediaSession::connect` 传空、手机 `MediaChannel` 服务端 token 空），认证归 §5 |
+| R4 余项确认 | 9512/9502 通道 | **本批不动**：文件（9512）与媒体（9502）token 链路未接（PC `MediaSession::connect` 传空、手机 `MediaChannel` 服务端 token 空），认证归 §5 |
 
 > 空令牌拒绝是**为配对机制启用预留**：装配处仍传空 token（行为零变化），配对机制
 > 落地并写入 token 后该防线即刻生效，无需再改握手代码。
@@ -111,7 +111,7 @@ token 链路目前是**断的**，这正是不能「把 token 一填了事」的
 token 解决「谁在连」，不解决「链路上有什么」。输入流、剪贴板、通知正文都值得加密：
 
 - 首选 **TLS（两端系统栈：PC = 平台 SChannel/OpenSSL，Android = SSLSocket）**，
-  配对确认后交换的 token 兼作 PSK，避免证书管理；9511/9512/9513 三通道同一套封装。
+  配对确认后交换的 token 兼作 PSK，避免证书管理；9511/9512/9502 三通道同一套封装。
 - 若引 TLS 体量超预算，退路为帧级 AEAD（XChaCha20-Poly1305，配对时经
   ECDH 协商会话密钥）——实现成本显著更高，仅在 TLS 不可行时启用。
 - 明确不依赖「信标 token」做密钥分发（明文广播，见 §3.3）。
@@ -130,7 +130,7 @@ token 解决「谁在连」，不解决「链路上有什么」。输入流、�
    —— **2026-11-15 批已完成其中 token 生成/存储与发现层保留（TOFU 版，无 0x34、
    无能力协商）；剩余 0x34 配对帧与 `CAP_PAIRING` 协商为可选后续（现方案不依赖）。**
 2. **第二批（UI）**：首连确认弹窗（PC 面板 + 手机）、配对设备管理（列表/撤销）。
-3. **第三批（加密）**：TLS/PSK 落地，9511/9512/9513 全链路。
+3. **第三批（加密）**：TLS/PSK 落地，9511/9512/9502 全链路。
 
 ## 7. 关联
 
