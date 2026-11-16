@@ -1762,7 +1762,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 // 此前这里只 Toast 一行「发现新版：vX」就结束 —— 用户看得见提示、
                                 // 却没有任何可点的下一步，正属于「只有提示不执行」。
                                 if (r is UpdateChecker.Result.NewVersion) {
-                                    UpdateChecker.showUpdateDialog(ctx, r.tag, r.url)
+                                    UpdateChecker.showUpdateDialog(ctx, r)
                                     return@check
                                 }
                                 if (r is UpdateChecker.Result.Failed) {

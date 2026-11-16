@@ -33,6 +33,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object UpdateChecker {
     private const val API = "https://api.github.com/repos/guocheng1378/apx-android/releases/latest"
+    /**
+     * 自建分发站更新 API（v223.30.0 起）：检查更新先查这里（国内可达、带国内服务器
+     * 直链），站点不可达再回落 GitHub Releases（对老网络环境零感知）。
+     * 响应见盒上 server.py /api/update：
+     * {platform,latest,current,update,url,mirror,size,sha256,notes,force,ts}。
+     */
+    private const val SITE_API = "https://8090-agqxwmnnzcndiz2wynoexrkqjm.instabox.tech"
     private const val UA = "AllPeriph-UpdateCheck"
     private const val AUTO_INTERVAL_MS = 6L * 60 * 60 * 1000
 
@@ -46,8 +53,21 @@ object UpdateChecker {
     sealed class Result {
         /** 本地不比远端旧 */
         data class UpToDate(val tag: String) : Result()
-        /** 远端更新（[url] 是 Release 页，下载在这里，不在 App 内装包） */
-        data class NewVersion(val tag: String, val url: String) : Result()
+        /**
+         * 远端更新（[url] 是下载直链或 Release 页，下载在这里，不在 App 内装包）。
+         * v223.30.0 起支持自建分发站：[source]="site" 时 url 为站点国内直链、
+         * mirror 为备用分享页；默认 "github" 保持旧行为。notes/size/force/mirror
+         * 来自 /api/release，默认值保证 SettingsPage 等旧构造点零改动。
+         */
+        data class NewVersion(
+            val tag: String,
+            val url: String,
+            val notes: String = "",
+            val size: Long = 0L,
+            val force: Boolean = false,
+            val mirror: String = "",
+            val source: String = "github",
+        ) : Result()
         /** 网络/接口/解析失败，[why] 只进日志，不直接给用户看 */
         data class Failed(val why: String) : Result()
     }
@@ -77,8 +97,15 @@ object UpdateChecker {
         check(context, onResult)
     }
 
-    /** 直连优先；失败按序回退镜像链，全失败才回 Failed（单镜像挂掉不再拖死整条检查）。 */
+    /**
+     * 更新源优先级（v223.30.0）：自建分发站 → GitHub 直连 → 镜像链。
+     * 站点挂了/超时只回 Failed，不影响后面的 GitHub 回落（单镜像挂掉
+     * 不再拖死整条检查的老约束继续成立）。
+     */
     private fun fetchLatest(): Result {
+        val fromSite = fetchFromSite()
+        if (fromSite !is Result.Failed) return fromSite
+        com.allperiph.shared.util.Log.w("UpdateChecker", "site failed (${fromSite.why}), fallback GitHub")
         val direct = fetchTag(API)
         if (direct !is Result.Failed) return direct
         com.allperiph.shared.util.Log.w("UpdateChecker", "direct failed (${direct.why}), retry mirrors")
@@ -90,6 +117,51 @@ object UpdateChecker {
             last = r
         }
         return last
+    }
+
+    /**
+     * 查自建分发站 /api/update：服务端已按版本比好 update/latest/url/mirror，
+     * App 只做展示。update=false → UpToDate；update=true 但 latest/url 为空
+     * 视为接口异常 → Failed（交给 GitHub 兜底，不给用户弹残缺数据）。
+     */
+    private fun fetchFromSite(): Result = try {
+        val ver = java.net.URLEncoder.encode(currentTag(), "UTF-8")
+        val conn = URL("$SITE_API/api/update?platform=android&ver=$ver").openConnection() as HttpURLConnection
+        conn.connectTimeout = 5000
+        conn.readTimeout = 8000
+        conn.setRequestProperty("User-Agent", UA)
+        try {
+            when (conn.responseCode) {
+                200 -> {
+                    val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                    if (!json.optBoolean("update", false)) {
+                        Result.UpToDate(currentTag())
+                    } else {
+                        val latest = json.optString("latest")
+                        val dl = json.optString("url")
+                        when {
+                            latest.isEmpty() -> Result.Failed("site update=true but empty latest")
+                            dl.isEmpty() -> Result.Failed("site update=true but empty url")
+                            else -> Result.NewVersion(
+                                tag = latest,
+                                url = dl,
+                                notes = json.optString("notes"),
+                                size = json.optLong("size", 0L),
+                                force = json.optBoolean("force", false),
+                                mirror = json.optString("mirror"),
+                                source = "site",
+                            )
+                        }
+                    }
+                }
+                else -> Result.Failed("site http ${conn.responseCode}")
+            }
+        } finally {
+            conn.disconnect()
+        }
+    } catch (e: Exception) {
+        com.allperiph.shared.util.Log.w("UpdateChecker", "site check failed: ${e}")
+        Result.Failed("site ${e.javaClass.simpleName}")
     }
 
     private fun fetchTag(api: String): Result = try {
@@ -140,25 +212,58 @@ object UpdateChecker {
         .filter { it.isNotEmpty() }
         .map { it.toIntOrNull() ?: 0 }
 
-    /**
-     * 发现新版本的弹窗，两个下载出口：
-     *  - 「国内高速下载」：gh-proxy 镜像直链 APK（github.com 打不开的网络用它）；
-     *  - 「查看更新」：原 Release 页面（镜像直链不可用时的兜底，也方便核对资产）。
-     * 不做应用内更新（免签名/权限/断点续付一套新问题）。
-     */
+    /** 旧入口保持不变（GitHub 源）：包成 NewVersion 走统一弹窗。 */
     fun showUpdateDialog(context: Context, tag: String, url: String) {
-        val apkMirror = "$RELEASE_DL/$tag/AllPeriph-$tag-app.apk"
+        showUpdateDialog(context, NewVersion(tag = tag, url = url))
+    }
+
+    /**
+     * 发现新版本的弹窗（v223.30.0 起按更新源分两条路）：
+     *  - GitHub 源：positive「国内高速下载」= gh-proxy 镜像直链 APK；
+     *    neutral「查看更新」= 原 Release 页（兜底，也方便核对资产）。
+     *  - 分发站源：positive = 自建站点国内服务器直链 APK（不跑代理、不受 GH 限速）；
+     *    neutral = mirror 备用分享页（光鸭），mirror 空则退 GitHub Release 页。
+     *  - force=true：服务端标记的强制更新，弹窗不可取消。
+     * 不做应用内更新（免签名/权限/断点续传一套新问题）。
+     */
+    fun showUpdateDialog(context: Context, r: NewVersion) {
+        val message = buildString {
+            append(context.getString(R.string.about_update_hint, currentTag(), r.tag))
+            if (r.size > 0L) {
+                append("\n包大小：约 ${(r.size + 1048575L) / 1048576L} MB")
+            }
+            if (r.notes.isNotBlank()) {
+                append("\n${r.notes.trim()}")
+            }
+        }
         ApDialog.builder(context)
-            .setTitle(context.getString(R.string.about_update_new, tag))
-            .setMessage(context.getString(R.string.about_update_hint, currentTag(), tag))
+            .setTitle(context.getString(R.string.about_update_new, r.tag))
+            .setMessage(message)
             .setPositiveButton(context.getString(R.string.about_update_dl_cn)) { _, _ ->
-                // 镜像直链优先，打不开再退回原 Release 页
-                if (!openUrl(context, apkMirror)) openUrl(context, url)
+                if (r.source == "site") {
+                    // 分发站源：站点直链优先，打不开再开备用分享页
+                    if (!openUrl(context, r.url)) {
+                        val fallback = r.mirror.ifEmpty {
+                            "https://github.com/guocheng1378/apx-android/releases/latest"
+                        }
+                        openUrl(context, fallback)
+                    }
+                } else {
+                    // GitHub 源：镜像直链优先，打不开再退回原 Release 页
+                    val apkMirror = "$RELEASE_DL/${r.tag}/AllPeriph-${r.tag}-app.apk"
+                    if (!openUrl(context, apkMirror)) openUrl(context, r.url)
+                }
             }
             .setNeutralButton(context.getString(R.string.about_update_open)) { _, _ ->
-                openUrl(context, url)
+                // 分发站源 = 备用分享页（mirror 空则退 Release 页）；GitHub 源 = Release 页
+                val fallback = if (r.source == "site") r.mirror else ""
+                val page = fallback.ifEmpty {
+                    "https://github.com/guocheng1378/apx-android/releases/latest"
+                }
+                openUrl(context, page)
             }
             .setNegativeButton(context.getString(R.string.about_later), null)
+            .apply { if (r.force) setCancelable(false) }
             .show()
     }
 

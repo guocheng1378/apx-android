@@ -239,6 +239,17 @@ class ApShellActivity : ComponentActivity() {
                 ApMiuixTheme { Shell() }
             }
         }
+        // 静默自动更新（v223.30.0）：主壳一启动就查自建分发站（失败自动回落 GitHub），
+        // 发现新版直接弹「一键下载」弹窗，不再要求用户记得进「关于」手动检查。
+        // 6 小时节流在 UpdateChecker 内部（冷启动新进程必查一次）；
+        // 窗口已关/销毁则不弹，防 BadTokenException。
+        com.allperiph.ui.UpdateChecker.autoCheck(this) { r ->
+            if (!isFinishing && !isDestroyed &&
+                r is com.allperiph.ui.UpdateChecker.Result.NewVersion
+            ) {
+                com.allperiph.ui.UpdateChecker.showUpdateDialog(this, r)
+            }
+        }
     }
 
     /**
