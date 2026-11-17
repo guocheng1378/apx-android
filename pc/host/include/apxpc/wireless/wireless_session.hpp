@@ -217,6 +217,10 @@ private:
     // 生命周期完全跟随 Connected 相位翻转：在 publish() 里建/停，全程持 mu_。
     std::unique_ptr<LocalInputCapturer> inputMirror_;
 
+    // 投屏自动开（2026-11-18）：首次进入 Connected 时下发 0x10「screenmirror」on，进程内只发一次
+    //（手机端运行中会跳过重复授权页；用户手动关后本轮不再自动开）。仅 PC 控手机场景，见 publish()。
+    bool autoScreenMirrorSent_ = false;
+
     std::atomic<bool> beaconRun_{false};
     std::thread beaconThread_;
     int64_t connectStartMs_ = 0;

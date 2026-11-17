@@ -124,6 +124,7 @@ class ScreenMirrorService : Service() {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.surface, null, null
             )
             running.set(true)
+            isRunning = true
         }.onFailure {
             Log.w(TAG, "屏幕采集启动失败：${it.message}")
             stopMirror()
@@ -196,6 +197,7 @@ class ScreenMirrorService : Service() {
     }
 
     private fun stopMirror() {
+        isRunning = false
         if (!running.compareAndSet(true, false)) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -256,5 +258,13 @@ class ScreenMirrorService : Service() {
         const val TARGET_W = 720
         const val JPEG_QUALITY = 65
         const val MIN_INTERVAL_MS = 100L
+
+        /**
+         * 采集是否正在运行（进程内状态，随 [running] 同步）：PC 面板重连自动补发的
+         * 0x10「screenmirror」on 到达时据此跳过重复授权页 —— 已在采集就别再弹一次
+         * 系统授权框（startCapture 置 true，stopMirror 置 false）。
+         */
+        @Volatile var isRunning: Boolean = false
+            private set
     }
 }

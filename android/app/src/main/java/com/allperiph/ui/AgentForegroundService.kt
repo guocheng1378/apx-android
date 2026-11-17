@@ -248,6 +248,12 @@ class AgentForegroundService : Service() {
      */
     private fun onPcScreenMirrorToggle(on: Boolean) {
         if (!on) return
+        // 已在采集就不弹第二次授权页：PC 端重连自动补发的 0x10 on 会重复到达
+        //（2026-11-18 随「连上自动开投屏」加的防重），手动从面板再点一次也同理。
+        if (com.allperiph.screenmirror.ScreenMirrorService.isRunning) {
+            Log.i(TAG, "投屏已在运行，跳过重复授权页")
+            return
+        }
         runCatching {
             startActivity(
                 Intent(this, com.allperiph.screenmirror.ScreenMirrorActivity::class.java)

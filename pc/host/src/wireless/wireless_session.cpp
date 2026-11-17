@@ -467,6 +467,18 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
         inputMirror_.reset();
         APX_LOGI("键鼠镜像已停止（会话离开 Connected）");
     }
+
+    // 投屏到电脑自动开（2026-11-18）：电脑控手机连上的那一刻，自动下发 0x10「screenmirror」on
+    // —— 此前电脑控手机默认没有手机画面（盲控），要自己去面板里翻「投屏到电脑」开关，
+    // 而手机那头根本不知道该动它。现在连上即弹手机端系统授权页，点一下「立即开始」
+    // 画面就上电脑面板。每次进程只自动发一次：用户手动关掉后不再自动开；已授权运行中
+    // 手机端会按运行态跳过重复授权页，重连不打扰。
+    if (changed && ph == LinkPhase::Connected && !autoScreenMirrorSent_) {
+        autoScreenMirrorSent_ = true;
+        if (client_.sendModuleToggle("screenmirror", true)) {
+            APX_LOGI("已自动下发投屏开关：等手机端授权后画面上屏");
+        }
+    }
 }
 
 SessionSnapshot WirelessSession::snapshot() const {
