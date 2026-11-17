@@ -73,6 +73,12 @@ struct AppConfig {
     //（Curve25519 私钥 32 字节）。首次启用加密时生成并持久化，与 pairingToken
     // 同样「进程内不改动」—— 换掉即等于换身份，对端 TOFU 白名单要重配。
     std::string noiseKeyPriv;
+
+    // R2 对端静态公钥白名单（§4.4，2026-11-17）：信任的对端静态公钥，64 hex 数组
+    //（集合化 —— 多台电脑控一台手机是合法场景）。**空数组 = 无白名单，回退 TOFU
+    // 旧行为**（首连静默收录并气泡提示）；非空 = 只放行表内公钥，陌生拒绝。
+    // 与手机端 prefs "apx_noise"/trustedPeerPubs 同语义，两端各自落盘。
+    std::vector<std::string> trustedPeerPubs;
 };
 
 // 加载：文件缺失或解析失败返回默认值（不报错，首次启动常见）；

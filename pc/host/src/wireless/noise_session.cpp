@@ -10,7 +10,10 @@
 #include <noise/protocol/handshakestate.h>
 #include <noise/protocol/cipherstate.h>
 #include <noise/protocol/hashstate.h>
+#include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <string>
 
@@ -161,9 +164,21 @@ bool NoiseSession::split() {
 }
 
 bool NoiseSession::peerStaticKey(uint8_t out[kNoiseStaticKeyLen]) {
-    if (!impl_->hasPeerPub) return false;
-    memcpy(out, impl_->peerPub, kNoiseStaticKeyLen);
-    return true;
+    Impl* p = impl_;
+    if (p->hasPeerPub) {
+        memcpy(out, p->peerPub, kNoiseStaticKeyLen);
+        return true;
+    }
+    // §4.4（2026-11-17）：split 前也可读 —— 握手态还在且对端公钥已就位时直接从
+    // remote DHState 摘（Responder 消费 msg1 后即有值）。白名单要在回 msg2 之前
+    // 裁决，等不到 split。与 Android remoteStaticPubPending 同语义。
+    if (p->hs) {
+        NoiseDHState* remote = noise_handshakestate_get_remote_public_key_dh(p->hs);
+        if (remote && noise_dhstate_has_public_key(remote) &&
+            noise_dhstate_get_public_key(remote, out, kNoiseStaticKeyLen) == NOISE_ERROR_NONE)
+            return true;
+    }
+    return false;
 }
 
 size_t NoiseSession::encrypt(uint8_t* buf, size_t payloadLen, size_t cap) {
@@ -318,6 +333,72 @@ bool r2PeerStaticKey(uint8_t out[kNoiseStaticKeyLen]) {
     if (!g_r2HasPeerPub) return false;
     memcpy(out, g_r2PeerPub, kNoiseStaticKeyLen);
     return true;
+}
+
+// ---------------------------------------------------------- §4.4 公钥白名单 ----
+namespace {
+
+/// 气泡出口（desktop_main 装配；未装配 = 只落日志）。函数指针，静态存储期。
+R2NotifyFn g_r2Notify = nullptr;
+
+/// 同一公钥的拒绝气泡节流（elapsed 起点用 steady_clock）：60s 内不重复打扰。
+std::mutex g_r2DenyMutex;
+std::map<std::string, std::chrono::steady_clock::time_point> g_r2DenyUntil;
+
+}  // namespace
+
+void r2SetNotify(R2NotifyFn fn) {
+    g_r2Notify = fn;
+}
+
+bool r2AuthorizePub(const uint8_t pub_[kNoiseStaticKeyLen], const std::string& peerIp) {
+    const std::string hex = toHex(pub_, kNoiseStaticKeyLen);
+    config::AppConfig cfg = config::loadConfig(config::defaultConfigPath());
+    const auto& list = cfg.trustedPeerPubs;
+    const bool trusted = std::find(list.begin(), list.end(), hex) != list.end();
+    if (trusted) return true;
+    const bool enabled = !list.empty();
+    auto notify = [&](const char* title, const std::string& text) {
+        if (g_r2Notify) g_r2Notify(title, text.c_str());
+    };
+    if (!enabled) {
+        // 空表 = 未启用白名单：TOFU 旧行为（放行 + 气泡告知，用户可自行核查）。
+        // 调用方随后显式 r2TrustPub 落盘（与 Android 裁决放行时落盘同口径）。
+        APX_LOGI("[noise] R2 白名单未启用，TOFU 放行对端 {}", hex.c_str());
+        notify("加密连接已建立",
+               "新设备已通过配对令牌建立加密连接（" + peerIp + "）。\n"
+               "公钥已收录白名单；如非本人操作请检查网络中的陌生设备。");
+        return true;
+    }
+    // 非空且陌生：拒绝 + 60s 节流气泡（自动重连风暴不再刷屏）。
+    const auto now = std::chrono::steady_clock::now();
+    bool notifyDeny = false;
+    {
+        std::lock_guard<std::mutex> lock(g_r2DenyMutex);
+        auto it = g_r2DenyUntil.find(hex);
+        if (it == g_r2DenyUntil.end() || now >= it->second) {
+            g_r2DenyUntil[hex] = now + std::chrono::seconds(60);
+            notifyDeny = true;
+        }
+    }
+    APX_LOGW("[noise] R2 白名单拒绝陌生对端 {} from {}", hex.c_str(), peerIp.c_str());
+    if (notifyDeny)
+        notify("已拒绝陌生设备",
+               "设备（" + peerIp + "）请求加密连接，但其公钥不在信任列表，已拒绝。\n"
+               "如是本人新电脑，请把它的公钥加入 config.json 的 trustedPeerPubs。");
+    return false;
+}
+
+void r2TrustPub(const uint8_t pub_[kNoiseStaticKeyLen]) {
+    const std::string hex = toHex(pub_, kNoiseStaticKeyLen);
+    const std::string path = config::defaultConfigPath();
+    config::AppConfig cfg = config::loadConfig(path);
+    if (std::find(cfg.trustedPeerPubs.begin(), cfg.trustedPeerPubs.end(), hex) !=
+        cfg.trustedPeerPubs.end())
+        return;   // 幂等：已在白名单
+    cfg.trustedPeerPubs.push_back(hex);
+    config::saveConfig(path, cfg);
+    APX_LOGI("[noise] R2 对端公钥收录白名单：{}", hex.c_str());
 }
 
 }  // namespace apxpc::wireless

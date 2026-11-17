@@ -220,6 +220,14 @@ struct Ctrl9511Server::Impl {
     uint8_t noisePriv_[32] = {};
     uint8_t noisePub_[32] = {};
     std::unique_ptr<NoiseSession> noiseResp_;
+    /// §4.4 明文帧门控的丢弃计数（仅 reader 线程触碰，无需原子）：每 50 帧记一条日志
+    uint64_t plainDrops_ = 0;
+
+    /// 当前对端 IP（面板状态条同源，clientMu 保护）。白名单拒绝气泡展示用。
+    std::string peerIpForDispatch() {
+        std::lock_guard<std::mutex> lk(clientMu);
+        return st.peer;
+    }
 
     /** 发 0x33 能力协商（2026-11-11）：把本机（PC 服务端）的能力位图报给连入的手机。
      * 命令号按字面量写（0x33），与 kCaps9511* / Android ApxFrame.CMD_CAPS_SYNC /
@@ -305,7 +313,8 @@ struct Ctrl9511Server::Impl {
     }
 
     /// R2 加密（能力位 bit8）：应答方处理 0x35 的 msg1 —— 建 Responder 会话、
-    /// 消费 msg1、回 msg2（0x35 明文帧），此后入队帧全加密。跑在 reader 线程。
+    /// 消费 msg1、**白名单裁决**、回 msg2（0x35 明文帧）、split（修复：此前漏调，
+    /// 见下）后挂会话置位，此后入队帧全加密。跑在 reader 线程。
     void onNoiseHandshakeMsg1(const uint8_t* msg, size_t len) {
         if (!noiseReady || noiseActive.load()) { aDropped_.fetch_add(1); return; }
         auto sess = std::make_unique<NoiseSession>();
@@ -315,14 +324,35 @@ struct Ctrl9511Server::Impl {
             APX_LOGW("[noise] 服务端处理 msg1 失败，保持明文链路");
             return;
         }
+        // §4.4 白名单裁决（2026-11-17）：msg1 消费后即摘对端静态公钥（split 前
+        // peerStaticKey 可读），回 msg2 **之前**过白名单 —— 拒绝则不回 msg2（对端
+        // 等不到自会放弃）。放行时信任落盘（TOFU 收录 / 白名单命中幂等）。
+        {
+            uint8_t pub_[kNoiseStaticKeyLen];
+            if (sess->peerStaticKey(pub_)) {
+                const std::string peerIp = peerIpForDispatch();
+                if (!r2AuthorizePub(pub_, peerIp)) return;
+                r2TrustPub(pub_);
+            }
+        }
         uint8_t out[256];   // IK 的 msg2 = 混合交换段，远小于 256
         const int n = sess->writeHandshakeMsg(out, sizeof(out));
         if (n < 0) return;
+        // 修复（随 §4.4 批，2026-11-17）：此前这里**漏调 split()** —— csSend/csRecv
+        // 从未切出，加密帧 encrypt/decrypt 恒返 0 全部丢弃，PC 被控方向的加密链路
+        // 实际是死的。白名单裁决本就要在 split 前摘公钥，握手顺序一并理顺：
+        // read msg1 → 裁决 → write msg2 → split → 挂会话（与 Android ControlServer 同序）。
+        if (!sess->split()) { APX_LOGW("[noise] 服务端 split 失败，保持明文链路"); return; }
         std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + static_cast<size_t>(n) + apx::kFrameCrcSize);
         size_t flen = 0;
         if (!buildCtrlFrame(buf.data(), buf.size(), flen, 0x35, out,
                             static_cast<size_t>(n), seq_.fetch_add(1))) return;
-        enqueue(buf.data(), flen);           // msg2 恒明文 —— 先入队
+        enqueue(buf.data(), flen);           // msg2 恒明文 —— 先入队（此刻 noiseActive 尚未置位）
+        // 对端静态公钥挂 R2 上下文（9512/9502 发起端预知对端公钥，进程级）
+        {
+            uint8_t pub_[kNoiseStaticKeyLen];
+            if (sess->peerStaticKey(pub_)) r2SetPeerStaticKey(pub_);
+        }
         noiseResp_ = std::move(sess);        // 再挂会话、置位：此后入队帧即加密
         noiseActive.store(true);
     }
@@ -585,6 +615,18 @@ struct Ctrl9511Server::Impl {
     void dispatch(const uint8_t* p, uint32_t bodyLen) {
         if (bodyLen < 1) return;
         const uint8_t cmd = p[0];
+        // §4.4 明文帧门控（2026-11-17）：本端具备加密条件（noiseReady）但 0x35 还没
+        // 握上时，除 0x33 / 0x35 / ping 外的控制帧一律丢弃 —— 否则拿到信标 token 的
+        // 攻击者只要**不发** 0x35 就能绕过白名单直接用明文帧注入，白名单形同虚设。
+        // 丢帧不断链（对端可能正在握手中），计数每 50 帧记一条。
+        if (noiseReady && !noiseActive.load() && cmd != 0x33 && cmd != 0x35 && cmd != 'p') {
+            if (++plainDrops_ % 50 == 1) {
+                char cmdHex[8];
+                std::snprintf(cmdHex, sizeof(cmdHex), "0x%02x", cmd);
+                APX_LOGW("[noise] 明文帧丢弃#{} cmd={}（加密未就绪）", plainDrops_, cmdHex);
+            }
+            return;
+        }
         if (cmd == 'p') {  // ping → pong
             uint8_t buf[64]; size_t len = 0;
             if (buildCtrlFrame(buf, sizeof(buf), len, 'p',
@@ -1250,6 +1292,7 @@ struct Ctrl9511Client::Impl {
     // TCP 序 + 锁序保证两端明/密边界对齐。
     std::vector<uint8_t> ownPriv_;       // 本端静态私钥（connect 时 ensureNoiseKeyPair 备齐）
     std::vector<uint8_t> peerPub_;       // 对端静态公钥（信标第 5 段；connect 前由外层设置）
+    std::string peerHost_;               // 对端地址（connect 时存；白名单气泡/日志展示用）
     std::string token_;                  // 连接 token（PSK 源；空 = 不参与加密）
     bool noiseReady_ = false;            // 密钥材料齐备（connect 时定，此后只读）
     std::unique_ptr<NoiseSession> noiseSess_;   // reader 线程建，sendCmd/reader 共用 mu
@@ -1276,6 +1319,14 @@ struct Ctrl9511Client::Impl {
     /// 进入 WAIT 态。须持 mu 调用；重复进入安全（WAIT/active 时 no-op）。
     void initiateNoise() {
         if (!noiseReady_ || noiseWait_ || noiseActive_.load()) return;
+        // §4.4 白名单：发 msg1 前先对信标公钥过白名单（本机 config 的 trustedPeerPubs；
+        // 空表 = TOFU 放行并气泡告知，非空陌生 = 拒绝 + 60s 节流气泡）。拒绝则不发
+        // 握手 —— 对端（手机）侧同样有白名单，明文帧也会被它的门控丢弃，链路自然断。
+        // r2AuthorizePub 只做一次 loadConfig（极短），持 mu 调用无碍。
+        if (!r2AuthorizePub(peerPub_.data(), peerHost_)) {
+            APX_LOGW("[noise] 客户端：信标公钥未获白名单信任，不发起握手（{}）", peerHost_.c_str());
+            return;
+        }
         auto sess = std::make_unique<NoiseSession>();
         if (!sess->beginInitiator(reinterpret_cast<const uint8_t*>(token_.data()), token_.size(), peerPub_.data(),
                                   ownPriv_.data())) {
@@ -1357,14 +1408,16 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     // R2 加密材料：token 非空 + 对端静态公钥非空（信标第 5 段）+ 本端密钥对可用，
     // 三者齐备才具备发起 0x35 握手的条件；任一缺失保持明文链路（TV / 旧版 / 手动连接）。
     im->token_ = token;
+    im->peerHost_ = host;
     // 9512/9502 子批：token 挂到 R2 进程级上下文 —— 文件/媒体通道（file_sender /
     // file_receiver / media_session）从这里取 PSK 源，与 Android linkToken 同款。
     r2SetToken(token);
     if (!pendingPeerPub_.empty()) {   // connect 前经 setPeerStaticKey 暂存的对端公钥
         im->peerPub_ = pendingPeerPub_;
         pendingPeerPub_.clear();
-        // 9512/9502 子批：对端公钥同样挂 R2 上下文（TOFU，进程级）
-        r2SetPeerStaticKey(im->peerPub_.data());
+        // §4.4（2026-11-17）：对端公钥改在 msg2 验证通过后（reader 0x35 分支）才挂
+        // R2 上下文并落白名单 —— 信标可被仿冒，connect 时就灌上下文等于把攻击者
+        // 公钥预置进 9512/9502 会话。r2SetToken 保持在 connect（token 本就待校验）。
     }
     if (!token.empty() && !im->peerPub_.empty()) {
         uint8_t kp[32], pk[32];
@@ -1548,6 +1601,13 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                         if (im->noiseWait_ && im->noiseSess_ &&
                             im->noiseSess_->readHandshakeMsg(payload + 1, bodyLen - 1) == 0 &&
                             im->noiseSess_->split()) {
+                            // §4.4（2026-11-17）：msg2 验证通过（对端确持同一 token 且静态
+                            // 密钥与信标公钥一致）才把对端公钥挂 R2 上下文并落白名单 ——
+                            // 仿冒信标灌进来的假公钥走不到这里。
+                            if (!im->peerPub_.empty()) {
+                                r2SetPeerStaticKey(im->peerPub_.data());
+                                r2TrustPub(im->peerPub_.data());
+                            }
                             for (auto& f : im->pendingBuf_) im->encryptAndSend(f);   // 攒帧按序补发
                             im->pendingBuf_.clear();
                             im->noiseWait_ = false;

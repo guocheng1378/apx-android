@@ -111,6 +111,20 @@ void putU32(uint8_t* dst, uint32_t v) {
 /// Noise 握手消息长度上限（IK msg1/msg2 实际 ≤ 96B，放宽到 1KB 防畸形帧）
 constexpr uint32_t kHsMax = 1024;
 
+/// 对端 IP（getpeername → inet_ntop；失败返回空串，气泡展示用）。
+std::string peerIpOf(Sock c) {
+    sockaddr_storage ss{};
+    socklen_t sl = sizeof(ss);
+    if (::getpeername(c, reinterpret_cast<sockaddr*>(&ss), &sl) != 0) return {};
+    char buf[INET6_ADDRSTRLEN] = {};
+    if (::inet_ntop(ss.ss_family,
+                    ss.ss_family == AF_INET
+                        ? reinterpret_cast<const void*>(&reinterpret_cast<sockaddr_in*>(&ss)->sin_addr)
+                        : reinterpret_cast<const void*>(&reinterpret_cast<sockaddr_in6*>(&ss)->sin6_addr),
+                    buf, sizeof(buf)) == nullptr) return {};
+    return buf;
+}
+
 /**
  * R2 握手（9512 Responder 侧，9512/9502 子批 2026-11-17）：消费 [u32 len1][msg1]，
  * 产出 msg2 按 [u32 len2][msg2] 回写。token 候选依次试 R2 上下文的链路令牌
@@ -127,6 +141,7 @@ NoiseSession* r2HandshakeResponder(Sock c) {
     uint8_t ownPriv[kNoiseStaticKeyLen];
     uint8_t ownPub[kNoiseStaticKeyLen];
     if (!ensureNoiseKeyPair(ownPriv, ownPub)) return nullptr;
+    const std::string peerIp = peerIpOf(c);
 
     // 候选去重（两把候选可能是同一把令牌）
     std::vector<std::string> cands;
@@ -140,6 +155,16 @@ NoiseSession* r2HandshakeResponder(Sock c) {
         if (!sess->beginResponder(reinterpret_cast<const uint8_t*>(tok.data()), tok.size(), ownPriv))
             continue;
         if (sess->readHandshakeMsg(msg1.data(), len1) != 0) continue;
+        // §4.4 白名单（2026-11-17 第二批）：msg1 消费后即摘对端公钥，回 msg2 **之前**
+        // 裁决（与 9511 服务端、Android FileReceiver 同款）—— 拒绝则不回 msg2，断链。
+        // 放行（含空表 TOFU）时信任落盘，白名单命中幂等。
+        {
+            uint8_t pub_[kNoiseStaticKeyLen];
+            if (sess->peerStaticKey(pub_)) {
+                if (!r2AuthorizePub(pub_, peerIp)) return nullptr;
+                r2TrustPub(pub_);
+            }
+        }
         uint8_t msg2[kHsMax];
         const int n2 = sess->writeHandshakeMsg(msg2, sizeof(msg2));
         if (n2 <= 0) continue;

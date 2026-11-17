@@ -64,7 +64,9 @@ public:
 
     /// 对端静态公钥（32 字节）：split 时从握手态摘出（Initiator 是配置进去的、
     /// Responder 从 msg1 解出）。9512/9502 子批新增 —— TOFU 持久化与文件反向
-    /// 发送的预知公钥共用。split 前调用返回 false。
+    /// 发送的预知公钥共用。split 前调用：§4.4 起支持 —— 握手态还在且对端公钥
+    /// 已就位（Responder 消费 msg1 后 / Initiator 配置后）同样可读，供白名单
+    /// 在回 msg2 之前裁决（与 Android remoteStaticPubPending 同语义）。
     bool peerStaticKey(uint8_t out[kNoiseStaticKeyLen]);
 
     /// 传输态：加密 buf[0..payloadLen)（原位），返回密文长度（payloadLen+16）；
@@ -108,5 +110,24 @@ void r2SetPeerStaticKey(const uint8_t pub_[kNoiseStaticKeyLen]);
 std::string r2Token();
 /// 读最近 TOFU 的对端静态公钥。成功返回 true（out 为 32 字节裸值）。
 bool r2PeerStaticKey(uint8_t out[kNoiseStaticKeyLen]);
+
+// ---------------------------------------------------------------------------
+// R2 对端静态公钥白名单裁决（§4.4，2026-11-17）：
+// PC 无跨平台确认 UI（mac 无窗口环境）→ 收敛为「白名单 + 通知」：
+//   · 白名单（config.trustedPeerPubs，64 hex 数组）命中 → 放行；
+//   · 空表 = 未启用 → TOFU 旧行为（收录 + 气泡提示）；
+//   · 非空且陌生 → 拒绝（60s 节流气泡）。
+// 信任落盘统一在裁决放行后由调用方显式调 r2TrustPub（与 Android trustPeerPub 同口径）。
+// ---------------------------------------------------------------------------
+
+/// 气泡提示出口（desktop_main 装配 → TrayIcon::notify，线程安全）；未装配 = 只落日志。
+using R2NotifyFn = void (*)(const char* title, const char* text);
+void r2SetNotify(R2NotifyFn fn);
+
+/// 裁决：pub=对端静态公钥（32 字节），peerIp=对端地址（气泡展示）。阻塞极短
+///（loadConfig 一次），可安全在握手线程调用。放行返回 true。
+bool r2AuthorizePub(const uint8_t pub_[kNoiseStaticKeyLen], const std::string& peerIp);
+/// 信任落盘：把对端公钥追加进 config.trustedPeerPubs 并 saveConfig（幂等）。
+void r2TrustPub(const uint8_t pub_[kNoiseStaticKeyLen]);
 
 }  // namespace apxpc::wireless
