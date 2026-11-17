@@ -147,7 +147,7 @@ object PhoneFiles {
             reply(ApxFrame.packPhoneFileFail(ApxFrame.PHONEFILE_ERR_NOT_FOUND, path))
             return
         }
-        // 9512 R2 子批：带 context 走加密门控；App.context 未就绪时自然明文
+        // R2 加密已移除（2026-11-18）：context 仅作兼容参数保留，恒明文发送
         val ok = FileSender.send(peerHost, f, context = com.allperiph.App.context)
         if (!ok) {
             Log.w(TAG, "推文件失败：$path → $peerHost")
