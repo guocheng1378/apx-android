@@ -39,7 +39,13 @@ object UpdateChecker {
      * 响应见盒上 server.py /api/update：
      * {platform,latest,current,update,url,mirror,size,sha256,notes,force,ts}。
      */
-    private const val SITE_API = "https://8090-agqxwmnnzcndiz2wynoexrkqjm.instabox.tech"
+    private const val SITE_API = "https://guoapp.dpdns.org"
+    /**
+     * 旧分发站（instabox 隧道，v223.30.0 起一直用的那条）：2026-11-17 站点已迁到飞牛 NAS
+     * + Cloudflare 隧道（见 [SITE_API]），这里只作回退 —— 部分网络到 Cloudflare 不稳时
+     * 仍能查到更新，避免整条「检查更新」直接掉到 GitHub。
+     */
+    private const val SITE_API_LEGACY = "https://8090-agqxwmnnzcndiz2wynoexrkqjm.instabox.tech"
     private const val UA = "AllPeriph-UpdateCheck"
     private const val AUTO_INTERVAL_MS = 6L * 60 * 60 * 1000
 
@@ -124,9 +130,21 @@ object UpdateChecker {
      * App 只做展示。update=false → UpToDate；update=true 但 latest/url 为空
      * 视为接口异常 → Failed（交给 GitHub 兜底，不给用户弹残缺数据）。
      */
-    private fun fetchFromSite(): Result = try {
+    private fun fetchFromSite(): Result {
+        val primary = fetchFromSiteOnce(SITE_API)
+        if (primary is Result.Failed) {
+            com.allperiph.shared.util.Log.w(
+                "UpdateChecker",
+                "site primary failed (${primary.why}), retry legacy",
+            )
+            return fetchFromSiteOnce(SITE_API_LEGACY)
+        }
+        return primary
+    }
+
+    private fun fetchFromSiteOnce(base: String): Result = try {
         val ver = java.net.URLEncoder.encode(currentTag(), "UTF-8")
-        val conn = URL("$SITE_API/api/update?platform=android&ver=$ver").openConnection() as HttpURLConnection
+        val conn = URL("$base/api/update?platform=android&ver=$ver").openConnection() as HttpURLConnection
         conn.connectTimeout = 5000
         conn.readTimeout = 8000
         conn.setRequestProperty("User-Agent", UA)
