@@ -70,6 +70,20 @@ class TvControllerClient(
     /** R2 诊断：解密/加密失败丢帧计数（每 50 次记一条，不断链） */
     private var noiseDrops = 0
 
+    /**
+     * 握手看护（2026-11-18 修）：msg1 发出后 [NOISE_WAIT_TIMEOUT_MS] 内没等到 msg2（对端
+     * 白名单没确认、对端版本不含 R2 回复、链路单向不通都可能），放弃本次会话、攒下的帧
+     * 按明文补发 —— 此前只会干等到读空闲超时把整条连接掐断（约 24s），期间出向帧全闷在
+     * [pendingBuf] 里，重连风暴就是这么来的。放弃后每 [NOISE_RETRY_MS] 重试一次：对端侧
+     * 白名单一旦确认（弹窗允许 / 落盘），下一轮重试的 msg1 即完成握手转加密，无需重连。
+     */
+    private val NOISE_WAIT_TIMEOUT_MS = 20_000L
+    private val NOISE_RETRY_MS = 30_000L
+    /** msg1 发出时刻（elapsedRealtime，writeLock 内写；0 = 不在 WAIT） */
+    @Volatile private var noiseWaitSince = 0L
+    /** 上次发起握手（含超时放弃）的时刻，重试间隔的基准 */
+    @Volatile private var lastNoiseAttempt = 0L
+
     /** 本连接能否发起加密（能力上报与 0x35 发起共用同一判据） */
     private fun noiseCapable(): Boolean =
         token.isNotEmpty() && peerPubKeyHex.length == 64 && ownKp != null
@@ -109,6 +123,7 @@ class TvControllerClient(
         NoiseSession.linkToken = token.ifBlank { null }
         synchronized(writeLock) {
             noiseWait = false; noiseActive = false; pendingBuf.clear()
+            noiseWaitSince = 0L; lastNoiseAttempt = 0L
             synchronized(noiseLock) { noiseSess = null }
         }
         // 能力协商（0x33，2026-11-11）：新会话清空上一会话的对端能力，并把本端能力报给对端。
@@ -133,6 +148,7 @@ class TvControllerClient(
         // R2 加密：密钥随会话走，断开即弃（重连走 openSocket 重新握手）
         synchronized(writeLock) {
             noiseWait = false; noiseActive = false; pendingBuf.clear()
+            noiseWaitSince = 0L; lastNoiseAttempt = 0L
             synchronized(noiseLock) { noiseSess = null }
         }
         runCatching { txQueue.clear() }; runCatching { txThread?.interrupt() }; txThread = null; s_close()
@@ -367,9 +383,48 @@ class TvControllerClient(
 
     private fun pingLoop() {
         while (running.get()) {
+            noiseWatchdog()
             sendControl("ping".toByteArray(Charsets.UTF_8))
             try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
         }
+    }
+
+    /**
+     * R2 握手看护（2026-11-18，随握手超时一起加）：每秒由 [pingLoop] 巡一次。
+     *  · WAIT 超 [NOISE_WAIT_TIMEOUT_MS] 没等到 msg2 → 放弃本次握手（[noiseGiveUp]）；
+     *  · 非加密态 + 对端 0x33 报过 bit8 + 本端具备条件，距上次发起超 [NOISE_RETRY_MS] →
+     *    后台线程重发 msg1 —— 对端侧白名单一旦确认，下一轮重试自动转加密，无需重连。
+     * 重试放独立线程：[initiateNoise] 内的公钥裁决可能阻塞等用户弹窗，绝不能拖住 ping。
+     */
+    private fun noiseWatchdog() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (noiseWait && noiseWaitSince > 0 && now - noiseWaitSince > NOISE_WAIT_TIMEOUT_MS) {
+            noiseGiveUp()
+            return
+        }
+        if (!noiseActive && !noiseWait &&
+            peerCaps and ApxFrame.CAP_ENCRYPT != 0L && noiseCapable() &&
+            now - lastNoiseAttempt > NOISE_RETRY_MS
+        ) {
+            lastNoiseAttempt = now
+            thread(name = "tvctrl-noise-retry") { initiateNoise() }
+        }
+    }
+
+    /**
+     * 放弃本次握手：会话作废、WAIT 关闭、攒下的帧按明文补发（对端若在门控期会丢弃，
+     * 白名单确认后下一轮重试转加密，损失可控）。只处理确实在 WAIT 的情况。
+     */
+    private fun noiseGiveUp() {
+        synchronized(noiseLock) { noiseSess = null }
+        synchronized(writeLock) {
+            if (!noiseWait) return
+            noiseWait = false
+            noiseWaitSince = 0L
+            lastNoiseAttempt = android.os.SystemClock.elapsedRealtime()
+            while (pendingBuf.isNotEmpty()) txQueue.offer(pendingBuf.removeFirst())   // 明文补发
+        }
+        Log.w("TvCtrl", "R2 握手：等 msg2 超时（对端白名单未确认/旧版对端？），链路维持明文，稍后自动重试")
     }
 
     private fun startTx() {
@@ -593,6 +648,8 @@ class TvControllerClient(
         synchronized(writeLock) {
             if (noiseActive) return
             noiseWait = true
+            noiseWaitSince = android.os.SystemClock.elapsedRealtime()
+            lastNoiseAttempt = noiseWaitSince
             seq = (seq + 1) and 0x7FFFFFFF
             txQueue.offer(ApxFrame.build(ApxFrame.STREAM_CONTROL, out.copyOf(msgLen), seq))
         }
@@ -616,12 +673,14 @@ class TvControllerClient(
             if (failed) {
                 Log.w("TvCtrl", "R2 握手：msg2 校验/split 失败（对端令牌不符？），链路维持明文")
                 noiseWait = false
+                noiseWaitSince = 0L
                 while (pendingBuf.isNotEmpty()) txQueue.offer(pendingBuf.removeFirst())   // 明文补发
                 return
             }
             // 补发 WAIT 期间攒下的帧（会话已 split，按密文加密）；noiseWait 先关再发，
             // 补发顺序仍按入队先后（FIFO），对端解密 nonce 顺序一致
             noiseWait = false
+            noiseWaitSince = 0L
             while (pendingBuf.isNotEmpty()) {
                 val f = pendingBuf.removeFirst()
                 val enc = encryptFrame(f)
