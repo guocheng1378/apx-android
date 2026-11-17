@@ -363,25 +363,37 @@ if(APPLE)
 endif()
 
 # ---------------------------------------------------------- 目标：Noise 协议库（R2 通道加密）
-# third_party/noise-c 的最小编译子集（仅按需源，不整库拷贝式全编）：
+# third_party/noise-c 的编译子集（见下方源清单，不整库拷贝式全编）：
 #   · protocol/*.c 全 12 个：协议状态机（handshake/symmetric/cipher/dh/hash/sign/rand
 #     各 state）+ 名字解析（names.c 支持 NoisePSK_IK_25519_ChaChaPoly_SHA256）。
-#   · backend/ref 四件：chachapoly / curve25519 / sha256 / ed25519 —— 不定义
-#     USE_OPENSSL/USE_LIBSODIUM 即走 ref 后端（自包含，零外部依赖）。
-#   · crypto 四件：chacha.c、poly1305-donna.c、sha256.c、ed25519.c —— ref 后端的
-#     实际算术（curve25519-donna 经 dh-curve25519.c 内嵌 include 编入，无需单列）。
-#   · stubs.c：dhstate.c/signstate.c 引用的 curve448/newhope 等未用算法打桩。
-# 许可与来源见 third_party/noise-c/VENDOR-NOTES.md（上游 rhassnoise/noise-c，MIT）。
+#   · backend/ref 全 8 件：不定义 USE_OPENSSL/USE_LIBSODIUM 即走 ref 后端
+#     （自包含，零外部依赖）；internal.c 引用全部工厂，故全部编入。
+#   · crypto：ref 后端的实际算术（curve25519-donna 经 dh-curve25519.c 条件
+#     #include 编入；blake2/aes/ghash/sha512 只被 ref 后端引用，一并编入）。
+#   · stubs.c：dhstate.c/signstate.c 引用的 curve448/newhope 两个未用 DH 打桩。
+# 许可与来源见 third_party/noise-c/VENDOR-NOTES.md（上游 rweather/noise-c，MIT）。
 file(GLOB APXPC_NOISE_PROTO "${APXPC_ROOT}/third_party/noise-c/src/protocol/*.c")
 set(APXPC_NOISE_SRC
   ${APXPC_NOISE_PROTO}
+  # ref 后端全套：internal.c 引用全部算法工厂（aesgcm/blake2b/blake2s/sha512 等），
+  # 只编 chachapoly+sha256 会链接期缺符号（CI 抓出）——索性整库编入，仍在同一份
+  # 自包含源码内，不引外部依赖。
   "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/cipher-chachapoly.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/cipher-aesgcm.c"
   "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/dh-curve25519.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-blake2b.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-blake2s.c"
   "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-sha256.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-sha512.c"
   "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/sign-ed25519.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/aes/rijndael-alg-fst.c"
   "${APXPC_ROOT}/third_party/noise-c/src/crypto/chacha/chacha.c"
   "${APXPC_ROOT}/third_party/noise-c/src/crypto/donna/poly1305-donna.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/ghash/ghash.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/blake2/blake2b.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/blake2/blake2s.c"
   "${APXPC_ROOT}/third_party/noise-c/src/crypto/sha2/sha256.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/sha2/sha512.c"
   "${APXPC_ROOT}/third_party/noise-c/src/crypto/ed25519/ed25519.c"
   "${APXPC_ROOT}/third_party/noise-c/stubs.c"
 )
