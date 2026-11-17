@@ -6,6 +6,8 @@
 
 #if defined(_WIN32)
 
+#include "apxpc/log.hpp"
+
 #include <windows.h>
 #include <thread>
 #include <chrono>
@@ -65,11 +67,19 @@ public:
     bool start() override {
         if (active_) return true;
         g_self = this;
-        hhMouse_ = SetWindowsHookEx(WH_MOUSE_LL, msProc, GetModuleHandle(nullptr), 0);
-        hhKey_ = SetWindowsHookEx(WH_KEYBOARD_LL, kbProc, GetModuleHandle(nullptr), 0);
-        if (!hhMouse_ || !hhKey_) { stop(); return false; }
         active_ = true;
+        // ★ 钩子的安装与消息泵必须在**同一线程**：低级钩子（WH_*_LL）的回调只在安装线程
+        //   取消息时投递。旧实现把安装放在调用线程、泵在子线程 —— 调用线程不泵消息时
+        //   回调永远不会触发（系统超时后还会把钩子摘掉），捕获器形同虚设。
+        //   面板接线（wireless_session 键鼠镜像）后这条路径首次被真机流量踩到，一并修正。
         thread_ = std::thread([this] {
+            hhMouse_ = SetWindowsHookEx(WH_MOUSE_LL, msProc, GetModuleHandle(nullptr), 0);
+            hhKey_ = SetWindowsHookEx(WH_KEYBOARD_LL, kbProc, GetModuleHandle(nullptr), 0);
+            if (!hhMouse_ || !hhKey_) {
+                APX_LOGW("本地输入钩子安装失败（mouse={} key={}）——键鼠镜像不可用",
+                         hhMouse_ != nullptr, hhKey_ != nullptr);
+                active_ = false;   // 泵循环条件即 active_，置 false 让线程自然退出
+            }
             MSG msg{};
             while (active_) {
                 if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -79,14 +89,15 @@ public:
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
             }
+            // 泵退出后在本线程卸钩（同一安装线程，Unhook 语义最干净）
+            if (hhMouse_) { UnhookWindowsHookEx(hhMouse_); hhMouse_ = nullptr; }
+            if (hhKey_) { UnhookWindowsHookEx(hhKey_); hhKey_ = nullptr; }
         });
         return true;
     }
 
     void stop() override {
         active_ = false;
-        if (hhMouse_) { UnhookWindowsHookEx(hhMouse_); hhMouse_ = nullptr; }
-        if (hhKey_) { UnhookWindowsHookEx(hhKey_); hhKey_ = nullptr; }
         if (thread_.joinable()) thread_.join();
         g_self = nullptr;
     }
@@ -131,6 +142,10 @@ private:
     static LRESULT CALLBACK msProc(int n, WPARAM w, LPARAM l) {
         if (n >= 0 && g_self) {
             const auto* m = reinterpret_cast<MSLLHOOKSTRUCT*>(l);
+            // 跳过系统注入事件（LLMHF_INJECTED）：面板同会话可能双向都开着 —— 手机控电脑
+            // 时本机会经 SendInput 注入手机发来的点击/键入，若这些注入事件再被钩子捕获
+            // 回传给手机，会形成「注入→捕获→再注入」的输入回声。物理输入不带该位，照常转发。
+            if (m->flags & LLMHF_INJECTED) return CallNextHookEx(nullptr, n, w, l);
             switch (w) {
                 case WM_MOUSEMOVE: g_self->onMove(m->pt.x, m->pt.y); break;
                 case WM_LBUTTONDOWN: g_self->onButton(0x01, true); break;
@@ -148,6 +163,9 @@ private:
     static LRESULT CALLBACK kbProc(int n, WPARAM w, LPARAM l) {
         if (n >= 0 && g_self) {
             const auto* k = reinterpret_cast<KBDLLHOOKSTRUCT*>(l);
+            // 同 msProc：注入事件（LLKHF_INJECTED，含本机注入器转发的手机输入）不回传，
+            // 只镜像物理键盘（注释见 msProc）。
+            if (k->flags & LLKHF_INJECTED) return CallNextHookEx(nullptr, n, w, l);
             const bool down = (w == WM_KEYDOWN || w == WM_SYSKEYDOWN);
             const bool ext = (k->flags & LLKHF_EXTENDED) != 0;
             const int usage = vkToUsage(k->vkCode, ext);

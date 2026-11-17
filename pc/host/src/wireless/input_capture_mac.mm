@@ -9,6 +9,8 @@
 #include <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 
+#include <unistd.h>   // getpid：回声过滤见 tapCb
+
 #include <thread>
 #include <atomic>
 #include <cstdint>
@@ -115,6 +117,13 @@ private:
 
     static CGEventRef tapCb(CGEventTapProxy, CGEventType type, CGEventRef e, void* info) {
         auto* self = static_cast<MacCapturer*>(info);
+        // 跳过本进程注入的事件：手机控 Mac 时 input_injector_mac 在**本进程内**经
+        // CGEventPost 注入，这些事件会流经本 tap，若不滤掉会「注入→捕获→回传手机」
+        // 形成输入回声（与 Windows 端 LLMHF_INJECTED 过滤同口径）。物理事件的来源
+        // 进程是 HID 系统态，不会等于本进程 PID，照常转发。
+        if (CGEventGetIntegerValueField(e, kCGEventSourceUnixProcessID) == getpid()) {
+            return e;
+        }
         if (type == kCGEventKeyDown || type == kCGEventKeyUp) {
             const bool down = (type == kCGEventKeyDown);
             const CGKeyCode vk = static_cast<CGKeyCode>(

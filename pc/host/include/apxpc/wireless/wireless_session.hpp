@@ -8,12 +8,14 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "apxpc/wireless/ctrl9511.hpp"
+#include "apxpc/wireless/input_capture.hpp"
 
 namespace apxpc::wireless {
 
@@ -208,6 +210,13 @@ private:
     std::atomic<bool> running_{false};
     std::thread worker_;
     Ctrl9511Client client_;
+
+    // 本机键鼠镜像（2026-11-17，电脑→手机「遥控器」方向）：会话连上受控端即启动，
+    // 把本机鼠标/键盘实时转发给对端；断开即停。此前只有 CLI（apxhost ctrl9511-remote）
+    // 有这条链路，桌面面板从未接线 —— 面板文案写着「本机鼠标、键盘操作直接作用于手机」
+    // 却是空头支票（用户反馈「电脑怎么控制手机，完全没界面」的直接根因）。
+    // 生命周期完全跟随 Connected 相位翻转：在 publish() 里建/停，全程持 mu_。
+    std::unique_ptr<LocalInputCapturer> inputMirror_;
 
     std::atomic<bool> beaconRun_{false};
     std::thread beaconThread_;

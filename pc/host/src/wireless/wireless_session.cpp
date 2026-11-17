@@ -263,6 +263,16 @@ WirelessSession::~WirelessSession() { stop(); }
 void WirelessSession::stop() {
     if (!running_.exchange(false)) return;
     beaconRun_.store(false);
+    {
+        // 键鼠镜像要先于 client_.disconnect() 收掉：镜像的转发目标是 client_，
+        // 连接先关会让正在飞的输入事件打在已断开的客户端上（虽不致命，但没意义）。
+        // 持 mu_ 与 publish() 里的翻转互斥 —— worker 此刻最多在等锁，不会并发 stop。
+        std::lock_guard<std::mutex> lk(mu_);
+        if (inputMirror_) {
+            inputMirror_->stop();
+            inputMirror_.reset();
+        }
+    }
     client_.disconnect();
     // ★ 顺序不能反：worker 线程内部也会 join / 重建 beaconThread_（Idle、Manual、Auto
     // 三个分支都有），若这里先 join(beacon)，就会与 worker **并发 join 同一个
@@ -471,6 +481,25 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
     snap_.counters.consumer = st.consumer;
     snap_.counters.dropped = st.dropped;
     if (changed) APX_LOGI("9511 会话状态：{}", linkPhaseName(ph));
+
+    // 键鼠镜像随相位翻转（2026-11-17）：连上受控端即把本机鼠标/键盘镜像过去，断开即停。
+    // 只在相位变化时动作，避免每 250ms 一次的 publish 重复建停；全程持 mu_，与 stop()
+    // 的收尾互斥，不会并发 stop 同一实例。
+    if (changed && ph == LinkPhase::Connected && !inputMirror_) {
+        inputMirror_ = createPlatformCapturer(client_);
+        if (inputMirror_ && inputMirror_->start()) {
+            APX_LOGI("键鼠镜像已启动：本机鼠标/键盘 → 受控端（断开即停）");
+        } else {
+            // Windows 钩子失败 / Linux 无 root / macOS 无辅助功能授权：如实记日志后退回
+            // 无镜像状态（与旧行为一致），不影响连接与其它功能。
+            APX_LOGW("键鼠镜像启动失败：Windows 需消息钩子；macOS 需辅助功能；Linux 需 root");
+            inputMirror_.reset();
+        }
+    } else if (changed && ph != LinkPhase::Connected && inputMirror_) {
+        inputMirror_->stop();
+        inputMirror_.reset();
+        APX_LOGI("键鼠镜像已停止（会话离开 Connected）");
+    }
 }
 
 SessionSnapshot WirelessSession::snapshot() const {

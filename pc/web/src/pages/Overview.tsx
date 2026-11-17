@@ -213,7 +213,7 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
                       <span>媒体 {state.media.connected ? '已就绪' : '未连接'}</span>
                     </>
                   ) : (
-                    <span>手机与本机需在同一 Wi‑Fi；手机 App 打开「被控模式」，连接后即可用本机键鼠控制手机</span>
+                    <span>手机与本机需在同一 Wi‑Fi；手机 App 打开「无线」，连接后即可用本机键鼠控制手机</span>
                   )}
                 </div>
               </div>
@@ -329,44 +329,17 @@ export const Overview: React.FC<Props> = ({ state, onNavigate }) => {
       {/* ————— 接入方式 ————— */}
       <Section index={2} title="接入方式" note="手机上报的实时状态；真开关在手机端，这里只读">
         <div className="card rows">
+          {/* 控制手机（2026-11-17）：此前这一行被复制粘贴成三份（内容完全相同），
+              界面上连排三行同文案，看起来像没做完。收敛为一行，并把说明改成与
+              wireless_session 键鼠镜像的真实行为一致：连上即镜像，无需再开任何开关。 */}
           <Row
             lead={<IconMouse size={18} />}
             leadTone="accent"
             title="控制手机 · 电脑键鼠 → 手机"
             sub={
               s.phase === 3
-                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
-                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
-            }
-            trail={
-              <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
-                {s.phase === 3 ? '已连接' : '未连接'}
-              </Badge>
-            }
-          />
-          <Row
-            lead={<IconMouse size={18} />}
-            leadTone="accent"
-            title="控制手机 · 电脑键鼠 → 手机"
-            sub={
-              s.phase === 3
-                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
-                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
-            }
-            trail={
-              <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
-                {s.phase === 3 ? '已连接' : '未连接'}
-              </Badge>
-            }
-          />
-          <Row
-            lead={<IconMouse size={18} />}
-            leadTone="accent"
-            title="控制手机 · 电脑键鼠 → 手机"
-            sub={
-              s.phase === 3
-                ? '已连接手机：本机鼠标、键盘操作直接作用于手机；若无反应，检查手机端「被控模式」和「无障碍」权限'
-                : '手机 App 触控板页打开「被控模式」并授权无障碍 → 点上方按钮连接，连接后即可控制'
+                ? '已连接手机：本机鼠标、键盘操作直接作用于手机（投屏预览窗可当屏幕看）；若无反应，检查手机端「无障碍」等注入权限'
+                : '连接手机后自动生效：本机鼠标、键盘操作会直接作用于手机，无需另开界面'
             }
             trail={
               <Badge tone={s.phase === 3 ? 'accent' : 'idle'}>
