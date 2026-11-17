@@ -404,6 +404,7 @@ target_compile_definitions(apxpc_noise PRIVATE ED25519_CUSTOMRANDOM ED25519_CUST
 # ---------------------------------------------------------- 目标：统一控制面（9511）
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
+  "${APXPC_ROOT}/src/wireless/noise_session.cpp"
   "${APXPC_ROOT}/src/wireless/ctrl9511.cpp"
   "${APXPC_ROOT}/src/wireless/file_receiver.cpp"
   "${APXPC_ROOT}/src/wireless/file_sender.cpp"
