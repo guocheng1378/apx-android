@@ -4,7 +4,7 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
-## Unreleased
+## v223.34.0（2026-11-18）
 
 **修黑匣子启动日志写不进下载目录**（2026-11-18 用户真机日志：每次启动报「Failed to build unique file」）：
 
