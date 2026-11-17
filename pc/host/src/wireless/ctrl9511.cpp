@@ -309,7 +309,7 @@ struct Ctrl9511Server::Impl {
     void onNoiseHandshakeMsg1(const uint8_t* msg, size_t len) {
         if (!noiseReady || noiseActive.load()) { aDropped_.fetch_add(1); return; }
         auto sess = std::make_unique<NoiseSession>();
-        if (!sess->beginResponder(token.data(), token.size(), noisePriv_) ||
+        if (!sess->beginResponder(reinterpret_cast<const uint8_t*>(token.data()), token.size(), noisePriv_) ||
             sess->readHandshakeMsg(msg, len) != 0) {
             // token 不匹配 / 帧被改：丢弃握手，保持明文链路（对端旧版也能继续用）。
             APX_LOGW("[noise] 服务端处理 msg1 失败，保持明文链路");
@@ -1277,7 +1277,7 @@ struct Ctrl9511Client::Impl {
     void initiateNoise() {
         if (!noiseReady_ || noiseWait_ || noiseActive_.load()) return;
         auto sess = std::make_unique<NoiseSession>();
-        if (!sess->beginInitiator(token_.data(), token_.size(), peerPub_.data(),
+        if (!sess->beginInitiator(reinterpret_cast<const uint8_t*>(token_.data()), token_.size(), peerPub_.data(),
                                   ownPriv_.data())) {
             APX_LOGW("[noise] 客户端会话初始化失败，保持明文链路");
             return;

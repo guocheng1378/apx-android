@@ -1,5 +1,6 @@
 package com.allperiph.wireless
 
+import com.allperiph.shared.net.NoiseSession
 import com.allperiph.shared.proto.ApxFrame
 import com.allperiph.shared.util.Log
 import java.io.OutputStream
