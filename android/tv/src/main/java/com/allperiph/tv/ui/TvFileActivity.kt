@@ -313,12 +313,13 @@ class TvFileActivity : Activity() {
         status("正在发送 ${f.name}", TvUi.Pal.accent)
         showProgress(0)
         Thread({
-            val ok = FileSender.send(target, f) { p ->
+            // 进度回调用命名参数：尾随 lambda 会被解析到 send 的最后一个参数 context（非函数类型）而编译失败
+            val ok = FileSender.send(target, f, onProgress = { p ->
                 mainHandler.post {
                     status("正在发送 ${p}%", TvUi.Pal.accent)
                     showProgress(p)
                 }
-            }
+            })
             mainHandler.post {
                 busy.set(false)
                 showProgress(if (ok) 100 else 0)
@@ -362,12 +363,13 @@ class TvFileActivity : Activity() {
         Thread({
             val ok = try {
                 contentResolver.openInputStream(uri)?.use { ins ->
-                    FileSender.send(target, name, size, ins) { p ->
+                    // 同上：onProgress 命名传参，避免尾随 lambda 撞上 context 参数
+                    FileSender.send(target, name, size, ins, onProgress = { p ->
                         mainHandler.post {
                             status("正在发送 ${p}%", TvUi.Pal.accent)
                             showProgress(p)
                         }
-                    }
+                    })
                 } ?: false
             } catch (t: Throwable) {
                 Log.e("发送失败：${t.message}")
