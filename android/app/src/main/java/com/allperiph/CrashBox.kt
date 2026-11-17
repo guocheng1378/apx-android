@@ -115,14 +115,43 @@ object CrashBox {
         try {
             val r = resolver ?: return
             val uri = mediaUri ?: run {
+                // 两段式插入（IS_PENDING，2026-11-18 修）：先在本应用 pending 区建档、
+                // 写完再转正。此前直接按最终名插进公共 Download，文件名又是固定的
+                // [DISPLAY]，第二次启动起目录里就躺着同名旧文件，部分 ROM（HyperOS
+                // 实测）这时 unique 命名直接抛 IllegalArgumentException
+                // 「Failed to build unique file」，黑匣子从此每次落盘都失败、只剩
+                // 私有目录兜底。与 LogExport.saveToDownloads、LocalSendService 的
+                // 既有写入口径对齐 —— 仓里另外两处 MediaStore 写入都是这个写法。
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, DISPLAY)
                     put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
-                r.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)?.also { mediaUri = it }
-                    ?: return
+                // 建档前先清掉本应用上次留下的同名旧档（含上次进程崩溃没转正的
+                // pending 档）：黑匣子是「全量重写」语义，旧档轻则越攒越多
+                // 「 (1)」副本，重则在部分 ROM 上卡住后面的转正环节。先删后插，
+                // 转正时最终名一定空着。删不掉不拦 —— 大不了多份副本，黑匣子不能停摆。
+                deleteStaleOwnRows(r)
+                val pending = r.insert(
+                    MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    values,
+                ) ?: return
+                mediaUri = pending
+                pending
             }
             r.openOutputStream(uri, "wt")?.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                ?: run {
+                    // 流打不开多半是这条记录已经废了（如被用户在文件管理器删掉）：
+                    // 清缓存让下一轮 flush 重新 insert，而不是抱着坏 URI 写到天荒地老
+                    mediaUri = null
+                    return
+                }
+            // 写通即转正（IS_PENDING=0）；转正撞名或失败不拦 —— 文件留在 pending 区，
+            // 本应用照常可读写，下一轮 flush 继续全量重写
+            runCatching {
+                r.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+            }.onFailure { t -> Log.w(TAG, "黑匣子转正失败（保持 pending，不影响续写）：${t.message}") }
             return
         } catch (t: Throwable) {
             Log.w(TAG, "黑匣子 MediaStore 落盘失败：${t.message}")
@@ -134,6 +163,30 @@ object CrashBox {
         } catch (t: Throwable) {
             Log.w(TAG, "黑匣子私有目录落盘失败：${t.message}")
         }
+    }
+
+    /**
+     * 清掉下载集合里本应用自己的同名旧档（[DISPLAY]，见 [flush] 的先删后插）：
+     * 只挑 owner 是本包的行 —— 卸载重装前的孤儿档也在其列，别人的同名文件查得到
+     * 也删不动。任何异常就地吞掉，由调用方决定照常继续。
+     */
+    private fun deleteStaleOwnRows(r: android.content.ContentResolver) {
+        val pkg = appCtx?.packageName ?: return
+        val downloads = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        runCatching {
+            r.query(
+                downloads,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?",
+                arrayOf(DISPLAY, pkg),
+                null,
+            )?.use { c ->
+                val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                while (c.moveToNext()) {
+                    r.delete(android.content.ContentUris.withAppendedId(downloads, c.getLong(idCol)), null, null)
+                }
+            }
+        }.onFailure { t -> Log.w(TAG, "黑匣子旧档清理失败（保留副本）：${t.message}") }
     }
 
     /**
