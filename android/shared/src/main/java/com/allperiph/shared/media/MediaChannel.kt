@@ -502,7 +502,8 @@ class MediaChannel(
                     val total = ApxFrame.totalSize(payloadLen)
                     if (rxLen - off < total) break
                     val plainLen = synchronized(noiseLock) {
-                        noiseSess?.decrypt(rxBuf, off + ApxFrame.HEADER_SIZE, payloadLen)
+                        // 会话尚未建立时按解密失败处理（?: 0 走丢帧计数分支，不断链）
+                        noiseSess?.decrypt(rxBuf, off + ApxFrame.HEADER_SIZE, payloadLen) ?: 0
                     }
                     if (plainLen <= 0) {
                         Log.w(TAG, "R2 收流解密失败，丢弃一帧")
