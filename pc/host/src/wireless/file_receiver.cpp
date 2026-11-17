@@ -132,7 +132,7 @@ NoiseSession* r2HandshakeResponder(Sock c) {
     std::vector<std::string> cands;
     std::string t1 = r2Token();
     if (!t1.empty()) cands.push_back(t1);
-    std::string t2 = config::ensurePairingToken();
+    std::string t2 = config::ensurePairingToken(config::defaultConfigPath());
     if (!t2.empty() && t2 != t1) cands.push_back(t2);
 
     for (const auto& tok : cands) {
@@ -195,10 +195,16 @@ public:
     }
 
 private:
-    /// 取下一段：[u32 ctLen][ct] → 原位解密成明文
+    /// 取下一段：[u32 ctLen][ct] → 原位解密成明文。
+    ///（此处不能写 readU32 —— 会被本类的同名成员遮蔽，改用 readFully 手工组 u32）
     bool fill() {
-        uint32_t ctLen = 0;
-        if (!readU32(s_, ctLen) || ctLen <= 16 || ctLen > kNoiseMaxPlain + 16) return false;
+        uint8_t b[4];
+        if (!readFully(s_, b, 4)) return false;
+        const uint32_t ctLen = static_cast<uint32_t>(b[0]) |
+                               (static_cast<uint32_t>(b[1]) << 8) |
+                               (static_cast<uint32_t>(b[2]) << 16) |
+                               (static_cast<uint32_t>(b[3]) << 24);
+        if (ctLen <= 16 || ctLen > kNoiseMaxPlain + 16) return false;
         std::vector<uint8_t> ct(ctLen);
         if (!readFully(s_, ct.data(), ctLen)) return false;
         const size_t plainLen = sess_->decrypt(ct.data(), ctLen);
