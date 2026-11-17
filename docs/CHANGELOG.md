@@ -4,6 +4,14 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
+## Unreleased
+
+**被控常驻通知显示链路加密状态**（用户认可的小改进）：
+
+- 被控模式常驻通知在「已连接」后追加「已加密 / 明文」：R2 握手完成即显示已加密，TV、旧对端、未配对等明文路径照常显示明文。回验加密握手时瞟一眼状态栏即可确认，不用再导日志。
+- 顺带修通知不实时：常驻通知此前只在服务启动时构建一次，「已连接」等字样不会随链路变化更新。现在连接状态与加密状态一变就重建通知（ControlServer 新增 isEncrypted 与 onEncryptedChanged 回调，与 onPeerChanged 同为主线程口径；服务侧 notify 同 ID 覆盖）。
+- 文案走 strings.xml（controlled_notif_encrypted / controlled_notif_plaintext）。**待真机回验：升级后连上电脑，通知先显示「明文」、握手完成后变「已加密」；断开重连状态随之刷新。** 手机端独立生效，电脑端无需同步升级。
+
 ## v223.33.0（2026-11-17）
 
 **R2 安全收口：Responder 侧 static 公钥白名单强制 + 首连确认**（用户拍板按 REQ §4.4 建议修）：

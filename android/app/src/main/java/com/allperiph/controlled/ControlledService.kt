@@ -178,6 +178,11 @@ class ControlledService : Service() {
         // sendCapsSync 在连接激活时调用，读偏好（SharedPreferences）线程安全。
         val service = this
         server?.notifyReplyCap = { com.allperiph.notify.NotificationSyncPref.isEnabled(service) }
+        // 常驻通知实时性（2026-11-17，随「通知显示加密状态」加）：此前通知只在服务启动时
+        // 构建一次，「已连接」「已加密」字样不会随链路变化更新，回验只能靠导日志。
+        // 现在连接/加密状态一变就刷新（回调已 post 主线程，见 refreshNotification）。
+        server?.onPeerChanged = { _, _ -> refreshNotification() }
+        server?.onEncryptedChanged = { _ -> refreshNotification() }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {
@@ -366,11 +371,27 @@ class ControlledService : Service() {
             else startForeground(NOTIFY_ID, n)
         } catch (t: Throwable) { Log.w(TAG, "startForeground 失败：${t.message}") }
     }
+    /**
+     * 常驻通知刷新（2026-11-17，随「通知显示加密状态」加）：连接状态或加密状态变化时
+     * 重新构建并 notify 同 ID 覆盖 —— 服务已是前台，不必重走 startForeground。
+     * 回调已 post 主线程（ControlServer 侧 mainHandler），此处直接操作即可。
+     */
+    private fun refreshNotification() {
+        runCatching { getSystemService(NotificationManager::class.java)?.notify(NOTIFY_ID, buildNotification()) }
+            .onFailure { Log.w(TAG, "刷新被控通知失败：${it.message}") }
+    }
     private fun buildNotification(): Notification {
         val openPi = PendingIntent.getActivity(this, 1, Intent(this, TouchpadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val ready = server?.ready == true
         val sysReady = TvInjector.systemReady()
-        val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") +
+        // 加密状态跟在连接状态后（仅已连接时显示）：回验加密握手时瞟一眼状态栏即可确认，
+        // 不用再导日志。TV/旧对端等明文路径照常显示「明文」。
+        val encText = when {
+            !ready -> ""
+            server?.isEncrypted == true -> " · " + getString(R.string.controlled_notif_encrypted)
+            else -> " · " + getString(R.string.controlled_notif_plaintext)
+        }
+        val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") + encText +
             (if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) " · 未授予通知权限" else "")
         return Notification.Builder(this, CHANNEL_ID).setContentTitle("全能外设 · 被控模式").setContentText(text).setSmallIcon(R.drawable.ic_launcher_app).setContentIntent(openPi).setOngoing(true).build()
     }

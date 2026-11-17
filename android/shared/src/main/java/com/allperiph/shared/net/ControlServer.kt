@@ -62,6 +62,20 @@ class ControlServer(
     /** 对端连入/断开的服务级回调（记忆对端 IP、刷新通知等）；与 [ControlEndpoint.onPeerStateChanged] 区别在于它是上层侧效应 */
     @Volatile var onPeerChanged: ((Boolean, String) -> Unit)? = null
 
+    /** 链路当前是否加密（0x35 握手完成后 true；断开/重连回明文）。被控常驻通知据此显示「已加密 / 明文」 */
+    fun isEncrypted(): Boolean = noiseActive
+
+    /**
+     * 加密态翻转回调（2026-11-17，随「通知显示加密状态」加）：true=进入加密，false=回明文/断开。
+     * 与 [onPeerChanged] 同口径：已 post 主线程后调用，消费方直接改 UI/通知即可。
+     */
+    @Volatile var onEncryptedChanged: ((Boolean) -> Unit)? = null
+
+    /** 加密态翻转通知（内部）：noiseActive 须已按目标值改好；post 主线程与 onPeerChanged 同口径 */
+    private fun fireEncryptedChanged(v: Boolean) {
+        mainHandler.post { onEncryptedChanged?.invoke(v) }
+    }
+
     /** root 通道保活节流：借 ping 重拉 su shell，两次尝试至少间隔 30s（真无 root 时也不白转） */
     private var lastRootKeepaliveMs: Long = 0L
 
@@ -374,7 +388,9 @@ class ControlServer(
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
         // R2 加密：新会话从明文开始（0x35 由对端发起，见 pump 的 0x35 分支），
         // 必须清掉上一条连接残留的传输态密钥，否则旧密文/新明文互相解不开
+        val wasEncrypted = noiseActive
         synchronized(noiseLock) { noiseSess = null; noiseActive = false }
+        if (wasEncrypted) fireEncryptedChanged(false)
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
         // 能力协商（0x33，2026-11-11）：新会话立即清空上一会话的对端能力，并把自己的能力
         // 报给对端 —— 接收侧存下 [peerCaps]；不发的话对端永远学到 0，能力帧族全被门掉。
@@ -424,7 +440,9 @@ class ControlServer(
         if (client === sock) {
             ready = false; client = null; out = null; peerText = ""; outQueue.clear()
             // R2 加密：连接断了就丢传输态密钥（密钥随会话走，重连重新握手）
+            val wasEncrypted = noiseActive
             synchronized(noiseLock) { noiseSess = null; noiseActive = false }
+            if (wasEncrypted) fireEncryptedChanged(false)
             // 无人在线：重置接入裁决记忆 —— 下次两台再连时重新给用户选一次
             synchronized(activateLock) { rejectedIps.clear() }
             mainHandler.post { endpoint.onPeerStateChanged(false, ""); onPeerChanged?.invoke(false, "") }
@@ -744,6 +762,7 @@ class ControlServer(
             synchronized(noiseLock) { noiseSess = null }
             return
         }
+        fireEncryptedChanged(true)   // 通知上层（常驻通知显示「已加密」），主线程回调
         Log.i("控制面", "R2 通道加密已启用（Noise IK+PSK）")
     }
 
