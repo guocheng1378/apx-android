@@ -385,6 +385,9 @@ set(APXPC_NOISE_SRC
   "${APXPC_ROOT}/third_party/noise-c/src/crypto/ed25519/ed25519.c"
   "${APXPC_ROOT}/third_party/noise-c/stubs.c"
 )
+# 本工程 project() 只声明 CXX；noise-c 全是 .c，需先启用 C 语言，
+# 否则 .c 不被视为可编译源，目标报「Cannot determine link language」。
+enable_language(C)
 add_library(apxpc_noise STATIC ${APXPC_NOISE_SRC})
 # include：协议公开头（noise/xxx.h，PUBLIC 供 ctrl9511 编）；src/protocol（internal.h
 # 与 *.c 同目录）与 src（crypto/xxx 相对 include 路径）仅库内编译需要，PRIVATE。
