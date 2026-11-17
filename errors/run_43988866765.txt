@@ -1,0 +1,112 @@
+[  7%] Built target apx_shared
+[ 15%] Built target apxpc_core
+[ 22%] Built target apxpc_media
+[ 29%] Built target apxpc_discovery
+[ 32%] Built target apxpc_sensors
+[ 54%] Built target apxpc_service
+[ 83%] Built target apxpc_noise
+[ 91%] Built target apxpc_wireless
+[ 95%] Built target apxpc_localsend
+[ 97%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "apxpc::wireless::NoiseSession::beginInitiator(unsigned char const*, unsigned long, unsigned char const*, unsigned char const*)", referenced from:
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::beginResponder(unsigned char const*, unsigned long, unsigned char const*)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::readHandshakeMsg(unsigned char const*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::writeHandshakeMsg(unsigned char*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::split()", referenced from:
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::decrypt(unsigned char*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::readerLoop(int) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::encrypt(unsigned char*, unsigned long, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::enqueue(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::encryptAndSend(std::__1::vector<unsigned char, std::__1::allocator<unsigned char>>&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::NoiseSession()", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::~NoiseSession()", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::~Impl() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>::~unique_ptr[abi:nqe210106]() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::~Impl() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::handshake(int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::resetClientFor(int) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>::operator=[abi:nqe210106](std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>&&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      ...
+  "apxpc::wireless::ensureNoiseKeyPair(unsigned char*, unsigned char*)", referenced from:
+      apxpc::wireless::Ctrl9511Server::start(unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[  7%] Built target apx_shared
+[ 15%] Built target apxpc_core
+[ 22%] Built target apxpc_media
+[ 29%] Built target apxpc_discovery
+[ 32%] Built target apxpc_sensors
+[ 54%] Built target apxpc_service
+[ 83%] Built target apxpc_noise
+[ 91%] Built target apxpc_wireless
+[ 95%] Built target apxpc_localsend
+[ 97%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+[ 98%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:658:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  658 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+1 warning generated.
+[100%] Linking CXX executable apxdesktop
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "apxpc::wireless::NoiseSession::beginInitiator(unsigned char const*, unsigned long, unsigned char const*, unsigned char const*)", referenced from:
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::beginResponder(unsigned char const*, unsigned long, unsigned char const*)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::readHandshakeMsg(unsigned char const*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::writeHandshakeMsg(unsigned char*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::split()", referenced from:
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::decrypt(unsigned char*, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::readerLoop(int) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      void* std::__1::__thread_proxy[abi:nqe210106]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)::$_0>>(void*) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::encrypt(unsigned char*, unsigned long, unsigned long)", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::enqueue(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::encryptAndSend(std::__1::vector<unsigned char, std::__1::allocator<unsigned char>>&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::NoiseSession()", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::initiateNoise() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+  "apxpc::wireless::NoiseSession::~NoiseSession()", referenced from:
+      apxpc::wireless::Ctrl9511Server::Impl::~Impl() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>::~unique_ptr[abi:nqe210106]() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::Impl::~Impl() in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::handshake(int, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::resetClientFor(int) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Server::Impl::onNoiseHandshakeMsg1(unsigned char const*, unsigned long) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>::operator=[abi:nqe210106](std::__1::unique_ptr<apxpc::wireless::NoiseSession, std::__1::default_delete<apxpc::wireless::NoiseSession>>&&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      ...
+  "apxpc::wireless::ensureNoiseKeyPair(unsigned char*, unsigned char*)", referenced from:
+      apxpc::wireless::Ctrl9511Server::start(unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+      apxpc::wireless::Ctrl9511Client::connect(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, unsigned short, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&) in libapxpc_wireless.a[3](ctrl9511.cpp.o)
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxdesktop] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
