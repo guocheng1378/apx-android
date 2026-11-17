@@ -625,14 +625,14 @@ class TvControllerClient(
         val kp = ownKp ?: return
         val tok = token.toByteArray(Charsets.UTF_8)
         if (tok.isEmpty()) return
-        // §4.4 白名单：发 msg1 前先过对端公钥裁决（信标里的公钥也要认 —— 白名单没
-        // 收录就弹确认/拒绝）。拒绝 = 断链，不发握手；放行时的信任落盘在裁决里做。
-        // 裁决可能阻塞（弹窗等用户），须在 noiseLock 外做（锁内阻塞会冻住读线程）。
-        if (NoiseSession.pubAuthorizer?.invoke(peerPub, host) == false) {
-            Log.w("TvCtrl", "R2 握手：信标公钥未获信任，断开 $host")
-            disconnect()
-            return
-        }
+        // 成宇 2026-11-18「我发的链接为什么还要被弹窗」：发起端不再走确认弹窗，直接
+        // 信任落盘（幂等）。依据：对端公钥就是用户点名去连的那台设备自己广播的
+        // （信标/链接），IK+PSK 握手会验证对端确实持有对应私钥——弹窗在此不增加
+        // 任何安全性，反而制造双窗摩擦（并发竞态 4d0e0c2 的温床）。被控端首连
+        // 确认保留：令牌明文广播，被控端分不清来的是用户还是捡到令牌的第三方。
+        // 用户拍板的后续方向：取消令牌明文广播、改扫码/链接交付，两端均可免确认。
+        val appCtx = com.allperiph.App.context
+        if (appCtx != null) NoiseSession.trustPeerPub(appCtx, peerPub, host)
         val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
         var msgLen = 0
         synchronized(noiseLock) {
