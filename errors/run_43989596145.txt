@@ -1,0 +1,114 @@
+[ 26%] Built target apxpc_noise
+[ 33%] Built target apx_shared
+[ 43%] Built target apxpc_core
+[ 50%] Built target apxpc_media
+[ 60%] Built target apxpc_wireless
+[ 64%] Built target apxpc_sensors
+[ 71%] Built target apxpc_discovery
+[ 92%] Built target apxpc_service
+[ 97%] Built target apxpc_localsend
+[ 97%] Linking CXX executable apxhost
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "_noise_aesgcm_new_ref", referenced from:
+      _noise_aesgcm_new in libapxpc_noise.a[7](internal.c.o)
+  "_noise_blake2b_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_noise_blake2s_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_noise_sha512_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_sha512_finish", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open_batch in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_hash", referenced from:
+      _ed25519_publickey in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_reset", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open_batch in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_update", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      ...
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxhost] Error 1
+make[3]: Target `CMakeFiles/apxhost.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxhost.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 26%] Built target apxpc_noise
+[ 33%] Built target apx_shared
+[ 43%] Built target apxpc_core
+[ 50%] Built target apxpc_media
+[ 59%] Built target apxpc_wireless
+[ 63%] Built target apxpc_sensors
+[ 70%] Built target apxpc_discovery
+[ 91%] Built target apxpc_service
+[ 95%] Built target apxpc_localsend
+[ 97%] Building CXX object CMakeFiles/apxdesktop.dir/src/desktop_main.cpp.o
+[ 98%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:658:14: warning: lambda capture 'p' is not used [-Wunused-lambda-capture]
+  658 |             [p, &it, &lastPct](int pct) {
+      |              ^~
+1 warning generated.
+[100%] Linking CXX executable apxdesktop
+ld: warning: ignoring duplicate libraries: 'libapxpc_core.a', 'libapxpc_discovery.a', 'libapxpc_sensors.a', 'libapxpc_service.a'
+Undefined symbols for architecture arm64:
+  "_noise_aesgcm_new_ref", referenced from:
+      _noise_aesgcm_new in libapxpc_noise.a[7](internal.c.o)
+  "_noise_blake2b_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_noise_blake2s_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_noise_sha512_new", referenced from:
+      _noise_hashstate_new_by_id in libapxpc_noise.a[6](hashstate.c.o)
+      _noise_hashstate_new_by_name in libapxpc_noise.a[6](hashstate.c.o)
+  "_sha512_finish", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open_batch in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_hash", referenced from:
+      _ed25519_publickey in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_reset", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open_batch in libapxpc_noise.a[22](ed25519.c.o)
+  "_sha512_update", referenced from:
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      _ed25519_sign_open in libapxpc_noise.a[22](ed25519.c.o)
+      ...
+ld: symbol(s) not found for architecture arm64
+clang++: error: linker command failed with exit code 1 (use -v to see invocation)
+make[3]: *** [apxdesktop] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
