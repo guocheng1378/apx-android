@@ -1292,7 +1292,12 @@ internal fun connectControlledDevice(
         val tok = d.token.ifBlank {
             com.allperiph.wireless.TvDiscovery.list().firstOrNull { it.ip == d.ip }?.token ?: ""
         }
-        val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port, tok)
+        // R2 通道加密（2026-11-17）：对端静态公钥从信标第 5 段取（d.noisePubKey），
+        // 历史重连等没有的按 IP 从发现表兜底；取不到则明文连接（旧版对端兼容路径）
+        val pub = d.noisePubKey.ifBlank {
+            com.allperiph.wireless.TvDiscovery.list().firstOrNull { it.ip == d.ip }?.noisePubKey ?: ""
+        }
+        val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port, tok, pub)
         val ok = c.connect()
         ui.post {
             if (ok) {

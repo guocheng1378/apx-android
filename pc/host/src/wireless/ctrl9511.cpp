@@ -5,6 +5,7 @@
 // 仅网络与帧解析是平台无关部分；系统注入见 input_injector_*，剪贴板监听见同文件。
 // ============================================================================
 #include "apxpc/wireless/ctrl9511.hpp"
+#include "apxpc/wireless/noise_session.hpp"   // R2 通道加密（NoisePSK_IK_25519_ChaChaPoly_SHA256）
 #include "apxpc/log.hpp"   // 启动失败/异常要留痕（mac 端此前在这里 terminate，日志是唯一现场）
 // v184：断链/退出时抬起残留按键（副屏触摸可能停在"按下"帧上）
 #include "apxpc/media/touch_inject.hpp"
@@ -209,8 +210,18 @@ struct Ctrl9511Server::Impl {
     /// 0 = 本会话未收到 —— 旧版手机没有该机制，能力帧族一律不发（前向兼容）。
     std::atomic<uint64_t> peerCaps_{0};
 
-    /**
-     * 发 0x33 能力协商（2026-11-11）：把本机（PC 服务端）的能力位图报给连入的手机。
+    // ---- R2 通道加密（NoisePSK_IK_25519_ChaChaPoly_SHA256，能力位 bit8）----
+    // 应答方（服务端）：收 msg1（0x35）→ 先回 msg2（明文）→ 再置位 noiseActive；
+    // 此后入队的帧在 writeMu 锁内即时加密（明/密分界在「入队时」定，见类注释与
+    // docs/REQ-无线安全配对.md §4.3）。噪声态只在 reader 线程创建/释放；
+    // enqueue（任意线程）只在 writeMu 锁内读 noiseActive / noiseResp_。
+    std::atomic<bool> noiseActive{false};
+    bool noiseReady = false;                // start() 时备齐密钥材料（token 非空 + 本端密钥对）
+    uint8_t noisePriv_[32] = {};
+    uint8_t noisePub_[32] = {};
+    std::unique_ptr<NoiseSession> noiseResp_;
+
+    /** 发 0x33 能力协商（2026-11-11）：把本机（PC 服务端）的能力位图报给连入的手机。
      * 命令号按字面量写（0x33），与 kCaps9511* / Android ApxFrame.CMD_CAPS_SYNC /
      * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
      */
@@ -219,9 +230,11 @@ struct Ctrl9511Server::Impl {
         // sendCapsSync（下方 Client::Impl 同名函数）**不加** —— 那条链路没有 0x4C 接收端。
         // bit7 副屏远程开关（0x4D）同理只在服务端报 —— 0x4D 的接收端（ActionRouter
         // 接线）只在手机控 PC 方向存在。
-        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr
-                           | kCaps9511GamepadShot | kCaps9511ScreenToggle;
+        // bit8 R2 加密：token 非空且密钥材料备齐才报 —— TV / 未配对时保持明文。
+        uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
+                     | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr
+                     | kCaps9511GamepadShot | kCaps9511ScreenToggle;
+        if (noiseReady && !token.empty()) own |= kCaps9511Encrypt;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放帧头第 1 字节，这里只传位图 8 字节
@@ -263,9 +276,55 @@ struct Ctrl9511Server::Impl {
     void enqueue(const uint8_t* frame, size_t len) {
         {
             std::lock_guard<std::mutex> lk(writeMu);
+            if (noiseActive.load() && noiseResp_) {
+                // R2 加密路径：帧头明文，payload（body+CRC 整体）作为一条 Noise
+                // 传输消息原位加密，重写帧头 payloadLen = 明文长 + 16（AEAD 标签）。
+                // 明/密分界在入队时定：msg2 之前入队的帧保持明文（含 msg2 自身）。
+                std::vector<uint8_t> enc(frame, frame + len);
+                apx::ApxFrameHeader h{};
+                if (apx::readHeader(enc.data(), enc.size(), h)) {
+                    const size_t cipherLen = noiseResp_->encrypt(
+                        enc.data() + apx::kFrameHeaderSize, h.payloadLen,
+                        enc.size() - apx::kFrameHeaderSize);
+                    if (cipherLen > 0) {
+                        h.payloadLen = static_cast<uint32_t>(cipherLen);
+                        apx::writeHeader(enc.data(), enc.size(), h);
+                        outQueue.emplace_back(std::move(enc));
+                        writeCv.notify_one();
+                        return;
+                    }
+                    // 明文超 noise-c 上限（65519，如 0xFFFF 剪贴板整帧）→ 加密失败，
+                    // 按丢帧处理（与读侧丢帧同计数），宁可少发不破坏密文流对齐。
+                    aDropped_.fetch_add(1);
+                    return;
+                }
+            }
             outQueue.emplace_back(frame, frame + len);
         }
         writeCv.notify_one();
+    }
+
+    /// R2 加密（能力位 bit8）：应答方处理 0x35 的 msg1 —— 建 Responder 会话、
+    /// 消费 msg1、回 msg2（0x35 明文帧），此后入队帧全加密。跑在 reader 线程。
+    void onNoiseHandshakeMsg1(const uint8_t* msg, size_t len) {
+        if (!noiseReady || noiseActive.load()) { aDropped_.fetch_add(1); return; }
+        auto sess = std::make_unique<NoiseSession>();
+        if (!sess->beginResponder(token.data(), token.size(), noisePriv_) ||
+            sess->readHandshakeMsg(msg, len) != 0) {
+            // token 不匹配 / 帧被改：丢弃握手，保持明文链路（对端旧版也能继续用）。
+            APX_LOGW("[noise] 服务端处理 msg1 失败，保持明文链路");
+            return;
+        }
+        uint8_t out[256];   // IK 的 msg2 = 混合交换段，远小于 256
+        const int n = sess->writeHandshakeMsg(out, sizeof(out));
+        if (n < 0) return;
+        std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + static_cast<size_t>(n) + apx::kFrameCrcSize);
+        size_t flen = 0;
+        if (!buildCtrlFrame(buf.data(), buf.size(), flen, 0x35, out,
+                            static_cast<size_t>(n), seq_.fetch_add(1))) return;
+        enqueue(buf.data(), flen);           // msg2 恒明文 —— 先入队
+        noiseResp_ = std::move(sess);        // 再挂会话、置位：此后入队帧即加密
+        noiseActive.store(true);
     }
 
     /**
@@ -401,6 +460,9 @@ struct Ctrl9511Server::Impl {
            否则面板会把上一模式当成当前状态一直显示（issue#52：切了模式却看到旧状态）。 */
         modeReported_.store(false);
         modeFlags_.store(0);
+        // R2 加密：新会话重置噪声态（旧会话的传输密钥绝不复用 —— Noise 一次握手一密钥）。
+        noiseActive.store(false);
+        noiseResp_.reset();
         // 能力协商（0x33，2026-11-11）：新会话清掉上一会话的对端能力，并把本机能力报给对端 ——
         // 不发的话手机学到的永远是 0，能力帧族全被门掉（通知同步/查找手机整条断）。
         peerCaps_.store(0);
@@ -426,6 +488,14 @@ struct Ctrl9511Server::Impl {
            用户看到的就是「都断了还写着无线在用」。——「不知道」就说不知道。 */
         modeReported_.store(false);
         modeFlags_.store(0);
+        // R2 加密：断链即丢噪声态（传输密钥按会话隔离，重连走新一轮 0x35 握手）。
+        // ⚠️ noiseResp_ 会被 enqueue 在 writeMu 锁内解引用，必须先拿 writeMu 再清，
+        // 否则「检查通过、释放、使用」三步交错就是 use-after-free。
+        {
+            std::lock_guard<std::mutex> lkW(writeMu);
+            noiseActive.store(false);
+            noiseResp_.reset();
+        }
         peerCaps_.store(0);   // 能力协商（0x33）：断链即作废，重连后由新一轮 0x33 重建
     }
 
@@ -466,7 +536,19 @@ struct Ctrl9511Server::Impl {
                 if (!apx::isValidPayloadLen(h.payloadLen)) { acc.clear(); aDropped_.fetch_add(1); break; }
                 const size_t total = apx::frameTotalSize(h);
                 if (acc.size() - off < total) break;
-                const uint8_t* payload = acc.data() + off + apx::kFrameHeaderSize;
+                uint8_t* payload = acc.data() + off + apx::kFrameHeaderSize;
+                if (h.streamId == apx::kStreamControl && noiseActive.load() && noiseResp_) {
+                    // R2 加密：payload（body+CRC 整体）作为一条 Noise 传输消息原位解密
+                    //（帧头明文，AD 空）。noiseActive 只在 reader 线程翻转 —— 这里读它
+                    // 与处理该帧同线程，TCP 序保证「msg1 处理完之前的帧全明文」。
+                    const size_t plainLen = noiseResp_->decrypt(payload, h.payloadLen);
+                    if (plainLen == 0) {
+                        // 标签不过 = 篡改/密钥不符：丢帧计数不断链（连错说明链路被第三方碰，
+                        // 真断由心跳/读错误自然接管）。
+                        aDropped_.fetch_add(1); off += total; continue;
+                    }
+                    h.payloadLen = static_cast<uint32_t>(plainLen);
+                }
                 if (h.streamId == apx::kStreamControl && !apx::verifyPayload(payload, h.payloadLen)) {
                     aDropped_.fetch_add(1); off += total; continue;
                 }
@@ -622,6 +704,10 @@ struct Ctrl9511Server::Impl {
             // CAPS_SYNC 能力协商（2026-11-11）：对端报能力位图（u64 小端 8 字节）。
             // 元数据落原子变量，不动注入路径。
             onCapsSync(p, bodyLen);
+        } else if (cmd == 0x35 && bodyLen >= 1) {
+            // NOISE_HANDSHAKE msg1（R2 通道加密，docs/REQ-无线安全配对.md §4.3）：
+            // 0x35 恒明文（握手帧不加密），payload = Noise 握手消息本体。
+            onNoiseHandshakeMsg1(p + 1, bodyLen - 1);
         } else if (cmd == 0x40 && bodyLen >= 7) {
             // NOTIFY_PUSH 通知推送（2026-11-11，能力位 bit0）：手机 → PC 托盘气泡。
             // 载荷（与 Android ApxFrame.packNotifyPush 对拍）：
@@ -783,7 +869,17 @@ struct Ctrl9511Server::Impl {
     void beaconLoop() {
         std::string safe = name;
         for (auto& c : safe) if (c == ' ') c = '_';
-        const std::string payload = "APX1PC " + safe + " " + std::to_string(port) + " " + token;
+        std::string payload = "APX1PC " + safe + " " + std::to_string(port) + " " + token;
+        if (noiseReady) {
+            // R2 加密：信标第 5 段携带本端静态公钥（64 hex，TOFU —— 控制端据此发起
+            // IK 握手）。只在密钥材料齐备时追加，旧版控制端按空格切分取前 4 段不受影响。
+            payload += " ";
+            static const char* kHex = "0123456789abcdef";
+            for (int i = 0; i < 32; ++i) {
+                payload.push_back(kHex[noisePub_[i] >> 4]);
+                payload.push_back(kHex[noisePub_[i] & 0x0F]);
+            }
+        }
         auto sendTo = [](Sock b, const std::string& pl, uint32_t netAddr) {
             sockaddr_in dst{};
             dst.sin_family = AF_INET;
@@ -848,6 +944,11 @@ bool Ctrl9511Server::start(uint16_t port, const std::string& token, const std::s
     ensureWsa();
     auto* im = new Impl();
     im->port = port; im->token = token; im->name = name;
+    // R2 加密：进程级懒加载本端静态密钥对（首次生成并落盘 config）。token 为空的
+    // 装配（无鉴权）不参与加密 —— PSK 语义要求两端同 token。失败仅降级明文。
+    if (!token.empty() &&
+        ensureNoiseKeyPair(im->noisePriv_, im->noisePub_))
+        im->noiseReady = true;
 
     /* 失败即整体回收（issue#47 硬修）：三种失败路径原先各自 delete/hand-rolled，
        漏掉谁就是一次「未 join 的 std::thread 析构 → std::terminate」。
@@ -1141,17 +1242,70 @@ struct Ctrl9511Client::Impl {
     /// 0 = 本会话未收到 —— 旧版对端没有该机制，能力帧族一律不发（前向兼容）。
     std::atomic<uint64_t> peerCaps_{0};
 
+    // ---- R2 通道加密（能力位 bit8）—— 发起方 ----
+    // 三态：① 明文直发（握手前）；② WAIT（msg1 已发、msg2 未到 —— 待发帧进
+    // pendingBuf_ 攒着不发，避免「msg1 之后的明文帧」被已激活的对端当密文解）；
+    // ③ active（收到 msg2 → split → pendingBuf_ 按序加密补发，此后直接加密发）。
+    // 全部状态在 mu 锁内翻转（sendCmd / reader 0x33/0x35 分支都持 mu），
+    // TCP 序 + 锁序保证两端明/密边界对齐。
+    std::vector<uint8_t> ownPriv_;       // 本端静态私钥（connect 时 ensureNoiseKeyPair 备齐）
+    std::vector<uint8_t> peerPub_;       // 对端静态公钥（信标第 5 段；connect 前由外层设置）
+    std::string token_;                  // 连接 token（PSK 源；空 = 不参与加密）
+    bool noiseReady_ = false;            // 密钥材料齐备（connect 时定，此后只读）
+    std::unique_ptr<NoiseSession> noiseSess_;   // reader 线程建，sendCmd/reader 共用 mu
+    bool noiseWait_ = false;                     // WAIT 态（mu 保护）
+    std::atomic<bool> noiseActive_{false};       // 传输态（mu 翻转；reader 解密也持读侧判断）
+    std::deque<std::vector<uint8_t>> pendingBuf_; // WAIT 期间的待发帧（mu 保护）
+
     /**
      * 发 0x33 能力协商（2026-11-11）：把本机（PC 控制端）的能力位图报给对端。
      * 命令号按字面量写（0x33），与 kCaps9511* / Android ApxFrame.CMD_CAPS_SYNC /
      * scripts/check_protocol.py 三处对拍 —— 改这里必须同步。
      */
     void sendCapsSync() {
-        const uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
-                           | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr;
+        // bit8 R2 加密：本端密钥材料齐备才报（对端据此决定是否发 msg1）。
+        uint64_t own = kCaps9511NotifySync | kCaps9511NotifyReply | kCaps9511FindPhone
+                     | kCaps9511PhoneFiles | kCaps9511Album | kCaps9511AbsolutePtr;
+        if (noiseReady_) own |= kCaps9511Encrypt;
         uint8_t body[9] = {0x33, 0, 0, 0, 0, 0, 0, 0, 0};
         for (int i = 0; i < 8; ++i) body[1 + i] = static_cast<uint8_t>((own >> (8 * i)) & 0xFF);
         sendCmd(0x33, body + 1, 8);  // sendCmd 自身会把 cmd 放 body[0]，这里只传位图 8 字节
+    }
+
+    /// 发起方收到对端 0x33 且报了 bit8 时调用：建 Initiator 会话、发 msg1（0x35 明文），
+    /// 进入 WAIT 态。须持 mu 调用；重复进入安全（WAIT/active 时 no-op）。
+    void initiateNoise() {
+        if (!noiseReady_ || noiseWait_ || noiseActive_.load()) return;
+        auto sess = std::make_unique<NoiseSession>();
+        if (!sess->beginInitiator(token_.data(), token_.size(), peerPub_.data(),
+                                  ownPriv_.data())) {
+            APX_LOGW("[noise] 客户端会话初始化失败，保持明文链路");
+            return;
+        }
+        uint8_t out[256];   // IK 的 msg1 = 混合交换段，远小于 256
+        const int n = sess->writeHandshakeMsg(out, sizeof(out));
+        if (n < 0) return;
+        std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + static_cast<size_t>(n) + apx::kFrameCrcSize);
+        size_t len = 0;
+        if (!buildCtrlFrame(buf.data(), buf.size(), len, 0x35, out,
+                            static_cast<size_t>(n), seq_.fetch_add(1))) return;
+        if (sock != kBadSock) sendAll(sock, buf.data(), len);   // msg1 恒明文
+        noiseSess_ = std::move(sess);
+        noiseWait_ = true;   // WAIT：此后待发帧进 pendingBuf_，等 msg2
+    }
+
+    /// 传输态发送：buf（完整帧）原位加密 payload 后写出。须持 mu 调用。
+    /// 加密失败（明文超 noise-c 上限 65519，如 0xFFFF 剪贴板整帧）→ 丢帧计数。
+    void encryptAndSend(std::vector<uint8_t>& buf) {
+        apx::ApxFrameHeader h{};
+        if (!apx::readHeader(buf.data(), buf.size(), h)) return;
+        const size_t cipherLen = noiseSess_->encrypt(
+            buf.data() + apx::kFrameHeaderSize, h.payloadLen,
+            buf.size() - apx::kFrameHeaderSize);
+        if (cipherLen == 0) { dropped.fetch_add(1); return; }
+        h.payloadLen = static_cast<uint32_t>(cipherLen);
+        apx::writeHeader(buf.data(), buf.size(), h);
+        sendAll(sock, buf.data(), buf.size());
     }
 
     int64_t nowMs() const {
@@ -1174,9 +1328,21 @@ struct Ctrl9511Client::Impl {
         std::vector<uint8_t> buf(apx::kFrameHeaderSize + 1 + bodyLen + apx::kFrameCrcSize);
         size_t len = 0;
         if (!buildCtrlFrame(buf.data(), buf.size(), len, cmd, body, bodyLen, seq_.fetch_add(1))) return;
+        buf.resize(len);
+        // R2 加密三态（见 Impl 顶部注释）：WAIT 攒帧 / active 加密 / 否则明文直发。
         std::lock_guard<std::mutex> lk(mu);
         if (sock == kBadSock) return;
-        sendAll(sock, buf.data(), len);
+        if (noiseWait_) {
+            // msg1 已发、msg2 未到：攒着不发，防止「msg1 之后的明文帧」被已激活的
+            // 对端当密文解（两端明/密边界必须对齐，唯一保证手段就是这段窗口不发）。
+            pendingBuf_.push_back(std::move(buf));
+            return;
+        }
+        if (noiseActive_.load() && noiseSess_) {
+            encryptAndSend(buf);
+            return;
+        }
+        sendAll(sock, buf.data(), buf.size());
     }
 };
 
@@ -1188,6 +1354,20 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     ensureWsa();
     auto* im = new Impl();
     im->injector = createPlatformInjector();   // 注入器建不起来时各分支会跳过注入，不影响连接
+    // R2 加密材料：token 非空 + 对端静态公钥非空（信标第 5 段）+ 本端密钥对可用，
+    // 三者齐备才具备发起 0x35 握手的条件；任一缺失保持明文链路（TV / 旧版 / 手动连接）。
+    im->token_ = token;
+    if (!pendingPeerPub_.empty()) {   // connect 前经 setPeerStaticKey 暂存的对端公钥
+        im->peerPub_ = pendingPeerPub_;
+        pendingPeerPub_.clear();
+    }
+    if (!token.empty() && !im->peerPub_.empty()) {
+        uint8_t kp[32], pk[32];
+        if (ensureNoiseKeyPair(kp, pk)) {
+            im->ownPriv_.assign(kp, kp + 32);
+            im->noiseReady_ = true;
+        }
+    }
     addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_INET; hints.ai_socktype = SOCK_STREAM;
     char portStr[8]; std::snprintf(portStr, sizeof(portStr), "%u", static_cast<unsigned>(port));
@@ -1270,7 +1450,20 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 if (!apx::isValidPayloadLen(h.payloadLen)) { acc.clear(); im->dropped++; break; }
                 const size_t total = apx::frameTotalSize(h);
                 if (acc.size() - off < total) break;
-                const uint8_t* payload = acc.data() + off + apx::kFrameHeaderSize;
+                uint8_t* payload = acc.data() + off + apx::kFrameHeaderSize;
+                if (h.streamId == apx::kStreamControl && im->noiseActive_.load()) {
+                    // R2 加密：payload（body+CRC 整体）原位解密（帧头明文，AD 空）。
+                    // noiseActive 在 mu 锁内翻转；这里读它虽不持 mu，但 TCP 序保证
+                    // msg2 之后的帧才会遇到 true（翻转发生在 msg2 读取完成的 mu 段内）。
+                    std::lock_guard<std::mutex> lkD(im->mu);
+                    const size_t plainLen = im->noiseSess_
+                        ? im->noiseSess_->decrypt(payload, h.payloadLen) : 0;
+                    if (plainLen == 0) {
+                        // 标签不过 = 篡改/密钥不符：丢帧计数不断链（真断由心跳接管）。
+                        im->dropped++; off += total; continue;
+                    }
+                    h.payloadLen = static_cast<uint32_t>(plainLen);
+                }
                 const uint32_t bodyLen = h.payloadLen >= apx::kFrameCrcSize ? h.payloadLen - apx::kFrameCrcSize : 0;
                 if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x21 && bodyLen >= 3) {
                     const uint32_t len = static_cast<uint32_t>(payload[1]) | (static_cast<uint32_t>(payload[2]) << 8);
@@ -1334,6 +1527,36 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                         for (int i = 0; i < 8; ++i)
                             caps |= static_cast<uint64_t>(payload[1 + i]) << (8 * i);
                         im->peerCaps_.store(caps);
+                        // R2 加密：对端报 bit8 且本端材料齐备 → 发起 0x35 握手（只发一次）。
+                        // 持 mu 与 sendCmd 同锁 —— msg1 之后 sendCmd 才会看到 WAIT。
+                        if ((caps & kCaps9511Encrypt) != 0) {
+                            std::lock_guard<std::mutex> lkN(im->mu);
+                            im->initiateNoise();
+                        }
+                    }
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 1 && payload[0] == 0x35) {
+                    // NOISE_HANDSHAKE msg2（R2 加密，docs/REQ-无线安全配对.md §4.3）：
+                    // 消费 msg2 → split 出传输密钥 → pendingBuf_ 按序加密补发 → 进入传输态。
+                    // 0x35 恒明文；此分支必须持 mu（与 sendCmd/pendingBuf_ 互斥）。
+                    {
+                        std::lock_guard<std::mutex> lkN(im->mu);
+                        if (im->noiseWait_ && im->noiseSess_ &&
+                            im->noiseSess_->readHandshakeMsg(payload + 1, bodyLen - 1) == 0 &&
+                            im->noiseSess_->split()) {
+                            for (auto& f : im->pendingBuf_) im->encryptAndSend(f);   // 攒帧按序补发
+                            im->pendingBuf_.clear();
+                            im->noiseWait_ = false;
+                            im->noiseActive_.store(true);
+                        } else {
+                            // 握手失败（对端 token 不符等）：弃会话退回明文 —— 攒帧按明文
+                            // 补发（若对端已激活则它侧解密会失败丢帧，但两端材料不一致本就
+                            // 无法通信，恢复明文是唯一能让旧版互通的路径）。
+                            im->noiseWait_ = false;
+                            im->noiseSess_.reset();
+                            if (im->sock != kBadSock)
+                                for (auto& f : im->pendingBuf_) sendAll(im->sock, f.data(), f.size());
+                            im->pendingBuf_.clear();
+                        }
                     }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 7 && payload[0] == 0x40) {
                     // NOTIFY_PUSH 通知推送（2026-11-11，能力位 bit0）：受控手机推送通知 →
@@ -1556,6 +1779,16 @@ void Ctrl9511Client::disconnect() {
 }
 
 bool Ctrl9511Client::ready() const { return impl_ && impl_->running.load(); }
+
+// R2 加密（能力位 bit8）：connect 前记录对端静态公钥（信标第 5 段，原始 32 字节）。
+// impl_ 在 connect() 时才创建，这里先暂存到外层成员，connect() 里搬进 Impl。
+void Ctrl9511Client::setPeerStaticKey(const std::vector<uint8_t>& pub) {
+    if (pub.size() != 32) {   // 长度不符 = 信标段残缺，按未提供处理（保持明文）
+        pendingPeerPub_.clear();
+        return;
+    }
+    pendingPeerPub_ = pub;
+}
 
 void Ctrl9511Client::sendMouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
     if (!impl_) return;

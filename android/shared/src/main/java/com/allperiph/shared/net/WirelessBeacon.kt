@@ -8,9 +8,11 @@ import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * 反向信标：周期向局域网广播「我是 <设备类型> / 控制端口 / 令牌」。
- * 载荷：`<prefix> <name> <port> <token>`（UTF-8），广播到 [BEACON_PORT]。
+ * 反向信标：周期向局域网广播「我是 <设备类型> / 控制端口 / 令牌 / 噪声公钥」。
+ * 载荷：`<prefix> <name> <port> <token> <noisePubKeyHex>`（UTF-8），广播到 [BEACON_PORT]。
  * prefix 例：`APX1TV` 电视 / `APX1PC` PC / `APX1PH` 手机被控。
+ * 第 5 段（R2 加密静态公钥，2026-11-17）为可选段：空串时不追加，旧版对端照常解析前 4 段。
+ * 见 docs/REQ-无线安全配对.md §4.1。
  *
  * **必须同时发受限广播与各网卡的子网定向广播**：Xiaomi MIUI / Android 15 会丢弃
  * `255.255.255.255` 受限广播，只发它时对端面板会永远停在「正在发现」，
@@ -34,6 +36,12 @@ class WirelessBeacon(
      * 这里对已知对端（如正在控的 PC）再单播一份，兜住这种情况。
      */
     private val unicastHosts: () -> List<String> = { emptyList() },
+    /**
+     * R2 通道加密（2026-11-17）：本端 Noise 静态公钥（64 位 hex），随信标第 5 段广播 ——
+     * 控制端据此对被控端发起 0x35 握手。空串（TV / 未生成密钥）= 不追加第 5 段，
+     * 对端按明文链路连接（旧版兼容路径）。
+     */
+    private val noisePubKeyHex: String = "",
     private val periodMs: Long = PERIOD_MS,
 ) {
     private val running = AtomicBoolean(false)
@@ -56,7 +64,12 @@ class WirelessBeacon(
     private fun loop() {
         var socket: DatagramSocket? = null
         val safeName = tvName.replace(' ', '_')
-        val payload = "$prefix $safeName $tcpPort $token".toByteArray(Charsets.UTF_8)
+        // R2 加密（2026-11-17）：公钥非空才追加第 5 段 —— 旧版对端按 4 段解析不受影响
+        val payload = if (noisePubKeyHex.isNotEmpty()) {
+            "$prefix $safeName $tcpPort $token $noisePubKeyHex".toByteArray(Charsets.UTF_8)
+        } else {
+            "$prefix $safeName $tcpPort $token".toByteArray(Charsets.UTF_8)
+        }
         try {
             socket = DatagramSocket().apply { broadcast = true }
             var loggedFail = false

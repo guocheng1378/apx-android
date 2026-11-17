@@ -191,7 +191,7 @@ private:
     void worker();
     void publish(LinkPhase ph, Mode m);
     void onBeacon(const std::string& host, uint16_t port, bool phone,
-                  const std::string& token);
+                  const std::string& token, const std::string& pubHex);
     void beaconLoop();
 
     mutable std::mutex mu_;
@@ -202,6 +202,7 @@ private:
     uint16_t beaconPort_ = 0;
     bool beaconPhone_ = false;   // 待连信标是否来自手机（APX1PH）—— 手机优先于 TV，见 onBeacon
     std::string beaconToken_;    // 待连信标的配对 token（信标第 4 段；旧信标可无 = 空串）
+    std::string beaconPub_;      // 待连信标的静态公钥（信标第 5 段 64 hex；旧信标可无 = 空串）
     bool manualFailed_ = false;
 
     std::atomic<bool> running_{false};

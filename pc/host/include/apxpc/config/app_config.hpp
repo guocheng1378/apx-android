@@ -68,6 +68,11 @@ struct AppConfig {
     // 128-bit 随机 hex（32 字符），首次启动生成并持久化；被控端信标回带同一 token
     // 才允许握手。空串 = 不启用校验（对端旧版/未启用 token 时保持互通）。
     std::string pairingToken;
+
+    // R2 通道加密（NoisePSK_IK_25519_ChaChaPoly_SHA256）：本端静态私钥，64 hex
+    //（Curve25519 私钥 32 字节）。首次启用加密时生成并持久化，与 pairingToken
+    // 同样「进程内不改动」—— 换掉即等于换身份，对端 TOFU 白名单要重配。
+    std::string noiseKeyPriv;
 };
 
 // 加载：文件缺失或解析失败返回默认值（不报错，首次启动常见）；

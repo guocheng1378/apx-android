@@ -35,6 +35,13 @@ class ControlServer(
     private val port: Int = PORT,
     private val token: String = "",
     private val endpoint: ControlEndpoint,
+    /**
+     * R2 通道加密（2026-11-17，能力位 bit8）：本端 Noise 静态密钥对 (priv, pub)，
+     * 由上层经 [NoiseSession.ensureKeyPair] 注入。null = 本端不具备加密条件，
+     * 链路保持明文（旧版对端 / TV / 手动连接的兼容路径，见 docs/REQ-无线安全配对.md §4.1）。
+     * 应答方还要求 [token] 非空（PSK 源）；无令牌则报了 bit8 也不会进入加密。
+     */
+    private val noiseKeyPair: Pair<ByteArray, ByteArray>? = null,
 ) {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var client: Socket? = null
@@ -195,6 +202,19 @@ class ControlServer(
     // D-1 诊断：静默丢帧计数（magic/payloadLen/CRC 三类，每 50 次记一条）
     private var frameDrops = 0
 
+    // ---- R2 通道加密（0x35 / CAP_ENCRYPT bit8，2026-11-17）----
+    // 会话态由 [noiseLock] 串行化：写侧（sendControl 加密）与读侧（pump 解密）各持
+    // 自己的外层锁再进 noiseLock（noiseLock 恒为叶子锁，无环）。
+    private val noiseLock = Any()
+    /** 传输态 Noise 会话（握手完成、split 之后）；null = 尚无 */
+    private var noiseSess: NoiseSession? = null
+    /** 加密开关：0x35 握手完成后置 true，此后 9511 出入帧 payload 均为 AEAD 密文（帧头明文） */
+    @Volatile private var noiseActive = false
+    /** R2 诊断：解密失败丢帧计数（标签不过 / 会话缺失，每 50 次记一条，不断链） */
+    private var noiseDrops = 0
+    /** PSK 源：配对令牌的字节（构造时定死；空 = 永不进入加密） */
+    private val tokenBytes = token.toByteArray(Charsets.UTF_8)
+
     // ---- v223.33 多设备接入裁决状态（均在 activateLock 内读写）----
     /** 待用户裁决的新连接（一次只裁一个，后续并发直接拒） */
     private var pendingSock: Socket? = null
@@ -343,6 +363,9 @@ class ControlServer(
     private fun doActivate(sock: Socket) {
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
         synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+        // R2 加密：新会话从明文开始（0x35 由对端发起，见 pump 的 0x35 分支），
+        // 必须清掉上一条连接残留的传输态密钥，否则旧密文/新明文互相解不开
+        synchronized(noiseLock) { noiseSess = null; noiseActive = false }
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
         // 能力协商（0x33，2026-11-11）：新会话立即清空上一会话的对端能力，并把自己的能力
         // 报给对端 —— 接收侧存下 [peerCaps]；不发的话对端永远学到 0，能力帧族全被门掉。
@@ -391,6 +414,8 @@ class ControlServer(
     private fun teardown(sock: Socket) {
         if (client === sock) {
             ready = false; client = null; out = null; peerText = ""; outQueue.clear()
+            // R2 加密：连接断了就丢传输态密钥（密钥随会话走，重连重新握手）
+            synchronized(noiseLock) { noiseSess = null; noiseActive = false }
             // 无人在线：重置接入裁决记忆 —— 下次两台再连时重新给用户选一次
             synchronized(activateLock) { rejectedIps.clear() }
             mainHandler.post { endpoint.onPeerStateChanged(false, ""); onPeerChanged?.invoke(false, "") }
@@ -424,13 +449,34 @@ class ControlServer(
                     if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} magic不符 off=$off rxLen=$rxLen")
                     off++; continue
                 }
-                val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) {
-                    if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} payloadLen=$payloadLen")
+                val payloadLen0 = ApxFrame.payloadLenAt(rxBuf, off)
+                if (payloadLen0 < 0 || payloadLen0 > ApxFrame.MAX_PAYLOAD) {
+                    if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} payloadLen=$payloadLen0")
                     off++; continue
                 }
-                val total = ApxFrame.totalSize(payloadLen)
+                var payloadLen = payloadLen0
+                var total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                // R2 加密（2026-11-17）：active 后 payload 整段是 AEAD 密文（明文 = body + CRC 尾，
+                // 帧 16 字节头保持明文）。先解密、重写 payloadLen，再走常规 CRC 校验 ——
+                // CRC 尾在密文里，解密前的 verify 恒不成立。解密失败（标签不过）按丢帧计数，
+                // 不断链：对端可能换了密钥/帧被改，掐断连接反而丢掉后续协商机会。
+                if (noiseActive) {
+                    if (payloadLen <= NoiseSession.KEY_LEN) {   // 密文至少要装下 16 字节 Poly 标签
+                        if (noiseDrops++ % 50 == 0) Log.w("控制面", "诊断:R2丢帧#${noiseDrops} 密文过短 len=$payloadLen")
+                        off += total; continue
+                    }
+                    val cipher = rxBuf.copyOfRange(off + ApxFrame.HEADER_SIZE, off + ApxFrame.HEADER_SIZE + payloadLen)
+                    val plainLen = synchronized(noiseLock) { noiseSess?.decrypt(cipher, payloadLen) ?: 0 }
+                    if (plainLen <= 0) {
+                        if (noiseDrops++ % 50 == 0) Log.w("控制面", "诊断:R2丢帧#${noiseDrops} 解密失败 len=$payloadLen")
+                        off += total; continue
+                    }
+                    System.arraycopy(cipher, 0, rxBuf, off + ApxFrame.HEADER_SIZE, plainLen)
+                    putU32Le(rxBuf, off + 8, plainLen)   // 帧头 payloadLen 重写为明文长
+                    payloadLen = plainLen
+                    total = ApxFrame.totalSize(plainLen)
+                }
                 if (!ApxFrame.verify(rxBuf, off, payloadLen)) {
                     if (frameDrops++ % 50 == 0) Log.w("控制面", "诊断:丢帧#${frameDrops} CRC不符 off=$off len=$payloadLen")
                     off += total; continue
@@ -476,6 +522,9 @@ class ControlServer(
                             // 0x33 能力协商（2026-11-11）：对端连接后报能力位图（u64 小端 8 字节）。
                             // 只是元数据落 volatile，直接内联处理不入注入队列。
                             0x33 -> if (body.size >= 9) onCapsSync(body)
+                            // 0x35 R2 加密握手（2026-11-17，能力位 bit8）：对端（Initiator）
+                            // 发 msg1，本端回 msg2 后进入传输态加密。恒明文，见 onNoiseHandshake。
+                            0x35 -> onNoiseHandshake(body)
                             // 0x38 查找手机（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→
                             // 本机响铃（STREAM_ALARM 最大音量 + 亮屏，30s 自动停；action=0 停）。
                             // 实现落 app 模块 FindPhoneRinger（经 onFindPhone 回调注入；
@@ -629,6 +678,54 @@ class ControlServer(
     }
 
     /**
+     * 收 0x35 R2 加密握手（2026-11-17）：本端为 Responder。流程与 PC 端
+     * `Ctrl9511Server::onNoiseHandshakeMsg1` 镜像 —— beginResponder → 消费 msg1 →
+     * 产出 msg2（0x35 明文帧）→ split 出传输态密钥 → 置 noiseActive。
+     *
+     * 触发条件（防御式校验，缺一即静默丢帧）：本端有静态密钥对（构造注入）、
+     * 配对令牌非空（PSK 源）、尚未进入加密态。不查 peerCaps bit8：对端 0x33 与
+     * msg1 的到达顺序不保证，Initiator 是先看到本端 0x33 报 bit8 才发起的，这里不用重复判。
+     *
+     * 锁序约定（防环）：会话操作收口在 noiseLock；发送/置位收口在 writeLock
+     * （[sendControl] 的锁序是 writeLock→noiseLock，此处绝不持 noiseLock 拿 writeLock）。
+     * msg2 先入队、后置 active：队列里 msg2 之前的帧都是明文（initiator 尚在 WAIT），
+     * 之后的帧都会加密 —— 顺序天然对齐。调用点在 pump() 内（rxLock 持有）。
+     */
+    private fun onNoiseHandshake(body: ByteArray) {
+        val kp = noiseKeyPair
+        if (kp == null || tokenBytes.isEmpty()) return
+        val msg2: ByteArray = synchronized(noiseLock) {
+            if (noiseActive || noiseSess != null) return   // 已在加密态 / 握手进行中：重复 msg1 直接忽略
+            val s = NoiseSession()
+            if (!s.beginResponder(tokenBytes, kp.first)) { Log.w("控制面", "R2 握手：Responder 初始化失败"); return }
+            if (s.readHandshakeMsg(body, 0, body.size) != 0) {
+                // msg1 标签不过 = 对端不持同一 token（或帧被改），握手作废，链路维持明文
+                Log.w("控制面", "R2 握手：msg1 校验失败（对端令牌不符？）")
+                return
+            }
+            val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
+            val n = s.writeHandshakeMsg(out)
+            if (n <= 0) { Log.w("控制面", "R2 握手：msg2 生成失败"); return }
+            if (!s.split()) { Log.w("控制面", "R2 握手：split 失败"); return }
+            noiseSess = s
+            out.copyOf(n)
+        }
+        // msg2 入队 + 打开加密开关收口在 writeLock：与 sendControl 的「读 active→加密→入队」
+        // 互斥，保证开关翻转对发送侧原子（此刻 noiseActive 仍 false，offer 的就是明文帧）
+        var enqueued = false
+        synchronized(writeLock) {
+            enqueued = outQueue.offer(msg2)
+            if (enqueued) noiseActive = true
+        }
+        if (!enqueued) {
+            Log.w("控制面", "R2 握手：msg2 入队失败（发送队列满），加密弃用")
+            synchronized(noiseLock) { noiseSess = null }
+            return
+        }
+        Log.i("控制面", "R2 通道加密已启用（Noise IK+PSK）")
+    }
+
+    /**
      * 发 0x33 能力协商（2026-11-11）：把本端能力位图报给对端。连接建立后由 [doActivate]
      * 立即调用一次。命令号按字面量写（0x33），与 ApxFrame.CMD_CAPS_SYNC 及
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
@@ -644,7 +741,10 @@ class ControlServer(
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
             com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or
             // bit5 绝对指针（0x06）：本端被控时收它落整屏 onTouch，支持即报
-            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER
+            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER or
+            // bit8 R2 通道加密（2026-11-17）：有静态密钥对且配了令牌才报 ——
+            // 对端据此决定要不要发 0x35 msg1（无令牌时 PSK 无源，报了也对不上）
+            (if (noiseKeyPair != null && tokenBytes.isNotEmpty()) com.allperiph.shared.proto.ApxFrame.CAP_ENCRYPT else 0L)
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()
@@ -761,8 +861,46 @@ class ControlServer(
 
     fun sendControl(body: ByteArray): Boolean {
         if (!ready) return false
-        val frame = synchronized(writeLock) { seq = (seq + 1) and 0x7FFFFFFF; ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq) }
-        return outQueue.offer(frame)
+        var encrypted = false
+        val frame = synchronized(writeLock) {
+            seq = (seq + 1) and 0x7FFFFFFF
+            var f = ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq)
+            // R2 加密（2026-11-17）：active 后 payload 整段（body + CRC 尾）AEAD 加密，
+            // 帧 16 字节头保持明文；payloadLen 重写为密文长（明文 + 16 标签）。
+            // 加密决策与翻转原子收口在 writeLock（0x35 应答侧同锁置位，无交叉窗口）。
+            if (noiseActive) {
+                encrypted = true
+                val plainLen = f.size - ApxFrame.HEADER_SIZE
+                // 超 Noise 单条消息明文上限（65519）：与 PC 端 enqueue 同口径，丢帧计数
+                if (plainLen > NoiseSession.MAX_PLAIN) {
+                    if (noiseDrops++ % 50 == 0) Log.w("控制面", "诊断:R2丢帧#${noiseDrops} 明文超限 $plainLen")
+                    return false
+                }
+                val cipher = f.copyOfRange(ApxFrame.HEADER_SIZE, f.size)
+                val cipherLen = synchronized(noiseLock) { noiseSess?.encrypt(cipher, plainLen) ?: 0 }
+                if (cipherLen <= plainLen) {
+                    if (noiseDrops++ % 50 == 0) Log.w("控制面", "诊断:R2丢帧#${noiseDrops} 加密失败")
+                    return false
+                }
+                val enc = ByteArray(ApxFrame.HEADER_SIZE + cipherLen)
+                System.arraycopy(f, 0, enc, 0, ApxFrame.HEADER_SIZE)
+                System.arraycopy(cipher, 0, enc, ApxFrame.HEADER_SIZE, cipherLen)
+                putU32Le(enc, 8, cipherLen)
+                f = enc
+            }
+            f
+        }
+        // 入队失败 + 本帧已加密：发送 nonce 已前进而对端永远收不到这条密文，
+        // 两端 AEAD 计数器就此错位、后续帧全解不开 —— 只能断链重来（队列满本身
+        // 也说明写线程已停摆）。明文帧维持原语义（仅返回 false）。
+        if (!outQueue.offer(frame)) {
+            if (encrypted) {
+                Log.w("控制面", "R2 加密帧入队失败（发送队列满），断链重连")
+                runCatching { client?.close() }
+            }
+            return false
+        }
+        return true
     }
 
     fun sendReverseClipboard(text: String): Boolean {
@@ -828,6 +966,12 @@ class ControlServer(
     private fun readU32Le(ins: InputStream): Int {
         val b = ByteArray(4); if (!readFully(ins, b)) return -1
         var v = 0; for (i in 0 until 4) v = v or ((b[i].toInt() and 0xFF) shl (8 * i)); return v
+    }
+
+    /** R2 加密用：向 buf[off) 写 u32 小端（ApxFrame.putU32 为 private，帧头 payloadLen 重写在这边做） */
+    private fun putU32Le(buf: ByteArray, off: Int, v: Int) {
+        buf[off] = (v and 0xFF).toByte(); buf[off + 1] = ((v ushr 8) and 0xFF).toByte()
+        buf[off + 2] = ((v ushr 16) and 0xFF).toByte(); buf[off + 3] = ((v ushr 24) and 0xFF).toByte()
     }
 
     private fun readFully(ins: InputStream, dst: ByteArray): Boolean {

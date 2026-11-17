@@ -20,6 +20,7 @@ import com.allperiph.shared.event.EventBus
 import com.allperiph.shared.net.ControlServer
 import com.allperiph.shared.net.ControlEndpoint
 import com.allperiph.shared.net.FileReceiver
+import com.allperiph.shared.net.NoiseSession
 import com.allperiph.shared.net.WirelessBeacon
 import com.allperiph.shared.util.Log
 import com.allperiph.shared.inject.KeepAlive
@@ -131,7 +132,11 @@ class ControlledService : Service() {
             // 随机值持久化，此后重连必须带令牌才能握上手（信标里有广播，控制端从信标取；
             // 未升级的旧控制端不带令牌会连不上，两端同版升级即恢复，见 REQ 文档 §3.2）。
             val tok = pairingToken(this)
-            server = ControlServer(endpoint = controlEndpoint, token = tok)
+            // R2 通道加密（2026-11-17，REQ §4.1）：本端 Noise 静态密钥对注入控制面 ——
+            // 有密钥对 + 令牌非空，控制面才报 CAP_ENCRYPT 并在收到 0x35 msg1 后进入加密。
+            // 密钥对进程级懒加载，首启生成落盘（prefs "apx_noise"）；失败则回退明文链路。
+            val noiseKp = NoiseSession.ensureKeyPair(this)
+            server = ControlServer(endpoint = controlEndpoint, token = tok, noiseKeyPair = noiseKp)
         }
         Companion.server = server
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
@@ -232,6 +237,10 @@ class ControlledService : Service() {
         // 线程与端口从此没人管，逐次累积）并再 addPrimaryClipChangedListener 一次
         // （同一个 listener 挂多份 → 剪贴板变化被回传多次）。
         if (beacon == null) {
+            // R2 加密（2026-11-17）：信标第 5 段带上本端静态公钥 hex（与 ControlServer
+            // 同一对密钥；ensureKeyPair 失败为空 → 不追加该段，对端按明文连接）
+            val noisePub = NoiseSession.ensureKeyPair(this)?.second
+                ?.joinToString("") { "%02x".format(it) } ?: ""
             beacon = WirelessBeacon(
                 "APX1TV",
                 com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
@@ -246,6 +255,7 @@ class ControlledService : Service() {
                     com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
                     hosts.distinct()
                 },
+                noisePubKeyHex = noisePub,
             ).also { it.start() }
         }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager

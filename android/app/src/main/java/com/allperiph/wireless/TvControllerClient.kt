@@ -15,6 +15,12 @@ class TvControllerClient(
     private val host: String,
     private val port: Int = PORT,
     private val token: String = "",
+    /**
+     * R2 通道加密（2026-11-17，能力位 bit8）：对端（被控手机）静态公钥的 64 位 hex，
+     * 来自信标第 5 段（[com.allperiph.shared.net.WirelessBeacon]）。空 = 本连接不具备
+     * 加密条件（TV / 旧版被控端 / 手动连接），链路恒明文。见 docs/REQ-无线安全配对.md §4.1。
+     */
+    private val peerPubKeyHex: String = "",
 ) {
     @Volatile var ready: Boolean = false; private set
     private var sock: Socket? = null
@@ -47,6 +53,26 @@ class TvControllerClient(
     /** sendControl 断线丢帧日志节流（5s 一条）—— 前端与运行日志此前对丢帧完全无感 */
     @Volatile private var lastDropLogAt = 0L
 
+    // ---- R2 通道加密（0x35 / CAP_ENCRYPT bit8，2026-11-17）：本端是 Initiator ----
+    // 锁序恒为 writeLock → noiseLock（会话操作不持 noiseLock 拿 writeLock），无环。
+    private val noiseLock = Any()
+    /** 本端静态密钥对（openSocket 时 ensureKeyPair 取/生成；null = 无法加密） */
+    private var ownKp: Pair<ByteArray, ByteArray>? = null
+    /** 传输态 Noise 会话（split 后）；null = 尚无 */
+    private var noiseSess: NoiseSession? = null
+    /** msg1 已发、等 msg2：出向业务帧攒 [pendingBuf]，握手完成（或放弃）后补发 */
+    @Volatile private var noiseWait = false
+    /** 加密开关：0x35 完成后置 true，此后出入帧 payload 均为 AEAD 密文（帧头明文） */
+    @Volatile private var noiseActive = false
+    /** WAIT 期间攒下的待发帧（writeLock 内读写） */
+    private val pendingBuf = ArrayDeque<ByteArray>()
+    /** R2 诊断：解密/加密失败丢帧计数（每 50 次记一条，不断链） */
+    private var noiseDrops = 0
+
+    /** 本连接能否发起加密（能力上报与 0x35 发起共用同一判据） */
+    private fun noiseCapable(): Boolean =
+        token.isNotEmpty() && peerPubKeyHex.length == 64 && ownKp != null
+
     fun connect(): Boolean {
         if (running.get()) return ready
         running.set(true)
@@ -74,6 +100,13 @@ class TvControllerClient(
         thread(name = "tvctrl-reader") { readerLoop(s) }
         startTx()
         startModeStatus()
+        // R2 加密：新会话从明文开始（对端 0x33 报 bit8 后本端发起，见 initiateNoise）。
+        // 顺带取/生成本端静态密钥对（进程级缓存，首连落盘一次）
+        ownKp = com.allperiph.App.context?.let { NoiseSession.ensureKeyPair(it) }
+        synchronized(writeLock) {
+            noiseWait = false; noiseActive = false; pendingBuf.clear()
+            synchronized(noiseLock) { noiseSess = null }
+        }
         // 能力协商（0x33，2026-11-11）：新会话清空上一会话的对端能力，并把本端能力报给对端。
         // 接收侧存 [peerCaps]；不发的话对端学到的永远是 0，能力帧族全被门掉。
         peerCaps = 0L
@@ -91,7 +124,15 @@ class TvControllerClient(
         true
     } catch (t: Throwable) { Log.e("TvCtrl", "连 TV 失败：${t.message}"); runCatching { s_close() }; false }
 
-    fun disconnect() { running.set(false); ready = false; runCatching { txQueue.clear() }; runCatching { txThread?.interrupt() }; txThread = null; s_close() }
+    fun disconnect() {
+        running.set(false); ready = false
+        // R2 加密：密钥随会话走，断开即弃（重连走 openSocket 重新握手）
+        synchronized(writeLock) {
+            noiseWait = false; noiseActive = false; pendingBuf.clear()
+            synchronized(noiseLock) { noiseSess = null }
+        }
+        runCatching { txQueue.clear() }; runCatching { txThread?.interrupt() }; txThread = null; s_close()
+    }
     private fun s_close() = runCatching { sock?.close() }.also { sock = null; out = null }
 
     private fun readerLoop(s: Socket) {
@@ -146,10 +187,30 @@ class TvControllerClient(
                 // v184：magic / 长度异常改为**逐字节重同步**（原 off = rxLen 会因一次错位
                 // 丢掉后续全部合法帧）；并补上尾部 CRC32 校验。
                 if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
-                val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
-                if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
-                val total = ApxFrame.totalSize(payloadLen)
+                val payloadLen0 = ApxFrame.payloadLenAt(rxBuf, off)
+                if (payloadLen0 < 0 || payloadLen0 > ApxFrame.MAX_PAYLOAD) { off++; continue }
+                var payloadLen = payloadLen0
+                var total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
+                // R2 加密（2026-11-17）：active 后 payload 整段是 AEAD 密文（明文 = body + CRC 尾，
+                // 帧 16 字节头保持明文）。先解密、重写 payloadLen，再走常规 CRC 校验 ——
+                // CRC 尾在密文里，解密前的 verify 恒不成立。失败按丢帧计数，不断链。
+                if (noiseActive) {
+                    if (payloadLen <= NoiseSession.KEY_LEN) {   // 密文至少要装下 16 字节 Poly 标签
+                        if (noiseDrops++ % 50 == 0) Log.w("TvCtrl", "R2丢帧#${noiseDrops}: 密文过短 len=$payloadLen")
+                        off += total; continue
+                    }
+                    val cipher = rxBuf.copyOfRange(off + ApxFrame.HEADER_SIZE, off + ApxFrame.HEADER_SIZE + payloadLen)
+                    val plainLen = synchronized(noiseLock) { noiseSess?.decrypt(cipher, payloadLen) ?: 0 }
+                    if (plainLen <= 0) {
+                        if (noiseDrops++ % 50 == 0) Log.w("TvCtrl", "R2丢帧#${noiseDrops}: 解密失败 len=$payloadLen")
+                        off += total; continue
+                    }
+                    System.arraycopy(cipher, 0, rxBuf, off + ApxFrame.HEADER_SIZE, plainLen)
+                    putU32Le(rxBuf, off + 8, plainLen)
+                    payloadLen = plainLen
+                    total = ApxFrame.totalSize(plainLen)
+                }
                 if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }
                 if (ApxFrame.streamIdAt(rxBuf, off) == ApxFrame.STREAM_CONTROL) {
                     val body = ApxFrame.bodyAt(rxBuf, off, payloadLen)
@@ -204,8 +265,12 @@ class TvControllerClient(
                     for (i in 0 until 8) caps = caps or ((body[1 + i].toLong() and 0xFF) shl (8 * i))
                     peerCaps = caps
                     Log.i("TvCtrl", "对端能力：0x${java.lang.Long.toHexString(caps)}")
+                    // R2 通道加密（2026-11-17）：对端报 bit8 → 具备条件就发起 0x35 握手
+                    if (caps and ApxFrame.CAP_ENCRYPT != 0L) initiateNoise()
                 }
             }
+            // 0x35 R2 加密握手（2026-11-17）：对端（Responder）回 msg2，本端 split 后进加密态
+            0x35 -> if (body.size >= 1) onNoiseHandshakeMsg2(body)
             // 0x38 查找手机（2026-11-11，能力位 bit2）：手机控 PC / TV 的链路上，PC 托盘
             // 「查找手机」反向让本机响铃。直接落 FindPhoneRinger（app 模块内可见，无需回调
             // 接线；与 0x25 的 callback+fallback 是历史口径不同，这里没有 UI 交互就不需要）。
@@ -339,9 +404,47 @@ class TvControllerClient(
             }
             return false
         }
-        val frame = synchronized(writeLock) { seq = (seq + 1) and 0x7FFFFFFF; ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq) }
+        // R2 三态（2026-11-17，与 PC 端 Ctrl9511Client::sendCmd 同口径）：
+        // ① WAIT（msg1 已发等 msg2）→ 业务帧攒 pendingBuf，握手完成后按密文补发；
+        // ② active → payload 整段（body + CRC 尾）AEAD 加密，帧头明文，payloadLen 重写为密文长；
+        // ③ 明文 → 直发。状态判定、攒帧、加密收口在 writeLock（0x35 处理侧同锁翻转，无交叉窗口）。
+        var buffered = false
+        var encrypted = false
+        val frame: ByteArray? = synchronized(writeLock) {
+            seq = (seq + 1) and 0x7FFFFFFF
+            val f = ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq)
+            when {
+                noiseWait -> {
+                    // 握手窗口有限：攒帧积压过深直接丢最老（对端升级假死时也不至于无限占内存）
+                    if (pendingBuf.size >= PENDING_CAP) pendingBuf.removeFirst()
+                    pendingBuf.addLast(f)
+                    buffered = true
+                    null
+                }
+                noiseActive -> {
+                    encrypted = true
+                    val plainLen = f.size - ApxFrame.HEADER_SIZE
+                    if (plainLen > NoiseSession.MAX_PLAIN) {   // 超 Noise 单条明文上限：丢帧（同 PC 端口径）
+                        if (noiseDrops++ % 50 == 0) Log.w("TvCtrl", "R2丢帧#${noiseDrops}: 明文超限 $plainLen")
+                        null
+                    } else encryptFrame(f)
+                }
+                else -> f
+            }
+        }
+        if (buffered) return true   // 已入待发队列，握手完成后补发
+        if (frame == null) return false   // 加密失败（会话被重置等）
         while (txQueue.size > 512) txQueue.poll()
-        return txQueue.offer(frame)
+        // 入队失败 + 本帧已加密：发送 nonce 已前进而对端收不到这条密文，两端 AEAD
+        // 计数器错位、后续帧全解不开 —— 只能断链走自动重连（写线程停摆本身也断定了）
+        if (!txQueue.offer(frame)) {
+            if (encrypted) {
+                Log.w("TvCtrl", "R2 加密帧入队失败（发送队列满），断链重连")
+                runCatching { sock?.close() }
+            }
+            return false
+        }
+        return true
     }
 
     /** P0-1：dx/dy/wheel 各占一个有符号字节，超出 [-127,127] 会回绕成反向 —— 这里钳位兜底；被钳掉的余数由发送源端（GestureEngine 的 fracX/fracY 亚像素累加器）带入下一帧，不丢位移
@@ -451,6 +554,110 @@ class TvControllerClient(
         sendControl(byteArrayOf(0x32.toByte(), (if (show) 1 else 0).toByte()))
 
     /**
+     * 发 0x35 R2 加密握手（2026-11-17）：本端是 Initiator。触发条件（缺一静默返回）：
+     * 对端 0x33 报过 bit8、本端有静态密钥对、对端公钥来自信标、配对令牌非空 ——
+     * 与 PC 端 `Ctrl9511Client::initiateNoise` 同口径。锁序：会话操作收口 noiseLock、
+     * 发送/WAIT 置位收口 writeLock（不持 noiseLock 拿 writeLock），与 sendControl 无环。
+     */
+    private fun initiateNoise() {
+        if (!noiseCapable()) return
+        val peerPub = runCatching { hexToBytes(peerPubKeyHex) }.getOrNull()
+        if (peerPub == null || peerPub.size != NoiseSession.KEY_LEN) return
+        val kp = ownKp ?: return
+        val tok = token.toByteArray(Charsets.UTF_8)
+        if (tok.isEmpty()) return
+        val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
+        var msgLen = 0
+        synchronized(noiseLock) {
+            if (noiseActive || noiseWait || noiseSess != null) return   // 已在握手中/加密态
+            val s = NoiseSession()
+            if (!s.beginInitiator(tok, peerPub, kp.first)) { Log.w("TvCtrl", "R2 握手：Initiator 初始化失败"); return }
+            msgLen = s.writeHandshakeMsg(out)
+            if (msgLen <= 0) { Log.w("TvCtrl", "R2 握手：msg1 生成失败"); return }
+            noiseSess = s
+        }
+        // msg1 明文帧入队 + 打开 WAIT（均在 writeLock 内，与 sendControl 的三态判定互斥）：
+        // 先置 WAIT 再入队，窗口内的业务帧（若有）会以明文先于 msg1 到达对端，照常处理
+        synchronized(writeLock) {
+            if (noiseActive) return
+            noiseWait = true
+            seq = (seq + 1) and 0x7FFFFFFF
+            txQueue.offer(ApxFrame.build(ApxFrame.STREAM_CONTROL, out.copyOf(msgLen), seq))
+        }
+        Log.i("TvCtrl", "R2 加密握手已发起（msg1 已发，等对端 msg2）")
+    }
+
+    /**
+     * 收 0x35 msg2（2026-11-17）：split 出传输态密钥 → WAIT 期间攒下的帧按密文补发 →
+     * 置 active。msg2 校验/split 失败（对端令牌不符等）弃会话，攒下的帧按明文补发、
+     * 链路维持明文 —— 与 PC 端 readHandshakeMsg 失败分支同口径。
+     */
+    private fun onNoiseHandshakeMsg2(body: ByteArray) {
+        var failed = false
+        synchronized(noiseLock) {
+            val s = noiseSess
+            if (s == null || noiseActive) return   // 没发起过 / 已在加密态：忽略
+            failed = s.readHandshakeMsg(body, 0, body.size) != 0
+            if (failed) noiseSess = null else if (!s.split()) { failed = true; noiseSess = null }
+        }
+        synchronized(writeLock) {
+            if (failed) {
+                Log.w("TvCtrl", "R2 握手：msg2 校验/split 失败（对端令牌不符？），链路维持明文")
+                noiseWait = false
+                while (pendingBuf.isNotEmpty()) txQueue.offer(pendingBuf.removeFirst())   // 明文补发
+                return
+            }
+            // 补发 WAIT 期间攒下的帧（会话已 split，按密文加密）；noiseWait 先关再发，
+            // 补发顺序仍按入队先后（FIFO），对端解密 nonce 顺序一致
+            noiseWait = false
+            while (pendingBuf.isNotEmpty()) {
+                val f = pendingBuf.removeFirst()
+                val enc = encryptFrame(f)
+                if (enc != null) txQueue.offer(enc) else noiseDrops++
+            }
+            noiseActive = true
+        }
+        Log.i("TvCtrl", "R2 通道加密已启用（Noise IK+PSK）")
+    }
+
+    /**
+     * R2 加密一帧（调用方须持 writeLock）：payload 整段（body + CRC 尾）原位 AEAD，
+     * 帧 16 字节头保持明文、payloadLen 重写为密文长。会话访问在 noiseLock 内收口
+     * （锁序 writeLock → noiseLock，与全类一致）。失败返回 null（会话缺失/明文超限）。
+     */
+    private fun encryptFrame(plain: ByteArray): ByteArray? {
+        val plainLen = plain.size - ApxFrame.HEADER_SIZE
+        if (plainLen <= 0 || plainLen > NoiseSession.MAX_PLAIN) return null
+        val cipher = plain.copyOfRange(ApxFrame.HEADER_SIZE, plain.size)
+        val cipherLen = synchronized(noiseLock) { noiseSess?.encrypt(cipher, plainLen) ?: 0 }
+        if (cipherLen <= plainLen) return null
+        val enc = ByteArray(ApxFrame.HEADER_SIZE + cipherLen)
+        System.arraycopy(plain, 0, enc, 0, ApxFrame.HEADER_SIZE)
+        System.arraycopy(cipher, 0, enc, ApxFrame.HEADER_SIZE, cipherLen)
+        putU32Le(enc, 8, cipherLen)
+        return enc
+    }
+
+    /** 向 buf[off) 写 u32 小端（ApxFrame.putU32 为 private，帧头 payloadLen 重写在这边做） */
+    private fun putU32Le(buf: ByteArray, off: Int, v: Int) {
+        buf[off] = (v and 0xFF).toByte(); buf[off + 1] = ((v ushr 8) and 0xFF).toByte()
+        buf[off + 2] = ((v ushr 16) and 0xFF).toByte(); buf[off + 3] = ((v ushr 24) and 0xFF).toByte()
+    }
+
+    /** 64 位 hex → 32 字节（信标第 5 段的对端公钥）；非法字符返回 null */
+    private fun hexToBytes(hex: String): ByteArray? {
+        if (hex.length % 2 != 0) return null
+        val out = ByteArray(hex.length / 2)
+        for (i in out.indices) {
+            val hi = Character.digit(hex[i * 2], 16)
+            val lo = Character.digit(hex[i * 2 + 1], 16)
+            if (hi < 0 || lo < 0) return null
+            out[i] = ((hi shl 4) or lo).toByte()
+        }
+        return out
+    }
+
+    /**
      * 发 0x33 能力协商（2026-11-11）：把本端能力位图报给对端，连接建立后由 [openSocket]
      * 立即调用一次。命令号按字面量写（0x33），与 ApxFrame.CMD_CAPS_SYNC 及
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
@@ -474,7 +681,10 @@ class TvControllerClient(
             com.allperiph.shared.proto.ApxFrame.CAP_PHONE_FILES or
             com.allperiph.shared.proto.ApxFrame.CAP_ALBUM or
             // bit5 绝对指针（0x06）：本端被控时收它落整屏 onTouch，支持即报
-            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER
+            com.allperiph.shared.proto.ApxFrame.CAP_ABSOLUTE_POINTER or
+            // bit8 R2 通道加密（2026-11-17）：密钥对 + 对端公钥 + 令牌三样齐才报 ——
+            // 对端（ControlServer）据此等待本端发 0x35 msg1
+            (if (noiseCapable()) com.allperiph.shared.proto.ApxFrame.CAP_ENCRYPT else 0L)
         val body = ByteArray(9)
         body[0] = 0x33.toByte()
         for (i in 0 until 8) body[1 + i] = ((own ushr (8 * i)) and 0xFF).toByte()
@@ -531,6 +741,9 @@ class TvControllerClient(
          */
         private const val READ_TIMEOUT_MS = 3_000
         private const val READ_TIMEOUT_MAX_MISSES = 8
+
+        /** R2 握手窗口攒帧上限（2026-11-17）：握手通常毫秒级完成，超限丢最老帧防内存积压 */
+        private const val PENDING_CAP = 1024
 
         /**
          * 控制端最近一次的光标浮层偏好（null = 用户没动过）。

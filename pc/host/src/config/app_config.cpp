@@ -139,6 +139,7 @@ AppConfig loadConfig(const std::string& path) {
         for (const auto& [k, v] : km->asObject()) cfg.keymap[k] = v.asString();
     }
     cfg.pairingToken    = str("pairingToken", "");
+    cfg.noiseKeyPriv    = str("noiseKeyPriv", "");
     return cfg;
 }
 
@@ -197,6 +198,7 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["keymap"] = std::move(km);
 
     j["pairingToken"]    = cfg.pairingToken;
+    j["noiseKeyPriv"]    = cfg.noiseKeyPriv;
 
     std::string p = expandPath(path);
     std::error_code ec;

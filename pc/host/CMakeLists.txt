@@ -362,6 +362,37 @@ if(APPLE)
   target_link_libraries(apxpc_service PUBLIC "-framework Foundation" "-framework AppKit")
 endif()
 
+# ---------------------------------------------------------- 目标：Noise 协议库（R2 通道加密）
+# third_party/noise-c 的最小编译子集（仅按需源，不整库拷贝式全编）：
+#   · protocol/*.c 全 12 个：协议状态机（handshake/symmetric/cipher/dh/hash/sign/rand
+#     各 state）+ 名字解析（names.c 支持 NoisePSK_IK_25519_ChaChaPoly_SHA256）。
+#   · backend/ref 四件：chachapoly / curve25519 / sha256 / ed25519 —— 不定义
+#     USE_OPENSSL/USE_LIBSODIUM 即走 ref 后端（自包含，零外部依赖）。
+#   · crypto 四件：chacha.c、poly1305-donna.c、sha256.c、ed25519.c —— ref 后端的
+#     实际算术（curve25519-donna 经 dh-curve25519.c 内嵌 include 编入，无需单列）。
+#   · stubs.c：dhstate.c/signstate.c 引用的 curve448/newhope 等未用算法打桩。
+# 许可与来源见 third_party/noise-c/VENDOR-NOTES.md（上游 rhassnoise/noise-c，MIT）。
+file(GLOB APXPC_NOISE_PROTO "${APXPC_ROOT}/third_party/noise-c/src/protocol/*.c")
+set(APXPC_NOISE_SRC
+  ${APXPC_NOISE_PROTO}
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/cipher-chachapoly.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/dh-curve25519.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-sha256.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/sign-ed25519.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/chacha/chacha.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/donna/poly1305-donna.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/sha2/sha256.c"
+  "${APXPC_ROOT}/third_party/noise-c/src/crypto/ed25519/ed25519.c"
+  "${APXPC_ROOT}/third_party/noise-c/stubs.c"
+)
+add_library(apxpc_noise STATIC ${APXPC_NOISE_SRC})
+# include：协议公开头（noise/xxx.h，PUBLIC 供 ctrl9511 编）；src/protocol（internal.h
+# 与 *.c 同目录）与 src（crypto/xxx 相对 include 路径）仅库内编译需要，PRIVATE。
+target_include_directories(apxpc_noise
+  PUBLIC  "${APXPC_ROOT}/third_party/noise-c/include"
+  PRIVATE "${APXPC_ROOT}/third_party/noise-c/src/protocol"
+          "${APXPC_ROOT}/third_party/noise-c/src")
+
 # ---------------------------------------------------------- 目标：统一控制面（9511）
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
@@ -382,7 +413,9 @@ elseif(UNIX)
 endif()
 add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
 target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
-target_link_libraries(apxpc_wireless PUBLIC apxpc_core)
+# apxpc_noise：R2 通道加密（NoisePSK_IK_25519_ChaChaPoly_SHA256）—— ctrl9511.cpp
+# 的握手帧 0x35 与 9511/9512/9502 加密都经 noise_session.cpp 引它。
+target_link_libraries(apxpc_wireless PUBLIC apxpc_core apxpc_noise)
 if(WIN32)
   target_link_libraries(apxpc_wireless PUBLIC ws2_32 Iphlpapi)
 elseif(APPLE)
