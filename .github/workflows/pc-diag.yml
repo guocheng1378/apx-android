@@ -226,5 +226,5 @@ jobs:
             build_host/CMakeFiles/CMakeOutput.log
             toolchain.txt
             diag_phase.txt
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: ignore

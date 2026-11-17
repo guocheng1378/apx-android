@@ -282,7 +282,7 @@ jobs:
             build_host/apxdesktop.symbols.demangled
             build_host/apxhost.symbols
             build_host/apxhost.unstripped
-          retention-days: 30
+          retention-days: 1
 
       - name: Upload to GitHub Release (tag builds only)
         # tag 构建时把 zip 重命名为与 Windows/Android 资产同风格的
