@@ -122,22 +122,6 @@ object ApxFrame {
      */
     const val CAP_SCREEN_TOGGLE = 1L shl 7
 
-    /**
-     * 能力位 bit8：R2 通道加密 —— 对端支持噪声加密（NoisePSK_IK_25519_ChaChaPoly_SHA256，
-     * docs/REQ-无线安全配对.md §4）。两端都具备密钥材料 + 配对 token 才真正启用；
-     * 握手帧 [CMD_ENCRYPT_HANDSHAKE] 恒明文，握手完成后 9511 其余帧整帧加密
-     *（帧头明文，payload=body+CRC 整体作为一条 Noise 传输消息）。
-     */
-    const val CAP_ENCRYPT = 1L shl 8
-
-    /**
-     * R2 通道加密握手帧（恒明文）：Initiator 发 msg1、Responder 回 msg2，
-     * payload = Noise 握手消息本体（IK 模式，prologue="APX1-9511-v1"，
-     * PSK=SHA-256(token)）。两端实现：PC `noise_session.cpp`、
-     * Android `shared/net/NoiseSession.kt` —— 协议参数改动必须两边同步。
-     */
-    const val CMD_ENCRYPT_HANDSHAKE = 0x35
-
     // ———————————— 9511 通知同步（2026-11-11，能力位 bit0，借鉴 NectarLink）————————————
     /**
      * 手机 → PC：推送一条通知。发送前必须核对**对端**能力位图含 [CAP_NOTIFY_SYNC]

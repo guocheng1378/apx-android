@@ -54,9 +54,6 @@
 
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
     <string name="controlled_enable_hint">已开被控模式：请到「无障碍」启用本应用并允许悬浮窗</string>
-    <!-- 被控常驻通知的链路加密状态（2026-11-17）：握手完成=已加密，明文路径（TV/旧对端/未配对）=明文 -->
-    <string name="controlled_notif_encrypted">已加密</string>
-    <string name="controlled_notif_plaintext">明文</string>
 
     <string name="ui_common_exit">退出</string>
     <string name="ui_common_cancel">取消</string>

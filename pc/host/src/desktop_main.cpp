@@ -26,7 +26,6 @@
 #include "apxpc/ui/panel_http.hpp"
 #include "apxpc/wireless/wireless_session.hpp"
 #include "apxpc/wireless/ctrl9511.hpp"
-#include "apxpc/wireless/noise_session.hpp"   // R2 白名单气泡出口（§4.4）
 #include "apxpc/wireless/file_receiver.hpp"
 #include "apxpc/wireless/find_phone_toggle.hpp"
 #include "apxpc/wireless/verify_code.hpp"
@@ -682,17 +681,6 @@ void stop() {}
 
 }  // namespace
 
-// —— R2 公钥白名单气泡出口（§4.4，2026-11-17）——
-// noise_session 的裁决/拒绝提示要冒到托盘，但出口是裸函数指针（无捕获），
-// 用静态指针桥一下：runDesktopMain 建好托盘后装配。TrayIcon::notify 双平台
-// 线程安全，裁决跑在 9511 reader / 握手线程，可直接调用。
-namespace apxpc {
-static tray::TrayIcon* g_r2NotifyTray = nullptr;
-static void r2NotifyTrampoline(const char* title, const char* text) {
-    if (g_r2NotifyTray) g_r2NotifyTray->notify(title ? title : "", text ? text : "");
-}
-}  // namespace apxpc
-
 int runDesktopMain() {
 #if defined(_WIN32)
     // DPI 感知必须在任何 GDI/User32 调用之前设置
@@ -820,11 +808,6 @@ int runDesktopMain() {
     if (!tray->create("全能外设 · WebView2"))
 #endif
         APX_LOGW("托盘图标创建失败");
-
-    // R2 公钥白名单气泡出口（§4.4，2026-11-17）：白名单未启用的 TOFU 收录提示、
-    // 陌生公钥拒绝提示都从这里冒泡（60s 节流在 noise_session 内做）。
-    apxpc::g_r2NotifyTray = tray.get();
-    apxpc::wireless::r2SetNotify(&apxpc::r2NotifyTrampoline);
 
     if (cfg.autostart) apxpc::tray::setAutostart(true);
 

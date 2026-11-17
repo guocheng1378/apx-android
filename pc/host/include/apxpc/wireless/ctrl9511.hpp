@@ -164,10 +164,7 @@ static constexpr uint64_t kCaps9511Album       = 1ull << 4;  // PC→手机 相�
 static constexpr uint64_t kCaps9511AbsolutePtr = 1ull << 5;  // 控制端→被控 绝对指针 0x06（手机小地图指哪打哪）
 static constexpr uint64_t kCaps9511GamepadShot = 1ull << 6;  // 手机→PC 手柄截图 0x4C（手柄页中央 📷 键，issue#170 #7）
 static constexpr uint64_t kCaps9511ScreenToggle = 1ull << 7; // 手机→PC 副屏远程开关 0x4D（副屏页右下角入口，2026-11-14）
-/// R2 通道加密（docs/REQ-无线安全配对.md §4）：对端报该位 = 支持噪声加密
-///（NoisePSK_IK_25519_ChaChaPoly_SHA256，握手帧 0x35）。两端都具备密钥材料
-/// 与 token 才真正启用；握手前 0x35 恒明文，其余帧照旧。
-static constexpr uint64_t kCaps9511Encrypt = 1ull << 8;
+// 位 8（R2 通道加密）已随加密功能整体移除（2026-11-18），不再报、不再解析。
 
 /// 相册条目（0x49 分页应答，2026-11-12，与 Android ApxFrame.AlbumEntry 对拍）。
 /// added 为秒（MediaStore DATE_ADDED 口径，PC 端按它折算本地日期分组）；
@@ -380,11 +377,6 @@ public:
     bool connect(const std::string& host, uint16_t port, const std::string& token);
     void disconnect();
 
-    /// R2 加密（能力位 bit8）：connect 前设置对端静态公钥（信标第 5 段，32 字节）。
-    /// 非空 + 本端密钥对 + token 非空 → 握手后发起 0x35 噪声握手；空 = 明文链路
-    ///（TV、旧版手机、手动连接）。必须在 connect() **之前**调用（connect 时捕获）。
-    void setPeerStaticKey(const std::vector<uint8_t>& pub);
-
     bool ready() const;
 
     // —— 输入发送（供本地采集/UI 调用）；与手机 TvControllerClient 镜像 ——
@@ -486,8 +478,6 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    // R2 加密：connect 前暂存的对端静态公钥（impl_ 尚未创建，只能落外层）。
-    std::vector<uint8_t> pendingPeerPub_;
 };
 
 /// v184：特殊键/组合键注入（UTF 文本之外的方向键/删除/编辑快捷键）。

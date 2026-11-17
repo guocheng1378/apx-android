@@ -667,10 +667,7 @@ class TouchpadActivity : ComponentActivity() {
             val tok = token.ifBlank {
                 TvDiscovery.list().firstOrNull { it.ip == ip }?.token ?: ""
             }
-            // R2 通道加密（2026-11-17）：对端静态公钥按 IP 从发现表取（信标第 5 段）；
-            // 取不到（旧版对端 / 手动输入 IP 且还没等到信标）则明文连接，兼容路径
-            val pub = TvDiscovery.list().firstOrNull { it.ip == ip }?.noisePubKey ?: ""
-            val c = TvControllerClient(ip, port, tok, pub)
+            val c = TvControllerClient(ip, port, tok)
             val ok = c.connect()
             runOnUiThread {
                 // connect() 最长阻塞 5s，期间用户可能已经退出页面

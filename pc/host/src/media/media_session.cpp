@@ -2,8 +2,6 @@
 
 #include "apxpc/log.hpp"
 #include "apxpc/media/touch_inject.hpp"
-// R2 通道加密（9502 子批）：会话封装与 R2 链路上下文在 wireless 命名空间
-#include "apxpc/wireless/noise_session.hpp"
 
 #include <apx/frame.h>
 
@@ -93,53 +91,6 @@ void bump(size_t len, std::atomic<uint64_t>& frames, std::atomic<uint64_t>& byte
     bytes.fetch_add(len, std::memory_order_relaxed);
 }
 
-// ----------------------- R2 通道加密工具（9502 子批） -----------------------
-
-void putU32Le(uint8_t* dst, uint32_t v) {
-    dst[0] = static_cast<uint8_t>(v & 0xFF);
-    dst[1] = static_cast<uint8_t>((v >> 8) & 0xFF);
-    dst[2] = static_cast<uint8_t>((v >> 16) & 0xFF);
-    dst[3] = static_cast<uint8_t>((v >> 24) & 0xFF);
-}
-
-/// 读满 n 字节（R2 握手用；socket 已设临时收流超时，卡住会超时返回 false）
-bool readFully(int s, uint8_t* dst, size_t n) {
-    size_t got = 0;
-    while (got < n) {
-        const int r = ::recv(s, reinterpret_cast<char*>(dst + got),
-                             static_cast<int>(n - got), 0);
-        if (r <= 0) return false;
-        got += static_cast<size_t>(r);
-    }
-    return true;
-}
-
-bool readU32(int s, uint32_t& v) {
-    uint8_t b[4];
-    if (!readFully(s, b, 4)) return false;
-    v = static_cast<uint32_t>(b[0]) | (static_cast<uint32_t>(b[1]) << 8) |
-        (static_cast<uint32_t>(b[2]) << 16) | (static_cast<uint32_t>(b[3]) << 24);
-    return true;
-}
-
-/// R2 加密一帧（writerLoop 线程，仅 noiseActive 时进入）：payload 整段（body + CRC 尾）
-/// AEAD，帧头 16 字节保持明文、payloadLen（偏移 8）重写为密文长。
-/// 失败返回 false（调用方断链 —— AEAD nonce 已前进，明文帧补发对不上对端解密序）。
-bool encryptFrame(std::vector<uint8_t>& f, wireless::NoiseSession& sess) {
-    if (f.size() <= apx::kFrameHeaderSize) return false;
-    const size_t payloadLen = f.size() - apx::kFrameHeaderSize;   // 含 CRC 尾
-    if (payloadLen > wireless::kNoiseMaxPlain) return false;
-    std::vector<uint8_t> ct(f.begin() + static_cast<std::ptrdiff_t>(apx::kFrameHeaderSize),
-                            f.end());
-    const size_t ctLen = sess.encrypt(ct.data(), payloadLen, ct.size());
-    if (ctLen != payloadLen + 16) return false;
-    f.resize(apx::kFrameHeaderSize);
-    f.insert(f.end(), ct.begin(),
-             ct.begin() + static_cast<std::ptrdiff_t>(ctLen));
-    putU32Le(f.data() + 8, static_cast<uint32_t>(ctLen));
-    return true;
-}
-
 }  // namespace
 
 MediaSession::~MediaSession() { disconnect(); }
@@ -162,15 +113,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     token_ = token;
     st_.peer = host + ":" + std::to_string(static_cast<unsigned>(port));
 
-    // —— R2 门控（9502 子批，2026-11-17）：链路令牌（r2Token，9511 握手成功时挂入）
-    //    与对端静态公钥（TOFU）都齐才尝试加密；任一缺失 → 纯明文
-    //    （与 Android MediaChannel.probePending 同口径）。
-    uint8_t r2Peer[wireless::kNoiseStaticKeyLen];
-    const bool r2Capable = !wireless::r2Token().empty() &&
-                           wireless::r2PeerStaticKey(r2Peer);
-
-    // 建链 + 令牌握手抽成可复用步骤：R2 握手未成（legacy 对端不会回应）时要关掉
-    // 当前 socket 重连一次明文，避免把建链代码复制两份。失败时已写好 st_.error。
+    // 建链 + 令牌握手抽成可复用步骤。失败时已写好 st_.error。
     const auto establish = [&](MediaSock& sOut) -> bool {
         addrinfo hints{};
         hints.ai_family = AF_INET;
@@ -265,18 +208,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     };
 
     MediaSock s = kInvalidSock;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        if (!establish(s)) return false;
-        // R2 尝试（仅首轮，9502 子批）：令牌握手后紧接加密握手
-        // [u32 0][u32 len1][msg1]。legacy 对端（旧版手机/TV）不认识首 u32=0，
-        // 不会回应 —— 靠 5s 收流超时判定后关掉重连一次明文，老版本两端不受影响。
-        if (r2Capable && attempt == 0 && !r2Handshake(s)) {
-            closeSock(s);
-            APX_LOGI("9502 R2 握手未完成，回退明文重连");
-            continue;
-        }
-        break;
-    }
+    if (!establish(s)) return false;
 
     sock_ = s;
     upSinceMs_ = nowMs();
@@ -303,72 +235,6 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     writer_ = std::thread([this] { writerLoop(); });
 
     APX_LOGI("媒体通道已连接 {}", st_.peer);
-    return true;
-}
-
-// -------------------------------------------------------------- R2 握手 ----
-
-/// R2 握手（9502 Initiator 侧，9512/9502 子批 2026-11-17）：令牌握手后紧接
-/// [u32 0][u32 len1][msg1]，读对端 [u32 len2][msg2]，split 成功后写入 noiseSess_
-/// 并置 noiseActive_。收流用临时 5s 超时 —— legacy 对端不会回应 R2，靠超时判定。
-/// 令牌取 r2Token()：9502 是 PC 连入手机服务端的出站通道，PSK 源即 9511 链路的
-/// 被控端令牌（PC 自身配对令牌只在入站通道 file_receiver 的候选里）。
-/// 失败返回 false（调用方关 socket 重连一次明文）。
-bool MediaSession::r2Handshake(MediaSock s) {
-    const std::string tok = wireless::r2Token();
-    if (tok.empty()) return false;
-    uint8_t ownPriv[wireless::kNoiseStaticKeyLen];
-    uint8_t ownPub[wireless::kNoiseStaticKeyLen];
-    if (!wireless::ensureNoiseKeyPair(ownPriv, ownPub)) return false;
-    uint8_t peerPub[wireless::kNoiseStaticKeyLen];
-    if (!wireless::r2PeerStaticKey(peerPub)) return false;
-
-    auto sess = std::make_shared<wireless::NoiseSession>(wireless::kNoisePrologue9502);
-    if (!sess->beginInitiator(reinterpret_cast<const uint8_t*>(tok.data()), tok.size(),
-                              peerPub, ownPriv))
-        return false;
-    uint8_t msg1[256];   // IK msg1 实际 ≤ 96B，留余量
-    const int n1 = sess->writeHandshakeMsg(msg1, sizeof(msg1));
-    if (n1 <= 0) return false;
-
-    // [u32 0][u32 n1][msg1]：首 u32=0 是 R2 标记（APX1 帧首 u32 恒非 0，两端无歧义）
-    const uint8_t zero[4] = {0, 0, 0, 0};
-    uint8_t l1[4];
-    putU32Le(l1, static_cast<uint32_t>(n1));
-    if (::send(s, reinterpret_cast<const char*>(zero), 4, 0) != 4 ||
-        ::send(s, reinterpret_cast<const char*>(l1), 4, 0) != 4 ||
-        ::send(s, reinterpret_cast<const char*>(msg1), n1, 0) != n1)
-        return false;
-
-    // 临时 5s 收流超时等 msg2（legacy 对端不回应 → 超时 → 明文重连）
-#if defined(_WIN32)
-    DWORD rto = 5000;
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rto),
-               sizeof(rto));
-#else
-    timeval rto{5, 0};
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rto, sizeof(rto));
-#endif
-    uint32_t len2 = 0;
-    if (!readU32(s, len2) || len2 == 0 || len2 > 1024) return false;
-    std::vector<uint8_t> msg2(len2);
-    if (!readFully(s, msg2.data(), len2)) return false;
-    if (sess->readHandshakeMsg(msg2.data(), len2) != 0) return false;
-    if (!sess->split()) return false;
-
-    // 成功：恢复无收流超时（reader 靠 running_ + shutdown 退出，残留 5s 超时会把
-    // 空闲链路误杀），再置加密态
-#if defined(_WIN32)
-    DWORD rto0 = 0;
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rto0),
-               sizeof(rto0));
-#else
-    timeval rto0{0, 0};
-    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &rto0, sizeof(rto0));
-#endif
-    noiseSess_ = sess;
-    noiseActive_.store(true, std::memory_order_release);
-    APX_LOGI("9502 R2 通道加密已启用");
     return true;
 }
 
@@ -473,8 +339,6 @@ void MediaSession::readerLoop() {
     std::vector<uint8_t> acc;
     acc.reserve(1 << 20);
     while (running_.load()) {
-        // R2 加密开关快照（9502 子批）：单 reader 线程内一轮循环内不会翻转
-        const bool decActive = noiseActive_.load(std::memory_order_acquire);
         const int n = static_cast<int>(::recv(sock_, reinterpret_cast<char*>(buf.data()),
                                               static_cast<int>(buf.size()), 0));
         if (n <= 0) {
@@ -498,31 +362,6 @@ void MediaSession::readerLoop() {
                 ++off;
                 cResync_.fetch_add(1, std::memory_order_relaxed);
                 continue;
-            }
-
-            // R2 收流解密（9502 子批）：noiseActive 时 payload（含 CRC 尾）是密文
-            //（比明文长 16 字节 AEAD 标签），按帧头声明的密文长先攒齐，verify 前
-            // 原位解密、帧头 payloadLen（偏移 8）重写为明文长。解密失败 = 标签不过
-            //（密钥不符/被改），计数丢弃 —— 媒体流允许丢，不断链（与 Android
-            // MediaChannel.pump 同口径）。
-            if (decActive) {
-                const size_t ctotal = apx::kFrameHeaderSize + h.payloadLen;
-                if (acc.size() - off < ctotal) break;   // 密文未攒齐，等下一次 recv
-                // qmu_ 短暂持锁拷贝会话（teardown 并发 reset 的竞争窗口内安全）
-                std::shared_ptr<wireless::NoiseSession> sess;
-                {
-                    std::lock_guard<std::mutex> qlk(qmu_);
-                    sess = noiseSess_;
-                }
-                const size_t plainLen =
-                    sess ? sess->decrypt(p + apx::kFrameHeaderSize, h.payloadLen) : 0;
-                if (plainLen == 0) {
-                    off += ctotal;
-                    cResync_.fetch_add(1, std::memory_order_relaxed);
-                    continue;
-                }
-                putU32Le(acc.data() + off + 8, static_cast<uint32_t>(plainLen));
-                h.payloadLen = static_cast<uint32_t>(plainLen);
             }
 
             const size_t total = apx::kFrameHeaderSize + h.payloadLen;
@@ -681,23 +520,6 @@ void MediaSession::writerLoop() {
             frame = std::move(outQ_[pick]);
             outQ_.erase(outQ_.begin() + static_cast<std::ptrdiff_t>(pick));
         }
-        // R2 加密（9502 子批）：**出队后**加密 —— 入队的是明文完整帧，出队时 payload
-        // 整段（含 CRC 尾）AEAD、帧头 payloadLen 重写。不在入队时做：音频优先重排
-        // 语义以明文为准，nonce 顺序 = 实际发送顺序。加密失败（会话缺失/超限）= 断链
-        // —— AEAD nonce 已前进，明文补发对不上对端解密序。
-        if (noiseActive_.load(std::memory_order_acquire)) {
-            // qmu_ 短暂持锁拷贝会话（teardown 并发 reset 的竞争窗口内安全）
-            std::shared_ptr<wireless::NoiseSession> sess;
-            {
-                std::lock_guard<std::mutex> qlk(qmu_);
-                sess = noiseSess_;
-            }
-            if (!sess || !encryptFrame(frame, *sess)) {
-                mediaLog("R2 encryptFrame failed");
-                APX_LOGW("媒体帧 R2 加密失败，判定链路失效");
-                break;
-            }
-        }
         if (!sendAllBlocking(frame.data(), frame.size())) {
             // 部分写出会永久打乱对端的帧对齐，无法局部恢复 —— 只能断链让上层重连。
             mediaLog("writer break (sendAllBlocking false)");
@@ -752,13 +574,6 @@ bool MediaSession::sendAllBlocking(const uint8_t* p, size_t n) {
 void MediaSession::teardown() {
     mediaLog("teardown");
     running_.store(false);
-    // R2 状态随连接一起收掉（9502 子批）：会话不跨连接复用（shared_ptr 由残留
-    // 使用者安全持完最后一程；qmu_ 保护与 reader/writer 拷贝互斥）
-    noiseActive_.store(false, std::memory_order_release);
-    {
-        std::lock_guard<std::mutex> qlk(qmu_);
-        noiseSess_.reset();
-    }
     if (sock_ != kInvalidSock) {
 #if defined(_WIN32)
         ::shutdown(sock_, SD_BOTH);

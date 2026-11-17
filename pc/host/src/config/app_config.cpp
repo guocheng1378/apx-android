@@ -139,14 +139,6 @@ AppConfig loadConfig(const std::string& path) {
         for (const auto& [k, v] : km->asObject()) cfg.keymap[k] = v.asString();
     }
     cfg.pairingToken    = str("pairingToken", "");
-    cfg.noiseKeyPriv    = str("noiseKeyPriv", "");
-    // R2 对端公钥白名单（§4.4）：64 hex 字符串数组；缺失 = 空 = TOFU 兼容
-    if (auto* tp = j.find("trustedPeerPubs")) {
-        for (const auto& v : tp->asArray()) {
-            const std::string h = v.asString();
-            if (!h.empty()) cfg.trustedPeerPubs.push_back(h);
-        }
-    }
     return cfg;
 }
 
@@ -205,14 +197,6 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["keymap"] = std::move(km);
 
     j["pairingToken"]    = cfg.pairingToken;
-    j["noiseKeyPriv"]    = cfg.noiseKeyPriv;
-
-    // R2 对端公钥白名单（§4.4）：64 hex 数组
-    {
-        auto tp = net::Json::makeArray();
-        for (const auto& h : cfg.trustedPeerPubs) tp.push(h);
-        j["trustedPeerPubs"] = std::move(tp);
-    }
 
     std::string p = expandPath(path);
     std::error_code ec;

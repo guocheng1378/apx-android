@@ -46,10 +46,8 @@ int64_t nowMs() {
 /// 解析 "APX1TV|APX1PC|APX1PH <name> <port> <token>"，返回 (host-ip, port)。
 /// phone 出参：是否手机信标（APX1PH）—— 自动发现手机优先，见 onBeacon。
 /// token 出参：信标第 4 段配对 token（docs/REQ-无线安全配对.md）；旧信标可无该段 = 空串。
-/// pubHex 出参：信标第 5 段本端静态公钥（R2 加密 TOFU，64 hex）；旧信标可无 = 空串。
 bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port,
-                 bool* phone = nullptr, std::string* token = nullptr,
-                 std::string* pubHex = nullptr) {
+                 bool* phone = nullptr, std::string* token = nullptr) {
     // 简单按空格切分，取第 2、3 段（name、port）。host 由调用方从来源地址填入。
     std::string_view s(buf, n);
     // 必须以 "APX1TV"(TV) / "APX1PC"(PC) / "APX1PH"(手机被控) 开头 —— 三种前缀同为 6 字符。
@@ -84,15 +82,6 @@ bool parseBeacon(const char* buf, size_t n, std::string& host, uint16_t& port,
         size_t t1 = t0;
         while (t1 < s.size() && s[t1] != ' ' && s[t1] != '\t') ++t1;
         if (t1 > t0) token->assign(s.substr(t0, t1 - t0));
-        // 第 5 段 = 静态公钥（可选段，R2 加密 TOFU）：同款「存在才取」。
-        if (pubHex) {
-            pubHex->clear();
-            size_t p0 = t1;
-            while (p0 < s.size() && (s[p0] == ' ' || s[p0] == '\t')) ++p0;
-            size_t p1 = p0;
-            while (p1 < s.size() && s[p1] != ' ' && s[p1] != '\t') ++p1;
-            if (p1 > p0) pubHex->assign(s.substr(p0, p1 - p0));
-        }
     }
     return port != 0;
 }
@@ -308,7 +297,7 @@ void WirelessSession::disconnect() {
 }
 
 void WirelessSession::onBeacon(const std::string& host, uint16_t port, bool phone,
-                               const std::string& token, const std::string& pubHex) {
+                               const std::string& token) {
     std::lock_guard<std::mutex> lk(mu_);
     // 手机信标优先（修复⑫）：TV 端 app 常驻自启、持续广播 APX1TV，此前「先到先连」
     // 会在手机断链重发现时把会话绑到 TV 上 —— TV 连接稳定不掉线，自愈泵永不触发，
@@ -319,7 +308,6 @@ void WirelessSession::onBeacon(const std::string& host, uint16_t port, bool phon
     beaconPort_ = port;
     beaconPhone_ = phone;
     beaconToken_ = token;   // 握手回带用：控制端 connect 时从信标 token 原样带回
-    beaconPub_ = pubHex;    // R2 加密：信标第 5 段静态公钥（TOFU），connect 前带给客户端
     haveBeacon_ = true;
 }
 
@@ -358,7 +346,6 @@ void WirelessSession::worker() {
                 attempt = (mode != Mode::Idle);
                 haveBeacon_ = false;
                 beaconToken_.clear();   // 换目标时清残留：token 只随当次信标有效
-                beaconPub_.clear();     // R2 加密：公钥同款随信标有效性（防串目标）
                 manualFailed_ = false;
                 connectStartMs_ = 0;
             }
@@ -394,37 +381,17 @@ void WirelessSession::worker() {
                 std::string bhost;
                 uint16_t bport = 0;
                 std::string btoken;
-                std::string bpub;    // R2 加密：信标第 5 段静态公钥（64 hex）
                 {
                     std::lock_guard<std::mutex> lk(mu_);
                     // token 与 host/port 一起在锁内取出：待连信标是快照，三样必须同源
                     if (haveBeacon_) {
                         bhost = beaconHost_; bport = beaconPort_;
-                        btoken = beaconToken_; bpub = beaconPub_;
+                        btoken = beaconToken_;
                         haveBeacon_ = false;
                     }
                 }
                 if (!bhost.empty()) {
                     publish(LinkPhase::Connecting, mode);
-                    // R2 加密：connect 前把对端静态公钥交给客户端 —— btoken 非空且 bpub
-                    // 有效（64 hex）时客户端才会发 0x35 握手；缺公钥保持明文（TV/旧版）。
-                    if (bpub.size() == 64) {
-                        std::vector<uint8_t> pk(32);
-                        auto nib = [](char c) -> int {
-                            if (c >= '0' && c <= '9') return c - '0';
-                            if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-                            return -1;
-                        };
-                        bool okHex = true;
-                        for (size_t i = 0; i < 32 && okHex; ++i) {
-                            const int hi = nib(bpub[2 * i]), lo = nib(bpub[2 * i + 1]);
-                            if (hi < 0 || lo < 0) { okHex = false; break; }
-                            pk[i] = static_cast<uint8_t>((hi << 4) | lo);
-                        }
-                        if (okHex) client_.setPeerStaticKey(pk);
-                    } else {
-                        client_.setPeerStaticKey({});   // 显式清残留：公钥随信标有效
-                    }
                     // 回带信标 token：被控端启用校验时握手必经（docs/REQ-无线安全配对.md）
                     if (client_.connect(bhost, bport, btoken)) {
                         connectedPeer_ = bhost + ":" + std::to_string(bport);
@@ -727,16 +694,15 @@ void WirelessSession::beaconLoop() {
         uint16_t bport = 0;
         std::string dummy;
         std::string btoken;
-        std::string bpub;
         bool phone = false;
         // 过滤自身信标：本机广播会回环回来，不过滤就会「连自己」（面板假装已连接，
         // 而手机永远连不上）。见 isSelfAddress 注释。
-        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport, &phone, &btoken, &bpub)
+        if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport, &phone, &btoken)
 #if defined(_WIN32)
             && !isSelfAddress(from.sin_addr.s_addr)
 #endif
         ) {
-            onBeacon(hostIp, bport, phone, btoken, bpub);
+            onBeacon(hostIp, bport, phone, btoken);
         }
     }
 #if defined(_WIN32)

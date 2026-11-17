@@ -51,12 +51,6 @@ object TvDiscovery {
          * 「控制端永远不带令牌、被控端配了也白配」—— 这里补上保留。
          */
         var token: String = "",
-        /**
-         * R2 通道加密（2026-11-17）：对端 Noise 静态公钥的 64 位 hex（信标第 5 段，可选）。
-         * 旧版对端没有这段为空串 → 连接时不启用加密（恒明文兼容路径）。
-         * 见 docs/REQ-无线安全配对.md §4.1。
-         */
-        var noisePubKey: String = "",
     ) {
         /** 列表后缀：三类得一眼分清，否则「手机被控」看起来和电视没区别 */
         val typeLabel: String
@@ -148,19 +142,15 @@ object TvDiscovery {
                 // link-hardening：信标第 4 段 = 对端控制面令牌（<前缀> <name> <port> <token>）。
                 // 旧版对端信标没有这段，getOrNull 兜空串即可，握手照常放行。
                 val beaconToken = parts.getOrNull(3) ?: ""
-                // R2 加密（2026-11-17）：第 5 段 = 对端 Noise 静态公钥（64 hex，可选段，
-                // 旧版没有即空 → 连接时不启用加密）
-                val beaconPub = parts.getOrNull(4) ?: ""
                 val existing = devices[ip]
                 if (existing != null) {
                     existing.name = name
                     existing.port = port
                     existing.type = type
                     existing.token = beaconToken
-                    existing.noisePubKey = beaconPub
                     existing.lastSeen = now
                 } else {
-                    devices[ip] = TvDevice(name, ip, port, now, type, beaconToken, beaconPub)
+                    devices[ip] = TvDevice(name, ip, port, now, type, beaconToken)
                 }
             }
         } catch (_: Throwable) {

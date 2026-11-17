@@ -20,7 +20,6 @@ import com.allperiph.shared.event.EventBus
 import com.allperiph.shared.net.ControlServer
 import com.allperiph.shared.net.ControlEndpoint
 import com.allperiph.shared.net.FileReceiver
-import com.allperiph.shared.net.NoiseSession
 import com.allperiph.shared.net.WirelessBeacon
 import com.allperiph.shared.util.Log
 import com.allperiph.shared.inject.KeepAlive
@@ -132,19 +131,10 @@ class ControlledService : Service() {
             // 随机值持久化，此后重连必须带令牌才能握上手（信标里有广播，控制端从信标取；
             // 未升级的旧控制端不带令牌会连不上，两端同版升级即恢复，见 REQ 文档 §3.2）。
             val tok = pairingToken(this)
-            // R2 通道加密（2026-11-17，REQ §4.1）：本端 Noise 静态密钥对注入控制面 ——
-            // 有密钥对 + 令牌非空，控制面才报 CAP_ENCRYPT 并在收到 0x35 msg1 后进入加密。
-            // 密钥对进程级懒加载，首启生成落盘（prefs "apx_noise"）；失败则回退明文链路。
-            val noiseKp = NoiseSession.ensureKeyPair(this)
-            // 9512/9502 子批：本端被控令牌进进程级缓存 —— 文件/媒体通道的 PSK 复用
-            // 同一令牌（token 空 = 未启用配对令牌，同样无法加密，置 null 走明文）。
-            NoiseSession.linkToken = tok.ifBlank { null }
-            server = ControlServer(endpoint = controlEndpoint, token = tok, noiseKeyPair = noiseKp)
+            // 2026-11-18 去除 R2 通道加密：控制面恒明文直连，仅保留配对令牌校验。
+            server = ControlServer(endpoint = controlEndpoint, token = tok)
         }
         Companion.server = server
-        // 9512 发起端（FileSender）没有信标可听，对端公钥的信任落盘统一收口到
-        // R2 白名单裁决（NoiseSession.pubAuthorizer → PeerPubGate，App.onCreate 装配）：
-        // 9511/9512/9502 三条通道在握手裁决放行时才写 prefs（trustPeerPub），不再后置 TOFU。
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         // 0x05 开副屏请求：PC 面板开启副屏推流时下发 → 广播 ScreenOpenRequestEvent，
         // 由 AgentForegroundService.onPcOpenScreen 拉起副屏页（前台直接弹；
@@ -178,11 +168,10 @@ class ControlledService : Service() {
         // sendCapsSync 在连接激活时调用，读偏好（SharedPreferences）线程安全。
         val service = this
         server?.notifyReplyCap = { com.allperiph.notify.NotificationSyncPref.isEnabled(service) }
-        // 常驻通知实时性（2026-11-17，随「通知显示加密状态」加）：此前通知只在服务启动时
-        // 构建一次，「已连接」「已加密」字样不会随链路变化更新，回验只能靠导日志。
-        // 现在连接/加密状态一变就刷新（回调已 post 主线程，见 refreshNotification）。
+        // 常驻通知实时性（2026-11-17）：此前通知只在服务启动时构建一次，「已连接」
+        // 字样不会随链路变化更新，回验只能靠导日志。现在连接状态一变就刷新
+        //（回调已 post 主线程，见 refreshNotification）。
         server?.onPeerChanged = { _, _ -> refreshNotification() }
-        server?.onEncryptedChanged = { _ -> refreshNotification() }
         // 0x10 模块开关（v184）：PC 面板拨"无线"开关 → 挂起/恢复被控（监听保留，可随时恢复）
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {
@@ -248,17 +237,12 @@ class ControlledService : Service() {
         // 线程与端口从此没人管，逐次累积）并再 addPrimaryClipChangedListener 一次
         // （同一个 listener 挂多份 → 剪贴板变化被回传多次）。
         if (beacon == null) {
-            // R2 加密（2026-11-17）：信标第 5 段带上本端静态公钥 hex（与 ControlServer
-            // 同一对密钥；ensureKeyPair 失败为空 → 不追加该段，对端按明文连接）
-            val noisePub = NoiseSession.ensureKeyPair(this)?.second
-                ?.joinToString("") { "%02x".format(it) } ?: ""
             beacon = WirelessBeacon(
                 "APX1TV",
                 com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
                 ControlServer.PORT,
                 // link-hardening：信标带上本机配对令牌（<前缀> <name> <port> <token>），
-                // 控制端从信标取用；明文广播是已知限制（REQ-无线安全配对 §3.3，随 R2 加密解决），
-                // 此处先让「带令牌校验」这条链路完整转起来。
+                // 控制端从信标取用；明文广播是已知限制（REQ-无线安全配对 §3.3）。
                 pairingToken(this),
                 unicastHosts = {
                     val hosts = ArrayList<String>(8)
@@ -266,7 +250,6 @@ class ControlledService : Service() {
                     com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
                     hosts.distinct()
                 },
-                noisePubKeyHex = noisePub,
             ).also { it.start() }
         }
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -372,8 +355,8 @@ class ControlledService : Service() {
         } catch (t: Throwable) { Log.w(TAG, "startForeground 失败：${t.message}") }
     }
     /**
-     * 常驻通知刷新（2026-11-17，随「通知显示加密状态」加）：连接状态或加密状态变化时
-     * 重新构建并 notify 同 ID 覆盖 —— 服务已是前台，不必重走 startForeground。
+     * 常驻通知刷新（2026-11-17）：连接状态变化时重新构建并 notify 同 ID 覆盖 ——
+     * 服务已是前台，不必重走 startForeground。
      * 回调已 post 主线程（ControlServer 侧 mainHandler），此处直接操作即可。
      */
     private fun refreshNotification() {
@@ -384,14 +367,7 @@ class ControlledService : Service() {
         val openPi = PendingIntent.getActivity(this, 1, Intent(this, TouchpadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val ready = server?.ready == true
         val sysReady = TvInjector.systemReady()
-        // 加密状态跟在连接状态后（仅已连接时显示）：回验加密握手时瞟一眼状态栏即可确认，
-        // 不用再导日志。TV/旧对端等明文路径照常显示「明文」。
-        val encText = when {
-            !ready -> ""
-            server?.isEncrypted() == true -> " · " + getString(R.string.controlled_notif_encrypted)
-            else -> " · " + getString(R.string.controlled_notif_plaintext)
-        }
-        val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") + encText +
+        val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") +
             (if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) " · 未授予通知权限" else "")
         return Notification.Builder(this, CHANNEL_ID).setContentTitle("全能外设 · 被控模式").setContentText(text).setSmallIcon(R.drawable.ic_launcher_app).setContentIntent(openPi).setOngoing(true).build()
     }

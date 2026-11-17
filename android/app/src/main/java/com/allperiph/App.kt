@@ -60,11 +60,6 @@ class App : Application() {
         com.allperiph.CrashBox.install(this)
         com.allperiph.CrashBox.mark("进程启动：Application.onCreate")
         context = this
-        // R2 对端静态公钥白名单裁决（§4.4）：共享模块只留钩子，决策与确认 UI 收口在
-        // app 模块 —— 这里装配后，9511/9512/9502 三条通道的 Responder 与 9511
-        // Initiator 都走 PeerPubGate（查白名单 / 首连弹 PubConfirmDialogActivity）。
-        com.allperiph.shared.net.NoiseSession.pubAuthorizer =
-            { pub, host -> com.allperiph.wireless.PeerPubGate.authorize(pub, host) }
         // ControlledService companion 实现了 ServiceController；交给共享 KeepAlive 使用。
         KeepAlive.controller = ControlledService
         // 三指手势遮蔽的自愈：上次进程被杀时可能还留着「系统三指手势被改掉」的状态。

@@ -362,61 +362,9 @@ if(APPLE)
   target_link_libraries(apxpc_service PUBLIC "-framework Foundation" "-framework AppKit")
 endif()
 
-# ---------------------------------------------------------- 目标：Noise 协议库（R2 通道加密）
-# third_party/noise-c 的编译子集（见下方源清单，不整库拷贝式全编）：
-#   · protocol/*.c 全 12 个：协议状态机（handshake/symmetric/cipher/dh/hash/sign/rand
-#     各 state）+ 名字解析（names.c 支持 NoisePSK_IK_25519_ChaChaPoly_SHA256）。
-#   · backend/ref 全 8 件：不定义 USE_OPENSSL/USE_LIBSODIUM 即走 ref 后端
-#     （自包含，零外部依赖）；internal.c 引用全部工厂，故全部编入。
-#   · crypto：ref 后端的实际算术（curve25519-donna 经 dh-curve25519.c 条件
-#     #include 编入；blake2/aes/ghash/sha512 只被 ref 后端引用，一并编入）。
-#   · stubs.c：dhstate.c/signstate.c 引用的 curve448/newhope 两个未用 DH 打桩。
-# 许可与来源见 third_party/noise-c/VENDOR-NOTES.md（上游 rweather/noise-c，MIT）。
-file(GLOB APXPC_NOISE_PROTO "${APXPC_ROOT}/third_party/noise-c/src/protocol/*.c")
-set(APXPC_NOISE_SRC
-  ${APXPC_NOISE_PROTO}
-  # ref 后端全套：internal.c 引用全部算法工厂（aesgcm/blake2b/blake2s/sha512 等），
-  # 只编 chachapoly+sha256 会链接期缺符号（CI 抓出）——索性整库编入，仍在同一份
-  # 自包含源码内，不引外部依赖。
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/cipher-chachapoly.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/cipher-aesgcm.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/dh-curve25519.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-blake2b.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-blake2s.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-sha256.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/hash-sha512.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/backend/ref/sign-ed25519.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/aes/rijndael-alg-fst.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/chacha/chacha.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/donna/poly1305-donna.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/ghash/ghash.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/blake2/blake2b.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/blake2/blake2s.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/sha2/sha256.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/sha2/sha512.c"
-  "${APXPC_ROOT}/third_party/noise-c/src/crypto/ed25519/ed25519.c"
-  "${APXPC_ROOT}/third_party/noise-c/stubs.c"
-)
-# 本工程 project() 只声明 CXX；noise-c 全是 .c，需先启用 C 语言，
-# 否则 .c 不被视为可编译源，目标报「Cannot determine link language」。
-enable_language(C)
-add_library(apxpc_noise STATIC ${APXPC_NOISE_SRC})
-# include：协议公开头（noise/xxx.h，PUBLIC 供 ctrl9511 编）；src/protocol（internal.h
-# 与 *.c 同目录）与 src（crypto/xxx 相对 include 路径）仅库内编译需要，PRIVATE。
-target_include_directories(apxpc_noise
-  PUBLIC  "${APXPC_ROOT}/third_party/noise-c/include"
-  PRIVATE "${APXPC_ROOT}/third_party/noise-c/src/protocol"
-          "${APXPC_ROOT}/third_party/noise-c/src")
-# ed25519 批验证的随机数：本工程零外部依赖，不引 OpenSSL；定义
-# ED25519_CUSTOMRANDOM 后由同库 protocol/rand_os.c 提供系统熵实现（CI 抓出）。
-# ed25519 哈希同理不引 OpenSSL：定义 ED25519_CUSTOMHASH 后用上游自带的
-# ed25519-hash-custom.h，接本库 sha512（CI 抓出）。
-target_compile_definitions(apxpc_noise PRIVATE ED25519_CUSTOMRANDOM ED25519_CUSTOMHASH)
-
 # ---------------------------------------------------------- 目标：统一控制面（9511）
 set(APXPC_WIRELESS_SRC
   "${APXPC_ROOT}/src/wireless/wireless_session.cpp"
-  "${APXPC_ROOT}/src/wireless/noise_session.cpp"
   "${APXPC_ROOT}/src/wireless/ctrl9511.cpp"
   "${APXPC_ROOT}/src/wireless/file_receiver.cpp"
   "${APXPC_ROOT}/src/wireless/file_sender.cpp"
@@ -434,9 +382,7 @@ elseif(UNIX)
 endif()
 add_library(apxpc_wireless STATIC ${APXPC_WIRELESS_SRC})
 target_include_directories(apxpc_wireless PUBLIC "${APXPC_ROOT}/include")
-# apxpc_noise：R2 通道加密（NoisePSK_IK_25519_ChaChaPoly_SHA256）—— ctrl9511.cpp
-# 的握手帧 0x35 与 9511/9512/9502 加密都经 noise_session.cpp 引它。
-target_link_libraries(apxpc_wireless PUBLIC apxpc_core apxpc_noise)
+target_link_libraries(apxpc_wireless PUBLIC apxpc_core)
 if(WIN32)
   target_link_libraries(apxpc_wireless PUBLIC ws2_32 Iphlpapi)
 elseif(APPLE)
@@ -705,6 +651,8 @@ endif()
 
 # ---------------------------------------------------------------- 示例
 if(APXPC_BUILD_SDK AND APXPC_BUILD_EXAMPLES)
+  # 工程 project() 只声明 CXX，sensor_watch.c 是纯 C，需先启用 C 语言
+  enable_language(C)
   add_executable(sensor_watch "${APXPC_ROOT}/sdk/examples/sensor_watch.c")
   target_link_libraries(sensor_watch PRIVATE apxpc_sdk)
   set_target_properties(sensor_watch PROPERTIES C_STANDARD 99)

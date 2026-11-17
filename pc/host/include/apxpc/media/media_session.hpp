@@ -31,8 +31,6 @@
 #include <thread>
 #include <vector>
 
-#include "apxpc/wireless/noise_session.hpp"
-
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
 #define WIN32_LEAN_AND_MEAN
@@ -61,7 +59,7 @@ constexpr int kAudioChannels   = 2;
 constexpr int kAudioBytesPerMs = kAudioSampleRate * kAudioChannels * 2 / 1000;  // 192
 
 /// socket 句柄类型（Windows = SOCKET / POSIX = int）：头文件内可用的别名，
-/// 供 r2Handshake 签名与实现共用。
+/// 供建链 establish 步骤与实现共用。
 #if defined(_WIN32)
 using MediaSock = SOCKET;
 #else
@@ -141,8 +139,6 @@ private:
     bool sendAllBlocking(const uint8_t* p, size_t n);
     void teardown();
     bool enqueue(std::vector<uint8_t>&& frame, uint8_t streamId);
-    /// R2 握手（9502 Initiator）：成功 split 后写入 noiseSess_ 并置 noiseActive_。
-    bool r2Handshake(MediaSock s);
 
     mutable std::mutex mu_;
     Status st_;
@@ -164,13 +160,6 @@ private:
     std::thread writer_;
     std::string token_;
     int64_t upSinceMs_ = 0;
-
-    // ————— R2 通道加密（9502 子批，2026-11-17） —————
-    /// 传输态 Noise 会话（R2 握手 split 后非空）。shared_ptr：reader/writer 在
-    /// teardown 竞争窗口内可安全持用，会话随最后一个使用者释放，不跨连接复用。
-    std::shared_ptr<wireless::NoiseSession> noiseSess_;
-    /// R2 加密开关：握手 split 后为 true，此后出入帧 payload 均为 AEAD 密文（帧头明文）
-    std::atomic<bool> noiseActive_{false};
 
     std::mutex qmu_;
     std::condition_variable qcv_;

@@ -403,20 +403,6 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!--
-          R2 白名单首连确认（§4.4，2026-11-17）：陌生对端静态公钥请求加密连接
-          （9511/9512/9502 任一通道首次出现）时经 PeerPubGate 拉起本页裁决 ——
-          用户点「允许」才信任并落盘白名单。透明主题承载系统弹窗；singleTop 防叠层。
-        -->
-        <activity
-            android:name=".controlled.PubConfirmDialogActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:excludeFromRecents="true"
-            android:taskAffinity=""
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-        <!--
           ⑪之三 「照片」媒体权限申请页（2026-11-12，ROADMAP §5.2 ①）：悬浮球照片卡在
           Service（overlay）里构建，运行时权限只能由 Activity 发起 —— 透明主题只承载
           系统弹窗，进来就申请、拿到结果即 finish。singleTop 防连点叠多层。
