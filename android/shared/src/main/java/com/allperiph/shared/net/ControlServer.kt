@@ -730,7 +730,10 @@ class ControlServer(
             if (noiseActive || noiseSess != null) return   // 已在加密态 / 握手进行中：重复 msg1 直接忽略
             val s = NoiseSession()
             if (!s.beginResponder(tokenBytes, kp.first)) { Log.w("控制面", "R2 握手：Responder 初始化失败"); return }
-            if (s.readHandshakeMsg(body, 0, body.size) != 0) {
+            // fix(R2) 2026-11-18：分发层传入的 body 首字节是 cmd 0x35，Noise 消息体从
+            // body[1] 起 —— 与 PC 端 onNoiseHandshakeMsg1(p + 1, bodyLen - 1) 同口径。
+            // 此前从 body[0] 整段喂给 Noise，标签校验必挂（PC 发来的 msg1 也握不上）。
+            if (s.readHandshakeMsg(body, 1, body.size - 1) != 0) {
                 // msg1 标签不过 = 对端不持同一 token（或帧被改），握手作废，链路维持明文
                 Log.w("控制面", "R2 握手：msg1 校验失败（对端令牌不符？）")
                 return
@@ -754,7 +757,17 @@ class ControlServer(
         // 互斥，保证开关翻转对发送侧原子（此刻 noiseActive 仍 false，offer 的就是明文帧）
         var enqueued = false
         synchronized(writeLock) {
-            enqueued = outQueue.offer(msg2)
+            // fix(R2) 2026-11-18：outQueue 收发的是完整 APX1 帧（写线程原样写出），
+            // msg2 必须包成控制帧 —— cmd 0x35 打头、Noise 消息体跟上（与 PC 端
+            // buildCtrlFrame(..., 0x35, ...) 同构）。此前直接 offer 裸 msg2，对端
+            // 按 magic 扫帧必判坏帧；seq 自增与 sendControl 同口径。
+            seq = (seq + 1) and 0x7FFFFFFF
+            val msg2Frame = ApxFrame.build(
+                ApxFrame.STREAM_CONTROL,
+                byteArrayOf(ApxFrame.CMD_ENCRYPT_HANDSHAKE.toByte()) + msg2,
+                seq,
+            )
+            enqueued = outQueue.offer(msg2Frame)
             if (enqueued) noiseActive = true
         }
         if (!enqueued) {

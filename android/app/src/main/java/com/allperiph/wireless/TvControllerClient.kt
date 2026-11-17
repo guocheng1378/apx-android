@@ -651,7 +651,17 @@ class TvControllerClient(
             noiseWaitSince = android.os.SystemClock.elapsedRealtime()
             lastNoiseAttempt = noiseWaitSince
             seq = (seq + 1) and 0x7FFFFFFF
-            txQueue.offer(ApxFrame.build(ApxFrame.STREAM_CONTROL, out.copyOf(msgLen), seq))
+            // fix(R2) 2026-11-18：控制帧载荷首字节必须是 cmd 0x35，Noise 消息体跟在
+            // 后面（与 PC 端 buildCtrlFrame(..., 0x35, ...) 同构）。此前把裸 msg1 当
+            // 整个载荷发出，对端按未知帧号安静忽略 —— 发端一直「等 msg2 超时」，
+            // 收端全程零日志（.220↔.41 互控握手死锁的根因）。
+            txQueue.offer(
+                ApxFrame.build(
+                    ApxFrame.STREAM_CONTROL,
+                    byteArrayOf(ApxFrame.CMD_ENCRYPT_HANDSHAKE.toByte()) + out.copyOf(msgLen),
+                    seq,
+                ),
+            )
         }
         Log.i("TvCtrl", "R2 加密握手已发起（msg1 已发，等对端 msg2）")
     }
@@ -666,7 +676,10 @@ class TvControllerClient(
         synchronized(noiseLock) {
             val s = noiseSess
             if (s == null || noiseActive) return   // 没发起过 / 已在加密态：忽略
-            failed = s.readHandshakeMsg(body, 0, body.size) != 0
+            failed = s.readHandshakeMsg(body, 1, body.size - 1) != 0
+            // fix(R2) 2026-11-18：body 首字节是 cmd 0x35，Noise 消息体从 body[1] 起
+            // （与 PC 端 readHandshakeMsg(payload + 1, bodyLen - 1) 同口径）—— 此前
+            // 整段喂给 Noise，即使对端回了正确的 msg2 也过不了标签校验。
             if (failed) noiseSess = null else if (!s.split()) { failed = true; noiseSess = null }
         }
         synchronized(writeLock) {

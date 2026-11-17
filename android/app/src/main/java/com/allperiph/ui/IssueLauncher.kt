@@ -26,7 +26,10 @@ import java.util.Locale
 object IssueLauncher {
     private const val NEW_ISSUE = "https://github.com/guocheng1378/apx-android/issues/new"
     private const val LABEL = "bug"
-    private const val LOG_LINES = 50
+    // fix 2026-11-18：50 条太少，高频 ping/pong 会把关键痕迹（如 R2 握手日志）挤出
+    // 附带日志，排查握手类问题时收端像「零日志」。放宽到 200 条；再多的走设置页
+    // 导出（全量 512 环形缓冲），这里只取 200 是为了 URL 长度不超浏览器限制。
+    private const val LOG_LINES = 200
     private const val FENCE = "```"
 
     fun open(context: Context) {
