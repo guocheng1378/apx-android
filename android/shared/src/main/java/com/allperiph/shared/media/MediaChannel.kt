@@ -93,7 +93,10 @@ class MediaChannel(
     private var seq = 0
 
     /** 待发送帧（已含帧头与 CRC）。约 2 秒的音频缓冲 */
-    private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+    // v-fix（第二轮 2026-11-18）：写队列改为**每连接一份**（与 ControlServer/TvControlServer
+    // 同源同修）—— 共享队列在接管/重连瞬间会被旧写线程抢走入队帧（媒体帧非幂等，丢帧
+    // 即花屏/卡音）。换新队列后旧线程的 poll 永远拿不到新帧，按 client !== sock 退出。
+    @Volatile private var outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
 
     private val rxLock = Any()
     private var rxBuf = ByteArray(256 * 1024)
@@ -245,7 +248,8 @@ class MediaChannel(
         out = sock.getOutputStream()
         peerText = "${sock.inetAddress?.hostAddress}:${sock.port}"
         synchronized(rxLock) { rxLen = 0 }
-        outQueue.clear()
+        // 每连接换新写队列（见字段注释）：旧队列随旧连接作废，旧写线程永远抢不到新帧
+        outQueue = ArrayBlockingQueue(QUEUE_CAP)
         droppedFrames.set(0)
         // R2 状态复位：新连接从明文开始（探测在 readerLoop 首帧时做）
         synchronized(noiseLock) { noiseSess = null }
@@ -294,13 +298,17 @@ class MediaChannel(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
+        // v-fix（第二轮 2026-11-18）：建线程时快照本连接的写队列（activate 已换新实例）
+        // —— 旧线程继续 poll 旧队列，新连接的帧只可能被本线程消费；出队后仍重验归属
+        // （client !== sock 退位），双保险。
+        val q = outQueue
         // v-fix（连接切换竞态）：外层循环加 client === sock 身份判断，与 ControlServer /
         // TvControlServer 的 writerLoop 同源 —— 接管瞬间旧写线程可能仍阻塞在共享
         // outQueue 上，把新连接入队的帧抢走写进已关闭的旧 socket（媒体帧非幂等，丢帧
         // 即花屏/卡音）。出队后同样重验归属再写。
         while (running.get() && !sock.isClosed && client === sock) {
             // fix: 批量 flush，避免队列积压时每帧一次系统调用
-            var frame = outQueue.poll()
+            var frame = q.poll()
             while (frame != null) {
                 if (client !== sock) break   // 接管瞬间旧写线程退位，帧留给新写线程处理
                 try {
@@ -318,7 +326,7 @@ class MediaChannel(
                     teardown(sock)
                     return
                 }
-                frame = outQueue.poll()
+                frame = q.poll()
             }
             // 队列排空后统一 flush
             try {

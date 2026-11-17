@@ -203,10 +203,22 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
         const val KEY_LEN = 32
         const val PSK_LEN = 32
 
-        // 白名单 prefs 键（"apx_noise"）：trustedPeerPubs=信任集合（Base64）、
-        // peerPubLast=旧单值（迁移源 + 最近一次兜底）、peerPubByHost=host→pub 映射
-        //（条目 "host|pubB64"，见 loadPeerPubForHost）。
-        private const val PREF_TRUSTED = "trustedPeerPubs"
+        // 白名单 prefs 键（"apx_noise"）：
+        //  · confirmedPeerPubs = 用户在首连确认弹窗点过「允许」的公钥 —— 被控端公钥门控
+        //    （pubAuthorizer）的唯一放行依据；
+        //  · autoPeerPubs = 发起端按信标 TOFU 记录的公钥 —— 只供发起方向选钥，**不作为
+        //    被控端放行依据**；
+        //  · trustedPeerPubs = 旧版混合集合（v223.33–v223.36 时代）：用户确认与信标 TOFU
+        //    混写一处。第二轮互控实测实锤的设计漏洞：手机控手机时两端各起一路客户端，
+        //    发起端的自动信任（trustPeerPubAuto）会把对端信标公钥写进同一集合，随后
+        //    被控方向的握手查同一集合即静默放行 —— 「被控端首连确认」从此永不弹窗
+        //    （用户原话「是对端不弹」）。存量集合仅保留作发起方向选钥候选，升级后
+        //    首连按承诺重新弹一次确认；
+        //  · peerPubLast = 旧单值（迁移源 + 最近一次兜底）、
+        //  · peerPubByHost = host→pub 映射（条目 "host|pubB64"，见 loadPeerPubForHost）。
+        private const val PREF_TRUSTED = "trustedPeerPubs"      // 旧版存量：仅作发起方向选钥候选
+        private const val PREF_CONFIRMED = "confirmedPeerPubs"  // 用户点过「允许」（被控门控唯一依据）
+        private const val PREF_AUTO = "autoPeerPubs"            // 发起端信标 TOFU（不作被控放行依据）
         private const val PREF_PUB_LAST = "peerPubLast"
         private const val PREF_PUB_BY_HOST = "peerPubByHost"
 
@@ -265,9 +277,10 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
         //      旧 peerPubLast 单值门槛会把第二台锁在门外），按 host 记录「9511 学、
         //      9512 发起端按对端取」（见 loadPeerPubForHost）。 ----
 
-        /** 白名单（Base64 32 字节集合）。首次读取时迁移旧 peerPubLast 单值 ——
-         *  已配对用户升级后不丢信任。 */
-        fun trustedPeerPubs(context: Context): Set<String> {
+        /** 旧版存量集合（trustedPeerPubs）：v223.33–v223.36 时代用户确认与信标 TOFU 混写
+         *  一处，不再作为被控端放行依据（见 PREF_TRUSTED 注释），仅作发起方向选钥候选。
+         *  首次读取时迁移旧 peerPubLast 单值 —— 已配对用户升级后发起方向不丢对端公钥。 */
+        fun legacyTrustedPeerPubs(context: Context): Set<String> {
             return try {
                 val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
                 var set = prefs.getStringSet(PREF_TRUSTED, null)
@@ -279,21 +292,48 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
                 }
                 set
             } catch (t: Throwable) {
-                Log.w(TAG, "trustedPeerPubs 失败: ${t.message}")
+                Log.w(TAG, "legacyTrustedPeerPubs 失败: ${t.message}")
                 emptySet()
             }
         }
 
+        /** 用户确认过的公钥集合（首连弹窗点「允许」）—— 被控端公钥门控唯一放行依据 */
+        fun confirmedPeerPubs(context: Context): Set<String> = readPubSet(context, PREF_CONFIRMED)
+
+        /** 发起端按信标 TOFU 记录的公钥集合 —— 只供发起方向选钥，不作为被控端放行依据 */
+        fun autoPeerPubs(context: Context): Set<String> = readPubSet(context, PREF_AUTO)
+
+        private fun readPubSet(context: Context, key: String): Set<String> = try {
+            context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
+                .getStringSet(key, null) ?: emptySet()
+        } catch (t: Throwable) {
+            Log.w(TAG, "readPubSet($key) 失败: ${t.message}")
+            emptySet()
+        }
+
         /**
-         * 信任对端静态公钥并落盘：进白名单集合（幂等）+ 按 host 记录（9512 发起端
-         * 按对端取用）+ 更新旧单值键（保持「最近一次」语义，供旧读取方/迁移兜底）。
+         * 用户在确认弹窗点「允许」时信任对端静态公钥并落盘（幂等）：
+         * 进确认集合（被控门控唯一依据）+ 按 host 记录 + 更新旧单值键。
+         * 仅 [com.allperiph.wireless.PeerPubGate] 的「允许」分支调用。
          */
-        fun trustPeerPub(context: Context, pub: ByteArray, host: String?) {
+        fun trustPeerPubConfirmed(context: Context, pub: ByteArray, host: String?) =
+            writeTrustedPub(context, pub, host, PREF_CONFIRMED)
+
+        /**
+         * 发起端按信标 TOFU 信任对端静态公钥并落盘（幂等，发起端免确认路径）：
+         * 进自动信任集合（只供发起方向选钥，**不作为被控放行依据** —— 否则互控场景
+         * 被控端首连确认会被本端发起方向的自动信任悄悄顶掉，第二轮互控实测实锤）。
+         * 仅 TvControllerClient.initiateNoise 调用。
+         */
+        fun trustPeerPubAuto(context: Context, pub: ByteArray, host: String?) =
+            writeTrustedPub(context, pub, host, PREF_AUTO)
+
+        private fun writeTrustedPub(context: Context, pub: ByteArray, host: String?, setKey: String) {
             try {
                 val b64 = Base64.getEncoder().encodeToString(pub)
                 val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
                 prefs.edit()
-                    .putStringSet(PREF_TRUSTED, trustedPeerPubs(context) + b64)
+                    .putStringSet(setKey, readPubSet(context, setKey) + b64)
                     .putString(PREF_PUB_LAST, b64)
                     .apply()
                 if (!host.isNullOrBlank()) {
@@ -305,15 +345,15 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
                     prefs.edit().putStringSet(PREF_PUB_BY_HOST, map).apply()
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "trustPeerPub 失败: ${t.message}")
+                Log.w(TAG, "writeTrustedPub 失败: ${t.message}")
             }
         }
 
         /**
          * 9512 Initiator 预知对端公钥：优先按对端 host 取（多台对端各取各的，
          * §4.4「9512 发起端预知对端公钥改为按对端取值」）；host 没有记录时，
-         * 白名单里只有一把就取那一把（单对端场景），否则回退旧单值键。
-         * 没有可信记录返回 null（发起端回退明文）。
+         * 候选池（用户确认 ∪ 信标 TOFU ∪ 旧版存量 —— 三者均只用于发起方向）里
+         * 只有一把就取那一把，否则回退旧单值键。没有可信记录返回 null（发起端回退明文）。
          */
         fun loadPeerPubForHost(context: Context, host: String?): ByteArray? {
             return try {
@@ -326,10 +366,11 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
                         if (pub.size == KEY_LEN) return pub
                     }
                 }
-                val trusted = trustedPeerPubs(context)
-                if (trusted.size == 1) return Base64.getDecoder().decode(trusted.first())
+                val pool = confirmedPeerPubs(context) + autoPeerPubs(context) +
+                    legacyTrustedPeerPubs(context)
+                if (pool.size == 1) return Base64.getDecoder().decode(pool.first())
                 val last = prefs.getString(PREF_PUB_LAST, null) ?: return null
-                if (last in trusted) Base64.getDecoder().decode(last) else null
+                if (last in pool) Base64.getDecoder().decode(last) else null
             } catch (t: Throwable) {
                 Log.w(TAG, "loadPeerPubForHost 失败: ${t.message}")
                 null

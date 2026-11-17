@@ -115,6 +115,9 @@ class ControlServer(
     private val r2Required: Boolean get() = noiseKeyPair != null && tokenBytes.isNotEmpty()
     private var plainDrops = 0
 
+    /** 上次能力协商帧发送时刻（elapsedRealtime）：readerLoop 按节拍补报的基准（v-fix 第二轮） */
+    @Volatile private var lastCapsSentAt = 0L
+
     /**
      * 0x38 查找手机回调（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→ 控制面命令
      * → 上层实现响铃。回调参数 action：1=响铃 0=停，已在 ControlServer 主线程（mainHandler
@@ -209,7 +212,16 @@ class ControlServer(
     /** 会话接管锁：并发握手在鉴权通过后串行收口，防止 client / out 被交叉写成两条连接 */
     private val activateLock = Any()
     private var seq = 0
-    private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+    // v-fix（第二轮 2026-11-18）：写队列改为**每连接一份** —— 旧实现所有连接共享同一个
+    // 实例，接管/重连瞬间旧写线程仍阻塞在它的 poll 上，doActivate 入队的第一帧
+    // （能力协商 0x33）会被旧线程抢走写进已关闭的旧 socket（v223.36.0 实测：
+    // 「写出失败：Socket closed」恰在新连接激活瞬间，对端从此学不到 bit8、
+    // 永远不发 0x35，明文僵尸连接、输入被 R2 门控全丢）。
+    // 15160cf 的出队后身份校验只能让旧线程退位，帧已被消费、新连接照样收不到；
+    // 换新队列后旧线程的 poll 再也拿不到新帧，按 200ms 空转超时 + client !== sock 退出，
+    // 竞态从根上消除（残留窗口：sendControl 恰在换队列瞬间入队到旧队列，该帧丢失，
+    // 由下方 readerLoop 的按节拍能力补报兜底）。
+    @Volatile private var outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
@@ -385,7 +397,9 @@ class ControlServer(
     /** 实际接管（调用方必须已持有 [activateLock]）：换连接、重置状态、起读写线程 */
     private fun doActivate(sock: Socket) {
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
-        synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+        synchronized(rxLock) { rxLen = 0 }
+        // 每连接换新写队列（见字段注释）：旧队列随旧连接作废，旧写线程永远抢不到新帧
+        outQueue = ArrayBlockingQueue(QUEUE_CAP)
         // R2 加密：新会话从明文开始（0x35 由对端发起，见 pump 的 0x35 分支），
         // 必须清掉上一条连接残留的传输态密钥，否则旧密文/新明文互相解不开
         val wasEncrypted = noiseActive
@@ -406,8 +420,15 @@ class ControlServer(
     private fun readerLoop(sock: Socket) {
         val ins = sock.getInputStream(); val buf = ByteArray(4096)
         var idleTimeouts = 0
-        var capsResends = 0
         while (running.get() && !sock.isClosed && client === sock) {
+            // v-fix（第二轮 2026-11-18）：能力补报改为**按时间节拍**，不再依赖读空闲 ——
+            // 15160cf 的空闲补报有个致命盲区：对端 ping 每秒一跳，「读空闲 3s」判据在有
+            // 流量时永不满足，被抢走的 0x33 永远补不出去（对端学不到 bit8，永远以明文
+            // 发输入帧，被 R2 门控全丢 —— 即 v223.36.0 实测的僵尸连接）。现在只要本端
+            // 具备加密条件而 0x35 还没握上，每 3s 重报一次能力协商，握手完成自动停。
+            if (r2Required && !noiseActive &&
+                SystemClock.elapsedRealtime() - lastCapsSentAt >= CAPS_RESEND_MS
+            ) sendCapsSync()
             val n = try {
                 ins.read(buf)
             } catch (t: java.net.SocketTimeoutException) {
@@ -415,11 +436,6 @@ class ControlServer(
                     Log.w("控制面", "读空闲超时 8 次，判定链路已失效：$peerText")
                     break
                 }
-                // v-fix（连接切换竞态兜底）：加密未就绪期间随空闲节拍重报能力协商 ——
-                // 上面的写线程竞态或任何丢包都可能吞掉新连接的 0x33，对端学不到 bit8
-                // 就永远不发 0x35，连接僵死在明文、业务帧被 R2 门控全丢。0x33 幂等
-                // 无害；每条连接限 20 次（1 分钟）防对端日志刷屏，握手完成后自动停。
-                if (r2Required && !noiseActive && capsResends++ < 20) sendCapsSync()
                 continue
             } catch (t: Throwable) {
                 Log.w("控制面", "读异常，断开连接：${t.message}")
@@ -435,8 +451,12 @@ class ControlServer(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
+        // v-fix（第二轮 2026-11-18）：**建线程时快照本连接的写队列**（doActivate 已换新
+        // 实例）—— 旧线程继续 poll 旧队列，拿到的永远是空/作废帧，新连接的帧只可能
+        // 被本线程消费；出队后仍重验归属（client !== sock 退位），双保险。
+        val q = outQueue
         while (running.get() && !sock.isClosed && client === sock) {
-            val frame = try { outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
+            val frame = try { q.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
             // v-fix（连接切换竞态）：接管/重连瞬间，本线程（旧连接的写线程）可能仍阻塞
             // 在共享 outQueue 的 poll 上；doActivate 换连接后入队的第一帧（能力协商 0x33）
             // 会被这里抢走、写进已关闭的旧 socket —— 对端从此学不到 bit8、永远不发
@@ -798,6 +818,8 @@ class ControlServer(
      * `scripts/check_protocol.py` 的跨端字面量对拍一致 —— 改这里必须三处同步。
      */
     private fun sendCapsSync() {
+        // 记录本次发送时刻（readerLoop 的按节拍能力补报以此为准）
+        lastCapsSentAt = SystemClock.elapsedRealtime()
         // bit1 通知回复：本端**通知使用权已开启**才报（回复能力依赖监听的 action 缓存，
         // 2026-11-14 REQ-通知回复.md）。能力由上层注入（notifyReplyCap → app 模块读
         // NotificationSyncPref），共享模块不依赖应用层偏好 —— 未注入（TV）即不报。
@@ -1053,6 +1075,8 @@ class ControlServer(
         private const val HANDSHAKE_TIMEOUT_MS = 5_000
         private const val QUEUE_CAP = 256
         private const val WRITER_IDLE_MS = 200L
+        /** v-fix（第二轮 2026-11-18）：加密未就绪期间能力协商补报节拍（握手完成后自动停） */
+        private const val CAPS_RESEND_MS = 3_000L
         private const val READ_TIMEOUT_MS = 3_000
         private const val MAX_RX_BUF = 8 * 1024 * 1024
         /** v223.33：多设备接入弹窗的裁决超时 —— 15s 未点确定默认拒绝新连接，保住当前会话 */

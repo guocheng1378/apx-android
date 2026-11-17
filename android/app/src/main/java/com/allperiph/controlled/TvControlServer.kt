@@ -114,7 +114,11 @@ class TvControlServer(
     private val mainHandler = Handler(Looper.getMainLooper())
     private val writeLock = Any()
     private var seq = 0
-    private val outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
+    // v-fix（第二轮 2026-11-18）：写队列改为**每连接一份**（与 shared/ControlServer 同源
+    // 同修）—— 共享队列在接管/重连瞬间会被旧写线程抢走入队帧（v223.36.0 实测
+    // 「写出失败：Socket closed」同源），新连接收不到能力帧 0x33，PC 端能力全门。
+    // 换新队列后旧线程的 poll 永远拿不到新帧，按空转超时 + client !== sock 退出。
+    @Volatile private var outQueue = ArrayBlockingQueue<ByteArray>(QUEUE_CAP)
     private val rxLock = Any()
     private var rxBuf = ByteArray(4096)
     private var rxLen = 0
@@ -217,7 +221,9 @@ class TvControlServer(
         val prev = client
         if (prev != null && prev !== sock) runCatching { prev.close() }
         client = sock; out = sock.getOutputStream(); peerText = peerTextOf(sock)
-        synchronized(rxLock) { rxLen = 0 }; outQueue.clear()
+        synchronized(rxLock) { rxLen = 0 }
+        // 每连接换新写队列（见字段注释）：旧队列随旧连接作废，旧写线程永远抢不到新帧
+        outQueue = ArrayBlockingQueue(QUEUE_CAP)
         synchronized(keysLock) { pressedKeys.clear(); lastButtons = 0 }; ready = true
         // 能力协商（0x33，2026-11-11）：新会话清空上一会话的对端能力，并把本端能力报给对端
         //（与 :shared 的 ControlServer 同一机制 —— 两份实现逐字节同协议，见类头注释）。
@@ -265,12 +271,16 @@ class TvControlServer(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
+        // v-fix（第二轮 2026-11-18）：建线程时快照本连接的写队列（activate 已换新实例）
+        // —— 旧线程继续 poll 旧队列，新连接的帧只可能被本线程消费；出队后仍重验归属
+        // （client !== sock 退位），双保险。
+        val q = outQueue
         // v-fix（连接切换竞态）：循环加 client === sock 身份判断，与 readerLoop 的 v184
         // 修复同源 —— 接管/重连瞬间，旧写线程可能仍阻塞在共享 outQueue 的 poll 上，
         // 新连接 doActivate 后入队的第一帧（能力协商 0x33）会被它抢走、写进已关闭的
         // 旧 socket，对端从此收不到能力帧。出队后重验归属：旧线程直接退位。
         while (running.get() && !sock.isClosed && client === sock) {
-            val frame = try { outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
+            val frame = try { q.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
             if (client !== sock) break
             try { o.write(frame); o.flush() } catch (t: Throwable) { Log.w("被控控制面", "写出失败：${t.message}"); break }
         }

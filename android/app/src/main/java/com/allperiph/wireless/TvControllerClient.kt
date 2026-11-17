@@ -656,9 +656,12 @@ class TvControllerClient(
         // （信标/链接），IK+PSK 握手会验证对端确实持有对应私钥——弹窗在此不增加
         // 任何安全性，反而制造双窗摩擦（并发竞态 4d0e0c2 的温床）。被控端首连
         // 确认保留：令牌明文广播，被控端分不清来的是用户还是捡到令牌的第三方。
+        // 自动信任只进发起方向集合（autoPeerPubs），不顶掉被控端首连确认——
+        // 否则互控时两端各起一路客户端，对端公钥经发起路径混入同一名单，
+        // 被控方向一查即静默放行，首连弹窗永不出现（v223.36.0 不弹根因之一）。
         // 用户拍板的后续方向：取消令牌明文广播、改扫码/链接交付，两端均可免确认。
         val appCtx = com.allperiph.App.context
-        if (appCtx != null) NoiseSession.trustPeerPub(appCtx, peerPub, host)
+        if (appCtx != null) NoiseSession.trustPeerPubAuto(appCtx, peerPub, host)
         val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
         var msgLen = 0
         synchronized(noiseLock) {

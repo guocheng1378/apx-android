@@ -18,9 +18,9 @@ import java.util.concurrent.TimeUnit
  * NoiseSession.pubAuthorizer 的 app 模块实现（App.onCreate 装配，进程级生效 ——
  * 9511 控制面 / 9512 文件 / 9502 媒体三条通道的 Responder 与 9511 Initiator 共用）。
  * 契约见 [NoiseSession.pubAuthorizer]：
- *  · 白名单命中 → 直接放行（幂等，不重复落盘）；
+ *  · 用户确认过（confirmedPeerPubs）→ 直接放行（幂等，不重复落盘）；
  *  · 未收录（首连 / 陌生设备同一口径）→ 弹 [PubConfirmDialogActivity] 要用户裁决，
- *    点「允许」才信任并落盘白名单（[NoiseSession.trustPeerPub]），点「拒绝」断开；
+ *    点「允许」才信任并落盘确认集合（[NoiseSession.trustPeerPubConfirmed]），点「拒绝」断开；
  *  · 拒绝后 60s 内同一公钥静默拒绝（自动重连风暴不再刷弹窗），15s 未裁决按拒绝处理。
  *
  * 阻塞调用（内含弹窗等待）—— 调用点都在握手/读线程，绝不能是主线程。
@@ -55,7 +55,11 @@ object PeerPubGate {
             return true
         }
         val b64 = Base64.encodeToString(pub, Base64.NO_WRAP)
-        if (NoiseSession.trustedPeerPubs(ctx).contains(b64)) return true
+        // v-fix（第二轮 2026-11-18）：只认**用户点过允许**的确认集合 —— 旧实现在共享的
+        // trustedPeerPubs 上裁决，而互控场景本端作为发起端会自动信任对端信标公钥
+        // （trustPeerPubAuto 前身 trustPeerPub 混写同一集合），被控方向的握手一查就
+        // 静默放行，首连确认弹窗从此永不出现（用户原话「是对端不弹」）。
+        if (NoiseSession.confirmedPeerPubs(ctx).contains(b64)) return true
         val ok = synchronized(decideLock) {
             val now = SystemClock.elapsedRealtime()
             synchronized(deniedUntil) {
@@ -67,11 +71,11 @@ object PeerPubGate {
             }
             // v-fix（2026-11-18，并发裁决竞态）：手机互控时两端会各起一路握手，同一条
             // 白名单可能同时被两路查——第二路在第一路「等用户点允许」期间已越过了上面
-            // 的白名单检查（那时还没落盘），等它拿到锁时第一路刚点完允许、信任已入白名单。
+            // 的白名单检查（那时还没落盘），等它拿到锁时第一路刚点完允许、信任已入确认集合。
             // 若这里不复查，会再弹第二个确认窗：用户已在第一窗点过「允许」不会理会，
             // 15s 超时按拒绝 → 第二路把刚握上手的连接断开（真机日志：允许并信任→拒绝→断开）。
-            // 故持锁后复查一次白名单，已收录即按放行收口，与第一路同判。
-            if (NoiseSession.trustedPeerPubs(ctx).contains(b64)) return@synchronized true
+            // 故持锁后复查一次确认集合，已收录即按放行收口，与第一路同判。
+            if (NoiseSession.confirmedPeerPubs(ctx).contains(b64)) return@synchronized true
             // 同一时刻只裁决一个：并发接入（第二路握手）直接拒绝，等下一轮重试
             if (pendingDecide != null) {
                 Log.i(TAG, "已有确认弹窗在等用户裁决，本次直接拒绝（host=$host）")
@@ -124,7 +128,8 @@ object PeerPubGate {
             if (result) deniedUntil.remove(b64)
             else deniedUntil[b64] = SystemClock.elapsedRealtime() + DENY_MEMORY_MS
         }
-        if (result) NoiseSession.trustPeerPub(ctx, pub, host)
+        // 用户点「允许」才进确认集合（被控门控唯一放行依据），不与发起端自动信任混写
+        if (result) NoiseSession.trustPeerPubConfirmed(ctx, pub, host)
         return result
     }
 }
