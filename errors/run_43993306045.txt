@@ -1,0 +1,198 @@
+[  6%] Built target apx_shared
+[ 14%] Built target apxpc_core
+[ 16%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/media_session.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/media/media_session.hpp:137:22: error: unknown type name 'Sock'
+  137 |     bool r2Handshake(Sock s);
+      |                      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:106:16: error: unknown type name 'Sock'
+  106 | bool readFully(Sock s, uint8_t* dst, size_t n) {
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:117:14: error: unknown type name 'Sock'
+  117 | bool readU32(Sock s, uint32_t& v) {
+      |              ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:168:20: error: use of undeclared identifier 'kNoiseStaticKeyLen'; did you mean 'wireless::kNoiseStaticKeyLen'?
+  168 |     uint8_t r2Peer[kNoiseStaticKeyLen];
+      |                    ^~~~~~~~~~~~~~~~~~
+      |                    wireless::kNoiseStaticKeyLen
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/noise_session.hpp:32:25: note: 'wireless::kNoiseStaticKeyLen' declared here
+   32 | static constexpr size_t kNoiseStaticKeyLen = 32;
+      |                         ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:174:32: error: unknown type name 'Sock'
+  174 |     const auto establish = [&](Sock& sOut) -> bool {
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:267:5: error: unknown type name 'Sock'
+  267 |     Sock s = kInvalidSock;
+      |     ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:317:32: error: unknown type name 'Sock'
+  317 | bool MediaSession::r2Handshake(Sock s) {
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:518:42: error: cannot initialize a parameter of type 'uint8_t *' (aka 'unsigned char *') with an rvalue of type 'const uint8_t *' (aka 'const unsigned char *')
+  518 |                     sess ? sess->decrypt(p + apx::kFrameHeaderSize, h.payloadLen) : 0;
+      |                                          ^~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/noise_session.hpp:75:29: note: passing argument to parameter 'buf' here
+   75 |     size_t decrypt(uint8_t* buf, size_t dataLen);
+      |                             ^
+8 errors generated.
+make[3]: *** [CMakeFiles/apxpc_media.dir/src/media/media_session.cpp.o] Error 1
+[ 16%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/audio_capture.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture.cpp:4:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/media/media_session.hpp:137:22: error: unknown type name 'Sock'
+  137 |     bool r2Handshake(Sock s);
+      |                      ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_media.dir/src/media/audio_capture.cpp.o] Error 1
+[ 17%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/mic_bridge.cpp.o
+[ 18%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/touch_inject.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:20:19: warning: unused variable 'kActDown' [-Wunused-const-variable]
+   20 | constexpr uint8_t kActDown   = 0;
+      |                   ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:21:19: warning: unused variable 'kActUp' [-Wunused-const-variable]
+   21 | constexpr uint8_t kActUp     = 1;
+      |                   ^~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:22:19: warning: unused variable 'kActMove' [-Wunused-const-variable]
+   22 | constexpr uint8_t kActMove   = 2;
+      |                   ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:23:19: warning: unused variable 'kActCancel' [-Wunused-const-variable]
+   23 | constexpr uint8_t kActCancel = 3;
+      |                   ^~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:25:19: warning: unused variable 'kBtnRight' [-Wunused-const-variable]
+   25 | constexpr uint8_t kBtnRight = 1u << 1;
+      |                   ^~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/touch_inject.cpp:26:19: warning: unused variable 'kBtnMid' [-Wunused-const-variable]
+   26 | constexpr uint8_t kBtnMid   = 1u << 2;
+      |                   ^~~~~~~
+6 warnings generated.
+[ 20%] Building OBJCXX object CMakeFiles/apxpc_media.dir/src/media/audio_capture_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:188:9: warning: 'AudioHardwareDestroyProcessTap' is only available on macOS 14.2 or newer [-Wunguarded-availability-new]
+  188 |         AudioHardwareDestroyProcessTap(st->tap);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreAudio.framework/Headers/AudioHardwareTapping.h:54:1: note: 'AudioHardwareDestroyProcessTap' has been marked as being introduced in macOS 14.2 here, but the deployment target is macOS 12.0.0
+   54 | AudioHardwareDestroyProcessTap(AudioObjectID inTapID)                                       API_AVAILABLE(macos(14.2)) API_UNAVAILABLE(ios, watchos, tvos);
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:188:9: note: enclose 'AudioHardwareDestroyProcessTap' in an @available check to silence this warning
+  188 |         AudioHardwareDestroyProcessTap(st->tap);
+      |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~          
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:220:29: warning: 'CATapUnmuted' is only available on macOS 13.0 or newer [-Wunguarded-availability-new]
+  220 |         desc.muteBehavior = CATapUnmuted;
+      |                             ^~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreAudio.framework/Headers/CATapDescription.h:30:28: note: 'CATapMuteBehavior' has been marked as being introduced in macOS 13.0 here, but the deployment target is macOS 12.0.0
+   30 | typedef NS_ENUM(NSInteger, CATapMuteBehavior) {
+      |                            ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:220:29: note: enclose 'CATapUnmuted' in an @available check to silence this warning
+  220 |         desc.muteBehavior = CATapUnmuted;
+      |                             ^~~~~~~~~~~~ 
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:222:27: warning: 'AudioHardwareCreateProcessTap' is only available on macOS 14.2 or newer [-Wunguarded-availability-new]
+  222 |         OSStatus status = AudioHardwareCreateProcessTap(desc, &st->tap);
+      |                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreAudio.framework/Headers/AudioHardwareTapping.h:43:1: note: 'AudioHardwareCreateProcessTap' has been marked as being introduced in macOS 14.2 here, but the deployment target is macOS 12.0.0
+   43 | AudioHardwareCreateProcessTap(CATapDescription* inDescription,
+      | ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture_mac.mm:222:27: note: enclose 'AudioHardwareCreateProcessTap' in an @available check to silence this warning
+  222 |         OSStatus status = AudioHardwareCreateProcessTap(desc, &st->tap);
+      |                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+3 warnings generated.
+make[3]: Target `CMakeFiles/apxpc_media.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_media.dir/all] Error 2
+[ 26%] Built target apxpc_discovery
+[ 29%] Built target apxpc_sensors
+[ 30%] Building CXX object CMakeFiles/apxpc_service.dir/src/net/json.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/net/json.cpp:210:14: warning: variable 'dot' set but not used [-Wunused-but-set-variable]
+  210 |         bool dot = false;
+      |              ^
+1 warning generated.
+[ 30%] Building CXX object CMakeFiles/apxpc_service.dir/src/config/app_config.cpp.o
+[ 32%] Building CXX object CMakeFiles/apxpc_service.dir/src/bandwidth/arbiter.cpp.o
+[ 33%] Building CXX object CMakeFiles/apxpc_service.dir/src/display/display_control.cpp.o
+[ 34%] Building CXX object CMakeFiles/apxpc_service.dir/src/hotkey/hotkey_manager.cpp.o
+[ 36%] Building CXX object CMakeFiles/apxpc_service.dir/src/api/action_router.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:19:11: warning: unused function 'ok' [-Wunused-function]
+   19 | net::Json ok(const net::Json& data = {}) {
+      |           ^~
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/api/action_router.hpp:65:12: warning: private field 'lastRttMs_' is not used [-Wunused-private-field]
+   65 |     double lastRttMs_ = 1.2;
+      |            ^
+2 warnings generated.
+[ 36%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o
+[ 37%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/update_check.cpp.o
+[ 38%] Building CXX object CMakeFiles/apxpc_service.dir/src/tray/tray_win32.cpp.o
+[ 40%] Building CXX object CMakeFiles/apxpc_service.dir/src/autostart.cpp.o
+[ 40%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/registry.cpp.o
+[ 41%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/fx.cpp.o
+[ 42%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/ball_win32.cpp.o
+[ 44%] Building CXX object CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o
+[ 45%] Building CXX object CMakeFiles/apxpc_service.dir/src/ui/notify_reply_win32.cpp.o
+[ 45%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/app/update_check_mac.mm.o
+[ 46%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+[ 48%] Linking CXX static library libapxpc_service.a
+[ 48%] Built target apxpc_service
+[ 81%] Built target apxpc_noise
+[ 82%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/local_send_receiver.cpp.o
+[ 82%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/local_send_sender.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/localsend/local_send_sender.cpp:62:23: warning: unused variable 'kPathInfo' [-Wunused-const-variable]
+   62 | constexpr const char* kPathInfo = "/api/localsend/v2/info";
+      |                       ^~~~~~~~~
+1 warning generated.
+[ 84%] Building CXX object CMakeFiles/apxpc_localsend.dir/src/localsend/sha256.cpp.o
+[ 85%] Linking CXX static library libapxpc_localsend.a
+[ 85%] Built target apxpc_localsend
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[  6%] Built target apx_shared
+[ 14%] Built target apxpc_core
+[ 16%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/media_session.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/media/media_session.hpp:137:22: error: unknown type name 'Sock'
+  137 |     bool r2Handshake(Sock s);
+      |                      ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:106:16: error: unknown type name 'Sock'
+  106 | bool readFully(Sock s, uint8_t* dst, size_t n) {
+      |                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:117:14: error: unknown type name 'Sock'
+  117 | bool readU32(Sock s, uint32_t& v) {
+      |              ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:168:20: error: use of undeclared identifier 'kNoiseStaticKeyLen'; did you mean 'wireless::kNoiseStaticKeyLen'?
+  168 |     uint8_t r2Peer[kNoiseStaticKeyLen];
+      |                    ^~~~~~~~~~~~~~~~~~
+      |                    wireless::kNoiseStaticKeyLen
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/noise_session.hpp:32:25: note: 'wireless::kNoiseStaticKeyLen' declared here
+   32 | static constexpr size_t kNoiseStaticKeyLen = 32;
+      |                         ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:174:32: error: unknown type name 'Sock'
+  174 |     const auto establish = [&](Sock& sOut) -> bool {
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:267:5: error: unknown type name 'Sock'
+  267 |     Sock s = kInvalidSock;
+      |     ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:317:32: error: unknown type name 'Sock'
+  317 | bool MediaSession::r2Handshake(Sock s) {
+      |                                ^
+/Users/runner/work/apx-android/apx-android/pc/host/src/media/media_session.cpp:518:42: error: cannot initialize a parameter of type 'uint8_t *' (aka 'unsigned char *') with an rvalue of type 'const uint8_t *' (aka 'const unsigned char *')
+  518 |                     sess ? sess->decrypt(p + apx::kFrameHeaderSize, h.payloadLen) : 0;
+      |                                          ^~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/wireless/noise_session.hpp:75:29: note: passing argument to parameter 'buf' here
+   75 |     size_t decrypt(uint8_t* buf, size_t dataLen);
+      |                             ^
+8 errors generated.
+make[3]: *** [CMakeFiles/apxpc_media.dir/src/media/media_session.cpp.o] Error 1
+[ 16%] Building CXX object CMakeFiles/apxpc_media.dir/src/media/audio_capture.cpp.o
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/media/audio_capture.cpp:4:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/media/media_session.hpp:137:22: error: unknown type name 'Sock'
+  137 |     bool r2Handshake(Sock s);
+      |                      ^
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_media.dir/src/media/audio_capture.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_media.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_media.dir/all] Error 2
+[ 22%] Built target apxpc_discovery
+[ 25%] Built target apxpc_sensors
+[ 44%] Built target apxpc_service
+[ 78%] Built target apxpc_noise
+[ 82%] Built target apxpc_localsend
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
