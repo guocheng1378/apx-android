@@ -61,7 +61,7 @@ constexpr int kAudioChannels   = 2;
 constexpr int kAudioBytesPerMs = kAudioSampleRate * kAudioChannels * 2 / 1000;  // 192
 
 /// socket 句柄类型（Windows = SOCKET / POSIX = int）：头文件内可用的别名，
-/// 供 r2Handshake 签名与实现共用（实现文件里的 Sock 同义）。
+/// 供 r2Handshake 签名与实现共用。
 #if defined(_WIN32)
 using MediaSock = SOCKET;
 #else

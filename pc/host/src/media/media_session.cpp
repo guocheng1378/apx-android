@@ -171,7 +171,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
 
     // 建链 + 令牌握手抽成可复用步骤：R2 握手未成（legacy 对端不会回应）时要关掉
     // 当前 socket 重连一次明文，避免把建链代码复制两份。失败时已写好 st_.error。
-    const auto establish = [&](Sock& sOut) -> bool {
+    const auto establish = [&](MediaSock& sOut) -> bool {
         addrinfo hints{};
         hints.ai_family = AF_INET;
         hints.ai_socktype = SOCK_STREAM;
@@ -264,7 +264,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
         return true;
     };
 
-    Sock s = kInvalidSock;
+    MediaSock s = kInvalidSock;
     for (int attempt = 0; attempt < 2; ++attempt) {
         if (!establish(s)) return false;
         // R2 尝试（仅首轮，9502 子批）：令牌握手后紧接加密握手
