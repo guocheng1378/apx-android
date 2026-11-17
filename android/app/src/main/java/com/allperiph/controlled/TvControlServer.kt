@@ -265,8 +265,13 @@ class TvControlServer(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
-        while (running.get() && !sock.isClosed) {
+        // v-fix（连接切换竞态）：循环加 client === sock 身份判断，与 readerLoop 的 v184
+        // 修复同源 —— 接管/重连瞬间，旧写线程可能仍阻塞在共享 outQueue 的 poll 上，
+        // 新连接 doActivate 后入队的第一帧（能力协商 0x33）会被它抢走、写进已关闭的
+        // 旧 socket，对端从此收不到能力帧。出队后重验归属：旧线程直接退位。
+        while (running.get() && !sock.isClosed && client === sock) {
             val frame = try { outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
+            if (client !== sock) break
             try { o.write(frame); o.flush() } catch (t: Throwable) { Log.w("被控控制面", "写出失败：${t.message}"); break }
         }
         runCatching { sock.close() }; teardown(sock)

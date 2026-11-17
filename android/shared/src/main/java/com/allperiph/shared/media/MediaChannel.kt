@@ -294,10 +294,15 @@ class MediaChannel(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
-        while (running.get() && !sock.isClosed) {
+        // v-fix（连接切换竞态）：外层循环加 client === sock 身份判断，与 ControlServer /
+        // TvControlServer 的 writerLoop 同源 —— 接管瞬间旧写线程可能仍阻塞在共享
+        // outQueue 上，把新连接入队的帧抢走写进已关闭的旧 socket（媒体帧非幂等，丢帧
+        // 即花屏/卡音）。出队后同样重验归属再写。
+        while (running.get() && !sock.isClosed && client === sock) {
             // fix: 批量 flush，避免队列积压时每帧一次系统调用
             var frame = outQueue.poll()
             while (frame != null) {
+                if (client !== sock) break   // 接管瞬间旧写线程退位，帧留给新写线程处理
                 try {
                     // R2 加密（9502 子批）：**出队后**加密 —— 入队的是明文完整帧，
                     // 出队时 payload 整段（含 CRC 尾）原位 AEAD、帧头 payloadLen 重写。

@@ -84,6 +84,11 @@ class TvControllerClient(
     /** 上次发起握手（含超时放弃）的时刻，重试间隔的基准 */
     @Volatile private var lastNoiseAttempt = 0L
 
+    /** ping 看护线程句柄（v-fix ping 复活）：openSocket 每次建连检查存活，死了就补一个 */
+    @Volatile private var pingThread: Thread? = null
+    private var pingErrs = 0
+    private var sendEncFails = 0
+
     /** 本连接能否发起加密（能力上报与 0x35 发起共用同一判据） */
     private fun noiseCapable(): Boolean =
         token.isNotEmpty() && peerPubKeyHex.length == 64 && ownKp != null
@@ -91,8 +96,10 @@ class TvControllerClient(
     fun connect(): Boolean {
         if (running.get()) return ready
         running.set(true)
+        // v-fix（ping 复活）：ping 线程的启动挪进 openSocket（每次建连检查存活），
+        // 自动重连路径同样能复活它；这里不再重复启动。
         val ok = openSocket()
-        if (ok) thread(name = "tvctrl-ping") { pingLoop() } else running.set(false)
+        if (!ok) running.set(false)
         return ok
     }
 
@@ -139,6 +146,14 @@ class TvControllerClient(
         // 重连后自动重发光标浮层偏好：被控端状态是会话级的，重连即重置，
         // 不重发的话用户上次关掉的浮层又会冒出来
         lastOverlayCursorEnabled?.let { sendControl(byteArrayOf(0x32.toByte(), (if (it) 1 else 0).toByte())) }
+        // v-fix（ping 看护复活）：ping 线程此前只在 connect() 首次建连时启动，自动重连
+        // 路径（readerLoop → openSocket）从不重启；一旦它意外死亡（无兜底，任何未捕获
+        // 异常都会无声带走它），后续所有连接既没有 ping/pong 保活、也没有握手看护 ——
+        // 对端 3s×8 读空闲判死，每 ~24s 断连重连一次（v223.36.0 实测：msg1 成了该连接
+        // 发出的最后一帧，两端互等超时）。改为每次建连检查并复活，pingLoop 内另有兜底。
+        if (pingThread?.isAlive != true) {
+            pingThread = thread(name = "tvctrl-ping") { pingLoop() }
+        }
         Log.i("TvCtrl", "已连 TV $host:$port")
         true
     } catch (t: Throwable) { Log.e("TvCtrl", "连 TV 失败：${t.message}"); runCatching { s_close() }; false }
@@ -383,8 +398,14 @@ class TvControllerClient(
 
     private fun pingLoop() {
         while (running.get()) {
-            noiseWatchdog()
-            sendControl("ping".toByteArray(Charsets.UTF_8))
+            try {
+                noiseWatchdog()
+                sendControl("ping".toByteArray(Charsets.UTF_8))
+            } catch (t: Throwable) {
+                // v-fix：此前无兜底 —— 任何异常都会无声杀死 ping 线程（此后链路既没有
+                // 保活也没有握手重试，只能等对端判死进入重连循环）。记录后继续跑。
+                if (pingErrs++ % 50 == 0) Log.w("TvCtrl", "ping 循环异常（忽略继续）：${t.message}")
+            }
             try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
         }
     }
@@ -492,7 +513,12 @@ class TvControllerClient(
             }
         }
         if (buffered) return true   // 已入待发队列，握手完成后补发
-        if (frame == null) return false   // 加密失败（会话被重置等）
+        if (frame == null) {
+            // v-fix：发送侧加密失败此前完全无声（会话缺失/内部错误）——整条链路从此
+            // 静默不发，日志上毫无痕迹。节流记一条，出问题能直接从日志定位。
+            if (sendEncFails++ % 50 == 0) Log.w("TvCtrl", "R2 发送侧加密失败，本帧丢弃（会话缺失？）")
+            return false
+        }
         while (txQueue.size > 512) txQueue.poll()
         // 入队失败 + 本帧已加密：发送 nonce 已前进而对端收不到这条密文，两端 AEAD
         // 计数器错位、后续帧全解不开 —— 只能断链走自动重连（写线程停摆本身也断定了）

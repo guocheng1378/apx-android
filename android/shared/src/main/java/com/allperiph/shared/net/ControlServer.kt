@@ -406,6 +406,7 @@ class ControlServer(
     private fun readerLoop(sock: Socket) {
         val ins = sock.getInputStream(); val buf = ByteArray(4096)
         var idleTimeouts = 0
+        var capsResends = 0
         while (running.get() && !sock.isClosed && client === sock) {
             val n = try {
                 ins.read(buf)
@@ -414,6 +415,11 @@ class ControlServer(
                     Log.w("控制面", "读空闲超时 8 次，判定链路已失效：$peerText")
                     break
                 }
+                // v-fix（连接切换竞态兜底）：加密未就绪期间随空闲节拍重报能力协商 ——
+                // 上面的写线程竞态或任何丢包都可能吞掉新连接的 0x33，对端学不到 bit8
+                // 就永远不发 0x35，连接僵死在明文、业务帧被 R2 门控全丢。0x33 幂等
+                // 无害；每条连接限 20 次（1 分钟）防对端日志刷屏，握手完成后自动停。
+                if (r2Required && !noiseActive && capsResends++ < 20) sendCapsSync()
                 continue
             } catch (t: Throwable) {
                 Log.w("控制面", "读异常，断开连接：${t.message}")
@@ -429,8 +435,15 @@ class ControlServer(
 
     private fun writerLoop(sock: Socket) {
         val o = out ?: return
-        while (running.get() && !sock.isClosed) {
+        while (running.get() && !sock.isClosed && client === sock) {
             val frame = try { outQueue.poll(WRITER_IDLE_MS, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { break } ?: continue
+            // v-fix（连接切换竞态）：接管/重连瞬间，本线程（旧连接的写线程）可能仍阻塞
+            // 在共享 outQueue 的 poll 上；doActivate 换连接后入队的第一帧（能力协商 0x33）
+            // 会被这里抢走、写进已关闭的旧 socket —— 对端从此学不到 bit8、永远不发
+            // 0x35，连接沦为「明文僵尸」，R2 门控把输入/业务帧全丢（gt2 侧 37150 僵连
+            // 实测：日志「写出失败：Socket closed」恰出现在新连接激活瞬间）。
+            // 出队后重验归属：旧线程直接退位，丢掉的 0x33 由读空闲节拍重报兜底（readerLoop）。
+            if (client !== sock) break
             try { o.write(frame); o.flush() } catch (t: Throwable) { Log.w("控制面", "写出失败：${t.message}"); break }
         }
         runCatching { sock.close() }; teardown(sock)
