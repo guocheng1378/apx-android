@@ -4,9 +4,10 @@
 > **版本线**：v0.4.0 起变更明细随 **GitHub Releases** 随 tag 自动发布（tag 为真源）；
 > 本文件维护 Unreleased 与重要节点（v0.3.x 历史见下）。
 
-## Unreleased（R2 通道加密 9511 子批 + 崩溃快照护栏，随下批发版）
+## Unreleased（R2 通道加密 9512/9502 子批 + 崩溃快照护栏，随下批发版）
 
-- **R2 通道加密·9511 子批**：9511 控制通道按 R2 调研定案落地 Noise 加密（NoisePSK_IK_25519_ChaChaPoly_SHA256，PSK 由配对 token 派生，static 公钥认证 + PSK + 前向保密），协议新增 0x35 加密握手命令、能力位 bit8 与信标第 5 段公钥广播；被控端（ControlServer）与控制端（TvControllerClient、PC ctrl9511）均已实现，握手完成前攒帧、完成后整体加密。TV 端、旧版对端与手动连接自动回落明文，行为不受影响；⚠️ 加密仅在两端同步升级后生效，建议两端一起升。第三方实现 noise-c（MIT）/noise-java（Apache-2.0）随 vendor 目录入库。方案见 `docs/REQ-无线安全配对.md` §4，协议见 `docs/PROTOCOL.md`（9512/9502 通道加密为下一子批）。
+- **R2 通道加密·9512/9502 子批**：文件传输（9512）与媒体通道（9502）按同一 R2 定案接入 Noise 加密（NoisePSK_IK_25519_ChaChaPoly_SHA256，prologue 各 `APX1-9512-v1` / `APX1-9502-v1`，PSK 源为 9511 链路的被控端令牌，对端静态公钥沿用 9511 TOFU），帧封装与 9511 同款（帧头明文、payload 含 CRC 尾整段 AEAD）。9512 连接后首 u32=0 进握手、加密态走段流（段明文 ≤32KB，首段 = 文件头）；9502 令牌握手后 PC 发 [u32 0] 延迟探测（防 legacy PC 静默白等，对端不回应则 PC 关链回退明文重连一次）。门控不满足时自动走明文兼容路径（TV / 旧版对端 / 手动连接照常）；⚠️ 加密仅在两端同步升级后生效。
+- **R2 通道加密·9511 子批**：9511 控制通道按 R2 调研定案落地 Noise 加密（NoisePSK_IK_25519_ChaChaPoly_SHA256，PSK 由配对 token 派生，static 公钥认证 + PSK + 前向保密），协议新增 0x35 加密握手命令、能力位 bit8 与信标第 5 段公钥广播；被控端（ControlServer）与控制端（TvControllerClient、PC ctrl9511）均已实现，握手完成前攒帧、完成后整体加密。TV 端、旧版对端与手动连接自动回落明文，行为不受影响；⚠️ 加密仅在两端同步升级后生效，建议两端一起升。第三方实现 noise-c（MIT）/noise-java（Apache-2.0）随 vendor 目录入库。方案见 `docs/REQ-无线安全配对.md` §4，协议见 `docs/PROTOCOL.md`。
 - **崩溃快照护栏**（882084f，上轮攒批遗留随本批一并发）+ `docs/CHANGELOG.md` v109 快照条目勘误。
 
 ## v223.29.109（2026-11-16）

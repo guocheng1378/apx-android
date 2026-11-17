@@ -306,7 +306,7 @@ object BallLatestPhoto {
         // 本地快照：文件就在 cache 里，直接发（名字=快照文件名，带原始名）
         if (uri.scheme == "file") {
             val f = File(uri.path ?: return false)
-            if (f.isFile) return FileSender.send(host, f)
+            if (f.isFile) return FileSender.send(host, f, context = ctx)
         }
         val size = runCatching { cr.openFileDescriptor(uri, "r")?.use { it.statSize } }
             .onFailure { Log.w(TAG, "探大小失败：${it.message}") }
@@ -329,7 +329,7 @@ object BallLatestPhoto {
             bmp.recycle()
             bos.toByteArray()
         }
-        return FileSender.send(host, name, bytes.size.toLong(), bytes.inputStream())
+        return FileSender.send(host, name, bytes.size.toLong(), bytes.inputStream(), context = ctx)
     }
 
     private fun toast(ctx: Context, res: Int, arg: Int = 0) {

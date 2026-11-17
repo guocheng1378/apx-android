@@ -136,9 +136,15 @@ class ControlledService : Service() {
             // 有密钥对 + 令牌非空，控制面才报 CAP_ENCRYPT 并在收到 0x35 msg1 后进入加密。
             // 密钥对进程级懒加载，首启生成落盘（prefs "apx_noise"）；失败则回退明文链路。
             val noiseKp = NoiseSession.ensureKeyPair(this)
+            // 9512/9502 子批：本端被控令牌进进程级缓存 —— 文件/媒体通道的 PSK 复用
+            // 同一令牌（token 空 = 未启用配对令牌，同样无法加密，置 null 走明文）。
+            NoiseSession.linkToken = tok.ifBlank { null }
             server = ControlServer(endpoint = controlEndpoint, token = tok, noiseKeyPair = noiseKp)
         }
         Companion.server = server
+        // 9512/9502 子批：9511 握手成功 → 对端静态公钥落 TOFU（prefs "apx_noise"）。
+        // 9512 发起端（FileSender）没有信标可听，靠这份记录预知对端公钥。
+        server?.onPeerStaticPub = { pub -> NoiseSession.savePeerPub(this, pub) }
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         // 0x05 开副屏请求：PC 面板开启副屏推流时下发 → 广播 ScreenOpenRequestEvent，
         // 由 AgentForegroundService.onPcOpenScreen 拉起副屏页（前台直接弹；

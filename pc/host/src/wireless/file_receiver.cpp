@@ -1,6 +1,8 @@
 #include "apxpc/wireless/file_receiver.hpp"
 
 #include "apxpc/log.hpp"
+#include "apxpc/config/app_config.hpp"
+#include "apxpc/wireless/noise_session.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -8,7 +10,9 @@
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -89,6 +93,127 @@ bool readU64(Sock s, uint64_t& v) {
     for (int i = 0; i < 8; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);
     return true;
 }
+
+void sendAll(Sock s, const uint8_t* data, size_t len) {
+    size_t off = 0;
+    while (off < len) {
+        const int r = ::send(s, reinterpret_cast<const char*>(data + off),
+                             static_cast<int>(len - off), 0);
+        if (r <= 0) return;
+        off += static_cast<size_t>(r);
+    }
+}
+
+void putU32(uint8_t* dst, uint32_t v) {
+    for (int i = 0; i < 4; ++i) dst[i] = static_cast<uint8_t>((v >> (8 * i)) & 0xFF);
+}
+
+/// Noise 握手消息长度上限（IK msg1/msg2 实际 ≤ 96B，放宽到 1KB 防畸形帧）
+constexpr uint32_t kHsMax = 1024;
+
+/**
+ * R2 握手（9512 Responder 侧，9512/9502 子批 2026-11-17）：消费 [u32 len1][msg1]，
+ * 产出 msg2 按 [u32 len2][msg2] 回写。token 候选依次试 R2 上下文的链路令牌
+ *（PC 控手机链路上 9511 握手成功时挂进来的）与本机配对令牌 ensurePairingToken()
+ *（PC 被控、手机主动推文件时，手机用的 token 就是本机这把）—— 每次尝试新建
+ * NoiseSession（IK 握手一次定型，失败不可复用）。
+ * 成功返回 split 完毕的传输会话；全部候选失败返回 nullptr（调用方断链）。
+ */
+NoiseSession* r2HandshakeResponder(Sock c) {
+    uint32_t len1 = 0;
+    if (!readU32(c, len1) || len1 == 0 || len1 > kHsMax) return nullptr;
+    std::vector<uint8_t> msg1(len1);
+    if (!readFully(c, msg1.data(), len1)) return nullptr;
+    uint8_t ownPriv[kNoiseStaticKeyLen];
+    uint8_t ownPub[kNoiseStaticKeyLen];
+    if (!ensureNoiseKeyPair(ownPriv, ownPub)) return nullptr;
+
+    // 候选去重（两把候选可能是同一把令牌）
+    std::vector<std::string> cands;
+    std::string t1 = r2Token();
+    if (!t1.empty()) cands.push_back(t1);
+    std::string t2 = config::ensurePairingToken();
+    if (!t2.empty() && t2 != t1) cands.push_back(t2);
+
+    for (const auto& tok : cands) {
+        auto sess = std::make_unique<NoiseSession>(kNoisePrologue9512);
+        if (!sess->beginResponder(reinterpret_cast<const uint8_t*>(tok.data()), tok.size(), ownPriv))
+            continue;
+        if (sess->readHandshakeMsg(msg1.data(), len1) != 0) continue;
+        uint8_t msg2[kHsMax];
+        const int n2 = sess->writeHandshakeMsg(msg2, sizeof(msg2));
+        if (n2 <= 0) continue;
+        uint8_t hdr[4];
+        putU32(hdr, static_cast<uint32_t>(n2));
+        sendAll(c, hdr, 4);
+        sendAll(c, msg2, static_cast<size_t>(n2));
+        if (!sess->split()) continue;
+        APX_LOGI("9512 R2 通道加密已启用（接收端）");
+        return sess.release();
+    }
+    return nullptr;
+}
+
+/**
+ * R2 段流读取封装（9512 子批）：把 [u32 ctLen][AEAD 密文] 段流视图成顺序字节流，
+ * 供 head 解析与文件落盘复用同一读取路径（与 Android NoiseInStream 镜像）。
+ * 段内明文原样吐出；解密失败（标签不过）直接终止 —— 半个文件不如没文件。
+ */
+class NoiseSegReader {
+public:
+    NoiseSegReader(Sock s, NoiseSession* sess) : s_(s), sess_(sess) {}
+
+    /// 顺序读 n 字节（内部跨段拼接）。EOF/解密失败返回 false。
+    bool read(uint8_t* dst, size_t n) {
+        size_t got = 0;
+        while (got < n) {
+            if (off_ >= pending_.size()) {
+                if (!fill()) return false;
+            }
+            const size_t take = std::min(n - got, pending_.size() - off_);
+            memcpy(dst + got, pending_.data() + off_, take);
+            off_ += take;
+            got += take;
+        }
+        return true;
+    }
+
+    bool readU32(uint32_t& v) {
+        uint8_t b[4];
+        if (!read(b, 4)) return false;
+        v = static_cast<uint32_t>(b[0]) | (static_cast<uint32_t>(b[1]) << 8) |
+            (static_cast<uint32_t>(b[2]) << 16) | (static_cast<uint32_t>(b[3]) << 24);
+        return true;
+    }
+
+    bool readU64(uint64_t& v) {
+        uint8_t b[8];
+        if (!read(b, 8)) return false;
+        v = 0;
+        for (int i = 0; i < 8; ++i) v |= static_cast<uint64_t>(b[i]) << (8 * i);
+        return true;
+    }
+
+private:
+    /// 取下一段：[u32 ctLen][ct] → 原位解密成明文
+    bool fill() {
+        uint32_t ctLen = 0;
+        if (!readU32(s_, ctLen) || ctLen <= 16 || ctLen > kNoiseMaxPlain + 16) return false;
+        std::vector<uint8_t> ct(ctLen);
+        if (!readFully(s_, ct.data(), ctLen)) return false;
+        const size_t plainLen = sess_->decrypt(ct.data(), ctLen);
+        if (plainLen == 0) return false;   // 标签不过：坏流，终止
+        pending_ = std::move(ct);
+        pending_.resize(plainLen);
+        off_ = 0;
+        return true;
+    }
+
+    Sock s_;
+    NoiseSession* sess_;
+    std::vector<uint8_t> pending_;
+    size_t off_ = 0;
+};
 
 /// 文件名清洗（与手机/TV 端同规则）：路径分隔与 Windows 非法字符一律替换，
 /// 去掉首尾空白与开头连续的点（".." 这类会被当成目录），限长 200；洗不出来用 file.bin。
@@ -225,20 +350,48 @@ struct FileReceiver::Impl {
         ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
 
-        uint32_t nameLen = 0;
-        if (!readU32(c, nameLen) || nameLen == 0 || nameLen > 4096) {
+        // 首个 u32 分流（与 Android FileReceiver、PC file_sender 镜像）：
+        // 0 → R2 加密握手；>0 → legacy 明文（该 u32 即 nameLen）
+        uint32_t first = 0;
+        if (!readU32(c, first)) {
+            closeSock(c);
+            clearCur(c);
+            return;
+        }
+        // R2 会话与段流视图（legacy 时两者为空，走原始明文读取）
+        std::unique_ptr<NoiseSession> sess;
+        std::unique_ptr<NoiseSegReader> rd;
+        uint32_t nameLen = first;
+        if (first == 0) {
+            sess.reset(r2HandshakeResponder(c));
+            if (!sess) {
+                // 握手失败不回退明文（与 Android 接收端一致）：直接断链
+                APX_LOGW("9512 R2 握手失败，断链");
+                closeSock(c);
+                clearCur(c);
+                return;
+            }
+            rd.reset(new NoiseSegReader(c, sess.get()));
+            if (!rd->readU32(nameLen)) {
+                closeSock(c);
+                clearCur(c);
+                return;
+            }
+        }
+        if (nameLen == 0 || nameLen > 4096) {
             closeSock(c);
             clearCur(c);
             return;
         }
         std::string name(nameLen, '\0');
-        if (!readFully(c, reinterpret_cast<uint8_t*>(name.data()), nameLen)) {
+        if (!(rd ? rd->read(reinterpret_cast<uint8_t*>(name.data()), nameLen)
+                 : readFully(c, reinterpret_cast<uint8_t*>(name.data()), nameLen))) {
             closeSock(c);
             clearCur(c);
             return;
         }
         uint64_t size = 0;
-        if (!readU64(c, size)) {
+        if (!(rd ? rd->readU64(size) : readU64(c, size))) {
             closeSock(c);
             clearCur(c);
             return;
@@ -273,12 +426,20 @@ struct FileReceiver::Impl {
 #else
         fp = std::fopen(target.c_str(), "wb");
 #endif
+        // 统一读入口：R2 走段流（精确读 want 字节，解密在 NoiseSegReader 内完成）；
+        // legacy 走原始 recv（允许短读，按实收记账）
+        const auto readSome = [&](uint8_t* dst, size_t want) -> int {
+            if (rd) return rd->read(dst, want) ? static_cast<int>(want) : -1;
+            const int r =
+                ::recv(c, reinterpret_cast<char*>(dst), static_cast<int>(want), 0);
+            return r > 0 ? r : -1;
+        };
         std::vector<uint8_t> buf(32 * 1024);
         uint64_t left = size;
         bool ok = (fp != nullptr);
         while (ok && left > 0) {
-            const auto want = static_cast<int>(std::min<uint64_t>(buf.size(), left));
-            const int r = ::recv(c, reinterpret_cast<char*>(buf.data()), want, 0);
+            const auto want = static_cast<size_t>(std::min<uint64_t>(buf.size(), left));
+            const int r = readSome(buf.data(), want);
             if (r <= 0) { ok = false; break; }
             if (std::fwrite(buf.data(), 1, static_cast<size_t>(r), fp) !=
                 static_cast<size_t>(r)) {

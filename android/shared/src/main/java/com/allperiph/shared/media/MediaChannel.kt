@@ -1,6 +1,7 @@
 package com.allperiph.shared.media
 
 import com.allperiph.shared.proto.ApxFrame
+import com.allperiph.shared.net.NoiseSession
 import com.allperiph.shared.util.Log
 import java.io.InputStream
 import java.io.OutputStream
@@ -41,6 +42,10 @@ import java.util.concurrent.atomic.AtomicLong
  * @param onFrame 收到一帧（已剥帧头/CRC）时分发；在锁外调用，允许较慢。
  * @param port 监听端口，默认 9502。
  * @param token 握手令牌；非空时校验，空则跳过（TV 端不校验）。
+ * @param noiseKp R2 通道加密静态密钥对（9512/9502 子批，2026-11-17）：非空且 token 非空
+ *   时支持 R2 加密连接 —— PC 连入后若发 R2 握手（见 [handshake] 延迟探测），进入帧级
+ *   AEAD（帧头明文、payload 含 CRC 尾整段加密，与 9511 同封装）；null 或 token 空则
+ *   恒明文（TV 端 / 未配对兼容路径）。
  * @param onReady 连接建立并通过握手鉴权后回调（手机端借此 `MediaOut.attach`）。
  * @param onDisconnect 连接断开时回调（手机端借此 `MediaOut.detach`）。
  * @param enableUpLink 是否启用上行（手机端 true，TV 端 false）。
@@ -49,6 +54,7 @@ class MediaChannel(
     private val onFrame: (streamId: Int, flags: Int, seq: Int, body: ByteArray) -> Unit,
     private val port: Int = MEDIA_PORT,
     private val token: String = "",
+    private val noiseKp: Pair<ByteArray, ByteArray>? = null,
     private val onReady: ((MediaChannel) -> Unit)? = null,
     private val onDisconnect: (() -> Unit)? = null,
     private val enableUpLink: Boolean = false,
@@ -81,6 +87,9 @@ class MediaChannel(
     private var writerThread: Thread? = null
 
     private val writeLock = Any()
+    /** socket 写互斥（9502 R2 子批）：writerLoop 与 readerLoop 的 msg2 回写共用一把锁 ——
+     *  否则加密握手回写可能插进业务帧中间（单写者才保序，与 9511 同则） */
+    private val sockWriteLock = Any()
     private var seq = 0
 
     /** 待发送帧（已含帧头与 CRC）。约 2 秒的音频缓冲 */
@@ -89,6 +98,15 @@ class MediaChannel(
     private val rxLock = Any()
     private var rxBuf = ByteArray(256 * 1024)
     private var rxLen = 0
+
+    // ————— R2 通道加密（9502 子批，2026-11-17） —————
+    /** 传输态 Noise 会话（split 后）；null = 尚无。访问收口 noiseLock */
+    private val noiseLock = Any()
+    private var noiseSess: NoiseSession? = null
+    /** 加密开关：R2 探测 split 后置 true，此后出入帧 payload 均为 AEAD 密文（帧头明文） */
+    @Volatile private var noiseActive = false
+    /** 延迟探测标志：握手完成且本端具备加密条件时置 true，readerLoop 据此看首 u32 */
+    @Volatile private var probePending = false
 
     // ————————————————————————————— 生命周期 —————————————————————————————
 
@@ -197,6 +215,10 @@ class MediaChannel(
             // 超时后 continue 继续等；真正半开（PC 消失）也会周期性醒来检查
             // sock.isClosed，不再无限挂死。
             sock.soTimeout = IDLE_READ_TIMEOUT_MS
+            // R2 延迟探测置位（9502 子批）：不在握手里同步读首 u32 —— legacy PC 连入后
+            // 可能长时间不发帧，同步读会白等 20s。readerLoop feed 后再看首 u32：
+            // 0 → R2 握手；≠0 → 清标志走明文帧解析（字节留在 rxBuf 不动）。
+            probePending = token.isNotEmpty() && noiseKp != null
             activate(sock)
         } catch (t: Throwable) {
             Log.w(TAG, "媒体握手失败：${t.message}")
@@ -225,6 +247,9 @@ class MediaChannel(
         synchronized(rxLock) { rxLen = 0 }
         outQueue.clear()
         droppedFrames.set(0)
+        // R2 状态复位：新连接从明文开始（探测在 readerLoop 首帧时做）
+        synchronized(noiseLock) { noiseSess = null }
+        noiseActive = false
         ready = true
         onReady?.invoke(this)
         Log.i(TAG, "PC 已连入媒体通道：$peerText")
@@ -255,6 +280,9 @@ class MediaChannel(
             }
             if (n <= 0) break
             feed(buf, n)
+            // R2 延迟探测（9502 子批）：feed 后看首 u32。0 → 完成 R2 握手（此后进密文）；
+            // ≠0 → 清标志走明文帧解析。探测不齐字节时留在下轮 feed 再看，不阻塞读。
+            if (probePending) probeR2(sock)
             // 关键：解析在锁内、**分发在锁外** —— 解码/播放回调可能较慢，
             // 不能握着 rxLock 做，否则整条连接的收流都被拖住。
             val frames = pump()
@@ -271,7 +299,14 @@ class MediaChannel(
             var frame = outQueue.poll()
             while (frame != null) {
                 try {
-                    o.write(frame)
+                    // R2 加密（9502 子批）：**出队后**加密 —— 入队的是明文完整帧，
+                    // 出队时 payload 整段（含 CRC 尾）原位 AEAD、帧头 payloadLen 重写。
+                    // 不在入队时做：下行侧 pump 的重排/合并语义以明文为准（PC 侧同口径），
+                    // nonce 顺序 = 出队发送顺序。加密失败（会话缺失/超限）= 断链 ——
+                    // AEAD 发送 nonce 已前进，明文帧补发会对不上对端解密序。
+                    val toSend = if (noiseActive) encryptFrame(frame) else frame
+                    if (toSend == null) throw IllegalStateException("R2 帧加密失败，断链")
+                    synchronized(sockWriteLock) { o.write(toSend) }
                 } catch (t: Throwable) {
                     Log.w(TAG, "媒体帧写出失败，视为链路断开：${t.message}")
                     runCatching { sock.close() }
@@ -282,7 +317,7 @@ class MediaChannel(
             }
             // 队列排空后统一 flush
             try {
-                o.flush()
+                synchronized(sockWriteLock) { o.flush() }
             } catch (t: Throwable) {
                 Log.w(TAG, "媒体帧 flush 失败，视为链路断开：${t.message}")
                 runCatching { sock.close() }
@@ -321,6 +356,105 @@ class MediaChannel(
 
     // ————————————————————————————— 收流解析 —————————————————————————————
 
+    /**
+     * R2 延迟探测（9502 子批，readerLoop 线程）：rxBuf 攒够 4 字节后看首 u32 ——
+     *  0 → R2：继续等 [u32 len1][msg1] 到齐，本端 Responder 完成 Noise_IK 握手
+     *      （prologue=APX1-9502-v1，token 即令牌握手的那把），msg2 按
+     *      [u32 len2][msg2] 回写后 split，置 noiseActive。
+     *  ≠0 → legacy 明文：清 probePending，已收字节原样留给 pump 解析（APX 帧头
+     *      以 "APX1" 开头，首 u32 恒非 0，两模式天然无歧义）。
+     *
+     * 调用时机在 feed 之后（rxLock 可进），msg1 消费在 rxLock 内做；msg2 回写走
+     * sockWriteLock（与 writerLoop 互斥，握手期上行尚未开始，通常无竞争）。
+     */
+    private fun probeR2(sock: Socket) {
+        val kp = noiseKp ?: run { probePending = false; return }
+        if (token.isEmpty()) { probePending = false; return }
+        synchronized(rxLock) {
+            if (rxLen < 4) return   // 首标记未到齐，等下轮 feed
+            val first = u32At(rxBuf, 0)
+            if (first != 0) { probePending = false; return }   // legacy 明文，字节留给 pump
+            // R2：等 [u32 len1][msg1]（IK msg1 实际 ≤ 96B，1KB 上限防畸形帧）
+            if (rxLen < 8) return
+            val len1 = u32At(rxBuf, 4)
+            if (len1 <= 0 || len1 > 1024) { probePending = false; Log.w(TAG, "R2 探测：msg1 长度非法 $len1"); return }
+            if (rxLen < 8 + len1) return   // msg1 未到齐，等下轮 feed
+            val sess = NoiseSession(NoiseSession.PROLOGUE_9502)
+            val msg1 = ByteArray(len1)
+            System.arraycopy(rxBuf, 8, msg1, 0, len1)
+            if (sess.beginResponder(token.toByteArray(Charsets.UTF_8), kp.first) &&
+                sess.readHandshakeMsg(msg1, 0, len1) == 0
+            ) {
+                val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
+                val n2 = sess.writeHandshakeMsg(out)
+                if (n2 > 0 && sess.split()) {
+                    // 消费已读字节（4+4+len1），msg2 回写（sockWriteLock 与 writer 互斥）
+                    val rest = rxLen - 8 - len1
+                    System.arraycopy(rxBuf, 8 + len1, rxBuf, 0, rest)
+                    rxLen = rest
+                    synchronized(noiseLock) { noiseSess = sess }
+                    noiseActive = true
+                    probePending = false
+                    try {
+                        val o = sock.getOutputStream()
+                        synchronized(sockWriteLock) {
+                            o.write(u32Bytes(n2))
+                            o.write(out, 0, n2)
+                            o.flush()
+                        }
+                        Log.i(TAG, "9502 R2 通道加密已启用")
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "R2 msg2 回写失败：${t.message}")
+                        runCatching { sock.close() }
+                    }
+                } else {
+                    Log.w(TAG, "R2 探测：握手生成/split 失败，按明文继续")
+                    probePending = false
+                }
+            } else {
+                // token 不符（PSK 校验不过）：对端在发 R2 但握不上手 —— 按明文继续
+                //（字节已消费 8+len1，若真是 APX 帧也不该走到这，属异常路径）
+                Log.w(TAG, "R2 探测：msg1 校验失败（对端令牌不符？）")
+                val rest = rxLen - 8 - len1
+                System.arraycopy(rxBuf, 8 + len1, rxBuf, 0, rest)
+                rxLen = rest
+                probePending = false
+            }
+        }
+    }
+
+    /** 读 rxBuf[off..off+4) 的 u32 LE（调用方保证已读齐） */
+    private fun u32At(buf: ByteArray, off: Int): Int =
+        (buf[off].toInt() and 0xFF) or
+            ((buf[off + 1].toInt() and 0xFF) shl 8) or
+            ((buf[off + 2].toInt() and 0xFF) shl 16) or
+            ((buf[off + 3].toInt() and 0xFF) shl 24)
+
+    private fun u32Bytes(v: Int): ByteArray = byteArrayOf(
+        (v and 0xFF).toByte(),
+        ((v ushr 8) and 0xFF).toByte(),
+        ((v ushr 16) and 0xFF).toByte(),
+        ((v ushr 24) and 0xFF).toByte(),
+    )
+
+    /**
+     * R2 加密一帧（writerLoop 线程，仅 noiseActive 时进入）：payload 整段（body + CRC 尾）
+     * 原位 AEAD，帧头 16 字节保持明文、payloadLen 重写为密文长。会话操作收口 noiseLock。
+     * 失败返回 null（调用方断链 —— AEAD nonce 已前进）。
+     */
+    private fun encryptFrame(plain: ByteArray): ByteArray? {
+        val plainLen = plain.size - ApxFrame.HEADER_SIZE
+        if (plainLen <= 0 || plainLen > NoiseSession.MAX_PLAIN) return null
+        val cipher = plain.copyOfRange(ApxFrame.HEADER_SIZE, plain.size)
+        val cipherLen = synchronized(noiseLock) { noiseSess?.encrypt(cipher, plainLen) ?: 0 }
+        if (cipherLen <= plainLen) return null
+        val enc = ByteArray(ApxFrame.HEADER_SIZE + cipherLen)
+        System.arraycopy(plain, 0, enc, 0, ApxFrame.HEADER_SIZE)
+        System.arraycopy(cipher, 0, enc, ApxFrame.HEADER_SIZE, cipherLen)
+        u32Bytes(cipherLen).copyInto(enc, 8)   // 帧头偏移 8：payloadLen（u32 LE，PC 端同位）
+        return enc
+    }
+
     private fun feed(data: ByteArray, n: Int) {
         synchronized(rxLock) {
             // 给接收缓冲扩容加上限（8MB），避免恶意客户端 flood 垃圾数据
@@ -353,13 +487,31 @@ class MediaChannel(
         var outList: MutableList<Parsed>? = null
         synchronized(rxLock) {
             var off = 0
+            val decrypt = noiseActive   // 只读一次：本循环内开关不会翻转（单 reader 线程）
             while (rxLen - off >= ApxFrame.HEADER_SIZE) {
                 // magic / 长度异常改为**逐字节重同步**（原 off = rxLen 一次错位就会把
                 // 后续所有合法帧一起丢掉）；并补上尾部 CRC32 校验 —— 坏帧直接喂解码器
                 // 会花屏/爆音。PC 侧同款失配早已是逐字节前进，这里与它对齐。
                 if (!ApxFrame.isMagic(rxBuf, off, rxLen)) { off++; continue }
-                val payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
+                var payloadLen = ApxFrame.payloadLenAt(rxBuf, off)
                 if (payloadLen < 0 || payloadLen > ApxFrame.MAX_PAYLOAD) { off++; continue }
+                if (decrypt) {
+                    // R2 收流解密（9502 子批）：payload（含 CRC 尾）是密文，verify 前原位
+                    // 解密、payloadLen 重写为明文长。解密失败 = 标签不过（密钥不符/被改），
+                    // 计数丢弃，与 9511 的丢帧计数同口径（不断链 —— 媒体流允许丢）。
+                    val total = ApxFrame.totalSize(payloadLen)
+                    if (rxLen - off < total) break
+                    val plainLen = synchronized(noiseLock) {
+                        noiseSess?.decrypt(rxBuf, off + ApxFrame.HEADER_SIZE, payloadLen)
+                    }
+                    if (plainLen <= 0) {
+                        Log.w(TAG, "R2 收流解密失败，丢弃一帧")
+                        off += total
+                        continue
+                    }
+                    payloadLen = plainLen
+                    u32Bytes(plainLen).copyInto(rxBuf, off + 8)
+                }
                 val total = ApxFrame.totalSize(payloadLen)
                 if (rxLen - off < total) break
                 if (!ApxFrame.verify(rxBuf, off, payloadLen)) { off += total; continue }

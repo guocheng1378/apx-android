@@ -1357,9 +1357,14 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     // R2 加密材料：token 非空 + 对端静态公钥非空（信标第 5 段）+ 本端密钥对可用，
     // 三者齐备才具备发起 0x35 握手的条件；任一缺失保持明文链路（TV / 旧版 / 手动连接）。
     im->token_ = token;
+    // 9512/9502 子批：token 挂到 R2 进程级上下文 —— 文件/媒体通道（file_sender /
+    // file_receiver / media_session）从这里取 PSK 源，与 Android linkToken 同款。
+    r2SetToken(token);
     if (!pendingPeerPub_.empty()) {   // connect 前经 setPeerStaticKey 暂存的对端公钥
         im->peerPub_ = pendingPeerPub_;
         pendingPeerPub_.clear();
+        // 9512/9502 子批：对端公钥同样挂 R2 上下文（TOFU，进程级）
+        r2SetPeerStaticKey(im->peerPub_.data());
     }
     if (!token.empty() && !im->peerPub_.empty()) {
         uint8_t kp[32], pk[32];

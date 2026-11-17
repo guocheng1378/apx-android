@@ -93,6 +93,13 @@ class ControlServer(
     @Volatile var onOpenScreenRequest: (() -> Unit)? = null
 
     /**
+     * R2 对端静态公钥回调（2026-11-17，9512/9502 子批）：9511 握手成功后携带
+     * 对端静态公钥（32 字节）触发，上层落 TOFU（NoiseSession.savePeerPub）——
+     * 9512 发起端（FileSender）据此预知对端公钥。共享模块无 Context，落盘
+     * 收口到注入方（同 onFindPhone 模式）；不设回调 = 不持久化（9502 无需预知）。 */
+    @Volatile var onPeerStaticPub: ((ByteArray) -> Unit)? = null
+
+    /**
      * 0x38 查找手机回调（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→ 控制面命令
      * → 上层实现响铃。回调参数 action：1=响铃 0=停，已在 ControlServer 主线程（mainHandler
      * post 过）。本模块取不到应用上下文，实际响铃在 app 模块
@@ -694,6 +701,7 @@ class ControlServer(
     private fun onNoiseHandshake(body: ByteArray) {
         val kp = noiseKeyPair
         if (kp == null || tokenBytes.isEmpty()) return
+        var peerPub: ByteArray? = null
         val msg2: ByteArray = synchronized(noiseLock) {
             if (noiseActive || noiseSess != null) return   // 已在加密态 / 握手进行中：重复 msg1 直接忽略
             val s = NoiseSession()
@@ -708,6 +716,7 @@ class ControlServer(
             if (n <= 0) { Log.w("控制面", "R2 握手：msg2 生成失败"); return }
             if (!s.split()) { Log.w("控制面", "R2 握手：split 失败"); return }
             noiseSess = s
+            peerPub = s.remoteStaticPub   // split 时摘出的对端静态公钥（TOFU 源）
             out.copyOf(n)
         }
         // msg2 入队 + 打开加密开关收口在 writeLock：与 sendControl 的「读 active→加密→入队」
@@ -721,6 +730,12 @@ class ControlServer(
             Log.w("控制面", "R2 握手：msg2 入队失败（发送队列满），加密弃用")
             synchronized(noiseLock) { noiseSess = null }
             return
+        }
+        // 对端公钥 TOFU：握手已成，把 Responder 侧解出的对端静态公钥交给上层落盘
+        //（9512 Initiator 由此预知对端公钥）。读到 null 只跳过持久化，不影响加密。
+        peerPub?.let { pub ->
+            onPeerStaticPub?.invoke(pub)
+            Log.i("控制面", "对端静态公钥（TOFU）：${NoiseSession.hex(pub)}")
         }
         Log.i("控制面", "R2 通道加密已启用（Noise IK+PSK）")
     }

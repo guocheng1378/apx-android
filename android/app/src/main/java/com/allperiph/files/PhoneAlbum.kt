@@ -196,7 +196,8 @@ object PhoneAlbum {
             return
         }
         val name = "albumthumb_$id.jpg"
-        val ok = FileSender.send(peerHost, name, bytes.size.toLong(), ByteArrayInputStream(bytes))
+        // 9512 R2 子批：带 context 走加密门控（读对端 TOFU 公钥）；App.context 未就绪时自然明文
+        val ok = FileSender.send(peerHost, name, bytes.size.toLong(), ByteArrayInputStream(bytes), context = com.allperiph.App.context)
         if (!ok) {
             Log.w(TAG, "推缩略图失败：$name → $peerHost")
             reply(ApxFrame.packPhoneFileFail(ApxFrame.PHONEFILE_ERR_SEND_FAILED, failPath))

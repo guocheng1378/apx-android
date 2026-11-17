@@ -104,6 +104,9 @@ class TvControllerClient(
         // R2 加密：新会话从明文开始（对端 0x33 报 bit8 后本端发起，见 initiateNoise）。
         // 顺带取/生成本端静态密钥对（进程级缓存，首连落盘一次）
         ownKp = com.allperiph.App.context?.let { NoiseSession.ensureKeyPair(it) }
+        // 9512/9502 子批：本端作为控制端持有的被控端令牌进进程级缓存 ——
+        // 文件/媒体通道 PSK 复用（空 = 未启用令牌，文件/媒体走明文）。
+        NoiseSession.linkToken = token.ifBlank { null }
         synchronized(writeLock) {
             noiseWait = false; noiseActive = false; pendingBuf.clear()
             synchronized(noiseLock) { noiseSess = null }
@@ -595,11 +598,15 @@ class TvControllerClient(
      */
     private fun onNoiseHandshakeMsg2(body: ByteArray) {
         var failed = false
+        var peerPub: ByteArray? = null
         synchronized(noiseLock) {
             val s = noiseSess
             if (s == null || noiseActive) return   // 没发起过 / 已在加密态：忽略
             failed = s.readHandshakeMsg(body, 0, body.size) != 0
             if (failed) noiseSess = null else if (!s.split()) { failed = true; noiseSess = null }
+            // 9512/9502 子批：msg2 校验通过即摘出对端静态公钥（split 时已从握手态捕获），
+            // 与 PC/被控侧同款 TOFU 落盘 —— 文件反向推送时另一端读同一份记录。
+            if (!failed) peerPub = s.remoteStaticPub
         }
         synchronized(writeLock) {
             if (failed) {
@@ -617,6 +624,10 @@ class TvControllerClient(
                 if (enc != null) txQueue.offer(enc) else noiseDrops++
             }
             noiseActive = true
+        }
+        // 9512/9502 子批：握手中摘到的对端公钥落 TOFU（写锁外，持久化不阻塞补发）
+        peerPub?.let { pub ->
+            com.allperiph.App.context?.let { ctx -> NoiseSession.savePeerPub(ctx, pub) }
         }
         Log.i("TvCtrl", "R2 通道加密已启用（Noise IK+PSK）")
     }

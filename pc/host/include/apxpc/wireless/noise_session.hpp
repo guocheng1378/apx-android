@@ -18,11 +18,15 @@
 // ============================================================================
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace apxpc::wireless {
 
-/// 握手 prologue（两端同源，见类注释）。
+/// 握手 prologue（两端同源，见类注释）：9511 控制面 / 9512 文件 / 9502 媒体各一条，
+/// 防跨协议混淆与重放（9512/9502 子批，2026-11-17）。
 static constexpr char kNoisePrologue[] = "APX1-9511-v1";
+static constexpr char kNoisePrologue9512[] = "APX1-9512-v1";
+static constexpr char kNoisePrologue9502[] = "APX1-9502-v1";
 /// PSK 长度（SHA-256 输出）与静态密钥长度（Curve25519）。
 static constexpr size_t kNoisePskLen = 32;
 static constexpr size_t kNoiseStaticKeyLen = 32;
@@ -33,7 +37,8 @@ static constexpr size_t kNoiseMaxPlain = 65519;
 /// 非线程安全 —— 调用方保证写侧（sendCmd/enqueue）与读侧各自持锁。
 class NoiseSession {
 public:
-    NoiseSession();
+    /// prologue 按通道区分（默认 9511 兼容既有调用点）。
+    explicit NoiseSession(const char* prologue = kNoisePrologue);
     ~NoiseSession();
     NoiseSession(const NoiseSession&) = delete;
     NoiseSession& operator=(const NoiseSession&) = delete;
@@ -56,6 +61,11 @@ public:
 
     /// 握手完成后切出传输态密钥（两端都各消费/产出一条消息后调用）。
     bool split();
+
+    /// 对端静态公钥（32 字节）：split 时从握手态摘出（Initiator 是配置进去的、
+    /// Responder 从 msg1 解出）。9512/9502 子批新增 —— TOFU 持久化与文件反向
+    /// 发送的预知公钥共用。split 前调用返回 false。
+    bool peerStaticKey(uint8_t out[kNoiseStaticKeyLen]);
 
     /// 传输态：加密 buf[0..payloadLen)（原位），返回密文长度（payloadLen+16）；
     /// 0 = 失败（未 split 或超限 —— 上限见 kNoiseMaxPlain）。
@@ -81,5 +91,22 @@ bool noiseGenerateKeyPair(uint8_t priv[kNoiseStaticKeyLen],
 /// 线程安全（内部 once 防重）；失败返回 false（调用方回退明文链路）。
 bool ensureNoiseKeyPair(uint8_t priv[kNoiseStaticKeyLen],
                         uint8_t pub_[kNoiseStaticKeyLen]);
+
+// ---------------------------------------------------------------------------
+// R2 进程级链路上下文（9512/9502 子批，2026-11-17）：
+// 9511 控制面握手成功时写入当前链路的 token 与对端静态公钥，文件/媒体通道
+// （file_sender / file_receiver / media_session）从这里取加密参数 —— 与
+// Android NoiseSession.linkToken / loadPeerPub 同款「9511 学、多通道用」。
+// 全部线程安全（内部 mutex statics）；token 为空串 = 链路无令牌，明文路径。
+// ---------------------------------------------------------------------------
+
+/// 9511 握手成功后写入当前链路被控端令牌（PSK 源）；空串 = 明文。
+void r2SetToken(const std::string& token);
+/// 9511 握手成功后写入对端静态公钥（32 字节裸值）。
+void r2SetPeerStaticKey(const uint8_t pub_[kNoiseStaticKeyLen]);
+/// 读当前链路被控端令牌。
+std::string r2Token();
+/// 读最近 TOFU 的对端静态公钥。成功返回 true（out 为 32 字节裸值）。
+bool r2PeerStaticKey(uint8_t out[kNoiseStaticKeyLen]);
 
 }  // namespace apxpc::wireless

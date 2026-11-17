@@ -41,9 +41,13 @@ struct NoiseSession::Impl {
     NoiseHandshakeState* hs = nullptr;   // 握手态（split 后释放）
     NoiseCipherState* csSend = nullptr;  // 传输态发送密钥（split 后持有）
     NoiseCipherState* csRecv = nullptr;  // 传输态接收密钥（split 后持有）
+    std::string prologue;                // 按通道区分（构造注入，默认 9511）
+    uint8_t peerPub[kNoiseStaticKeyLen] = {};  // split 时从握手态摘出的对端静态公钥
+    bool hasPeerPub = false;
 };
 
-NoiseSession::NoiseSession() : impl_(new Impl) {}
+NoiseSession::NoiseSession(const char* prologue)
+    : impl_(new Impl{nullptr, nullptr, nullptr, prologue ? prologue : kNoisePrologue, {}, false}) {}
 NoiseSession::~NoiseSession() {
     if (impl_->csRecv) noise_cipherstate_free(impl_->csRecv);
     if (impl_->csSend) noise_cipherstate_free(impl_->csSend);
@@ -58,8 +62,9 @@ bool NoiseSession::beginInitiator(const uint8_t* token, size_t tokenLen,
                                                NOISE_ROLE_INITIATOR);
     if (err != NOISE_ERROR_NONE) return false;
     // prologue / PSK 必须在 start() 前设置；顺序在 noise-c 内部有校验。
-    if (noise_handshakestate_set_prologue(p->hs, kNoisePrologue,
-                                          sizeof(kNoisePrologue) - 1) != NOISE_ERROR_NONE)
+    // prologue 用构造参数（按通道区分），不再写死 9511。
+    if (noise_handshakestate_set_prologue(p->hs, p->prologue.data(),
+                                          p->prologue.size()) != NOISE_ERROR_NONE)
         return false;
     uint8_t psk[kNoisePskLen];
     derivePsk(token, tokenLen, psk);
@@ -83,8 +88,8 @@ bool NoiseSession::beginResponder(const uint8_t* token, size_t tokenLen,
     if (noise_handshakestate_new_by_name(&p->hs, kNoiseProtoName,
                                          NOISE_ROLE_RESPONDER) != NOISE_ERROR_NONE)
         return false;
-    if (noise_handshakestate_set_prologue(p->hs, kNoisePrologue,
-                                          sizeof(kNoisePrologue) - 1) != NOISE_ERROR_NONE)
+    if (noise_handshakestate_set_prologue(p->hs, p->prologue.data(),
+                                          p->prologue.size()) != NOISE_ERROR_NONE)
         return false;
     uint8_t psk[kNoisePskLen];
     derivePsk(token, tokenLen, psk);
@@ -137,10 +142,27 @@ bool NoiseSession::split() {
     Impl* p = impl_;
     if (!p->hs) return false;
     if (noise_handshakestate_get_action(p->hs) != NOISE_ACTION_SPLIT) return false;
+    // split 前摘出对端静态公钥（之后 handshake 态就释放了）：Initiator 侧是
+    // beginInitiator 配进去的那把，Responder 侧从 msg1 解出。
+    NoiseDHState* remote = noise_handshakestate_get_remote_public_key_dh(p->hs);
+    if (remote) {
+        uint8_t buf[kNoiseStaticKeyLen];
+        if (noise_dhstate_has_public_key(remote) &&
+            noise_dhstate_get_public_key(remote, buf, kNoiseStaticKeyLen) == NOISE_ERROR_NONE) {
+            memcpy(p->peerPub, buf, kNoiseStaticKeyLen);
+            p->hasPeerPub = true;
+        }
+    }
     if (noise_handshakestate_split(p->hs, &p->csSend, &p->csRecv) != NOISE_ERROR_NONE)
         return false;
     noise_handshakestate_free(p->hs);
     p->hs = nullptr;
+    return true;
+}
+
+bool NoiseSession::peerStaticKey(uint8_t out[kNoiseStaticKeyLen]) {
+    if (!impl_->hasPeerPub) return false;
+    memcpy(out, impl_->peerPub, kNoiseStaticKeyLen);
     return true;
 }
 
@@ -261,6 +283,40 @@ bool ensureNoiseKeyPair(uint8_t priv[kNoiseStaticKeyLen],
     if (!ok) return false;
     memcpy(priv, cachedPriv, kNoiseStaticKeyLen);
     memcpy(pub_, cachedPub, kNoiseStaticKeyLen);
+    return true;
+}
+
+// ---------------------------------------------------------- R2 进程级链路上下文 ----
+namespace {
+
+/// 9511 握手成功时写入、文件/媒体通道读取的链路级加密参数（见 hpp 注释）。
+std::mutex g_r2Mutex;
+std::string g_r2Token;                                  // 被控端令牌（PSK 源）
+uint8_t g_r2PeerPub[kNoiseStaticKeyLen] = {};           // 对端静态公钥（TOFU）
+bool g_r2HasPeerPub = false;
+
+}  // namespace
+
+void r2SetToken(const std::string& token) {
+    std::lock_guard<std::mutex> lock(g_r2Mutex);
+    g_r2Token = token;
+}
+
+void r2SetPeerStaticKey(const uint8_t pub_[kNoiseStaticKeyLen]) {
+    std::lock_guard<std::mutex> lock(g_r2Mutex);
+    memcpy(g_r2PeerPub, pub_, kNoiseStaticKeyLen);
+    g_r2HasPeerPub = true;
+}
+
+std::string r2Token() {
+    std::lock_guard<std::mutex> lock(g_r2Mutex);
+    return g_r2Token;
+}
+
+bool r2PeerStaticKey(uint8_t out[kNoiseStaticKeyLen]) {
+    std::lock_guard<std::mutex> lock(g_r2Mutex);
+    if (!g_r2HasPeerPub) return false;
+    memcpy(out, g_r2PeerPub, kNoiseStaticKeyLen);
     return true;
 }
 

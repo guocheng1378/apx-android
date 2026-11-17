@@ -9,6 +9,7 @@ import com.allperiph.core.ModuleContext
 import com.allperiph.core.ModuleId
 import com.allperiph.core.ModuleState
 import com.allperiph.shared.media.MediaChannel
+import com.allperiph.shared.net.NoiseSession
 
 /**
  * 副屏媒体接入层（手机作为副屏的服务端）。
@@ -44,6 +45,11 @@ object WirelessModule : Module {
             onFrame = { streamId, flags, seq, body ->
                 ApxStreams.dispatch(streamId, flags, seq, body)
             },
+            // R2 通道加密（9512/9502 子批，2026-11-17）：token 取被控端配对令牌
+            //（9511 同源，NoiseSession.linkToken 由 ControlledService.onStartCommand 写入），
+            // kp 进程级懒加载。token 空（未启用配对令牌）时 MediaChannel 内部自然恒明文。
+            token = NoiseSession.linkToken ?: "",
+            noiseKp = NoiseSession.ensureKeyPair(ctx.appContext),
             onReady = { ch -> MediaOut.attach(MediaSink(ch)) },
             onDisconnect = { MediaOut.detach() },
             enableUpLink = true,

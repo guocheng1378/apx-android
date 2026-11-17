@@ -395,7 +395,7 @@ HID（免驱，**当前交付的实际路径**）。streamId 2 与 Report ID 3 �
 | 0x31 | 手机模式状态 | 被控（手机）→ 控制端（PC） | `[1]=flags`：bit0 无线可用 bit1 蓝牙可用 bit2 USB 可用 bit3 无线在用 bit4 蓝牙在用 bit5 USB 在用（**可用 ≠ 在用**，bit3..5 最多置一位；无出口时三者皆 0） |
 | `0x32` | 光标浮层开关 | 控制端 → 被控端 | `[0]=0x32 [1]=show(0x00 隐藏 / 0x01 显示)` | 被控端浮层光标（蓝点）由控制端关/开；TvInjector.setOverlayEnabled 统一门控 |
 | `0x33` | 能力协商 | 双向 | `[0]=0x33 [1..8]=caps(u64 LE)` | 连接建立后**两端各发一帧**，接收方存下对端位图（Android 存于 `ControlServer.peerCaps` / `TvControllerClient.peerCaps`；PC 存于 `Ctrl9511{Server,Client}Status.peerCaps`）。发送能力帧前先核对**对端**位图，缺位的一端不发；旧版安静忽略未知帧号。能力位：bit0 通知同步(0x40/0x42)、bit1 通知回复(0x41/0x43，手机端按通知使用权开关动态报，PC 恒报)、bit2 查找手机(0x38)、bit3 手机文件浏览(0x44–0x47)、bit4 相册投影(0x48–0x4B)、bit5 绝对指针(0x06)、bit6 手柄截图(0x4C)、bit7 副屏远程开关(0x4D，仅服务端方向报)、bit8 R2 通道加密(0x35，有静态密钥对+令牌才报，见下行)。位号三处同源：Android `ApxFrame.CAP_*` / PC `ctrl9511.hpp kCaps9511*` / 本表 |
-| `0x35` | R2 通道加密握手 | 双向 | `[0]=0x35 [1..]=Noise 握手消息（明文，无业务载荷）` | 9511 控制面通道加密（2026-11-17，docs/REQ-无线安全配对.md §4）：NoisePSK_IK_25519_ChaChaPoly_SHA256，prologue `"APX1-9511-v1"`，PSK = SHA-256(UTF-8(配对令牌))。Initiator（控制端）在看到对端 0x33 报 bit8 后发 msg1；Responder（被控端）回 msg2；**两端 split 后本连接 9511 其余帧 payload 整段为 AEAD 密文（明文 = body + CRC 尾），帧头保持明文，帧头 payloadLen = 密文长（明文+16）**。0x35 帧恒明文（帧头明文 → 解密决策可靠）。触发条件（任一不满足走明文兼容路径，TV / 旧版对端 / 手动连接照常）：双方有密钥对 + 对端静态公钥（信标第 5 段）+ 令牌非空。实现两处同源：Android `shared/net/NoiseSession.kt`、PC `pc/host/src/wireless/noise_session.cpp`；本表与 `scripts/check_protocol.py` 对拍 |
+| `0x35` | R2 通道加密握手 | 双向 | `[0]=0x35 [1..]=Noise 握手消息（明文，无业务载荷）` | 9511 控制面通道加密（2026-11-17，docs/REQ-无线安全配对.md §4）：NoisePSK_IK_25519_ChaChaPoly_SHA256，prologue `"APX1-9511-v1"`，PSK = SHA-256(UTF-8(配对令牌))。Initiator（控制端）在看到对端 0x33 报 bit8 后发 msg1；Responder（被控端）回 msg2；**两端 split 后本连接 9511 其余帧 payload 整段为 AEAD 密文（明文 = body + CRC 尾），帧头保持明文，帧头 payloadLen = 密文长（明文+16）**。0x35 帧恒明文（帧头明文 → 解密决策可靠）。触发条件（任一不满足走明文兼容路径，TV / 旧版对端 / 手动连接照常）：双方有密钥对 + 对端静态公钥（信标第 5 段）+ 令牌非空。**9512/9502 子批（2026-11-17）**：文件与媒体通道沿用同一机制与同款帧封装（帧头明文、payload 含 CRC 尾整段 AEAD），但**不经 0x35 帧号** —— prologue 各为 `"APX1-9512-v1"` / `"APX1-9502-v1"`，PSK 源均为 9511 链路的被控端令牌；分流方式见端口表（9512 连接后首 u32=0 / 9502 令牌握手后 PC 发 [u32 0]，Android 侧延迟探测）。实现同源：Android `shared/net/NoiseSession.kt` + `FileReceiver/FileSender/MediaChannel`、PC `noise_session.cpp` + `file_receiver/file_sender/media_session`；本表与 `scripts/check_protocol.py` 对拍 |
 | `0x38` | 查找手机 | PC → 手机 | `[0]=0x38 [1]=action（1=响铃 0=停）` | PC 托盘菜单「查找手机」→ 手机响铃：`AudioManager` **STREAM_ALARM** 临时拉到最大（系统静音也响，停铃还原）+ WakeLock 亮屏，**30s 自动停**；action=0 立即停。发送端核对对端能力位含 bit2（对端报过 0x33 才拦，未报照发由旧版静默忽略兜底）。手机三条收帧路径（`ControlServer` 手机被控 / `TvControlServer` 手机控手机 / `TvControllerClient` 手机控 PC 时 PC 反向找）都落 app 模块 `FindPhoneRinger`；TV 不接（查找手机只对手机有意义）。PC 发送：桌面壳托盘走 `WirelessSession.sendFindPhone`（PC 控手机）或 `Ctrl9511Server.sendFindPhone`（手机控 PC），命令行宿主走后者 |
 | `0x40` | 通知推送 | 手机 → PC | `[0]=0x40 [1..2]=keyLen(u16 LE) [..]=key [..2]=titleLen [..]=title [..2]=textLen [..]=text [1]=appLen(u8) [..]=app`（UTF-8；key=Android `StatusBarNotification.key`，PC 回发 0x42 时原样带回；title/text/app 按气泡可读性截断，key 上限 512B、text 上限 4KB） | 手机通知 → PC 托盘气泡（`TrayIcon::notify`）。Android 侧由 `ApxNotificationListener`（通知使用权监听，**默认关**，偏好 + 授权双开关）发出；发送前核对对端能力位含 bit0。PC 两处接收：服务端 dispatch（手机控 PC）与控制端 reader（PC 控手机）。目前仅 Windows 托盘接线（mac 气泡未接）。PC 展示层附加：命中验证码（关键词 + 正则口径提取 4~8 位）自动复制进**本机**剪贴板，气泡正文回显「（验证码 xxxxxx 已复制）」——payload 不变，不进协议 |
 | `0x42` | 通知消除 | 手机 → PC | `[0]=0x42 [1..2]=keyLen(u16 LE) [..]=key` | 用户在手机上划掉/点开通知时回发；PC 端气泡无法撤回，当前仅回调记账（为「PC 端通知中心/回跳」留状态），与 0x40 同门控 |
@@ -462,15 +462,17 @@ PC `pc/host/src/media/media_session.cpp`。
 |---|---|---|---|
 | 9511 | TCP | 手机可服务端/客户端 | 统一控制面（§3.3）：鼠标/键盘/触摸/多媒体/剪贴板 |
 | 9501 | UDP | 手机广播 | 信标 `APX1TV <name> <port> <token> <noisePubKeyHex>`（port=9511；token=配对令牌，noisePubKeyHex=R2 加密静态公钥可选段，见 §3.3） |
-| 9502 | TCP | 手机做服务端 | **媒体**：副屏 / 音箱 / 麦克风 / 摄像头 |
-| 9512 | TCP | 文件传输 | 控制端 → 被控端；v223.29.109 起文件声明带 4GiB 单文件上限；尚未接入配对 token |
+| 9502 | TCP | 手机做服务端 | **媒体**：副屏 / 音箱 / 麦克风 / 摄像头；R2 加密（2026-11-17，见 §3.3 0x35 行）：令牌握手后 PC 发 `[u32 0][len1][msg1]` 尝试 Noise_IK（5s 收流超时），两端同升生效、legacy 对端 PC 超时后关链回退明文重连一次 |
+| 9512 | TCP | 文件传输 | 控制端 → 被控端；v223.29.109 起文件声明带 4GiB 单文件上限；R2 加密（2026-11-17，见 §3.3 0x35 行）：连接后**首 u32=0** 进 Noise_IK 握手、>0 为 legacy nameLen（明文）；握手成功后走段流 `[u32 ctLen][ct]`（段明文 ≤32KB，首段 = head），握手失败断链不回退明文 |
 
 握手与 9511 **逐字节相同**：`u32 LE 长度 + UTF-8 令牌`。
 ⚠️ **令牌为空也必须发/收那 4 字节长度** —— 接收侧永远先读 4 字节；省掉它会让对端把
 随后的帧头当成长度而直接关连接（真机踩过两次，见 `pc/display/transport/tcp_transport_win.cpp`
 的 `exchangeToken` / `sendBytes` 注释）。
-> v223.29.109 起 9502 握手令牌沿用「空也要发 4 字节」口径，但**媒体通道尚未接入配对 token 校验**
-> （与 9512 文件传输同属后续批次；9512 文件声明另有 4GiB 单文件上限）。
+> v223.29.109 起 9502 握手令牌沿用「空也要发 4 字节」口径。**2026-11-17（9512/9502 子批）**：
+> 两条通道已接入 R2 加密（见 §3.3 0x35 行）—— R2 生效时认证由 PSK 承担；独立于加密的
+> 明文 token 校验仍未补（legacy 明文路径维持原状，TV / 旧版对端 / 未配对照常）；
+> 9512 文件声明另有 4GiB 单文件上限。
 
 **流号与方向**（v1.11 起带方向，同一连接上按 streamId 解复用）：
 
@@ -533,6 +535,7 @@ PC `pc/host/src/media/media_session.cpp`。
 | **1.8** | §3.3 新增 `0x33` 能力协商：连接建立后两端各发一帧能力位图（u64 LE），发送能力帧前核对**对端**位图，缺位不发；新增能力位 bit0 通知同步 / bit1 通知回复（预留）/ bit2 查找手机 | 9511 统一控制面四条链路（手机被控 / 手机控制端 / PC 被控 / PC 控制端） | L2 | 增量功能（通知同步、查找手机）两端版本可能不同步，需要握手交换"谁支持什么"，旧版安静降级（借鉴 NectarLink 能力表机制，见 docs/ROADMAP.md §5.0） |
 | **1.9** | §3.3 新增 `0x41` 通知回复请求（PC → 手机）与 `0x43` 回执（手机 → PC，**成功也发帧**）；能力位 bit1 落地：手机端按通知使用权开关**动态**报，PC 恒报 | 9511 控制面（手机三条收帧路径都落 `NotificationReply.handle`；PC 服务端 dispatch 与控制端 reader 双路收 0x43） | L2（协议帧三处同源：`ApxFrame` / `ctrl9511.hpp` / 本表） | 通知同步（0x40/0x42）只把通知"推"过来，用户还得摸手机回 —— 补上"在 PC 上直接回"的闭环；RemoteInput 代发是 Android 官方授权路径，不碰通知内容存储 |
 | **1.10** | §3.3 新增 `0x35` R2 通道加密握手与能力位 bit8：NoisePSK_IK_25519_ChaChaPoly_SHA256（PSK=配对令牌派生，静态公钥随信标第 5 段广播），split 后 9511 帧 payload 整段 AEAD（帧头明文、payloadLen=明文+16）；任一条件不满足走明文兼容路径（TV / 旧版对端 / 手动连接不变） | 9511 控制面（控制端发 0x35 msg1、被控端回 msg2；加密实现两处同源 `NoiseSession.kt` / `noise_session.cpp`） | L2、L4 | 令牌明文广播是 §3.3 已知限制（REQ-无线安全配对 §3.3）：嗅探方拿 token 即可重放连接。R2 补上链路机密性（前向保密 + PSK 持有即认证）；9512 / 9502 通道加密属后续批次 |
+| **1.11** | 9512 文件与 9502 媒体通道接入 R2 加密：同 NoisePSK_IK 机制（prologue 各 `"APX1-9512-v1"` / `"APX1-9502-v1"`，PSK 源 = 9511 链路被控端令牌，对端静态公钥沿用 9511 TOFU）；9512 连接后首 u32=0 分流、加密态走段流 `[u32 ctLen][ct]`（段明文 ≤32KB，首段 = head），握手失败断链；9502 令牌握手后 PC 发 `[u32 0][len1][msg1]` 延迟探测（Android 侧 readerLoop 看首 u32，legacy PC 静默超时后 PC 回退明文重连一次），帧封装与 9511 同款（帧头明文、payload 含 CRC 整段 AEAD，解密失败按丢帧计数不断链） | 9512（Android `FileReceiver/FileSender`、PC `file_receiver/file_sender`）、9502（Android `MediaChannel`、PC `media_session`） | L2、L4 | 1.10 只覆盖控制面；文件与媒体仍是明文大流量，属 REQ-无线安全配对 §4 同一批次剩余面。门控不满足走明文兼容（TV / 旧版对端 / 手动连接不变）；⚠️ 加密仅在两端同步升级后生效 |
 - 手机端与 PC 端版本不一致时：高版本端必须兼容低版本字段集，未知扩展头按 `headerExtWords` 跳过
 
 ---

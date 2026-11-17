@@ -147,7 +147,8 @@ object PhoneFiles {
             reply(ApxFrame.packPhoneFileFail(ApxFrame.PHONEFILE_ERR_NOT_FOUND, path))
             return
         }
-        val ok = FileSender.send(peerHost, f)
+        // 9512 R2 子批：带 context 走加密门控；App.context 未就绪时自然明文
+        val ok = FileSender.send(peerHost, f, context = com.allperiph.App.context)
         if (!ok) {
             Log.w(TAG, "推文件失败：$path → $peerHost")
             reply(ApxFrame.packPhoneFileFail(ApxFrame.PHONEFILE_ERR_SEND_FAILED, path))
