@@ -60,6 +60,14 @@ constexpr int kAudioSampleRate = 48000;
 constexpr int kAudioChannels   = 2;
 constexpr int kAudioBytesPerMs = kAudioSampleRate * kAudioChannels * 2 / 1000;  // 192
 
+/// socket 句柄类型（Windows = SOCKET / POSIX = int）：头文件内可用的别名，
+/// 供 r2Handshake 签名与实现共用（实现文件里的 Sock 同义）。
+#if defined(_WIN32)
+using MediaSock = SOCKET;
+#else
+using MediaSock = int;
+#endif
+
 class MediaSession {
 public:
     struct Status {
@@ -134,7 +142,7 @@ private:
     void teardown();
     bool enqueue(std::vector<uint8_t>&& frame, uint8_t streamId);
     /// R2 握手（9502 Initiator）：成功 split 后写入 noiseSess_ 并置 noiseActive_。
-    bool r2Handshake(Sock s);
+    bool r2Handshake(MediaSock s);
 
     mutable std::mutex mu_;
     Status st_;

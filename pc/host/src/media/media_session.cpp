@@ -103,7 +103,7 @@ void putU32Le(uint8_t* dst, uint32_t v) {
 }
 
 /// 读满 n 字节（R2 握手用；socket 已设临时收流超时，卡住会超时返回 false）
-bool readFully(Sock s, uint8_t* dst, size_t n) {
+bool readFully(int s, uint8_t* dst, size_t n) {
     size_t got = 0;
     while (got < n) {
         const int r = ::recv(s, reinterpret_cast<char*>(dst + got),
@@ -114,7 +114,7 @@ bool readFully(Sock s, uint8_t* dst, size_t n) {
     return true;
 }
 
-bool readU32(Sock s, uint32_t& v) {
+bool readU32(int s, uint32_t& v) {
     uint8_t b[4];
     if (!readFully(s, b, 4)) return false;
     v = static_cast<uint32_t>(b[0]) | (static_cast<uint32_t>(b[1]) << 8) |
@@ -165,7 +165,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
     // —— R2 门控（9502 子批，2026-11-17）：链路令牌（r2Token，9511 握手成功时挂入）
     //    与对端静态公钥（TOFU）都齐才尝试加密；任一缺失 → 纯明文
     //    （与 Android MediaChannel.probePending 同口径）。
-    uint8_t r2Peer[kNoiseStaticKeyLen];
+    uint8_t r2Peer[wireless::kNoiseStaticKeyLen];
     const bool r2Capable = !wireless::r2Token().empty() &&
                            wireless::r2PeerStaticKey(r2Peer);
 
@@ -314,7 +314,7 @@ bool MediaSession::connect(const std::string& host, uint16_t port, const std::st
 /// 令牌取 r2Token()：9502 是 PC 连入手机服务端的出站通道，PSK 源即 9511 链路的
 /// 被控端令牌（PC 自身配对令牌只在入站通道 file_receiver 的候选里）。
 /// 失败返回 false（调用方关 socket 重连一次明文）。
-bool MediaSession::r2Handshake(Sock s) {
+bool MediaSession::r2Handshake(MediaSock s) {
     const std::string tok = wireless::r2Token();
     if (tok.empty()) return false;
     uint8_t ownPriv[wireless::kNoiseStaticKeyLen];
@@ -486,7 +486,7 @@ void MediaSession::readerLoop() {
 
         size_t off = 0;
         while (acc.size() - off >= apx::kFrameHeaderSize) {
-            const uint8_t* p = acc.data() + off;
+            uint8_t* p = acc.data() + off;
             if (std::memcmp(p, "APX1", 4) != 0) {
                 ++off;   // 逐字节重同步（TCP 可靠有序，正常情况下不该发生）
                 cResync_.fetch_add(1, std::memory_order_relaxed);
