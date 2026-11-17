@@ -388,7 +388,7 @@ class ControlledService : Service() {
         // 不用再导日志。TV/旧对端等明文路径照常显示「明文」。
         val encText = when {
             !ready -> ""
-            server?.isEncrypted == true -> " · " + getString(R.string.controlled_notif_encrypted)
+            server?.isEncrypted() == true -> " · " + getString(R.string.controlled_notif_encrypted)
             else -> " · " + getString(R.string.controlled_notif_plaintext)
         }
         val text = (if (!ready) "等待手机连入 :${ControlServer.PORT}" else if (sysReady) "已连接 · 系统注入已启用" else "已连接 · 未启用无障碍") + encText +
