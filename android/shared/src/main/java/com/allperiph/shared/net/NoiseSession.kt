@@ -180,7 +180,8 @@ class NoiseSession {
 
         fun ensureKeyPair(context: Context): Pair<ByteArray, ByteArray>? {
             cached?.let { return it }
-            synchronized(this) {
+            // 块体函数须显式 return：取 synchronized 求值结果直接返回。
+            return synchronized(this) {
                 cached?.let { return it }
                 try {
                     val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
