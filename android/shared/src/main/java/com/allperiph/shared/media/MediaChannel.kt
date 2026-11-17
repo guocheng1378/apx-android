@@ -385,6 +385,20 @@ class MediaChannel(
             if (sess.beginResponder(token.toByteArray(Charsets.UTF_8), kp.first) &&
                 sess.readHandshakeMsg(msg1, 0, len1) == 0
             ) {
+                // §4.4 白名单：msg1 消费后即摘对端公钥，回 msg2 **之前**裁决 —— 拒绝则
+                // 不回（对端等不到 msg2 自会放弃），并按断链收口。信任落盘在裁决放行里做。
+                // 裁决可能阻塞（首连弹确认），readerLoop 线程可安全等待（rxLock 内短暂
+                // 挂起只影响本连接，握手期本就无业务帧）。
+                val pub = sess.remoteStaticPubPending()
+                if (pub != null && NoiseSession.pubAuthorizer?.invoke(pub, sock.inetAddress?.hostAddress) == false) {
+                    Log.w(TAG, "R2 探测：对端公钥未获信任，拒绝 ${NoiseSession.hex(pub)} from ${sock.inetAddress?.hostAddress}")
+                    val rest = rxLen - 8 - len1
+                    System.arraycopy(rxBuf, 8 + len1, rxBuf, 0, rest)
+                    rxLen = rest
+                    probePending = false
+                    runCatching { sock.close() }   // 断链：不回 msg2，走 writerLoop 的关闭兜底
+                    return
+                }
                 val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
                 val n2 = sess.writeHandshakeMsg(out)
                 if (n2 > 0 && sess.split()) {

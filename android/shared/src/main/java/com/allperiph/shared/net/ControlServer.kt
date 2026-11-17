@@ -93,11 +93,13 @@ class ControlServer(
     @Volatile var onOpenScreenRequest: (() -> Unit)? = null
 
     /**
-     * R2 对端静态公钥回调（2026-11-17，9512/9502 子批）：9511 握手成功后携带
-     * 对端静态公钥（32 字节）触发，上层落 TOFU（NoiseSession.savePeerPub）——
-     * 9512 发起端（FileSender）据此预知对端公钥。共享模块无 Context，落盘
-     * 收口到注入方（同 onFindPhone 模式）；不设回调 = 不持久化（9502 无需预知）。 */
-    @Volatile var onPeerStaticPub: ((ByteArray) -> Unit)? = null
+     * R2 明文帧门控（§4.4 同根，2026-11-17）：本端具备加密条件（[noiseKeyPair] +
+     * [token] 非空）但 0x35 还没握上时，除 0x33 / 0x35 / ping 外的控制帧一律丢弃 ——
+     * 否则拿到信标 token 的攻击者只要**不发** 0x35 就能绕过白名单直接用明文帧注入，
+     * 白名单形同虚设。丢弃计数每 50 次记一条，不断链（对端可能正在握手中）。
+     */
+    private val r2Required: Boolean get() = noiseKeyPair != null && tokenBytes.isNotEmpty()
+    private var plainDrops = 0
 
     /**
      * 0x38 查找手机回调（2026-11-11，能力位 bit2）：PC 托盘点「查找手机」→ 控制面命令
@@ -497,6 +499,10 @@ class ControlServer(
                         // 0x33 能力协商是元数据不是输入：挂起期照收（连接保活时对端可能刚升级）。
                         if (suspended && cmd != 'p'.code && cmd != 0x10 && cmd != 0x33) {
                             // 控制面已挂起：忽略鼠标/键盘/触摸等输入
+                        } else if (r2Required && !noiseActive && cmd != 'p'.code && cmd != 0x33 && cmd != 0x35) {
+                            // R2 明文帧门控（§4.4 同根）：加密还没握上时不执行任何输入/业务帧 ——
+                            // 白名单认证只发生在 0x35 握手，明文直发等于绕过认证（见字段注释）
+                            if (plainDrops++ % 50 == 0) Log.w("控制面", "诊断:R2明文帧丢弃#${plainDrops} cmd=0x${cmd.toString(16)}（加密未就绪）")
                         } else when (cmd) {
                             'p'.code -> {
                                 Log.i("控制面", "诊断:收到ping→回pong")
@@ -701,7 +707,7 @@ class ControlServer(
     private fun onNoiseHandshake(body: ByteArray) {
         val kp = noiseKeyPair
         if (kp == null || tokenBytes.isEmpty()) return
-        var peerPub: ByteArray? = null
+        val peerHost = currentPeerHost()
         val msg2: ByteArray = synchronized(noiseLock) {
             if (noiseActive || noiseSess != null) return   // 已在加密态 / 握手进行中：重复 msg1 直接忽略
             val s = NoiseSession()
@@ -711,12 +717,19 @@ class ControlServer(
                 Log.w("控制面", "R2 握手：msg1 校验失败（对端令牌不符？）")
                 return
             }
+            // §4.4 白名单裁决（2026-11-17）：msg1 消费后即从握手态摘出对端静态公钥，
+            // 回 msg2 **之前**过白名单 —— 拒绝则不回（对端等不到 msg2 自会放弃）。
+            // 裁决可能阻塞（首连/陌生设备弹确认），放 reader 线程等，用户裁决完再继续。
+            val pub = s.remoteStaticPubPending()
+            if (pub != null && NoiseSession.pubAuthorizer?.invoke(pub, peerHost) == false) {
+                Log.w("控制面", "R2 握手：对端公钥未获信任，拒绝 ${NoiseSession.hex(pub)} from $peerHost")
+                return
+            }
             val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
             val n = s.writeHandshakeMsg(out)
             if (n <= 0) { Log.w("控制面", "R2 握手：msg2 生成失败"); return }
             if (!s.split()) { Log.w("控制面", "R2 握手：split 失败"); return }
             noiseSess = s
-            peerPub = s.remoteStaticPub   // split 时摘出的对端静态公钥（TOFU 源）
             out.copyOf(n)
         }
         // msg2 入队 + 打开加密开关收口在 writeLock：与 sendControl 的「读 active→加密→入队」
@@ -730,12 +743,6 @@ class ControlServer(
             Log.w("控制面", "R2 握手：msg2 入队失败（发送队列满），加密弃用")
             synchronized(noiseLock) { noiseSess = null }
             return
-        }
-        // 对端公钥 TOFU：握手已成，把 Responder 侧解出的对端静态公钥交给上层落盘
-        //（9512 Initiator 由此预知对端公钥）。读到 null 只跳过持久化，不影响加密。
-        peerPub?.let { pub ->
-            onPeerStaticPub?.invoke(pub)
-            Log.i("控制面", "对端静态公钥（TOFU）：${NoiseSession.hex(pub)}")
         }
         Log.i("控制面", "R2 通道加密已启用（Noise IK+PSK）")
     }

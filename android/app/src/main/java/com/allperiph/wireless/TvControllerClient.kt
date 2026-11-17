@@ -570,6 +570,14 @@ class TvControllerClient(
         val kp = ownKp ?: return
         val tok = token.toByteArray(Charsets.UTF_8)
         if (tok.isEmpty()) return
+        // §4.4 白名单：发 msg1 前先过对端公钥裁决（信标里的公钥也要认 —— 白名单没
+        // 收录就弹确认/拒绝）。拒绝 = 断链，不发握手；放行时的信任落盘在裁决里做。
+        // 裁决可能阻塞（弹窗等用户），须在 noiseLock 外做（锁内阻塞会冻住读线程）。
+        if (NoiseSession.pubAuthorizer?.invoke(peerPub, host) == false) {
+            Log.w("TvCtrl", "R2 握手：信标公钥未获信任，断开 $host")
+            disconnect()
+            return
+        }
         val out = ByteArray(NoiseSession.MAX_PLAIN + 16)
         var msgLen = 0
         synchronized(noiseLock) {
@@ -598,15 +606,11 @@ class TvControllerClient(
      */
     private fun onNoiseHandshakeMsg2(body: ByteArray) {
         var failed = false
-        var peerPub: ByteArray? = null
         synchronized(noiseLock) {
             val s = noiseSess
             if (s == null || noiseActive) return   // 没发起过 / 已在加密态：忽略
             failed = s.readHandshakeMsg(body, 0, body.size) != 0
             if (failed) noiseSess = null else if (!s.split()) { failed = true; noiseSess = null }
-            // 9512/9502 子批：msg2 校验通过即摘出对端静态公钥（split 时已从握手态捕获），
-            // 与 PC/被控侧同款 TOFU 落盘 —— 文件反向推送时另一端读同一份记录。
-            if (!failed) peerPub = s.remoteStaticPub
         }
         synchronized(writeLock) {
             if (failed) {
@@ -625,10 +629,8 @@ class TvControllerClient(
             }
             noiseActive = true
         }
-        // 9512/9502 子批：握手中摘到的对端公钥落 TOFU（写锁外，持久化不阻塞补发）
-        peerPub?.let { pub ->
-            com.allperiph.App.context?.let { ctx -> NoiseSession.savePeerPub(ctx, pub) }
-        }
+        // 对端公钥信任落盘已统一收口到白名单裁决（initiateNoise 里的 pubAuthorizer 放行时写），
+        // 这里不再后置 TOFU —— §4.4：落盘只在裁决允许时发生。
         Log.i("TvCtrl", "R2 通道加密已启用（Noise IK+PSK）")
     }
 

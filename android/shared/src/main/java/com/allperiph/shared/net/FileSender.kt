@@ -23,8 +23,8 @@ import java.net.Socket
  * （首段明文 = head(nameLen+name+size)，后续段明文 ≤ [FileReceiver.SEG_PLAIN]/段）。
  *
  * 门控（不探测对端）：`context` 非空 && [NoiseSession.linkToken] 非空（9511 链路的
- * 被控端令牌）&& 本端密钥对可用 && 对端静态公钥已有 TOFU 记录（9511 握手成功时落盘，
- * 见 NoiseSession.savePeerPub）。任一不满足 → 纯明文（旧版对端 / TV 兼容路径）。
+ * 被控端令牌）&& 本端密钥对可用 && 对端静态公钥已有信任记录（R2 白名单裁决放行时落盘，
+ * 见 NoiseSession.loadPeerPubForHost）。任一不满足 → 纯明文（旧版对端 / TV 兼容路径）。
  * R2 握手失败（对端明文 / token 不符）→ 关闭后**回退一次明文重连**（fail-safe，
  * 与 PC 端 file_sender 同口径）；此时尚未读过数据流，ins 可直接复用。
  *
@@ -60,8 +60,8 @@ object FileSender {
         onProgress: ((Int) -> Unit)? = null,
         context: Context? = null,
     ): Boolean {
-        // R2 门控：token + 本端密钥对 + 对端公钥（TOFU）齐备才尝试加密，否则直接明文
-        val r2 = prepareR2(context, name)
+        // R2 门控：token + 本端密钥对 + 对端公钥（按 host 取信任记录）齐备才尝试加密，否则直接明文
+        val r2 = prepareR2(context, host, name)
         if (r2 != null && sendR2(host, name, size, ins, onProgress, r2)) return true
         if (r2 != null) {
             // 握手阶段失败（对端是旧版/明文）：ins 尚未被读过，回退一次明文重连
@@ -70,13 +70,16 @@ object FileSender {
         return sendLegacy(host, name, size, ins, onProgress)
     }
 
-    /** R2 门控资料：token / 本端私钥 / 对端公钥（TOFU）。任一缺失返回 null（走明文）。 */
-    private fun prepareR2(context: Context?, name: String): Triple<ByteArray, ByteArray, ByteArray>? {
+    /**
+     * R2 门控资料：token / 本端私钥 / 对端公钥。任一缺失返回 null（走明文）。
+     * 对端公钥按 host 取信任记录（§4.4：多台对端各取各的，9511 裁决放行时按 host 落盘）。
+     */
+    private fun prepareR2(context: Context?, host: String, name: String): Triple<ByteArray, ByteArray, ByteArray>? {
         if (context == null) return null
         val tok = NoiseSession.linkToken ?: return null
         if (tok.isBlank()) return null
         val kp = NoiseSession.ensureKeyPair(context) ?: return null
-        val peerPub = NoiseSession.loadPeerPub(context) ?: return null
+        val peerPub = NoiseSession.loadPeerPubForHost(context, host) ?: return null
         Log.i("FileSender", "9512 R2 加密发送：$name（对端公钥 ${NoiseSession.hex(peerPub).take(16)}…）")
         return Triple(tok.toByteArray(Charsets.UTF_8), kp.first, peerPub)
     }

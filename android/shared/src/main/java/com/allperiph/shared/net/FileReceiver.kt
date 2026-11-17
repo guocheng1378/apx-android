@@ -102,7 +102,7 @@ object FileReceiver {
                 var ins: InputStream = buffered
                 var nameLen = first
                 if (first == 0) {
-                    val sess = handshake(buffered, sock.getOutputStream())
+                    val sess = handshake(buffered, sock.getOutputStream(), sock.inetAddress?.hostAddress)
                     if (sess == null) {
                         // 握手失败（token 不符 / 畸形帧）：直接断 —— 加密连接不留半开明文，
                         // 发送端自己有明文回退（重连一次 legacy）
@@ -160,7 +160,7 @@ object FileReceiver {
      * 按 [u32 len2][msg2] 回写。token 取 [NoiseSession.linkToken]（9511 链路的被控端
      * 令牌，两端同源）。任何一步失败返回 null（调用方断链）。
      */
-    private fun handshake(raw: InputStream, out: java.io.OutputStream): NoiseSession? {
+    private fun handshake(raw: InputStream, out: java.io.OutputStream, peerHost: String?): NoiseSession? {
         val tok = NoiseSession.linkToken ?: return null
         val c = ctx ?: return null
         val kp = NoiseSession.ensureKeyPair(c) ?: return null
@@ -172,6 +172,14 @@ object FileReceiver {
             val s = NoiseSession(NoiseSession.PROLOGUE_9512)
             if (!s.beginResponder(tok.toByteArray(Charsets.UTF_8), kp.first)) return null
             if (s.readHandshakeMsg(msg1, 0, msg1.size) != 0) return null
+            // §4.4 白名单：msg1 消费后即摘对端公钥，回 msg2 **之前**裁决 —— 拒绝则不回
+            //（对端等不到 msg2 自会放弃），落盘统一在裁决放行里做。裁决可能阻塞（弹窗），
+            // 本函数跑在每连接独立线程（apxctl-file-client），可安全等待。
+            val pub = s.remoteStaticPubPending()
+            if (pub != null && NoiseSession.pubAuthorizer?.invoke(pub, peerHost) == false) {
+                Log.w("文件接收", "9512 R2：对端公钥未获信任，拒绝 ${NoiseSession.hex(pub)} from $peerHost")
+                return null
+            }
             val msg2 = ByteArray(NoiseSession.MAX_PLAIN + 16)
             val n2 = s.writeHandshakeMsg(msg2)
             if (n2 <= 0) return null

@@ -32,8 +32,8 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
     private var csRecv: CipherState? = null
 
     /** 对端静态公钥（32 字节）：split 时从握手态摘出（Initiator 是配置进去的、
-     *  Responder 从 msg1 解出）。9512/9502 子批新增 —— Responder 侧据此做对端
-     *  公钥 TOFU 持久化（见 ControlServer.onNoiseHandshake / NoiseSession.savePeerPub）。 */
+     *  Responder 从 msg1 解出）。9512/9502 子批新增 —— §4.4 后据此做对端公钥
+     *  白名单裁决（pubAuthorizer）与按 host 的信任记录（见 trustPeerPub）。 */
     var remoteStaticPub: ByteArray? = null
         private set
 
@@ -97,6 +97,25 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
             // MAC 失败 = 对端不是持同一 token 的设备（或握手帧被改过），握手作废。
             Log.w(TAG, "readHandshakeMsg 失败: ${t.message}")
             -1
+        }
+    }
+
+    /**
+     * Responder 侧在消费 msg1 之后、[split] 之前摘出对端静态公钥（与 split 时
+     * [remoteStaticPub] 同值）—— §4.4 白名单要在**回 msg2 之前**裁决，不能等 split。
+     * 不可用（状态不对/长度异常）返回 null。
+     */
+    fun remoteStaticPubPending(): ByteArray? {
+        val s = hs ?: return null
+        return try {
+            val dh = s.remotePublicKey ?: return null
+            if (!dh.hasPublicKey()) return null
+            val pub = ByteArray(KEY_LEN)
+            dh.getPublicKey(pub, 0)
+            pub
+        } catch (t: Throwable) {
+            Log.w(TAG, "摘取对端静态公钥失败: ${t.message}")
+            null
         }
     }
 
@@ -184,6 +203,13 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
         const val KEY_LEN = 32
         const val PSK_LEN = 32
 
+        // 白名单 prefs 键（"apx_noise"）：trustedPeerPubs=信任集合（Base64）、
+        // peerPubLast=旧单值（迁移源 + 最近一次兜底）、peerPubByHost=host→pub 映射
+        //（条目 "host|pubB64"，见 loadPeerPubForHost）。
+        private const val PREF_TRUSTED = "trustedPeerPubs"
+        private const val PREF_PUB_LAST = "peerPubLast"
+        private const val PREF_PUB_BY_HOST = "peerPubByHost"
+
         /** PSK 派生：SHA-256(UTF-8(token))，恒 32 字节（与 PC 端 derivePsk 同式）。 */
         fun derivePsk(token: ByteArray): ByteArray =
             MessageDigest.getInstance("SHA-256").digest(token)
@@ -218,28 +244,94 @@ class NoiseSession(private val prologue: String = PROLOGUE) {
         @Volatile
         var linkToken: String? = null
 
-        /** 对端静态公钥 TOFU：保存最近握手成功的对端公钥（Base64 32 字节）。
-         *  9512 Initiator（FileSender）据此预知对端公钥（其无信标可听）。 */
-        fun savePeerPub(context: Context, pub: ByteArray) {
-            try {
-                context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("peerPubLast", Base64.getEncoder().encodeToString(pub))
-                    .apply()
+        /**
+         * R2 对端静态公钥白名单裁决（§4.4，2026-11-17）—— 共享模块无 Context，
+         * 决策（查白名单 / 首连确认 UI / 拒绝提示）与信任落盘收口到注入方
+         * （app 模块 PeerPubGate，App.onCreate 装配；与 [linkToken] 同款进程级注入）。
+         *
+         * 契约（docs/REQ-无线安全配对.md §4.4）：
+         *  · 对端公钥已在白名单 → 返回 true（幂等）；
+         *  · 白名单未收录 → 弹确认（首连 / 陌生设备同一弹窗），用户允许才信任并落盘
+         *    （[trustPeerPub]），拒绝则静默拒绝一段时间防弹窗轰炸；
+         *  · null = 未装配（TV / 测试环境）：回退 TOFU 旧行为（不过滤）。
+         * 调用点：9511/9512/9502 三条通道的 Responder（握手 msg1 消费后、回 msg2 前）
+         * 与 9511 Initiator（发 msg1 前，信标公钥先过一遍）—— 阻塞调用（内含弹窗等待），
+         * 不在主线程触发。
+         */
+        @Volatile
+        var pubAuthorizer: ((pub: ByteArray, peerHost: String?) -> Boolean)? = null
+
+        // ---- 对端静态公钥白名单（§4.4）：集合化存储（多台电脑控一台手机是合法场景，
+        //      旧 peerPubLast 单值门槛会把第二台锁在门外），按 host 记录「9511 学、
+        //      9512 发起端按对端取」（见 loadPeerPubForHost）。 ----
+
+        /** 白名单（Base64 32 字节集合）。首次读取时迁移旧 peerPubLast 单值 ——
+         *  已配对用户升级后不丢信任。 */
+        fun trustedPeerPubs(context: Context): Set<String> {
+            return try {
+                val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
+                var set = prefs.getStringSet(PREF_TRUSTED, null)
+                if (set == null) {
+                    // 迁移：peerPubLast 单值 → 集合（只迁一次，迁移后即写回集合键）
+                    val last = prefs.getString(PREF_PUB_LAST, null)
+                    set = if (last != null) setOf(last) else emptySet()
+                    if (last != null) prefs.edit().putStringSet(PREF_TRUSTED, set).apply()
+                }
+                set
             } catch (t: Throwable) {
-                Log.w(TAG, "savePeerPub 失败: ${t.message}")
+                Log.w(TAG, "trustedPeerPubs 失败: ${t.message}")
+                emptySet()
             }
         }
 
-        /** 读取最近 TOFU 的对端静态公钥；没有或损坏返回 null（Initiator 回退明文）。 */
-        fun loadPeerPub(context: Context): ByteArray? {
-            return try {
-                val saved = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
-                    .getString("peerPubLast", null) ?: return null
-                val pub = Base64.getDecoder().decode(saved)
-                if (pub.size == KEY_LEN) pub else null
+        /**
+         * 信任对端静态公钥并落盘：进白名单集合（幂等）+ 按 host 记录（9512 发起端
+         * 按对端取用）+ 更新旧单值键（保持「最近一次」语义，供旧读取方/迁移兜底）。
+         */
+        fun trustPeerPub(context: Context, pub: ByteArray, host: String?) {
+            try {
+                val b64 = Base64.getEncoder().encodeToString(pub)
+                val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putStringSet(PREF_TRUSTED, trustedPeerPubs(context) + b64)
+                    .putString(PREF_PUB_LAST, b64)
+                    .apply()
+                if (!host.isNullOrBlank()) {
+                    // pubByHost：StringSet 里存 "host|pubB64"（SharedPreferences 无原生 map）
+                    val map = prefs.getStringSet(PREF_PUB_BY_HOST, emptySet())!!
+                        .filterNot { it.startsWith("$host|") }
+                        .toMutableSet()
+                    map.add("$host|$b64")
+                    prefs.edit().putStringSet(PREF_PUB_BY_HOST, map).apply()
+                }
             } catch (t: Throwable) {
-                Log.w(TAG, "loadPeerPub 失败: ${t.message}")
+                Log.w(TAG, "trustPeerPub 失败: ${t.message}")
+            }
+        }
+
+        /**
+         * 9512 Initiator 预知对端公钥：优先按对端 host 取（多台对端各取各的，
+         * §4.4「9512 发起端预知对端公钥改为按对端取值」）；host 没有记录时，
+         * 白名单里只有一把就取那一把（单对端场景），否则回退旧单值键。
+         * 没有可信记录返回 null（发起端回退明文）。
+         */
+        fun loadPeerPubForHost(context: Context, host: String?): ByteArray? {
+            return try {
+                val prefs = context.getSharedPreferences("apx_noise", Context.MODE_PRIVATE)
+                if (!host.isNullOrBlank()) {
+                    val entry = prefs.getStringSet(PREF_PUB_BY_HOST, emptySet())!!
+                        .firstOrNull { it.startsWith("$host|") }
+                    if (entry != null) {
+                        val pub = Base64.getDecoder().decode(entry.substringAfter('|'))
+                        if (pub.size == KEY_LEN) return pub
+                    }
+                }
+                val trusted = trustedPeerPubs(context)
+                if (trusted.size == 1) return Base64.getDecoder().decode(trusted.first())
+                val last = prefs.getString(PREF_PUB_LAST, null) ?: return null
+                if (last in trusted) Base64.getDecoder().decode(last) else null
+            } catch (t: Throwable) {
+                Log.w(TAG, "loadPeerPubForHost 失败: ${t.message}")
                 null
             }
         }

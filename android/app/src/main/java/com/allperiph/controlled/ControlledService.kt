@@ -142,9 +142,9 @@ class ControlledService : Service() {
             server = ControlServer(endpoint = controlEndpoint, token = tok, noiseKeyPair = noiseKp)
         }
         Companion.server = server
-        // 9512/9502 子批：9511 握手成功 → 对端静态公钥落 TOFU（prefs "apx_noise"）。
-        // 9512 发起端（FileSender）没有信标可听，靠这份记录预知对端公钥。
-        server?.onPeerStaticPub = { pub -> NoiseSession.savePeerPub(this, pub) }
+        // 9512 发起端（FileSender）没有信标可听，对端公钥的信任落盘统一收口到
+        // R2 白名单裁决（NoiseSession.pubAuthorizer → PeerPubGate，App.onCreate 装配）：
+        // 9511/9512/9502 三条通道在握手裁决放行时才写 prefs（trustPeerPub），不再后置 TOFU。
         server?.onClipboardChange = { text -> server?.sendReverseClipboard(text) }
         // 0x05 开副屏请求：PC 面板开启副屏推流时下发 → 广播 ScreenOpenRequestEvent，
         // 由 AgentForegroundService.onPcOpenScreen 拉起副屏页（前台直接弹；
