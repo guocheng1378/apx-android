@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Base64
+import com.allperiph.controlled.PubConfirmDialogActivity
 import com.allperiph.shared.net.NoiseSession
 import com.allperiph.shared.util.Log
 import java.util.concurrent.CountDownLatch
