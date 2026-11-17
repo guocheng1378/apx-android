@@ -18,6 +18,8 @@
 - 未保留：openssl / libsodium 后端、curve448 + goldilocks、newhope、tools / tests /
   examples（不参与本工程构建）。
 
-构建：由 `pc/host/CMakeLists.txt` 以 `apxpc_noise` 静态库接入（C 语言，`-DUSE_OPENSSL=0`
-等上游宏不需要 —— 后端选择由源文件清单决定）。协议名与 noise-java（Android 端，
-`com.southernstorm.noise.protocol`，同作者）一致，两端按同一 Noise 规范实现。
+构建：由 `pc/host/CMakeLists.txt` 以 `apxpc_noise` 静态库接入（C 语言，先
+`enable_language(C)`；并定义 `ED25519_CUSTOMRANDOM` —— ed25519 批验证随机数
+不引 OpenSSL，走 `protocol/rand_os.c` 的系统熵实现）。协议名与 noise-java
+（Android 端，`com.southernstorm.noise.protocol`，同作者）一致，两端按同一
+Noise 规范实现。

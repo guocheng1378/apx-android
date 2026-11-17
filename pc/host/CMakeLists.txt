@@ -395,6 +395,9 @@ target_include_directories(apxpc_noise
   PUBLIC  "${APXPC_ROOT}/third_party/noise-c/include"
   PRIVATE "${APXPC_ROOT}/third_party/noise-c/src/protocol"
           "${APXPC_ROOT}/third_party/noise-c/src")
+# ed25519 批验证的随机数：本工程零外部依赖，不引 OpenSSL；定义
+# ED25519_CUSTOMRANDOM 后由同库 protocol/rand_os.c 提供系统熵实现（CI 抓出）。
+target_compile_definitions(apxpc_noise PRIVATE ED25519_CUSTOMRANDOM)
 
 # ---------------------------------------------------------- 目标：统一控制面（9511）
 set(APXPC_WIRELESS_SRC
