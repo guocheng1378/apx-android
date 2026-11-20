@@ -147,11 +147,36 @@ object CrashBox {
                     mediaUri = null
                     return
                 }
-            // 写通即转正（IS_PENDING=0）；转正撞名或失败不拦 —— 文件留在 pending 区，
+            // 写通即转正（IS_PENDING=0）；转正失败不拦 —— 文件留在 pending 区，
             // 本应用照常可读写，下一轮 flush 继续全量重写
-            runCatching {
+            val published = runCatching {
                 r.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
-            }.onFailure { t -> Log.w(TAG, "黑匣子转正失败（保持 pending，不影响续写）：${t.message}") }
+            }.onFailure { t -> Log.w(TAG, "黑匣子转正失败：${t.message}") }.isSuccess
+            if (!published) {
+                // 转正撞名自救（2026-11-20 修，.220 小米 ROM 实测仍报错）：转正是把
+                // pending 文件「发布」成最终名，HyperOS 的 MediaProvider 在最终名已被
+                // 占用时不是自动加 " (1)" 而是直接抛「Failed to build unique file」。
+                // 占名者可能是用户手动拷进下载目录的同名文件、或系统残留的未索引文件
+                // —— 都不是本包的行，[deleteStaleOwnRows] 查得到也删不动（只删自己的）。
+                // 此时给 pending 行改一个带时间戳的独占名再转正一次：文件至少明着落在
+                // 下载目录里能被用户拿到，而不是永远藏在 pending 区；旧独占名档由
+                // [deleteStaleOwnRows] 的前缀匹配在下次启动时清掉。下次进程启动仍先试
+                // 回正式名，用户手动改过名不影响这条自救路径。
+                val base = DISPLAY.removeSuffix(".txt")
+                val alt = "$base-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.txt"
+                runCatching {
+                    r.update(
+                        uri,
+                        ContentValues().apply {
+                            put(MediaStore.MediaColumns.DISPLAY_NAME, alt)
+                            put(MediaStore.MediaColumns.IS_PENDING, 0)
+                        },
+                        null,
+                        null,
+                    )
+                    Log.i(TAG, "黑匣子转正改用独占名：$alt")
+                }.onFailure { t -> Log.w(TAG, "黑匣子独占名转正仍失败（保持 pending，不影响续写）：${t.message}") }
+            }
             return
         } catch (t: Throwable) {
             Log.w(TAG, "黑匣子 MediaStore 落盘失败：${t.message}")
@@ -166,9 +191,12 @@ object CrashBox {
     }
 
     /**
-     * 清掉下载集合里本应用自己的同名旧档（[DISPLAY]，见 [flush] 的先删后插）：
-     * 只挑 owner 是本包的行 —— 卸载重装前的孤儿档也在其列，别人的同名文件查得到
-     * 也删不动。任何异常就地吞掉，由调用方决定照常继续。
+     * 清掉下载集合里本应用自己的黑匣子旧档（见 [flush] 的先删后插）：按
+     * 「AllPeriph启动日志」前缀匹配 —— 除正式名外，连转正自救改出的
+     * 「AllPeriph启动日志-<时间戳>.txt」与旧版 MediaStore 自动生成的
+     * 「AllPeriph启动日志 (1).txt」副本一并清掉；只挑 owner 是本包的行 —— 卸载
+     * 重装前的孤儿档也在其列，别人的同名文件查得到也删不动。任何异常就地吞掉，
+     * 由调用方决定照常继续。
      */
     private fun deleteStaleOwnRows(r: android.content.ContentResolver) {
         val pkg = appCtx?.packageName ?: return
@@ -177,8 +205,8 @@ object CrashBox {
             r.query(
                 downloads,
                 arrayOf(MediaStore.MediaColumns._ID),
-                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?",
-                arrayOf(DISPLAY, pkg),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ? AND ${MediaStore.MediaColumns.OWNER_PACKAGE_NAME} = ?",
+                arrayOf("${DISPLAY.removeSuffix(".txt")}%", pkg),
                 null,
             )?.use { c ->
                 val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
