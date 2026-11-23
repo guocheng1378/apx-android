@@ -1777,6 +1777,14 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     if (panel.bundle.session) {
         panel.bundle.session->startAuto();
         APX_LOGI("无线自动发现已启动（等待手机 APX1PH 信标）");
+        // 投屏自动开接线（2026-11-24，与 web_panel 同款修「点了立即开始面板没画面」）：
+        // 会话自动下发 0x10 后同步本面板开关态，前端「投屏到电脑」显示才与实际一致。
+        // 本入口没有 cameraView（仅 Windows 编译，见文件头边界说明）：画面帧有收流
+        // 计数但无原生预览窗，浏览器端渲染是后续批次；回调跑在会话 worker 线程，
+        // g_screenMirrorOn 是 atomic，可直接调。
+        panel.bundle.session->setOnScreenMirrorAuto([] {
+            g_screenMirrorOn.store(true, std::memory_order_relaxed);
+        });
     }
 
     // 9511 受控端（对齐 Windows 桌面端 desktop_main 的既有语义）：广播 APX1PC 信标 ——

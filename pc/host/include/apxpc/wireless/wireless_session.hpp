@@ -201,6 +201,12 @@ public:
     /// 会话内部已同步更新握手用令牌，这里只负责持久化。锁保护口径与通知回调同款。
     void setOnTokenGrant(std::function<void(const std::string& token)> cb);
 
+    /// 投屏自动开回调（2026-11-24）：publish() 自动下发 0x10「screenmirror」on 成功后
+    /// 触发（worker 线程）——接线方据此打开电脑端预览窗。此前只发开关不开预览窗，
+    /// 帧入队无人消费，用户看到「点了立即开始面板却没画面」。回调在 mu_ 内同步执行，
+    /// **不得**回调进 WirelessSession（会死锁）；只做轻量 UI 动作（如 setPreview）。
+    void setOnScreenMirrorAuto(std::function<void()> cb);
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
@@ -266,6 +272,9 @@ private:
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
     // 令牌下发回调（0x36，2026-11-23）：锁保护口径同上 —— 外层落盘配置
     std::function<void(const std::string&)> onTokenGrant_;
+    // 投屏自动开回调（2026-11-24）：publish() 自动发 0x10 成功后触发 —— 外层开预览窗。
+    // 与其它回调同款：cbMu_ 保护读写，调用点在 publish()（worker 线程，持 mu_）。
+    std::function<void()> onScreenMirrorAuto_;
     // 一次性配对码（面板提交，下一次连接尝试用掉）与已落盘的对端持久令牌：
     // worker 连接时在 mu_ 内取值（与信标 host/port/token 同一把锁，三样同源）
     std::string pendingPairingCode_;

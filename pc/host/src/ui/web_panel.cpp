@@ -1857,6 +1857,16 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
     if (bundle.session) {
         bundle.session->startAuto();
         APX_LOGI("无线自动发现已启动（等待手机 APX1PH 信标）");
+        // 投屏自动开接线（2026-11-24，修「点了立即开始面板没画面」）：会话自动下发
+        // 0x10 后回调这里 —— 同步面板开关态 + 打开预览窗。此前自动路径只发开关，
+        // 帧入队无人消费（消费线程只在预览窗/虚拟摄像头开着时才跑），面板自然没画面；
+        // 手动点「投屏到电脑」开关有画面，正是因为 toggle 里同步 setPreview(true)。
+        // 回调跑在会话 worker 线程：g_screenMirrorOn 是 atomic，setPreview 线程安全
+        //（内部 atomic 标志 + 独立窗口线程），可直接调，不必绕 UI 线程。
+        bundle.session->setOnScreenMirrorAuto([] {
+            g_screenMirrorOn.store(true, std::memory_order_relaxed);
+            cameraView().setPreview(true);
+        });
     }
 
     // 注册窗口类

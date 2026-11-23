@@ -526,6 +526,18 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
         autoScreenMirrorSent_ = true;
         if (client_.sendModuleToggle("screenmirror", true)) {
             APX_LOGI("已自动下发投屏开关：等手机端授权后画面上屏");
+            // 修「点了立即开始面板没画面」（2026-11-24）：自动路径此前只发 0x10，
+            // 没打开电脑端预览窗 —— 帧到 PC 后入队无人消费（消费线程只在预览窗/虚拟
+            // 摄像头开着时才跑），队列满即丢。手动点面板开关之所以有画面，是因为
+            // web_panel 的 toggle 里同步 setPreview(true)。这里补上同款动作：回调由
+            // 接线方（面板）注册，Windows 开预览窗、mac 只同步面板开关态。
+            // 注意：此刻持 mu_，回调不得再进 WirelessSession（见头文件声明）。
+            std::function<void()> cb;
+            {
+                std::lock_guard<std::mutex> cbLk(cbMu_);
+                cb = onScreenMirrorAuto_;
+            }
+            if (cb) cb();
         }
     }
 }
@@ -674,6 +686,13 @@ void WirelessSession::setOnAlbumPageFail(std::function<void(uint8_t, const std::
 void WirelessSession::setOnTokenGrant(std::function<void(const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onTokenGrant_ = std::move(cb);
+}
+
+// 投屏自动开回调（2026-11-24）：setter 锁保护口径与令牌回调同款；
+// 调用点在 publish() 的自动发 0x10 成功分支（worker 线程，持 mu_）。
+void WirelessSession::setOnScreenMirrorAuto(std::function<void()> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onScreenMirrorAuto_ = std::move(cb);
 }
 
 void WirelessSession::setPairingCode(const std::string& code) {
