@@ -615,10 +615,10 @@ struct Ctrl9511Server::Impl {
             // 一次性配对码通过握手」后把持久令牌发来（body = [0x36][token UTF-8]）。
             // 落盘与后续握手/媒体通道换用该令牌都在接线回调里（wireless_session），
             // 这里只认领转发 —— 与 0x4D 副屏开关同款「分发层不碰配置」口径。
-            if (onTokenGrant_) {
+            if (onTokenGrant) {
                 std::string token(reinterpret_cast<const char*>(p + 1),
                                   static_cast<size_t>(bodyLen - 1));
-                onTokenGrant_(token);
+                onTokenGrant(token);
             }
         } else if (cmd == 0x31 && bodyLen >= 2) {
             /* MODE_STATUS：手机上报「三种接入模式的可用性 + 当前在用哪个」（issue#47 面板侧诉求）。

@@ -1308,9 +1308,10 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // 配对码：被控端当面交付凭据的入口 —— 生成 6 位一次性码，控制端（PC/另一台
             // 手机）手输完成首次握手，随后本机经 0x36 把持久令牌发给对端落盘。
             // 隐藏令牌广播：关掉信标里的明文令牌段（REQ-无线安全配对 §5），新设备改走配对码。
+            // 弹窗开关声明在 Section 外：弹窗本体在 Section 之后渲染，作用域必须覆盖两处。
+            var showPairing by remember { mutableStateOf(false) }
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_pairing), modifier = Modifier.enterStagger(rememberEnterStagger(6))) {
                 Column {
-                    var showPairing by remember { mutableStateOf(false) }
                     ApComponents.NavRow(
                         title = ctx.getString(R.string.ui_set_pairing_code),
                         summary = ctx.getString(R.string.ui_set_pairing_code_sum),
