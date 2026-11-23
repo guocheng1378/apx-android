@@ -11,6 +11,7 @@
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -754,10 +755,11 @@ bool WirelessSession::sendInputDone() {
     return client_.sendInputDone();
 }
 
-#if defined(_WIN32)
 /// 来源地址是否就是本机（网络字节序）。
 /// 为什么必须有：本机的定向广播会被自己收到，不过滤就会把**自己的信标**当成对端，
 /// 于是面板「已连接」到自己 —— 看着连上了，实际一开始就没连到手机。
+/// issue#171 报告人实锤 macOS 同样踩坑：此前本过滤只在 Windows 编译，Mac 面板会
+/// 发现自己并连上，默认开镜像键鼠 → 键鼠回环控制自己。现改为三端统一过滤。
 bool isSelfAddress(uint32_t saddrNetOrder) {
     static uint32_t addrs[32] = {0};
     static int n = -1;
@@ -766,6 +768,7 @@ bool isSelfAddress(uint32_t saddrNetOrder) {
     if (n < 0 || now - ms > 5000) {   // 5s 刷新：插拔网卡 / 换网随时可能变
         ms = now;
         n = 0;
+#if defined(_WIN32)
         SOCKET s = socket(AF_INET, SOCK_DGRAM, 0);
         if (s != INVALID_SOCKET) {
             INTERFACE_INFO infos[32]{};
@@ -785,11 +788,23 @@ bool isSelfAddress(uint32_t saddrNetOrder) {
             }
             closesocket(s);
         }
+#else
+        // POSIX（macOS/Linux）：getifaddrs 枚举本机全部 IPv4 地址（含回环），
+        // 与 Windows 的 SIO_GET_INTERFACE_LIST 口径一致。
+        struct ifaddrs* ifs = nullptr;
+        if (getifaddrs(&ifs) == 0) {
+            for (struct ifaddrs* ia = ifs; ia != nullptr && n < 32; ia = ia->ifa_next) {
+                if (ia->ifa_addr == nullptr || ia->ifa_addr->sa_family != AF_INET) continue;
+                auto* sin = reinterpret_cast<sockaddr_in*>(ia->ifa_addr);
+                addrs[n++] = sin->sin_addr.s_addr;
+            }
+            freeifaddrs(ifs);
+        }
+#endif
     }
     for (int i = 0; i < n; ++i) if (addrs[i] == saddrNetOrder) return true;
     return false;
 }
-#endif
 
 void WirelessSession::beaconLoop() {
 #if defined(_WIN32)
@@ -857,11 +872,10 @@ void WirelessSession::beaconLoop() {
         std::string btoken;
         bool phone = false;
         // 过滤自身信标：本机广播会回环回来，不过滤就会「连自己」（面板假装已连接，
-        // 而手机永远连不上）。见 isSelfAddress 注释。
+        // 而手机永远连不上；macOS 上还会默认开镜像键鼠 → 键鼠回环控制自己，issue#171）。
+        // 三端统一过滤，见 isSelfAddress 注释。
         if (!hostIp.empty() && parseBeacon(buf, static_cast<size_t>(n), dummy, bport, &phone, &btoken)
-#if defined(_WIN32)
             && !isSelfAddress(from.sin_addr.s_addr)
-#endif
         ) {
             onBeacon(hostIp, bport, phone, btoken);
         }
