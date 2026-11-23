@@ -1259,13 +1259,16 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
         struct timeval rto { 0, 500'000 };
 #endif
         setsockopt(im->sock, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&rto), sizeof(rto));
+        // issue#171 排障：读循环退出原因落文件日志 —— 对端主动关（n==0，典型如握手被拒/
+        // 被控端踢连接）此前完全无痕，日志只见「正在连接/已连接」翻转，无从定位。
+        bool peerClosed = false;
         while (im->running.load()) {
 #if defined(_WIN32)
             const int n = ::recv(im->sock, reinterpret_cast<char*>(rx), sizeof(rx), 0);
 #else
             const ssize_t n = ::recv(im->sock, rx, sizeof(rx), 0);
 #endif
-            if (n == 0) break;
+            if (n == 0) { peerClosed = true; break; }
             if (n < 0) { std::this_thread::sleep_for(std::chrono::milliseconds(50)); continue; }
             acc.insert(acc.end(), rx, rx + n);
             size_t off = 0;
@@ -1505,6 +1508,10 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
             }
             if (off > 0) acc.erase(acc.begin(), acc.begin() + static_cast<long>(off));
         }
+        // issue#171 排障：读循环退出原因落文件日志 —— peerClosed=对端主动关（典型如
+        // 握手被拒、被控端踢连接/接管），其余 = 本端判死或用户主动断开。此前对端关闭
+        // 完全无痕，日志只见「正在连接/已连接」翻转，无从定位。
+        if (peerClosed) APX_LOGW("9511 连接被对端关闭（读循环收到 EOF，握手可能被拒或被接管）");
         // ★ 以前这里**无锁关闭且不置 kBadSock**：心跳判定链路失效后上层会立刻重连，
         //   而旧 reader 线程延迟执行 closeSock(sock) —— Windows 的 SOCKET 值已被新建
         //   连接复用，于是"刚连上就被旧线程关掉"，表现为反复重连 / 刚连即断；
@@ -1537,6 +1544,10 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                 im->pingPending_.store(false);
                 const int missed = im->missedPongs_.fetch_add(1) + 1;
                 if (missed >= 3) {
+                    // issue#171 排障：判死原因此前只写 stderr，macOS 导出的日志文件里
+                    // 完全看不到 —— 报告人的日志只有「正在连接/已连接」翻转，无从定位。
+                    // 文件日志同步记一条，stderr 保留给终端现场。
+                    APX_LOGW("9511 心跳连续 {} 轮无 pong，判定链路失效（半开检测）", missed);
                     std::fprintf(stderr,
                                  "[apxctl] 心跳连续 %d 轮无 pong，判定链路失效（半开检测）\n", missed);
                     im->running.store(false);
