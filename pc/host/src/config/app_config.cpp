@@ -139,6 +139,8 @@ AppConfig loadConfig(const std::string& path) {
         for (const auto& [k, v] : km->asObject()) cfg.keymap[k] = v.asString();
     }
     cfg.pairingToken    = str("pairingToken", "");
+    // 对端（被控手机）持久令牌（2026-11-23）：0x36 下发后落盘，见 app_config.hpp 字段注释
+    cfg.phonePairToken  = str("phonePairToken", "");
     return cfg;
 }
 
@@ -197,6 +199,7 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["keymap"] = std::move(km);
 
     j["pairingToken"]    = cfg.pairingToken;
+    j["phonePairToken"]  = cfg.phonePairToken;
 
     std::string p = expandPath(path);
     std::error_code ec;

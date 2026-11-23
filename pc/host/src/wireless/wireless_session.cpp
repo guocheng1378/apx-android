@@ -243,6 +243,21 @@ WirelessSession::WirelessSession() {
         if (cb) cb(err, path);
     };
 
+    // 令牌下发转发（0x36，2026-11-23）：被控端凭配对码首连后发来持久令牌 →
+    // 先更新本会话握手用令牌（mu_），再转外层回调落盘配置。锁保护口径与相册同款。
+    client_.onTokenGrant = [this](const std::string& token) {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            grantedToken_ = token;
+        }
+        std::function<void(const std::string&)> cb;
+        {
+            std::lock_guard<std::mutex> lk(cbMu_);
+            cb = onTokenGrant_;
+        }
+        if (cb) cb(token);
+    };
+
     running_.store(true);
     worker_ = std::thread(&WirelessSession::worker, this);
 }
@@ -381,6 +396,7 @@ void WirelessSession::worker() {
                 std::string bhost;
                 uint16_t bport = 0;
                 std::string btoken;
+                bool usedPairingCode = false;
                 {
                     std::lock_guard<std::mutex> lk(mu_);
                     // token 与 host/port 一起在锁内取出：待连信标是快照，三样必须同源
@@ -389,11 +405,25 @@ void WirelessSession::worker() {
                         btoken = beaconToken_;
                         haveBeacon_ = false;
                     }
+                    // 配对码交付令牌（2026-11-23）：面板刚提交的一次性码**优先**于信标
+                    // 令牌与已落盘令牌 —— 用户明确要（重新）配对；信标令牌为空（隐藏
+                    // 广播）时退回已落盘的对端持久令牌（0x36 下发过的）。
+                    if (!pendingPairingCode_.empty()) {
+                        btoken = pendingPairingCode_;
+                        usedPairingCode = true;
+                    } else if (btoken.empty() && !grantedToken_.empty()) {
+                        btoken = grantedToken_;
+                    }
                 }
                 if (!bhost.empty()) {
                     publish(LinkPhase::Connecting, mode);
                     // 回带信标 token：被控端启用校验时握手必经（docs/REQ-无线安全配对.md）
                     if (client_.connect(bhost, bport, btoken)) {
+                        if (usedPairingCode) {
+                            // 配对码连上即清空：一次性凭据不作重试储备（对端已作废该码）
+                            std::lock_guard<std::mutex> lk(mu_);
+                            pendingPairingCode_.clear();
+                        }
                         connectedPeer_ = bhost + ":" + std::to_string(bport);
                         connectStartMs_ = nowMs();
                         publish(LinkPhase::Connected, mode);
@@ -414,7 +444,24 @@ void WirelessSession::worker() {
             } else if (attempt) {
                 attempt = false;
                 publish(LinkPhase::Connecting, mode);
-                if (client_.connect(host, port, "")) {
+                // 配对码交付令牌（2026-11-23）：手动连接同样优先用一次性配对码，其次
+                // 已落盘的对端持久令牌；都没有才发空令牌（对端不鉴权时的老路径）。
+                std::string mtok;
+                bool usedPairingCode = false;
+                {
+                    std::lock_guard<std::mutex> lk(mu_);
+                    if (!pendingPairingCode_.empty()) {
+                        mtok = pendingPairingCode_;
+                        usedPairingCode = true;
+                    } else if (!grantedToken_.empty()) {
+                        mtok = grantedToken_;
+                    }
+                }
+                if (client_.connect(host, port, mtok)) {
+                    if (usedPairingCode) {
+                        std::lock_guard<std::mutex> lk(mu_);
+                        pendingPairingCode_.clear();
+                    }
                     connectedPeer_ = host + ":" + std::to_string(port);
                     connectStartMs_ = nowMs();
                     publish(LinkPhase::Connected, mode);
@@ -622,6 +669,23 @@ void WirelessSession::setOnAlbumPage(
 void WirelessSession::setOnAlbumPageFail(std::function<void(uint8_t, const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(cbMu_);
     onAlbumPageFail_ = std::move(cb);
+}
+
+void WirelessSession::setOnTokenGrant(std::function<void(const std::string&)> cb) {
+    std::lock_guard<std::mutex> lk(cbMu_);
+    onTokenGrant_ = std::move(cb);
+}
+
+void WirelessSession::setPairingCode(const std::string& code) {
+    // 持 mu_：worker 连接时与信标 host/port/token 同锁取值，三样同源
+    std::lock_guard<std::mutex> lk(mu_);
+    pendingPairingCode_ = code;
+    APX_LOGI("9511 会话：已记录一次性配对码，下一次连接尝试优先使用");
+}
+
+void WirelessSession::setStoredToken(const std::string& token) {
+    std::lock_guard<std::mutex> lk(mu_);
+    grantedToken_ = token;
 }
 
 bool WirelessSession::sendInputText(const std::string& text, uint8_t flags) {

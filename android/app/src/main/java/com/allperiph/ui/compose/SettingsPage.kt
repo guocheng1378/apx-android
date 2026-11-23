@@ -17,6 +17,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +65,9 @@ import com.allperiph.ui.PanelSize
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.allperiph.controlled.ControlledService
+import com.allperiph.shared.net.PairingCode
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.widthIn
@@ -1296,6 +1300,75 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                                 )
                             }
                         },
+                    )
+                }
+            }
+
+            // ———————————————— 无线配对（2026-11-23，随「扫码/链接交付令牌」批加）————————————————
+            // 配对码：被控端当面交付凭据的入口 —— 生成 6 位一次性码，控制端（PC/另一台
+            // 手机）手输完成首次握手，随后本机经 0x36 把持久令牌发给对端落盘。
+            // 隐藏令牌广播：关掉信标里的明文令牌段（REQ-无线安全配对 §5），新设备改走配对码。
+            ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_pairing), modifier = Modifier.enterStagger(rememberEnterStagger(6))) {
+                Column {
+                    var showPairing by remember { mutableStateOf(false) }
+                    ApComponents.NavRow(
+                        title = ctx.getString(R.string.ui_set_pairing_code),
+                        summary = ctx.getString(R.string.ui_set_pairing_code_sum),
+                        onClick = { showPairing = true },
+                    )
+                    var hideToken by remember { mutableStateOf(ControlledService.beaconTokenHidden(ctx)) }
+                    ApComponents.SwitchRow(
+                        title = ctx.getString(R.string.ui_set_beacon_hide),
+                        summary = ctx.getString(R.string.ui_set_beacon_hide_sum),
+                        checked = hideToken,
+                        onCheckedChange = { on ->
+                            hideToken = on
+                            ControlledService.setBeaconTokenHidden(ctx, on)
+                            Feedback.haptic(ctx)
+                        },
+                    )
+                }
+            }
+
+            // 配对码弹窗：大字展示 6 位码 + 有效期倒计时 + 重新生成。码是进程内存态
+            // （PairingCode），弹窗打开时没有有效码就现生成一个；过期停在 0，点重新生成续命。
+            if (showPairing) {
+                var code by remember { mutableStateOf(PairingCode.current() ?: "") }
+                var left by remember { mutableIntStateOf(PairingCode.remainingSeconds()) }
+                LaunchedEffect(Unit) {
+                    if (PairingCode.current() == null) code = PairingCode.newCode()
+                    while (true) {
+                        left = PairingCode.remainingSeconds()
+                        PairingCode.current()?.let { code = it }
+                        if (left <= 0) break
+                        delay(1000)
+                    }
+                }
+                ApComponents.DialogCard(onDismiss = { showPairing = false }) {
+                    Text(text = ctx.getString(R.string.ui_set_pairing_code), fontSize = ApType.headline)
+                    Text(
+                        text = code.ifEmpty { "——" },
+                        fontSize = 44.sp,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                    )
+                    Text(
+                        text = if (left > 0) ctx.getString(R.string.ui_set_pairing_expire, left / 60) else ctx.getString(R.string.ui_set_pairing_expired),
+                        fontSize = ApType.footnote,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Text(
+                        text = ctx.getString(R.string.ui_set_pairing_dialog_hint),
+                        fontSize = ApType.footnote,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    ApComponents.ActionButton(
+                        text = ctx.getString(R.string.ui_set_pairing_regen),
+                        onClick = { code = PairingCode.newCode(); left = PairingCode.remainingSeconds() },
+                    )
+                    ApComponents.NarrowButton(
+                        text = ctx.getString(R.string.ui_common_cancel),
+                        onClick = { showPairing = false },
                     )
                 }
             }

@@ -257,6 +257,9 @@ class ControlServer(
     }
 
     private fun handshake(sock: Socket) {
+        // 对端是否凭一次性配对码通过（2026-11-23，随「扫码/链接交付令牌」批加）：
+        // 是 → 会话激活成功后经 0x36 把持久令牌发给对端（对端落盘，之后不再依赖配对码）
+        var usedPairingCode = false
         try {
             sock.tcpNoDelay = true; sock.soTimeout = HANDSHAKE_TIMEOUT_MS
             val ins = sock.getInputStream()
@@ -265,7 +268,15 @@ class ControlServer(
             if (len > 0) {
                 val buf = ByteArray(len)
                 if (!readFully(ins, buf)) { runCatching { sock.close() }; return }
-                if (token.isNotEmpty() && String(buf, Charsets.UTF_8) != token) { Log.w("控制面", "令牌不匹配，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return }
+                val presented = String(buf, Charsets.UTF_8)
+                if (token.isNotEmpty() && presented != token) {
+                    // 持久令牌不匹配 → 再看一次性配对码（PairingCode.validate 只读不消费，
+                    // 连错 5 次自动作废防爆破）。都不匹配才拒绝。
+                    if (!PairingCode.validate(presented)) {
+                        Log.w("控制面", "令牌不匹配，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return
+                    }
+                    usedPairingCode = true
+                }
             } else if (token.isNotEmpty()) {
                 // v-fix（link-hardening）：服务端配了令牌，对端却发空令牌（len=0）——
                 // 旧实现整段 if 被跳过、直接放行，等于「配了令牌也拦不住不带令牌的连接」
@@ -273,6 +284,18 @@ class ControlServer(
                 Log.w("控制面", "对端未携带令牌，拒绝 ${peerTextOf(sock)}"); runCatching { sock.close() }; return
             }
             sock.soTimeout = 0; activate(sock)
+            // 配对码首连收尾：会话归本连接（activate 可能因并发裁决拒绝而没接管）才
+            // 作废配对码并补发持久令牌（0x36，body = [cmd][token UTF-8]）。对端落盘后
+            // 与信标路径同权；发失败（队列满等）对端下次重连仍可用配对码（未消费）。
+            if (usedPairingCode && client === sock) {
+                PairingCode.consume()
+                val tok = token.toByteArray(Charsets.UTF_8)
+                val body = ByteArray(1 + tok.size)
+                body[0] = ApxFrame.CMD_TOKEN_GRANT.toByte()
+                tok.copyInto(body, 1)
+                if (sendControl(body)) Log.i("控制面", "配对码首连成功，持久令牌已发对端")
+                else Log.w("控制面", "0x36 令牌下发失败（队列满），对端可凭配对码重连")
+            }
         } catch (t: Throwable) { Log.w("控制面", "握手失败：${t.message}"); runCatching { sock.close() } }
     }
 

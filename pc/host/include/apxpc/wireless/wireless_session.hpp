@@ -184,6 +184,23 @@ public:
     /// 缩略图失败回执（缩略图经 9512 成功推回时不发帧；path 形如 "album:thumb:<id>.jpg"）。
     void setOnAlbumPageFail(std::function<void(uint8_t err, const std::string& path)> cb);
 
+    // ————— 配对码交付令牌（0x36，2026-11-23，随「扫码/链接交付令牌」批加） —————
+    // 信标隐藏令牌广播后，新设备凭被控端配对码页的 6 位一次性码完成首次握手；
+    // 被控端随即经 0x36 把持久令牌发来，落盘后与信标路径同权。见 REQ-无线安全配对 §5。
+
+    /// 设置一次性配对码（面板「配对码」输入框提交）：**下一次**连接尝试用它作握手令牌
+    /// （优先于信标令牌与已存令牌），连上即清空；连不上保留，用户可重试或重填。
+    /// 线程安全（内部持 mu_）。
+    void setPairingCode(const std::string& code);
+
+    /// 设置已落盘的对端持久令牌（启动时从配置读入）：信标令牌为空（隐藏广播/旧信标）
+    /// 时用作握手令牌。0x36 收到新令牌时内部也会更新此值。线程安全（内部持 mu_）。
+    void setStoredToken(const std::string& token);
+
+    /// 令牌下发回调：被控端 0x36 发来持久令牌时触发（reader 线程）——接线方落盘配置。
+    /// 会话内部已同步更新握手用令牌，这里只负责持久化。锁保护口径与通知回调同款。
+    void setOnTokenGrant(std::function<void(const std::string& token)> cb);
+
 private:
     enum class Mode { Idle, Auto, Manual };
 
@@ -247,6 +264,12 @@ private:
     // 相册投影回调（0x48–0x4B，2026-11-12）：锁保护口径同上
     std::function<void(uint8_t, uint32_t, const std::vector<AlbumEntry>&)> onAlbumPage_;
     std::function<void(uint8_t, const std::string&)> onAlbumPageFail_;
+    // 令牌下发回调（0x36，2026-11-23）：锁保护口径同上 —— 外层落盘配置
+    std::function<void(const std::string&)> onTokenGrant_;
+    // 一次性配对码（面板提交，下一次连接尝试用掉）与已落盘的对端持久令牌：
+    // worker 连接时在 mu_ 内取值（与信标 host/port/token 同一把锁，三样同源）
+    std::string pendingPairingCode_;
+    std::string grantedToken_;
     mutable std::mutex cbMu_;
 };
 

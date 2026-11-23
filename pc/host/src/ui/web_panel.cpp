@@ -908,6 +908,19 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         return postResponse(p, id, okResp());
     }
 
+    // —— 配对码（2026-11-23，随「扫码/链接交付令牌」批加）：面板提交 6 位一次性码，
+    // 会话在下一次连接尝试用它作握手令牌；连上后被控端经 0x36 发来持久令牌落盘。
+    if (name == "pairing.code" && b.session) {
+        auto* v = payload.find("code");
+        const std::string code = v ? v->asString() : "";
+        // 6 位数字校验：被控端 PairingCode 只认 6 位数字码，这里先挡一道省得空连
+        bool ok = code.size() == 6;
+        for (char c : code) if (c < '0' || c > '9') ok = false;
+        if (!ok) return postResponse(p, id, failResp("配对码应为 6 位数字"));
+        b.session->setPairingCode(code);
+        return postResponse(p, id, okResp());
+    }
+
     // —— 设置项 ——
     if (name == "config.setAdaptive" && b.cfg) {
         auto* v = payload.find("on");

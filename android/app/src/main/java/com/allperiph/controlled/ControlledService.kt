@@ -237,21 +237,9 @@ class ControlledService : Service() {
         // 线程与端口从此没人管，逐次累积）并再 addPrimaryClipChangedListener 一次
         // （同一个 listener 挂多份 → 剪贴板变化被回传多次）。
         if (beacon == null) {
-            beacon = WirelessBeacon(
-                "APX1TV",
-                com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
-                ControlServer.PORT,
-                // link-hardening：信标带上本机配对令牌（<前缀> <name> <port> <token>），
-                // 控制端从信标取用；明文广播是已知限制（REQ-无线安全配对 §3.3）。
-                pairingToken(this),
-                unicastHosts = {
-                    val hosts = ArrayList<String>(8)
-                    com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
-                    com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
-                    hosts.distinct()
-                },
-            ).also { it.start() }
+            beacon = buildBeacon(devName).also { it.start() }
         }
+        instance = this
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (!clipListenerRegistered) {
             runCatching { cm?.removePrimaryClipChangedListener(clipListener) }   // 保险：先摘再挂
@@ -266,6 +254,34 @@ class ControlledService : Service() {
 
     /** 已发出 0x25、还在等对端回传 —— 防「注入文本 → 输入框再获焦 → 又发一次请求」的回环 */
     @Volatile private var awaitingRemoteInput = false
+
+    /**
+     * 组信标（2026-11-23 随「隐藏令牌广播」抽出）：与 onStartCommand 原内联构造同参数，
+     * 令牌段按「隐藏令牌广播」偏好取 —— 开 = 发空串（对端发现本机但握手必被拒，
+     * 新设备走配对码交付凭据）；关 = 照旧广播持久令牌（老版本对端兼容）。
+     */
+    private fun buildBeacon(devName: String): WirelessBeacon = WirelessBeacon(
+        "APX1TV",
+        com.allperiph.wireless.TvDiscovery.PHONE_NAME_MARK + devName,
+        ControlServer.PORT,
+        // link-hardening：信标带上本机配对令牌（<前缀> <name> <port> <token>），
+        // 控制端从信标取用；明文广播是已知限制（REQ-无线安全配对 §3.3），
+        // §5 起可经「隐藏令牌广播」开关关掉，改由配对码当面交付。
+        if (ControlledService.beaconTokenHidden(this)) "" else ControlledService.pairingToken(this),
+        unicastHosts = {
+            val hosts = ArrayList<String>(8)
+            com.allperiph.wireless.ControlTarget.host.takeIf { it.isNotBlank() }?.let { hosts.add(it) }
+            com.allperiph.wireless.TvDiscovery.list().forEach { hosts.add(it.ip) }
+            hosts.distinct()
+        },
+    )
+
+    /** 「隐藏令牌广播」开关热生效：停旧信标、按新偏好重建（设备名取当前值） */
+    private fun rebuildBeacon() {
+        beacon?.stop()
+        beacon = buildBeacon(com.allperiph.shared.util.LogExport.systemDeviceName(this)).also { it.start() }
+        Log.i(TAG, "信标已按「隐藏令牌广播」偏好重建（隐藏=${ControlledService.beaconTokenHidden(this)}）")
+    }
 
     /**
      * ⑤（输入出两次）：本端**已注入**的码点数镜像 —— 与 PC 端 ControlServer 的
@@ -326,7 +342,7 @@ class ControlledService : Service() {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         runCatching { cm?.removePrimaryClipChangedListener(clipListener) }
         clipListenerRegistered = false   // v184：服务重建时重新注册
-        server?.stop(); server = null; beacon?.stop(); beacon = null
+        server?.stop(); server = null; beacon?.stop(); beacon = null; instance = null
         // 焦点检测回调是静态的且闭包捕获了本 Service，停机不解绑会挂到下次启动
         com.allperiph.shared.accessibility.ApxAccessibilityService.onFocusDetected = null
         FileReceiver.stop(); TvInjector.onDestroy(); super.onDestroy()
@@ -378,6 +394,7 @@ class ControlledService : Service() {
         private const val PREF = "apx_controlled"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_PAIRING_TOKEN = "pairing_token"
+        private const val KEY_HIDE_TOKEN = "hide_token_beacon"
 
         /**
          * 本机被控配对令牌（link-hardening，REQ-无线安全配对）：首次调用生成 128-bit
@@ -394,6 +411,25 @@ class ControlledService : Service() {
             Log.i(TAG, "已生成被控配对令牌")
             return tok
         }
+
+        /**
+         * 隐藏令牌广播（2026-11-23，随「扫码/链接交付令牌」批加）：开 = 信标第 4 段发
+         * 空串 —— 局域网设备仍能发现本机（名字/端口照广播），但捡不到令牌，握手必被拒；
+         * 新设备改由配对码页当面交付凭据（PairingCode + 0x36 下发持久令牌）。默认关，
+         * 老版本对端照常连（它们本来就从信标拿令牌，隐藏后连不上属预期 —— 两端都升级
+         * 后再打开，见 REQ-无线安全配对 §5）。
+         */
+        fun beaconTokenHidden(c: Context): Boolean =
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_HIDE_TOKEN, false)
+
+        fun setBeaconTokenHidden(c: Context, hidden: Boolean) {
+            c.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_HIDE_TOKEN, hidden).apply()
+            // 热生效：被控服务在跑就重建信标（旧实例 stop 后按新偏好重发）
+            if (running) runCatching { instance?.rebuildBeacon() }
+        }
+
+        /** 服务实例引用（rebuildBeacon 用；服务未起为 null） */
+        @Volatile private var instance: ControlledService? = null
 
         @Volatile var running: Boolean = false; private set
         @Volatile var server: ControlServer? = null; internal set

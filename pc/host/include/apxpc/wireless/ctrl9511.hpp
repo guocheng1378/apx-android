@@ -475,6 +475,13 @@ public:
     /// ApxFrame.NOTIFY_REPLY_ERR_* 一致（0=已提交 1=未开启 2=key 失效 3=不支持回复 4=发送失败）。
     std::function<void(uint8_t err)> onNotifyReplyResult;
 
+    /// 令牌下发回调（0x36，2026-11-23，随「扫码/链接交付令牌」批加）：被控端在「对端凭
+    /// 一次性配对码通过握手」后把持久令牌（UTF-8，body[1..]）发来 —— 接线方落盘配置，
+    /// 此后握手与媒体通道都改用该令牌（信标隐藏令牌广播后这是唯一拿令牌的途径）。
+    /// 回调跑在 reader 线程；⚠️ 与既有回调一样在 connect() 时被捕获，必须在
+    /// **连接前**赋值（WirelessSession 的转发 lambda 同款）。
+    std::function<void(const std::string& token)> onTokenGrant;
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

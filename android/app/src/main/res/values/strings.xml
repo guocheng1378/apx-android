@@ -55,6 +55,17 @@
     <string name="accessibility_desc">全能外设无障碍服务，两种用途：① 被控模式 —— 把本机作为被控设备，接收另一台设备发来的光标、点击、键盘输入、文件与剪贴板，并作用到本机系统（需另外允许「显示在其他应用上层」以显示光标）；② 键盘转发（默认关闭）—— 把本机接的实体键盘按键转发到电脑，这样不必把 app 挂在前台。两种用途都无需 root。</string>
     <string name="controlled_enable_hint">已开被控模式：请到「无障碍」启用本应用并允许悬浮窗</string>
 
+    <!-- 无线配对（2026-11-23，随「扫码/链接交付令牌」批加）：配对码当面交付凭据 + 隐藏令牌广播 -->
+    <string name="ui_set_sec_pairing">无线配对</string>
+    <string name="ui_set_pairing_code">配对码</string>
+    <string name="ui_set_pairing_code_sum">给新设备当面交付连接凭据（一次性，10 分钟有效）</string>
+    <string name="ui_set_pairing_expire">%1$d 分钟后失效</string>
+    <string name="ui_set_pairing_expired">已失效，点「重新生成」换新码</string>
+    <string name="ui_set_pairing_regen">重新生成</string>
+    <string name="ui_set_pairing_dialog_hint">在电脑端「设备连接」输入此码完成配对；配对成功后电脑会记住本机，无需重复输入。连错 5 次本码立即作废。</string>
+    <string name="ui_set_beacon_hide">隐藏令牌广播</string>
+    <string name="ui_set_beacon_hide_sum">信标不再明文携带配对令牌。已配对设备不受影响；新设备需用配对码连接。请两端都升级到本版本后再打开。</string>
+
     <string name="ui_common_exit">退出</string>
     <string name="ui_common_cancel">取消</string>
     <string name="ui_main_toast_done">已连上 %1$s</string>

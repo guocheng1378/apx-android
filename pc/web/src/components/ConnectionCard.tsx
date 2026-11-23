@@ -118,6 +118,23 @@ const ModeRow: React.FC<{
 export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
   const [host, setHost] = useState('');
   const [port, setPort] = useState('9511');
+  // 配对码（手机端「设置 → 无线配对 → 配对码」生成，10 分钟一次性）：
+  // 手机没开令牌广播或广播被隐藏时，靠手输 6 位短码完成首次授权 —— 提交后宿主把它
+  // 塞进 wireless_session 的 pendingPairingCode_，下次自动/手动连接时优先当令牌用。
+  const [pairCode, setPairCode] = useState('');
+  const [pairHint, setPairHint] = useState('');
+  const submitPairCode = async () => {
+    if (!/^\d{6}$/.test(pairCode)) { setPairHint('要 6 位数字'); return; }
+    try {
+      const r: any = await bridge.act('pairing.code', { code: pairCode });
+      if (r?.ok) {
+        setPairHint('已提交：正在用配对码连接手机');
+        setPairCode('');
+      } else {
+        setPairHint(r?.error || '提交失败');
+      }
+    } catch { setPairHint('宿主未就绪'); }
+  };
   // 授权自救三出口（issue #52 第 1 条）：TCC 对已拒绝的客户端不再弹窗 ——
   // 「重新检测」只在未决定时能拉起弹窗；改回决定的入口是「打开系统设置」，
   // 授权后必须重启应用才生效（系统只在进程启动时读一次授权状态）。
@@ -289,6 +306,25 @@ export const ConnectionCard: React.FC<Props> = ({ state, onManualConnect }) => {
           }
           sub={tp.usbDevice && tp.usbName ? `${tp.usbName}${usbSpeedText}` : undefined}
         />
+        {/* 配对码：手机端生成的一次性短码（10 分钟），广播被隐藏或没收到时手输授权 */}
+        <div className="pt-3 border-t border-stroke flex items-center gap-2">
+          <span className="body-text text-on-surface shrink-0">配对码</span>
+          <input
+            className="input-field w-[120px] h-[30px] text-[13px] tracking-[0.2em]"
+            placeholder="6 位数字"
+            value={pairCode}
+            onChange={e => setPairCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            onKeyDown={e => { if (e.key === 'Enter') submitPairCode(); }}
+          />
+          <button
+            className="btn-ghost h-[30px]"
+            onClick={submitPairCode}
+            disabled={pairCode.length !== 6}
+          >
+            提交
+          </button>
+          {pairHint && <span className="data-text text-on-tertiary">{pairHint}</span>}
+        </div>
         {/* 受控端归属：三种事实说三种话，不把「别人在提供服务」说成故障 */}
         {ctrl && (ctrl.listening || ctrl.shared || ctrl.error) && (
           <div className="pt-3 border-t border-stroke">

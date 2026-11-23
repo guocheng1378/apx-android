@@ -915,6 +915,18 @@ int runDesktopMain() {
 #if defined(_WIN32)
         ctrlSrv.setOnNotifyReplyResult(notifyReplyResult);
 #endif
+
+        // —— 配对码交付令牌接线（0x36，2026-11-23，随「扫码/链接交付令牌」批加）——
+        // 信标隐藏令牌广播后，新设备凭被控端配对码首连，被控端经 0x36 发来持久令牌：
+        // 落盘配置（phonePairToken），下次启动经 setStoredToken 恢复。回调在 reader
+        // 线程；saveConfig 是文件写，这里与其它配置写入口同款（无并发写配置路径）。
+        session->setOnTokenGrant([&cfgPath](const std::string& token) {
+            auto cfg = apxpc::config::loadConfig(cfgPath);
+            cfg.phonePairToken = token;
+            apxpc::config::saveConfig(cfgPath, cfg);
+            APX_LOGI("已收到对端持久令牌并落盘（配对码首连）");
+        });
+        session->setStoredToken(cfg.phonePairToken);
     }
 
     // —— 手机文件浏览接线（0x44–0x47，2026-11-11，能力位 bit3）——

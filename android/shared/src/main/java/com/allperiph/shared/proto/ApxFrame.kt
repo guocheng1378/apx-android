@@ -74,6 +74,17 @@ object ApxFrame {
      */
     const val CMD_CAPS_SYNC = 0x33
 
+    /**
+     * TOKEN_GRANT（0x36，2026-11-23，随「扫码/链接交付令牌」批加）：被控端 → 控制端
+     * 发持久配对令牌。场景：信标隐藏令牌广播后，新设备凭一次性配对码（6 位数字，
+     * 见 PairingCode）完成首次握手，被控端随即把**持久令牌**（UTF-8，body[1..]）发给
+     * 对端落盘 —— 对端此后与信标路径一样凭持久令牌握手，配对码即作废。
+     * 仅在「对端用配对码通过握手」时发送；凭持久令牌/信标令牌连入的老路径不发。
+     * 与 PC 侧 ctrl9511.cpp dispatch 0x36 分支、docs/PROTOCOL.md、
+     * scripts/check_protocol.py 三处对拍。
+     */
+    const val CMD_TOKEN_GRANT = 0x36
+
     /** 能力位 bit0：通知同步 —— 手机→PC 推送（0x40）与消除（0x42）通知 */
     const val CAP_NOTIFY_SYNC = 1L shl 0
 

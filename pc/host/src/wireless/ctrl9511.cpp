@@ -610,6 +610,16 @@ struct Ctrl9511Server::Impl {
             // 里（desktop_main 接 ActionRouter），托盘气泡回执结果，这里只认领转发。
             if (onScreenToggle_) onScreenToggle_(p[1]);
             aScreenToggle_.fetch_add(1);
+        } else if (cmd == 0x36 && bodyLen >= 2) {
+            // TOKEN_GRANT（2026-11-23，随「扫码/链接交付令牌」批加）：被控端在「对端凭
+            // 一次性配对码通过握手」后把持久令牌发来（body = [0x36][token UTF-8]）。
+            // 落盘与后续握手/媒体通道换用该令牌都在接线回调里（wireless_session），
+            // 这里只认领转发 —— 与 0x4D 副屏开关同款「分发层不碰配置」口径。
+            if (onTokenGrant_) {
+                std::string token(reinterpret_cast<const char*>(p + 1),
+                                  static_cast<size_t>(bodyLen - 1));
+                onTokenGrant_(token);
+            }
         } else if (cmd == 0x31 && bodyLen >= 2) {
             /* MODE_STATUS：手机上报「三种接入模式的可用性 + 当前在用哪个」（issue#47 面板侧诉求）。
                面板原来那三个开关里只有无线是真的，蓝牙与 USB 的真开关在手机端 ——
