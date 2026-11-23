@@ -503,11 +503,27 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
 // ——— 媒体建链泵（与 web_panel tickState 内同款；connect 在后台线程，不卡 HTTP 循环）———
 void mediaPumpTick(HttpPanel* p) {
     const HostBundle& b = p->bundle;
-    if (!b.media || !b.session || b.media->status().connected) return;
+    if (!b.media || !b.session) return;
     const auto snap = b.session->snapshot();
     const std::string peer = snap.peer;
     const size_t colon = peer.rfind(':');
     const std::string host = (colon == std::string::npos) ? peer : peer.substr(0, colon);
+    // 收口（2026-11-24，与 web_panel 同款学 KDE Connect「断开即收」）：9511 掉线后
+    // 9502 半开（空闲无帧时收不到对端关闭）会让 status().connected 恒为 true，泵永远
+    // 不重连 —— 副屏/音箱/麦克风静默失效。控制面一掉就收掉媒体通道；对端换址同理。
+    // mediaBusy 时后台正在建链，disconnect 会等锁拖住 tick，跳过这拍。
+    {
+        const auto mst = b.media->status();
+        const size_t mColon = mst.peer.rfind(':');
+        const std::string mHost =
+            (mColon == std::string::npos) ? mst.peer : mst.peer.substr(0, mColon);
+        if (mst.connected && !p->mediaBusy.load() &&
+            (snap.phase != LinkPhase::Connected || host.empty() || mHost != host)) {
+            b.media->disconnect();
+            APX_LOGI("控制连接已断开或对端换址：媒体通道已收口，重连后自动重建");
+        }
+    }
+    if (b.media->status().connected) return;
     if (snap.phase != LinkPhase::Connected || host.empty()) return;
     if (p->mediaBusy.load()) return;
     const uint64_t now = steadyMs();

@@ -472,12 +472,27 @@ void tickState(Panel* p) {
     // 新面板此前缺失这段 —— 老面板 panel_win32.cpp 的 tick 里一直有 pumpMediaConnect。
     {
         const HostBundle& b = p->bundle;
-        if (b.media && b.session && !b.media->status().connected) {
+        if (b.media && b.session) {
             const auto snap = b.session->snapshot();
             const std::string peer = snap.peer;                 // host:port（已连上时）
             const size_t colon = peer.rfind(':');
             const std::string host = (colon == std::string::npos) ? peer : peer.substr(0, colon);
-            if (snap.phase == LinkPhase::Connected && !host.empty() &&
+            const auto mst = b.media->status();
+            const size_t mColon = mst.peer.rfind(':');
+            const std::string mHost =
+                (mColon == std::string::npos) ? mst.peer : mst.peer.substr(0, mColon);
+            // 收口（2026-11-24，学 KDE Connect「断开即收」）：9511 掉线后 9502 若处于
+            // 半开（空闲无帧时写不出错、也收不到对端关闭），status().connected 恒为
+            // true，泵永远不重连 —— 副屏/音箱/麦克风静默失效到重启。控制面一掉就主动
+            // 收掉媒体通道；对端换址（Wi-Fi 漫游换 IP）同理收掉，下一拍连新地址。
+            // mediaBusy 时后台正在建链，disconnect 会等锁拖住 tick，跳过这拍。
+            if (mst.connected && !p->mediaBusy.load() &&
+                (snap.phase != LinkPhase::Connected || host.empty() || mHost != host)) {
+                b.media->disconnect();
+                APX_LOGI("控制连接已断开或对端换址：媒体通道已收口，重连后自动重建");
+            }
+            if (!b.media->status().connected &&
+                snap.phase == LinkPhase::Connected && !host.empty() &&
                 !p->mediaBusy.load() && nowMs >= p->mediaNextMs) {
                 p->mediaNextMs = nowMs + 4000;                  // 失败 4s 后再试
                 if (p->mediaThread.joinable()) p->mediaThread.join();

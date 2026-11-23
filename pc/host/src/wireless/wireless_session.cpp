@@ -2,6 +2,7 @@
 
 #include "apxpc/log.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <string_view>
 
@@ -21,6 +22,10 @@ namespace {
 
 constexpr auto kTick = std::chrono::milliseconds(250);
 constexpr uint16_t kBeaconPort = 9501;
+// 重连退避（2026-11-24，学 Input Leap）：连接失败后从 2s 起指数翻倍、15s 封顶；
+// 连上即清零。冷却期内不消费信标不发起连接 —— 信标持续刷新，冷却一过即用最新地址。
+constexpr int64_t kReconnectBackoffMinMs = 2000;
+constexpr int64_t kReconnectBackoffMaxMs = 15000;
 
 #if defined(_WIN32)
 using Sock = SOCKET;   // Windows 套接字句柄（原 wireless_link.hpp 里的别名，迁移后此处自带）
@@ -293,6 +298,9 @@ void WirelessSession::startAuto() {
     snap_.error.clear();
     manualFailed_ = false;
     haveBeacon_ = false;
+    // 用户明确切自动发现 = 要立刻开始找：清退避（2026-11-24）
+    connectBackoffMs_.store(0, std::memory_order_relaxed);
+    nextConnectAttemptMs_.store(0, std::memory_order_relaxed);
     APX_LOGI("9511 会话：切到自动发现模式");
 }
 
@@ -301,6 +309,9 @@ void WirelessSession::connectManual(const std::string& host, uint16_t port) {
     desire_ = Desire{Mode::Manual, host, port, true};
     snap_.error.clear();
     manualFailed_ = false;
+    // 手动连接不走自动重连循环（attempt 一次性），退避位顺手清干净（2026-11-24）
+    connectBackoffMs_.store(0, std::memory_order_relaxed);
+    nextConnectAttemptMs_.store(0, std::memory_order_relaxed);
     APX_LOGI("9511 会话：手动连接 {}:{}", host.c_str(), static_cast<unsigned>(port));
 }
 
@@ -376,6 +387,9 @@ void WirelessSession::worker() {
         } else if (mode == Mode::Auto) {
             if (client_.ready()) {
                 publish(LinkPhase::Connected, mode);
+                // 连上即清退避：下次断开后第一拍就能重试（2026-11-24）
+                connectBackoffMs_.store(0, std::memory_order_relaxed);
+                nextConnectAttemptMs_.store(0, std::memory_order_relaxed);
             } else {
                 if (!beaconRun_.load()) {
                     if (beaconThread_.joinable()) beaconThread_.join();
@@ -393,45 +407,65 @@ void WirelessSession::worker() {
                         beaconThread_ = std::thread(&WirelessSession::beaconLoop, this);
                     }
                 }
-                std::string bhost;
-                uint16_t bport = 0;
-                std::string btoken;
-                bool usedPairingCode = false;
-                {
-                    std::lock_guard<std::mutex> lk(mu_);
-                    // token 与 host/port 一起在锁内取出：待连信标是快照，三样必须同源
-                    if (haveBeacon_) {
-                        bhost = beaconHost_; bport = beaconPort_;
-                        btoken = beaconToken_;
-                        haveBeacon_ = false;
-                    }
-                    // 配对码交付令牌（2026-11-23）：面板刚提交的一次性码**优先**于信标
-                    // 令牌与已落盘令牌 —— 用户明确要（重新）配对；信标令牌为空（隐藏
-                    // 广播）时退回已落盘的对端持久令牌（0x36 下发过的）。
-                    if (!pendingPairingCode_.empty()) {
-                        btoken = pendingPairingCode_;
-                        usedPairingCode = true;
-                    } else if (btoken.empty() && !grantedToken_.empty()) {
-                        btoken = grantedToken_;
-                    }
-                }
-                if (!bhost.empty()) {
-                    publish(LinkPhase::Connecting, mode);
-                    // 回带信标 token：被控端启用校验时握手必经（docs/REQ-无线安全配对.md）
-                    if (client_.connect(bhost, bport, btoken)) {
-                        if (usedPairingCode) {
-                            // 配对码连上即清空：一次性凭据不作重试储备（对端已作废该码）
-                            std::lock_guard<std::mutex> lk(mu_);
-                            pendingPairingCode_.clear();
+                // 重连退避（2026-11-24，学 Input Leap）：冷却期内不消费信标、不发起连接，
+                // 只维持 Discovering 展示 —— 信标线程持续刷新最新地址，冷却一过即用。
+                if (nowMs() < nextConnectAttemptMs_.load(std::memory_order_relaxed)) {
+                    publish(LinkPhase::Discovering, mode);
+                } else {
+                    std::string bhost;
+                    uint16_t bport = 0;
+                    std::string btoken;
+                    bool usedPairingCode = false;
+                    {
+                        std::lock_guard<std::mutex> lk(mu_);
+                        // token 与 host/port 一起在锁内取出：待连信标是快照，三样必须同源
+                        if (haveBeacon_) {
+                            bhost = beaconHost_; bport = beaconPort_;
+                            btoken = beaconToken_;
+                            haveBeacon_ = false;
                         }
-                        connectedPeer_ = bhost + ":" + std::to_string(bport);
-                        connectStartMs_ = nowMs();
-                        publish(LinkPhase::Connected, mode);
+                        // 配对码交付令牌（2026-11-23）：面板刚提交的一次性码**优先**于信标
+                        // 令牌与已落盘令牌 —— 用户明确要（重新）配对；信标令牌为空（隐藏
+                        // 广播）时退回已落盘的对端持久令牌（0x36 下发过的）。
+                        if (!pendingPairingCode_.empty()) {
+                            btoken = pendingPairingCode_;
+                            usedPairingCode = true;
+                        } else if (btoken.empty() && !grantedToken_.empty()) {
+                            btoken = grantedToken_;
+                        }
+                    }
+                    if (!bhost.empty()) {
+                        publish(LinkPhase::Connecting, mode);
+                        // 回带信标 token：被控端启用校验时握手必经（docs/REQ-无线安全配对.md）
+                        if (client_.connect(bhost, bport, btoken)) {
+                            if (usedPairingCode) {
+                                // 配对码连上即清空：一次性凭据不作重试储备（对端已作废该码）
+                                std::lock_guard<std::mutex> lk(mu_);
+                                pendingPairingCode_.clear();
+                            }
+                            connectedPeer_ = bhost + ":" + std::to_string(bport);
+                            connectStartMs_ = nowMs();
+                            publish(LinkPhase::Connected, mode);
+                            // 连上即清退避（2026-11-24）
+                            connectBackoffMs_.store(0, std::memory_order_relaxed);
+                            nextConnectAttemptMs_.store(0, std::memory_order_relaxed);
+                        } else {
+                            publish(LinkPhase::Discovering, mode);
+                            // 连接失败进退避：2s 起指数翻倍、15s 封顶（2026-11-24）
+                            const int64_t prev =
+                                connectBackoffMs_.load(std::memory_order_relaxed);
+                            const int64_t next = std::min(
+                                prev > 0 ? prev * 2 : kReconnectBackoffMinMs,
+                                kReconnectBackoffMaxMs);
+                            connectBackoffMs_.store(next, std::memory_order_relaxed);
+                            nextConnectAttemptMs_.store(nowMs() + next,
+                                                        std::memory_order_relaxed);
+                            APX_LOGW("连接 {}:{} 失败，{}ms 后再试（重连退避）",
+                                     bhost, static_cast<unsigned>(bport), next);
+                        }
                     } else {
                         publish(LinkPhase::Discovering, mode);
                     }
-                } else {
-                    publish(LinkPhase::Discovering, mode);
                 }
             }
         } else {  // Manual
@@ -699,6 +733,9 @@ void WirelessSession::setPairingCode(const std::string& code) {
     // 持 mu_：worker 连接时与信标 host/port/token 同锁取值，三样同源
     std::lock_guard<std::mutex> lk(mu_);
     pendingPairingCode_ = code;
+    // 用户重提配对码 = 明确要立刻试：清退避，下一拍就发起连接（2026-11-24）
+    connectBackoffMs_.store(0, std::memory_order_relaxed);
+    nextConnectAttemptMs_.store(0, std::memory_order_relaxed);
     APX_LOGI("9511 会话：已记录一次性配对码，下一次连接尝试优先使用");
 }
 

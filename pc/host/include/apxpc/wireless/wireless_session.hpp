@@ -252,6 +252,12 @@ private:
     //（手机端运行中会跳过重复授权页；用户手动关后本轮不再自动开）。仅 PC 控手机场景，见 publish()。
     bool autoScreenMirrorSent_ = false;
 
+    // 重连退避（2026-11-24，学 Input Leap）：自动模式连接失败后按 2s→4s→…→15s 退避，
+    // 冷却期内不消费信标不发起连接。worker 线程读写；UI 线程在用户明确动作（重提配对码、
+    // 手动连接、startAuto）时清零，故用 atomic（int64 非 atomic 在 32 位下写会撕裂）。
+    std::atomic<int64_t> connectBackoffMs_{0};       // 当前退避时长（0 = 无退避）
+    std::atomic<int64_t> nextConnectAttemptMs_{0};   // 下次允许发起连接的时刻（steady ms）
+
     std::atomic<bool> beaconRun_{false};
     std::thread beaconThread_;
     int64_t connectStartMs_ = 0;
