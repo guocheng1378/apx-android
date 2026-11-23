@@ -610,16 +610,6 @@ struct Ctrl9511Server::Impl {
             // 里（desktop_main 接 ActionRouter），托盘气泡回执结果，这里只认领转发。
             if (onScreenToggle_) onScreenToggle_(p[1]);
             aScreenToggle_.fetch_add(1);
-        } else if (cmd == 0x36 && bodyLen >= 2) {
-            // TOKEN_GRANT（2026-11-23，随「扫码/链接交付令牌」批加）：被控端在「对端凭
-            // 一次性配对码通过握手」后把持久令牌发来（body = [0x36][token UTF-8]）。
-            // 落盘与后续握手/媒体通道换用该令牌都在接线回调里（wireless_session），
-            // 这里只认领转发 —— 与 0x4D 副屏开关同款「分发层不碰配置」口径。
-            if (onTokenGrant) {
-                std::string token(reinterpret_cast<const char*>(p + 1),
-                                  static_cast<size_t>(bodyLen - 1));
-                onTokenGrant(token);
-            }
         } else if (cmd == 0x31 && bodyLen >= 2) {
             /* MODE_STATUS：手机上报「三种接入模式的可用性 + 当前在用哪个」（issue#47 面板侧诉求）。
                面板原来那三个开关里只有无线是真的，蓝牙与 USB 的真开关在手机端 ——
@@ -1140,6 +1130,8 @@ struct Ctrl9511Client::Impl {
     std::atomic<uint64_t> aRequestInput_{0}, aInputText_{0}, aInputDone_{0};
     // 通知同步（0x40/0x42，2026-11-11）：推送/消除计数（PC 控手机时手机是服务端，从这里收）
     std::atomic<uint64_t> aNotifyPush_{0}, aNotifyDismiss_{0};
+    // 令牌下发（0x36，2026-11-23）：配对码首连后对端回发持久令牌的帧计数
+    std::atomic<uint64_t> aTokenGrant_{0};
     // 心跳 RTT：-1 表示未测得；ping 发出时刻由 ping 线程记录，pong 到达时算差
     std::atomic<int64_t> rttMs_{-1};
     std::atomic<int64_t> pingSentMs_{0};
@@ -1255,10 +1247,11 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
     const auto cbPhoneFileFail = onPhoneFileFail;
     const auto cbAlbumPage = onAlbumPage;
     const auto cbAlbumPageFail = onAlbumPageFail;
+    const auto cbTokenGrant = onTokenGrant;
     im->readerThread = std::thread([im, cbClip, cbReqInput, cbInputText, cbInputDone, cbSpecialKey,
                                     cbNotifyPush, cbNotifyDismiss, cbNotifyReplyResult,
                                     cbPhoneFileList, cbPhoneFileFail,
-                                    cbAlbumPage, cbAlbumPageFail] {
+                                    cbAlbumPage, cbAlbumPageFail, cbTokenGrant] {
         std::vector<uint8_t> acc; acc.reserve(8192); uint8_t rx[2048];
 #if defined(_WIN32)
         DWORD rto = 500;
@@ -1394,6 +1387,16 @@ bool Ctrl9511Client::connect(const std::string& host, uint16_t port, const std::
                     // 回 0x41 的终态——成功（err=0）也回帧，用户在等。err 语义与 Android
                     // ApxFrame.NOTIFY_REPLY_ERR_* 一致，接线方转气泡文案。
                     if (cbNotifyReplyResult) cbNotifyReplyResult(payload[1]);
+                } else if (h.streamId == apx::kStreamControl && bodyLen >= 2 && payload[0] == 0x36) {
+                    // TOKEN_GRANT 令牌下发（2026-11-23，随「扫码/链接交付令牌」批加）：被控端在
+                    // 「对端凭一次性配对码通过握手」后把持久令牌发来（body = [0x36][token UTF-8]）。
+                    // 落盘与后续握手/媒体通道换用该令牌都在接线回调里（wireless_session），
+                    // 这里只认领转发 —— 与 0x40 通知推送同款「reader 捕获回调」口径。
+                    if (cbTokenGrant) {
+                        cbTokenGrant(std::string(reinterpret_cast<const char*>(payload + 1),
+                                                 bodyLen - 1));
+                        im->aTokenGrant_.fetch_add(1);
+                    }
                 } else if (h.streamId == apx::kStreamControl && bodyLen >= 4 && payload[0] == 0x45) {
                     // PHONE_FILE_LIST_REPLY 目录应答（2026-11-11，能力位 bit3）：受控手机回报
                     // 目录内容。载荷与服务端 dispatch 同款（与 ApxFrame.packPhoneFileListReply
