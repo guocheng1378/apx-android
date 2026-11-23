@@ -400,6 +400,8 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         cfg["logLevel"] = b.cfg->logLevel;
         cfg["adaptiveBitrate"] = b.cfg->displayAdaptive;
         cfg["bitrateMbps"] = static_cast<double>(b.cfg->displayBitrateMbps);
+        // 键鼠镜像总开关（issue#171 #3）：前端据此回显「连上即镜像键鼠」开关。
+        cfg["inputMirror"] = b.cfg->inputMirrorEnabled;
         cfg["screenMode"] = static_cast<double>(b.cfg->displayEnabled ? 1 : 0);
         transports["btSupported"] = true;
     }
@@ -814,6 +816,17 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         if (!b.configPath.empty()) apxpc::config::saveConfig(b.configPath, *b.cfg);
         Json d1 = Json::makeObject(); d1["adaptive"] = b.cfg->displayAdaptive;
         return postResponse(p, id, okResp(d1));
+    }
+    // 键鼠镜像总开关（issue#171 #3）：写配置持久化，并即时同步给会话 ——
+    // 关 = 立即停掉现有镜像且不再自动启动；开 = 已连接则立即补建。
+    if (name == "config.setInputMirror" && b.cfg && b.session) {
+        auto* v = payload.find("on");
+        const bool on = v ? v->asBool(b.cfg->inputMirrorEnabled) : !b.cfg->inputMirrorEnabled;
+        b.cfg->inputMirrorEnabled = on;
+        if (!b.configPath.empty()) apxpc::config::saveConfig(b.configPath, *b.cfg);
+        b.session->setInputMirrorEnabled(on);
+        Json d1m = Json::makeObject(); d1m["inputMirror"] = on;
+        return postResponse(p, id, okResp(d1m));
     }
     if (name == "config.setBitrate" && b.cfg) {
         auto* v = payload.find("mbps");

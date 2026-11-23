@@ -35,6 +35,10 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
     bridge.act('tray.setAutostart', { enable }),
   );
   const adaptive = useToggle(!!cfg.adaptiveBitrate, (on) => bridge.act('config.setAdaptive', { on }));
+  // 键鼠镜像总开关（issue#171 #3）：关 = 连上受控端也不自动镜像键鼠（pad 不再被电脑端抢鼠标）。
+  const inputMirror = useToggle(cfg.inputMirror !== false, (on) =>
+    bridge.act('config.setInputMirror', { on }),
+  );
   const [bitrate, setBitrate] = React.useState(String(cfg.bitrateMbps ?? 8));
   const [logLevel, setLogLevel] = React.useState(String(cfg.logLevel ?? 'info'));
   const [savedHint, setSavedHint] = React.useState('');
@@ -217,9 +221,27 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
       </Section>
       )}
 
+      {/* ————— 键鼠镜像（issue#171 #3：连上即自动镜像键鼠，给个总开关）————— */}
+      <Section index={3} title="键鼠镜像" note="写进配置文件并持久化，改动立即生效">
+        <div className="card rows">
+          <Row
+            title="连上即镜像键鼠"
+            sub="无线连上后把电脑的鼠标/键盘直接镜像给手机/平板；关掉后不再自动接管对方鼠标"
+            trail={
+              <Switch
+                on={inputMirror.on}
+                busy={inputMirror.busy}
+                onChange={inputMirror.toggle}
+                label="连上即镜像键鼠"
+              />
+            }
+          />
+        </div>
+      </Section>
+
       {/* ————— 悬浮球（issue#168 第 10 条：桌面球只在 Windows 交付，非 Win 收起整节）————— */}
       {platform === 'windows' && (
-      <Section index={3} title="悬浮球" note="桌面常驻快捷入口（Windows）">
+      <Section index={4} title="悬浮球" note="桌面常驻快捷入口（Windows）">
         <div className="card rows">
           <Row
             title="显示悬浮球"
@@ -265,7 +287,7 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
       )}
 
       {/* ————— 日志 ————— */}
-      <Section index={4} title="日志">
+      <Section index={5} title="日志">
         <div className="card rows">
           <Row
             title="日志级别"
@@ -293,7 +315,7 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
       </Section>
 
       {/* ————— 关于 ————— */}
-      <Section index={5} title="关于">
+      <Section index={6} title="关于">
         <div className="card rows">
           <Row
             title="全能外设"

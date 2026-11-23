@@ -99,6 +99,10 @@ public:
     /// 未连接返回 false，由调用方决定如何提示。
     bool sendModuleToggle(const std::string& id, bool on);
 
+    /// 键鼠镜像总开关（issue#171 #3）：on=false 立即停掉现有镜像且连接建立后不再自动启动；
+    /// on=true 时若当前已 Connected 则立即启动镜像。线程安全（内部持 mu_，与 publish 同口径）。
+    void setInputMirrorEnabled(bool on);
+
     /// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃（30s 自动停）。
     /// action：1=响铃 0=停，当前只有响铃一键。未连接返回 false（托盘菜单常驻，连着才有效）。
     bool sendFindPhone(uint8_t action);
@@ -216,6 +220,10 @@ private:
     // 却是空头支票（用户反馈「电脑怎么控制手机，完全没界面」的直接根因）。
     // 生命周期完全跟随 Connected 相位翻转：在 publish() 里建/停，全程持 mu_。
     std::unique_ptr<LocalInputCapturer> inputMirror_;
+
+    // 键鼠镜像总开关（issue#171 #3）：publish() 建镜像前检查；false = 不再自动启动。
+    // atomic 读多写少，setter 里对「建/停镜像」的互斥由 mu_ 保证（与 publish 同口径）。
+    std::atomic<bool> inputMirrorEnabled_{true};
 
     // 投屏自动开（2026-11-18）：首次进入 Connected 时下发 0x10「screenmirror」on，进程内只发一次
     //（手机端运行中会跳过重复授权页；用户手动关后本轮不再自动开）。仅 PC 控手机场景，见 publish()。

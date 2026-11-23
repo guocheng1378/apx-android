@@ -656,6 +656,9 @@ int main(int argc, char** argv) {
 
             // 宿主对象（所有权在本栈；runWebPanelHttp 阻塞至退出后逐个析构）
             apxpc::wireless::WirelessSession session;
+            // 键鼠镜像总开关（issue#171 #3）：启动时把配置里的开关同步给会话，
+            // 关 = 连上受控端也不自动镜像键鼠（pad 不再被电脑端抢鼠标）。
+            session.setInputMirrorEnabled(cfg.inputMirrorEnabled);
             apxpc::wireless::FileReceiver fileReceiver;
             apxpc::media::MediaSession media;
             apxpc::media::AudioCapture audio;

@@ -452,7 +452,9 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
     // 键鼠镜像随相位翻转（2026-11-17）：连上受控端即把本机鼠标/键盘镜像过去，断开即停。
     // 只在相位变化时动作，避免每 250ms 一次的 publish 重复建停；全程持 mu_，与 stop()
     // 的收尾互斥，不会并发 stop 同一实例。
-    if (changed && ph == LinkPhase::Connected && !inputMirror_) {
+    // issue#171 #3：建镜像前先看总开关 —— 用户在面板关掉「连上即镜像键鼠」后，
+    // 连接建立不再自动启动镜像（pad 不再被电脑端抢鼠标）。
+    if (changed && ph == LinkPhase::Connected && !inputMirror_ && inputMirrorEnabled_.load()) {
         inputMirror_ = createPlatformCapturer(client_);
         if (inputMirror_ && inputMirror_->start()) {
             APX_LOGI("键鼠镜像已启动：本机鼠标/键盘 → 受控端（断开即停）");
@@ -495,6 +497,33 @@ bool WirelessSession::sendClipboard(const std::string& text) {
 bool WirelessSession::sendModuleToggle(const std::string& id, bool on) {
     if (!client_.ready()) return false;
     return client_.sendModuleToggle(id, on);
+}
+
+// 键鼠镜像总开关（issue#171 #3）：关 = 立即停掉现有镜像，且连接建立后不再自动启动；
+// 开 = 若当前已 Connected 且镜像未建，则立即补建（与 publish() 的建镜像路径同款）。
+// 全程持 mu_，与 publish()/stop() 的镜像建停互斥；开关位本身是 atomic，读侧无锁。
+void WirelessSession::setInputMirrorEnabled(bool on) {
+    std::lock_guard<std::mutex> lk(mu_);
+    const bool was = inputMirrorEnabled_.exchange(on);
+    if (was == on) return;  // 状态没变，不动镜像
+    if (!on) {
+        if (inputMirror_) {
+            inputMirror_->stop();
+            inputMirror_.reset();
+            APX_LOGI("键鼠镜像已停止（面板关闭总开关）");
+        }
+        return;
+    }
+    // on=true：仅当前确实连着才补建镜像（相位以 snap_ 为准，publish 每轮刷新）。
+    if (snap_.phase == LinkPhase::Connected && !inputMirror_) {
+        inputMirror_ = createPlatformCapturer(client_);
+        if (inputMirror_ && inputMirror_->start()) {
+            APX_LOGI("键鼠镜像已启动（面板开启总开关）");
+        } else {
+            APX_LOGW("键鼠镜像启动失败：Windows 需消息钩子；macOS 需辅助功能；Linux 需 root");
+            inputMirror_.reset();
+        }
+    }
 }
 
 // 查找手机（0x38，2026-11-11，能力位 bit2）：转发给 9511 客户端（能力门控在其内部）。

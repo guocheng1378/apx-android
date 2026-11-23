@@ -68,6 +68,10 @@ struct AppConfig {
     // 128-bit 随机 hex（32 字符），首次启动生成并持久化；被控端信标回带同一 token
     // 才允许握手。空串 = 不启用校验（对端旧版/未启用 token 时保持互通）。
     std::string pairingToken;
+
+    // 键鼠镜像总开关（issue#171 #3）：无线连接建立后是否自动镜像键鼠。
+    // false = 连上也不启动键鼠镜像（pad 不再被 Mac 抢鼠标）；已有镜像会被停止。
+    bool inputMirrorEnabled = true;
 };
 
 // 加载：文件缺失或解析失败返回默认值（不报错，首次启动常见）；
