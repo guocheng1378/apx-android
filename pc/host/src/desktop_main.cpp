@@ -765,6 +765,8 @@ int runDesktopMain() {
     // 键鼠镜像总开关（issue#171 #3）：启动时把配置里的开关同步给会话，
     // 关 = 连上受控端也不自动镜像键鼠（pad 不再被电脑端抢鼠标）。
     session->setInputMirrorEnabled(cfg.inputMirrorEnabled);
+    // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：启动时同步配置里的模式。
+    session->setInputCrossMode(cfg.inputCrossMode);
     auto media       = std::make_unique<apxpc::media::MediaSession>();
 #if defined(_WIN32)
     auto screenPush  = std::make_unique<apxpc::media::ScreenPush>();

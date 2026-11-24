@@ -103,6 +103,13 @@ public:
     /// on=true 时若当前已 Connected 则立即启动镜像。线程安全（内部持 mu_，与 publish 同口径）。
     void setInputMirrorEnabled(bool on);
 
+    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24）：
+    /// on=false 镜像同步（默认，两端同时响应）；on=true 跨屏独占（鼠标推到屏幕右缘
+    /// 切到手机，本机输入被吞掉独占发手机；往回移切回电脑）。对已建镜像即时生效；
+    /// 之后新建的镜像（publish/setInputMirrorEnabled 路径）创建时带上该模式。
+    /// 线程安全：模式位 atomic；对 inputMirror_ 的触碰持 mu_（与建停同口径）。
+    void setInputCrossMode(bool on);
+
     /// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃（30s 自动停）。
     /// action：1=响铃 0=停，当前只有响铃一键。未连接返回 false（托盘菜单常驻，连着才有效）。
     bool sendFindPhone(uint8_t action);
@@ -247,6 +254,10 @@ private:
     // 键鼠镜像总开关（issue#171 #3）：publish() 建镜像前检查；false = 不再自动启动。
     // atomic 读多写少，setter 里对「建/停镜像」的互斥由 mu_ 保证（与 publish 同口径）。
     std::atomic<bool> inputMirrorEnabled_{true};
+
+    // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：false=镜像同步 true=跨屏独占。
+    // 建镜像后立即下发到捕获器；面板改模式经 setInputCrossMode 同步到已建镜像。
+    std::atomic<bool> inputCrossMode_{false};
 
     // 投屏自动开（2026-11-18）：首次进入 Connected 时下发 0x10「screenmirror」on，进程内只发一次
     //（手机端运行中会跳过重复授权页；用户手动关后本轮不再自动开）。仅 PC 控手机场景，见 publish()。

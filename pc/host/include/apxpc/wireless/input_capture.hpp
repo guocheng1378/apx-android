@@ -24,6 +24,16 @@ public:
     virtual void stop() {}
     bool active() const { return active_; }
 
+    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24）：
+    ///   false = 镜像同步（默认）：本机事件转发给手机，同时本机照常响应（现状）。
+    ///   true  = 跨屏独占：鼠标推到屏幕右缘把焦点切到手机 —— 此后本机事件被吞掉
+    ///           （电脑不再响应），独占转发给手机；往回移过同一边缘切回电脑。
+    /// 平台实现：Windows/macOS 支持吞事件；Linux evdev 只读吞不掉，默认空实现
+    /// 保持镜像行为（跨屏模式在 Linux 上不生效，面板不隐藏开关但行为不变）。
+    virtual void setCrossMode(bool on) {
+        (void)on;
+    }
+
 protected:
     bool active_ = false;
 };

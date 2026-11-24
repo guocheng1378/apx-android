@@ -110,6 +110,11 @@ AppConfig loadConfig(const std::string& path) {
     cfg.displayFps      = static_cast<uint32_t>(num("displayFps", 60));
     cfg.displayAdaptive = bol("displayAdaptive", true);
 
+    // 键鼠镜像（issue#171 #3 + 跨屏扩展 2026-11-24）：总开关此前只在面板内存里改、
+    // load/save 都没落这个字段 —— 重启后永远回到默认开。补上持久化（修一处查同模式）。
+    cfg.inputMirrorEnabled = bol("inputMirrorEnabled", true);
+    cfg.inputCrossMode     = bol("inputCrossMode", false);
+
     cfg.touchpadEnabled = bol("touchpadEnabled", false);
     cfg.touchpadPath    = str("touchpadPath", "bt");
     cfg.touchpadSensitivity = j.find("touchpadSensitivity") ? j.find("touchpadSensitivity")->asNumber(1.0) : 1.0;
@@ -167,6 +172,10 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
     j["displayBitrateMbps"] = static_cast<double>(cfg.displayBitrateMbps);
     j["displayFps"]      = static_cast<double>(cfg.displayFps);
     j["displayAdaptive"] = cfg.displayAdaptive;
+
+    // 键鼠镜像（与 loadConfig 同口径补持久化，见上方注释）
+    j["inputMirrorEnabled"] = cfg.inputMirrorEnabled;
+    j["inputCrossMode"]     = cfg.inputCrossMode;
 
     j["touchpadEnabled"] = cfg.touchpadEnabled;
     j["touchpadPath"]    = cfg.touchpadPath;

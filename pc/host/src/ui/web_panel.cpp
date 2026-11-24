@@ -359,6 +359,8 @@ void buildState(const HostBundle& b, Json& out) {
         cfg["bitrateMbps"] = static_cast<double>(b.cfg->displayBitrateMbps);
         // 键鼠镜像总开关（issue#171 #3）：前端据此回显「连上即镜像键鼠」开关。
         cfg["inputMirror"] = b.cfg->inputMirrorEnabled;
+        // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：前端据此回显「镜像同步 / 跨屏独占」。
+        cfg["inputCross"] = b.cfg->inputCrossMode;
         cfg["screenMode"] = static_cast<double>(b.cfg->displayEnabled ? 1 : 0);
         // 投屏模式（会话内记忆）：面板据此回显「扩展屏 / 桌面镜像」，
         // 刷新页面不会把用户选的镜像悄悄变回扩展。
@@ -954,6 +956,17 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         b.session->setInputMirrorEnabled(on);
         Json d1m = Json::makeObject(); d1m["inputMirror"] = on;
         return postResponse(p, id, okResp(d1m));
+    }
+    // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：false=镜像同步 true=跨屏独占。
+    // 写配置持久化，并即时同步给会话（对已建镜像立即生效）。
+    if (name == "config.setInputCrossMode" && b.cfg && b.session) {
+        auto* v = payload.find("on");
+        const bool on = v ? v->asBool(b.cfg->inputCrossMode) : !b.cfg->inputCrossMode;
+        b.cfg->inputCrossMode = on;
+        if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
+        b.session->setInputCrossMode(on);
+        Json d1c = Json::makeObject(); d1c["inputCross"] = on;
+        return postResponse(p, id, okResp(d1c));
     }
     if (name == "config.setBitrate" && b.cfg) {
         auto* v = payload.find("mbps");

@@ -13,6 +13,7 @@
 
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 
 namespace apxpc::wireless {
@@ -62,6 +63,8 @@ public:
                 CGEventMaskBit(kCGEventOtherMouseUp) | CGEventMaskBit(kCGEventLeftMouseDragged) |
                 CGEventMaskBit(kCGEventRightMouseDragged) | CGEventMaskBit(kCGEventOtherMouseDragged) |
                 CGEventMaskBit(kCGEventScrollWheel);
+            // kCGEventTapOptionDefault（活动过滤器）：跨屏独占模式靠它吞事件 ——
+            // 回调返回 NULL 即拦截，本机收不到；镜像同步模式照常返回原事件透传。
             tap_ = CGEventTapCreate(kCGHIDEventTap, kCGHeadInsertEventTap,
                                     kCGEventTapOptionDefault, mask, tapCb, this);
             if (!tap_) { active_ = false; return; }
@@ -82,6 +85,21 @@ public:
         if (thread_.joinable()) thread_.join();
         if (src_) { CFRelease(src_); src_ = nullptr; }
         if (tap_) { CFRelease(tap_); tap_ = nullptr; }
+        // 跨屏独占：若停在「手机焦点」里，退出焦点即可。光标全程停在进入点
+        //（屏幕右缘，本就在屏内），无需归位动作。
+        if (focused_.exchange(false)) {
+            APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
+        }
+    }
+
+    // 跨屏独占开关（issue#171 报告人需求，2026-11-24）：tap 回调按事件读 crossMode_。
+    // 关闭时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
+    void setCrossMode(bool on) override {
+        crossMode_.store(on, std::memory_order_relaxed);
+        if (!on && focused_.exchange(false)) {
+            APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
+        }
+        APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
     }
 
     void onMove(int dx, int dy) { client_->sendMouse(mouseButtons_, clamp8(dx), clamp8(dy), 0); }
@@ -106,6 +124,74 @@ public:
     }
 
 private:
+    // —— 跨屏独占（issue#171 报告人「跨屏扩展」需求，2026-11-24）——
+    // 全部屏幕的并集矩形：多显示器时右缘 = 最右那块屏的外缘。
+    static CGRect virtualBounds() {
+        CGRect u = CGRectZero;
+        // CGGetOnlineDisplayList：一次取在线显示器列表（上限 8 块足够覆盖常规多屏）
+        CGDirectDisplayID ids[8];
+        uint32_t got = 0;
+        if (CGGetOnlineDisplayList(8, ids, &got) == kCGErrorSuccess && got > 0) {
+            for (uint32_t i = 0; i < got; ++i) {
+                const CGRect b = CGDisplayBounds(ids[i]);
+                u = CGRectUnion(u, b);
+            }
+        }
+        return u;
+    }
+    // 抵缘驻留计时：steady 毫秒（只在本类内比较差值）。
+    static int64_t nowMs() {
+        return (int64_t)(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+    // 鼠标移动的跨屏独占路径：返回 true = 吞掉事件（tap 回调返回 NULL）。
+    // macOS 的 kCGMouseEventDeltaX 是原始位移，与光标是否被屏幕钳住无关，
+    // 不需要 Windows 那样的「进入点原点」换算，直接累计即可。
+    bool crossMove(CGEventRef e) {
+        // 光标绝对位置用 CGEventGetLocation（全局坐标），事件字段里没有可靠的
+        // 位置键；位移仍取 kCGMouseEventDeltaX/DeltaY 原始值。
+        const int64_t locX = (int64_t)CGEventGetLocation(e).x;
+        const int64_t dx = CGEventGetIntegerValueField(e, kCGMouseEventDeltaX);
+        const int64_t dy = CGEventGetIntegerValueField(e, kCGMouseEventDeltaY);
+        if (!focused_.load(std::memory_order_relaxed)) {
+            const CGRect virt = virtualBounds();
+            const bool atEdge = locX >= (int64_t)(virt.origin.x + virt.size.width) - 1;
+            if (!atEdge || dx < 0) {
+                edgeFirstMs_ = 0;   // 离开边缘或往回走：重计驻留
+            } else if (dx > 0 || edgeFirstMs_ == 0) {
+                edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
+            }
+            // 「抵边后仍连续收到移动事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
+            if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs) {
+                edgeFirstMs_ = 0;
+                focused_.store(true, std::memory_order_relaxed);
+                APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+                onMove((int)dx, (int)dy);   // 进入位移照发（手感连续）
+                return true;   // 吞掉
+            }
+            return false;   // 未聚焦：透传，本机照常（不转发）
+        }
+        // 聚焦中：移动事件全部吞掉，光标停在进入点（屏幕右缘）不动；原始位移
+        // 直接累计，向左越过阈值即切回电脑 —— 本事件放行，光标顺势往回走。
+        accumDx_ += (int)dx;
+        if (accumDx_ <= -kExitPx) {
+            focused_.store(false, std::memory_order_relaxed);
+            accumDx_ = 0;
+            APX_LOGI("跨屏扩展：焦点切回电脑");
+            return false;   // 放行：光标随真实位移往回走
+        }
+        onMove((int)dx, (int)dy);
+        return true;   // 吞掉：电脑不响应
+    }
+    // 其余鼠标/键盘事件的跨屏独占路径：未聚焦透传不转发；聚焦转发并吞掉。
+    template <typename F>
+    bool crossSwallow(F&& fn) {
+        if (!focused_.load(std::memory_order_relaxed)) return false;
+        fn();
+        return true;
+    }
+
+private:
     Ctrl9511Client* client_ = nullptr;
     CFMachPortRef tap_ = nullptr;
     CFRunLoopSourceRef src_ = nullptr;
@@ -115,6 +201,17 @@ private:
     int count_ = 0;
     std::thread thread_;
 
+    // —— 跨屏独占状态 ——
+    // crossMode_/focused_ 原子：setCrossMode 在调用线程改模式并退焦点，tap 线程
+    // 按事件读取；accumDx_/edgeFirstMs_ 只在 tap 线程触碰，
+    // 竞态窗口最多丢一次位移，不影响正确性。
+    std::atomic<bool> crossMode_{false};
+    std::atomic<bool> focused_{false};
+    int accumDx_ = 0;           // 聚焦期间向左累计位移（退出判定）
+    int64_t edgeFirstMs_ = 0;   // 首次抵右缘的时刻（驻留判定，0=不在边缘）
+    static constexpr int kExitPx = 48;            // 向回拉 48px 视为切回电脑
+    static constexpr int64_t kEdgeDwellMs = 250;  // 抵缘持续 250ms 才进入，防误触
+
     static CGEventRef tapCb(CGEventTapProxy, CGEventType type, CGEventRef e, void* info) {
         auto* self = static_cast<MacCapturer*>(info);
         // 跳过本进程注入的事件：手机控 Mac 时 input_injector_mac 在**本进程内**经
@@ -122,6 +219,38 @@ private:
         // 形成输入回声（与 Windows 端 LLMHF_INJECTED 过滤同口径）。物理事件的来源
         // 进程是 HID 系统态，不会等于本进程 PID，照常转发。
         if (CGEventGetIntegerValueField(e, kCGEventSourceUnixProcessID) == getpid()) {
+            return e;
+        }
+        // 跨屏独占：聚焦时吞掉一切已捕获事件（返回 NULL，本机收不到）；
+        // 未聚焦时透传且不转发（电脑输入留在电脑）。镜像同步模式走原透传+转发路径。
+        if (self->crossMode_.load(std::memory_order_relaxed)) {
+            if (type == kCGEventMouseMoved || type == kCGEventLeftMouseDragged ||
+                type == kCGEventRightMouseDragged || type == kCGEventOtherMouseDragged) {
+                return self->crossMove(e) ? nullptr : e;
+            }
+            if (type == kCGEventKeyDown || type == kCGEventKeyUp) {
+                const bool down = (type == kCGEventKeyDown);
+                const CGKeyCode vk = static_cast<CGKeyCode>(
+                    CGEventGetIntegerValueField(e, kCGKeyboardEventKeycode));
+                const int usage = macVkToUsage(static_cast<int>(vk));
+                return self->crossSwallow([&] { if (usage) self->onKey(usage, down); }) ? nullptr : e;
+            }
+            if (type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown ||
+                type == kCGEventOtherMouseDown) {
+                const uint8_t bit = (type == kCGEventRightMouseDown) ? 0x02
+                                    : (type == kCGEventOtherMouseDown) ? 0x04 : 0x01;
+                return self->crossSwallow([&] { self->onButton(bit, true); }) ? nullptr : e;
+            }
+            if (type == kCGEventLeftMouseUp || type == kCGEventRightMouseUp ||
+                type == kCGEventOtherMouseUp) {
+                const uint8_t bit = (type == kCGEventRightMouseUp) ? 0x02
+                                    : (type == kCGEventOtherMouseUp) ? 0x04 : 0x01;
+                return self->crossSwallow([&] { self->onButton(bit, false); }) ? nullptr : e;
+            }
+            if (type == kCGEventScrollWheel) {
+                const int64_t dy = CGEventGetIntegerValueField(e, kCGScrollWheelEventDeltaAxis1);
+                return self->crossSwallow([&] { self->onWheel((int)dy); }) ? nullptr : e;
+            }
             return e;
         }
         if (type == kCGEventKeyDown || type == kCGEventKeyUp) {

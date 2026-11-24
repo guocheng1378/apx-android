@@ -19,6 +19,12 @@ namespace {
 
 int8_t clamp8(int v) { return static_cast<int8_t>(v < -128 ? -128 : v > 127 ? 127 : v); }
 
+// 跨屏独占的抵缘驻留计时用：steady 时钟毫秒（只在本文件内比较差值，不落盘）。
+int64_t nowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 // Windows VK → HID usage(0x07)。修饰键送 0xE0..0xE7（受控端按位映射）。
 int vkToUsage(UINT vk, bool extended) {
     if (vk >= 'A' && vk <= 'Z') return 0x04 + (vk - 'A');
@@ -100,20 +106,105 @@ public:
         active_ = false;
         if (thread_.joinable()) thread_.join();
         g_self = nullptr;
+        // 跨屏独占：若停在「手机焦点」里，退出焦点即可。光标全程停在进入点（屏幕
+        // 右缘，本就在屏内），无需归位动作。
+        if (focused_.exchange(false)) {
+            APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
+        }
     }
 
-    void onMove(int x, int y) {
-        if (lastX_ < 0) { lastX_ = x; lastY_ = y; return; }
+    // 跨屏独占开关（issue#171 报告人需求，2026-11-24）：钩子线程按事件读 crossMode_。
+    // 关闭时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
+    void setCrossMode(bool on) override {
+        crossMode_.store(on, std::memory_order_relaxed);
+        if (!on && focused_.exchange(false)) {
+            APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
+        }
+        APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
+    }
+
+    // —— 鼠标移动：返回 true 表示吞掉该事件（不透传给本机）——
+    bool onMove(int x, int y) {
+        if (crossMode_.load(std::memory_order_relaxed)) {
+            const RECT virt = virtualRect();
+            if (!focused_.load(std::memory_order_relaxed)) {
+                // 未聚焦：电脑输入留在电脑（不转发），只盯右缘「抵住推入」手势。
+                const bool atEdge = x >= virt.right - 1;
+                if (!atEdge || (lastX_ >= 0 && x < lastX_)) {
+                    edgeFirstMs_ = 0;   // 离开边缘或往回走：重计驻留
+                } else if (x > lastX_ || edgeFirstMs_ == 0) {
+                    edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
+                }
+                // 光标被屏幕钳在边缘后 pt 不再变化，但系统仍持续上报移动事件 ——
+                // 「抵边后仍连续收到事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
+                if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs) {
+                    edgeFirstMs_ = 0;
+                    focused_.store(true, std::memory_order_relaxed);
+                    entryX_ = x; entryY_ = y;
+                    APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+                    if (lastX_ >= 0)
+                        client_->sendMouse(mouseButtons_, clamp8(x - lastX_), clamp8(y - lastY_), 0);
+                    lastX_ = x; lastY_ = y;
+                    return true;   // 进入事件吞掉
+                }
+                lastX_ = x; lastY_ = y;
+                return false;   // 未聚焦：透传，本机照常
+            }
+            // 聚焦中：移动事件全部吞掉 → 光标停在进入点不动，系统后续上报的 pt
+            // 始终从进入点起算（pt = 进入点 + 本次原始位移），pt-进入点即真实位移，
+            // 不依赖任何「泊点」假设。
+            const int dx = x - entryX_, dy = y - entryY_;
+            if (dx <= -kExitPx) {
+                // 往回拉过阈值 = 切回电脑：本事件放行，光标顺势落到屏内 48px 处。
+                focused_.store(false, std::memory_order_relaxed);
+                APX_LOGI("跨屏扩展：焦点切回电脑");
+                lastX_ = x; lastY_ = y;
+                return false;
+            }
+            client_->sendMouse(mouseButtons_, clamp8(dx), clamp8(dy), 0);
+            lastX_ = x; lastY_ = y;
+            return true;   // 吞掉：电脑不响应
+        }
+        // 镜像同步（原行为）：转发相对位移，事件照常透传给本机。
+        if (lastX_ < 0) { lastX_ = x; lastY_ = y; return false; }
         const int dx = x - lastX_, dy = y - lastY_;
         lastX_ = x; lastY_ = y;
         client_->sendMouse(mouseButtons_, clamp8(dx), clamp8(dy), 0);
+        return false;
     }
-    void onWheel(int delta) { client_->sendMouse(mouseButtons_, 0, 0, clamp8(delta / WHEEL_DELTA)); }
-    void onButton(uint8_t bit, bool down) {
+    bool onWheel(int delta) {
+        if (crossMode_.load(std::memory_order_relaxed))
+            return forwardIfFocused([&] { client_->sendMouse(mouseButtons_, 0, 0, clamp8(delta / WHEEL_DELTA)); });
+        client_->sendMouse(mouseButtons_, 0, 0, clamp8(delta / WHEEL_DELTA));
+        return false;
+    }
+    bool onButton(uint8_t bit, bool down) {
+        if (crossMode_.load(std::memory_order_relaxed))
+            return forwardIfFocused([&] {
+                if (down) mouseButtons_ |= bit; else mouseButtons_ &= ~bit;
+                client_->sendMouse(mouseButtons_, 0, 0, 0);
+            });
         if (down) mouseButtons_ |= bit; else mouseButtons_ &= ~bit;
         client_->sendMouse(mouseButtons_, 0, 0, 0);
+        return false;
     }
-    void onKey(int usage, bool down) {
+    bool onKey(int usage, bool down) {
+        if (crossMode_.load(std::memory_order_relaxed))
+            return forwardIfFocused([&] { sendKey(usage, down); });
+        sendKey(usage, down);
+        return false;
+    }
+
+private:
+    // 跨屏独占的公共路径：未聚焦 = 透传不转发（电脑输入留在电脑）；
+    // 聚焦 = 转发并吞掉（电脑不响应）。fn 里做原有的按键状态维护与转发。
+    template <typename F>
+    bool forwardIfFocused(F&& fn) {
+        if (!focused_.load(std::memory_order_relaxed)) return false;
+        fn();
+        return true;
+    }
+    void sendKey(int usage, bool down) {
         if (usage >= 0xE0 && usage <= 0xE7) {
             const uint8_t m = static_cast<uint8_t>(1u << (usage - 0xE0));
             if (down) modMask_ |= m; else modMask_ &= ~m;
@@ -128,6 +219,15 @@ public:
         client_->sendKeyboard(modMask_, keys_, static_cast<size_t>(count_));
     }
 
+    // —— 跨屏独占：屏幕矩形（多显示器时右缘 = 最右那块屏的外缘）——
+    static RECT virtualRect() {
+        const RECT r{GetSystemMetrics(SM_XVIRTUALSCREEN),
+                     GetSystemMetrics(SM_YVIRTUALSCREEN),
+                     GetSystemMetrics(SM_XVIRTUALSCREEN) + GetSystemMetrics(SM_CXVIRTUALSCREEN),
+                     GetSystemMetrics(SM_YVIRTUALSCREEN) + GetSystemMetrics(SM_CYVIRTUALSCREEN)};
+        return r;
+    }
+
 private:
     Ctrl9511Client* client_ = nullptr;
     HHOOK hhMouse_ = nullptr, hhKey_ = nullptr;
@@ -139,6 +239,17 @@ private:
     std::thread thread_;
     static WinCapturer* g_self;
 
+    // —— 跨屏独占状态 ——
+    // crossMode_/focused_ 原子：setCrossMode 在调用线程改模式，钩子线程按事件读取；
+    // entryX_/entryY_/edgeFirstMs_ 只在钩子线程触碰。聚焦期间移动事件被吞、光标
+    // 停在进入点，pt 以进入点为原点换算真实位移（见 onMove 聚焦分支注释）。
+    std::atomic<bool> crossMode_{false};
+    std::atomic<bool> focused_{false};
+    int entryX_ = 0, entryY_ = 0;    // 进入焦点时的光标位置（位移原点）
+    int64_t edgeFirstMs_ = 0;        // 首次抵右缘的时刻（驻留判定，0=不在边缘）
+    static constexpr int kExitPx = 48;      // 向回拉 48px 视为切回电脑
+    static constexpr int64_t kEdgeDwellMs = 250;  // 抵缘持续 250ms 才进入，防误触
+
     static LRESULT CALLBACK msProc(int n, WPARAM w, LPARAM l) {
         if (n >= 0 && g_self) {
             const auto* m = reinterpret_cast<MSLLHOOKSTRUCT*>(l);
@@ -147,14 +258,14 @@ private:
             // 回传给手机，会形成「注入→捕获→再注入」的输入回声。物理输入不带该位，照常转发。
             if (m->flags & LLMHF_INJECTED) return CallNextHookEx(nullptr, n, w, l);
             switch (w) {
-                case WM_MOUSEMOVE: g_self->onMove(m->pt.x, m->pt.y); break;
-                case WM_LBUTTONDOWN: g_self->onButton(0x01, true); break;
-                case WM_LBUTTONUP: g_self->onButton(0x01, false); break;
-                case WM_RBUTTONDOWN: g_self->onButton(0x02, true); break;
-                case WM_RBUTTONUP: g_self->onButton(0x02, false); break;
-                case WM_MBUTTONDOWN: g_self->onButton(0x04, true); break;
-                case WM_MBUTTONUP: g_self->onButton(0x04, false); break;
-                case WM_MOUSEWHEEL: g_self->onWheel(GET_WHEEL_DELTA_WPARAM(m->mouseData)); break;
+                case WM_MOUSEMOVE: if (g_self->onMove(m->pt.x, m->pt.y)) return 1; break;
+                case WM_LBUTTONDOWN: if (g_self->onButton(0x01, true)) return 1; break;
+                case WM_LBUTTONUP: if (g_self->onButton(0x01, false)) return 1; break;
+                case WM_RBUTTONDOWN: if (g_self->onButton(0x02, true)) return 1; break;
+                case WM_RBUTTONUP: if (g_self->onButton(0x02, false)) return 1; break;
+                case WM_MBUTTONDOWN: if (g_self->onButton(0x04, true)) return 1; break;
+                case WM_MBUTTONUP: if (g_self->onButton(0x04, false)) return 1; break;
+                case WM_MOUSEWHEEL: if (g_self->onWheel(GET_WHEEL_DELTA_WPARAM(m->mouseData))) return 1; break;
                 default: break;
             }
         }
@@ -169,7 +280,7 @@ private:
             const bool down = (w == WM_KEYDOWN || w == WM_SYSKEYDOWN);
             const bool ext = (k->flags & LLKHF_EXTENDED) != 0;
             const int usage = vkToUsage(k->vkCode, ext);
-            if (usage) g_self->onKey(usage, down);
+            if (usage && g_self->onKey(usage, down)) return 1;
         }
         return CallNextHookEx(nullptr, n, w, l);
     }

@@ -539,6 +539,8 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
     if (changed && ph == LinkPhase::Connected && !inputMirror_ && inputMirrorEnabled_.load()) {
         inputMirror_ = createPlatformCapturer(client_);
         if (inputMirror_ && inputMirror_->start()) {
+            // 跨屏独占模式（2026-11-24）：新建镜像按当前模式位工作（默认镜像同步）。
+            inputMirror_->setCrossMode(inputCrossMode_.load());
             APX_LOGI("键鼠镜像已启动：本机鼠标/键盘 → 受控端（断开即停）");
         } else {
             // Windows 钩子失败 / Linux 无 root / macOS 无辅助功能授权：如实记日志后退回
@@ -612,12 +614,24 @@ void WirelessSession::setInputMirrorEnabled(bool on) {
     if (snap_.phase == LinkPhase::Connected && !inputMirror_) {
         inputMirror_ = createPlatformCapturer(client_);
         if (inputMirror_ && inputMirror_->start()) {
+            // 跨屏独占模式（2026-11-24）：补建镜像同样按当前模式位工作。
+            inputMirror_->setCrossMode(inputCrossMode_.load());
             APX_LOGI("键鼠镜像已启动（面板开启总开关）");
         } else {
             APX_LOGW("键鼠镜像启动失败：Windows 需消息钩子；macOS 需辅助功能；Linux 需 root");
             inputMirror_.reset();
         }
     }
+}
+
+// 键鼠镜像工作模式（2026-11-24 跨屏扩展，issue#171 报告人需求）：
+// 对已建镜像即时下发；镜像未建时只记模式位（publish/补建路径创建时会带上）。
+// 模式位 atomic，无需持 mu_；不在这里建停镜像（那是总开关的职责）。
+void WirelessSession::setInputCrossMode(bool on) {
+    inputCrossMode_.store(on);
+    std::lock_guard<std::mutex> lk(mu_);
+    if (inputMirror_) inputMirror_->setCrossMode(on);
+    APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
 }
 
 // 查找手机（0x38，2026-11-11，能力位 bit2）：转发给 9511 客户端（能力门控在其内部）。

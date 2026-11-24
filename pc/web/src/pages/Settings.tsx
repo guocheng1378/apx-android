@@ -39,6 +39,8 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
   const inputMirror = useToggle(cfg.inputMirror !== false, (on) =>
     bridge.act('config.setInputMirror', { on }),
   );
+  // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：mirror=镜像同步 cross=跨屏独占。
+  const [crossMode, setCrossMode] = React.useState(cfg.inputCross ? 'cross' : 'mirror');
   const [bitrate, setBitrate] = React.useState(String(cfg.bitrateMbps ?? 8));
   const [logLevel, setLogLevel] = React.useState(String(cfg.logLevel ?? 'info'));
   const [savedHint, setSavedHint] = React.useState('');
@@ -47,7 +49,8 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
   React.useEffect(() => {
     if (cfg.bitrateMbps != null) setBitrate(String(cfg.bitrateMbps));
     if (cfg.logLevel) setLogLevel(String(cfg.logLevel));
-  }, [cfg.bitrateMbps, cfg.logLevel]);
+    if (cfg.inputCross != null) setCrossMode(cfg.inputCross ? 'cross' : 'mirror');
+  }, [cfg.bitrateMbps, cfg.logLevel, cfg.inputCross]);
 
   const flash = (text: string) => {
     setSavedHint(text);
@@ -233,6 +236,33 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
                 busy={inputMirror.busy}
                 onChange={inputMirror.toggle}
                 label="连上即镜像键鼠"
+              />
+            }
+          />
+          {/* 工作模式（2026-11-24 跨屏扩展，issue#171 报告人需求）：
+              镜像同步 = 两端同时响应（现状）；跨屏独占 = 鼠标推到屏幕右缘切到手机，
+              电脑不再响应，往回移切回电脑 —— 点击不再误触电脑内容。 */}
+          <Row
+            title="工作模式"
+            sub={
+              crossMode === 'cross'
+                ? '跨屏独占：鼠标抵住屏幕右缘推一下切到手机，电脑不再响应；往回拉切回电脑'
+                : '镜像同步：电脑与手机同时响应（点击两边都生效）'
+            }
+            trail={
+              <Segmented
+                value={crossMode}
+                disabled={!inputMirror.on}
+                onChange={(v) => {
+                  setCrossMode(v);
+                  acts
+                    .run(() => bridge.act('config.setInputCrossMode', { on: v === 'cross' }))
+                    .then((ok) => ok && flash(v === 'cross' ? '已切换为跨屏独占' : '已切换为镜像同步'));
+                }}
+                options={[
+                  { value: 'mirror', label: '镜像同步' },
+                  { value: 'cross', label: '跨屏独占' },
+                ]}
               />
             }
           />
