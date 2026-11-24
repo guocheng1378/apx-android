@@ -367,14 +367,23 @@ struct Ctrl9511Server::Impl {
 #endif
         setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&t), sizeof(t));
         uint8_t hdr[4];
-        if (!readFull(s, hdr, 4)) { closeSock(s); resetClientFor(s); return; }
+        if (!readFull(s, hdr, 4)) {
+            // issue#171 排障：服务端握手拒绝此前全部静默 close，Pad→Mac 方向若因令牌
+            // 不匹配被拒，两端日志都无痕迹。同步客户端侧 56fdf34 的口径，拒绝原因落文件日志。
+            APX_LOGW("9511 服务端握手失败：读令牌长度头失败（对端 {}，5s 超时或提前断开）", peerIp);
+            closeSock(s); resetClientFor(s); return;
+        }
         const uint32_t tokLen = readU32Le(hdr);
-        if (tokLen > 256) { closeSock(s); resetClientFor(s); return; }
+        if (tokLen > 256) {
+            APX_LOGW("9511 服务端握手失败：令牌长度非法（{} 字节，对端 {}）", tokLen, peerIp);
+            closeSock(s); resetClientFor(s); return;
+        }
         bool ok = true;
+        const char* rejectReason = nullptr;
         if (tokLen > 0) {
             std::vector<uint8_t> buf(tokLen);
-            if (!readFull(s, buf.data(), tokLen)) { ok = false; }
-            else if (!token.empty() && std::string(buf.begin(), buf.end()) != token) ok = false;
+            if (!readFull(s, buf.data(), tokLen)) { ok = false; rejectReason = "读令牌体失败"; }
+            else if (!token.empty() && std::string(buf.begin(), buf.end()) != token) { ok = false; rejectReason = "令牌不匹配"; }
         } else if (!token.empty()) {
             // link-hardening（与 android/shared ControlServer v-fix 同修法）：服务端配了
             // 令牌，对端却发空令牌（tokLen=0）—— 旧实现整段校验被跳过直接放行，等于
@@ -382,8 +391,12 @@ struct Ctrl9511Server::Impl {
             // 显式拒绝；v223.29.109 起装配处启用持久化配对令牌（TOFU），本分支即空令牌
             // 旁路的强制拒绝路径。
             ok = false;
+            rejectReason = "对端发空令牌";
         }
-        if (!ok) { closeSock(s); resetClientFor(s); return; }
+        if (!ok) {
+            APX_LOGW("9511 服务端握手拒绝：{}（对端 {}）—— 连接关闭", rejectReason ? rejectReason : "校验失败", peerIp);
+            closeSock(s); resetClientFor(s); return;
+        }
 #if defined(_WIN32)
         DWORD z = 0;
 #else
