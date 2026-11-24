@@ -1,0 +1,62 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 42%] Built target apxpc_discovery
+[ 47%] Built target apxpc_sensors
+[ 76%] Built target apxpc_service
+[ 77%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:91:13: error: use of undeclared identifier 'APX_LOGI'
+   91 |             APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
+      |             ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:100:13: error: use of undeclared identifier 'APX_LOGI'
+  100 |             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
+      |             ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:102:9: error: use of undeclared identifier 'APX_LOGI'
+  102 |         APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
+      |         ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:168:17: error: use of undeclared identifier 'APX_LOGI'
+  168 |                 APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+      |                 ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:180:13: error: use of undeclared identifier 'APX_LOGI'
+  180 |             APX_LOGI("跨屏扩展：焦点切回电脑");
+      |             ^~~~~~~~
+5 errors generated.
+make[3]: *** [CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_wireless.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_wireless.dir/all] Error 2
+[ 84%] Built target apxpc_localsend
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 42%] Built target apxpc_discovery
+[ 47%] Built target apxpc_sensors
+[ 76%] Built target apxpc_service
+[ 77%] Building OBJCXX object CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:91:13: error: use of undeclared identifier 'APX_LOGI'
+   91 |             APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
+      |             ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:100:13: error: use of undeclared identifier 'APX_LOGI'
+  100 |             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
+      |             ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:102:9: error: use of undeclared identifier 'APX_LOGI'
+  102 |         APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
+      |         ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:168:17: error: use of undeclared identifier 'APX_LOGI'
+  168 |                 APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+      |                 ^~~~~~~~
+/Users/runner/work/apx-android/apx-android/pc/host/src/wireless/input_capture_mac.mm:180:13: error: use of undeclared identifier 'APX_LOGI'
+  180 |             APX_LOGI("跨屏扩展：焦点切回电脑");
+      |             ^~~~~~~~
+5 errors generated.
+make[3]: *** [CMakeFiles/apxpc_wireless.dir/src/wireless/input_capture_mac.mm.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_wireless.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_wireless.dir/all] Error 2
+[ 84%] Built target apxpc_localsend
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
