@@ -6,6 +6,8 @@
 
 #if defined(__APPLE__)
 
+#include "apxpc/log.hpp"
+
 #include <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 
