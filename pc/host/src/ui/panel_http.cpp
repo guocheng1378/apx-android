@@ -8,6 +8,7 @@
 //                               流式落盘到互传目录后进 LocalSend 发送队列（浏览器拿不到系统文件对话框，
 //                               只能这么送；响应是 upload-response，发送结果仍走 on-localsend-sent 事件）
 //   POST /api/open-file       → {"kind":"open-file-response","ok":false}（浏览器沙箱拿不到系统路径；前端 http 模式已自行拒绝，此处兕底）
+//   GET  /api/camera.mjpg     → 投屏画面 MJPEG 流（multipart/x-mixed-replace；独立线程推帧，见 streamCameraMjpeg）
 //   GET  /*                   → 静态 serve 前端 dist（exe 旁 web/，防目录穿越）
 //
 // 设计取舍：
@@ -246,6 +247,14 @@ static std::atomic<int64_t> g_camLastMs{0};  // steady ms 时间戳（0 = 尚无
 
 // 投屏到电脑：开关态在此自持（与 camera.toggle 同口径），画面走同一条 stream 6 收流链路
 static std::atomic<bool> g_screenMirrorOn{false};
+
+// —— 浏览器端投屏渲染（MJPEG）——
+// 收流回调把最新 JPEG 存这里，/api/camera.mjpg 的流线程取走推给前端 <img>。
+// 锁只护一帧的拷贝（几十~几百 KB，回调线程写、流线程读各一次，开销可忽略）。
+static std::mutex g_camFrameMu;
+static std::string g_camFrameJpeg;             // 最新一帧完整 JPEG（空 = 尚无帧）
+static std::condition_variable g_camFrameCv;   // 有新帧时唤醒流线程（去重后即时推）
+static std::atomic<bool> g_httpAlive{false};   // 面板在跑标志：MJPEG 流线程的退出开关
 
 // JPEG SOF 段尺寸（手机侧只出 SOF0 基线；逐段扫到 SOF 即止，失败留 0）
 static bool jpegDims(const uint8_t* p, size_t n, int& w, int& h) {
@@ -1653,6 +1662,59 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
     respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
 }
 
+// ——— 浏览器端投屏渲染：GET /api/camera.mjpg（MJPEG multipart 流）———
+// 关键约束（文件头「设计取舍」）：accept 循环单线程同步处理请求，长连接绝不能占着
+// accept 线程 —— 否则 /api/state 轮询全部饿死。handleConnection 把 fd 甩进本函数的
+// 独立线程；线程只碰全局帧持有与 fd，不碰 HttpPanel（面板退出时栈对象先亡，悬空
+// 不可解引用）。退出路径有两条：客户端断开（send 失败）或面板收尾置 g_httpAlive=false
+//（wait_for 最多 2s 后醒来退出），进程随后退出，线程不会越过面板生命周期。
+void streamCameraMjpeg(int fd) {
+    // 可判错的 send（writeAll 无返回值，检测不到客户端断开）
+    const auto sendAll = [&](const char* data, size_t n) -> bool {
+        size_t off = 0;
+        while (off < n) {
+            const ssize_t w = ::send(fd, data + off, n - off, MSG_NOSIGNAL);
+            if (w <= 0) return false;
+            off += static_cast<size_t>(w);
+        }
+        return true;
+    };
+    const std::string hdr =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: multipart/x-mixed-replace; boundary=apxcamframe\r\n"
+        "Cache-Control: no-store\r\n"
+        "Connection: close\r\n"
+        "\r\n";
+    if (!sendAll(hdr.data(), hdr.size())) {
+        ::close(fd);
+        return;
+    }
+    std::string lastSent;   // 去重：无新帧不重复推，<img> 解码频率=实际帧率
+    while (g_httpAlive.load(std::memory_order_relaxed)) {
+        std::string frame;
+        {
+            std::unique_lock<std::mutex> lk(g_camFrameMu);
+            // 最多等 2s：投屏未开/无新帧时给断开检测留节拍（客户端断了也能退出）
+            g_camFrameCv.wait_for(lk, std::chrono::seconds(2), [&] {
+                return !g_camFrameJpeg.empty() && g_camFrameJpeg != lastSent;
+            });
+            if (!g_camFrameJpeg.empty() && g_camFrameJpeg != lastSent)
+                frame = g_camFrameJpeg;
+        }
+        if (frame.empty()) continue;
+        lastSent = frame;
+        std::string part;
+        part.reserve(frame.size() + 96);
+        part += "--apxcamframe\r\nContent-Type: image/jpeg\r\nContent-Length: ";
+        part += std::to_string(frame.size());
+        part += "\r\n\r\n";
+        part += frame;
+        part += "\r\n";
+        if (!sendAll(part.data(), part.size())) break;   // 客户端断开/写失败 → 收摊
+    }
+    ::close(fd);
+}
+
 void handleConnection(HttpPanel* p, int fd) {
     timeval tv{5, 0};
     ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -1730,6 +1792,12 @@ void handleConnection(HttpPanel* p, int fd) {
         r["id"] = idStr;
         r["ok"] = false;
         respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+    } else if (req.method == "GET" && req.path == "/api/camera.mjpg") {
+        // 浏览器端投屏渲染（mac/Linux HTTP 面板）：MJPEG 长连接甩独立线程流式推，
+        // fd 移交流线程所有 —— 此处 return，不走函数末尾的 close（否则双重关闭）。
+        // Windows 不受影响：web_panel（WebView2 壳）不编译本文件，路由天然不存在。
+        std::thread(streamCameraMjpeg, fd).detach();
+        return;
     } else if (req.method == "GET") {
         serveStatic(p, fd, req.path);
     } else {
@@ -1770,6 +1838,7 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     }
     g_hp = &panel;
     panel.running.store(true);
+    g_httpAlive.store(true);   // MJPEG 流线程的退出开关随面板启停
 
     // 启动时同步 autostart（runWebPanel 同款；mac=LaunchAgent plist 补写）
     if (panel.bundle.cfg && panel.bundle.cfg->autostart) {
@@ -1876,6 +1945,13 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
                     std::chrono::steady_clock::now().time_since_epoch() /
                         std::chrono::milliseconds(1),
                     std::memory_order_relaxed);
+                // 浏览器端渲染（本批新增）：帧存入全局最新帧持有，/api/camera.mjpg
+                // 的流线程取走推给 <img>。此前帧到此即弃（无消费者），面板只有计数。
+                {
+                    std::lock_guard<std::mutex> lk(g_camFrameMu);
+                    g_camFrameJpeg.assign(reinterpret_cast<const char*>(body), len);
+                }
+                g_camFrameCv.notify_all();
             }
         });
     }
@@ -1990,6 +2066,8 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     }
 
     // —— 清理：只 join 本文件创建的线程；宿主对象生命周期在调用方 ——
+    g_httpAlive.store(false);   // 唤醒 MJPEG 流线程收摊（wait_for 最多 2s 后退出）
+    g_camFrameCv.notify_all();
     ::close(lfd);
     panel.ctrlSrv.stop();   // 9511 受控端 + APX1PC 信标广播停止
     // 互传接收端也停掉：它的回调会 pushEvent，面板都撤了就不该再往里写

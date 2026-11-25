@@ -322,6 +322,23 @@ export const Display: React.FC<Props> = ({ state }) => {
             </div>
           )}
 
+          {mirrorOn && bridge.mode === 'http' && (
+            <div style={{ padding: '0 16px 14px' }}>
+              {/*
+                浏览器面板（mac/Linux）画面渲染：原生预览窗仅 Windows 编译，
+                mac/Linux 的画面此前只收流计数、无消费者。宿主现已提供
+                /api/camera.mjpg（MJPEG multipart 流），<img> 直连即播；
+                关掉投屏开关时本节点卸载，浏览器断开连接，宿主流线程随之收摊。
+                Windows 走 webview 传输（原生预览窗），不渲染此节点，避免双画面。
+              */}
+              <img
+                src="/api/camera.mjpg"
+                alt="手机屏幕投屏"
+                style={{ width: '100%', display: 'block', borderRadius: 8, background: '#000' }}
+              />
+            </div>
+          )}
+
           {mirror.err && (
             <div style={{ padding: '0 16px 14px' }}>
               <Notice tone="err" icon={<IconAlert size={17} />} title="开关失败">
