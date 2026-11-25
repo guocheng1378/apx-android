@@ -241,18 +241,22 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
           />
           {/* 工作模式（2026-11-24 跨屏扩展，issue#171 报告人需求）：
               镜像同步 = 两端同时响应（现状）；跨屏独占 = 鼠标推到屏幕右缘切到手机，
-              电脑不再响应，往回移切回电脑 —— 点击不再误触电脑内容。 */}
+              电脑不再响应，往回移切回电脑 —— 点击不再误触电脑内容。
+              Linux 端 evdev 捕获层只读、吞不掉本机事件，跨屏独占实际不生效
+              （2026-11-25 补）：选项置灰并说明，避免切过去后行为与预期不符又无提示。 */}
           <Row
             title="工作模式"
             sub={
-              crossMode === 'cross'
-                ? '跨屏独占：鼠标抵住屏幕右缘推一下切到手机，电脑不再响应；往回拉切回电脑'
-                : '镜像同步：电脑与手机同时响应（点击两边都生效）'
+              platform === 'linux'
+                ? 'Linux 系统限制：暂不支持跨屏独占（输入无法独占拦截），保持镜像同步'
+                : crossMode === 'cross'
+                  ? '跨屏独占：鼠标抵住屏幕右缘推一下切到手机，电脑不再响应；往回拉切回电脑'
+                  : '镜像同步：电脑与手机同时响应（点击两边都生效）'
             }
             trail={
               <Segmented
                 value={crossMode}
-                disabled={!inputMirror.on}
+                disabled={!inputMirror.on || platform === 'linux'}
                 onChange={(v) => {
                   setCrossMode(v);
                   acts
