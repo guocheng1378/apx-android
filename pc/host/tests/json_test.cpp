@@ -41,8 +41,8 @@ static void testSurrogatePairs() {
 // 2) 大数：手搓版 %.6g 会把 12345678901 变 1.23457e+10
 static void testBigNumbers() {
     Json j = Json::parse("{\"size\":12345678901,\"small\":42,\"frac\":0.5}");
-    CHECK_EQ(j.find("size")->asString() == std::string() ? "" : std::to_string((long long)j.find("size")->asNumber()),
-             std::string("12345678901"));
+    // size 是数字字段，asString() 恒为空串——直接取 asNumber 转整型比对
+    CHECK_EQ(std::to_string((long long)j.find("size")->asNumber()), std::string("12345678901"));
     CHECK_EQ(std::to_string((long long)j.find("small")->asNumber()), std::string("42"));
     // 序列化往返：大数不得变科学计数法
     Json m = Json::makeObject();
