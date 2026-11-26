@@ -107,6 +107,11 @@ public:
     /// on=true 时若当前已 Connected 则立即启动镜像。线程安全（内部持 mu_，与 publish 同口径）。
     void setInputMirrorEnabled(bool on);
 
+    /// 镜像开关的**实际生效状态**（issue#172 反馈「开关开着功能没启用」）：
+    /// 镜像启动失败（macOS 无辅助功能等）时会话侧把开关位回退为 false，
+    /// 面板状态读这里而不是配置文件，避免「假开」。线程安全（atomic 读）。
+    bool inputMirrorEnabledActual() const { return inputMirrorEnabled_.load(std::memory_order_relaxed); }
+
     /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24）：
     /// on=false 镜像同步（默认，两端同时响应）；on=true 跨屏独占（鼠标推到屏幕右缘
     /// 切到手机，本机输入被吞掉独占发手机；往回移切回电脑）。对已建镜像即时生效；

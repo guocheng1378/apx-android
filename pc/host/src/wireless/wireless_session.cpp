@@ -545,8 +545,11 @@ void WirelessSession::publish(LinkPhase ph, Mode m) {
         } else {
             // Windows 钩子失败 / Linux 无 root / macOS 无辅助功能授权：如实记日志后退回
             // 无镜像状态（与旧行为一致），不影响连接与其它功能。
+            // issue#172 反馈「开关开着功能没启用」：启动失败同时把开关位回退为 false，
+            // 面板经 inputMirrorEnabledActual() 读到的就是真实状态，不再假开。
             APX_LOGW("键鼠镜像启动失败：Windows 需消息钩子；macOS 需辅助功能；Linux 需 root");
             inputMirror_.reset();
+            inputMirrorEnabled_.store(false, std::memory_order_relaxed);
         }
     } else if (changed && ph != LinkPhase::Connected && inputMirror_) {
         inputMirror_->stop();
@@ -627,6 +630,9 @@ void WirelessSession::setInputMirrorEnabled(bool on) {
         } else {
             APX_LOGW("键鼠镜像启动失败：Windows 需消息钩子；macOS 需辅助功能；Linux 需 root");
             inputMirror_.reset();
+            // issue#172 反馈「开关开着功能没启用」：与 publish 路径同口径，失败回退开关位，
+            // 面板显示真实状态（配置文件里的期望值不动，重启后用户可再试）。
+            inputMirrorEnabled_.store(false, std::memory_order_relaxed);
         }
     }
 }

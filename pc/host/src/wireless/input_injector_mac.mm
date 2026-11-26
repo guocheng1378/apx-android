@@ -13,6 +13,8 @@
 #include "apxpc/log.hpp"
 // 授权身份判断用 exe 路径（.app 内 vs 裸二进制）。
 #include "apxpc/autostart.hpp"
+// 注入事件打标（issue#171 回环第二道防线）：魔数与捕获器共用。
+#include "input_echo_tag.hpp"
 
 #if defined(__APPLE__)
 
@@ -142,6 +144,16 @@ long long steadyMsNow() {
 }
 std::atomic<long long> g_clipSuppressMs{0};
 
+// ---------- 注入事件打标（issue#171 回环第二道防线）----------
+// post 前给事件打 kCGEventSourceUserData 魔数：捕获器 tap 见标即识别为本进程注入，
+// 不再回传手机。kCGEventSourceUnixProcessID 在 HID tap 阶段可能被系统改写
+// （223.41 实测镜像开启仍回环），UserData 随事件对象原样到达 tap，更可靠。
+constexpr int64_t kSelfInjectTag = apx::kSelfInjectTag;
+inline void postTagged(CGEventRef e) {
+    CGEventSetIntegerValueField(e, kCGEventSourceUserData, kSelfInjectTag);
+    CGEventPost(kCGHIDEventTap, e);
+}
+
 // ---------- 光标定位 / 显示器并集 / 拖动事件类型（issue #47 第 6 条）----------
 // 这里三个都是 injectMouse 的支撑：读当前光标、算出夹取范围、决定投递哪种事件。
 
@@ -238,14 +250,14 @@ public:
                                                    moveButton(kind));
             CGEventSetIntegerValueField(e, kCGMouseEventDeltaX, dx);
             CGEventSetIntegerValueField(e, kCGMouseEventDeltaY, dy);
-            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+            postTagged(e); CFRelease(e);
         }
         if (wheel || pan) {
             // 轴数 2 = (垂直, 水平)。CGEventCreateScrollWheelEvent 是变参函数：
             // axisCount 给几个，后面就按顺序读几个 int32 —— 常量 1 的老写法只能带垂直。
             CGEventRef e = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine,
                                                          2, wheel, pan);
-            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+            postTagged(e); CFRelease(e);
         }
     }
 
@@ -261,7 +273,7 @@ public:
             const bool was = (mouseButtons_ & t.bit) != 0, now = (buttons & t.bit) != 0;
             if (was == now) continue;
             CGEventRef e = CGEventCreateMouseEvent(nullptr, now ? t.down : t.up, at, t.btn);
-            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+            postTagged(e); CFRelease(e);
         }
         mouseButtons_ = buttons;
     }
@@ -277,7 +289,7 @@ public:
         CGEventType type = (action == kDown) ? kCGEventLeftMouseDown
                         : (action == kUp) ? kCGEventLeftMouseUp : kCGEventMouseMoved;
         CGEventRef e = CGEventCreateMouseEvent(nullptr, type, pos, kCGMouseButtonLeft);
-        CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+        postTagged(e); CFRelease(e);
     }
 
     void injectKeyboard(uint8_t mod, const uint8_t* keys, size_t count) override {
@@ -299,7 +311,7 @@ public:
             CGKeyCode kc = static_cast<CGKeyCode>(modMap[bit]);
             CGEventRef e = CGEventCreateKeyboardEvent(nullptr, kc, now);
             CGEventSetFlags(e, flags);
-            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+            postTagged(e); CFRelease(e);
         }
         for (uint8_t i = 0; i < 6; ++i) {
             const uint8_t k = kbKeys_[i]; if (!k) continue;
@@ -324,7 +336,7 @@ public:
         for (const auto type : {kCGEventRightMouseDown, kCGEventRightMouseUp}) {
             CGEventRef e = CGEventCreateMouseEvent(nullptr, type, p, kCGMouseButtonRight);
             if (!e) continue;
-            CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+            postTagged(e); CFRelease(e);
         }
     }
 
@@ -360,7 +372,7 @@ public:
         if (cgKey < 0) return;
         CGEventRef e = CGEventCreateKeyboardEvent(nullptr, static_cast<CGKeyCode>(cgKey), down);
         CGEventSetFlags(e, flags);
-        CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+        postTagged(e); CFRelease(e);
     }
 
     /// Ctrl+滚轮一格：捏合缩放的 macOS 降级通道（issue#169 #11）。
@@ -369,7 +381,7 @@ public:
     void postCtrlScroll(int dir) {
         CGEventRef e = CGEventCreateScrollWheelEvent(nullptr, kCGScrollEventUnitLine, 1, dir);
         CGEventSetFlags(e, kCGEventFlagMaskControl);
-        CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+        postTagged(e); CFRelease(e);
     }
 
     void injectConsumer(uint16_t bitmap) override {
@@ -600,7 +612,7 @@ static int vkToMacKey(uint8_t vk) {
 static void postVk(int cgKey, bool down) {
     if (cgKey < 0) return;
     CGEventRef e = CGEventCreateKeyboardEvent(nullptr, static_cast<CGKeyCode>(cgKey), down);
-    CGEventPost(kCGHIDEventTap, e);
+    postTagged(e);
     CFRelease(e);
 }
 
@@ -655,10 +667,10 @@ bool injectSystemText(const std::string& text) {
                 // 注意签名：(event, UniCharCount 长度, const UniChar* 字符串) —— 长度在第 2 参
                 CGEventRef e = CGEventCreateKeyboardEvent(nullptr, 0, true);
                 CGEventKeyboardSetUnicodeString(e, 1, &u);
-                CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+                postTagged(e); CFRelease(e);
                 e = CGEventCreateKeyboardEvent(nullptr, 0, false);
                 CGEventKeyboardSetUnicodeString(e, 1, &u);
-                CGEventPost(kCGHIDEventTap, e); CFRelease(e);
+                postTagged(e); CFRelease(e);
             }
             return true;
         }

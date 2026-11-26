@@ -373,7 +373,10 @@ void buildState(const HostBundle& b, Json& out) {
         cfg["adaptiveBitrate"] = b.cfg->displayAdaptive;
         cfg["bitrateMbps"] = static_cast<double>(b.cfg->displayBitrateMbps);
         // 键鼠镜像总开关（issue#171 #3）：前端据此回显「连上即镜像键鼠」开关。
-        cfg["inputMirror"] = b.cfg->inputMirrorEnabled;
+        // issue#172 反馈「开关开着功能没启用」：读会话实际状态 —— 启动失败时
+        // 会话侧已回退为 false，面板如实显示，不再按配置文件假开。
+        cfg["inputMirror"] = b.session ? b.session->inputMirrorEnabledActual()
+                                       : b.cfg->inputMirrorEnabled;
         // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：前端据此回显「镜像同步 / 跨屏独占」。
         cfg["inputCross"] = b.cfg->inputCrossMode;
         cfg["screenMode"] = static_cast<double>(b.cfg->displayEnabled ? 1 : 0);
@@ -942,21 +945,27 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
     }
 
     // —— 媒体档位（issue#171 #2，0x4E）：面板改投屏/摄像头的分辨率与画质档位 ——
-    //    payload={id:"screenmirror"|"camera", w:目标宽(0=原生), q:JPEG画质}。
+    //    payload={id:"screenmirror"|"camera", w:目标宽(0=原生), q:JPEG画质,
+    //             facing:0后置/1前置（仅摄像头，可选，issue#171 反馈补前后切换）}。
     //    下发失败如实报错；手机端落盘 prefs 并即时应用（投屏逐帧、摄像头重绑）。
     if (name == "media.config") {
         auto* vid = payload.find("id");
         auto* vw = payload.find("w");
         auto* vq = payload.find("q");
+        auto* vf = payload.find("facing");
         const std::string mid = vid ? vid->asString() : "";
         if (mid != "screenmirror" && mid != "camera")
             return postResponse(p, id, failResp("媒体档位 id 非法（应为 screenmirror/camera）"));
         const int w = vw ? vw->asInt(0) : 0;
         const int q = vq ? vq->asInt(0) : 0;
-        if (w < 0 || q < 1 || q > 100)
-            return postResponse(p, id, failResp("媒体档位取值非法（w>=0，q 1..100）"));
-        char json[64];
-        std::snprintf(json, sizeof(json), "{\"w\":%d,\"q\":%d}", w, q);
+        const int facing = vf ? vf->asInt(-1) : -1;   // 缺省 -1 = 不改前后
+        if (w < 0 || q < 1 || q > 100 || !(facing == -1 || facing == 0 || facing == 1))
+            return postResponse(p, id, failResp("媒体档位取值非法（w>=0，q 1..100，facing 0/1）"));
+        char json[96];
+        if (facing == -1)
+            std::snprintf(json, sizeof(json), "{\"w\":%d,\"q\":%d}", w, q);
+        else
+            std::snprintf(json, sizeof(json), "{\"w\":%d,\"q\":%d,\"facing\":%d}", w, q, facing);
         const bool sent = b.session && b.session->sendMediaConfig(mid, json);
         if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发媒体档位"));
         Json d = Json::makeObject();

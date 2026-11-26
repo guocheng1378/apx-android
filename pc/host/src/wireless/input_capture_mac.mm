@@ -12,6 +12,8 @@
 #import <Foundation/Foundation.h>
 
 #include <unistd.h>   // getpid：回声过滤见 tapCb
+// 注入事件魔数（issue#171 回环第二道防线）：与注入器共用。
+#include "input_echo_tag.hpp"
 
 #include <thread>
 #include <atomic>
@@ -254,6 +256,13 @@ private:
         // 形成输入回声（与 Windows 端 LLMHF_INJECTED 过滤同口径）。物理事件的来源
         // 进程是 HID 系统态，不会等于本进程 PID，照常转发。
         if (CGEventGetIntegerValueField(e, kCGEventSourceUnixProcessID) == getpid()) {
+            return e;
+        }
+        // 二级回声过滤（issue#171 回环第二道防线）：223.41 实测镜像开启仍回环 ——
+        // HID tap 阶段 kCGEventSourceUnixProcessID 可能被系统改写，PID 过滤漏网。
+        // 注入器 post 前已打 kCGEventSourceUserData 魔数（input_echo_tag.hpp），
+        // 见标即为本进程注入：照常透传本机（返回 e），但不转发回手机。
+        if (CGEventGetIntegerValueField(e, kCGEventSourceUserData) == apx::kSelfInjectTag) {
             return e;
         }
         // 物理鼠标键状态跨模式跟踪（tap 线程专用）：进入跨屏焦点前据此确认没有
