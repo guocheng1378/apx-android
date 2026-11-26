@@ -51,6 +51,9 @@ android {
             applicationIdSuffix = ".lite"
             versionNameSuffix = "-lite"
             buildConfigField("boolean", "APX_LITE", "true")
+            // issue#172 反馈：Lite 只改了包名，桌面图标仍叫「全能外设」，并装时分不清。
+            // resValue 生成资源优先级高于 src/main，直接覆盖 app_name；full 不受影响。
+            resValue("string", "app_name", "全能外设 Lite")
         }
     }
 
