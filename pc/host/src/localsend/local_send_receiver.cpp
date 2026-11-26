@@ -590,12 +590,13 @@ struct LocalSendReceiver::Impl {
             return;
         }
         // 没有 Content-Length 就不知道边界，不能猜着读（会把后续请求当文件内容）
-        if (!req.has_header("Content-Length") || req.content_length == 0) {
+        const uint64_t contentLength =
+            std::strtoull(req.get_header_value("Content-Length").c_str(), nullptr, 10);
+        if (!req.has_header("Content-Length") || contentLength == 0) {
             APX_LOGW("LocalSend upload 缺少 Content-Length，已拒绝：{}", path.c_str());
             res.status = 400;
             return;
         }
-        const uint64_t contentLength = req.content_length;
         if (declaredSize != 0 && declaredSize != contentLength) {
             APX_LOGW("LocalSend upload 长度与清单不符（清单 {}，实到 {}）：{}",
                      static_cast<unsigned long long>(declaredSize),
