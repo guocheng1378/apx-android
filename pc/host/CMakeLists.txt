@@ -566,6 +566,8 @@ elseif(APPLE)
   list(APPEND APXDESKTOP_SRC "${APXPC_ROOT}/src/ui/panel_http.cpp")
 endif()
 add_executable(apxdesktop ${APXDESKTOP_SRC})
+# mac 的 apxdesktop 也把 panel_http.cpp 编进 exe（同 apxhost），httplib 头路径同款补一份
+target_include_directories(apxdesktop PRIVATE "${APXPC_ROOT}/third_party/cpp-httplib")
 
 if(APXPC_BUILD_UI AND APXPC_BUILD_UI_WEBVIEW2 AND WIN32)
   target_link_libraries(apxdesktop PRIVATE apxpc_webpanel apxpc_wireless apxpc_media apxpc_screen apxpc_service apxpc_core apxpc_localsend)
