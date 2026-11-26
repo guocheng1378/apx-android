@@ -63,8 +63,11 @@ nlohmann::json toNlohmann(const Json& j) {
 }  // namespace
 
 std::string Json::stringify(int indent) const {
-    // indent 语义与手搓版一致：0 = 紧凑单行；>0 = 每层缩进 indent 个空格
-    return toNlohmann(*this).dump(indent);
+    // indent 语义与手搓版一致：0 = 紧凑单行；>0 = 每层缩进 indent 个空格。
+    // nlohmann 的 dump() 里 -1 才是紧凑单行；0 是「换行但零缩进」的 pretty 模式，
+    // 且冒号后带空格（"key": value）——上笔 CI 红的根因：所有 HTTP 响应体都变成
+    // 多行 pretty JSON，测试里裸字符串查找 "\"key\":\"" 全部落空。这里把 0 映射回 -1。
+    return toNlohmann(*this).dump(indent == 0 ? -1 : indent);
 }
 
 // 解析：失败返回 isNull()==true 且 err 被设置；成功返回根对象（与手搓版语义一致）

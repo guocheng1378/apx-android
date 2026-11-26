@@ -399,7 +399,7 @@ jobs:
         shell: pwsh
         run: |
           cmake --build build_host --config Release --target `
-            arbiter_test utf16_convert_test ctrl_frame_test relative_move_test `
+            json_test arbiter_test utf16_convert_test ctrl_frame_test relative_move_test `
             gamepad_fallback_test phone_mode_test tcp_probe_test `
             wireless_session_lifecycle_test localsend_protocol_test `
             localsend_upload_test localsend_sender_test ball_registry_test 2>&1 | `
