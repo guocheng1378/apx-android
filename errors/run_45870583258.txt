@@ -1,0 +1,28 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_discovery
+[ 38%] Built target apxpc_sensors
+[ 66%] Built target apxpc_service
+[ 73%] Built target apxpc_localsend
+[ 82%] Built target apxpc_media
+[ 95%] Built target apxpc_wireless
+[100%] Built target apxhost
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_discovery
+[ 38%] Built target apxpc_sensors
+[ 66%] Built target apxpc_service
+[ 73%] Built target apxpc_localsend
+[ 82%] Built target apxpc_media
+[ 95%] Built target apxpc_wireless
+[ 96%] Building CXX object CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/ui/panel_http.cpp:70:10: fatal error: 'httplib.h' file not found
+   70 | #include <httplib.h>
+      |          ^~~~~~~~~~~
+1 error generated.
+make[3]: *** [CMakeFiles/apxdesktop.dir/src/ui/panel_http.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxdesktop.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxdesktop.dir/all] Error 2
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
