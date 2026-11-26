@@ -109,6 +109,7 @@ public:
         // 跨屏独占：若停在「手机焦点」里，退出焦点即可。光标全程停在进入点（屏幕
         // 右缘，本就在屏内），无需归位动作。
         if (focused_.exchange(false)) {
+            releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
         }
     }
@@ -118,6 +119,7 @@ public:
     void setCrossMode(bool on) override {
         crossMode_.store(on, std::memory_order_relaxed);
         if (!on && focused_.exchange(false)) {
+            releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
         }
         APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
@@ -135,12 +137,16 @@ public:
                 } else if (x > lastX_ || edgeFirstMs_ == 0) {
                     edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
                 }
-                // 光标被屏幕钳在边缘后 pt 不再变化，但系统仍持续上报移动事件 ——
                 // 「抵边后仍连续收到事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
-                if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs) {
+                // 有鼠标键按住时不进入焦点：否则其抬起事件会被吞掉转发到手机，
+                // 电脑端会卡在拖拽/窗口编辑状态（issue#171 Mac 端同款问题）。
+                // 按住期间不进入也不重置驻留，松开后下一个抵缘事件即可进入。
+                if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs &&
+                    physButtons_ == 0) {
                     edgeFirstMs_ = 0;
                     focused_.store(true, std::memory_order_relaxed);
                     entryX_ = x; entryY_ = y;
+                    focusedEnterMs_ = nowMs();
                     APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
                     if (lastX_ >= 0)
                         client_->sendMouse(mouseButtons_, clamp8(x - lastX_), clamp8(y - lastY_), 0);
@@ -154,10 +160,13 @@ public:
             // 始终从进入点起算（pt = 进入点 + 本次原始位移），pt-进入点即真实位移，
             // 不依赖任何「泊点」假设。
             const int dx = x - entryX_, dy = y - entryY_;
-            if (dx <= -kExitPx) {
+            // 进入后的短宽限：手仍在向右推、回拉抖动不应立刻退焦点（issue#171 Mac 端
+            // 实测 46–143ms 即被切回）；宽限期内照常向手机转发位移，但不做回切判定。
+            if (nowMs() - focusedEnterMs_ >= kExitGraceMs && dx <= -kExitPx) {
                 // 往回拉过阈值 = 切回电脑：本事件放行，光标顺势落到屏内 48px 处。
                 focused_.store(false, std::memory_order_relaxed);
                 APX_LOGI("跨屏扩展：焦点切回电脑");
+                releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
                 lastX_ = x; lastY_ = y;
                 return false;
             }
@@ -179,6 +188,9 @@ public:
         return false;
     }
     bool onButton(uint8_t bit, bool down) {
+        // 物理鼠标键状态跨模式跟踪（钩子线程专用）：进入跨屏焦点前据此确认没有
+        // 按住的键。注入事件已在钩子层按 LLMHF_INJECTED 过滤，到达这里的都是物理事件。
+        if (down) physButtons_ |= bit; else physButtons_ &= (uint8_t)~bit;
         if (crossMode_.load(std::memory_order_relaxed))
             return forwardIfFocused([&] {
                 if (down) mouseButtons_ |= bit; else mouseButtons_ &= ~bit;
@@ -203,6 +215,20 @@ private:
         if (!focused_.load(std::memory_order_relaxed)) return false;
         fn();
         return true;
+    }
+    // 退焦点/停止/切模式时，把已转发到手机的鼠标按下与键盘按键全部松开，
+    // 避免手机端按键悬挂（对应的物理抬起事件在退焦点后走透传，不会再转发）。
+    void releaseForwardedState() {
+        if (mouseButtons_) {
+            mouseButtons_ = 0;
+            client_->sendMouse(0, 0, 0, 0);
+        }
+        if (modMask_ || count_ > 0) {
+            modMask_ = 0;
+            count_ = 0;
+            for (auto& k : keys_) k = 0;
+            client_->sendKeyboard(0, keys_, 0);
+        }
     }
     void sendKey(int usage, bool down) {
         if (usage >= 0xE0 && usage <= 0xE7) {
@@ -247,8 +273,11 @@ private:
     std::atomic<bool> focused_{false};
     int entryX_ = 0, entryY_ = 0;    // 进入焦点时的光标位置（位移原点）
     int64_t edgeFirstMs_ = 0;        // 首次抵右缘的时刻（驻留判定，0=不在边缘）
+    int64_t focusedEnterMs_ = 0;     // 进入焦点的时刻（回切宽限判定，钩子线程专用）
+    uint8_t physButtons_ = 0;        // 物理鼠标键按下位图（跨模式跟踪，钩子线程专用）
     static constexpr int kExitPx = 48;      // 向回拉 48px 视为切回电脑
     static constexpr int64_t kEdgeDwellMs = 250;  // 抵缘持续 250ms 才进入，防误触
+    static constexpr int64_t kExitGraceMs = 300;  // 进入后 300ms 内不做回切判定，防回拉抖动误退
 
     static LRESULT CALLBACK msProc(int n, WPARAM w, LPARAM l) {
         if (n >= 0 && g_self) {

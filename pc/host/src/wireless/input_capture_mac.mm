@@ -90,6 +90,7 @@ public:
         // 跨屏独占：若停在「手机焦点」里，退出焦点即可。光标全程停在进入点
         //（屏幕右缘，本就在屏内），无需归位动作。
         if (focused_.exchange(false)) {
+            releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：停止捕获，焦点交回电脑");
         }
     }
@@ -99,6 +100,7 @@ public:
     void setCrossMode(bool on) override {
         crossMode_.store(on, std::memory_order_relaxed);
         if (!on && focused_.exchange(false)) {
+            releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
         }
         APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
@@ -165,21 +167,35 @@ private:
             }
             // 「抵边后仍连续收到移动事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
             if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs) {
-                edgeFirstMs_ = 0;
-                focused_.store(true, std::memory_order_relaxed);
-                APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
-                onMove((int)dx, (int)dy);   // 进入位移照发（手感连续）
-                return true;   // 吞掉
+                // 有鼠标键按住时不进入焦点：否则其抬起事件会被吞掉转发到手机，
+                // Mac 端会卡在拖拽/窗口编辑状态（issue#171「卡在窗口编辑状态」）。
+                // 按住期间不进入也不重置驻留，松开后下一个抵缘事件即可进入。
+                if (physButtons_ == 0) {
+                    edgeFirstMs_ = 0;
+                    focused_.store(true, std::memory_order_relaxed);
+                    accumDx_ = 0;
+                    focusedEnterMs_ = nowMs();
+                    APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+                    onMove((int)dx, (int)dy);   // 进入位移照发（手感连续）
+                    return true;   // 吞掉
+                }
             }
             return false;   // 未聚焦：透传，本机照常（不转发）
         }
         // 聚焦中：移动事件全部吞掉，光标停在进入点（屏幕右缘）不动；原始位移
         // 直接累计，向左越过阈值即切回电脑 —— 本事件放行，光标顺势往回走。
+        // issue#171 真机复盘（2026-11-26）：右向位移原先也累计进 accumDx_，向右推得
+        // 越多回切门槛被垫得越高，用户在 Mac 上怎么动都出不去（日志 68s 无回切，
+        // 只能关 Pad 被控解锁）；改为右向只清零不累计 —— 回切只认「从 0 起向左 48px」。
         accumDx_ += (int)dx;
-        if (accumDx_ <= -kExitPx) {
+        if (accumDx_ > 0) accumDx_ = 0;
+        // 进入后的短宽限：手仍在向右推、回拉抖动（实测 46–143ms 即被切回）不应
+        // 立刻退焦点；宽限期内照常向手机转发位移，但不做回切判定。
+        if (nowMs() - focusedEnterMs_ >= kExitGraceMs && accumDx_ <= -kExitPx) {
             focused_.store(false, std::memory_order_relaxed);
             accumDx_ = 0;
             APX_LOGI("跨屏扩展：焦点切回电脑");
+            releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             return false;   // 放行：光标随真实位移往回走
         }
         onMove((int)dx, (int)dy);
@@ -191,6 +207,20 @@ private:
         if (!focused_.load(std::memory_order_relaxed)) return false;
         fn();
         return true;
+    }
+    // 退焦点/停止/切模式时，把已转发到手机的鼠标按下与键盘按键全部松开，
+    // 避免手机端按键悬挂（对应的物理抬起事件在退焦点后走透传，不会再转发）。
+    void releaseForwardedState() {
+        if (mouseButtons_) {
+            mouseButtons_ = 0;
+            client_->sendMouse(0, 0, 0, 0);
+        }
+        if (modMask_ || count_ > 0) {
+            modMask_ = 0;
+            count_ = 0;
+            for (auto& k : keys_) k = 0;
+            client_->sendKeyboard(0, keys_, 0);
+        }
     }
 
 private:
@@ -209,10 +239,13 @@ private:
     // 竞态窗口最多丢一次位移，不影响正确性。
     std::atomic<bool> crossMode_{false};
     std::atomic<bool> focused_{false};
-    int accumDx_ = 0;           // 聚焦期间向左累计位移（退出判定）
+    int accumDx_ = 0;           // 聚焦期间向左累计位移（退出判定，右向清零不累计）
     int64_t edgeFirstMs_ = 0;   // 首次抵右缘的时刻（驻留判定，0=不在边缘）
+    int64_t focusedEnterMs_ = 0;  // 进入焦点的时刻（回切宽限判定，tap 线程专用）
+    uint8_t physButtons_ = 0;   // 物理鼠标键按下位图（跨模式跟踪，tap 线程专用）
     static constexpr int kExitPx = 48;            // 向回拉 48px 视为切回电脑
     static constexpr int64_t kEdgeDwellMs = 250;  // 抵缘持续 250ms 才进入，防误触
+    static constexpr int64_t kExitGraceMs = 300;  // 进入后 300ms 内不做回切判定，防回拉抖动误退
 
     static CGEventRef tapCb(CGEventTapProxy, CGEventType type, CGEventRef e, void* info) {
         auto* self = static_cast<MacCapturer*>(info);
@@ -222,6 +255,17 @@ private:
         // 进程是 HID 系统态，不会等于本进程 PID，照常转发。
         if (CGEventGetIntegerValueField(e, kCGEventSourceUnixProcessID) == getpid()) {
             return e;
+        }
+        // 物理鼠标键状态跨模式跟踪（tap 线程专用）：进入跨屏焦点前据此确认没有
+        // 按住的键。注入事件已在上方按 PID 过滤，到达这里的都是物理事件。
+        switch (type) {
+            case kCGEventLeftMouseDown:  physButtons_ |= 0x01; break;
+            case kCGEventLeftMouseUp:    physButtons_ &= (uint8_t)~0x01; break;
+            case kCGEventRightMouseDown: physButtons_ |= 0x02; break;
+            case kCGEventRightMouseUp:   physButtons_ &= (uint8_t)~0x02; break;
+            case kCGEventOtherMouseDown: physButtons_ |= 0x04; break;
+            case kCGEventOtherMouseUp:   physButtons_ &= (uint8_t)~0x04; break;
+            default: break;
         }
         // 跨屏独占：聚焦时吞掉一切已捕获事件（返回 NULL，本机收不到）；
         // 未聚焦时透传且不转发（电脑输入留在电脑）。镜像同步模式走原透传+转发路径。
