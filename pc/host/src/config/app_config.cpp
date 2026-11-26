@@ -112,7 +112,8 @@ AppConfig loadConfig(const std::string& path) {
 
     // 键鼠镜像（issue#171 #3 + 跨屏扩展 2026-11-24）：总开关此前只在面板内存里改、
     // load/save 都没落这个字段 —— 重启后永远回到默认开。补上持久化（修一处查同模式）。
-    cfg.inputMirrorEnabled = bol("inputMirrorEnabled", true);
+    // 默认关（2026-11-26 作者拍板，与 app_config.hpp 结构体默认一致）：新配置文件不再默认开镜像。
+    cfg.inputMirrorEnabled = bol("inputMirrorEnabled", false);
     cfg.inputCrossMode     = bol("inputCrossMode", false);
 
     cfg.touchpadEnabled = bol("touchpadEnabled", false);

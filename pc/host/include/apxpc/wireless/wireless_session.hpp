@@ -257,7 +257,8 @@ private:
 
     // 键鼠镜像总开关（issue#171 #3）：publish() 建镜像前检查；false = 不再自动启动。
     // atomic 读多写少，setter 里对「建/停镜像」的互斥由 mu_ 保证（与 publish 同口径）。
-    std::atomic<bool> inputMirrorEnabled_{true};
+    // 兜底默认关（2026-11-26 作者拍板）：启动时由配置覆盖，未配置时不再默认开镜像。
+    std::atomic<bool> inputMirrorEnabled_{false};
 
     // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：false=镜像同步 true=跨屏独占。
     // 建镜像后立即下发到捕获器；面板改模式经 setInputCrossMode 同步到已建镜像。
