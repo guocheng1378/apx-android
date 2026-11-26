@@ -56,6 +56,19 @@ object MediaOut {
         return s.send(ApxFrame.STREAM_CAMERA, jpeg, 0)
     }
 
+    /**
+     * 手机屏幕镜像上行（s7，整帧 JPEG，不分片；issue#171 #3 流分离批）。
+     * 此前投屏复用 [camera]（s6），PC 端两个画面进同一预览出口无法分开显示；
+     * 拆独立流后摄像头（s6）与投屏（s7）可同时推流、PC 端各自渲染。
+     * 单帧上限同 [camera]（4MB），原生分辨率下注意 q 别拉太高。
+     * @return 是否成功入队（true ≠ 已送达）
+     */
+    fun screen(jpeg: ByteArray): Boolean {
+        val s = sink ?: return false
+        if (!s.ready || jpeg.isEmpty()) return false
+        return s.send(ApxFrame.STREAM_SCREENMIRROR, jpeg, 0)
+    }
+
     // —— 副屏触摸（streamId=2，8 字节小帧，格式与 PC touch_inject.hpp 逐字节一致）——
     const val TOUCH_DOWN = 0
     const val TOUCH_UP = 1

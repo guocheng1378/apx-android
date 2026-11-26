@@ -2762,6 +2762,10 @@ int runPanel(const std::string& /*preferInstanceId*/) {
             // M7-c 批 2：手机 JPEG 单帧（streamId=6）→ 摄像头出口单例
             // （只入队，GDI+ 解码/渲染在消费线程 —— 见 camera_view.hpp 头注释）
             apxpc::media::cameraView().feed(body, len);
+        } else if (streamId == apxpc::media::kStreamScreenMirror) {
+            // 投屏帧（issue#171 #3 流分离批）：进独立 screenView 预览出口，
+            // 不再与摄像头共用 cameraView —— 两个画面可同时分开显示。
+            apxpc::media::screenView().feed(body, len);
         }
     });
 

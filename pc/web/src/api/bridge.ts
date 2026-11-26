@@ -110,11 +110,17 @@ export interface HostState {
     error: string;
   };
   /**
-   * 投屏到电脑（屏幕采集）：0x10「screenmirror」开关态。
-   * 画面复用摄像头 stream 6 收流（帧数在 camera.frames 中），老宿主没有 → 可选。
+   * 投屏到电脑（屏幕采集）：0x10「screenmirror」开关态 + stream 7 独立收流观测
+   *（issue#171 #3 流分离批：画面不再与摄像头共用 stream 6，帧数/尺寸独立上报）。
+   * 老宿主没有 → 可选。
    */
   screenmirror?: {
     on: boolean;
+    frames?: number;
+    bytes?: number;
+    width?: number;
+    height?: number;
+    stale?: boolean;
   };
   /** 互传（LocalSend 协议 v2.2）：字段口径由 C++ 的 apxpc::localsend::statusJson 统一给出
    *  （host 侧 testStatusJson 钉住这份契约），两个面板入口（WebView2 / HTTP）同源。 */

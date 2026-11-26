@@ -99,6 +99,10 @@ public:
     /// 未连接返回 false，由调用方决定如何提示。
     bool sendModuleToggle(const std::string& id, bool on);
 
+    /// 媒体档位配置（0x4E，issue#171 #2）：下发投屏/摄像头档位（分辨率/画质）。
+    /// 未连接返回 false，由调用方决定如何提示；手机端落盘 prefs 并即时应用。
+    bool sendMediaConfig(const std::string& id, const std::string& json);
+
     /// 键鼠镜像总开关（issue#171 #3）：on=false 立即停掉现有镜像且连接建立后不再自动启动；
     /// on=true 时若当前已 Connected 则立即启动镜像。线程安全（内部持 mu_，与 publish 同口径）。
     void setInputMirrorEnabled(bool on);

@@ -51,6 +51,29 @@ export const Display: React.FC<Props> = ({ state }) => {
   const mirrorOn = !!sm?.on;
   const mirror = useToggle(mirrorOn, () => bridge.act('screenmirror.toggle'));
 
+  // —— 媒体档位（issue#171 #2，0x4E）：分辨率/画质档位选择器 ——
+  // 经 media.config act 下发手机端：投屏逐帧生效；摄像头下次绑定（重开预览）生效。
+  // w=0 表示原生不缩放；q 为 JPEG 画质（码率代理，不承诺具体 Mbps）。
+  const RES_OPTIONS = [
+    { value: '720', label: '流畅 720' },
+    { value: '1080', label: '高清 1080' },
+    { value: '0', label: '原生' },
+  ];
+  const QUALITY_OPTIONS = [
+    { value: '60', label: '标准 q60' },
+    { value: '75', label: '高清 q75' },
+    { value: '90', label: '超清 q90' },
+  ];
+  const sendMediaConfig = (id: string, w: string, q: string) => {
+    bridge.act('media.config', { id, w: Number(w), q: Number(q) }).catch(() => {});
+  };
+  // 投屏档位（默认与手机端旧硬编码一致：720 / q65 → UI 档位取最近的标准档）
+  const [smW, setSmW] = React.useState('720');
+  const [smQ, setSmQ] = React.useState('60');
+  // 摄像头档位（默认 720p / q80 → UI 档位取最近的高清档）
+  const [camW, setCamW] = React.useState('720');
+  const [camQ, setCamQ] = React.useState('75');
+
   const screenSub = running
     ? `正在投屏 · ${scr?.deviceName || (mode === 'mirror' ? '桌面镜像' : '扩展屏')}`
     : scr?.error
@@ -220,6 +243,65 @@ export const Display: React.FC<Props> = ({ state }) => {
               </>
             }
           />
+
+          {/* 档位选择器（issue#171 #2）：经 0x4E 下发手机端；分辨率在下次绑定生效 */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '0 16px 8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span className="faint" style={{ fontSize: 12, width: 52, flex: 'none' }}>
+              分辨率
+            </span>
+            <Segmented
+              value={camW}
+              onChange={(v) => {
+                setCamW(v);
+                sendMediaConfig('camera', v, camQ);
+              }}
+              options={RES_OPTIONS}
+            />
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '0 16px 12px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span className="faint" style={{ fontSize: 12, width: 52, flex: 'none' }}>
+              画质
+            </span>
+            <Segmented
+              value={camQ}
+              onChange={(v) => {
+                setCamQ(v);
+                sendMediaConfig('camera', camW, v);
+              }}
+              options={QUALITY_OPTIONS}
+            />
+            <span className="faint" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+              切换后重新打开预览生效
+            </span>
+          </div>
+
+          {/* 浏览器面板（mac/Linux）摄像头画面：宿主 /api/camera.mjpg（MJPEG 流），
+              <img> 直连即播；Windows 走原生预览窗，不渲染此节点避免双画面。 */}
+          {cam?.running && bridge.mode === 'http' && (
+            <div style={{ padding: '0 16px 14px' }}>
+              <img
+                src="/api/camera.mjpg"
+                alt="手机摄像头画面"
+                style={{ width: '100%', display: 'block', borderRadius: 8, background: '#000' }}
+              />
+            </div>
+          )}
           <Row
             title="虚拟摄像头"
             sub={
@@ -311,12 +393,57 @@ export const Display: React.FC<Props> = ({ state }) => {
             }
           />
 
+          {/* 档位选择器（issue#171 #2）：经 0x4E 下发手机端，逐帧生效 */}
           {mirrorOn && (
-            <div style={{ padding: '0 16px 14px' }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '12px 16px 0',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span className="faint" style={{ fontSize: 12, width: 52, flex: 'none' }}>
+                分辨率
+              </span>
+              <Segmented
+                value={smW}
+                onChange={(v) => {
+                  setSmW(v);
+                  sendMediaConfig('screenmirror', v, smQ);
+                }}
+                options={RES_OPTIONS}
+              />
+              <span className="faint" style={{ fontSize: 12, width: 52, flex: 'none' }}>
+                画质
+              </span>
+              <Segmented
+                value={smQ}
+                onChange={(v) => {
+                  setSmQ(v);
+                  sendMediaConfig('screenmirror', smW, v);
+                }}
+                options={QUALITY_OPTIONS}
+              />
+            </div>
+          )}
+
+          {mirrorOn && (
+            <div style={{ padding: '12px 16px 14px' }}>
               <Metrics
                 items={[
-                  { k: '画面', v: cam?.width ? `${cam.width}×${cam.height}` : '—', dim: !cam?.width },
-                  { k: '已收帧', v: cam?.frames ?? 0, dim: !cam?.frames },
+                  {
+                    k: '画面',
+                    v: sm?.width ? `${sm.width}×${sm.height}` : '—',
+                    dim: !sm?.width,
+                  },
+                  { k: '已收帧', v: sm?.frames ?? 0, dim: !sm?.frames },
+                  {
+                    k: '画面状态',
+                    v: sm?.stale ? '停滞' : sm?.frames ? '正常' : '—',
+                    dim: !sm?.frames,
+                  },
                 ]}
               />
             </div>
@@ -327,12 +454,13 @@ export const Display: React.FC<Props> = ({ state }) => {
               {/*
                 浏览器面板（mac/Linux）画面渲染：原生预览窗仅 Windows 编译，
                 mac/Linux 的画面此前只收流计数、无消费者。宿主现已提供
-                /api/camera.mjpg（MJPEG multipart 流），<img> 直连即播；
-                关掉投屏开关时本节点卸载，浏览器断开连接，宿主流线程随之收摊。
-                Windows 走 webview 传输（原生预览窗），不渲染此节点，避免双画面。
+                /api/screenmirror.mjpg（MJPEG multipart 流，stream 7 独立收流），
+                <img> 直连即播；关掉投屏开关时本节点卸载，浏览器断开连接，
+                宿主流线程随之收摊。Windows 走 webview 传输（原生预览窗），
+                不渲染此节点，避免双画面。
               */}
               <img
-                src="/api/camera.mjpg"
+                src="/api/screenmirror.mjpg"
                 alt="手机屏幕投屏"
                 style={{ width: '100%', display: 'block', borderRadius: 8, background: '#000' }}
               />
@@ -350,7 +478,7 @@ export const Display: React.FC<Props> = ({ state }) => {
           {!mirrorOn && (
             <div style={{ padding: '0 16px 14px' }}>
               <Notice tone="info" icon={<IconInfo size={17} />}>
-                打开开关后，手机会弹出屏幕采集授权，同意后屏幕画面与摄像头走同一条通道回传本机预览窗。
+                打开开关后，手机会弹出屏幕采集授权，同意后屏幕画面经独立通道（stream 7）回传本机预览窗，可与摄像头同时分开显示。
               </Notice>
             </div>
           )}

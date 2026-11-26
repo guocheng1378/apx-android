@@ -13,6 +13,8 @@ import android.os.Build
 import android.os.IBinder
 import com.allperiph.R
 import com.allperiph.core.CameraPushRequestEvent
+import com.allperiph.core.MediaConfigEvent
+import com.allperiph.core.MediaConfigPref
 import com.allperiph.core.ScreenMirrorRequestEvent
 import com.allperiph.core.ScreenOpenRequestEvent
 import com.allperiph.shared.accessibility.ApxAccessibilityService
@@ -185,6 +187,13 @@ class ControlledService : Service() {
                 // 投屏到电脑：开 → 拉起授权页；关 → 采集服务订阅同一事件自行停止。
                 EventBus.post(ScreenMirrorRequestEvent(on))
             }
+        }
+        // 0x4E 媒体档位配置（issue#171 #2）：PC 面板改投屏/摄像头档位 → 落盘
+        // MediaConfigPref 并广播 MediaConfigEvent。推流服务各自应用：ScreenMirrorService
+        // 逐帧读档位（即时生效）；CameraPushActivity 订阅事件重绑（重开预览生效）。
+        // 回调已在主线程（ControlServer 侧 mainHandler.post），发事件安全。
+        server?.onMediaConfig = { id, json ->
+            if (MediaConfigPref.apply(this, id, json)) EventBus.post(MediaConfigEvent(id))
         }
         // v223.33（两台设备打架）：另一台设备要接管会话 —— 不再静默顶掉，
         // 拉起确认弹窗要用户点「确定」才切换（拉起失败/后台被拦 → 拒绝新设备，

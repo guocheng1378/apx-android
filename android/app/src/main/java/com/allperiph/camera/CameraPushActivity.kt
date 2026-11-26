@@ -27,6 +27,8 @@ import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import com.allperiph.core.CameraPushRequestEvent
+import com.allperiph.core.MediaConfigEvent
+import com.allperiph.core.MediaConfigPref
 import com.allperiph.core.MediaOut
 import com.allperiph.shared.event.EventBus
 import java.io.ByteArrayOutputStream
@@ -35,8 +37,8 @@ import java.util.concurrent.Executors
 /**
  * 摄像头推流页（M7-b，docs/spikes/m7-media-inbound-spike.md §2.3）。
  *
- * 链路：CameraX ImageAnalysis（YUV_420_888 / 720p / KEEP_ONLY_LATEST）
- *      → NV21 → framework YuvImage JPEG（q80）→ [MediaOut.camera]（streamId=6）。
+ * 链路：CameraX ImageAnalysis（YUV_420_888 / 档位分辨率 / KEEP_ONLY_LATEST）
+ *      → NV21 → framework YuvImage JPEG（档位画质，默认 q80）→ [MediaOut.camera]（streamId=6）。
  *
  * 取舍：
  *   · 走 ImageAnalysis + YuvImage 而非 ImageCapture：JPEG 编码全在 framework，
@@ -53,6 +55,9 @@ import java.util.concurrent.Executors
  *     分辨率策略类在 `androidx.camera.core.resolutionselector` 子包（不在根包）；
  *     ActivityResultContracts 在 `androidx.activity.result.contract` 子包
  *     （不在 `androidx.activity.result` —— 那里放的是 ActivityResultCallback）。
+ *   · 档位（issue#171 #2）：分辨率/画质从 [MediaConfigPref] 读（PC 面板 0x4E 下发），
+ *     默认 720p/q80；w=0 表示原生（设备最高）。改档位需重新绑定相机
+ *     （unbind + bind，无需重新授权），UI 提示「切换后重新打开预览生效」。
  *
  * 启动（M7-c 批4 起有面板入口）：PC 面板「摄像头」开关 → 0x10「camera」→
  *   AgentForegroundService 拉起本页；通知「摄像头」动作 / adb 兜底：
@@ -69,6 +74,12 @@ class CameraPushActivity : ComponentActivity() {
     // M7-c 批4：PC 关摄像头（0x10「camera」off）→ 订阅同一事件关本页停采集；
     // 开路径由 AgentForegroundService startActivity 拉起（它只处理 on=true）
     private var closeDisposable: EventBus.Disposable? = null
+
+    // 档位（issue#171 #2）：PC 面板 0x4E 下发 → ControlledService 落盘并广播，
+    // 这里读档位重绑相机。分辨率在绑定期生效；画质逐帧读（@Volatile），下一帧即生效。
+    @Volatile private var cfgW = TARGET_W
+    @Volatile private var cfgQ = JPEG_QUALITY
+    private var configDisposable: EventBus.Disposable? = null
 
     // 权限结果回调（必须在 onCreate 前注册 —— 属性初始化器在构造期执行，满足约束）
     private val cameraPermission = registerForActivityResult(
@@ -117,6 +128,17 @@ class CameraPushActivity : ComponentActivity() {
                 finish()
             }
         }
+        // 档位变更（issue#171 #2）：PC 面板 0x4E 下发 → 重读档位并重绑相机
+        //（unbind + bind，无需重新授权；分辨率在绑定期生效，画质下一帧即生效）。
+        configDisposable = EventBus.on<MediaConfigEvent>(Handler(Looper.getMainLooper())) {
+            if (it.id == "camera") {
+                loadConfig()
+                note = "档位已更新 — 重新绑定相机"
+                render()
+                rebind()
+            }
+        }
+        loadConfig()
         note = "等待摄像头权限…"
         render()
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -124,6 +146,20 @@ class CameraPushActivity : ComponentActivity() {
         } else {
             cameraPermission.launch(arrayOf(Manifest.permission.CAMERA))
         }
+    }
+
+    /** 读已存档位（issue#171 #2）：绑定前与 PC 下发 0x4E 后各读一次。 */
+    private fun loadConfig() {
+        runCatching { MediaConfigPref.get(this, "camera") }.onSuccess { (w, q) ->
+            cfgW = w
+            cfgQ = q
+        }
+    }
+
+    /** 档位变更后重绑相机：unbind + bind（无需重新授权），分辨率按新档位重新选择。 */
+    private fun rebind() {
+        provider?.unbindAll()
+        bindCamera()
     }
 
     private fun bindCamera() {
@@ -134,12 +170,16 @@ class CameraPushActivity : ComponentActivity() {
                 val preview = Preview.Builder().build().apply {
                     setSurfaceProvider(previewView.surfaceProvider)
                 }
+                // 档位目标尺寸（issue#171 #2）：w=0 表示原生（设备最高）—— 用大目标尺寸
+                // + CLOSEST_HIGHER_THEN_LOWER 兜到设备支持的最大分辨率；其余按 16:9 推高。
+                val target = if (cfgW <= 0) NATIVE_TARGET
+                             else Size(cfgW, cfgW * 9 / 16)
                 val analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
                         ResolutionSelector.Builder()
                             .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
                             .setResolutionStrategy(ResolutionStrategy(
-                                Size(TARGET_W, TARGET_H),
+                                target,
                                 ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
                             .build())
                     .build()
@@ -177,7 +217,7 @@ class CameraPushActivity : ComponentActivity() {
                 val nv21 = yuv420ToNv21(it)
                 val yuv = YuvImage(nv21, ImageFormat.NV21, it.width, it.height, null)
                 val bos = ByteArrayOutputStream(384 * 1024)
-                if (!yuv.compressToJpeg(Rect(0, 0, it.width, it.height), JPEG_QUALITY, bos)) {
+                if (!yuv.compressToJpeg(Rect(0, 0, it.width, it.height), cfgQ, bos)) {
                     failed++
                     note = "JPEG 编码失败"
                     render()
@@ -246,16 +286,21 @@ class CameraPushActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         closeDisposable?.dispose()
+        configDisposable?.dispose()
         provider?.unbindAll()
         analyzerExecutor.shutdown()
     }
 
     private companion object {
-        // 档位（720p / q80 / ≈10fps）：spike §2.3 首版默认；
-        // config/面板档位是 M7-c 的活，先不引入手机侧 config 读取（仓内无先例）。
+        // 默认档位（720p / q80 / ≈10fps）：spike §2.3 首版默认；issue#171 #2 起实际档位
+        // 由 MediaConfigPref 提供（PC 面板 0x4E 下发），此处常量仅作未配置时的回退默认值。
         const val TARGET_W = 1280
         const val TARGET_H = 720
         const val JPEG_QUALITY = 80
         const val MIN_INTERVAL_MS = 100L
+
+        // 「原生」档位目标：CameraX 无「最高」语义，用大目标 + CLOSEST_HIGHER_THEN_LOWER
+        // 兜到设备支持的最大分辨率（无更高则取更低，即设备上限）。
+        val NATIVE_TARGET = Size(4096, 2304)
     }
 }

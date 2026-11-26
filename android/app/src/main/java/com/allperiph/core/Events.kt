@@ -63,3 +63,10 @@ class CameraPushRequestEvent(val on: Boolean)
  * 屏幕画面复用摄像头 JPEG 通道（STREAM_CAMERA，streamId=6），PC 预览窗共用。
  */
 class ScreenMirrorRequestEvent(val on: Boolean)
+
+/**
+ * PC 面板媒体档位变更（0x4E 媒体档位配置，issue#171 #2）。
+ * id = "screenmirror" | "camera"；新档位已由 ControlledService 落盘 MediaConfigPref，
+ * 推流服务订阅本事件即时应用：投屏逐帧生效，摄像头下次绑定（重开预览）生效。
+ */
+class MediaConfigEvent(val id: String)

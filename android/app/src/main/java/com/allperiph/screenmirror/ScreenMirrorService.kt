@@ -21,6 +21,8 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.allperiph.R
+import com.allperiph.core.MediaConfigEvent
+import com.allperiph.core.MediaConfigPref
 import com.allperiph.core.MediaOut
 import com.allperiph.core.ScreenMirrorRequestEvent
 import com.allperiph.shared.event.EventBus
@@ -30,9 +32,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 屏幕采集前台服务（投屏到电脑）：MediaProjection → VirtualDisplay + ImageReader
- * （RGBA_8888）→ Bitmap → 等比缩放至宽约 720 → JPEG q65 → [MediaOut.camera]（streamId=6）。
+ * （RGBA_8888）→ Bitmap → 等比缩放至档位宽（默认 720，0=原生）→ JPEG（默认 q65）
+ * → [MediaOut.screen]（streamId=7，issue#171 #3 流分离批）。
  *
- * 与摄像头推流共用 stream 6：PC 端无需新增解复用，预览窗直接复用。
+ * 此前与摄像头推流共用 stream 6：PC 端两个画面进同一预览出口，无法同时分开显示；
+ * 拆独立流后摄像头（s6）与投屏（s7）可同时推流、PC 端各自渲染。
  * 取舍：
  *   · Android 14（targetSdk 34）强制：使用 MediaProjection 前必须先启动
  *     mediaProjection 类型前台服务，并先 registerCallback 再 createVirtualDisplay。
@@ -40,6 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   · 未连接（MediaOut.ready() == false）不编码不发送，如实降级。
  *   · off 路径：订阅 [ScreenMirrorRequestEvent]，PC 关开关时自动停止；
  *     通知「停止」动作 / 系统侧停止（registerCallback）同样走 stopMirror。
+ *   · 档位（issue#171 #2）：分辨率/画质从 [MediaConfigPref] 读，PC 面板 0x4E 下发
+ *     后订阅 [MediaConfigEvent] 即时生效 —— 缩放是逐帧做的，无需重建 VirtualDisplay。
  */
 class ScreenMirrorService : Service() {
 
@@ -52,6 +58,12 @@ class ScreenMirrorService : Service() {
     private val running = AtomicBoolean(false)
 
     private var closeDisposable: EventBus.Disposable? = null
+    private var configDisposable: EventBus.Disposable? = null
+
+    // 当前档位（issue#171 #2）：采集线程逐帧读（@Volatile），PC 下发 0x4E 后即时生效。
+    // w=0 表示原生不缩放；q 为 JPEG 画质。
+    @Volatile private var cfgW = TARGET_W
+    @Volatile private var cfgQ = JPEG_QUALITY
 
     private var sent = 0
     private var failed = 0
@@ -64,6 +76,16 @@ class ScreenMirrorService : Service() {
         super.onCreate()
         closeDisposable = EventBus.on<ScreenMirrorRequestEvent>(mainHandler) {
             if (!it.on) stopMirror()
+        }
+        // 档位变更（issue#171 #2）：PC 面板 0x4E 下发 → ControlledService 落盘并广播，
+        // 这里同步档位字段，下一帧即按新档位缩放/编码（逐帧生效，无需重建采集）。
+        configDisposable = EventBus.on<MediaConfigEvent>(mainHandler) {
+            if (it.id == "screenmirror") {
+                val (w, q) = MediaConfigPref.get(this, "screenmirror")
+                cfgW = w
+                cfgQ = q
+                Log.i(TAG, "投屏档位更新：w=$w q=$q")
+            }
         }
     }
 
@@ -110,14 +132,15 @@ class ScreenMirrorService : Service() {
             wm.defaultDisplay.getRealMetrics(metrics)
             val srcW = metrics.widthPixels
             val srcH = metrics.heightPixels
-            val scale = TARGET_W.toFloat() / maxOf(srcW, srcH)
-            val outW = (srcW * scale).toInt().coerceAtLeast(2)
-            val outH = (srcH * scale).toInt().coerceAtLeast(2)
+            // 启动即读已存档位（issue#171 #2）：PC 改过档位后服务重启也保持
+            runCatching { MediaConfigPref.get(this, "screenmirror") }.onSuccess { (w, q) ->
+                cfgW = w; cfgQ = q
+            }
 
             val thread = HandlerThread("apx-screenmirror").apply { start() }
             captureThread = thread
             val reader = ImageReader.newInstance(srcW, srcH, PixelFormat.RGBA_8888, 2)
-            reader.setOnImageAvailableListener({ r -> onImage(r, outW, outH) }, Handler(thread.looper))
+            reader.setOnImageAvailableListener({ r -> onImage(r) }, Handler(thread.looper))
             imageReader = reader
             virtualDisplay = mp.createVirtualDisplay(
                 "apx-screenmirror", srcW, srcH, metrics.densityDpi,
@@ -131,8 +154,8 @@ class ScreenMirrorService : Service() {
         }
     }
 
-    /** 采集线程回调；[image] 必须关闭。 */
-    private fun onImage(reader: ImageReader, outW: Int, outH: Int) {
+    /** 采集线程回调；[image] 必须关闭。输出尺寸按当前档位逐帧计算（w=0 原生不缩放）。 */
+    private fun onImage(reader: ImageReader) {
         val image: Image = reader.acquireLatestImage() ?: return
         try {
             val now = SystemClock.elapsedRealtime()
@@ -143,18 +166,31 @@ class ScreenMirrorService : Service() {
             lastAt = now
             runCatching {
                 val bitmap = imageToBitmap(image)
+                // 档位逐帧读（issue#171 #2）：PC 下发 0x4E 后下一帧即按新档位缩放
+                val targetW = cfgW
+                val srcW = bitmap.width
+                val srcH = bitmap.height
+                val outW: Int
+                val outH: Int
+                if (targetW <= 0) {
+                    outW = srcW; outH = srcH   // 原生：不缩放
+                } else {
+                    val scale = targetW.toFloat() / maxOf(srcW, srcH)
+                    outW = (srcW * scale).toInt().coerceAtLeast(2)
+                    outH = (srcH * scale).toInt().coerceAtLeast(2)
+                }
                 val scaled = if (bitmap.width != outW || bitmap.height != outH) {
                     Bitmap.createScaledBitmap(bitmap, outW, outH, true)
                 } else bitmap
                 val bos = ByteArrayOutputStream(256 * 1024)
-                if (!scaled.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, bos)) {
+                if (!scaled.compress(Bitmap.CompressFormat.JPEG, cfgQ, bos)) {
                     failed++
                     return
                 }
                 if (scaled !== bitmap) scaled.recycle()
                 bitmap.recycle()
                 val bytes = bos.toByteArray()
-                if (MediaOut.camera(bytes)) {
+                if (MediaOut.screen(bytes)) {   // s7 独立流（issue#171 #3），不再与摄像头共用 s6
                     sent++
                     lastBytes = bytes.size
                 } else {
@@ -243,6 +279,7 @@ class ScreenMirrorService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         closeDisposable?.dispose()
+        configDisposable?.dispose()
         stopMirror()
     }
 
@@ -254,7 +291,8 @@ class ScreenMirrorService : Service() {
         const val EXTRA_DATA = "projection_data"
         const val ACTION_STOP = "com.allperiph.action.STOP_SCREEN_MIRROR"
 
-        // 档位（宽 720 / q65 / ≈10fps）：与摄像头推流同量级，复用 stream 6 的带宽预算
+        // 默认档位（宽 720 / q65 / ≈10fps）：issue#171 #2 起实际档位由 MediaConfigPref
+        // 提供（PC 面板 0x4E 下发），此处常量仅作未配置时的回退默认值。
         const val TARGET_W = 720
         const val JPEG_QUALITY = 65
         const val MIN_INTERVAL_MS = 100L

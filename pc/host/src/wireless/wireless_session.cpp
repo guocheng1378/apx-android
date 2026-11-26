@@ -595,6 +595,13 @@ bool WirelessSession::sendModuleToggle(const std::string& id, bool on) {
     return client_.sendModuleToggle(id, on);
 }
 
+// 媒体档位配置（issue#171 #2，0x4E）：面板改投屏/摄像头档位时经此下发。
+// client_ 自带线程安全（内部入队 + writer 线程），UI 线程可直接调。
+bool WirelessSession::sendMediaConfig(const std::string& id, const std::string& json) {
+    if (!client_.ready()) return false;
+    return client_.sendMediaConfig(id, json);
+}
+
 // 键鼠镜像总开关（issue#171 #3）：关 = 立即停掉现有镜像，且连接建立后不再自动启动；
 // 开 = 若当前已 Connected 且镜像未建，则立即补建（与 publish() 的建镜像路径同款）。
 // 全程持 mu_，与 publish()/stop() 的镜像建停互斥；开关位本身是 atomic，读侧无锁。

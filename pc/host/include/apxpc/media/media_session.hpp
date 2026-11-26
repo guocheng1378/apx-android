@@ -48,6 +48,9 @@ enum : uint8_t {
     kStreamControl = 3,
     kStreamMic     = 5,
     kStreamCamera  = 6,
+    // 手机屏幕镜像（issue#171 #3 流分离批）：此前与摄像头共用 s6，PC 端两个画面
+    // 进同一预览出口无法分开显示；拆独立流后摄像头（s6）与投屏（s7）各自渲染。
+    kStreamScreenMirror = 7,
 };
 
 /// 手机侧媒体端口（Android `TcpMediaChannel.MEDIA_PORT`）
@@ -81,6 +84,7 @@ public:
         uint64_t audioFrames = 0, audioBytes = 0;    // 音箱：本端发出
         uint64_t micFrames = 0, micBytes = 0;        // 麦克风：本端收到
         uint64_t cameraFrames = 0, cameraBytes = 0; // 摄像头：本端收到（JPEG，M7-c）
+        uint64_t smFrames = 0, smBytes = 0;         // 手机屏幕镜像：本端收到（JPEG，issue#171 #3 流分离批）
         uint64_t touchFrames = 0, touchBytes = 0;    // 副屏触摸：本端收到（已注入）
         uint64_t dropped = 0;                        // 队列满被丢弃的帧（保新弃旧）
         uint64_t resync = 0;                         // 收流里对不齐帧头而重新同步的次数
@@ -177,6 +181,7 @@ private:
     std::atomic<uint64_t> cAudioFrames_{0}, cAudioBytes_{0};
     std::atomic<uint64_t> cMicFrames_{0}, cMicBytes_{0};
     std::atomic<uint64_t> cCameraFrames_{0}, cCameraBytes_{0};
+    std::atomic<uint64_t> cSmFrames_{0}, cSmBytes_{0};
     std::atomic<uint64_t> cTouchFrames_{0}, cTouchBytes_{0};
     std::atomic<uint64_t> cDropped_{0}, cResync_{0};
     /// 发送超时（拥塞）累计次数，见 Counters::sendTimeouts

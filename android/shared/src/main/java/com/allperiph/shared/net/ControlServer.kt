@@ -52,6 +52,13 @@ class ControlServer(
      */
     @Volatile var onModuleToggle: ((String, Boolean) -> Unit)? = null
 
+    /**
+     * 0x4E 媒体档位配置（issue#171 #2）：PC 面板改投屏/摄像头的分辨率与画质档位时下发。
+     * id = "screenmirror" | "camera"，json = `{"w":1080,"q":80}`（w=0 表示原生不缩放）。
+     * 实现落 app 模块（ControlledService 接线：存 prefs + 通知推流服务），TV 端不注入即忽略。
+     */
+    @Volatile var onMediaConfig: ((String, String) -> Unit)? = null
+
     /** 对端连入/断开的服务级回调（记忆对端 IP、刷新通知等）；与 [ControlEndpoint.onPeerStateChanged] 区别在于它是上层侧效应 */
     @Volatile var onPeerChanged: ((Boolean, String) -> Unit)? = null
 
@@ -520,6 +527,10 @@ class ControlServer(
                             0x21 -> Log.i("控制面", "收到反向剪贴板帧（忽略）")
                             0x05 -> actions.add { onOpenScreen() }
                             0x10 -> if (body.size >= 3) actions.add { onModuleToggle(body) }
+                            // 0x4E 媒体档位配置（issue#171 #2）：PC 面板改投屏/摄像头档位。
+                            // 元数据类命令，落 onMediaConfig 回调（app 模块存 prefs + 通知推流服务）；
+                            // TV 端不注入即忽略。载荷 `[0x4E][idLen][id][jsonLen][json]`。
+                            0x4E -> if (body.size >= 4) actions.add { onMediaConfig(body) }
                             0x25 -> if (body.size >= 2) actions.add { onRequestInput(body) }
                             0x26 -> if (body.size >= 4) actions.add { onInputText(body) }
                             0x27 -> actions.add { onInputDone() }
@@ -650,6 +661,23 @@ class ControlServer(
         val on = body[2 + idLen].toInt() != 0
         Log.i("控制面", "收到模块开关：$id -> $on")
         mainHandler.post { onModuleToggle?.invoke(id, on) }
+    }
+
+    /**
+     * 收 0x4E 媒体档位配置（issue#171 #2）：载荷 `[0x4E][idLen][id][jsonLen][json]`。
+     * id = "screenmirror" | "camera"，json = `{"w":1080,"q":80}`（w=0 原生）。
+     * 与 onModuleToggle 同一套注入口径：解析后经 onMediaConfig 回调交 app 模块落盘，
+     * 未注入（TV 端）只留日志。
+     */
+    private fun onMediaConfig(body: ByteArray) {
+        val idLen = body[1].toInt() and 0xFF
+        if (body.size < 2 + idLen + 1) return
+        val id = String(body, 2, idLen, Charsets.UTF_8)
+        val jsonLen = body[2 + idLen].toInt() and 0xFF
+        if (body.size < 3 + idLen + jsonLen) return
+        val json = String(body, 3 + idLen, jsonLen, Charsets.UTF_8)
+        Log.i("控制面", "收到媒体档位：$id -> $json")
+        mainHandler.post { onMediaConfig?.invoke(id, json) }
     }
 
     private fun onPowerAction(body: ByteArray) {

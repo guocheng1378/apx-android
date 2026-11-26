@@ -245,8 +245,11 @@ static std::atomic<bool> g_camOn{false};
 static std::atomic<uint32_t> g_camW{0}, g_camH{0};
 static std::atomic<int64_t> g_camLastMs{0};  // steady ms 时间戳（0 = 尚无帧）
 
-// 投屏到电脑：开关态在此自持（与 camera.toggle 同口径），画面走同一条 stream 6 收流链路
+// 投屏到电脑：开关态在此自持（与 camera.toggle 同口径），画面走独立 stream 7 收流链路
+//（issue#171 #3 流分离批：此前与摄像头共用 stream 6，两个画面进同一预览出口无法分开显示）
 static std::atomic<bool> g_screenMirrorOn{false};
+static std::atomic<uint32_t> g_smW{0}, g_smH{0};
+static std::atomic<int64_t> g_smLastMs{0};   // steady ms 时间戳（0 = 尚无帧）
 
 // —— 浏览器端投屏渲染（MJPEG）——
 // 收流回调把最新 JPEG 存这里，/api/camera.mjpg 的流线程取走推给前端 <img>。
@@ -254,6 +257,10 @@ static std::atomic<bool> g_screenMirrorOn{false};
 static std::mutex g_camFrameMu;
 static std::string g_camFrameJpeg;             // 最新一帧完整 JPEG（空 = 尚无帧）
 static std::condition_variable g_camFrameCv;   // 有新帧时唤醒流线程（去重后即时推）
+// 投屏（stream 7）独立帧持有（issue#171 #3）：与摄像头各一份，两路画面互不覆盖。
+static std::mutex g_smFrameMu;
+static std::string g_smFrameJpeg;
+static std::condition_variable g_smFrameCv;
 static std::atomic<bool> g_httpAlive{false};   // 面板在跑标志：MJPEG 流线程的退出开关
 
 // JPEG SOF 段尺寸（手机侧只出 SOF0 基线；逐段扫到 SOF 即止，失败留 0）
@@ -350,11 +357,27 @@ void buildState(const HostBundle& b, Json& out, HttpPanel* p) {
         out["camera"] = c;
     }
 
-    // screenmirror（投屏到电脑）：开关态自持；画面帧复用 stream 6 收流，
-    // 计入 camera 块的 frames —— 前端不重复暴露独立帧数。
+    // screenmirror（投屏到电脑）：开关态自持；画面帧走独立 stream 7 收流
+    //（issue#171 #3 流分离批），帧数/尺寸/新鲜度独立观测，不再计入 camera 块。
     {
         Json sm = Json::makeObject();
-        sm["on"] = g_screenMirrorOn.load(std::memory_order_relaxed);
+        const bool on = g_screenMirrorOn.load(std::memory_order_relaxed);
+        uint64_t sf = 0, sb = 0;
+        if (b.media) {
+            const auto mc = b.media->counters();
+            sf = mc.smFrames;
+            sb = mc.smBytes;
+        }
+        const auto nowMs = std::chrono::steady_clock::now().time_since_epoch() /
+                           std::chrono::milliseconds(1);
+        const int64_t last = g_smLastMs.load(std::memory_order_relaxed);
+        sm["on"] = on;
+        sm["frames"] = static_cast<double>(sf);
+        sm["bytes"] = static_cast<double>(sb);
+        sm["lastFrameMs"] = static_cast<double>(last > 0 ? nowMs - last : 0);
+        sm["width"] = static_cast<double>(g_smW.load(std::memory_order_relaxed));
+        sm["height"] = static_cast<double>(g_smH.load(std::memory_order_relaxed));
+        sm["stale"] = sf > 0 && last > 0 && (nowMs - last) > 2500;
         out["screenmirror"] = sm;
     }
 
@@ -826,13 +849,38 @@ void handleAct(HttpPanel* p, const std::string& id, const std::string& name, con
         return postResponse(p, id, failResp("macOS 不支持虚拟摄像头（camera_view 仅 Windows）"));
     }
 
-    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），复用摄像头收流链路 ——
+    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），画面走独立 stream 7 ——
     if (name == "screenmirror.toggle") {
         const bool on = !g_screenMirrorOn.load(std::memory_order_relaxed);
         const bool sent = b.session && b.session->sendModuleToggle("screenmirror", on);
         if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发投屏开关"));
         g_screenMirrorOn.store(on, std::memory_order_relaxed);
         return postResponse(p, id, okResp());
+    }
+
+    // —— 媒体档位（issue#171 #2，0x4E）：面板改投屏/摄像头的分辨率与画质档位 ——
+    //    payload={id:"screenmirror"|"camera", w:目标宽(0=原生), q:JPEG画质}。
+    //    下发失败如实报错；手机端落盘 prefs 并即时应用（投屏逐帧、摄像头重绑）。
+    if (name == "media.config") {
+        auto* vid = payload.find("id");
+        auto* vw = payload.find("w");
+        auto* vq = payload.find("q");
+        const std::string mid = vid ? vid->asString() : "";
+        if (mid != "screenmirror" && mid != "camera")
+            return postResponse(p, id, failResp("媒体档位 id 非法（应为 screenmirror/camera）"));
+        const int w = vw ? vw->asInt(0) : 0;
+        const int q = vq ? vq->asInt(0) : 0;
+        if (w < 0 || q < 1 || q > 100)
+            return postResponse(p, id, failResp("媒体档位取值非法（w>=0，q 1..100）"));
+        char json[64];
+        std::snprintf(json, sizeof(json), "{\"w\":%d,\"q\":%d}", w, q);
+        const bool sent = b.session && b.session->sendMediaConfig(mid, json);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发媒体档位"));
+        Json d = Json::makeObject();
+        d["id"] = mid;
+        d["w"] = static_cast<double>(w);
+        d["q"] = static_cast<double>(q);
+        return postResponse(p, id, okResp(d));
     }
 
     // —— 配对码（2026-11-23，随「扫码/链接交付令牌」批加）：面板提交 6 位一次性码，
@@ -1662,13 +1710,15 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
     respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
 }
 
-// ——— 浏览器端投屏渲染：GET /api/camera.mjpg（MJPEG multipart 流）———
+// ——— 浏览器端媒体渲染：GET /api/camera.mjpg、/api/screenmirror.mjpg（MJPEG multipart 流）———
 // 关键约束（文件头「设计取舍」）：accept 循环单线程同步处理请求，长连接绝不能占着
 // accept 线程 —— 否则 /api/state 轮询全部饿死。handleConnection 把 fd 甩进本函数的
 // 独立线程；线程只碰全局帧持有与 fd，不碰 HttpPanel（面板退出时栈对象先亡，悬空
 // 不可解引用）。退出路径有两条：客户端断开（send 失败）或面板收尾置 g_httpAlive=false
 //（wait_for 最多 2s 后醒来退出），进程随后退出，线程不会越过面板生命周期。
-void streamCameraMjpeg(int fd) {
+// issue#171 #3 流分离批：抽成通用实现，摄像头（s6）与投屏（s7）各传各的帧持有。
+void streamMjpeg(int fd, std::mutex& mu, std::string& frameBuf,
+                 std::condition_variable& cv, const char* boundary) {
     // 可判错的 send（writeAll 无返回值，检测不到客户端断开）
     const auto sendAll = [&](const char* data, size_t n) -> bool {
         size_t off = 0;
@@ -1679,12 +1729,11 @@ void streamCameraMjpeg(int fd) {
         }
         return true;
     };
-    const std::string hdr =
+    std::string hdr =
         "HTTP/1.1 200 OK\r\n"
-        "Content-Type: multipart/x-mixed-replace; boundary=apxcamframe\r\n"
-        "Cache-Control: no-store\r\n"
-        "Connection: close\r\n"
-        "\r\n";
+        "Content-Type: multipart/x-mixed-replace; boundary=";
+    hdr += boundary;
+    hdr += "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
     if (!sendAll(hdr.data(), hdr.size())) {
         ::close(fd);
         return;
@@ -1693,19 +1742,21 @@ void streamCameraMjpeg(int fd) {
     while (g_httpAlive.load(std::memory_order_relaxed)) {
         std::string frame;
         {
-            std::unique_lock<std::mutex> lk(g_camFrameMu);
+            std::unique_lock<std::mutex> lk(mu);
             // 最多等 2s：投屏未开/无新帧时给断开检测留节拍（客户端断了也能退出）
-            g_camFrameCv.wait_for(lk, std::chrono::seconds(2), [&] {
-                return !g_camFrameJpeg.empty() && g_camFrameJpeg != lastSent;
+            cv.wait_for(lk, std::chrono::seconds(2), [&] {
+                return !frameBuf.empty() && frameBuf != lastSent;
             });
-            if (!g_camFrameJpeg.empty() && g_camFrameJpeg != lastSent)
-                frame = g_camFrameJpeg;
+            if (!frameBuf.empty() && frameBuf != lastSent)
+                frame = frameBuf;
         }
         if (frame.empty()) continue;
         lastSent = frame;
         std::string part;
         part.reserve(frame.size() + 96);
-        part += "--apxcamframe\r\nContent-Type: image/jpeg\r\nContent-Length: ";
+        part += "--";
+        part += boundary;
+        part += "\r\nContent-Type: image/jpeg\r\nContent-Length: ";
         part += std::to_string(frame.size());
         part += "\r\n\r\n";
         part += frame;
@@ -1713,6 +1764,14 @@ void streamCameraMjpeg(int fd) {
         if (!sendAll(part.data(), part.size())) break;   // 客户端断开/写失败 → 收摊
     }
     ::close(fd);
+}
+
+void streamCameraMjpeg(int fd) {
+    streamMjpeg(fd, g_camFrameMu, g_camFrameJpeg, g_camFrameCv, "apxcamframe");
+}
+
+void streamScreenMirrorMjpeg(int fd) {
+    streamMjpeg(fd, g_smFrameMu, g_smFrameJpeg, g_smFrameCv, "apxsmframe");
 }
 
 void handleConnection(HttpPanel* p, int fd) {
@@ -1797,6 +1856,11 @@ void handleConnection(HttpPanel* p, int fd) {
         // fd 移交流线程所有 —— 此处 return，不走函数末尾的 close（否则双重关闭）。
         // Windows 不受影响：web_panel（WebView2 壳）不编译本文件，路由天然不存在。
         std::thread(streamCameraMjpeg, fd).detach();
+        return;
+    } else if (req.method == "GET" && req.path == "/api/screenmirror.mjpg") {
+        // 投屏画面 MJPEG 流（issue#171 #3 流分离批）：与摄像头同款独立线程推帧，
+        // 帧源为 stream 7 独立持有 —— 摄像头与投屏两路 <img> 可同时显示。
+        std::thread(streamScreenMirrorMjpeg, fd).detach();
         return;
     } else if (req.method == "GET") {
         serveStatic(p, fd, req.path);
@@ -1952,6 +2016,23 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
                     g_camFrameJpeg.assign(reinterpret_cast<const char*>(body), len);
                 }
                 g_camFrameCv.notify_all();
+            } else if (streamId == apxpc::media::kStreamScreenMirror) {
+                // 投屏（issue#171 #3 流分离批）：stream 7 独立收流，与摄像头同款
+                // 观测 + 帧持有，推 /api/screenmirror.mjpg —— 两路画面互不覆盖。
+                int w = 0, h = 0;
+                if (jpegDims(body, len, w, h)) {
+                    g_smW.store(static_cast<uint32_t>(w), std::memory_order_relaxed);
+                    g_smH.store(static_cast<uint32_t>(h), std::memory_order_relaxed);
+                }
+                g_smLastMs.store(
+                    std::chrono::steady_clock::now().time_since_epoch() /
+                        std::chrono::milliseconds(1),
+                    std::memory_order_relaxed);
+                {
+                    std::lock_guard<std::mutex> lk(g_smFrameMu);
+                    g_smFrameJpeg.assign(reinterpret_cast<const char*>(body), len);
+                }
+                g_smFrameCv.notify_all();
             }
         });
     }

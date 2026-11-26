@@ -36,6 +36,9 @@ enum : uint8_t {
     kStreamTelemetry = 4,   // 预留
     kStreamMic       = 5,   // 上行：麦克风 —— 手机录音（PCM s16le / 48k / 立体声）
     kStreamCamera    = 6,   // 上行：摄像头 —— 手机 → PC，JPEG 单帧（不分片，M7-b）
+    kStreamScreenMirror = 7, // 上行：手机屏幕镜像（投屏到电脑）—— JPEG 单帧（不分片）。
+    // issue#171 #3 流分离批：此前与摄像头共用 s6，PC 端两个画面进同一预览出口，
+    // 无法同时分开显示；拆独立流后摄像头（s6）与投屏（s7）可同时推流、各自渲染。
 
 };
 

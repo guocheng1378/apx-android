@@ -759,4 +759,11 @@ CameraView& cameraView() {
     return instance;
 }
 
+// 手机屏幕镜像预览单例（issue#171 #3 流分离批）：与 cameraView() 同实现、
+// 独立实例 —— 摄像头（s6）与投屏（s7）的帧各进各的预览窗，互不覆盖。
+CameraView& screenView() {
+    static CameraView instance;
+    return instance;
+}
+
 } // namespace apxpc::media

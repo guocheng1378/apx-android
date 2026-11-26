@@ -1650,6 +1650,21 @@ bool Ctrl9511Client::sendModuleToggle(const std::string& id, bool on) {
     return true;
 }
 
+// 媒体档位配置（issue#171 #2，0x4E）：PC 面板改投屏/摄像头档位时下发。
+// 载荷 [0x4E][idLen][id][jsonLen][json]，json={"w":1080,"q":80}（w=0 原生不缩放）。
+// 手机端落盘 prefs 并即时应用（投屏逐帧生效；摄像头下次绑定生效）。
+bool Ctrl9511Client::sendMediaConfig(const std::string& id, const std::string& json) {
+    if (!impl_ || id.empty() || id.size() > 255) return false;
+    if (json.empty() || json.size() > 255) return false;
+    std::vector<uint8_t> b(1 + id.size() + 1 + json.size());
+    b[0] = static_cast<uint8_t>(id.size());
+    std::memcpy(b.data() + 1, id.data(), id.size());
+    b[1 + id.size()] = static_cast<uint8_t>(json.size());
+    std::memcpy(b.data() + 2 + id.size(), json.data(), json.size());
+    impl_->sendCmd(0x4E, b.data(), static_cast<uint32_t>(b.size()));
+    return true;
+}
+
 bool Ctrl9511Client::sendRequestInput(const std::string& hint) {
     if (!impl_) return false;
     const auto bytes = std::vector<uint8_t>(hint.begin(), hint.end());

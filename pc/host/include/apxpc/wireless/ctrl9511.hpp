@@ -391,6 +391,11 @@ public:
     /// body=[0x10,idLen,id...,on(0/1)]。仅控制面已连接时可发。
     bool sendModuleToggle(const std::string& id, bool on);
 
+    /// 媒体档位配置（issue#171 #2，0x4E）：下发投屏/摄像头的分辨率与画质档位。
+    /// body=[0x4E,idLen,id...,jsonLen,json...]，json={"w":1080,"q":80}（w=0 原生）。
+    /// 仅控制面已连接时可发；手机端落盘 prefs 并即时应用（投屏逐帧、摄像头重绑）。
+    bool sendMediaConfig(const std::string& id, const std::string& json);
+
     /// 远程输入：请求对端设备输入文本。hint 为提示信息（如"请输入密码"）。
     bool sendRequestInput(const std::string& hint);
     /// 远程输入：向对端发送输入的文本。flags 见 PROTOCOL（0x01=增量 0x04=完整 0x08=取消）。

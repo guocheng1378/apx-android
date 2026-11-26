@@ -350,6 +350,21 @@ void buildState(const HostBundle& b, Json& out) {
         out["camera"] = c;
     }
 
+    // 投屏到电脑（issue#171 #3 流分离批）：开关态自持 + stream 7 独立预览出口
+    //（screenView）观测，对齐 panel_http.cpp 的 screenmirror 块字段。
+    {
+        auto s = screenView().status();
+        Json sm = Json::makeObject();
+        sm["on"] = g_screenMirrorOn.load(std::memory_order_relaxed);
+        sm["frames"] = static_cast<double>(s.frames);
+        sm["bytes"] = static_cast<double>(s.bytes);
+        sm["lastFrameMs"] = static_cast<double>(s.lastFrameMs);
+        sm["width"] = static_cast<double>(s.width);
+        sm["height"] = static_cast<double>(s.height);
+        sm["stale"] = s.stale;
+        out["screenmirror"] = sm;
+    }
+
     // 配置（传给前端，允许改动后持久化）
     if (b.cfg) {
         cfg["autostart"] = b.cfg->autostart;
@@ -913,16 +928,42 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         return postResponse(p, id, okResp());
     }
 
-    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），复用摄像头收流链路 ——
+    // —— 投屏到电脑：0x10「screenmirror」下发屏幕采集（跨平台），画面走独立 stream 7 ——
     if (name == "screenmirror.toggle") {
         const bool on = !g_screenMirrorOn.load(std::memory_order_relaxed);
         // 与 camera.toggle 同口径：下发手机采集开关，失败不改开关态。
         const bool sent = b.session && b.session->sendModuleToggle("screenmirror", on);
         if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发投屏开关"));
         g_screenMirrorOn.store(on, std::memory_order_relaxed);
-        // 复用摄像头预览窗：手机端画面走同一条 stream 6，开投屏即同步打开预览
-        if (on) cameraView().setPreview(true);
+        // 投屏帧走独立 screenView 预览出口（issue#171 #3 流分离批）：
+        // 开投屏即打开投屏预览窗，与摄像头预览窗互不覆盖、可同时显示。
+        if (on) screenView().setPreview(true);
         return postResponse(p, id, okResp());
+    }
+
+    // —— 媒体档位（issue#171 #2，0x4E）：面板改投屏/摄像头的分辨率与画质档位 ——
+    //    payload={id:"screenmirror"|"camera", w:目标宽(0=原生), q:JPEG画质}。
+    //    下发失败如实报错；手机端落盘 prefs 并即时应用（投屏逐帧、摄像头重绑）。
+    if (name == "media.config") {
+        auto* vid = payload.find("id");
+        auto* vw = payload.find("w");
+        auto* vq = payload.find("q");
+        const std::string mid = vid ? vid->asString() : "";
+        if (mid != "screenmirror" && mid != "camera")
+            return postResponse(p, id, failResp("媒体档位 id 非法（应为 screenmirror/camera）"));
+        const int w = vw ? vw->asInt(0) : 0;
+        const int q = vq ? vq->asInt(0) : 0;
+        if (w < 0 || q < 1 || q > 100)
+            return postResponse(p, id, failResp("媒体档位取值非法（w>=0，q 1..100）"));
+        char json[64];
+        std::snprintf(json, sizeof(json), "{\"w\":%d,\"q\":%d}", w, q);
+        const bool sent = b.session && b.session->sendMediaConfig(mid, json);
+        if (!sent) return postResponse(p, id, failResp("未连接手机，无法下发媒体档位"));
+        Json d = Json::makeObject();
+        d["id"] = mid;
+        d["w"] = static_cast<double>(w);
+        d["q"] = static_cast<double>(q);
+        return postResponse(p, id, okResp(d));
     }
 
     // —— 配对码（2026-11-23，随「扫码/链接交付令牌」批加）：面板提交 6 位一次性码，
@@ -1850,11 +1891,15 @@ int runWebPanel(const HostBundle& bundle, const std::string& /*webDir*/) {
             if (!gp || !gp->running.load()) return;
             if (streamId == apxpc::media::kStreamCamera) {
                 apxpc::media::cameraView().feed(body, len);   // 只入队，解码/渲染在消费线程
+            } else if (streamId == apxpc::media::kStreamScreenMirror) {
+                // 投屏帧（issue#171 #3 流分离批）：进独立 screenView 预览出口，
+                // 不再与摄像头共用 cameraView —— 两个画面可同时分开显示。
+                apxpc::media::screenView().feed(body, len);
             } else if (streamId == apxpc::media::kStreamMic) {
                 if (gp->bundle.micBridge) gp->bundle.micBridge->feed(body, len);
             }
         });
-        APX_LOGI("媒体收流回调已注册（camera→CameraView / mic→MicBridge）");
+        APX_LOGI("媒体收流回调已注册（camera→CameraView / screenmirror→ScreenView / mic→MicBridge）");
     }
     // 互传接收端：面板一开就起（与 9511 受控端 / 9512 收文件同口径 —— 面板在跑就能互传）。
     // 失败（53317 被官方 localsend 占用等）只告警、不阻断面板：状态里能点开关重试。

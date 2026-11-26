@@ -80,4 +80,9 @@ private:
 // 必须命中同一个实例；定义放 camera_view.cpp（进 apxpc_media 库，Win 各目标都链）。
 CameraView& cameraView();
 
+// 手机屏幕镜像预览（issue#171 #3 流分离批）：与 cameraView() 同一套 CameraView 实现
+//（GDI+ 预览窗，不注册虚拟摄像头），但喂 streamId=7 的投屏帧 —— 摄像头（s6）与
+// 投屏（s7）可同时各开一个预览窗。定义放 camera_view.cpp。
+CameraView& screenView();
+
 } // namespace apxpc::media

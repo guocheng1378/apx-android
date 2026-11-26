@@ -39,6 +39,10 @@ object ApxFrame {
     const val STREAM_TELEMETRY = 4  // 预留
     const val STREAM_MIC = 5        // 上行：麦克风（手机录音，PCM s16le/48k/立体声）
     const val STREAM_CAMERA = 6     // 上行：摄像头（手机 → PC，JPEG 单帧不分片，M7-b）
+    // 上行：手机屏幕镜像（投屏到电脑，JPEG 单帧不分片，issue#171 #3 流分离批）。
+    // 此前与摄像头共用 STREAM_CAMERA：PC 端两个画面进同一预览出口，无法同时分开显示。
+    // 拆独立流后摄像头（s6）与投屏（s7）可同时推流、PC 端各自渲染。
+    const val STREAM_SCREENMIRROR = 7
 
     /** flags 位（与 frame.h 的 kFlag* 对应） */
     const val FLAG_KEY_FRAME = 1 shl 0
@@ -287,6 +291,30 @@ object ApxFrame {
     /** 组 0x4D 副屏远程开关：`[0x4D][on u8]`（1=开 0=关），见 [CMD_SCREEN_TOGGLE]。 */
     fun packScreenToggle(on: Boolean): ByteArray =
         byteArrayOf(CMD_SCREEN_TOGGLE.toByte(), if (on) 1 else 0)
+
+    /**
+     * PC → 手机：媒体档位配置（issue#171 #2，0x4E）。载荷
+     * `[0x4E][idLen][id][jsonLen][json]`：id = "screenmirror" | "camera"；
+     * json = `{"w":1080,"q":80}` —— w 为目标宽度（0 = 原生不缩放），q 为 JPEG 画质。
+     * 手机端落盘 prefs 并即时应用（投屏逐帧生效；摄像头下次绑定生效）。
+     * 接收方：`ControlServer` dispatch → `onMediaConfig` 回调（ControlledService 接线）。
+     */
+    const val CMD_MEDIA_CONFIG = 0x4E
+
+    /** 组 0x4E 媒体档位：`[0x4E][idLen][id][jsonLen][json]`，见 [CMD_MEDIA_CONFIG]。 */
+    fun packMediaConfig(id: String, json: String): ByteArray {
+        val idB = id.toByteArray(Charsets.UTF_8)
+        val jsonB = json.toByteArray(Charsets.UTF_8)
+        require(idB.isNotEmpty() && idB.size <= 255) { "media config id 非法" }
+        require(jsonB.size <= 255) { "media config json 过长" }
+        val body = ByteArray(1 + 1 + idB.size + 1 + jsonB.size)
+        body[0] = CMD_MEDIA_CONFIG.toByte()
+        body[1] = idB.size.toByte()
+        System.arraycopy(idB, 0, body, 2, idB.size)
+        body[2 + idB.size] = jsonB.size.toByte()
+        System.arraycopy(jsonB, 0, body, 3 + idB.size, jsonB.size)
+        return body
+    }
 
     /** 组 0x4B 缩略图请求：`[0x4B][id u32 LE]`。 */
     fun packAlbumThumbReq(id: Long): ByteArray {
