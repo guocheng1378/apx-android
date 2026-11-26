@@ -73,7 +73,7 @@ class TvServerService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int { startForegroundCompat(); ensureControlPlane(); ensureMedia(); ensureFileReceiver(); KeepAlive.schedule(this, if (fgFailed) 30_000L else 60_000L); startWatchdog(); return START_STICKY }
     private fun startForegroundCompat() { val notif = buildNotification(server?.statusText() ?: "正在启动…"); if (Build.VERSION.SDK_INT >= 34) { try { startForeground(NOTIFY_ID, notif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE); fgFailed = false; return } catch (t: Throwable) { Log.w("startForeground(connectedDevice) 失败：${t.message}") } }; try { startForeground(NOTIFY_ID, notif); fgFailed = false } catch (t: Throwable) { fgFailed = true; Log.w("startForeground 失败：${t.message}") } }
     private fun ensureFileReceiver() { runCatching { FileReceiver.start(applicationContext); FileReceiver.onReceived = { c, f -> com.allperiph.tv.ui.TvFilePrompt.show(c, f) } }.onFailure { Log.w("9512 未启动：${it.message}") } }
-    private fun newServer(): ControlServer = ControlServer(endpoint = controlEndpoint).also { s ->
+    private fun newServer(): ControlServer = ControlServer(endpoint = controlEndpoint, token = pairingToken(applicationContext)).also { s ->
         s.onPeerChanged = { connected, ip -> Log.i("对端变化：con=$connected ip=$ip"); if (connected && ip.isNotEmpty()) rememberPeer(ip); TvInjector.setConnected(connected); refreshNotification() }
         s.onOpenScreenRequest = { openScreenPage() }
         s.onAuthorizePeer = { ip -> isPeerAllowed(ip) }
@@ -131,6 +131,13 @@ class TvServerService : Service() {
             BEACON_PREFIX_TV,
             name,
             ControlServer.PORT,
+            // TV 端恒隐藏令牌广播（2026-11-26 TV 配对批，用户拍板方向①）：此前 TV 零凭据
+            // （信标第 4 段空 + 握手不校验），同网段任何设备默认可连 TV 注入输入。现在
+            // ControlServer 配了令牌，信标若照旧明文广播等于把钥匙挂门上（信标每 1.5s
+            // 一发，监听即得）——所以 TV 端恒按手机端「隐藏令牌广播」开启的口径发空串：
+            // 局域网设备仍能发现本机（名字/端口照广播），但捡不到令牌，握手必被拒；
+            // 新设备走配对页当面交付凭据（TV 无设置入口，恒开不做开关）。
+            // 未升级的老对端连不上属预期（两端同升后走配对码/QR 首连，0x36 落盘即恢复）。
             "",
             unicastHosts = {
                 val out = ArrayList<String>(4)
@@ -140,6 +147,7 @@ class TvServerService : Service() {
             },
         ).also { it.start() }
     }
+
     private fun startWatchdog() {
         if (!wdRunning.compareAndSet(false, true)) return
         val t = Thread({
@@ -242,6 +250,25 @@ class TvServerService : Service() {
         private const val MAX_REMEMBERED_PEERS = 8
         const val PREF = "apx_tv"
         private const val KEY_PEERS = "peers"
+        private const val KEY_PAIRING_TOKEN = "pairing_token"
+
+        /**
+         * 本机被控配对令牌（2026-11-26 TV 配对批，与手机端 ControlledService.pairingToken
+         * 同口径）：首次调用生成 128-bit 随机 hex 持久化，此后恒定。控制面握手与 0x36
+         * 下发共用；删掉这个偏好键即重置配对（对端需重新扫码/输码）。
+         * 此前 TV 端零凭据（ControlServer 未传 token、信标广播空令牌、握手不校验），
+         * 同网段任何设备默认可连 TV 注入输入 —— 本方法补上凭据源头。
+         */
+        fun pairingToken(c: Context): String {
+            val sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            sp.getString(KEY_PAIRING_TOKEN, null)?.takeIf { it.isNotEmpty() }?.let { return it }
+            val bytes = ByteArray(16)
+            java.security.SecureRandom().nextBytes(bytes)
+            val tok = bytes.joinToString("") { "%02x".format(it) }
+            sp.edit().putString(KEY_PAIRING_TOKEN, tok).apply()
+            Log.i("TV 配对令牌已生成")
+            return tok
+        }
         const val KEY_ENABLED = "enabled"
         @Volatile var current: TvServerService? = null; private set
         const val KEY_USER_STOPPED = "user_stopped"

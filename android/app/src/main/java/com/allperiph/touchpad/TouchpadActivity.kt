@@ -95,8 +95,10 @@ import com.allperiph.ui.miuix.rememberApInsets
 import com.allperiph.ui.miuix.applyEdgeToEdge
 import com.allperiph.ui.miuix.applyLandscapeBarPref
 import com.allperiph.wireless.ControlTarget
+import com.allperiph.wireless.QrScanActivity
 import com.allperiph.wireless.TvControllerClient
 import com.allperiph.wireless.TvDiscovery
+import com.allperiph.wireless.TvPairTokens
 import com.allperiph.wireless.WirelessModule
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -129,6 +131,9 @@ class TouchpadActivity : ComponentActivity() {
 
     /** 文件选择请求码（传统 startActivityForResult：要兼容 suspend 前的生命周期语义） */
     private val REQ_PICK_FILE = 9001
+
+    /** TV 扫码配对请求码（2026-11-26 TV 配对批）：QrScanActivity 回传 (ip, port, code) */
+    private val REQ_SCAN_TV = 9002
 
     /** 跨重组共享的 UI 状态：Activity 的命令式逻辑直接改，Compose 侧观察展示 */
     internal class ConsoleUi {
@@ -382,6 +387,14 @@ class TouchpadActivity : ComponentActivity() {
         if (requestCode == REQ_PICK_FILE && resultCode == RESULT_OK) {
             data?.data?.let { sendFile(it) }
         }
+        // 扫码配对（2026-11-26 TV 配对批）：二维码 = allperf://<ip>:<port>?c=<6位码>，
+        // 配对码当 token 握手，服务端 validate 过后经 0x36 回持久令牌 → connectTv 内落盘
+        if (requestCode == REQ_SCAN_TV && resultCode == RESULT_OK && data != null) {
+            val ip = data.getStringExtra(QrScanActivity.EXTRA_IP) ?: ""
+            val port = data.getIntExtra(QrScanActivity.EXTRA_PORT, TvControllerClient.PORT)
+            val code = data.getStringExtra(QrScanActivity.EXTRA_CODE) ?: ""
+            if (ip.isNotEmpty() && code.isNotEmpty()) connectTv(ip, port, ip, "tv", code)
+        }
     }
 
     // —————————————————————————— 页面切换 ——————————————————————————
@@ -614,13 +627,16 @@ class TouchpadActivity : ComponentActivity() {
         Toast.makeText(this, getString(R.string.ui_touchpad_toast_clipboard, preview), Toast.LENGTH_LONG).show()
     }
 
-    /** 设备选择弹窗：本机/PC（默认）+ 已发现 TV + 手动输入 IP */
+    /** 设备选择弹窗：本机/PC（默认）+ 已发现 TV + 扫码连接 + 手动输入 IP */
     internal fun showDevicePicker() {
         TvDiscovery.start()
         val items = ArrayList<CharSequence>()
         items.add(getString(R.string.ui_main_item_local))
         val tvs = TvDiscovery.list()
         tvs.forEach { items.add("${it.name}  ${it.ip}  ${it.typeLabel}") }
+        // 扫码连接（2026-11-26 TV 配对批）：TV 配对页亮二维码，扫一下即完成首连，
+        // 之后 0x36 落盘免输 —— 手输 IP 之外给 TV 用户的主路径
+        items.add(getString(R.string.ui_touchpad_scan_connect))
         items.add(getString(R.string.ui_main_item_input_manual))
         com.allperiph.ui.ApDialog.builder(this)
             .setTitle(getString(R.string.ui_main_dialog_device_pick))
@@ -631,6 +647,11 @@ class TouchpadActivity : ComponentActivity() {
                         updateDeviceChip()
                     }
                     which == items.size - 1 -> promptTvIp()
+                    // 倒数第二项 = 扫码连接（在「手动输入」之前插入）
+                    which == items.size - 2 -> {
+                        val i = Intent(this, QrScanActivity::class.java)
+                        startActivityForResult(i, REQ_SCAN_TV)
+                    }
                     else -> {
                         val tv = tvs.getOrNull(which - 1) ?: return@setItems
                         connectTv(tv.ip, tv.port, tv.name, tv.type, tv.token)
@@ -664,8 +685,13 @@ class TouchpadActivity : ComponentActivity() {
      *              信标里也取不到时握手会被拒，属预期 —— 见连接失败提示） */
     private fun connectTv(ip: String, port: Int, name: String, type: String = "tv", token: String = "") {
         Thread({
+            // token 兜底链（2026-11-26 TV 配对批）：显式传入 → 按 IP 落盘的配对令牌
+            // （0x36 下发后存于 TvPairTokens）→ 发现表信标。不能只信信标 —— TV 端
+            // 恒隐藏令牌广播，且设备记录每 1.5s 被信标刷新会覆盖任何落盘值。
             val tok = token.ifBlank {
-                TvDiscovery.list().firstOrNull { it.ip == ip }?.token ?: ""
+                TvPairTokens.get(this, ip)
+                    ?: TvDiscovery.list().firstOrNull { it.ip == ip }?.token
+                    ?: ""
             }
             val c = TvControllerClient(ip, port, tok)
             val ok = c.connect()
@@ -684,6 +710,9 @@ class TouchpadActivity : ComponentActivity() {
                     ControlTarget.label = name
                     ControlTarget.type = type
                     c.onReverseClipboard = { text -> runOnUiThread { recvClipboard(text) } }
+                    // 0x36 持久令牌落盘（2026-11-26 TV 配对批）：配对码首连成功后
+                    // 服务端回发令牌，存下之后免输。reader 线程回调，apply 异步写安全。
+                    c.onTokenGrant = { tok2 -> TvPairTokens.save(this, ip, tok2) }
                     // 仅 TV 目标进 TV 专属快捷键布局；PC 退出 TV 模式（保持鼠标 + 完整键鼠）
                     if (type == "tv") hotkeyBoard.enterTvMode() else hotkeyBoard.exitTvMode()
                     updateDeviceChip()

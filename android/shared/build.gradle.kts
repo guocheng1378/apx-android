@@ -28,6 +28,9 @@ android {
     }
 }
 
-// 零第三方依赖：仅 framework API，与 :app / :tv 保持一致原则
+// 零第三方依赖原则的例外（2026-11-26，TV 配对批）：zxing core 是纯 Java 的 QR
+// 编解码库（不申请任何权限、无传递依赖），配对二维码的生成（TV 配对页 / 手机
+// 配对码弹窗）与解码（手机扫码连接）都靠它。用 api 让 :app / :tv 直接可用。
 dependencies {
+    api("com.google.zxing:core:3.5.3")
 }

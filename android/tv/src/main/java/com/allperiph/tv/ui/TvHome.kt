@@ -71,6 +71,7 @@ fun TvHome(
     onScreen: () -> Unit,
     onSelfCheck: () -> Unit,
     onAccessibility: () -> Unit,
+    onPairing: () -> Unit,
     onToggleService: () -> Unit,
 ) {
     val pad = 20.dp
@@ -142,6 +143,8 @@ fun TvHome(
             TvAction(s(ctx, R.string.tv_action_screen), onScreen)
             TvAction(s(ctx, R.string.tv_action_selfcheck), onSelfCheck)
             TvAction(s(ctx, R.string.tv_action_a11y), onAccessibility)
+            // 配对页（2026-11-26 TV 配对批）：亮二维码 + 6 位码，控制端首连入口
+            TvAction(s(ctx, R.string.tv_action_pairing), onPairing)
             TvAction(
                 s(ctx, 
                     if (state.accepting) R.string.tv_accept_off else R.string.tv_accept_on,

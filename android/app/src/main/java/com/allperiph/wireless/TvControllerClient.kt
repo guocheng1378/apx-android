@@ -33,6 +33,13 @@ class TvControllerClient(
     @Volatile var onRemoteInputDone: (() -> Unit)? = null
 
     /**
+     * 0x36 持久令牌下发（2026-11-26 TV 配对批）：配对码握手通过后被控端回发的
+     * 持久令牌，落盘后下次连接免输。回调在 reader 线程，调用方落盘走
+     * SharedPreferences（apply 异步写），无需切线程。
+     */
+    @Volatile var onTokenGrant: ((String) -> Unit)? = null
+
+    /**
      * 对端能力位图（0x33 能力协商，2026-11-11）：对端连接后报上来的支持能力，
      * 见 [com.allperiph.shared.proto.ApxFrame] 的 CAP_* 常量。0 = 未收到（旧版对端没有该
      * 机制，此时能力帧族一律不发）。新会话建立（[openSocket]）时清零重收。
@@ -222,6 +229,16 @@ class TvControllerClient(
                     for (i in 0 until 8) caps = caps or ((body[1 + i].toLong() and 0xFF) shl (8 * i))
                     peerCaps = caps
                     Log.i("TvCtrl", "对端能力：0x${java.lang.Long.toHexString(caps)}")
+                }
+            }
+            // 0x36 持久令牌下发（2026-11-26 TV 配对批，ApxFrame.CMD_TOKEN_GRANT）：
+            // 配对码握手通过后被控端回发持久令牌 [0x36][token UTF-8]。
+            // 此前手机控制端无该分支 —— TV 发来会静默丢弃，落盘永远不发生。
+            // 空令牌不回调（被控端不会发，防御性兜底）。
+            ApxFrame.CMD_TOKEN_GRANT -> {
+                if (body.size >= 2) {
+                    val tok = String(body.copyOfRange(1, body.size), Charsets.UTF_8)
+                    if (tok.isNotEmpty()) onTokenGrant?.invoke(tok)
                 }
             }
             // 0x38 查找手机（2026-11-11，能力位 bit2）：手机控 PC / TV 的链路上，PC 托盘

@@ -107,7 +107,9 @@ R_USE = re.compile(
 #   「恢复默认位置」等 2 处（GamepadActivity 摇杆假配置文案），追认上调；后续新文案仍应优先走 strings.xml。
 # 646 -> 648（2026-11-14 输入法换装批盘点）：47b9e79 真机三修带入 2 处存量，追认上调；
 #   后续新文案仍应优先走 strings.xml。
-TEXT_BASELINE = 650  # 2026-11-13 远程输入框迁主壳：ActionPill("语音") 改引 ui_remote_item_voice，-1 锁住
+# 650 -> 665（2026-11-26 TV 配对批盘点）：650 基线后攒批带入的存量漂移（TvServerService
+#   状态文案、MainActivity 输入反馈等 15 处），本批新文件零中文字面量，追认上调。
+TEXT_BASELINE = 665  # 2026-11-26 TV 配对批：追认攒批存量漂移后锁住；新文案仍优先走 strings.xml
 
 
 def strip_comments(text):

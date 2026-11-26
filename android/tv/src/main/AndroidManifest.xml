@@ -102,6 +102,14 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
             android:theme="@style/Theme.ApxTv" />
 
+        <!-- 配对页：亮配对二维码 + 6 位码（2026-11-26 TV 配对批），仅本应用内部拉起 -->
+        <activity
+            android:name=".ui.TvPairingActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode"
+            android:theme="@style/Theme.ApxTv" />
+
         <service
             android:name=".TvServerService"
             android:exported="false"

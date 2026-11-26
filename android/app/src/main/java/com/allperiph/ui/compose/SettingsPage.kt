@@ -82,6 +82,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
 import com.allperiph.ui.BallIcon
 
 /**
@@ -1352,6 +1353,28 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                         fontSize = 44.sp,
                         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
                     )
+                    // 配对二维码（2026-11-26 TV 配对批）：手机被控时亮出来给另一台手机
+                    // 「扫码连接」扫 —— 6 位码之外的第二条首连路径。码变化（过期换新/
+                    // 重新生成）时随 code 重画；取不到本机地址就藏图只留码。
+                    if (code.isNotEmpty()) {
+                        val qrBmp = remember(code) {
+                            val ip = com.allperiph.shared.net.ControlServer.localIpv4()
+                            if (ip.isNullOrEmpty()) null
+                            else com.allperiph.shared.net.PairQr.makeBitmap(
+                                com.allperiph.shared.net.PairQr.encode(
+                                    ip, com.allperiph.shared.net.ControlServer.PORT, code), 480)
+                        }
+                        qrBmp?.let {
+                            Image(
+                                bitmap = it.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .padding(vertical = 8.dp)
+                                    // 弹窗宽度内尽量大：3 米外手机相机对得上焦
+                                    .fillMaxWidth(),
+                            )
+                        }
+                    }
                     Text(
                         text = if (left > 0) ctx.getString(R.string.ui_set_pairing_expire, left / 60) else ctx.getString(R.string.ui_set_pairing_expired),
                         fontSize = ApType.footnote,

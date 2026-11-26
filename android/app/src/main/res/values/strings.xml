@@ -71,6 +71,13 @@
     <string name="ui_main_toast_done">已连上 %1$s</string>
     <string name="ui_main_item_local">本机 / PC（默认）</string>
     <string name="ui_main_item_input_manual">手动输入 TV IP…</string>
+    <!-- 扫码配对（2026-11-26 TV 配对批）：扫 TV 配对页二维码完成首连 -->
+    <string name="ui_touchpad_scan_connect">扫码连接…</string>
+    <string name="ui_touchpad_scan_hint">对准电视「配对」页上的二维码</string>
+    <string name="ui_touchpad_scan_wait_camera">等待摄像头权限…</string>
+    <string name="ui_touchpad_scan_no_camera">缺少摄像头权限 — 无法扫码（系统设置授权后重进本页）</string>
+    <string name="ui_touchpad_scan_camera_failed">相机启动失败：%1$s</string>
+    <string name="ui_touchpad_scan_found">已识别 %1$s，正在连接…</string>
     <string name="ui_main_dialog_device_pick">选择控制设备</string>
     <string name="ui_common_connect">连接</string>
     <string name="ui_main_item_link">链接 TV / PC…</string>

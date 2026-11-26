@@ -20,6 +20,13 @@
     <string name="tv_action_screen">看电脑画面</string>
     <string name="tv_action_selfcheck">检查控制能力</string>
     <string name="tv_action_a11y">开启无障碍</string>
+    <string name="tv_action_pairing">配对</string>
+
+    <!-- 配对页：亮二维码 + 6 位码，控制端扫码或输码完成首连（2026-11-26 TV 配对批） -->
+    <string name="tv_pairing_title">配对连接</string>
+    <string name="tv_pairing_expire">有效期 %1$d 分 %2$d 秒</string>
+    <string name="tv_pairing_expired">已过期，正在换新码…</string>
+    <string name="tv_pairing_hint">用手机「扫码连接」对准上面的二维码，或在电脑上输入 6 位配对码。首次连上后，这台电视会记住对方，之后不用再配对。</string>
     <string name="tv_a11y_already">无障碍已开启，点按 / 滑动 / 打字都能用</string>
     <string name="tv_a11y_root_tried">已尝试用 root 自动开启无障碍，若未生效请到系统设置里手动开启</string>
     <string name="tv_a11y_open_failed">这台电视打不开系统无障碍设置，请到「设置 → 无障碍」里手动开启</string>

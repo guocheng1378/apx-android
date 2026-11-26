@@ -543,6 +543,15 @@
             android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
             android:excludeFromRecents="true" />
 
+        <!-- 扫码配对页（2026-11-26 TV 配对批）：扫 TV 配对页二维码回传 (ip, port, code)，
+             仅触控板页 startActivityForResult 拉起 -->
+        <activity
+            android:name=".wireless.QrScanActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
+            android:theme="@style/Theme.AllPeriph.Miuix.Fullscreen"
+            android:excludeFromRecents="true" />
+
         <!--
           ⑮之三 投屏到电脑（屏幕采集）：授权页 + 前台采集服务。
           采集页弹系统投屏授权，成功后起 mediaProjection 类型前台服务；

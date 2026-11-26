@@ -1287,10 +1287,13 @@ internal fun connectControlledDevice(
     val ui = android.os.Handler(android.os.Looper.getMainLooper())
     Thread({
         // link-hardening（REQ-无线安全配对）：被控端启用令牌后握手必须带 token。
-        // 信标路径的 dev 自带 token；历史重连等来源可能没有 —— 按 IP 从发现表兜底取
-        // （被控端开着信标时 1.5s 内就有；都没有则对端多半未启用令牌，空串照常放行）。
+        // 兜底链（2026-11-26 TV 配对批）：显式 token → 按 IP 落盘的配对令牌
+        // （0x36 下发后存于 TvPairTokens）→ 发现表信标。TV 端恒隐藏令牌广播，
+        // 且设备记录每 1.5s 被信标刷新会覆盖落盘值，所以按 IP 独立持久化。
         val tok = d.token.ifBlank {
-            com.allperiph.wireless.TvDiscovery.list().firstOrNull { it.ip == d.ip }?.token ?: ""
+            com.allperiph.wireless.TvPairTokens.get(ctx, d.ip)
+                ?: com.allperiph.wireless.TvDiscovery.list().firstOrNull { it.ip == d.ip }?.token
+                ?: ""
         }
         val c = com.allperiph.wireless.TvControllerClient(d.ip, d.port, tok)
         val ok = c.connect()
@@ -1307,6 +1310,9 @@ internal fun connectControlledDevice(
                 com.allperiph.wireless.ControlTarget.host = d.ip
                 com.allperiph.wireless.ControlTarget.label = d.name
                 com.allperiph.wireless.ControlTarget.type = d.type
+                // 0x36 持久令牌落盘（2026-11-26 TV 配对批）：配对码首连成功后
+                // 服务端回发令牌，存下之后免输。reader 线程回调，apply 异步写安全。
+                c.onTokenGrant = { tok2 -> com.allperiph.wireless.TvPairTokens.save(ctx, d.ip, tok2) }
                 // 出口换了：作废「已观测出口」，否则徽章 / 通知栏 / 0x31 上报在用户碰屏幕
                 // 之前仍显示上一个出口（issue#52 第 8 条同款）。
                 // ⚠️ 这里**不**顺手打开「无线」传输类：那条开关会一并拉起 WirelessModule

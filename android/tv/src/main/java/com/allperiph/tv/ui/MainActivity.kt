@@ -175,6 +175,8 @@ class MainActivity : android.app.Activity() {
                         onScreen = { startActivity(Intent(this@MainActivity, TvScreenActivity::class.java)) },
                         onSelfCheck = { showCapabilities() },
                         onAccessibility = { onAccessibilityAction() },
+                        // 配对页（2026-11-26 TV 配对批）：直接拉起，配对码生命周期由页面自管
+                        onPairing = { startActivity(Intent(this@MainActivity, TvPairingActivity::class.java)) },
                         onToggleService = { confirmToggleService() },
                     )
                 }
