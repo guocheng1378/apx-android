@@ -1662,6 +1662,8 @@ bool Ctrl9511Client::sendMediaConfig(const std::string& id, const std::string& j
     b[1 + id.size()] = static_cast<uint8_t>(json.size());
     std::memcpy(b.data() + 2 + id.size(), json.data(), json.size());
     impl_->sendCmd(0x4E, b.data(), static_cast<uint32_t>(b.size()));
+    // issue#171 排障：0x4E 此前零日志，档位不生效时两端都无法确认下发到哪一环。
+    APX_LOGI("媒体档位下发：id={} {}", id.c_str(), json.c_str());
     return true;
 }
 

@@ -945,7 +945,7 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
     }
 
     // —— 媒体档位（issue#171 #2，0x4E）：面板改投屏/摄像头的分辨率与画质档位 ——
-    //    payload={id:"screenmirror"|"camera", w:目标宽(0=原生), q:JPEG画质,
+    //    payload={id:"screenmirror"|"camera", w:目标短边(0=原生), q:JPEG画质,
     //             facing:0后置/1前置（仅摄像头，可选，issue#171 反馈补前后切换）}。
     //    下发失败如实报错；手机端落盘 prefs 并即时应用（投屏逐帧、摄像头重绑）。
     if (name == "media.config") {

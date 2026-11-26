@@ -175,9 +175,12 @@ class CameraPushActivity : ComponentActivity() {
                     setSurfaceProvider(previewView.surfaceProvider)
                 }
                 // 档位目标尺寸（issue#171 #2）：w=0 表示原生（设备最高）—— 用大目标尺寸
-                // + CLOSEST_HIGHER_THEN_LOWER 兜到设备支持的最大分辨率；其余按 16:9 推高。
+                // + CLOSEST_HIGHER_THEN_LOWER 兜到设备支持的最大分辨率。
+                // ★ 档位语义 = 短边（720p/1080p 的 720/1080），不是宽：旧版按宽解释，
+                //   「高清 1080」实际绑 1080x607，比默认 1280x720 还低 —— 用户看就是
+                //   「档位切换没效果」（issue#171 日志实锤）。16:9 下短边 w → 宽 w*16/9。
                 val target = if (cfgW <= 0) NATIVE_TARGET
-                             else Size(cfgW, cfgW * 9 / 16)
+                             else Size(cfgW * 16 / 9, cfgW)
                 val analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
                         ResolutionSelector.Builder()

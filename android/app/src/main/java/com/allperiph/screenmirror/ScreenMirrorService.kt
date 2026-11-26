@@ -166,16 +166,19 @@ class ScreenMirrorService : Service() {
             lastAt = now
             runCatching {
                 val bitmap = imageToBitmap(image)
-                // 档位逐帧读（issue#171 #2）：PC 下发 0x4E 后下一帧即按新档位缩放
-                val targetW = cfgW
+                // 档位逐帧读（issue#171 #2）：PC 下发 0x4E 后下一帧即按新档位缩放。
+                // ★ 档位语义 = 短边（720p/1080p 的 720/1080）：旧版按长边缩，Pad 竖屏
+                //   1872x2400 切「720」只剩 567x720，比预期糊一倍多（issue#171 日志实锤）。
+                //   按短边缩：竖屏 1872x2400 → 720x923，横屏 2376x1080 → 1584x720。
+                val targetShort = cfgW
                 val srcW = bitmap.width
                 val srcH = bitmap.height
                 val outW: Int
                 val outH: Int
-                if (targetW <= 0) {
+                if (targetShort <= 0) {
                     outW = srcW; outH = srcH   // 原生：不缩放
                 } else {
-                    val scale = targetW.toFloat() / maxOf(srcW, srcH)
+                    val scale = targetShort.toFloat() / minOf(srcW, srcH)
                     outW = (srcW * scale).toInt().coerceAtLeast(2)
                     outH = (srcH * scale).toInt().coerceAtLeast(2)
                 }
@@ -291,7 +294,7 @@ class ScreenMirrorService : Service() {
         const val EXTRA_DATA = "projection_data"
         const val ACTION_STOP = "com.allperiph.action.STOP_SCREEN_MIRROR"
 
-        // 默认档位（宽 720 / q65 / ≈10fps）：issue#171 #2 起实际档位由 MediaConfigPref
+        // 默认档位（短边 720 / q65 / ≈10fps）：issue#171 #2 起实际档位由 MediaConfigPref
         // 提供（PC 面板 0x4E 下发），此处常量仅作未配置时的回退默认值。
         const val TARGET_W = 720
         const val JPEG_QUALITY = 65
