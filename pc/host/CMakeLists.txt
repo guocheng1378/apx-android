@@ -405,8 +405,9 @@ target_include_directories(apxpc_localsend PUBLIC "${APXPC_ROOT}/include")
 # v-oss：SHA-256 实现换 PicoSHA2（third_party/picosha2，仅 sha256.cpp 包含其头文件，PRIVATE 即可）
 target_include_directories(apxpc_localsend PRIVATE "${APXPC_ROOT}/third_party/picosha2")
 # json 的实现在 apxpc_service（src/net/json.cpp 属该库）：v-oss 起解析/序列化委托
-# nlohmann/json（third_party/nlohmann），Json 门面与调用点不变
-target_include_directories(apxpc_service PRIVATE "${APXPC_ROOT}/third_party/nlohmann")
+# nlohmann/json（third_party/nlohmann），Json 门面与调用点不变。
+# 包含路径指到 third_party —— 官方用法是 #include <nlohmann/json.hpp>
+target_include_directories(apxpc_service PRIVATE "${APXPC_ROOT}/third_party")
 target_link_libraries(apxpc_localsend PUBLIC apxpc_service)
 if(WIN32)
   target_link_libraries(apxpc_localsend PUBLIC ws2_32)
