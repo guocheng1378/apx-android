@@ -494,6 +494,8 @@ endif()
 # 让 panel 的全部符号依赖都在 apxhost 既有的 link 列表里（objs 先于 libs，无序问题）。
 add_executable(apxhost "${APXPC_ROOT}/src/host_main.cpp"
                        "${APXPC_ROOT}/src/ui/panel_http.cpp")
+# panel_http 的 HTTP 收发换 cpp-httplib（去轮子第四步）：#include <httplib.h>
+target_include_directories(apxhost PRIVATE "${APXPC_ROOT}/third_party/cpp-httplib")
 target_link_libraries(apxhost PRIVATE apxpc_core apxpc_discovery apxpc_sensors apxpc_service apxpc_wireless apxpc_media apxpc_localsend)
 if(WIN32 AND TARGET ViGEmClient)
   # EXCLUDE_FROM_ALL：靠构建依赖把 DLL 编出来（只编不链，保持动态加载零链接依赖）

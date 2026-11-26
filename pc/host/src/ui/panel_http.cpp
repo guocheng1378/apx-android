@@ -12,9 +12,12 @@
 //   GET  /*                   → 静态 serve 前端 dist（exe 旁 web/，防目录穿越）
 //
 // 设计取舍：
-//   · 单线程 select 模型（1s 超时 tick 跑节流任务；请求顺序处理 —— 本地 JSON 毫秒级，无并发问题）
-//   · 不做 SSE/长连接：事件与状态同用轮询，避免长连接占死 accept 循环（与 bridge.ts http 模式对应）
-//   · 仅绑定 127.0.0.1（零外网暴露）；响应 Connection: close + Cache-Control: no-store
+//   · HTTP 收发换 cpp-httplib（third_party/cpp-httplib，去轮子第四步）：线程池逐连接处理，
+//     API 处理器统一拿 g_apiMu 串行 —— 对外语义与旧「单线程 select 顺序处理」一致
+//   · 1s tick 节流任务（USB 10s / 媒体泵 4s）由独立 ticker 线程跑（旧 select 超时 tick 的等价物）
+//   · 不做 SSE/长连接：事件与状态同用轮询（与 bridge.ts http 模式对应）；MJPEG 画面流是
+//     唯一的长连接，走 chunked content provider，占的是各自连接线程，不互相饿死
+//   · 仅绑定 127.0.0.1（零外网暴露）；Cache-Control: no-store
 //   · Windows 上本文件编译为返回 -1 的 stub —— Web 面板走 web_panel.cpp，保持零交叉
 //
 // ScreenPush 边界（重要）：本入口的宿主链路（apxhost panel）**不创建、不链接**
@@ -62,21 +65,18 @@
 #include "apxpc/media/audio_capture.hpp"
 #include "apxpc/media/mic_bridge.hpp"
 
+// cpp-httplib（third_party/cpp-httplib，MIT，单头文件 v0.67.0）：本文件的 HTTP 收发
+// 全部委托给库 —— 请求解析/路由/静态服务/流式上传/MJPEG 推流，见文件头「设计取舍」。
+#include <httplib.h>
+
 #if !defined(_WIN32)
 
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
 #include <signal.h>
 #include <spawn.h>
-#include <sys/select.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
-#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -111,12 +111,19 @@ uint64_t steadyMs() {
 }
 
 /* 托盘「退出」→ 面板线程：只跨线程传一个标志（托盘在自己的线程上，不能碰面板状态）。
-   volatile sig_atomic_t 不够 —— 面板线程用 select 的 200ms 超时轮询，这里只要
-   可见性，std::atomic 最省心。 */
+   watcher 线程 200ms 轮询该标志，置位即调 srv.stop() 让 listen 循环收摊 ——
+   只要可见性，std::atomic 最省心。 */
 std::atomic<bool> g_quitRequested{false};
 // 面板地址：端口是 bind(0) 后由内核分配的，托盘（另一线程）在点击时读这里。
 std::mutex g_urlMu;
 std::string g_panelUrl;
+
+/* API 串行锁：httplib 是线程池逐连接处理，而 HttpPanel 的响应槽（resp/hasResp）、
+   usbNextMs/mediaNextMs 节流字段和 mediaPumpTick 的 join+重建都不是线程安全的 ——
+   旧实现靠「单线程 select 顺序处理」兜着。所有 API 处理器（state/act/query/events/
+   upload/open-file）和 ticker 线程统一拿这把锁，对外语义与旧单线程模型一致。
+   MJPEG 流线程只碰自带锁的全局帧持有，不拿这把锁（否则画面流会饿死状态轮询）。 */
+std::mutex g_apiMu;
 
 // ——— 事件队列（轮询消费；push 可能来自接收线程/会话回调线程，需锁）———
 struct EventEntry { long long seq = 0; std::string json; };
@@ -1354,156 +1361,46 @@ std::string percentDecode(const std::string& s) {
     return o;
 }
 
-struct Req {
-    std::string method, path, query, body;
-    // link-hardening：Origin 头（跨站请求必带）。本机面板页面发起的请求 Origin 必为
-    // 127.0.0.1/localhost + 本端口，恶意网页伪造的请求对不上 → handleConnection 拒绝。
-    std::string origin;
-    bool ok = false;
-    // —— 浏览器上传（POST /api/upload）用 ——
-    // 这条路径的 body 可能是几百 MB：整段读进内存既浪费又会被下面的 512KB 闸门拒掉，
-    // 所以 body 走「流式」——readRequest 只把头部之后顺手收到的那点字节放进 body，
-    // 剩下的由 handleUpload 从 fd 继续读到文件里。
-    bool streamBody = false;
-    size_t contentLength = 0;   // 声明长度（流式路径用它判断剩余量）
-    std::string fileName;       // X-File-Name 头（percent-encoded UTF-8）
-};
-
 /// 单个上传的大小上限。超了直接 413 —— 免得一颗没上限的 body 把磁盘写满。
+/// 同时喂给 srv.set_payload_max_length（httplib 全局闸门）。
 constexpr size_t kMaxUploadBytes = 4ull * 1024 * 1024 * 1024;   // 4 GiB
 
-Req readRequest(int fd) {
-    Req r;
-    std::string buf;
-    char tmp[4096];
-    size_t headerEnd = std::string::npos;
-    while (headerEnd == std::string::npos) {
-        const ssize_t n = ::recv(fd, tmp, sizeof(tmp), 0);
-        if (n <= 0) return r;
-        buf.append(tmp, static_cast<size_t>(n));
-        if (buf.size() > 64 * 1024) return r;   // header 过大拒绝
-        headerEnd = buf.find("\r\n\r\n");
-    }
-    const std::string head = buf.substr(0, headerEnd);
-    std::string rest = buf.substr(headerEnd + 4);
+/// act/query 的 body 上限（旧 readRequest 的 512KB 闸门；httplib 的 payload 上限是
+/// 全局的，上传要走 4GB，所以这条在处理器里单独判）。
+constexpr size_t kMaxApiBodyBytes = 512 * 1024;
 
-    const size_t sp1 = head.find(' ');
-    const size_t sp2 = head.find(' ', sp1 + 1);
-    if (sp1 == std::string::npos || sp2 == std::string::npos) return r;
-    r.method = head.substr(0, sp1);
-    std::string uri = head.substr(sp1 + 1, sp2 - sp1 - 1);
-    const size_t q = uri.find('?');
-    if (q != std::string::npos) {
-        r.query = uri.substr(q + 1);
-        uri = uri.substr(0, q);
-    }
-    r.path = percentDecode(uri);
-
-    std::string lowerHead = head;
-    std::transform(lowerHead.begin(), lowerHead.end(), lowerHead.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    size_t contentLength = 0;
-    const size_t cl = lowerHead.find("content-length:");
-    if (cl != std::string::npos) {
-        contentLength = static_cast<size_t>(
-            std::strtoull(lowerHead.c_str() + cl + 15, nullptr, 10));
-    }
-
-    // 文件名头（浏览器上传：页面上的 <input type=file> 拿不到真实路径，只能把名字带过来）
-    const size_t fn = lowerHead.find("x-file-name:");
-    if (fn != std::string::npos) {
-        const size_t lineEnd = head.find("\r\n", fn);
-        std::string v = head.substr(fn + 12,
-            (lineEnd == std::string::npos ? head.size() : lineEnd) - (fn + 12));
-        const size_t b = v.find_first_not_of(" \t");
-        const size_t e = v.find_last_not_of(" \t");
-        v = (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
-        r.fileName = percentDecode(v);
-    }
-
-    // Origin 头（CSRF 防线用；与上面 x-file-name 同款解析法）
-    const size_t og = lowerHead.find("origin:");
-    if (og != std::string::npos) {
-        const size_t lineEnd = head.find("\r\n", og);
-        std::string v = head.substr(og + 7,
-            (lineEnd == std::string::npos ? head.size() : lineEnd) - (og + 7));
-        const size_t b = v.find_first_not_of(" \t");
-        const size_t e = v.find_last_not_of(" \t");
-        r.origin = (b == std::string::npos) ? std::string() : v.substr(b, e - b + 1);
-    }
-
-    // —— 上传：body 不在这里读 ——
-    // 它可能有几百 MB，整段读进内存既浪费又会撞上面那道 512KB 闸门；
-    // 这里只把「读完头顺手多收到的那点字节」交出去（body），其余由 handleUpload 从 fd 续读。
-    if (r.method == "POST" && r.path == "/api/upload") {
-        if (contentLength == 0 || contentLength > kMaxUploadBytes) return r;
-        r.contentLength = contentLength;
-        r.streamBody = true;
-        r.body = rest;
-        r.ok = true;
-        return r;
-    }
-
-    if (contentLength > 512 * 1024) return r;   // body 过大拒绝
-    while (rest.size() < contentLength) {
-        const ssize_t n = ::recv(fd, tmp, sizeof(tmp), 0);
-        if (n <= 0) return r;
-        rest.append(tmp, static_cast<size_t>(n));
-    }
-    r.body = rest.substr(0, contentLength);
-    r.ok = true;
-    return r;
-}
-
-void writeAll(int fd, const std::string& data) {
-    size_t off = 0;
-    while (off < data.size()) {
-        const ssize_t n = ::send(fd, data.data() + off, data.size() - off, MSG_NOSIGNAL);
-        if (n <= 0) return;
-        off += static_cast<size_t>(n);
-    }
-}
-
-void respond(int fd, int code, const char* status, const std::string& contentType,
-             const std::string& body) {
-    char hdr[512];
-    std::snprintf(hdr, sizeof(hdr),
-                  "HTTP/1.1 %d %s\r\n"
-                  "Content-Type: %s\r\n"
-                  "Content-Length: %zu\r\n"
-                  "Connection: close\r\n"
-                  "Cache-Control: no-store\r\n"
-                  "X-Content-Type-Options: nosniff\r\n"
-                  "\r\n",
-                  code, status, contentType.c_str(), body.size());
-    std::string out = hdr;
-    out += body;
-    writeAll(fd, out);
-}
-
-void serveStatic(HttpPanel* p, int fd, const std::string& uriPath) {
+void serveStatic(HttpPanel* p, const std::string& uriPath, httplib::Response& res) {
     const fs::path root = fs::weakly_canonical(fs::path(p->webDir));
     std::string rel = uriPath;
     if (!rel.empty() && rel.front() == '/') rel.erase(0, 1);
     if (rel.empty()) rel = "index.html";
-    if (rel.find("..") != std::string::npos)
-        return respond(fd, 403, "Forbidden", "text/plain; charset=utf-8", "forbidden");
+    if (rel.find("..") != std::string::npos) {
+        res.status = 403;
+        res.set_content("forbidden", "text/plain; charset=utf-8");
+        return;
+    }
 
     fs::path full = root / rel;
     std::error_code dEc;
     if (fs::is_directory(full, dEc) && !dEc) full /= "index.html";
     std::error_code ec;
     const fs::path canon = fs::weakly_canonical(full, ec);
-    if (ec)
-        return respond(fd, 404, "Not Found", "text/plain; charset=utf-8", "not found");
+    if (ec) {
+        res.status = 404;
+        res.set_content("not found", "text/plain; charset=utf-8");
+        return;
+    }
     // 前缀防护（weakly_canonical 已解析符号链接，防目录穿越）
     const std::string rootS = root.generic_string();
     const std::string canonS = canon.generic_string();
     if (canonS != rootS &&
         (canonS.size() <= rootS.size() ||
          canonS.compare(0, rootS.size(), rootS) != 0 ||
-         canonS[rootS.size()] != '/'))
-        return respond(fd, 403, "Forbidden", "text/plain; charset=utf-8", "forbidden");
+         canonS[rootS.size()] != '/')) {
+        res.status = 403;
+        res.set_content("forbidden", "text/plain; charset=utf-8");
+        return;
+    }
 
     if (!fs::is_regular_file(canon, ec) || ec) {
         // 首页缺失 → 前端未打包：给获取指引（诚实降级，不白屏）
@@ -1515,16 +1412,22 @@ void serveStatic(HttpPanel* p, int fd, const std::string& uriPath) {
                 "<p>此构建未附带 <code>web/</code> 目录。请使用 CI 打包的完整产物，"
                 "或在 pc/web/ 执行 <code>npm install &amp;&amp; npm run build</code> "
                 "后把 dist/ 内容拷到可执行文件旁的 web/ 目录。</p></body>";
-            return respond(fd, 200, "OK", "text/html; charset=utf-8", tip);
+            res.set_content(tip, "text/html; charset=utf-8");
+            return;
         }
-        return respond(fd, 404, "Not Found", "text/plain; charset=utf-8", "not found");
+        res.status = 404;
+        res.set_content("not found", "text/plain; charset=utf-8");
+        return;
     }
     std::ifstream f(canon, std::ios::binary);
-    if (!f)
-        return respond(fd, 404, "Not Found", "text/plain; charset=utf-8", "not found");
+    if (!f) {
+        res.status = 404;
+        res.set_content("not found", "text/plain; charset=utf-8");
+        return;
+    }
     const std::string body((std::istreambuf_iterator<char>(f)),
                            std::istreambuf_iterator<char>());
-    respond(fd, 200, "OK", guessMime(canon.generic_string()), body);
+    res.set_content(body, guessMime(canon.generic_string()));
 }
 
 // ——— 协议信封分发（POST body → handleAct/handleQuery → 响应槽）———
@@ -1562,23 +1465,6 @@ void dispatchEnvelope(HttpPanel* p, const std::string& body, bool isAct) {
     }
 }
 
-/// 取 URL 查询参数（`?ip=1.2.3.4&port=53317`）。找不到返回空串。
-std::string queryValue(const std::string& query, const std::string& key) {
-    const std::string pat = key + "=";
-    size_t i = 0;
-    while ((i = query.find(pat, i)) != std::string::npos) {
-        // 只在参数边界上匹配，避免 "xip=" 命中 "ip="
-        const bool atStart = (i == 0) || query[i - 1] == '&';
-        if (atStart) {
-            const size_t b = i + pat.size();
-            const size_t e = query.find('&', b);
-            return percentDecode(query.substr(b, (e == std::string::npos ? query.size() : e) - b));
-        }
-        i += pat.size();
-    }
-    return std::string();
-}
-
 /// 同名不覆盖：加 " (2)"、" (3)"…（与接收端 / 私有通道同策略，别把用户已有文件冲掉）。
 fs::path dedupePath(const fs::path& dir, const std::string& name) {
     const fs::path first = dir / name;
@@ -1605,32 +1491,39 @@ fs::path dedupePath(const fs::path& dir, const std::string& name) {
 ///
 /// 落盘用「先写 .part → 收齐再改名」：中途断线只留一个临时文件，不会出现
 /// 半截文件顶着正式名字被别的程序读到。临时文件会删掉。
-void handleUpload(HttpPanel* p, int fd, const Req& req) {
-    const std::string ip = queryValue(req.query, "ip");
-    const long portL = std::strtol(queryValue(req.query, "port").c_str(), nullptr, 10);
-    std::string rawName = req.fileName.empty() ? queryValue(req.query, "name") : req.fileName;
+///
+/// body 经 ContentReader 流式读（httplib 不缓冲大 body），全程持 g_apiMu ——
+/// 与旧单线程 accept 循环一致：上传期间状态轮询排队等待（本地行为不变）。
+void handleUpload(HttpPanel* p, const httplib::Request& req, httplib::Response& res,
+                  const httplib::ContentReader& reader) {
+    std::string ip, portStr, target, rawName;
+    if (auto it = req.params.find("ip"); it != req.params.end()) ip = it->second;
+    if (auto it = req.params.find("port"); it != req.params.end()) portStr = it->second;
+    if (auto it = req.params.find("target"); it != req.params.end()) target = it->second;
+    if (auto it = req.params.find("name"); it != req.params.end()) rawName = it->second;
+    // 文件名头（浏览器上传：页面上的 <input type=file> 拿不到真实路径，只能把名字带过来；
+    // 头字段值按 RFC 不做 percent 解码，这里手动解 —— 与旧 readRequest 同款）
+    const std::string headerName = percentDecode(req.get_header_value("X-File-Name"));
+    if (!headerName.empty()) rawName = headerName;
     if (rawName.empty()) rawName = "upload.bin";
+    const long portL = std::strtol(portStr.c_str(), nullptr, 10);
 
     auto fail = [&](int code, const std::string& msg) {
         Json r = Json::makeObject();
         r["kind"] = std::string("upload-response");
         r["ok"] = false;
         r["error"] = msg;
-        respond(fd, code, code == 200 ? "OK" : "Bad Request",
-                "application/json; charset=utf-8", r.stringify());
+        res.status = code;
+        res.set_content(r.stringify(), "application/json; charset=utf-8");
     };
 
     // target=file：发给当前连接的手机（FilePanelModal 浏览器模式的「发送文件到手机」）——
     // 不带 ip&port，目标由宿主的会话/受控端状态决定；ip&port 是互传卡那条路（LocalSend 定向）。
-    const bool toPhone = queryValue(req.query, "target") == "file";
+    const bool toPhone = target == "file";
     if (!toPhone && (ip.empty() || portL <= 0 || portL > 65535)) {
         fail(400, "目标设备不合法（需要 ip 与 port，或 target=file）");
         return;
     }
-
-    // 上传可能持续几十秒（大文件 + 慢 Wi-Fi），把接收超时放宽；连接默认 5s 是给一问一答用的。
-    timeval tv{60, 0};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     const fs::path dir = fs::path(apxpc::wireless::FileReceiver::defaultDir());
     std::error_code ec;
@@ -1645,31 +1538,32 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
         return;
     }
 
+    // 流式落盘：ContentReader 逐块回调，不整包进内存（旧实现从 fd 续读，语义一致）。
+    // 读超时由 srv.set_read_timeout(60s) 兜底（旧上传路径的 SO_RCVTIMEO 60s 同款）。
     size_t written = 0;
-    std::string chunk = req.body;    // readRequest 读完头之后顺手收到的那点字节
-    if (chunk.size() > req.contentLength) chunk.resize(req.contentLength);
-    if (!chunk.empty()) {
-        out.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
-        written = chunk.size();
-    }
-    char buf[64 * 1024];
-    while (written < req.contentLength) {
-        const size_t want = std::min(sizeof(buf), req.contentLength - written);
-        const ssize_t n = ::recv(fd, buf, want, 0);
-        if (n <= 0) break;   // 断线 / 超时：下面是「收齐了吗」的统一判断
-        out.write(buf, static_cast<std::streamsize>(n));
-        written += static_cast<size_t>(n);
-    }
+    bool streamOk = true;
+    reader([&](const char* data, size_t len) {
+        if (!streamOk) return true;   // 已失败也把流读完，让 httplib 正常收尾
+        out.write(data, static_cast<std::streamsize>(len));
+        if (!out) { streamOk = false; return true; }
+        written += len;
+        return true;
+    });
     out.flush();
-    const bool streamOk = out.good();
+    streamOk = streamOk && out.good();
     out.close();
 
-    if (written != req.contentLength || !streamOk) {
+    if (written == 0) {
         std::error_code rmEc;
         fs::remove(tmpPath, rmEc);
-        APX_LOGW("上传中断：收到 {} / {} 字节，已丢弃临时文件", written, req.contentLength);
-        fail(400, "上传中断（收到 " + std::to_string(written) + " / " +
-                  std::to_string(req.contentLength) + " 字节）");
+        fail(400, "上传内容为空");
+        return;
+    }
+    if (!streamOk) {
+        std::error_code rmEc;
+        fs::remove(tmpPath, rmEc);
+        APX_LOGW("上传中断：收到 {} 字节，已丢弃临时文件", written);
+        fail(400, "上传中断（收到 " + std::to_string(written) + " 字节）");
         return;
     }
 
@@ -1693,7 +1587,7 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
             r["path"] = finalPath.string();
             r["size"] = static_cast<double>(written);
             r["warn"] = std::string("未连接手机：文件已保存在互传目录，连接后可从「文件传输」面板发回手机");
-            respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+            res.set_content(r.stringify(), "application/json; charset=utf-8");
             return;
         }
         enqueueFileSend(p, host, finalPath.string());
@@ -1706,7 +1600,7 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
         r["name"] = finalPath.filename().string();
         r["path"] = finalPath.string();
         r["size"] = static_cast<double>(written);
-        respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+        res.set_content(r.stringify(), "application/json; charset=utf-8");
         return;
     }
 
@@ -1723,168 +1617,59 @@ void handleUpload(HttpPanel* p, int fd, const Req& req) {
     r["path"] = finalPath.string();
     r["size"] = static_cast<double>(written);
     if (!queued) r["warn"] = std::string("上一批文件还在发送中，本次未入队（文件已保存在互传目录）");
-    respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
+    res.set_content(r.stringify(), "application/json; charset=utf-8");
 }
 
 // ——— 浏览器端媒体渲染：GET /api/camera.mjpg、/api/screenmirror.mjpg（MJPEG multipart 流）———
-// 关键约束（文件头「设计取舍」）：accept 循环单线程同步处理请求，长连接绝不能占着
-// accept 线程 —— 否则 /api/state 轮询全部饿死。handleConnection 把 fd 甩进本函数的
-// 独立线程；线程只碰全局帧持有与 fd，不碰 HttpPanel（面板退出时栈对象先亡，悬空
-// 不可解引用）。退出路径有两条：客户端断开（send 失败）或面板收尾置 g_httpAlive=false
-//（wait_for 最多 2s 后醒来退出），进程随后退出，线程不会越过面板生命周期。
+// 关键约束：httplib 的 chunked content provider 跑在各自连接的 worker 线程上，
+// 只碰自带锁的全局帧持有与 DataSink，不碰 HttpPanel（面板退出时栈对象先亡，悬空
+// 不可解引用）。退出路径有两条：客户端断开（sink.write 失败）或面板收尾置
+// g_httpAlive=false（wait_for 最多 2s 后醒来退出）。provider 返回 false 即结束流。
 // issue#171 #3 流分离批：抽成通用实现，摄像头（s6）与投屏（s7）各传各的帧持有。
-void streamMjpeg(int fd, std::mutex& mu, std::string& frameBuf,
-                 std::condition_variable& cv, const char* boundary) {
-    // 可判错的 send（writeAll 无返回值，检测不到客户端断开）
-    const auto sendAll = [&](const char* data, size_t n) -> bool {
-        size_t off = 0;
-        while (off < n) {
-            const ssize_t w = ::send(fd, data + off, n - off, MSG_NOSIGNAL);
-            if (w <= 0) return false;
-            off += static_cast<size_t>(w);
-        }
-        return true;
-    };
-    std::string hdr =
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: multipart/x-mixed-replace; boundary=";
-    hdr += boundary;
-    hdr += "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
-    if (!sendAll(hdr.data(), hdr.size())) {
-        ::close(fd);
-        return;
-    }
-    std::string lastSent;   // 去重：无新帧不重复推，<img> 解码频率=实际帧率
-    while (g_httpAlive.load(std::memory_order_relaxed)) {
-        std::string frame;
-        {
-            std::unique_lock<std::mutex> lk(mu);
-            // 最多等 2s：投屏未开/无新帧时给断开检测留节拍（客户端断了也能退出）
-            cv.wait_for(lk, std::chrono::seconds(2), [&] {
-                return !frameBuf.empty() && frameBuf != lastSent;
-            });
-            if (!frameBuf.empty() && frameBuf != lastSent)
-                frame = frameBuf;
-        }
-        if (frame.empty()) continue;
-        lastSent = frame;
-        std::string part;
-        part.reserve(frame.size() + 96);
-        part += "--";
-        part += boundary;
-        part += "\r\nContent-Type: image/jpeg\r\nContent-Length: ";
-        part += std::to_string(frame.size());
-        part += "\r\n\r\n";
-        part += frame;
-        part += "\r\n";
-        if (!sendAll(part.data(), part.size())) break;   // 客户端断开/写失败 → 收摊
-    }
-    ::close(fd);
-}
-
-void streamCameraMjpeg(int fd) {
-    streamMjpeg(fd, g_camFrameMu, g_camFrameJpeg, g_camFrameCv, "apxcamframe");
-}
-
-void streamScreenMirrorMjpeg(int fd) {
-    streamMjpeg(fd, g_smFrameMu, g_smFrameJpeg, g_smFrameCv, "apxsmframe");
-}
-
-void handleConnection(HttpPanel* p, int fd) {
-    timeval tv{5, 0};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    const Req req = readRequest(fd);
-    if (!req.ok) { ::close(fd); return; }
-
-    // CSRF 防线（link-hardening）：API 只接受本机面板页面发起的请求。浏览器在跨站
-    // fetch/XHR 上必带 Origin；用户浏览的恶意网页伪造的请求 Origin 对不上本机端口，
-    // 一律 403 —— 这是「恶意页面 → /api/act → app.openUrl」链路的第一道闸。
-    // 无 Origin（curl / 顶层导航 GET）放行：面板只绑 127.0.0.1，外网摸不到。
-    if (!req.origin.empty()) {
-        const std::string selfIp = "http://127.0.0.1:" + std::to_string(p->port);
-        const std::string selfLocal = "http://localhost:" + std::to_string(p->port);
-        if (req.origin != selfIp && req.origin != selfLocal) {
-            APX_LOGW("面板拒绝跨站请求：Origin={}", req.origin.c_str());
-            respond(fd, 403, "Forbidden", "text/plain; charset=utf-8", "origin not allowed");
-            ::close(fd);
-            return;
-        }
-    }
-
-    if (req.method == "GET" && req.path == "/api/state") {
-        // 轮询触发节流任务（与 web_panel 的 400ms tick 等价；select tick 另有一份兑底）
-        const uint64_t now = steadyMs();
-        if (now >= p->usbNextMs) {
-            refreshUsbStatus(p);
-            p->usbNextMs = now + 10000;
-        }
-        mediaPumpTick(p);
-        Json state;
-        buildState(p->bundle, state, p);
-        Json push = Json::makeObject();
-        push["kind"] = std::string("state");
-        push["t"] = static_cast<double>(steadyMs());
-        push["data"] = state;
-        respond(fd, 200, "OK", "application/json; charset=utf-8", push.stringify());
-    } else if (req.method == "GET" && req.path == "/api/events") {
-        long long since = 0;
-        const size_t k = req.query.find("since=");
-        if (k != std::string::npos)
-            since = std::strtoll(req.query.c_str() + k + 6, nullptr, 10);
-        Json arr = Json::makeArray();
-        {
-            std::lock_guard<std::mutex> lk(g_evMu);
-            for (const auto& e : g_events) {
-                if (e.seq <= since) continue;
-                std::string perr;
-                Json ev = Json::parse(e.json, &perr);
-                if (!ev.isNull()) arr.push(ev);
+void streamMjpegProvider(httplib::Response& res, std::mutex& mu, std::string& frameBuf,
+                         std::condition_variable& cv, const char* boundary) {
+    res.set_header("Cache-Control", "no-store");
+    res.set_chunked_content_provider(
+        std::string("multipart/x-mixed-replace; boundary=") + boundary,
+        // 按引用捕获 mu/frameBuf/cv：它们是全局帧持有（静态生命周期），
+        // provider 在 handler 返回后的连接线程上执行，按值捕获 mutex 不可拷贝。
+        [&mu, &frameBuf, &cv, boundary](size_t, httplib::DataSink& sink) -> bool {
+            std::string lastSent;   // 去重：无新帧不重复推，<img> 解码频率=实际帧率
+            while (g_httpAlive.load(std::memory_order_relaxed)) {
+                std::string frame;
+                {
+                    std::unique_lock<std::mutex> lk(mu);
+                    // 最多等 2s：投屏未开/无新帧时给断开检测留节拍（客户端断了也能退出）
+                    cv.wait_for(lk, std::chrono::seconds(2), [&] {
+                        return !frameBuf.empty() && frameBuf != lastSent;
+                    });
+                    if (!frameBuf.empty() && frameBuf != lastSent)
+                        frame = frameBuf;
+                }
+                if (frame.empty()) continue;
+                lastSent = frame;
+                std::string part;
+                part.reserve(frame.size() + 96);
+                part += "--";
+                part += boundary;
+                part += "\r\nContent-Type: image/jpeg\r\nContent-Length: ";
+                part += std::to_string(frame.size());
+                part += "\r\n\r\n";
+                part += frame;
+                part += "\r\n";
+                if (!sink.write(part.data(), part.size()))
+                    return false;   // 客户端断开/写失败 → 收摊
             }
-        }
-        Json box = Json::makeObject();
-        box["events"] = arr;
-        respond(fd, 200, "OK", "application/json; charset=utf-8", box.stringify());
-    } else if (req.method == "POST" && req.path == "/api/act") {
-        dispatchEnvelope(p, req.body, true);
-        respond(fd, 200, "OK", "application/json; charset=utf-8", p->resp.stringify());
-    } else if (req.method == "POST" && req.path == "/api/query") {
-        dispatchEnvelope(p, req.body, false);
-        respond(fd, 200, "OK", "application/json; charset=utf-8", p->resp.stringify());
-    } else if (req.method == "POST" && req.path == "/api/upload" && req.streamBody) {
-        // 浏览器上传（互传发送）。body 由 handleUpload 从 fd 流式读，不经过上面的 512KB 闸门。
-        handleUpload(p, fd, req);
-    } else if (req.method == "POST" && req.path == "/api/open-file") {
-        // 兑底（前端 http 模式已自行拒绝；协议内回应让漏网请求不悬挂）
-        std::string err;
-        auto j = Json::parse(req.body, &err);
-        std::string idStr;
-        if (!j.isNull()) {
-            auto* id = j.find("id");
-            idStr = id ? id->asString() : "";
-        }
-        Json r = Json::makeObject();
-        r["kind"] = std::string("open-file-response");
-        r["id"] = idStr;
-        r["ok"] = false;
-        respond(fd, 200, "OK", "application/json; charset=utf-8", r.stringify());
-    } else if (req.method == "GET" && req.path == "/api/camera.mjpg") {
-        // 浏览器端投屏渲染（mac/Linux HTTP 面板）：MJPEG 长连接甩独立线程流式推，
-        // fd 移交流线程所有 —— 此处 return，不走函数末尾的 close（否则双重关闭）。
-        // Windows 不受影响：web_panel（WebView2 壳）不编译本文件，路由天然不存在。
-        std::thread(streamCameraMjpeg, fd).detach();
-        return;
-    } else if (req.method == "GET" && req.path == "/api/screenmirror.mjpg") {
-        // 投屏画面 MJPEG 流（issue#171 #3 流分离批）：与摄像头同款独立线程推帧，
-        // 帧源为 stream 7 独立持有 —— 摄像头与投屏两路 <img> 可同时显示。
-        std::thread(streamScreenMirrorMjpeg, fd).detach();
-        return;
-    } else if (req.method == "GET") {
-        serveStatic(p, fd, req.path);
-    } else {
-        respond(fd, 405, "Method Not Allowed", "text/plain; charset=utf-8",
-                "method not allowed");
-    }
-    ::close(fd);
+            return false;   // 面板收尾（g_httpAlive=false）→ 结束流
+        });
+}
+
+void streamCameraMjpeg(httplib::Response& res) {
+    streamMjpegProvider(res, g_camFrameMu, g_camFrameJpeg, g_camFrameCv, "apxcamframe");
+}
+
+void streamScreenMirrorMjpeg(httplib::Response& res) {
+    streamMjpegProvider(res, g_smFrameMu, g_smFrameJpeg, g_smFrameCv, "apxsmframe");
 }
 
 }  // namespace
@@ -2090,29 +1875,137 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
         });
     }
 
-    // —— 监听 127.0.0.1:0（临时端口，零外网暴露）——
-    const int lfd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (lfd < 0) {
-        APX_LOGE("socket 创建失败");
+    // —— httplib 服务：路由注册 + 监听 127.0.0.1:0（临时端口，零外网暴露）——
+    httplib::Server srv;
+    srv.set_payload_max_length(kMaxUploadBytes);   // 上传 4GB 闸门（act/query 另有 512KB 判）
+    // 读超时 60s：大文件上传分块间隔可能很长（旧上传路径 SO_RCVTIMEO 60s 同款）；
+    // 一问一答的本地请求毫秒级，不受影响。keep-alive 空闲连接 60s 后由库回收。
+    srv.set_read_timeout(60, 0);
+
+    // CSRF 防线（link-hardening）：API 只接受本机面板页面发起的请求。浏览器在跨站
+    // fetch/XHR 上必带 Origin；用户浏览的恶意网页伪造的请求 Origin 对不上本机端口，
+    // 一律 403 —— 这是「恶意页面 → /api/act → app.openUrl」链路的第一道闸。
+    // 无 Origin（curl / 顶层导航 GET）放行：面板只绑 127.0.0.1，外网摸不到。
+    srv.set_pre_routing_handler([&panel](const httplib::Request& req,
+                                         httplib::Response& res) {
+        const std::string origin = req.get_header_value("Origin");
+        if (!origin.empty()) {
+            const std::string selfIp = "http://127.0.0.1:" + std::to_string(panel.port);
+            const std::string selfLocal = "http://localhost:" + std::to_string(panel.port);
+            if (origin != selfIp && origin != selfLocal) {
+                APX_LOGW("面板拒绝跨站请求：Origin={}", origin.c_str());
+                res.status = 403;
+                res.set_content("origin not allowed", "text/plain; charset=utf-8");
+                return httplib::Server::HandlerResponse::Handled;
+            }
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+    });
+
+    // —— API 路由（注册顺序即匹配顺序；静态兜底必须最后）——
+    // 全部拿 g_apiMu 串行：HttpPanel 响应槽/节流字段与旧单线程模型同语义。
+    srv.Get("/api/state", [&panel](const httplib::Request&, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(g_apiMu);
+        HttpPanel* p = &panel;
+        // 轮询触发节流任务（与 web_panel 的 400ms tick 等价；ticker 线程另有一份兑底）
+        const uint64_t now = steadyMs();
+        if (now >= p->usbNextMs) {
+            refreshUsbStatus(p);
+            p->usbNextMs = now + 10000;
+        }
+        mediaPumpTick(p);
+        Json state;
+        buildState(p->bundle, state, p);
+        Json push = Json::makeObject();
+        push["kind"] = std::string("state");
+        push["t"] = static_cast<double>(steadyMs());
+        push["data"] = state;
+        res.set_content(push.stringify(), "application/json; charset=utf-8");
+    });
+    srv.Get("/api/events", [&panel](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(g_apiMu);
+        long long since = 0;
+        if (auto it = req.params.find("since"); it != req.params.end())
+            since = std::strtoll(it->second.c_str(), nullptr, 10);
+        Json arr = Json::makeArray();
+        {
+            std::lock_guard<std::mutex> lkEv(g_evMu);
+            for (const auto& e : g_events) {
+                if (e.seq <= since) continue;
+                std::string perr;
+                Json ev = Json::parse(e.json, &perr);
+                if (!ev.isNull()) arr.push(ev);
+            }
+        }
+        Json box = Json::makeObject();
+        box["events"] = arr;
+        res.set_content(box.stringify(), "application/json; charset=utf-8");
+    });
+    const auto apiEnvelope = [&panel](bool isAct, const httplib::Request& req,
+                                      httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(g_apiMu);
+        if (req.body.size() > kMaxApiBodyBytes) {   // 旧 readRequest 的 512KB 闸门
+            res.status = 413;
+            res.set_content("body too large", "text/plain; charset=utf-8");
+            return;
+        }
+        dispatchEnvelope(&panel, req.body, isAct);
+        res.set_content(panel.resp.stringify(), "application/json; charset=utf-8");
+    };
+    srv.Post("/api/act", [&apiEnvelope](const httplib::Request& req, httplib::Response& res) {
+        apiEnvelope(true, req, res);
+    });
+    srv.Post("/api/query", [&apiEnvelope](const httplib::Request& req, httplib::Response& res) {
+        apiEnvelope(false, req, res);
+    });
+    srv.Post("/api/upload",
+             [&panel](const httplib::Request& req, httplib::Response& res,
+                      const httplib::ContentReader& reader) {
+        std::lock_guard<std::mutex> lk(g_apiMu);
+        // 浏览器上传（互传发送）。body 经 ContentReader 流式落盘，不走 512KB 闸门。
+        handleUpload(&panel, req, res, reader);
+    });
+    srv.Post("/api/open-file", [&panel](const httplib::Request& req, httplib::Response& res) {
+        std::lock_guard<std::mutex> lk(g_apiMu);
+        // 兑底（前端 http 模式已自行拒绝；协议内回应让漏网请求不悬挂）
+        std::string err;
+        auto j = Json::parse(req.body, &err);
+        std::string idStr;
+        if (!j.isNull()) {
+            auto* id = j.find("id");
+            idStr = id ? id->asString() : "";
+        }
+        Json r = Json::makeObject();
+        r["kind"] = std::string("open-file-response");
+        r["id"] = idStr;
+        r["ok"] = false;
+        res.set_content(r.stringify(), "application/json; charset=utf-8");
+    });
+    srv.Get("/api/camera.mjpg", [&panel](const httplib::Request&, httplib::Response& res) {
+        // 浏览器端投屏渲染（mac/Linux HTTP 面板）：MJPEG 长连接走 chunked provider，
+        // 推帧在各自连接线程上，不占 API 串行锁（否则画面流饿死状态轮询）。
+        // Windows 不受影响：web_panel（WebView2 壳）不编译本文件，路由天然不存在。
+        streamCameraMjpeg(res);
+    });
+    srv.Get("/api/screenmirror.mjpg", [&panel](const httplib::Request&, httplib::Response& res) {
+        // 投屏画面 MJPEG 流（issue#171 #3 流分离批）：与摄像头同款 provider 推帧，
+        // 帧源为 stream 7 独立持有 —— 摄像头与投屏两路 <img> 可同时显示。
+        streamScreenMirrorMjpeg(res);
+    });
+    // 静态兜底（正则匹配一切路径；必须最后注册）
+    srv.Get(".*", [&panel](const httplib::Request& req, httplib::Response& res) {
+        serveStatic(&panel, req.path, res);
+    });
+
+    // bind_to_any_port 只调一次：绑定 127.0.0.1 临时端口并返回内核分配的端口号
+    // （0 = 失败）；listen_after_bind 复用这个已绑定的 socket 进 accept 循环。
+    const int boundPort = srv.bind_to_any_port("127.0.0.1");
+    if (boundPort <= 0) {
+        APX_LOGE("bind/listen 127.0.0.1 失败");
         g_hp = nullptr;
         return -1;
     }
-    int reuse = 1;
-    ::setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    addr.sin_port = 0;
-    if (::bind(lfd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
-        ::listen(lfd, 16) != 0) {
-        APX_LOGE("bind/listen 127.0.0.1 失败: errno={}", errno);
-        ::close(lfd);
-        g_hp = nullptr;
-        return -1;
-    }
-    socklen_t alen = sizeof(addr);
-    ::getsockname(lfd, reinterpret_cast<sockaddr*>(&addr), &alen);
-    panel.port = ntohs(addr.sin_port);
+    panel.port = static_cast<uint16_t>(boundPort);
 
     const std::string url = "http://127.0.0.1:" + std::to_string(panel.port) + "/?host=1";
     std::printf("\n[面板] 浏览器打开: %s\n", url.c_str());
@@ -2137,35 +2030,36 @@ int runWebPanelHttp(const HostBundle& bundle, const std::string& webDir) {
     ::sigaction(SIGINT, &sa, nullptr);
     ::sigaction(SIGTERM, &sa, nullptr);
 
-    // —— select 主循环（1s 超时 tick：USB 10s / 媒体泵 4s 节流任务的兑底时机）——
-    while (panel.running.load() && !g_quitRequested.load()) {
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(lfd, &rfds);
-        timeval tv{1, 0};
-        const int r = ::select(lfd + 1, &rfds, nullptr, nullptr, &tv);
-        if (r < 0) {
-            if (errno == EINTR) continue;   // 信号打断（退出标志由 handler 置）
-            break;
-        }
-        if (r == 0) {
+    // —— ticker 线程（旧 select 1s 超时 tick 的等价物：USB 10s / 媒体泵 4s 节流任务的
+    //    兑底时机 —— 浏览器关着时 /api/state 不来，节流任务靠这里继续跑）——
+    std::thread ticker([&panel] {
+        while (panel.running.load() && !g_quitRequested.load()) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if (!panel.running.load() || g_quitRequested.load()) break;
+            std::lock_guard<std::mutex> lk(g_apiMu);   // 与 API 处理器互斥（同旧单线程语义）
             const uint64_t now = steadyMs();
             if (now >= panel.usbNextMs) {
                 refreshUsbStatus(&panel);
                 panel.usbNextMs = now + 10000;
             }
             mediaPumpTick(&panel);
-            continue;
         }
-        const int fd = ::accept(lfd, nullptr, nullptr);
-        if (fd < 0) continue;
-        handleConnection(&panel, fd);   // 单请求同步处理完即关（本地毫秒级）
-    }
+    });
+    // —— watcher 线程：退出标志 → srv.stop()（listen 循环随之返回）——
+    std::thread watcher([&panel, &srv] {
+        while (panel.running.load() && !g_quitRequested.load())
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        srv.stop();
+    });
+
+    srv.listen_after_bind();   // 阻塞至 srv.stop()（退出标志由信号/托盘/前端 quit 置）
+
+    ticker.join();
+    watcher.join();
 
     // —— 清理：只 join 本文件创建的线程；宿主对象生命周期在调用方 ——
     g_httpAlive.store(false);   // 唤醒 MJPEG 流线程收摊（wait_for 最多 2s 后退出）
     g_camFrameCv.notify_all();
-    ::close(lfd);
     panel.ctrlSrv.stop();   // 9511 受控端 + APX1PC 信标广播停止
     // 互传接收端也停掉：它的回调会 pushEvent，面板都撤了就不该再往里写
     if (panel.bundle.localSend) panel.bundle.localSend->stop();
