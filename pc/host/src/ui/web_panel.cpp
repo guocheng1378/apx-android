@@ -353,7 +353,7 @@ void buildState(const HostBundle& b, Json& out) {
     // 投屏到电脑（issue#171 #3 流分离批）：开关态自持 + stream 7 独立预览出口
     //（screenView）观测，对齐 panel_http.cpp 的 screenmirror 块字段。
     {
-        auto s = screenView().status();
+        auto s = apxpc::media::screenView().status();
         Json sm = Json::makeObject();
         sm["on"] = g_screenMirrorOn.load(std::memory_order_relaxed);
         sm["frames"] = static_cast<double>(s.frames);
@@ -937,7 +937,7 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         g_screenMirrorOn.store(on, std::memory_order_relaxed);
         // 投屏帧走独立 screenView 预览出口（issue#171 #3 流分离批）：
         // 开投屏即打开投屏预览窗，与摄像头预览窗互不覆盖、可同时显示。
-        if (on) screenView().setPreview(true);
+        if (on) apxpc::media::screenView().setPreview(true);
         return postResponse(p, id, okResp());
     }
 
