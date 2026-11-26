@@ -700,9 +700,13 @@ jobs:
         run: |
           Set-Location $env:GITHUB_WORKSPACE
           $VER = $env:GITHUB_REF_NAME
-          # issue#172：full（全功能）/ lite（纯外设）两个手机包
-          Copy-Item dist/apk-app/app-full-release.apk "out/AllPeriph-${VER}-app.apk"
-          Copy-Item dist/apk-app/app-lite-release.apk "out/AllPeriph-${VER}-app-lite.apk"
+          # issue#172：full（全功能）/ lite（纯外设）两个手机包。
+          # 上传产物保留 apk/<flavor>/release/ 层级，这里递归找文件，不依赖具体层级。
+          $fullApk = (Get-ChildItem dist/apk-app -Recurse -Filter 'app-full-release.apk' | Select-Object -First 1).FullName
+          $liteApk = (Get-ChildItem dist/apk-app -Recurse -Filter 'app-lite-release.apk' | Select-Object -First 1).FullName
+          if (-not $fullApk -or -not $liteApk) { Write-Host 'apk-app 产物里找不到 full/lite APK' -ForegroundColor Red; exit 1 }
+          Copy-Item $fullApk "out/AllPeriph-${VER}-app.apk"
+          Copy-Item $liteApk "out/AllPeriph-${VER}-app-lite.apk"
           Copy-Item dist/apk-tv/tv-release.apk "out/AllPeriph-${VER}-tv.apk"
           Get-ChildItem out/
         shell: pwsh
