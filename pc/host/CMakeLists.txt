@@ -404,7 +404,9 @@ add_library(apxpc_localsend STATIC ${APXPC_LOCALSEND_SRC})
 target_include_directories(apxpc_localsend PUBLIC "${APXPC_ROOT}/include")
 # v-oss：SHA-256 实现换 PicoSHA2（third_party/picosha2，仅 sha256.cpp 包含其头文件，PRIVATE 即可）
 target_include_directories(apxpc_localsend PRIVATE "${APXPC_ROOT}/third_party/picosha2")
-# json 的实现在 apxpc_service（src/net/json.cpp 属该库），协议层直接复用，不另造解析器
+# json 的实现在 apxpc_service（src/net/json.cpp 属该库）：v-oss 起解析/序列化委托
+# nlohmann/json（third_party/nlohmann），Json 门面与调用点不变
+target_include_directories(apxpc_service PRIVATE "${APXPC_ROOT}/third_party/nlohmann")
 target_link_libraries(apxpc_localsend PUBLIC apxpc_service)
 if(WIN32)
   target_link_libraries(apxpc_localsend PUBLIC ws2_32)
@@ -742,6 +744,11 @@ if(APXPC_BUILD_TESTS)
                  "${APXPC_ROOT}/tests/localsend_protocol_test.cpp")
   target_link_libraries(localsend_protocol_test PRIVATE apxpc_localsend)
   add_test(NAME localsend_protocol_test COMMAND localsend_protocol_test)
+
+  # JSON 门面（v-oss 换 nlohmann 后钉行为：代理对 / 大数往返 / 解析失败语义）
+  add_executable(json_test "${APXPC_ROOT}/tests/json_test.cpp")
+  target_link_libraries(json_test PRIVATE apxpc_service)
+  add_test(NAME json_test COMMAND json_test)
 
   # LocalSend 接收端「真开端口」的集成测试：prepare-upload → upload → 落盘 → 校验，
   # 外加重名、未知会话、缺 Content-Length、清单不合法、stop() 收得回来。
