@@ -3,22 +3,19 @@
 #include "apxpc/localsend/sha256.hpp"
 #include "apxpc/log.hpp"
 #include "apxpc/net/json.hpp"
+#include "httplib.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
-#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <map>
 #include <mutex>
-#include <queue>
 #include <random>
-#include <set>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,7 +41,6 @@ namespace {
 using Sock = SOCKET;
 const Sock kBadSock = INVALID_SOCKET;
 void closeSock(Sock s) { ::closesocket(s); }
-void shutdownSock(Sock s) { ::shutdown(s, SD_BOTH); }
 void ensureNet() {
     static const bool once = [] {
         WSADATA w{};
@@ -57,7 +53,6 @@ void ensureNet() {
 using Sock = int;
 const Sock kBadSock = -1;
 void closeSock(Sock s) { ::close(s); }
-void shutdownSock(Sock s) { ::shutdown(s, SHUT_RDWR); }
 void ensureNet() {}
 #endif
 
@@ -138,31 +133,6 @@ std::string defaultDirImpl() {
 #endif
     const std::string base = (home && *home) ? home : ".";
     return toUtf8(fs::path(fromUtf8(base)) / "Downloads" / "AllPeriph");
-}
-
-/// 从 query 里取一个参数（LocalSend 的 sessionId / fileId 都是 UUID，无需百分号解码）
-std::string queryParamImpl(const std::string& query, const std::string& key) {
-    const std::string needle = key + "=";
-    size_t pos = 0;
-    while (pos <= query.size()) {
-        const size_t amp = query.find('&', pos);
-        const std::string part = query.substr(pos, amp == std::string::npos ? std::string::npos : amp - pos);
-        if (part.rfind(needle, 0) == 0) return part.substr(needle.size());
-        if (amp == std::string::npos) break;
-        pos = amp + 1;
-    }
-    return {};
-}
-
-const char* statusText(int code) {
-    switch (code) {
-        case 200: return "OK";
-        case 204: return "No Content";
-        case 400: return "Bad Request";
-        case 404: return "Not Found";
-        case 500: return "Server Error";
-        default:  return "Error";
-    }
 }
 
 std::string jsonStr(const apxpc::net::Json& j, const char* key, const std::string& def) {
@@ -356,16 +326,12 @@ struct LocalSendReceiver::Impl {
     DeviceCallback onDevice;
 
     Sock udp = kBadSock;
-    Sock listen = kBadSock;
     uint16_t listenPort = kDefaultPort;
     std::thread udpThread;
-    std::thread acceptThread;
-    std::vector<std::thread> workers;
-    std::mutex qmu;
-    std::condition_variable qcv;
-    std::queue<Sock> pend;
-    std::mutex smu;
-    std::set<Sock> active;
+    // HTTP 服务器交给 cpp-httplib（去轮子第三步）：监听、线程池、请求解析、
+    // 100-continue、keep-alive 全由库管，这里只留 UDP 发现的自家逻辑。
+    httplib::Server svr;
+    std::thread httpThread;
 
     // ---------------------------------------------------------------- 网络原语
     /// 等可读。超时返回 false；select 出错（例如 fd 已被关）也返回 false 但不空转。
@@ -387,144 +353,6 @@ struct LocalSendReceiver::Impl {
         }
         return r > 0;
     }
-
-    /// 带超时读：>0 收到字节；-1 对端关闭/出错；0 已请求停止（调用方应当收摊）
-    int readSome(Sock s, char* dst, int n, int timeoutMs = 200) {
-        while (running.load()) {
-            if (!waitReadable(s, timeoutMs)) continue;
-            const int r = ::recv(s, dst, n, 0);
-            if (r > 0) return r;
-            return -1;   // 0 = 对端有序关闭；<0 = 出错，对上层都是「读不到了」
-        }
-        return 0;
-    }
-
-    void sendAll(Sock s, const std::string& data) {
-        size_t off = 0;
-        while (off < data.size() && running.load()) {
-            const int r = ::send(s, data.data() + off,
-                                 static_cast<int>(std::min<size_t>(data.size() - off, 1u << 20)), 0);
-            if (r <= 0) return;
-            off += static_cast<size_t>(r);
-        }
-    }
-
-    void respondJson(Sock s, int code, const std::string& body) {
-        sendAll(s, std::string("HTTP/1.1 ") + std::to_string(code) + " " + statusText(code) +
-                        "\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " +
-                        std::to_string(body.size()) + "\r\nConnection: close\r\n\r\n" + body);
-    }
-
-    void respondEmpty(Sock s, int code) {
-        sendAll(s, std::string("HTTP/1.1 ") + std::to_string(code) + " " + statusText(code) +
-                        "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-    }
-
-    // ---------------------------------------------------------------- 连接读写
-    /// 连接级读缓冲。HTTP 头和 body 走同一份缓冲：
-    /// 若用「带字符缓冲的流」去读头，会预读吞掉 body 开头字节导致文件损坏
-    /// —— Android 端为此专门避开了 BufferedReader，这里同理，只是把缓冲显式摊开。
-    struct Reader {
-        Impl* self = nullptr;
-        Sock s = kBadSock;
-        std::vector<char> buf;
-        size_t pos = 0;
-
-        bool fill() {
-            char tmp[16 * 1024];
-            const int r = self->readSome(s, tmp, static_cast<int>(sizeof tmp));
-            if (r <= 0) return false;
-            buf.insert(buf.end(), tmp, tmp + r);
-            return true;
-        }
-
-        void compact() {
-            if (pos > 0) {
-                buf.erase(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(pos));
-                pos = 0;
-            }
-        }
-
-        bool readLine(std::string& out) {
-            while (true) {
-                for (size_t i = pos; i < buf.size(); ++i) {
-                    if (buf[i] == '\n') {
-                        size_t end = i;
-                        if (end > pos && buf[end - 1] == '\r') --end;
-                        out.assign(buf.data() + pos, end - pos);
-                        pos = i + 1;
-                        compact();
-                        return true;
-                    }
-                }
-                if (buf.size() - pos > 16 * 1024) return false;   // 头过长，拒掉
-                if (!fill()) return false;
-            }
-        }
-
-        /// 精确消费 n 字节。大文件不整块进内存：缓冲吃完就直接从 socket 读。
-        bool readExact(uint64_t n, FILE* fp, Sha256& sha, uint64_t& written) {
-            char tmp[64 * 1024];
-            while (n > 0) {
-                const size_t avail = buf.size() - pos;
-                if (avail > 0) {
-                    const size_t take = static_cast<size_t>(std::min<uint64_t>(avail, n));
-                    if (!sink(buf.data() + pos, take, fp, sha, written)) return false;
-                    pos += take;
-                    n -= take;
-                    compact();
-                    continue;
-                }
-                const int want = static_cast<int>(std::min<uint64_t>(sizeof tmp, n));
-                const int r = self->readSome(s, tmp, want);
-                if (r <= 0) return false;
-                if (!sink(tmp, static_cast<size_t>(r), fp, sha, written)) return false;
-                n -= static_cast<uint64_t>(r);
-            }
-            return true;
-        }
-
-        /// 丢弃 n 字节（不关心内容的请求体，例如 register / cancel）
-        bool discard(uint64_t n) {
-            FILE* none = nullptr;
-            Sha256 sha;
-            uint64_t dummy = 0;
-            return readExact(n, none, sha, dummy);
-        }
-
-        /// 读 n 字节到内存（请求体是 JSON 时用，不落盘）
-        bool readInto(std::string& out, uint64_t n) {
-            out.assign(static_cast<size_t>(n), '\0');
-            size_t got = 0;
-            char tmp[16 * 1024];
-            while (got < out.size()) {
-                const size_t avail = buf.size() - pos;
-                if (avail > 0) {
-                    const size_t take = std::min(avail, out.size() - got);
-                    std::memcpy(out.data() + got, buf.data() + pos, take);
-                    pos += take;
-                    got += take;
-                    compact();
-                    continue;
-                }
-                const int want = static_cast<int>(std::min<size_t>(sizeof tmp, out.size() - got));
-                const int r = self->readSome(s, tmp, want);
-                if (r <= 0) return false;
-                std::memcpy(out.data() + got, tmp, static_cast<size_t>(r));
-                got += static_cast<size_t>(r);
-            }
-            return true;
-        }
-
-        bool sink(const char* p, size_t n, FILE* fp, Sha256& sha, uint64_t& written) {
-            if (fp) {
-                if (std::fwrite(p, 1, n, fp) != n) return false;
-                sha.update(p, n);
-            }
-            written += n;
-            return true;
-        }
-    };
 
     // ---------------------------------------------------------------- 设备发现
     void sendAnnounce() {
@@ -574,7 +402,7 @@ struct LocalSendReceiver::Impl {
 
     // 单播 register 入表：与 onAnnouncePacket 同一入表路径（60s 窗口、onDevice 回调）。
     // body 是对端 selfInfo 顶层 JSON，或官方 {info:{...}} 包装，两种都吃。
-    void onRegisterFromPeer(Sock c, const std::string& body) {
+    void onRegisterFromPeer(const std::string& peerIp, const std::string& body) {
         if (body.empty()) return;
         std::string err;
         const apxpc::net::Json j = apxpc::net::Json::parse(body, &err);
@@ -595,16 +423,6 @@ struct LocalSendReceiver::Impl {
             port = kDefaultPort;
             portFallback = true;
         }
-        char ipStr[INET_ADDRSTRLEN] = {0};
-        sockaddr_in peer{};
-#if defined(_WIN32)
-        int peerLen = sizeof(peer);
-#else
-        socklen_t peerLen = sizeof(peer);
-#endif
-        if (::getpeername(c, reinterpret_cast<sockaddr*>(&peer), &peerLen) != 0) return;
-        if (!::inet_ntop(AF_INET, &peer.sin_addr, ipStr, sizeof ipStr)) return;
-        const std::string peerIp(ipStr);
         const std::string fp = jsonStr(*info, "fingerprint", peerIp);
         const std::string key = fp.empty() ? peerIp : fp;
         if (key == fingerprint) return;
@@ -744,9 +562,10 @@ struct LocalSendReceiver::Impl {
         return LocalSendReceiver::buildPrepareResponse(sid, files);
     }
 
-    void handleUpload(Sock c, Reader& rd, const std::string& query, uint64_t contentLength) {
-        const std::string sid = queryParamImpl(query, "sessionId");
-        const std::string token = queryParamImpl(query, "fileId");
+    void handleUpload(const httplib::Request& req, const httplib::ContentReader& rd,
+                      httplib::Response& res) {
+        const std::string sid = req.get_param_value("sessionId");
+        const std::string token = req.get_param_value("fileId");
         std::string path;
         std::string declaredSha;
         uint64_t declaredSize = 0;
@@ -767,15 +586,16 @@ struct LocalSendReceiver::Impl {
         }
         if (!found) {
             // 未知会话/未知 token：可能超时清理过，也可能对端拿错 token
-            respondEmpty(c, 404);
+            res.status = 404;
             return;
         }
-        if (contentLength == 0) {
-            // 没有 Content-Length 就不知道边界，不能猜着读（会把后续请求当文件内容）
+        // 没有 Content-Length 就不知道边界，不能猜着读（会把后续请求当文件内容）
+        if (!req.has_header("Content-Length") || req.content_length == 0) {
             APX_LOGW("LocalSend upload 缺少 Content-Length，已拒绝：{}", path.c_str());
-            respondEmpty(c, 400);
+            res.status = 400;
             return;
         }
+        const uint64_t contentLength = req.content_length;
         if (declaredSize != 0 && declaredSize != contentLength) {
             APX_LOGW("LocalSend upload 长度与清单不符（清单 {}，实到 {}）：{}",
                      static_cast<unsigned long long>(declaredSize),
@@ -790,13 +610,20 @@ struct LocalSendReceiver::Impl {
 #endif
         if (!fp) {
             APX_LOGW("LocalSend 无法创建目标文件：{}", path.c_str());
-            respondEmpty(c, 500);
+            res.status = 500;
             return;
         }
 
         Sha256 sha;
         uint64_t written = 0;
-        const bool readOk = rd.readExact(contentLength, fp, sha, written);
+        // 流式落盘：httplib 逐块回调，不整块进内存（与手搓版 Reader 同策略）；
+        // 回调返回 false 即中断，半截文件由下面的收尾逻辑统一丢弃
+        const bool readOk = rd([&](const char* data, size_t len) -> bool {
+            if (std::fwrite(data, 1, len, fp) != len) return false;
+            sha.update(data, len);
+            written += len;
+            return true;
+        });
         std::fclose(fp);
         const std::string diskSha = sha.hex();
 
@@ -811,7 +638,7 @@ struct LocalSendReceiver::Impl {
                 std::lock_guard<std::mutex> lk(mu);
                 sessions.erase(sid);
             }
-            respondEmpty(c, 500);
+            res.status = 500;
             return;
         }
 
@@ -852,11 +679,10 @@ struct LocalSendReceiver::Impl {
         APX_LOGI("LocalSend 已接收：{}（{} 字节，sha256 {}）", path.c_str(),
                  static_cast<unsigned long long>(written), shaOk ? "一致" : "不一致");
         if (onFile) onFile(path, written, fromAlias);
-        respondEmpty(c, 204);
+        res.status = 204;
     }
 
-    void handleCancel(const std::string& query) {
-        const std::string sid = queryParamImpl(query, "sessionId");
+    void handleCancel(const std::string& sid) {
         std::lock_guard<std::mutex> lk(mu);
         const auto it = sessions.find(sid);
         if (it == sessions.end()) return;
@@ -870,174 +696,56 @@ struct LocalSendReceiver::Impl {
         APX_LOGI("LocalSend 会话已取消：{}", sid.c_str());
     }
 
-    void registerActive(Sock c) {
-        std::lock_guard<std::mutex> lk(smu);
-        active.insert(c);
-    }
+    // ---------------------------------------------------------------- HTTP 路由
+    // cpp-httplib 的路由注册。语义与手搓版逐条对齐：
+    //   info/register/prepare/cancel 走缓冲读（清单与登记都是小 JSON，8MB 上限由库把守，
+    //   超限库直接 413——原手搓版是 400，语义同为「拒绝」，无调用方依赖这个差异）；
+    //   upload 走流式 ContentReader（大文件不整块进内存）。
+    // 未匹配路由由库回 404；Expect: 100-continue 由库在真正读 body 前自动应答。
+    void setupHttp() {
+        svr.new_task_queue = [] { return new httplib::ThreadPool(4); };   // 与手搓版 4 worker 一致
+        // 读超时兜底：对端 stall 时 handler 最多挂 30s，stop() 不会被一个死连接拖住
+        svr.set_read_timeout(30);
+        svr.set_write_timeout(30);
 
-    void unregisterActive(Sock c) {
-        std::lock_guard<std::mutex> lk(smu);
-        active.erase(c);
-    }
-
-    void handleConn(Sock c) {
-        registerActive(c);
-        Reader rd;
-        rd.self = this;
-        rd.s = c;
-
-        std::string line;
-        if (!rd.readLine(line)) {
-            unregisterActive(c);
-            closeSock(c);
-            return;
-        }
-        std::istringstream ls(line);
-        std::string method, target, httpVer;
-        ls >> method >> target >> httpVer;
-        method = lowerImpl(method);
-
-        uint64_t contentLength = 0;
-        bool expect100 = false;
-        std::string h;
-        while (rd.readLine(h)) {
-            if (h.empty()) break;
-            const size_t colon = h.find(':');
-            if (colon == std::string::npos) continue;
-            const std::string k = lowerImpl(trimImpl(h.substr(0, colon)));
-            const std::string v = trimImpl(h.substr(colon + 1));
-            if (k == "content-length") {
-                contentLength = std::strtoull(v.c_str(), nullptr, 10);
-            } else if (k == "expect" && lowerImpl(v).find("100-continue") != std::string::npos) {
-                expect100 = true;
-            }
-        }
-        // 对端在等 100 Continue 才发 body：不回就一直卡到它自己超时
-        if (expect100) sendAll(c, "HTTP/1.1 100 Continue\r\n\r\n");
-
-        std::string path = target;
-        std::string query;
-        if (const size_t q = target.find('?'); q != std::string::npos) {
-            path = target.substr(0, q);
-            query = target.substr(q + 1);
-        }
-
-        if (method == "get" && path == kPathInfo) {
-            respondJson(c, 200, deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint, version, true));
-        } else if (method == "post" && path == kPathRegister) {
-            // v223.29.32 register 入表兕底（官方协议语义）：手机收到本机 announce 后会
+        svr.Get(kPathInfo, [this](const httplib::Request&, httplib::Response& res) {
+            res.status = 200;
+            res.set_content(deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint,
+                                           version, true),
+                            "application/json; charset=utf-8");
+        });
+        svr.Post(kPathRegister, [this](const httplib::Request& req, httplib::Response& res) {
+            // v223.29.32 register 入表兜底（官方协议语义）：手机收到本机 announce 后会
             // 单播 register 应答 —— 多播（Wi-Fi→有线）被路由器丢时，这是让『附近设备』
             // 看到手机的唯一通路。此前只回 200 不记设备，列表对手机永远空着。
-            std::string regBody;
-            if (contentLength <= (64u << 10)) {
-                if (!rd.readInto(regBody, contentLength)) regBody.clear();
+            onRegisterFromPeer(req.remote_addr, req.body);
+            res.status = 200;
+            res.set_content(deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint,
+                                           version, true),
+                            "application/json; charset=utf-8");
+        });
+        svr.Post(kPathPrepare, [this](const httplib::Request& req, httplib::Response& res) {
+            const std::string resp = handlePrepare(req.body);
+            if (resp.empty()) {
+                res.status = 400;   // 清单不合法：明确拒绝，别回 200
             } else {
-                rd.discard(contentLength);
+                res.status = 200;
+                res.set_content(resp, "application/json; charset=utf-8");
             }
-            onRegisterFromPeer(c, regBody);
-            respondJson(c, 200, deviceInfoJson(alias, deviceModel, opt.deviceType, fingerprint, version, true));
-        } else if (method == "post" && path == kPathPrepare) {
-            // 清单是 JSON，读到内存即可；顺带上限防止有人拿它当上传口
-            if (contentLength > (8u << 20)) {
-                rd.discard(contentLength);
-                respondEmpty(c, 400);
-            } else {
-                std::string body;
-                if (!rd.readInto(body, contentLength)) {
-                    respondEmpty(c, 400);
-                } else {
-                    const std::string resp = handlePrepare(body);
-                    if (resp.empty()) respondEmpty(c, 400);   // 清单不合法：明确拒绝，别回 200
-                    else respondJson(c, 200, resp);
-                }
-            }
-        } else if ((method == "post" || method == "put") && path == kPathUpload) {
-            handleUpload(c, rd, query, contentLength);
-        } else if (method == "post" && path == kPathCancel) {
-            rd.discard(contentLength);
-            handleCancel(query);
-            respondEmpty(c, 204);
-        } else {
-            rd.discard(contentLength);
-            respondEmpty(c, 404);
-        }
-
-        unregisterActive(c);
-        closeSock(c);
-    }
-
-    // ---------------------------------------------------------------- 线程
-    void acceptLoop() {
-        while (running.load()) {
-            if (!waitReadable(listen, 200)) continue;
-            sockaddr_in addr{};
-#if defined(_WIN32)
-            int alen = sizeof(addr);
-#else
-            socklen_t alen = sizeof(addr);
-#endif
-            const Sock c = ::accept(listen, reinterpret_cast<sockaddr*>(&addr), &alen);
-            if (c == kBadSock) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                continue;
-            }
-            {
-                std::lock_guard<std::mutex> lk(qmu);
-                if (pend.size() >= 16) {   // 防积压
-                    closeSock(c);
-                    continue;
-                }
-                pend.push(c);
-            }
-            qcv.notify_one();
-        }
-    }
-
-    void workerLoop() {
-        while (true) {
-            Sock c = kBadSock;
-            {
-                std::unique_lock<std::mutex> lk(qmu);
-                qcv.wait_for(lk, std::chrono::milliseconds(400),
-                             [this] { return !pend.empty() || !running.load(); });
-                if (!running.load() && pend.empty()) return;
-                if (pend.empty()) continue;
-                c = pend.front();
-                pend.pop();
-            }
-            if (c == kBadSock) continue;
-            handleConn(c);
-        }
+        });
+        auto uploadHandler = [this](const httplib::Request& req, httplib::Response& res,
+                                    const httplib::ContentReader& rd) {
+            handleUpload(req, rd, res);
+        };
+        svr.Post(kPathUpload, uploadHandler);
+        svr.Put(kPathUpload, uploadHandler);   // 官方客户端用 POST，PUT 留给兼容实现
+        svr.Post(kPathCancel, [this](const httplib::Request& req, httplib::Response& res) {
+            handleCancel(req.get_param_value("sessionId"));
+            res.status = 204;
+        });
     }
 
     bool openSockets() {
-        // HTTP 监听：53317 被占依次回退 53318/53319（与 Android 端同策略），
-        // 实际端口由 announce 带出去，对端不需要猜。
-        for (uint16_t p = opt.port; p < static_cast<uint16_t>(opt.port + 3); ++p) {
-            const Sock s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (s == kBadSock) {
-                lastError = "创建 TCP socket 失败";
-                return false;
-            }
-            int yes = 1;
-            ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR,
-                         reinterpret_cast<const char*>(&yes), sizeof(yes));
-            sockaddr_in a{};
-            a.sin_family = AF_INET;
-            a.sin_addr.s_addr = htonl(INADDR_ANY);
-            a.sin_port = htons(p);
-            if (::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof(a)) == 0 && ::listen(s, 16) == 0) {
-                listen = s;
-                listenPort = p;
-                break;
-            }
-            closeSock(s);
-        }
-        if (listen == kBadSock) {
-            lastError = "53317/53318/53319 都被占用（已有 LocalSend 在跑？）";
-            return false;
-        }
-
         // 发现用的 UDP socket：绑在多播端口上，让对方的 announce / register 都能到这里。
         // 不给 fd 加超时——读取统一走 select + 短超时，停止时不会卡在 recvfrom 上。
         udp = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -1062,19 +770,10 @@ struct LocalSendReceiver::Impl {
         return true;
     }
 
-    void closeAllLockedFree() {
-        if (listen != kBadSock) {
-            closeSock(listen);
-            listen = kBadSock;
-        }
+    void closeUdp() {
         if (udp != kBadSock) {
             closeSock(udp);
             udp = kBadSock;
-        }
-        std::lock_guard<std::mutex> lk(qmu);
-        while (!pend.empty()) {
-            closeSock(pend.front());
-            pend.pop();
         }
     }
 };
@@ -1106,11 +805,30 @@ bool LocalSendReceiver::start(const Options& opt, FileCallback onFile, DeviceCal
         return false;
     }
 
+    // HTTP 监听：53317 被占依次回退 53318/53319（与 Android 端同策略），
+    // 实际端口由 announce 带出去，对端不需要猜。
+    bool bound = false;
+    for (uint16_t p = im->opt.port; p < static_cast<uint16_t>(im->opt.port + 3); ++p) {
+        if (im->svr.bind_to_port("0.0.0.0", static_cast<int>(p))) {
+            im->listenPort = p;
+            bound = true;
+            break;
+        }
+    }
+    if (!bound) {
+        // 保留这个 Impl 只为让 lastError() 能回答「为什么没起来」；线程一个都没起。
+        im->lastError = "53317/53318/53319 都被占用（已有 LocalSend 在跑？）";
+        im->running.store(false);
+        impl_.reset(im);
+        APX_LOGW("LocalSend 启动失败：{}", im->lastError.c_str());
+        return false;
+    }
+
+    im->setupHttp();
     impl_.reset(im);
     im->running.store(true);
     im->udpThread = std::thread([im] { im->udpLoop(); });
-    im->acceptThread = std::thread([im] { im->acceptLoop(); });
-    for (int i = 0; i < 4; ++i) im->workers.emplace_back([im] { im->workerLoop(); });
+    im->httpThread = std::thread([im] { im->svr.listen_after_bind(); });
 
     APX_LOGI("LocalSend 接收端已就绪：HTTP {}，落盘 {}", std::to_string(im->listenPort).c_str(),
              im->dir.c_str());
@@ -1121,20 +839,12 @@ void LocalSendReceiver::stop() {
     if (!impl_) return;
     if (!impl_->running.exchange(false)) return;
 
-    // 不靠「关 fd 打断阻塞的系统调用」：所有 socket 读写都在 select + 200ms 超时里轮询，
-    // 看到 running=false 就自己收摊。这样停止路径不会卡住（beacon 线程那个教训）。
-    impl_->qcv.notify_all();
-    {
-        std::lock_guard<std::mutex> lk(impl_->smu);
-        for (Sock s : impl_->active) shutdownSock(s);
-    }
+    // svr.stop() 关监听并等在途请求收尾；读超时 30s 兜底，不会被一个死连接无限拖住
+    // （beacon 线程那个教训：停止路径不能卡死，httplib 的超时语义接住了这一点）。
+    impl_->svr.stop();
+    if (impl_->httpThread.joinable()) impl_->httpThread.join();
     if (impl_->udpThread.joinable()) impl_->udpThread.join();
-    if (impl_->acceptThread.joinable()) impl_->acceptThread.join();
-    for (auto& t : impl_->workers) {
-        if (t.joinable()) t.join();
-    }
-    impl_->workers.clear();
-    impl_->closeAllLockedFree();
+    impl_->closeUdp();
     impl_.reset();
 }
 

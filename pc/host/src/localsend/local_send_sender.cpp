@@ -3,6 +3,7 @@
 #include "apxpc/localsend/sha256.hpp"
 #include "apxpc/log.hpp"
 #include "apxpc/net/json.hpp"
+#include "httplib.h"
 
 #include <algorithm>
 #include <cctype>
@@ -10,9 +11,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cerrno>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <random>
@@ -20,41 +21,8 @@
 #include <thread>
 #include <vector>
 
-#if defined(_WIN32)
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <fcntl.h>
-#include <sys/time.h>
-#include <unistd.h>
-#endif
-
 namespace apxpc::localsend {
 namespace {
-
-#if defined(_WIN32)
-using Sock = SOCKET;
-const Sock kBadSock = INVALID_SOCKET;
-void closeSock(Sock s) { ::closesocket(s); }
-void ensureNet() {
-    static const bool once = [] {
-        WSADATA w{};
-        ::WSAStartup(MAKEWORD(2, 2), &w);
-        return true;
-    }();
-    (void)once;
-}
-#else
-using Sock = int;
-const Sock kBadSock = -1;
-void closeSock(Sock s) { ::close(s); }
-void ensureNet() {}
-#endif
 
 // 路径常量：与 Android 端 LocalSendProtocol 逐字符一致（那边是 Kotlin 字符串常量，
 // 这里再抄一遍而不是引用接收端的 —— 发送端不该依赖接收端的头文件，两个方向各留一份常量
@@ -81,266 +49,89 @@ std::string jsonStr(const apxpc::net::Json& j, const char* key, const std::strin
     return (v && v->isString()) ? v->asString() : def;
 }
 
-// ---------------------------------------------------------------- 极简 HTTP 客户端
-// 为什么自己写：官方端点只有五个、全是请求-响应、无 chunked 响应，用 libcurl 会把
-// 一个静态库依赖塞进三端构建（Windows 还要额外分发 DLL）。这里 200 行足够，且与
-// 接收端的读缓冲策略同源（先读到 \r\n\r\n 再按 Content-Length 取 body）。
+// ---------------------------------------------------------------- HTTP 客户端（cpp-httplib）
+// 去轮子第三步：手搓客户端退役。它修过三轮——204 无长度响应漏读、Content-Length
+// 行尾 \r 喂给 stoull 失败、upload 首超误判——全是 HTTP 边界语义，cpp-httplib
+// （third_party/cpp-httplib，MIT，单头文件 v0.67.0）有海量项目背书。对外行为保持：
+// 错误文案口径、取消语义（send() 按字符串匹配「已取消」）、超时档位
+// （register/prepare 30s、upload 120s）都不变。
 
-struct HttpResponse {
+// httplib 错误 → 用户可读文案（与手搓版口径一致；「已取消」是 send() 的匹配锚点，勿改）
+std::string httpErrorText(httplib::Error e) {
+    switch (e) {
+        case httplib::Error::Connection:        return "无法解析地址或网络不可达";
+        case httplib::Error::ConnectionTimeout: return "连接对端超时";
+        case httplib::Error::Canceled:          return "已取消";
+        case httplib::Error::Write:             return "发送中断";
+        case httplib::Error::Read:
+        case httplib::Error::Timeout:           return "等待响应超时";
+        default:                                return "请求未完成";
+    }
+}
+
+struct HttpResult {
     bool ok = false;       // 连接 / 收发层面是否走完（不含状态码判断）
     int status = 0;
     std::string body;
     std::string error;
 };
 
-struct HttpRequest {
-    std::string method;
-    std::string host;
-    uint16_t port = 0;
-    std::string path;                       // 含 query
-    std::string contentType;                // 空 = 无 body
-    const std::string* body = nullptr;      // JSON 请求体（内存）
-    std::FILE* stream = nullptr;            // 流式请求体（upload）；与 body 二选一
-    uint64_t streamLen = 0;
-    int timeoutMs = 10'000;                 // 连接 / 单次读写的等待上限
-
-    // 进度回调：每写出一块调一次；返回 false 表示调用方要求中止
-    std::function<bool(uint64_t)> onWrite;
-};
-
-int waitWritable(Sock s, int timeoutMs) {
-    fd_set wfds;
-    FD_ZERO(&wfds);
-    FD_SET(s, &wfds);
-    timeval tv{};
-    tv.tv_sec = timeoutMs / 1000;
-    tv.tv_usec = (timeoutMs % 1000) * 1000;
-#if defined(_WIN32)
-    return ::select(0, nullptr, &wfds, nullptr, &tv);
-#else
-    return ::select(s + 1, nullptr, &wfds, nullptr, &tv);
-#endif
+// JSON 请求（register/prepare/cancel）：一次连接一次请求，超时三档统一
+HttpResult httpJson(const std::string& host, uint16_t port, const std::string& path,
+                    const std::string& body, int timeoutSec) {
+    HttpResult out;
+    httplib::Client cli(host, port);
+    cli.set_connection_timeout(timeoutSec);
+    cli.set_read_timeout(timeoutSec);
+    cli.set_write_timeout(timeoutSec);
+    const httplib::Result r = cli.Post(path, body, "application/json");
+    if (!r) {
+        out.error = httpErrorText(r.error());
+        return out;
+    }
+    out.ok = true;
+    out.status = r->status;
+    out.body = r->body;
+    return out;
 }
 
-int waitReadable(Sock s, int timeoutMs) {
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    FD_SET(s, &rfds);
-    timeval tv{};
-    tv.tv_sec = timeoutMs / 1000;
-    tv.tv_usec = (timeoutMs % 1000) * 1000;
-#if defined(_WIN32)
-    return ::select(0, &rfds, nullptr, nullptr, &tv);
-#else
-    return ::select(s + 1, &rfds, nullptr, nullptr, &tv);
-#endif
-}
+// 流式上传（upload）：文件从 FILE* 边读边发，进度回调每块一次，返回 false 即中止。
+// httplib 把「提供者返回 false」统一归为 Canceled，但「用户取消」「读文件失败」
+// 「连接断了」对调用方是三回事——取消要通知对端、读失败要如实说——所以分别记旗标。
+HttpResult httpUpload(const std::string& host, uint16_t port, const std::string& path,
+                      std::FILE* fp, uint64_t streamLen, int timeoutSec,
+                      const std::function<bool(uint64_t)>& onWrite) {
+    HttpResult out;
+    httplib::Client cli(host, port);
+    cli.set_connection_timeout(timeoutSec);
+    cli.set_read_timeout(timeoutSec);
+    cli.set_write_timeout(timeoutSec);
 
-bool sendAll(Sock s, const char* p, size_t n, int timeoutMs, std::string* err) {
-    size_t off = 0;
-    while (off < n) {
-        // 不直接靠阻塞 send：对端网络差时 send 会长时间挂住，超时由 select 负责
-        const int wr = waitWritable(s, timeoutMs);
-        if (wr == 0) { if (err) *err = "发送超时"; return false; }
-        if (wr < 0) { if (err) *err = "发送失败"; return false; }
-        const int r = ::send(s, p + off, static_cast<int>(std::min<size_t>(n - off, 1u << 20)), 0);
-        if (r <= 0) { if (err) *err = "连接被对端关闭"; return false; }
-        off += static_cast<size_t>(r);
-    }
-    return true;
-}
-
-bool connectTo(const std::string& host, uint16_t port, int timeoutMs, Sock* out, std::string* err) {
-#ifdef _WIN32
-    addrinfo hints{};
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    addrinfo* res = nullptr;
-    const std::string portStr = std::to_string(port);
-    if (::getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
-        if (err) *err = "无法解析地址：" + host;
-        return false;
-    }
-    Sock s = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (s == kBadSock) { ::freeaddrinfo(res); if (err) *err = "创建 socket 失败"; return false; }
-    u_long nb = 1;
-    ::ioctlsocket(s, FIONBIO, &nb);
-    const int rc = ::connect(s, res->ai_addr, static_cast<int>(res->ai_addrlen));
-    ::freeaddrinfo(res);
-    if (rc != 0 && ::WSAGetLastError() != WSAEWOULDBLOCK) {
-        closeSock(s); if (err) *err = "连接对端失败"; return false;
-    }
-#else
-    // 直连 IPv4 地址时不必走 getaddrinfo；填 ip_mreq 同理，避免 DNS 依赖
-    sockaddr_in sa{};
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(port);
-    if (::inet_pton(AF_INET, host.c_str(), &sa.sin_addr) != 1) {
-        // 主机名（如 mDNS 名）时才解析
-        addrinfo hints{};
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        addrinfo* res = nullptr;
-        const std::string portStr = std::to_string(port);
-        if (::getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
-            if (err) *err = "无法解析地址：" + host;
-            return false;
-        }
-        std::memcpy(&sa, res->ai_addr, sizeof(sockaddr_in));
-        ::freeaddrinfo(res);
-    }
-    Sock s = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (s == kBadSock) { if (err) *err = "创建 socket 失败"; return false; }
-    // 非阻塞 connect + select：给「连不上」一个确定的时限，而不是靠系统默认 2 分钟
-    const int flags = ::fcntl(s, F_GETFL, 0);
-    ::fcntl(s, F_SETFL, flags | O_NONBLOCK);
-    const int rc = ::connect(s, reinterpret_cast<sockaddr*>(&sa), sizeof(sa));
-    if (rc != 0 && errno != EINPROGRESS) {
-        closeSock(s); if (err) *err = "连接对端失败"; return false;
-    }
-#endif
-    const int wr = waitWritable(s, timeoutMs);
-    if (wr <= 0) { closeSock(s); if (err) *err = "连接对端超时"; return false; }
-    int soErr = 0;
-#if defined(_WIN32)
-    int len = sizeof(soErr);
-    ::getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&soErr), &len);
-    u_long blk = 0;
-    ::ioctlsocket(s, FIONBIO, &blk);
-#else
-    socklen_t len = sizeof(soErr);
-    ::getsockopt(s, SOL_SOCKET, SO_ERROR, &soErr, &len);
-    ::fcntl(s, F_SETFL, flags);
-#endif
-    if (soErr != 0) { closeSock(s); if (err) *err = "连接对端失败"; return false; }
-    *out = s;
-    return true;
-}
-
-HttpResponse httpDo(const HttpRequest& req) {
-    HttpResponse resp;
-    ensureNet();
-    Sock s = kBadSock;
-    std::string err;
-    if (!connectTo(req.host, req.port, req.timeoutMs, &s, &err)) {
-        resp.error = err.empty() ? "连接对端失败" : err;
-        return resp;
-    }
-
-    std::string head = req.method + " " + req.path + " HTTP/1.1\r\nHost: " + req.host + ":" +
-                       std::to_string(req.port) + "\r\nConnection: close\r\n";
-    if (req.stream) {
-        head += "Content-Type: " + (req.contentType.empty()
-                                        ? std::string("application/octet-stream")
-                                        : req.contentType) +
-                "\r\nContent-Length: " + std::to_string(req.streamLen) + "\r\n\r\n";
-    } else if (req.body) {
-        head += "Content-Type: " + (req.contentType.empty() ? std::string("application/json")
-                                                            : req.contentType) +
-                "\r\nContent-Length: " + std::to_string(req.body->size()) + "\r\n\r\n";
-    } else {
-        head += "\r\n";
-    }
-    if (!sendAll(s, head.data(), head.size(), req.timeoutMs, &err)) {
-        closeSock(s);
-        resp.error = err;
-        return resp;
-    }
-
-    if (req.stream) {
+    bool userCanceled = false, readFailed = false, sinkBroken = false;
+    uint64_t sent = 0;
+    auto provider = [&](size_t /*offset*/, size_t /*length*/, httplib::DataSink& sink) -> bool {
         char buf[64 * 1024];
-        uint64_t sent = 0;
-        while (sent < req.streamLen) {
-            const size_t want = static_cast<size_t>(
-                std::min<uint64_t>(sizeof buf, req.streamLen - sent));
-            const size_t got = std::fread(buf, 1, want, req.stream);
-            if (got == 0) { closeSock(s); resp.error = "读取本地文件失败"; return resp; }
-            if (!sendAll(s, buf, got, req.timeoutMs, &err)) {
-                closeSock(s);
-                resp.error = err;
-                return resp;
-            }
-            sent += got;
-            if (req.onWrite && !req.onWrite(sent)) {
-                closeSock(s);
-                resp.error = "已取消";
-                return resp;
-            }
-        }
-    } else if (req.body && !req.body->empty()) {
-        if (!sendAll(s, req.body->data(), req.body->size(), req.timeoutMs, &err)) {
-            closeSock(s);
-            resp.error = err;
-            return resp;
-        }
+        const size_t got = std::fread(buf, 1, sizeof buf, fp);
+        if (got == 0) { readFailed = true; return false; }
+        if (!sink.write(buf, got)) { sinkBroken = true; return false; }
+        sent += got;
+        if (onWrite && !onWrite(sent)) { userCanceled = true; return false; }
+        return true;
+    };
+    const httplib::Result r = cli.Post(path, httplib::Headers{},
+                                       static_cast<size_t>(streamLen), provider,
+                                       "application/octet-stream");
+    if (!r) {
+        if (userCanceled) out.error = "已取消";
+        else if (readFailed) out.error = "读取本地文件失败";
+        else if (sinkBroken) out.error = "连接被对端关闭";
+        else out.error = httpErrorText(r.error());
+        return out;
     }
-
-    // 读响应：先攒到 \r\n\r\n，再按 Content-Length 补齐 body。
-    // 没有 Content-Length（204 常见的写法、或对端用 chunked）时按「读到对端关闭」收尾 ——
-    // 一开始写成「读一包就收」，结果 204 的响应头与 body 分两次到达时会漏读整个 body；
-    // 而长度解析时把行尾的 \r 一起喂给 stoull 也会失败，所以这里按位只取数字。
-    std::string raw;
-    size_t hdrEnd = std::string::npos;
-    size_t contentLen = std::string::npos;
-    bool bodyDone = false;
-    bool graceUsed = false;
-    char buf[16 * 1024];
-    while (!bodyDone) {
-        int rd = waitReadable(s, req.timeoutMs);
-        if (rd == 0 && req.stream && !graceUsed) {
-            // upload 的字节已全部写出：对端要收全才落盘回 204，慢机 / 息屏会晚到 ——
-            // 首超不判死，再宽限 30s 重读一次（根治「手机已完整收到、PC 报等待响应超时」）
-            graceUsed = true;
-            rd = waitReadable(s, 30'000);
-        }
-        if (rd == 0) { resp.error = "等待响应超时"; break; }
-        if (rd < 0) { resp.error = "读取响应失败"; break; }
-        const int r = ::recv(s, buf, static_cast<int>(sizeof buf), 0);
-        if (r <= 0) { bodyDone = true; break; }   // 对端关闭：无长度的响应到此为止
-        raw.append(buf, static_cast<size_t>(r));
-        if (hdrEnd == std::string::npos) {
-            hdrEnd = raw.find("\r\n\r\n");
-            if (hdrEnd == std::string::npos && raw.size() > 64 * 1024) {
-                resp.error = "响应头过长";
-                break;
-            }
-            if (hdrEnd == std::string::npos) continue;
-            const std::string hlow = lowerImpl(raw.substr(0, hdrEnd));
-            const std::string key = "content-length:";
-            const size_t p = hlow.find(key);
-            if (p != std::string::npos) {
-                size_t v = p + key.size();
-                while (v < hlow.size() && (hlow[v] == ' ' || hlow[v] == '\t')) ++v;
-                size_t e = v;
-                while (e < hlow.size() && std::isdigit(static_cast<unsigned char>(hlow[e]))) ++e;
-                if (e > v) {
-                    try { contentLen = static_cast<size_t>(std::stoull(hlow.substr(v, e - v))); }
-                    catch (...) { contentLen = std::string::npos; }
-                }
-            }
-        }
-        if (hdrEnd != std::string::npos && contentLen != std::string::npos &&
-            raw.size() >= hdrEnd + 4 + contentLen) {
-            bodyDone = true;
-        }
-    }
-    closeSock(s);
-
-    if (resp.error.empty()) {
-        const size_t he = raw.find("\r\n\r\n");
-        if (he == std::string::npos) {
-            resp.error = "响应格式不合法";
-            return resp;
-        }
-        const std::string statusLine = raw.substr(0, raw.find("\r\n"));
-        const size_t sp = statusLine.find(' ');
-        if (sp != std::string::npos) {
-            try { resp.status = std::stoi(statusLine.substr(sp + 1, 3)); } catch (...) { resp.status = 0; }
-        }
-        resp.body = raw.substr(he + 4);
-        resp.ok = true;
-    }
-    return resp;
+    out.ok = true;
+    out.status = r->status;
+    out.body = r->body;
+    return out;
 }
 
 }  // namespace
@@ -465,11 +256,9 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
         res.error = "没有要发送的文件";
         return res;
     }
-    ensureNet();
 
     const std::string alias = self.alias.empty() ? hostNameImpl() : self.alias;
     const std::string fp = self.fingerprint.empty() ? randomId() : self.fingerprint;
-    const std::string base = "http://" + target.ip + ":" + std::to_string(target.port);
 
     // ① register：确认对端可达 + 拿它报的 alias
     apxpc::net::Json selfInfo = apxpc::net::Json::makeObject();
@@ -481,15 +270,8 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
     selfInfo["download"] = true;
     const std::string regBody = selfInfo.stringify();
 
-    HttpRequest reg;
-    reg.method = "POST";
-    reg.host = target.ip;
-    reg.port = target.port;
-    reg.path = kPathRegister;
-    reg.body = &regBody;
     // 10s 默认值在慢机（息屏首包 / 高负载）上过紧 —— register 超时误报在这里拦过一次
-    reg.timeoutMs = 30'000;
-    const HttpResponse regResp = httpDo(reg);
+    const HttpResult regResp = httpJson(target.ip, target.port, kPathRegister, regBody, 30);
     if (!regResp.ok) {
         res.error = "连接对端失败：" + regResp.error;
         return res;
@@ -539,15 +321,8 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
 
     // ③ prepare-upload
     const std::string prepBody = buildPrepareBody(self, fp, ids, files, shas, sizes);
-    HttpRequest prep;
-    prep.method = "POST";
-    prep.host = target.ip;
-    prep.port = target.port;
-    prep.path = kPathPrepare;
-    prep.body = &prepBody;
     // 同 register：对端可能弹「是否接收」等人工点，10s 必超 —— 放宽到 30s
-    prep.timeoutMs = 30'000;
-    const HttpResponse prepResp = httpDo(prep);
+    const HttpResult prepResp = httpJson(target.ip, target.port, kPathPrepare, prepBody, 30);
     if (!prepResp.ok) {
         res.error = "prepare 失败：" + prepResp.error;
         return res;
@@ -582,40 +357,32 @@ SendResult LocalSendSender::send(const Target& target, const SenderIdentity& sel
             res.error = "读取失败：" + f.path;
             return res;
         }
-        HttpRequest up;
-        up.method = "POST";
-        up.host = target.ip;
-        up.port = target.port;
-        up.path = std::string(kPathUpload) + "?sessionId=" + sessionId + "&fileId=" + tit->second;
-        up.stream = fp;
-        up.streamLen = sizes[i];
-        // 大文件慢链路：单次等待放宽，否则一慢就误判超时
-        up.timeoutMs = 120'000;
-        up.onWrite = [&](uint64_t fileSent) -> bool {
-            if (!progress) return true;
-            SendProgress pr;
-            pr.fileName = name;
-            pr.fileBytes = fileSent;
-            pr.fileTotal = sizes[i];
-            pr.totalBytes = totalSent + fileSent;
-            pr.grandTotal = grandTotal;
-            pr.filesDone = static_cast<int>(i);
-            pr.filesTotal = static_cast<int>(files.size());
-            return progress(pr);
-        };
-        const HttpResponse upResp = httpDo(up);
+        // 大文件慢链路：单次等待放宽，否则一慢就误判超时（对端收全后落盘回 204 的
+        // 慢机宽限也在这 120s 读超时里，不再需要手搓版的首超+30s 二段逻辑）
+        const HttpResult upResp = httpUpload(
+            target.ip, target.port,
+            std::string(kPathUpload) + "?sessionId=" + sessionId + "&fileId=" + tit->second,
+            fp, sizes[i], 120, [&](uint64_t fileSent) -> bool {
+                if (!progress) return true;
+                SendProgress pr;
+                pr.fileName = name;
+                pr.fileBytes = fileSent;
+                pr.fileTotal = sizes[i];
+                pr.totalBytes = totalSent + fileSent;
+                pr.grandTotal = grandTotal;
+                pr.filesDone = static_cast<int>(i);
+                pr.filesTotal = static_cast<int>(files.size());
+                return progress(pr);
+            });
         std::fclose(fp);
 
         if (!upResp.ok) {
             // 取消要额外通知对端：不然它会把半截文件当完整文件留着
             if (upResp.error == "已取消") {
-                HttpRequest cancel;
-                cancel.method = "POST";
-                cancel.host = target.ip;
-                cancel.port = target.port;
-                cancel.path = std::string(kPathCancel) + "?sessionId=" + sessionId + "&fileId=" +
-                              tit->second;
-                const HttpResponse cr = httpDo(cancel);
+                const HttpResult cr = httpJson(
+                    target.ip, target.port,
+                    std::string(kPathCancel) + "?sessionId=" + sessionId + "&fileId=" + tit->second,
+                    "", 30);
                 if (!cr.ok) APX_LOGW("通知对端取消失败：{}", cr.error);
                 res.error = "已取消";
             } else {

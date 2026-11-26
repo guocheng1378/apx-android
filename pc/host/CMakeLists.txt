@@ -408,6 +408,10 @@ target_include_directories(apxpc_localsend PRIVATE "${APXPC_ROOT}/third_party/pi
 # nlohmann/json（third_party/nlohmann），Json 门面与调用点不变。
 # 包含路径指到 third_party —— 官方用法是 #include <nlohmann/json.hpp>
 target_include_directories(apxpc_service PRIVATE "${APXPC_ROOT}/third_party")
+# cpp-httplib（third_party/cpp-httplib，MIT，单头文件 v0.67.0）：LocalSend 收发两端的
+# HTTP 实现换库（去轮子第三步）。官方用法是 #include <httplib.h>，仅 sender/receiver
+# 两个翻译单元包含，PRIVATE 即可。
+target_include_directories(apxpc_localsend PRIVATE "${APXPC_ROOT}/third_party/cpp-httplib")
 target_link_libraries(apxpc_localsend PUBLIC apxpc_service)
 if(WIN32)
   target_link_libraries(apxpc_localsend PUBLIC ws2_32)
