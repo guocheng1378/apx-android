@@ -1,0 +1,58 @@
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 38%] Built target apxpc_sensors
+[ 47%] Built target apxpc_discovery
+[ 49%] Building CXX object CMakeFiles/apxpc_service.dir/src/net/json.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/net/json.cpp:11:10: fatal error: 'nlohmann/json.hpp' file not found
+   11 | #include "nlohmann/json.hpp"
+      |          ^~~~~~~~~~~~~~~~~~~
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/net/json.cpp.o] Error 1
+[ 50%] Building CXX object CMakeFiles/apxpc_service.dir/src/display/display_control.cpp.o
+[ 52%] Building CXX object CMakeFiles/apxpc_service.dir/src/hotkey/hotkey_manager.cpp.o
+[ 53%] Building CXX object CMakeFiles/apxpc_service.dir/src/api/action_router.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:19:11: warning: unused function 'ok' [-Wunused-function]
+   19 | net::Json ok(const net::Json& data = {}) {
+      |           ^~
+In file included from /Users/runner/work/apx-android/apx-android/pc/host/src/api/action_router.cpp:1:
+/Users/runner/work/apx-android/apx-android/pc/host/include/apxpc/api/action_router.hpp:65:12: warning: private field 'lastRttMs_' is not used [-Wunused-private-field]
+   65 |     double lastRttMs_ = 1.2;
+      |            ^
+2 warnings generated.
+[ 55%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/host_service.cpp.o
+[ 57%] Building CXX object CMakeFiles/apxpc_service.dir/src/app/update_check.cpp.o
+[ 58%] Building CXX object CMakeFiles/apxpc_service.dir/src/tray/tray_win32.cpp.o
+[ 60%] Building CXX object CMakeFiles/apxpc_service.dir/src/autostart.cpp.o
+[ 61%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/registry.cpp.o
+[ 63%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/fx.cpp.o
+[ 65%] Building CXX object CMakeFiles/apxpc_service.dir/src/ball/ball_win32.cpp.o
+[ 66%] Building CXX object CMakeFiles/apxpc_service.dir/src/screen/screenshot_win.cpp.o
+[ 68%] Building CXX object CMakeFiles/apxpc_service.dir/src/ui/notify_reply_win32.cpp.o
+[ 69%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/app/update_check_mac.mm.o
+[ 71%] Building OBJCXX object CMakeFiles/apxpc_service.dir/src/tray/tray_mac.mm.o
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 84%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxhost.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxhost.dir/rule] Error 2
+make[1]: Target `apxhost' not remade because of errors.
+make: *** [apxhost] Error 2
+[ 11%] Built target apx_shared
+[ 23%] Built target apxpc_core
+[ 33%] Built target apxpc_media
+[ 38%] Built target apxpc_sensors
+[ 47%] Built target apxpc_discovery
+[ 49%] Building CXX object CMakeFiles/apxpc_service.dir/src/net/json.cpp.o
+/Users/runner/work/apx-android/apx-android/pc/host/src/net/json.cpp:11:10: fatal error: 'nlohmann/json.hpp' file not found
+   11 | #include "nlohmann/json.hpp"
+      |          ^~~~~~~~~~~~~~~~~~~
+1 error generated.
+make[3]: *** [CMakeFiles/apxpc_service.dir/src/net/json.cpp.o] Error 1
+make[3]: Target `CMakeFiles/apxpc_service.dir/build' not remade because of errors.
+make[2]: *** [CMakeFiles/apxpc_service.dir/all] Error 2
+[ 61%] Built target apxpc_wireless
+make[2]: Target `CMakeFiles/apxdesktop.dir/all' not remade because of errors.
+make[1]: *** [CMakeFiles/apxdesktop.dir/rule] Error 2
+make[1]: Target `apxdesktop' not remade because of errors.
+make: *** [apxdesktop] Error 2
