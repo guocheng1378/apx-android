@@ -16,6 +16,13 @@
 
 namespace apxpc::wireless {
 
+// 键鼠镜像工作模式（配置/面板/捕获器三处共用；落盘为 int，向后兼容见 app_config）。
+enum WorkMode : int {
+    kWorkMirror = 0,   // 镜像同步（默认）：转发 + 本机照常响应
+    kWorkCross = 1,    // 跨屏独占：右缘抵住推入切换，聚焦期间电脑不响应
+    kWorkShared = 2,   // 共享：右缘滑过即切（无需驻留），像扩展屏一样自然
+};
+
 class LocalInputCapturer {
 public:
     virtual ~LocalInputCapturer() = default;
@@ -24,14 +31,17 @@ public:
     virtual void stop() {}
     bool active() const { return active_; }
 
-    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24）：
-    ///   false = 镜像同步（默认）：本机事件转发给手机，同时本机照常响应（现状）。
-    ///   true  = 跨屏独占：鼠标推到屏幕右缘把焦点切到手机 —— 此后本机事件被吞掉
-    ///           （电脑不再响应），独占转发给手机；往回移过同一边缘切回电脑。
+    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24；共享模式
+    /// 2026-11-26 随报告人「共享模式移动不到 pad」反馈补齐）：
+    ///   kWorkMirror  = 镜像同步（默认）：本机事件转发给手机，同时本机照常响应（现状）。
+    ///   kWorkCross   = 跨屏独占：鼠标抵住屏幕右缘推入约 1/4 秒把焦点切到手机 —— 此后
+    ///           本机事件被吞掉（电脑不再响应），独占转发给手机；往回拉切回电脑。
+    ///   kWorkShared  = 共享：与独占同一套聚焦转发状态机，但切换手势更自然 ——
+    ///           鼠标滑过屏幕右缘即切到手机（无需驻留），向左拉切回，像扩展屏一样。
     /// 平台实现：Windows/macOS 支持吞事件；Linux evdev 只读吞不掉，默认空实现
-    /// 保持镜像行为（跨屏模式在 Linux 上不生效，面板不隐藏开关但行为不变）。
-    virtual void setCrossMode(bool on) {
-        (void)on;
+    /// 保持镜像行为（跨屏/共享模式在 Linux 上不生效，面板不隐藏开关但行为不变）。
+    virtual void setWorkMode(int mode) {
+        (void)mode;
     }
 
 protected:

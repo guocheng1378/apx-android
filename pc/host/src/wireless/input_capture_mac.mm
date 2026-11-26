@@ -97,15 +97,16 @@ public:
         }
     }
 
-    // 跨屏独占开关（issue#171 报告人需求，2026-11-24）：tap 回调按事件读 crossMode_。
-    // 关闭时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
-    void setCrossMode(bool on) override {
-        crossMode_.store(on, std::memory_order_relaxed);
-        if (!on && focused_.exchange(false)) {
+    // 键鼠镜像工作模式（issue#171，2026-11-24 独占 / 2026-11-26 共享）：tap 回调按事件读
+    // workMode_。切回镜像时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
+    void setWorkMode(int mode) override {
+        workMode_.store(mode, std::memory_order_relaxed);
+        if (mode == kWorkMirror && focused_.exchange(false)) {
             releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
         }
-        APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
+        APX_LOGI("键鼠镜像工作模式：{}", mode == kWorkShared ? "共享（右缘滑过即切）"
+                                     : mode == kWorkCross ? "跨屏独占（右缘进入）" : "镜像同步");
     }
 
     void onMove(int dx, int dy) { client_->sendMouse(mouseButtons_, clamp8(dx), clamp8(dy), 0); }
@@ -159,15 +160,31 @@ private:
         const int64_t locX = (int64_t)CGEventGetLocation(e).x;
         const int64_t dx = CGEventGetIntegerValueField(e, kCGMouseEventDeltaX);
         const int64_t dy = CGEventGetIntegerValueField(e, kCGMouseEventDeltaY);
+        const int mode = workMode_.load(std::memory_order_relaxed);
         if (!focused_.load(std::memory_order_relaxed)) {
             const CGRect virt = virtualBounds();
             const bool atEdge = locX >= (int64_t)(virt.origin.x + virt.size.width) - 1;
+            if (mode == kWorkShared) {
+                // 共享模式：滑过边缘即切（无需驻留计时）—— 把鼠标推出右缘的意图
+                // 本身就是切换。仍要求无按住的鼠标键（与独占同款门控，否则抬起
+                // 事件被吞掉转发到手机，Mac 卡在拖拽态）。
+                if (atEdge && dx > 0 && physButtons_ == 0) {
+                    focused_.store(true, std::memory_order_relaxed);
+                    accumDx_ = 0;
+                    focusedEnterMs_ = nowMs();
+                    APX_LOGI("跨屏扩展：焦点切到手机（右缘滑过），本机输入已独占拦截");
+                    onMove((int)dx, (int)dy);   // 进入位移照发（手感连续）
+                    return true;   // 吞掉
+                }
+                return false;   // 未聚焦：透传，本机照常（不转发）
+            }
+            // 独占模式：「抵边后仍连续收到移动事件 ≥250ms」= 用户在往屏外推，
+            // 而非路过点一下。
             if (!atEdge || dx < 0) {
                 edgeFirstMs_ = 0;   // 离开边缘或往回走：重计驻留
             } else if (dx > 0 || edgeFirstMs_ == 0) {
                 edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
             }
-            // 「抵边后仍连续收到移动事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
             if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs) {
                 // 有鼠标键按住时不进入焦点：否则其抬起事件会被吞掉转发到手机，
                 // Mac 端会卡在拖拽/窗口编辑状态（issue#171「卡在窗口编辑状态」）。
@@ -235,11 +252,11 @@ private:
     int count_ = 0;
     std::thread thread_;
 
-    // —— 跨屏独占状态 ——
-    // crossMode_/focused_ 原子：setCrossMode 在调用线程改模式并退焦点，tap 线程
+    // —— 跨屏独占/共享状态 ——
+    // workMode_/focused_ 原子：setWorkMode 在调用线程改模式并退焦点，tap 线程
     // 按事件读取；accumDx_/edgeFirstMs_ 只在 tap 线程触碰，
     // 竞态窗口最多丢一次位移，不影响正确性。
-    std::atomic<bool> crossMode_{false};
+    std::atomic<int> workMode_{kWorkMirror};
     std::atomic<bool> focused_{false};
     int accumDx_ = 0;           // 聚焦期间向左累计位移（退出判定，右向清零不累计）
     int64_t edgeFirstMs_ = 0;   // 首次抵右缘的时刻（驻留判定，0=不在边缘）
@@ -276,9 +293,9 @@ private:
             case kCGEventOtherMouseUp:   self->physButtons_ &= (uint8_t)~0x04; break;
             default: break;
         }
-        // 跨屏独占：聚焦时吞掉一切已捕获事件（返回 NULL，本机收不到）；
+        // 跨屏独占/共享：聚焦时吞掉一切已捕获事件（返回 NULL，本机收不到）；
         // 未聚焦时透传且不转发（电脑输入留在电脑）。镜像同步模式走原透传+转发路径。
-        if (self->crossMode_.load(std::memory_order_relaxed)) {
+        if (self->workMode_.load(std::memory_order_relaxed) != kWorkMirror) {
             if (type == kCGEventMouseMoved || type == kCGEventLeftMouseDragged ||
                 type == kCGEventRightMouseDragged || type == kCGEventOtherMouseDragged) {
                 return self->crossMove(e) ? nullptr : e;

@@ -39,8 +39,12 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
   const inputMirror = useToggle(cfg.inputMirror !== false, (on) =>
     bridge.act('config.setInputMirror', { on }),
   );
-  // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：mirror=镜像同步 cross=跨屏独占。
-  const [crossMode, setCrossMode] = React.useState(cfg.inputCross ? 'cross' : 'mirror');
+  // 键鼠镜像工作模式（2026-11-24 跨屏扩展，2026-11-26 加共享）：0=镜像 1=独占 2=共享。
+  // UI 用字符串（Segmented 组件只收 string），与后端 int 的映射见 WORK_MODE_TO_INT。
+  const WORK_MODE_TO_INT: Record<string, number> = { mirror: 0, cross: 1, shared: 2 };
+  const [workMode, setWorkMode] = React.useState(
+    ['mirror', 'cross', 'shared'][Number(cfg.inputWorkMode ?? 0)] ?? 'mirror',
+  );
   const [bitrate, setBitrate] = React.useState(String(cfg.bitrateMbps ?? 8));
   const [logLevel, setLogLevel] = React.useState(String(cfg.logLevel ?? 'info'));
   const [savedHint, setSavedHint] = React.useState('');
@@ -49,8 +53,9 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
   React.useEffect(() => {
     if (cfg.bitrateMbps != null) setBitrate(String(cfg.bitrateMbps));
     if (cfg.logLevel) setLogLevel(String(cfg.logLevel));
-    if (cfg.inputCross != null) setCrossMode(cfg.inputCross ? 'cross' : 'mirror');
-  }, [cfg.bitrateMbps, cfg.logLevel, cfg.inputCross]);
+    if (cfg.inputWorkMode != null)
+      setWorkMode(['mirror', 'cross', 'shared'][Number(cfg.inputWorkMode)] ?? 'mirror');
+  }, [cfg.bitrateMbps, cfg.logLevel, cfg.inputWorkMode]);
 
   const flash = (text: string) => {
     setSavedHint(text);
@@ -239,33 +244,36 @@ export const Settings: React.FC<Props> = ({ state, theme, onTheme, version }) =>
               />
             }
           />
-          {/* 工作模式（2026-11-24 跨屏扩展，issue#171 报告人需求）：
-              镜像同步 = 两端同时响应（现状）；跨屏独占 = 鼠标推到屏幕右缘切到手机，
-              电脑不再响应，往回移切回电脑 —— 点击不再误触电脑内容。
-              Linux 端 evdev 捕获层只读、吞不掉本机事件，跨屏独占实际不生效
+          {/* 工作模式（2026-11-24 跨屏扩展，2026-11-26 加共享，issue#171 报告人需求）：
+              镜像同步 = 两端同时响应（现状）；跨屏独占 = 鼠标抵住右缘推一下切到手机，
+              电脑不再响应，往回拉切回；共享 = 右缘滑过即切（无需驻留），像扩展屏一样自然。
+              Linux 端 evdev 捕获层只读、吞不掉本机事件，独占/共享实际不生效
               （2026-11-25 补）：选项置灰并说明，避免切过去后行为与预期不符又无提示。 */}
           <Row
             title="工作模式"
             sub={
               platform === 'linux'
-                ? 'Linux 系统限制：暂不支持跨屏独占（输入无法独占拦截），保持镜像同步'
-                : crossMode === 'cross'
-                  ? '跨屏独占：鼠标抵住屏幕右缘推一下切到手机，电脑不再响应；往回拉切回电脑'
-                  : '镜像同步：电脑与手机同时响应（点击两边都生效）'
+                ? 'Linux 系统限制：暂不支持跨屏独占/共享（输入无法独占拦截），保持镜像同步'
+                : workMode === 'shared'
+                  ? '共享：鼠标滑过屏幕右缘即切到手机（无需停留），像扩展屏一样；往回拉切回电脑'
+                  : workMode === 'cross'
+                    ? '跨屏独占：鼠标抵住屏幕右缘推一下切到手机，电脑不再响应；往回拉切回电脑'
+                    : '镜像同步：电脑与手机同时响应（点击两边都生效）'
             }
             trail={
               <Segmented
-                value={crossMode}
+                value={workMode}
                 disabled={!inputMirror.on || platform === 'linux'}
                 onChange={(v) => {
-                  setCrossMode(v);
+                  setWorkMode(v);
                   acts
-                    .run(() => bridge.act('config.setInputCrossMode', { on: v === 'cross' }))
-                    .then((ok) => ok && flash(v === 'cross' ? '已切换为跨屏独占' : '已切换为镜像同步'));
+                    .run(() => bridge.act('config.setInputWorkMode', { mode: WORK_MODE_TO_INT[v] ?? 0 }))
+                    .then((ok) => ok && flash(v === 'shared' ? '已切换为共享' : v === 'cross' ? '已切换为跨屏独占' : '已切换为镜像同步'));
                 }}
                 options={[
                   { value: 'mirror', label: '镜像同步' },
                   { value: 'cross', label: '跨屏独占' },
+                  { value: 'shared', label: '共享' },
                 ]}
               />
             }

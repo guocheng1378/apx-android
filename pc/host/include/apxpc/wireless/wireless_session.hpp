@@ -112,12 +112,13 @@ public:
     /// 面板状态读这里而不是配置文件，避免「假开」。线程安全（atomic 读）。
     bool inputMirrorEnabledActual() const { return inputMirrorEnabled_.load(std::memory_order_relaxed); }
 
-    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24）：
-    /// on=false 镜像同步（默认，两端同时响应）；on=true 跨屏独占（鼠标推到屏幕右缘
-    /// 切到手机，本机输入被吞掉独占发手机；往回移切回电脑）。对已建镜像即时生效；
-    /// 之后新建的镜像（publish/setInputMirrorEnabled 路径）创建时带上该模式。
-    /// 线程安全：模式位 atomic；对 inputMirror_ 的触碰持 mu_（与建停同口径）。
-    void setInputCrossMode(bool on);
+    /// 键鼠镜像工作模式（issue#171 报告人「跨屏扩展」需求，2026-11-24；共享模式
+    /// 2026-11-26 补齐）：mode 取 WorkMode 枚举 —— kWorkMirror 镜像同步（默认，两端
+    /// 同时响应）；kWorkCross 跨屏独占（右缘抵住推入切到手机，本机输入被吞掉独占发
+    /// 手机；往回拉切回电脑）；kWorkShared 共享（右缘滑过即切，无需驻留，像扩展屏）。
+    /// 对已建镜像即时生效；之后新建的镜像（publish/setInputMirrorEnabled 路径）创建时
+    /// 带上该模式。线程安全：模式位 atomic；对 inputMirror_ 的触碰持 mu_（与建停同口径）。
+    void setInputWorkMode(int mode);
 
     /// 查找手机（0x38，2026-11-11，能力位 bit2）：让受控手机响铃（30s 自动停）。
     /// action：1=响铃 0=停，当前只有响铃一键。未连接返回 false（托盘菜单常驻，连着才有效）。
@@ -265,9 +266,10 @@ private:
     // 兜底默认关（2026-11-26 作者拍板）：启动时由配置覆盖，未配置时不再默认开镜像。
     std::atomic<bool> inputMirrorEnabled_{false};
 
-    // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：false=镜像同步 true=跨屏独占。
-    // 建镜像后立即下发到捕获器；面板改模式经 setInputCrossMode 同步到已建镜像。
-    std::atomic<bool> inputCrossMode_{false};
+    // 键鼠镜像工作模式（2026-11-24 跨屏扩展，2026-11-26 加共享）：kWorkMirror/
+    // kWorkCross/kWorkShared。建镜像后立即下发到捕获器；面板改模式经 setInputWorkMode
+    // 同步到已建镜像。
+    std::atomic<int> inputWorkMode_{kWorkMirror};
 
     // 投屏自动开（2026-11-18）：首次进入 Connected 时下发 0x10「screenmirror」on，进程内只发一次
     //（手机端运行中会跳过重复授权页；用户手动关后本轮不再自动开）。仅 PC 控手机场景，见 publish()。

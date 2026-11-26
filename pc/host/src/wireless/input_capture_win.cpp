@@ -114,44 +114,60 @@ public:
         }
     }
 
-    // 跨屏独占开关（issue#171 报告人需求，2026-11-24）：钩子线程按事件读 crossMode_。
-    // 关闭时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
-    void setCrossMode(bool on) override {
-        crossMode_.store(on, std::memory_order_relaxed);
-        if (!on && focused_.exchange(false)) {
+    // 键鼠镜像工作模式（issue#171，2026-11-24 独占 / 2026-11-26 共享）：钩子线程按事件读
+    // workMode_。切回镜像时若正聚焦，退出焦点即可 —— 光标停在进入点（右缘内侧），无需归位。
+    void setWorkMode(int mode) override {
+        workMode_.store(mode, std::memory_order_relaxed);
+        if (mode == kWorkMirror && focused_.exchange(false)) {
             releaseForwardedState();   // 手机端悬挂的按键/鼠标按下随退焦点一并松开
             APX_LOGI("跨屏扩展：切回镜像同步，焦点交回电脑");
         }
-        APX_LOGI("键鼠镜像工作模式：{}", on ? "跨屏独占（右缘进入）" : "镜像同步");
+        APX_LOGI("键鼠镜像工作模式：{}", mode == kWorkShared ? "共享（右缘滑过即切）"
+                                     : mode == kWorkCross ? "跨屏独占（右缘进入）" : "镜像同步");
     }
 
     // —— 鼠标移动：返回 true 表示吞掉该事件（不透传给本机）——
     bool onMove(int x, int y) {
-        if (crossMode_.load(std::memory_order_relaxed)) {
+        const int mode = workMode_.load(std::memory_order_relaxed);
+        if (mode != kWorkMirror) {
             const RECT virt = virtualRect();
             if (!focused_.load(std::memory_order_relaxed)) {
-                // 未聚焦：电脑输入留在电脑（不转发），只盯右缘「抵住推入」手势。
+                // 未聚焦：电脑输入留在电脑（不转发），盯右缘手势。
                 const bool atEdge = x >= virt.right - 1;
-                if (!atEdge || (lastX_ >= 0 && x < lastX_)) {
-                    edgeFirstMs_ = 0;   // 离开边缘或往回走：重计驻留
-                } else if (x > lastX_ || edgeFirstMs_ == 0) {
-                    edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
-                }
-                // 「抵边后仍连续收到事件 ≥250ms」= 用户在往屏外推，而非路过点一下。
-                // 有鼠标键按住时不进入焦点：否则其抬起事件会被吞掉转发到手机，
-                // 电脑端会卡在拖拽/窗口编辑状态（issue#171 Mac 端同款问题）。
-                // 按住期间不进入也不重置驻留，松开后下一个抵缘事件即可进入。
-                if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs &&
-                    physButtons_ == 0) {
-                    edgeFirstMs_ = 0;
-                    focused_.store(true, std::memory_order_relaxed);
-                    entryX_ = x; entryY_ = y;
-                    focusedEnterMs_ = nowMs();
-                    APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
-                    if (lastX_ >= 0)
-                        client_->sendMouse(mouseButtons_, clamp8(x - lastX_), clamp8(y - lastY_), 0);
-                    lastX_ = x; lastY_ = y;
-                    return true;   // 进入事件吞掉
+                if (mode == kWorkShared) {
+                    // 共享模式：滑过边缘即切（无需驻留计时）—— 像扩展屏一样，把鼠标
+                    // 推出右缘的意图本身就是切换。仍要求无按住的鼠标键（否则抬起事件
+                    // 会被吞掉转发到手机，电脑端卡在拖拽态，与独占同款门控）。
+                    if (atEdge && x > lastX_ && physButtons_ == 0) {
+                        focused_.store(true, std::memory_order_relaxed);
+                        entryX_ = x; entryY_ = y;
+                        focusedEnterMs_ = nowMs();
+                        APX_LOGI("跨屏扩展：焦点切到手机（右缘滑过），本机输入已独占拦截");
+                        if (lastX_ >= 0)
+                            client_->sendMouse(mouseButtons_, clamp8(x - lastX_), clamp8(y - lastY_), 0);
+                        lastX_ = x; lastY_ = y;
+                        return true;   // 进入事件吞掉
+                    }
+                } else {
+                    // 独占模式：「抵边后仍连续收到事件 ≥250ms」= 用户在往屏外推，
+                    // 而非路过点一下。按住鼠标键时不进入也不重置驻留。
+                    if (!atEdge || (lastX_ >= 0 && x < lastX_)) {
+                        edgeFirstMs_ = 0;   // 离开边缘或往回走：重计驻留
+                    } else if (x > lastX_ || edgeFirstMs_ == 0) {
+                        edgeFirstMs_ = nowMs();   // 首次抵边：开始计时
+                    }
+                    if (atEdge && edgeFirstMs_ != 0 && nowMs() - edgeFirstMs_ >= kEdgeDwellMs &&
+                        physButtons_ == 0) {
+                        edgeFirstMs_ = 0;
+                        focused_.store(true, std::memory_order_relaxed);
+                        entryX_ = x; entryY_ = y;
+                        focusedEnterMs_ = nowMs();
+                        APX_LOGI("跨屏扩展：焦点切到手机（右缘推入），本机输入已独占拦截");
+                        if (lastX_ >= 0)
+                            client_->sendMouse(mouseButtons_, clamp8(x - lastX_), clamp8(y - lastY_), 0);
+                        lastX_ = x; lastY_ = y;
+                        return true;   // 进入事件吞掉
+                    }
                 }
                 lastX_ = x; lastY_ = y;
                 return false;   // 未聚焦：透传，本机照常
@@ -182,7 +198,7 @@ public:
         return false;
     }
     bool onWheel(int delta) {
-        if (crossMode_.load(std::memory_order_relaxed))
+        if (workMode_.load(std::memory_order_relaxed) != kWorkMirror)
             return forwardIfFocused([&] { client_->sendMouse(mouseButtons_, 0, 0, clamp8(delta / WHEEL_DELTA)); });
         client_->sendMouse(mouseButtons_, 0, 0, clamp8(delta / WHEEL_DELTA));
         return false;
@@ -191,7 +207,7 @@ public:
         // 物理鼠标键状态跨模式跟踪（钩子线程专用）：进入跨屏焦点前据此确认没有
         // 按住的键。注入事件已在钩子层按 LLMHF_INJECTED 过滤，到达这里的都是物理事件。
         if (down) physButtons_ |= bit; else physButtons_ &= (uint8_t)~bit;
-        if (crossMode_.load(std::memory_order_relaxed))
+        if (workMode_.load(std::memory_order_relaxed) != kWorkMirror)
             return forwardIfFocused([&] {
                 if (down) mouseButtons_ |= bit; else mouseButtons_ &= ~bit;
                 client_->sendMouse(mouseButtons_, 0, 0, 0);
@@ -201,7 +217,7 @@ public:
         return false;
     }
     bool onKey(int usage, bool down) {
-        if (crossMode_.load(std::memory_order_relaxed))
+        if (workMode_.load(std::memory_order_relaxed) != kWorkMirror)
             return forwardIfFocused([&] { sendKey(usage, down); });
         sendKey(usage, down);
         return false;
@@ -265,11 +281,11 @@ private:
     std::thread thread_;
     static WinCapturer* g_self;
 
-    // —— 跨屏独占状态 ——
-    // crossMode_/focused_ 原子：setCrossMode 在调用线程改模式，钩子线程按事件读取；
+    // —— 跨屏独占/共享状态 ——
+    // workMode_/focused_ 原子：setWorkMode 在调用线程改模式，钩子线程按事件读取；
     // entryX_/entryY_/edgeFirstMs_ 只在钩子线程触碰。聚焦期间移动事件被吞、光标
     // 停在进入点，pt 以进入点为原点换算真实位移（见 onMove 聚焦分支注释）。
-    std::atomic<bool> crossMode_{false};
+    std::atomic<int> workMode_{kWorkMirror};
     std::atomic<bool> focused_{false};
     int entryX_ = 0, entryY_ = 0;    // 进入焦点时的光标位置（位移原点）
     int64_t edgeFirstMs_ = 0;        // 首次抵右缘的时刻（驻留判定，0=不在边缘）

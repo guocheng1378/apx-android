@@ -377,8 +377,8 @@ void buildState(const HostBundle& b, Json& out) {
         // 会话侧已回退为 false，面板如实显示，不再按配置文件假开。
         cfg["inputMirror"] = b.session ? b.session->inputMirrorEnabledActual()
                                        : b.cfg->inputMirrorEnabled;
-        // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：前端据此回显「镜像同步 / 跨屏独占」。
-        cfg["inputCross"] = b.cfg->inputCrossMode;
+        // 键鼠镜像工作模式（2026-11-24 跨屏扩展，2026-11-26 三态化）：前端据此回显。
+        cfg["inputWorkMode"] = static_cast<double>(b.cfg->inputWorkMode);   // 0=镜像 1=独占 2=共享
         cfg["screenMode"] = static_cast<double>(b.cfg->displayEnabled ? 1 : 0);
         // 投屏模式（会话内记忆）：面板据此回显「扩展屏 / 桌面镜像」，
         // 刷新页面不会把用户选的镜像悄悄变回扩展。
@@ -1007,15 +1007,22 @@ void handleAct(Panel* p, const std::string& id, const std::string& name, const J
         Json d1m = Json::makeObject(); d1m["inputMirror"] = on;
         return postResponse(p, id, okResp(d1m));
     }
-    // 键鼠镜像工作模式（2026-11-24 跨屏扩展）：false=镜像同步 true=跨屏独占。
-    // 写配置持久化，并即时同步给会话（对已建镜像立即生效）。
-    if (name == "config.setInputCrossMode" && b.cfg && b.session) {
-        auto* v = payload.find("on");
-        const bool on = v ? v->asBool(b.cfg->inputCrossMode) : !b.cfg->inputCrossMode;
-        b.cfg->inputCrossMode = on;
+    // 键鼠镜像工作模式（2026-11-24 跨屏扩展，2026-11-26 三态化）：0=镜像 1=独占 2=共享。
+    // 写配置持久化，并即时同步给会话（对已建镜像立即生效）。兼容旧动作名与旧 on 载荷。
+    if ((name == "config.setInputWorkMode" || name == "config.setInputCrossMode") && b.cfg && b.session) {
+        int mode = b.cfg->inputWorkMode;
+        if (auto* v = payload.find("mode")) {
+            mode = static_cast<int>(v->asNumber(mode));
+        } else if (auto* o = payload.find("on")) {
+            mode = o->asBool(mode != 0) ? 1 : 0;   // 旧前端只发 on bool
+        } else {
+            mode = mode != 0 ? 0 : 1;   // 无载荷：在镜像/独占间切换（旧行为）
+        }
+        if (mode < 0 || mode > 2) mode = 0;
+        b.cfg->inputWorkMode = mode;
         if (!b.configPath.empty()) config::saveConfig(b.configPath, *b.cfg);
-        b.session->setInputCrossMode(on);
-        Json d1c = Json::makeObject(); d1c["inputCross"] = on;
+        b.session->setInputWorkMode(mode);
+        Json d1c = Json::makeObject(); d1c["inputWorkMode"] = static_cast<double>(mode);
         return postResponse(p, id, okResp(d1c));
     }
     if (name == "config.setBitrate" && b.cfg) {

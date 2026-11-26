@@ -114,7 +114,12 @@ AppConfig loadConfig(const std::string& path) {
     // load/save 都没落这个字段 —— 重启后永远回到默认开。补上持久化（修一处查同模式）。
     // 默认关（2026-11-26 作者拍板，与 app_config.hpp 结构体默认一致）：新配置文件不再默认开镜像。
     cfg.inputMirrorEnabled = bol("inputMirrorEnabled", false);
-    cfg.inputCrossMode     = bol("inputCrossMode", false);
+    // 工作模式（2026-11-26 三态化）：新键 inputWorkMode（int）；旧键 inputCrossMode
+    //（bool，v223.41 及以前）为 true 时映射为跨屏独占（1），保证升级用户模式不丢。
+    cfg.inputWorkMode = static_cast<int>(num("inputWorkMode", 0));
+    if (j.find("inputWorkMode") == nullptr && bol("inputCrossMode", false))
+        cfg.inputWorkMode = 1;   // 仅旧配置文件存在时按旧键迁移
+    if (cfg.inputWorkMode < 0 || cfg.inputWorkMode > 2) cfg.inputWorkMode = 0;
 
     cfg.touchpadEnabled = bol("touchpadEnabled", false);
     cfg.touchpadPath    = str("touchpadPath", "bt");
@@ -176,7 +181,7 @@ void saveConfig(const std::string& path, const AppConfig& cfg) {
 
     // 键鼠镜像（与 loadConfig 同口径补持久化，见上方注释）
     j["inputMirrorEnabled"] = cfg.inputMirrorEnabled;
-    j["inputCrossMode"]     = cfg.inputCrossMode;
+    j["inputWorkMode"]      = static_cast<double>(cfg.inputWorkMode);   // 三态：0/1/2（旧 bool 键不再写出）
 
     j["touchpadEnabled"] = cfg.touchpadEnabled;
     j["touchpadPath"]    = cfg.touchpadPath;
