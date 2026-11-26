@@ -124,6 +124,9 @@ android {
     buildFeatures {
         buildConfig = true
         compose = true   // miuix-ui 分支：设置页「关于」卡改 Compose + Miuix 渲染
+        // AGP 9 起 resValues 需显式开启：lite flavor 用 resValue 覆盖 app_name
+        //（「全能外设 Lite」，f0d98d2b），漏开直接 EvalIssueException 拒构建。
+        resValues = true
     }
 
     packaging {
