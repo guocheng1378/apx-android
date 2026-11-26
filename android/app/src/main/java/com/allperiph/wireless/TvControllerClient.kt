@@ -384,9 +384,33 @@ class TvControllerClient(
             seq = (seq + 1) and 0x7FFFFFFF
             ApxFrame.build(ApxFrame.STREAM_CONTROL, body, seq)
         }
+        // v-fix（同模式排查 2026-11-26）：txQueue 无界、仅在天于 512 时丢最旧 —— 与媒体通道
+        // （3518e28c）同款积压病：慢网络下触摸/鼠标 MOVE 按系统事件节拍（约 60Hz）入队，
+        // 队列积到 512 帧（60Hz 约 8.5s）才开始丢，输入延迟滚雪球。修法对齐
+        // MediaChannel.dropQueuedVideoFrames：纯移动帧入队前先清掉队列里的旧纯移动帧，只留最新。
+        // 纯移动 = 0x04/0x06 的 action=TOUCH_MOVE（坐标是绝对值，旧帧无信息量），
+        // 或 0x01 鼠标 buttons==0 且 wheel/pan==0（无按键边沿、无滚轮事件）。
+        // 事件帧（触摸 DOWN/UP/CANCEL、键盘、按键非零的鼠标帧、滚轮、剪贴板、文件请求等）
+        // 永不丢：接收端 onMouse 用 lastButtons 做边沿检测，只丢 buttons==0 的帧不可能吞掉
+        // 按下沿，抬起沿由「最新帧必交付」兜底；512 上限保留作事件帧积压的最后防线。
+        if (isPureMove(body)) txQueue.removeAll { isPureMove(it) }
         while (txQueue.size > 512) txQueue.poll()
         if (!txQueue.offer(frame)) return false
         return true
+    }
+
+    /**
+     * 纯移动帧判定（见 [sendControl] 内注释）：可被同队列更新帧安全覆盖的输入流帧。
+     * 0x01 鼠标帧布局 `[0x01][buttons][dx][dy][wheel][pan]`（pan 旧端可缺省）；
+     * 0x04/0x06 触摸帧布局 `[cmd][action][buttons][x2][y2][0][0]`，action=2 为 MOVE。
+     */
+    private fun isPureMove(body: ByteArray): Boolean = when {
+        body.size >= 9 && (body[0] == 0x04.toByte() || body[0] == 0x06.toByte()) ->
+            (body[1].toInt() and 0xFF) == 2   // TOUCH_MOVE（MediaOut.TOUCH_MOVE）
+        body.size >= 5 && body[0] == 0x01.toByte() ->
+            (body[1].toInt() and 0xFF) == 0 && body[4].toInt() == 0 &&
+                (body.size < 6 || body[5].toInt() == 0)
+        else -> false
     }
 
     /** P0-1：dx/dy/wheel 各占一个有符号字节，超出 [-127,127] 会回绕成反向 —— 这里钳位兜底；被钳掉的余数由发送源端（GestureEngine 的 fracX/fracY 亚像素累加器）带入下一帧，不丢位移
