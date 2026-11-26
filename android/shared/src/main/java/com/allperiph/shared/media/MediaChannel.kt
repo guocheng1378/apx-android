@@ -412,10 +412,38 @@ class MediaChannel(
             seq = (seq + 1) and 0x7FFFFFFF
             ApxFrame.build(streamId, body, seq, flags)
         }
+        // issue#171 ⑥（预览/投屏延迟高）：视频流入队前先清同流旧帧 —— 保新弃旧。
+        // 原实现整条队列 256 深、只在队满才丢：慢网络时视频帧积压可累积到数百帧
+        // （10fps 下数十秒）才触发队满丢弃，延迟随之滚雪球。与 PC 端
+        // media_session.cpp v184 修过的「延迟滚雪球」同源 —— PC 侧下行已把视频
+        // 积压收到 16 帧，手机上行侧漏改，此处补齐同款策略且更激进（同流只留
+        // 最新一帧，视频丢一帧只是画面顿一下，下一帧马上就来）。
+        if (isVideoStream(streamId)) dropQueuedVideoFrames(streamId)
         if (outQueue.offer(frame)) return true
         outQueue.poll()                 // 保新弃旧
         droppedFrames.incrementAndGet()
         return outQueue.offer(frame)
+    }
+
+    /** 视频流（摄像头/投屏）可丢：丢一帧只是画面顿一下；麦克风/触摸不可丢，仍走队满兜底 */
+    private fun isVideoStream(streamId: Int): Boolean =
+        streamId == ApxFrame.STREAM_CAMERA || streamId == ApxFrame.STREAM_SCREENMIRROR
+
+    /**
+     * 清掉写队列中同流的旧视频帧（保新弃旧），把视频链路延迟压到
+     * 「1 帧在写 + 1 帧在队」。队列元素是完整帧（帧头在偏移 0），直接按
+     * streamIdAt 判流号；ArrayBlockingQueue 的迭代器 remove 内部持锁，与
+     * writerLoop 的 poll 并发安全。丢帧计入 [droppedFrames]，UI 如实展示。
+     */
+    private fun dropQueuedVideoFrames(streamId: Int) {
+        val it = outQueue.iterator()
+        while (it.hasNext()) {
+            val f = it.next()
+            if (ApxFrame.streamIdAt(f, 0) == streamId) {
+                it.remove()
+                droppedFrames.incrementAndGet()
+            }
+        }
     }
 
     // ————————————————————————————— 工具 —————————————————————————————
