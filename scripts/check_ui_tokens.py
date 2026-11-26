@@ -109,7 +109,9 @@ R_USE = re.compile(
 #   后续新文案仍应优先走 strings.xml。
 # 650 -> 665（2026-11-26 TV 配对批盘点）：650 基线后攒批带入的存量漂移（TvServerService
 #   状态文案、MainActivity 输入反馈等 15 处），本批新文件零中文字面量，追认上调。
-TEXT_BASELINE = 665  # 2026-11-26 TV 配对批：追认攒批存量漂移后锁住；新文案仍优先走 strings.xml
+# 665 -> 668（2026-11-26 媒体保新弃旧批盘点）：TV 配对批锁定时少追认 3 处（本批只加注释、
+#   零新增字面量，CI 实测 668），追认上调。
+TEXT_BASELINE = 668  # 2026-11-26 媒体保新弃旧批：追认 TV 配对批遗留漂移后锁住；新文案仍优先走 strings.xml
 
 
 def strip_comments(text):
