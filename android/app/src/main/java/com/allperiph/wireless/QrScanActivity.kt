@@ -7,9 +7,9 @@ import android.graphics.Color
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.Gravity
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
-import android.widget.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.AspectRatioStrategy
@@ -18,12 +18,13 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.ResolutionStrategy
-import androidx.camera.core.PreviewView
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import com.allperiph.R
 import com.allperiph.shared.net.PairQr
 import com.google.zxing.BinaryBitmap
+import com.google.zxing.HybridBinarizer
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.qrcode.QRCodeReader
 import java.util.concurrent.Executors
@@ -152,8 +153,10 @@ class QrScanActivity : ComponentActivity() {
             else -> Triple(packed, w, h)
         }
         val source = PlanarYUVLuminanceSource(data, dw, dh, 0, 0, dw, dh, false)
+        // BinaryBitmap 收的是 Binarizer（二值化器）不是 LuminanceSource：
+        // HybridBinarizer 对大图分块自适应阈值，二维码在远近光比大的客厅更稳。
         val result = QRCodeReader().decode(
-            BinaryBitmap(source),
+            BinaryBitmap(HybridBinarizer(source)),
             mapOf(com.google.zxing.DecodeHintType.TRY_HARDER to true),
         )
         return PairQr.decode(result.text)
