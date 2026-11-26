@@ -259,12 +259,12 @@ private:
         // 物理鼠标键状态跨模式跟踪（tap 线程专用）：进入跨屏焦点前据此确认没有
         // 按住的键。注入事件已在上方按 PID 过滤，到达这里的都是物理事件。
         switch (type) {
-            case kCGEventLeftMouseDown:  physButtons_ |= 0x01; break;
-            case kCGEventLeftMouseUp:    physButtons_ &= (uint8_t)~0x01; break;
-            case kCGEventRightMouseDown: physButtons_ |= 0x02; break;
-            case kCGEventRightMouseUp:   physButtons_ &= (uint8_t)~0x02; break;
-            case kCGEventOtherMouseDown: physButtons_ |= 0x04; break;
-            case kCGEventOtherMouseUp:   physButtons_ &= (uint8_t)~0x04; break;
+            case kCGEventLeftMouseDown:  self->physButtons_ |= 0x01; break;
+            case kCGEventLeftMouseUp:    self->physButtons_ &= (uint8_t)~0x01; break;
+            case kCGEventRightMouseDown: self->physButtons_ |= 0x02; break;
+            case kCGEventRightMouseUp:   self->physButtons_ &= (uint8_t)~0x02; break;
+            case kCGEventOtherMouseDown: self->physButtons_ |= 0x04; break;
+            case kCGEventOtherMouseUp:   self->physButtons_ &= (uint8_t)~0x04; break;
             default: break;
         }
         // 跨屏独占：聚焦时吞掉一切已捕获事件（返回 NULL，本机收不到）；
