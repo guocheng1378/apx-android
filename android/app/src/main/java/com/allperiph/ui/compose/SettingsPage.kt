@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.allperiph.BuildConfig
 import com.allperiph.R
 import com.allperiph.touchpad.GestureShield
 import com.allperiph.ui.DeviceFormPref
@@ -1267,6 +1268,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
             // ———————————————— 文件与传输 ————————————————
             // v223.28：「环境诊断」整块上移到状态页「连接状态」（同一份 EnvChecks 数据
             // 此前两页各显示一半，双源；成宇 2026-11-02「本应该在状态页的内容却在设置页」）。
+            // Lite 版（issue#172）：文件传输/屏幕控制/摄像头均属 Pro 能力，整节隐藏。
+            if (!BuildConfig.APX_LITE) {
             ApComponents.Section(title = ctx.getString(R.string.ui_set_sec_files), modifier = Modifier.enterStagger(rememberEnterStagger(0))) {
                 Column {
                     ApComponents.NavRow(
@@ -1304,6 +1307,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     )
                 }
             }
+            } // end if (!BuildConfig.APX_LITE) —— 文件与传输整节
 
             // ———————————————— 无线配对（2026-11-23，随「扫码/链接交付令牌」批加）————————————————
             // 配对码：被控端当面交付凭据的入口 —— 生成 6 位一次性码，控制端（PC/另一台
@@ -1421,6 +1425,8 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                     // 通知同步（2026-11-11）：手机通知 → PC 托盘气泡。默认关 —— 通知里
                     // 可能有验证码/聊天摘要这类敏感内容，必须用户明确打开；还差系统
                     // 「通知使用权」授权，入口就是下面的按钮（两层都齐才真正推）。
+                    // Lite 版（issue#172）：通知同步属 Pro 能力，开关与授权入口一并隐藏。
+                    if (!BuildConfig.APX_LITE) {
                     var notifySync by remember {
                         mutableStateOf(com.allperiph.notify.NotificationSyncPref.isEnabled(ctx))
                     }
@@ -1446,6 +1452,7 @@ fun SettingsPage(ctx: Context, onRecreate: () -> Unit, topBar: Dp = 0.dp, bottom
                             }
                         },
                     )
+                    } // end if (!BuildConfig.APX_LITE) —— 通知同步
                     // 遥控器（审查条 1.6）：此前全仓只有旧控制台 TouchpadActivity 的 pill 能拉起，
                     // 主壳（唯一 launcher 入口）没有任何路径 —— 用户不开悬浮球就进不去。
                     ApComponents.NavRow(

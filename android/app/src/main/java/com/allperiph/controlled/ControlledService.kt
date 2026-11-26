@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import com.allperiph.BuildConfig
 import com.allperiph.R
 import com.allperiph.core.CameraPushRequestEvent
 import com.allperiph.core.MediaConfigEvent
@@ -150,26 +151,29 @@ class ControlledService : Service() {
         server?.onFindPhone = { action -> com.allperiph.findphone.FindPhoneRinger.handle(action) }
         // 0x44/0x46 手机文件（2026-11-11，能力位 bit3）：电脑浏览本机目录并取走文件。
         // 实现落 PhoneFiles；回调本身在 actions 队列线程，PhoneFiles.handle 内部已甩专用线程。
-        server?.onPhoneFileCmd = { cmd, body, reply, peer ->
-            com.allperiph.files.PhoneFiles.handle(cmd, body, reply, peer)
+        // Lite（issue#172）：纯外设版不含文件传输 —— 不注册回调，ControlServer 收到只留日志。
+        if (!BuildConfig.APX_LITE) {
+            server?.onPhoneFileCmd = { cmd, body, reply, peer ->
+                com.allperiph.files.PhoneFiles.handle(cmd, body, reply, peer)
+            }
+            // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：电脑分页看本机相册、
+            // 监听新照片、按需取缩略图。实现落 PhoneAlbum；回调线程模型同 PhoneFiles，
+            // handle 内部已甩专用线程，这里不做额外调度。
+            server?.onAlbumCmd = { cmd, body, reply, peer ->
+                com.allperiph.files.PhoneAlbum.handle(cmd, body, reply, peer)
+            }
+            // 0x41 通知回复（2026-11-14，能力位 bit1）：PC 气泡点回复 → 找回缓存 action 提交
+            // RemoteInput。实现落 NotificationReply；handle 内部必回 0x43 终态（err 见回执常量）。
+            // 回调线程模型同 PhoneFiles：actions 队列线程，RemoteInput 提交无主线程要求。
+            server?.onNotifyReplyCmd = { cmd, body, reply ->
+                com.allperiph.notify.NotificationReply.handle(cmd, body, reply)
+            }
+            // 0x33 能力位 bit1（通知回复）上报口径：通知使用权已开启才报 —— 回复能力依赖
+            // 监听器的 action 缓存，使用权关着缓存必然是空的，报了也是空承诺。
+            // sendCapsSync 在连接激活时调用，读偏好（SharedPreferences）线程安全。
+            val service = this
+            server?.notifyReplyCap = { com.allperiph.notify.NotificationSyncPref.isEnabled(service) }
         }
-        // 0x48/0x4A/0x4B 相册投影（2026-11-12，能力位 bit4）：电脑分页看本机相册、
-        // 监听新照片、按需取缩略图。实现落 PhoneAlbum；回调线程模型同 PhoneFiles，
-        // handle 内部已甩专用线程，这里不做额外调度。
-        server?.onAlbumCmd = { cmd, body, reply, peer ->
-            com.allperiph.files.PhoneAlbum.handle(cmd, body, reply, peer)
-        }
-        // 0x41 通知回复（2026-11-14，能力位 bit1）：PC 气泡点回复 → 找回缓存 action 提交
-        // RemoteInput。实现落 NotificationReply；handle 内部必回 0x43 终态（err 见回执常量）。
-        // 回调线程模型同 PhoneFiles：actions 队列线程，RemoteInput 提交无主线程要求。
-        server?.onNotifyReplyCmd = { cmd, body, reply ->
-            com.allperiph.notify.NotificationReply.handle(cmd, body, reply)
-        }
-        // 0x33 能力位 bit1（通知回复）上报口径：通知使用权已开启才报 —— 回复能力依赖
-        // 监听器的 action 缓存，使用权关着缓存必然是空的，报了也是空承诺。
-        // sendCapsSync 在连接激活时调用，读偏好（SharedPreferences）线程安全。
-        val service = this
-        server?.notifyReplyCap = { com.allperiph.notify.NotificationSyncPref.isEnabled(service) }
         // 常驻通知实时性（2026-11-17）：此前通知只在服务启动时构建一次，「已连接」
         // 字样不会随链路变化更新，回验只能靠导日志。现在连接状态一变就刷新
         //（回调已 post 主线程，见 refreshNotification）。
@@ -178,6 +182,10 @@ class ControlledService : Service() {
         server?.onModuleToggle = { id, on ->
             if (id == "wireless") {
                 if (on) server?.resumeAccept() else server?.suspendAccept()
+            } else if (BuildConfig.APX_LITE) {
+                // Lite（issue#172）：纯外设版不含摄像头/投屏 —— 面板开关如实拒绝（不拉页），
+                // PC 端收不到帧自然显示未采集；不静默假装成功。
+                Log.i(TAG, "Lite 版不含模块 $id，忽略开关（on=$on）")
             } else if (id == "camera") {
                 // M7-c 批4：面板 camera.toggle → 开/关推流页。开由 AgentForegroundService
                 // 执行 startActivity（后台被拦时通知按钮兜底），关由推流页订阅同一事件
@@ -236,7 +244,8 @@ class ControlledService : Service() {
             injectedLen = 0   // ⑤：上一句对账定格（与 PC 端 g_injectedLen 同款语义）
         }
         if (server?.start() != true) Log.e(TAG, "被控控制面启动失败")
-        FileReceiver.start(applicationContext)
+        // Lite（issue#172）：纯外设版不含文件传输 —— 不起 9512 接收端。
+        if (!BuildConfig.APX_LITE) FileReceiver.start(applicationContext)
         // 信标里的设备名（issue#170 第三轮 #4）：与日志/互传同一口径 —— 优先系统
         // 「设备名称」。此前固定 Build.MODEL，PC 端设备连接页看到的是认证型号，
         // 与日志文件名对不上，多台手机/pad 分不清谁是谁。

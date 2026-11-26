@@ -28,5 +28,6 @@
 - 音箱首次使用需授权「系统音频录制」（macOS 14.2+ 走系统音频采集）；副屏暂不支持（虚拟显示器仅 Windows）
 
 ### Android
-- **AllPeriph-{{TAG}}-app.apk** —— 手机端（主控 + 被控）
+- **AllPeriph-{{TAG}}-app.apk** —— 手机端 Pro 全功能版（主控 + 被控：外设 + 文件传输/投屏/摄像头/通知同步等）
+- **AllPeriph-{{TAG}}-app-lite.apk** —— 手机端 Lite 纯外设版（只保留键鼠/手柄/遥控等外设能力，包体更小；issue#172）
 - **AllPeriph-{{TAG}}-tv.apk** —— 电视端（被控 / 接收）

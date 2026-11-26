@@ -35,6 +35,25 @@ android {
         buildConfigField("String", "RELEASE_TAG", "\"${releaseTag}\"")
     }
 
+    // Lite/Pro 分版（issue#172）：full = 全功能（历史行为，默认交付）；
+    // lite = 纯外设（键鼠/手柄/遥控），不含文件传输/投屏/被控媒体/摄像头/
+    // 通知同步/扩展屏/共享键鼠。lite 用 applicationIdSuffix 可与 Pro 并装。
+    // 代码门控统一读 BuildConfig.APX_LITE（ControlledService 拒启 Pro 模块、
+    // 设置页隐藏 Pro 入口），CI 任务名相应变为 assemble{Lite,Full}Release。
+    flavorDimensions += "edition"
+    productFlavors {
+        create("full") {
+            dimension = "edition"
+            buildConfigField("boolean", "APX_LITE", "false")
+        }
+        create("lite") {
+            dimension = "edition"
+            applicationIdSuffix = ".lite"
+            versionNameSuffix = "-lite"
+            buildConfigField("boolean", "APX_LITE", "true")
+        }
+    }
+
     // 2026-11-12 体积优化轮：资源只留中英文。app 默认串即中文，依赖库（miuix 等）
     // 带着几十种语言的全集，不裁就整包进 APK。AGP 9 起用 localeFilters（resourceConfigurations 已废弃）。
     androidResources {

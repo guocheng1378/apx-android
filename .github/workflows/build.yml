@@ -139,10 +139,11 @@ jobs:
       # release job 又依赖同一 run 的 apk-app/apk-tv artifact，链路不变。
       - name: "Build: tag runs release APKs, push runs compile check"
         run: |
+          # issue#172 Lite/Pro 分版：app 拆 full/lite 两个 flavor，tag 出双包、push 双验证
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            ./gradlew :app:assembleRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+            ./gradlew :app:assembleFullRelease :app:assembleLiteRelease :tv:assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
           else
-            ./gradlew :app:compileReleaseKotlin :tv:compileReleaseKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
+            ./gradlew :app:compileFullReleaseKotlin :app:compileLiteReleaseKotlin :tv:compileReleaseKotlin --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; echo "EXIT_CODE=$PIPESTATUS" && exit $PIPESTATUS
           fi
         shell: bash
 
@@ -236,7 +237,16 @@ jobs:
           python3 - <<'PY'
           import sys, zipfile
           WANT = {
-              "app/build/outputs/apk/release/app-release.apk": (
+              # issue#172：app 拆 full/lite 两 flavor，产物各在 apk/<flavor>/release/ 下
+              "app/build/outputs/apk/full/release/app-full-release.apk": (
+                  "lib/arm64-v8a/libapx.so",
+                  ["Java_com_allperiph_shared_input_UinputGamepad_openGamepad",
+                   "Java_com_allperiph_shared_input_UinputGamepad_sendAxis",
+                   "Java_com_allperiph_shared_input_UinputGamepad_sendButton",
+                   "Java_com_allperiph_shared_input_UinputGamepad_closeGamepad",
+                   "Java_com_allperiph_core_ApxNative_nativeInit"],
+              ),
+              "app/build/outputs/apk/lite/release/app-lite-release.apk": (
                   "lib/arm64-v8a/libapx.so",
                   ["Java_com_allperiph_shared_input_UinputGamepad_openGamepad",
                    "Java_com_allperiph_shared_input_UinputGamepad_sendAxis",
@@ -265,11 +275,12 @@ jobs:
           PY
 
       - name: Protocol unit tests
-        run: ./gradlew :app:testReleaseUnitTest --no-daemon --stacktrace 2>&1 | tail -50
+        # issue#172：full/lite 两 flavor 的 BuildConfig 不同，单测各跑一遍
+        run: ./gradlew :app:testFullReleaseUnitTest :app:testLiteReleaseUnitTest --no-daemon --stacktrace 2>&1 | tail -50
 
       - name: Static analysis (Android Lint, non-blocking)
         continue-on-error: true
-        run: ./gradlew :app:lintRelease :tv:lintRelease --no-daemon --stacktrace 2>&1 | tail -40
+        run: ./gradlew :app:lintFullRelease :app:lintLiteRelease :tv:lintRelease --no-daemon --stacktrace 2>&1 | tail -40
 
       - name: Upload lint report
         if: always()
@@ -277,7 +288,8 @@ jobs:
         with:
           name: android-lint-report
           path: |
-            android/app/build/reports/lint-results-release.html
+            android/app/build/reports/lint-full-release.html
+            android/app/build/reports/lint-lite-release.html
             android/tv/build/reports/lint-results-release.html
           retention-days: 1
           if-no-files-found: ignore
@@ -289,7 +301,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: apk-app
-          path: android/app/build/outputs/apk/release/app-release.apk
+          path: |
+            android/app/build/outputs/apk/full/release/app-full-release.apk
+            android/app/build/outputs/apk/lite/release/app-lite-release.apk
           retention-days: 1
 
       - name: Upload tv APK
@@ -686,7 +700,9 @@ jobs:
         run: |
           Set-Location $env:GITHUB_WORKSPACE
           $VER = $env:GITHUB_REF_NAME
-          Copy-Item dist/apk-app/app-release.apk "out/AllPeriph-${VER}-app.apk"
+          # issue#172：full（全功能）/ lite（纯外设）两个手机包
+          Copy-Item dist/apk-app/app-full-release.apk "out/AllPeriph-${VER}-app.apk"
+          Copy-Item dist/apk-app/app-lite-release.apk "out/AllPeriph-${VER}-app-lite.apk"
           Copy-Item dist/apk-tv/tv-release.apk "out/AllPeriph-${VER}-tv.apk"
           Get-ChildItem out/
         shell: pwsh
