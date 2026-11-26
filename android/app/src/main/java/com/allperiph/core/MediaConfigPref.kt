@@ -16,6 +16,7 @@ object MediaConfigPref {
     private const val FILE = "apx_media_config"
     private const val KEY_W = "media_%s_w"
     private const val KEY_Q = "media_%s_q"
+    private const val KEY_FACING = "media_%s_facing"
 
     /** 合法档位 id：投屏（stream 7）与摄像头（stream 6）。 */
     val IDS = listOf("screenmirror", "camera")
@@ -31,8 +32,16 @@ object MediaConfigPref {
     }
 
     /**
+     * 读某路媒体的前后摄像头选择（issue#171 反馈补前后切换）：0=后置 1=前置。
+     * 仅摄像头档位有意义；缺省 0（后置，历史行为）。
+     */
+    fun getFacing(c: Context, id: String): Int =
+        prefs(c).getInt(KEY_FACING.format(id), 0)
+
+    /**
      * 解析并落盘 0x4E 载荷。id 不认识或 json 非法时返回 false（不落盘、不发事件）；
      * w/q 越界值夹回合法区间（w>=0，q 1..100），避免 PC 端异常载荷把推流打挂。
+     * facing 可选（0=后置 1=前置）：载荷里没有就不动已存值，只改 w/q。
      */
     fun apply(c: Context, id: String, json: String): Boolean {
         if (id !in IDS) return false
@@ -40,9 +49,13 @@ object MediaConfigPref {
         val w = runCatching { obj.optInt("w", -1) }.getOrNull() ?: return false
         val q = runCatching { obj.optInt("q", -1) }.getOrNull() ?: return false
         if (w < 0 || q !in 1..100) return false
+        val facing = obj.optInt("facing", -1)
+        if (facing !in 0..1 && facing != -1) return false
         prefs(c).edit()
             .putInt(KEY_W.format(id), w)
             .putInt(KEY_Q.format(id), q.coerceIn(1, 100))
+            // facing 只在载荷带了合法值时覆盖（-1 = 本次不改前后）
+            .apply { if (facing in 0..1) putInt(KEY_FACING.format(id), facing) }
             .apply()
         return true
     }

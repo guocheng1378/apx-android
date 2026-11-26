@@ -79,6 +79,8 @@ class CameraPushActivity : ComponentActivity() {
     // 这里读档位重绑相机。分辨率在绑定期生效；画质逐帧读（@Volatile），下一帧即生效。
     @Volatile private var cfgW = TARGET_W
     @Volatile private var cfgQ = JPEG_QUALITY
+    // 前后摄像头选择（issue#171 反馈补前后切换）：0=后置 1=前置；绑定前读档位，重绑生效
+    @Volatile private var cfgFacing = 0
     private var configDisposable: EventBus.Disposable? = null
 
     // 权限结果回调（必须在 onCreate 前注册 —— 属性初始化器在构造期执行，满足约束）
@@ -154,6 +156,8 @@ class CameraPushActivity : ComponentActivity() {
             cfgW = w
             cfgQ = q
         }
+        // 前后摄像头选择（issue#171 反馈补前后切换）：0=后置 1=前置，随档位一起重绑生效
+        cfgFacing = MediaConfigPref.getFacing(this, "camera")
     }
 
     /** 档位变更后重绑相机：unbind + bind（无需重新授权），分辨率按新档位重新选择。 */
@@ -184,10 +188,12 @@ class CameraPushActivity : ComponentActivity() {
                             .build())
                     .build()
                     .apply { setAnalyzer(analyzerExecutor, ::onFrame) }
+                // 前后选择（issue#171 反馈补前后切换）：1=前置；0=后置优先、无后置回落前置
                 val hasBack = runCatching {
                     p.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
                 }.getOrDefault(false)
-                val selector = if (hasBack) CameraSelector.DEFAULT_BACK_CAMERA
+                val selector = if (cfgFacing == 1) CameraSelector.DEFAULT_FRONT_CAMERA
+                               else if (hasBack) CameraSelector.DEFAULT_BACK_CAMERA
                                else CameraSelector.DEFAULT_FRONT_CAMERA
                 p.unbindAll()
                 p.bindToLifecycle(this, selector, preview, analysis)

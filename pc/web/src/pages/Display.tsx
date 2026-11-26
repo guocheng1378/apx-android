@@ -64,8 +64,10 @@ export const Display: React.FC<Props> = ({ state }) => {
     { value: '75', label: '高清 q75' },
     { value: '90', label: '超清 q90' },
   ];
-  const sendMediaConfig = (id: string, w: string, q: string) => {
-    bridge.act('media.config', { id, w: Number(w), q: Number(q) }).catch(() => {});
+  const sendMediaConfig = (id: string, w: string, q: string, facing?: string) => {
+    // facing（issue#171 反馈补前后切换）：仅摄像头档位携带；0=后置 1=前置
+    const extra = facing !== undefined ? { facing: Number(facing) } : {};
+    bridge.act('media.config', { id, w: Number(w), q: Number(q), ...extra }).catch(() => {});
   };
   // 投屏档位（默认与手机端旧硬编码一致：720 / q65 → UI 档位取最近的标准档）
   const [smW, setSmW] = React.useState('720');
@@ -73,6 +75,8 @@ export const Display: React.FC<Props> = ({ state }) => {
   // 摄像头档位（默认 720p / q80 → UI 档位取最近的高清档）
   const [camW, setCamW] = React.useState('720');
   const [camQ, setCamQ] = React.useState('75');
+  // 摄像头前后选择（issue#171 反馈补前后切换）：0=后置 1=前置，随档位一起 0x4E 下发
+  const [camFacing, setCamFacing] = React.useState('0');
 
   const screenSub = running
     ? `正在投屏 · ${scr?.deviceName || (mode === 'mirror' ? '桌面镜像' : '扩展屏')}`
@@ -261,9 +265,33 @@ export const Display: React.FC<Props> = ({ state }) => {
               value={camW}
               onChange={(v) => {
                 setCamW(v);
-                sendMediaConfig('camera', v, camQ);
+                sendMediaConfig('camera', v, camQ, camFacing);
               }}
               options={RES_OPTIONS}
+            />
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '0 16px 8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span className="faint" style={{ fontSize: 12, width: 52, flex: 'none' }}>
+              摄像头
+            </span>
+            <Segmented
+              value={camFacing}
+              onChange={(v) => {
+                setCamFacing(v);
+                sendMediaConfig('camera', camW, camQ, v);
+              }}
+              options={[
+                { value: '0', label: '后置' },
+                { value: '1', label: '前置' },
+              ]}
             />
           </div>
           <div
@@ -282,7 +310,7 @@ export const Display: React.FC<Props> = ({ state }) => {
               value={camQ}
               onChange={(v) => {
                 setCamQ(v);
-                sendMediaConfig('camera', camW, v);
+                sendMediaConfig('camera', camW, v, camFacing);
               }}
               options={QUALITY_OPTIONS}
             />
