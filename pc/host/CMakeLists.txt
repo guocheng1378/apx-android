@@ -402,6 +402,8 @@ set(APXPC_LOCALSEND_SRC
 )
 add_library(apxpc_localsend STATIC ${APXPC_LOCALSEND_SRC})
 target_include_directories(apxpc_localsend PUBLIC "${APXPC_ROOT}/include")
+# v-oss：SHA-256 实现换 PicoSHA2（third_party/picosha2，仅 sha256.cpp 包含其头文件，PRIVATE 即可）
+target_include_directories(apxpc_localsend PRIVATE "${APXPC_ROOT}/third_party/picosha2")
 # json 的实现在 apxpc_service（src/net/json.cpp 属该库），协议层直接复用，不另造解析器
 target_link_libraries(apxpc_localsend PUBLIC apxpc_service)
 if(WIN32)
