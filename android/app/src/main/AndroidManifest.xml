@@ -154,9 +154,12 @@
              写进 <activity> 属性里，CI 在 processReleaseMainManifest 报
              "Error parsing AndroidManifest.xml"，整轮判死）。
         -->
+        <!-- 桌面图标名取启动器 Activity 的 label（优先于 application 标签）：
+             必须引用 @string/app_name 才能吃到 lite flavor 的 resValue 覆盖（issue#172 反馈：
+             写死「全能外设」导致 Lite 桌面名不带后缀）。 -->
         <activity
             android:name=".ui.compose.ApShellActivity"
-            android:label="全能外设"
+            android:label="@string/app_name"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
@@ -336,7 +339,7 @@
             android:name=".ui.AllPeriphTileService"
             android:exported="true"
             android:icon="@drawable/ic_launcher_app"
-            android:label="全能外设"
+            android:label="@string/app_name"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
